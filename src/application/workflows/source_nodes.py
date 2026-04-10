@@ -8,14 +8,11 @@ Functions for retrieving playlists and tracks from multiple sources:
 All functions return standardized track data for playlist creation and analysis.
 """
 
-# pyright: reportAny=false
-# Legitimate Any: Prefect context dicts
-
 from collections.abc import Mapping
-from typing import Any, cast
+from typing import cast
 
 from src.application.services.connector_playlist_sync_service import (
-    syncconnector__playlist,
+    sync_connector_playlist,
 )
 from src.application.services.playlist_upsert import upsert_canonical_playlist
 from src.application.use_cases.create_canonical_playlist import (
@@ -85,7 +82,7 @@ def _build_source_tracklist(
 
 
 async def playlist_source(
-    context: dict[str, Any], config: Mapping[str, JsonValue]
+    context: dict[str, object], config: Mapping[str, JsonValue]
 ) -> NodeResult:
     """Import playlist from streaming service or retrieve saved playlist.
 
@@ -157,7 +154,7 @@ async def playlist_source(
         connector_ = connector  # capture narrowed str for closure
 
         async def _sync_and_upsert(uow: UnitOfWorkProtocol):
-            connector_playlist: ConnectorPlaylist = await syncconnector__playlist(
+            connector_playlist: ConnectorPlaylist = await sync_connector_playlist(
                 connector_, playlist_id, uow
             )
             if not connector_playlist.items:
@@ -218,7 +215,7 @@ async def playlist_source(
 
 
 async def source_liked_tracks(
-    context: dict[str, Any], config: Mapping[str, JsonValue]
+    context: dict[str, object], config: Mapping[str, JsonValue]
 ) -> NodeResult:
     """Get user's favorited tracks with filtering and sorting options.
 
@@ -275,7 +272,7 @@ async def source_liked_tracks(
 
 
 async def source_played_tracks(
-    context: dict[str, Any], config: Mapping[str, JsonValue]
+    context: dict[str, object], config: Mapping[str, JsonValue]
 ) -> NodeResult:
     """Get user's listening history with time window and sorting options.
 

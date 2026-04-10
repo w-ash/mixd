@@ -10,8 +10,7 @@ Replaces 8 sequential COUNT queries with 5 efficient queries:
 Not parallelizable — AsyncSession supports one query at a time.
 """
 
-# pyright: reportAny=false
-# Legitimate Any: SQLAlchemy query result row attributes
+from typing import cast
 
 from sqlalchemy import distinct, func, select, true
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -68,7 +67,12 @@ class StatsRepository:
             .where(DBTrackPlay.user_id == user_id)
             .group_by(DBTrackPlay.service)
         )
-        plays_rows = (await self._session.execute(plays_by_svc_stmt)).all()
+        # SQLAlchemy Row[tuple] field access loses column-level typing in stubs;
+        # cast the row sequence once to a typed iterable of (str, int).
+        plays_rows = cast(
+            "list[tuple[str, int]]",
+            (await self._session.execute(plays_by_svc_stmt)).all(),
+        )
         plays_by_connector = {str(svc): int(cnt) for svc, cnt in plays_rows}
 
         liked_by_svc_stmt = (
@@ -79,7 +83,10 @@ class StatsRepository:
             .where(DBTrackLike.is_liked == true(), DBTrackLike.user_id == user_id)
             .group_by(DBTrackLike.service)
         )
-        liked_rows = (await self._session.execute(liked_by_svc_stmt)).all()
+        liked_rows = cast(
+            "list[tuple[str, int]]",
+            (await self._session.execute(liked_by_svc_stmt)).all(),
+        )
         liked_by_connector = {str(svc): int(cnt) for svc, cnt in liked_rows}
 
         # --- Query 3: connector breakdowns (tracks + playlists) --------------
@@ -92,7 +99,10 @@ class StatsRepository:
             .where(DBTrackMapping.user_id == user_id)
             .group_by(DBTrackMapping.connector_name)
         )
-        tracks_rows = (await self._session.execute(tracks_by_conn_stmt)).all()
+        tracks_rows = cast(
+            "list[tuple[str, int]]",
+            (await self._session.execute(tracks_by_conn_stmt)).all(),
+        )
         tracks_by_connector = {str(name): int(cnt) for name, cnt in tracks_rows}
 
         # playlist_mappings is transitively scoped via playlist FK — join through
@@ -105,14 +115,17 @@ class StatsRepository:
             .where(DBPlaylist.user_id == user_id)
             .group_by(DBPlaylistMapping.connector_name)
         )
-        playlists_rows = (await self._session.execute(playlists_by_conn_stmt)).all()
+        playlists_rows = cast(
+            "list[tuple[str, int]]",
+            (await self._session.execute(playlists_by_conn_stmt)).all(),
+        )
         playlists_by_connector = {str(name): int(cnt) for name, cnt in playlists_rows}
 
         return DashboardAggregates(
-            total_tracks=int(totals_row.total_tracks),
-            total_plays=int(totals_row.total_plays),
-            total_playlists=int(totals_row.total_playlists),
-            total_liked=int(totals_row.total_liked),
+            total_tracks=int(totals_row.total_tracks),  # pyright: ignore[reportAny]  # SQLAlchemy Row dynamic field
+            total_plays=int(totals_row.total_plays),  # pyright: ignore[reportAny]
+            total_playlists=int(totals_row.total_playlists),  # pyright: ignore[reportAny]
+            total_liked=int(totals_row.total_liked),  # pyright: ignore[reportAny]
             tracks_by_connector=tracks_by_connector,
             liked_by_connector=liked_by_connector,
             plays_by_connector=plays_by_connector,

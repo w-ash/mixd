@@ -4,12 +4,11 @@ Replaces tuple-based returns with strongly-typed result objects using Python 3.1
 features for better type safety and maintainability.
 """
 
-# Legitimate Any: use case results, OperationResult metadata, metric values
-
-from typing import Any, TypedDict
+from typing import TypedDict
 
 from attrs import define
 
+from src.domain.entities.shared import JsonValue
 from src.domain.playlist.diff_engine import PlaylistDiff, PlaylistOperationType
 
 _MAX_EVIDENCE_TRACKS = 100
@@ -18,22 +17,22 @@ _MAX_EVIDENCE_TRACKS = 100
 
 def build_playlist_changes(
     diff: PlaylistDiff, playlist_id: str, connector: str | None = None
-) -> dict[str, Any]:
+) -> dict[str, object]:
     """Build lightweight playlist change evidence from a PlaylistDiff.
 
     Extracts track summaries (id, title, artists) from diff operations
     for persisting as node_details in workflow run history.  Lists are
     capped at _MAX_EVIDENCE_TRACKS with a total count for the remainder.
     """
-    added: list[dict[str, Any]] = []
-    removed: list[dict[str, Any]] = []
+    added: list[dict[str, object]] = []
+    removed: list[dict[str, object]] = []
     moved = 0
     for op in diff.operations:
         if op.operation_type == PlaylistOperationType.MOVE:
             moved += 1
             continue
         track = op.track
-        summary = {
+        summary: dict[str, object] = {
             "track_id": track.id,
             "title": track.title or "Unknown",
             "artists": track.artists_display or "Unknown",
@@ -107,7 +106,7 @@ class AppendOperationResult:
     """
 
     api_calls_made: int
-    metadata: dict[str, Any]
+    metadata: dict[str, JsonValue]
     operations_performed: int
     tracks_added: int
     success: bool = True

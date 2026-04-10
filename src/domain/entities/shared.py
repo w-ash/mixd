@@ -21,8 +21,14 @@ type JsonValue = (
     str | int | float | bool | Sequence[JsonValue] | Mapping[str, JsonValue] | None
 )
 
+# Concrete JSON object shape. Use as the mutable/owned form of JSON-shaped data.
+# Pair with Mapping[str, JsonValue] for covariant read-only parameters.
+# Registered in SQLAlchemy's type_annotation_map so Mapped[JsonDict] resolves
+# to postgresql.JSONB automatically — see infrastructure/persistence/database/db_models.py.
+type JsonDict = dict[str, JsonValue]
 
-def empty_json_map() -> dict[str, JsonValue]:
+
+def empty_json_map() -> JsonDict:
     """Typed factory for ``Mapping[str, JsonValue]`` attrs fields."""
     return {}
 

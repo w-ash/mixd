@@ -1,11 +1,8 @@
 """Track repository for play operations."""
 
-# pyright: reportAny=false
-# Legitimate Any: SQLAlchemy column types, JSON fields
-
 from collections.abc import Mapping, Sequence
 from datetime import datetime
-from typing import Any, override
+from typing import cast, override
 from uuid import UUID
 
 from attrs import define
@@ -14,6 +11,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.config import get_logger
 from src.domain.entities import TrackPlay, ensure_utc
+from src.domain.entities.shared import JsonDict
 from src.domain.repositories.interfaces import PlayAggregationResult, PlaySortBy
 from src.infrastructure.persistence.database.db_models import DBTrackPlay
 from src.infrastructure.persistence.repositories.base_repo import (
@@ -117,7 +115,7 @@ class TrackPlayRepository(BaseRepository[DBTrackPlay, TrackPlay]):
                 f"Filtered out {len(plays) - len(valid_plays)} plays with NULL track_id (kept {len(valid_plays)} valid plays)"
             )
 
-        play_data = [
+        play_data: list[dict[str, object]] = [
             {
                 "user_id": play.user_id,
                 "track_id": play.track_id,
@@ -199,33 +197,39 @@ class TrackPlayRepository(BaseRepository[DBTrackPlay, TrackPlay]):
         requested_base = base_metrics & set(metrics)
 
         if requested_base:
-            columns: list[Any] = [DBTrackPlay.track_id]
+            # Build the aggregate select by chaining add_columns so SQLAlchemy
+            # preserves its own Select[] typing instead of collapsing to
+            # Select[tuple[Any, ...]] via a variadic unpack.
+            stmt = select(DBTrackPlay.track_id)
             if "total_plays" in requested_base:
-                columns.append(func.count().label("total"))
+                stmt = stmt.add_columns(func.count().label("total"))
             if "last_played_dates" in requested_base:
-                columns.append(func.max(DBTrackPlay.played_at).label("last_played"))
-            if "first_played_dates" in requested_base:
-                columns.append(func.min(DBTrackPlay.played_at).label("first_played"))
-
-            stmt = (
-                select(*columns)
-                .where(
-                    DBTrackPlay.track_id.in_(track_ids),
-                    DBTrackPlay.user_id == user_id,
+                stmt = stmt.add_columns(
+                    func.max(DBTrackPlay.played_at).label("last_played")
                 )
-                .group_by(DBTrackPlay.track_id)
-            )
+            if "first_played_dates" in requested_base:
+                stmt = stmt.add_columns(
+                    func.min(DBTrackPlay.played_at).label("first_played")
+                )
+
+            stmt = stmt.where(
+                DBTrackPlay.track_id.in_(track_ids),
+                DBTrackPlay.user_id == user_id,
+            ).group_by(DBTrackPlay.track_id)
             rows = (await self.session.execute(stmt)).all()
 
+            # SQLAlchemy Row[tuple] field access loses column-level typing.
             if "total_plays" in requested_base:
-                result["total_plays"] = {row.track_id: row.total for row in rows}
+                result["total_plays"] = {row.track_id: row.total for row in rows}  # pyright: ignore[reportAny]  # SQLAlchemy Row dynamic field
             if "last_played_dates" in requested_base:
                 result["last_played_dates"] = {
-                    row.track_id: row.last_played for row in rows
+                    row.track_id: row.last_played  # pyright: ignore[reportAny]
+                    for row in rows
                 }
             if "first_played_dates" in requested_base:
                 result["first_played_dates"] = {
-                    row.track_id: row.first_played for row in rows
+                    row.track_id: row.first_played  # pyright: ignore[reportAny]
+                    for row in rows
                 }
 
         # Period plays: separate query with date range WHERE clause
@@ -247,7 +251,7 @@ class TrackPlayRepository(BaseRepository[DBTrackPlay, TrackPlay]):
                 .group_by(DBTrackPlay.track_id)
             )
             period_rows = (await self.session.execute(period_stmt)).all()
-            result["period_plays"] = {row.track_id: row.total for row in period_rows}
+            result["period_plays"] = {row.track_id: row.total for row in period_rows}  # pyright: ignore[reportAny]  # SQLAlchemy Row dynamic field
 
         # Backfill missing track_ids with defaults for each requested metric
         if "total_plays" in result:
@@ -269,13 +273,23 @@ class TrackPlayRepository(BaseRepository[DBTrackPlay, TrackPlay]):
 
         return result
 
-    async def _rows_to_domain(self, rows: Sequence[Any]) -> list[TrackPlay]:
-        """Convert raw subquery rows to domain models via column reflection."""
+    async def _rows_to_domain(self, rows: Sequence[object]) -> list[TrackPlay]:
+        """Convert raw subquery rows to domain models via column reflection.
+
+        Used for queries that return raw rows (not ORM entities) — e.g.,
+        union/cte/subquery shapes. Reflects ``__table__.columns`` to copy
+        every mapped column from the row into a fresh DB model instance.
+        """
         plays: list[TrackPlay] = []
+        # ``col.name`` on SQLAlchemy Column is untyped in stubs (reportAny) but
+        # is always a str at runtime for mapped columns. Collect once.
+        col_names: list[str] = [
+            str(col.name)  # pyright: ignore[reportAny]  # SQLAlchemy Column.name stub
+            for col in self.model_class.__table__.columns
+        ]
         for row in rows:
-            play_data = {
-                col.name: getattr(row, col.name)
-                for col in self.model_class.__table__.columns
+            play_data: dict[str, object] = {
+                name: getattr(row, name) for name in col_names
             }
             db_play = self.model_class(**play_data)
             plays.append(await self.mapper.to_domain(db_play))
@@ -428,7 +442,7 @@ class TrackPlayRepository(BaseRepository[DBTrackPlay, TrackPlay]):
     @db_operation("bulk_update_play_source_services")
     async def bulk_update_play_source_services(
         self,
-        updates: Sequence[tuple[UUID, Mapping[str, Any]]],
+        updates: Sequence[tuple[UUID, Mapping[str, object]]],
     ) -> None:
         """Batch-update cross-source dedup metadata for multiple plays.
 
@@ -455,9 +469,15 @@ class TrackPlayRepository(BaseRepository[DBTrackPlay, TrackPlay]):
                 logger.warning(f"Play {play_id} not found for source_services update")
                 continue
 
-            if "source_services" in fields:
-                db_play.source_services = fields["source_services"]
-            if fields.get("context") is not None:
-                db_play.context = fields["context"]
-            if fields.get("ms_played") is not None and db_play.ms_played is None:
-                db_play.ms_played = fields["ms_played"]
+            # Mapping[str, object] is wider than the column types — narrow at
+            # the assignment point with isinstance guards. Mutation is safe
+            # because these columns accept the checked types at runtime.
+            source_services = fields.get("source_services")
+            if isinstance(source_services, list):
+                db_play.source_services = source_services
+            context_value = fields.get("context")
+            if isinstance(context_value, dict):
+                db_play.context = cast("JsonDict", context_value)
+            ms_played = fields.get("ms_played")
+            if isinstance(ms_played, int) and db_play.ms_played is None:
+                db_play.ms_played = ms_played

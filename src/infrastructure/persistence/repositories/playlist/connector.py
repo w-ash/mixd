@@ -1,7 +1,5 @@
 """Connector playlist repository implementation."""
 
-# Legitimate Any: SQLAlchemy column types, JSON fields
-
 from typing import Any
 
 from sqlalchemy import Select
@@ -35,7 +33,7 @@ class ConnectorPlaylistRepository(
 
     def select_by_connector_id(
         self, connector: str, connector_id: str
-    ) -> Select[tuple[Any, ...]]:
+    ) -> Select[tuple[Any, ...]]:  # pyright: ignore[reportExplicitAny]  # SQLAlchemy Select row shape is genuinely unknown until query executes
         """Create a select statement for a connector playlist by its external ID."""
         return self.select().where(
             self.model_class.connector_name == connector,

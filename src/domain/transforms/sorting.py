@@ -12,8 +12,10 @@ All sorting functions follow functional programming principles:
 """
 
 from collections.abc import Callable
+from typing import cast
+from uuid import UUID
 
-from src.domain.entities.shared import SortKey
+from src.domain.entities.shared import MetricValue, SortKey
 from src.domain.entities.track import Track, TrackList
 from src.domain.transforms.core import Transform, dual_mode
 
@@ -43,16 +45,20 @@ def sort_by_key_function(
         sorted_tracks = sorted(t.tracks, key=key_fn, reverse=reverse)
         result = t.with_tracks(sorted_tracks)
 
-        # Optionally track sort values in metadata
+        # Optionally track sort values in metadata for downstream consumers.
+        # Stored under the "metrics" key, but SortKey includes `str` (title sort)
+        # which isn't a MetricValue — consumers filter via isinstance(v, (int, float)).
         if metric_name:
-            track_metrics = {track.id: key_fn(track) for track in t.tracks}
-            result = result.with_metadata(
-                "metrics",
-                {
-                    **result.metadata.get("metrics", {}),
-                    metric_name: track_metrics,
-                },
+            track_metrics = cast(
+                dict[UUID, MetricValue],
+                {track.id: key_fn(track) for track in t.tracks},
             )
+            existing_metrics = result.metadata.get("metrics", {})
+            merged: dict[str, dict[UUID, MetricValue]] = {
+                **existing_metrics,
+                metric_name: track_metrics,
+            }
+            result = result.with_metadata("metrics", merged)
 
         return result
 

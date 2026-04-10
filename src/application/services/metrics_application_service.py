@@ -5,11 +5,9 @@ fetching missing metrics from external APIs, converting values to standardized
 formats, and persisting results for future use.
 """
 
-# pyright: reportAny=false
-# Legitimate Any: use case results, OperationResult metadata, metric values
-
 from collections.abc import Mapping
-from typing import TYPE_CHECKING, Any
+from datetime import UTC, datetime
+from typing import TYPE_CHECKING, cast
 from uuid import UUID
 
 from attrs import define
@@ -23,16 +21,14 @@ from src.application.utilities.enhanced_database_batch_processor import (
 )
 from src.config import get_logger
 from src.domain.entities.progress import OperationStatus
-from src.domain.entities.shared import JsonValue
-from src.domain.entities.track import Track
+from src.domain.entities.shared import JsonValue, MetricValue
+from src.domain.entities.track import Track, TrackMetric
 from src.domain.repositories import UnitOfWorkProtocol
 
 if TYPE_CHECKING:
     from src.application.connector_protocols import TrackMetadataConnector
     from src.application.services.progress_manager import AsyncProgressManager
     from src.application.workflows.protocols import MetricConfigProvider
-
-type _MetricsTuple = tuple[UUID, str, str, float | int | bool]
 
 logger = get_logger(__name__)
 
@@ -54,14 +50,15 @@ class MetricsApplicationService:
         metric_names: list[str],
         field_map: dict[str, str],
         connector: str,
-    ) -> list[_MetricsTuple]:
-        """Extract typed metric tuples from raw connector metadata.
+    ) -> list[TrackMetric]:
+        """Extract ``TrackMetric`` entities from raw connector metadata.
 
-        Consolidates the value extraction + type conversion logic used by both
-        get_external_track_metrics() and batch_process_fresh_metadata().
-        Preserves bool/int types instead of coercing everything to float.
+        The DB column for metric value is ``float``. Bools coerce to 1.0/0.0
+        explicitly — ``bool`` is guarded BEFORE ``int`` because
+        ``isinstance(True, int)`` is ``True``.
         """
-        results: list[_MetricsTuple] = []
+        now = datetime.now(UTC)
+        results: list[TrackMetric] = []
         for track_id, track_metadata in fresh_metadata.items():
             for metric_name in metric_names:
                 field_name = field_map.get(metric_name)
@@ -70,16 +67,28 @@ class MetricsApplicationService:
                 value = track_metadata.get(field_name)
                 if value is None:
                     continue
-                try:
-                    if isinstance(value, (bool, int, float)):
-                        converted = value
-                    elif isinstance(value, str):
-                        converted = float(value)
-                    else:
+                # Guard bool BEFORE int — isinstance(True, int) is True.
+                if isinstance(value, bool):
+                    coerced: float = 1.0 if value else 0.0
+                elif isinstance(value, (int, float)):
+                    coerced = float(value)
+                elif isinstance(value, str):
+                    try:
+                        coerced = float(value)
+                    except ValueError:
+                        logger.warning(f"Cannot convert {value} for {metric_name}")
                         continue
-                    results.append((track_id, connector, metric_name, converted))
-                except ValueError, TypeError:
-                    logger.warning(f"Cannot convert {value} for {metric_name}")
+                else:
+                    continue
+                results.append(
+                    TrackMetric(
+                        track_id=track_id,
+                        connector_name=connector,
+                        metric_type=metric_name,
+                        value=coerced,
+                        collected_at=now,
+                    )
+                )
         return results
 
     async def get_external_track_metrics(
@@ -91,7 +100,7 @@ class MetricsApplicationService:
         connector_instance: TrackMetadataConnector | None = None,
         progress_manager: AsyncProgressManager | None = None,
         parent_operation_id: str | None = None,
-    ) -> tuple[dict[str, dict[UUID, Any]], dict[str, set[UUID]]]:
+    ) -> tuple[dict[str, dict[UUID, MetricValue]], dict[str, set[UUID]]]:
         """Get track metrics from external APIs using cache-first strategy.
 
         This is the primary method for retrieving track metrics. It handles multiple
@@ -153,12 +162,12 @@ class MetricsApplicationService:
             logger.warning("No valid field mappings found for any requested metrics")
             return {}, {}
 
-        result: dict[str, dict[UUID, Any]] = {}
+        result: dict[str, dict[UUID, MetricValue]] = {}
         fresh_ids_per_metric: dict[str, set[UUID]] = {}
 
         # Phase 1: Single database transaction to identify missing data
         missing_tracks_per_metric: dict[str, list[UUID]] = {}
-        cached_values_per_metric: dict[str, dict[UUID, Any]] = {}
+        cached_values_per_metric: dict[str, dict[UUID, MetricValue]] = {}
 
         async with uow:
             metrics_repo = uow.get_metrics_repository()
@@ -181,7 +190,10 @@ class MetricsApplicationService:
                         f"Found {len(missing_ids)} tracks missing {metric_name} data"
                     )
 
-                cached_values_per_metric[metric_name] = cached_values
+                # Widen dict[UUID, float] (repo) → dict[UUID, MetricValue] (TrackListMetadata)
+                cached_values_per_metric[metric_name] = cast(
+                    dict[UUID, MetricValue], cached_values
+                )
 
             # Pre-load tracks that will need API calls (while UoW is still open)
             tracks_for_api: list[Track] = []
@@ -262,18 +274,22 @@ class MetricsApplicationService:
             missing_sets = {
                 name: set(ids) for name, ids in missing_tracks_per_metric.items()
             }
-            all_metrics_to_save = [
-                t for t in all_extracted if t[0] in missing_sets.get(t[2], set())
+            all_metrics_to_save: list[TrackMetric] = [
+                m
+                for m in all_extracted
+                if m.track_id in missing_sets.get(m.metric_type, set())
             ]
 
             # Update caches from extracted metrics
-            for track_id, _, metric_name, converted_value in all_metrics_to_save:
-                if metric_name not in cached_values_per_metric:
-                    cached_values_per_metric[metric_name] = {}
-                cached_values_per_metric[metric_name][track_id] = converted_value
-                if metric_name not in fresh_ids_per_metric:
-                    fresh_ids_per_metric[metric_name] = set()
-                fresh_ids_per_metric[metric_name].add(track_id)
+            for metric in all_metrics_to_save:
+                if metric.metric_type not in cached_values_per_metric:
+                    cached_values_per_metric[metric.metric_type] = {}
+                cached_values_per_metric[metric.metric_type][metric.track_id] = (
+                    metric.value
+                )
+                if metric.metric_type not in fresh_ids_per_metric:
+                    fresh_ids_per_metric[metric.metric_type] = set()
+                fresh_ids_per_metric[metric.metric_type].add(metric.track_id)
 
             # Phase 3: Single database transaction to bulk save
             if all_metrics_to_save:
@@ -398,7 +414,7 @@ class MetricsApplicationService:
 
             # Create enhanced database batch processor with progress tracking
             batch_processor = EnhancedDatabaseBatchProcessor[
-                _MetricsTuple, int
+                TrackMetric, int
             ](
                 batch_size=10,  # Small batch size for incremental progress tracking
                 retry_count=3,  # Simple retry for database deadlock scenarios
@@ -406,7 +422,7 @@ class MetricsApplicationService:
                 logger_instance=logger,
             )
 
-            async def save_metrics_batch(metrics_batch: list[_MetricsTuple]) -> int:
+            async def save_metrics_batch(metrics_batch: list[TrackMetric]) -> int:
                 """Save a batch of metrics to the database."""
                 return await metrics_repo.save_track_metrics(metrics_batch)
 

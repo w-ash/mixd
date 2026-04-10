@@ -14,10 +14,8 @@ The factories handle configuration parsing and dependency setup so workflow
 definitions can focus on data flow rather than implementation details.
 """
 
-# pyright: reportAny=false
-
 from collections.abc import Callable, Mapping
-from typing import Any, TypedDict, cast
+from typing import TypedDict, cast
 
 # Import for enrichment functionality
 from src.application.connector_protocols import TrackMetadataConnector
@@ -123,7 +121,7 @@ def make_node(
     operation = operation_name or f"{category}.{node_type}"
 
     async def node_impl(  # noqa: RUF029
-        context: dict[str, Any], config: Mapping[str, JsonValue]
+        context: dict[str, object], config: Mapping[str, JsonValue]
     ) -> NodeResult:
         ctx = NodeContext(context)
         try:
@@ -173,10 +171,10 @@ def make_combiner_node(combiner_type: str) -> NodeFn:
     operation = f"combiner.{combiner_type}"
 
     async def node_impl(  # noqa: RUF029
-        context: dict[str, Any], config: Mapping[str, JsonValue]
+        context: dict[str, object], config: Mapping[str, JsonValue]
     ) -> NodeResult:
         ctx = NodeContext(context)
-        upstream_task_ids: list[str] = context.get("upstream_task_ids", [])
+        upstream_task_ids = ctx.get_upstream_task_ids()
 
         if not upstream_task_ids:
             raise ValueError(f"Combiner node {operation} requires upstream tasks")
@@ -282,7 +280,7 @@ def create_enricher_node(
     """
 
     async def node_impl(
-        context: dict[str, Any], config: Mapping[str, JsonValue]
+        context: dict[str, object], config: Mapping[str, JsonValue]
     ) -> NodeResult:
         ctx = NodeContext(context)
         tracklist = ctx.extract_tracklist()
@@ -297,8 +295,8 @@ def create_enricher_node(
             user_id=ctx.extract_workflow_context().user_id,
             tracklist=tracklist,
             enrichment_config=enrichment_config,
-            progress_manager=context.get("progress_manager"),
-            parent_operation_id=context.get("workflow_operation_id"),
+            progress_manager=ctx.get_progress_manager(),
+            parent_operation_id=ctx.get_workflow_operation_id(),
         )
 
         workflow_context = ctx.extract_workflow_context()

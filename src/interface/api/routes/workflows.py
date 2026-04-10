@@ -11,7 +11,7 @@ import asyncio
 from asyncio import CancelledError
 import contextlib
 from datetime import datetime
-from typing import Any, Unpack
+from typing import Unpack
 from uuid import UUID
 
 from fastapi import APIRouter, Depends, Query
@@ -466,7 +466,7 @@ async def _update_node_status(
     input_track_count: int | None = None,
     output_track_count: int | None = None,
     error_message: str | None = None,
-    node_details: dict[str, Any] | None = None,
+    node_details: dict[str, object] | None = None,
 ) -> None:
     """Concrete implementation of NodeStatusUpdater."""
     async with _run_repo_session() as repo:

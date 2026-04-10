@@ -10,10 +10,8 @@ Separated from ``workflows.protocols`` to break a circular import chain:
 -> node factories -> use cases -> ``_shared``.
 """
 
-# Legitimate Any: use case results, OperationResult metadata, metric values
-
 from collections.abc import Awaitable, Callable, Mapping
-from typing import Any, Protocol, runtime_checkable
+from typing import Protocol, runtime_checkable
 from uuid import UUID
 
 from src.domain.entities import ConnectorPlaylist, ConnectorTrack
@@ -30,7 +28,9 @@ class TrackConversionConnector(Protocol):
     (e.g., Spotify playlist tracks with embedded track JSON).
     """
 
-    def convert_track_to_connector(self, track_data: dict[str, Any]) -> ConnectorTrack:
+    def convert_track_to_connector(
+        self, track_data: Mapping[str, JsonValue]
+    ) -> ConnectorTrack:
         """Convert raw external track data to a ConnectorTrack domain entity."""
         ...
 
@@ -93,7 +93,7 @@ class PlaylistConnector(Protocol):
         """Fetch complete playlist data from the external service."""
         ...
 
-    async def get_playlist_details(self, playlist_id: str) -> dict[str, Any]: ...
+    async def get_playlist_details(self, playlist_id: str) -> dict[str, JsonValue]: ...
     async def execute_playlist_operations(
         self,
         playlist_id: str,
@@ -105,7 +105,7 @@ class PlaylistConnector(Protocol):
         self,
         playlist_id: str,
         tracks: list[Track],
-    ) -> dict[str, Any]: ...
+    ) -> dict[str, JsonValue]: ...
     async def update_playlist_metadata(
         self,
         playlist_id: str,

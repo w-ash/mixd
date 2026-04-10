@@ -5,10 +5,7 @@ use cases. Supports both local canonical playlists and external platform playlis
 (Spotify, Apple Music, etc.) with automatic ID resolution and metadata templating.
 """
 
-# pyright: reportAny=false
-
 from collections.abc import Mapping
-from typing import Any
 from uuid import UUID
 
 from src.application.use_cases.create_canonical_playlist import (
@@ -36,7 +33,7 @@ logger = get_logger(__name__)
 
 
 def _prepare_destination(
-    context: dict[str, Any], config: Mapping[str, JsonValue]
+    context: dict[str, object], config: Mapping[str, JsonValue]
 ) -> tuple[TrackList, dict[str, JsonValue], WorkflowContext]:
     """Extract tracklist, render templates, and get workflow context.
 
@@ -74,7 +71,7 @@ async def _find_existing_playlist_by_name(
 
 
 async def create_playlist(
-    context: dict[str, Any],
+    context: dict[str, object],
     config: Mapping[str, JsonValue],
 ) -> NodeResult:
     """Create new playlist from track list with optional platform sync.
@@ -170,7 +167,7 @@ async def create_playlist(
 
 
 async def update_playlist(
-    context: dict[str, Any],
+    context: dict[str, object],
     config: Mapping[str, JsonValue],
 ) -> NodeResult:
     """Update existing playlist with track replacement or appending.

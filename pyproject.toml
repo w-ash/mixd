@@ -285,6 +285,9 @@ reportUnknownLambdaType = "warning"
 # reportUnknown* already catches genuinely unresolvable types.
 reportAny = "warning"
 reportExplicitAny = "warning"
+# basedpyright-specific: narrow TypeVars to their bound union under isinstance
+# checks instead of collapsing to Unknown/Any. Helps BaseRepository generics.
+strictGenericNarrowing = true
 # Side-effect calls (raise_for_status, .pop, .discard) intentionally discard returns.
 reportUnusedCallResult = "none"
 # Intentional patterns that "recommended" mode would flag as errors:

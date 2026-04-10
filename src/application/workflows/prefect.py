@@ -30,7 +30,7 @@ from src.domain.entities.progress import (
     OperationStatus,
     create_progress_operation,
 )
-from src.domain.entities.shared import JsonValue
+from src.domain.entities.shared import JsonValue, MetricValue
 from src.domain.entities.workflow import (
     NodeExecutionEvent,
     NodeExecutionRecord,
@@ -146,7 +146,7 @@ def _get_node_timeout(node_type: str) -> int:
     # transform nodes are pure and deterministic (retrying won't help)
 )
 async def execute_node(
-    node_type: str, context: dict[str, Any], config: Mapping[str, JsonValue]
+    node_type: str, context: dict[str, object], config: Mapping[str, JsonValue]
 ) -> NodeResult:
     """Execute a single workflow node.
 
@@ -170,7 +170,7 @@ def generate_flow_run_name(flow_name: str) -> str:
 
 
 def _get_input_track_count(
-    task_def: Any, task_results: dict[str, NodeResult]
+    task_def: WorkflowTaskDef, task_results: dict[str, NodeResult]
 ) -> int | None:
     """Extract track count from upstream result, if available."""
     if not task_def.upstream:
@@ -187,7 +187,7 @@ def build_flow(
     observer: NodeExecutionObserver | None = None,
     dry_run: bool = False,
     user_id: str = BusinessLimits.DEFAULT_USER_ID,
-) -> Any:
+) -> Any:  # pyright: ignore[reportExplicitAny]  # Prefect stubs are ~23% type-complete; Flow[P,R] invariance breaks async returns
     """Converts typed workflow definition into executable Prefect flow function.
 
     Computes parallel execution levels from the task DAG, then executes each
@@ -236,7 +236,7 @@ def build_flow(
         workflow_progress_manager: AsyncProgressManager | None = None,
         workflow_operation_id: str | None = None,
         **parameters: object,
-    ) -> dict[str, Any]:
+    ) -> dict[str, object]:
         """Executes workflow tasks level-by-level with concurrent independent nodes."""
         flow_logger = get_run_logger()
         flow_logger.info("Starting workflow")
@@ -287,7 +287,7 @@ def build_flow(
             # Build task-specific context from static metadata + upstream results.
             # Avoids copying the entire context bag (which grows with each completed
             # node) — only includes what this task actually needs.
-            task_context: dict[str, Any] = {
+            task_context: dict[str, object] = {
                 "parameters": parameters,
                 "workflow_context": workflow_context,
                 "workflow_name": flow_name,
@@ -499,17 +499,17 @@ def build_flow(
 
 def _aggregate_workflow_metrics(
     task_results: dict[str, NodeResult],
-) -> dict[str, dict[UUID, Any]]:
+) -> dict[str, dict[UUID, MetricValue]]:
     """Aggregate metrics from all workflow task results.
 
     Iterates through task results, extracting metrics from each tracklist's
     metadata and merging them into a unified dict.
     """
-    all_metrics: dict[str, dict[UUID, Any]] = {}
+    all_metrics: dict[str, dict[UUID, MetricValue]] = {}
 
     for task_id, result in task_results.items():
         tracklist = result["tracklist"]
-        task_metrics: dict[str, dict[UUID, Any]] = tracklist.metadata.get("metrics", {})
+        task_metrics = tracklist.metadata.get("metrics", {})
 
         for metric_name, values in task_metrics.items():
             if values:

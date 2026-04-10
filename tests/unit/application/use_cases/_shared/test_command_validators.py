@@ -1,7 +1,7 @@
-"""Tests for command field validators.
+"""Tests for bespoke command field validators.
 
-Tests attrs validators used for command class field validation, ensuring
-fail-fast behavior at construction time.
+Only covers logic that attrs's built-in validators cannot express.
+We do not re-test attrs built-ins (instance_of, min_len, in_, ge, le, optional).
 """
 
 from attrs import define, field
@@ -10,20 +10,15 @@ import pytest
 from src.application.use_cases._shared.command_validators import (
     api_batch_size_validator,
     non_empty_string,
-    optional_in_choices,
-    optional_positive_int,
-    positive_int_in_range,
-    tracklist_or_connector_playlist,
+    validate_tracklist_has_tracks,
 )
 from src.domain.entities.track import Artist, Track, TrackList
 
 
 class TestNonEmptyString:
-    """Tests for non_empty_string validator."""
+    """Tests for non_empty_string validator (whitespace-stripping behavior)."""
 
     def test_rejects_empty_string(self):
-        """Should reject empty strings."""
-
         @define
         class TestCommand:
             name: str = field(validator=non_empty_string)
@@ -32,7 +27,7 @@ class TestNonEmptyString:
             TestCommand(name="")
 
     def test_rejects_whitespace_only_string(self):
-        """Should reject strings with only whitespace."""
+        """Differs from attrs.validators.min_len(1) — strips whitespace first."""
 
         @define
         class TestCommand:
@@ -52,157 +47,30 @@ class TestNonEmptyString:
         assert cmd.name == "  My Playlist  "
 
 
-class TestPositiveIntInRange:
-    """Tests for positive_int_in_range validator."""
+class TestValidateTracklistHasTracks:
+    """Tests for validate_tracklist_has_tracks validator."""
 
-    def test_accepts_min_boundary(self):
-        """Should accept minimum boundary value."""
-
+    def test_rejects_empty_tracklist(self):
         @define
         class TestCommand:
-            limit: int = field(validator=positive_int_in_range(1, 100))
+            tracklist: TrackList = field(validator=validate_tracklist_has_tracks)
 
-        cmd = TestCommand(limit=1)
-        assert cmd.limit == 1
-
-    def test_accepts_max_boundary(self):
-        """Should accept maximum boundary value."""
-
-        @define
-        class TestCommand:
-            limit: int = field(validator=positive_int_in_range(1, 100))
-
-        cmd = TestCommand(limit=100)
-        assert cmd.limit == 100
-
-    def test_rejects_below_min(self):
-        """Should reject values below minimum."""
-
-        @define
-        class TestCommand:
-            limit: int = field(validator=positive_int_in_range(1, 100))
-
-        with pytest.raises(ValueError, match="must be between 1 and 100"):
-            TestCommand(limit=0)
-
-    def test_rejects_above_max(self):
-        """Should reject values above maximum."""
-
-        @define
-        class TestCommand:
-            limit: int = field(validator=positive_int_in_range(1, 100))
-
-        with pytest.raises(ValueError, match="must be between 1 and 100"):
-            TestCommand(limit=101)
-
-    def test_rejects_non_integer(self):
-        """Should reject non-integer types."""
-
-        @define
-        class TestCommand:
-            limit: int = field(validator=positive_int_in_range(1, 100))
-
-        with pytest.raises(TypeError, match="must be an integer"):
-            TestCommand(limit="50")  # type: ignore
-
-
-class TestOptionalPositiveInt:
-    """Tests for optional_positive_int validator."""
-
-    def test_rejects_zero(self):
-        """Should reject zero."""
-
-        @define
-        class TestCommand:
-            days_back: int | None = field(validator=optional_positive_int)
-
-        with pytest.raises(ValueError, match="must be positive"):
-            TestCommand(days_back=0)
-
-    def test_rejects_negative(self):
-        """Should reject negative numbers."""
-
-        @define
-        class TestCommand:
-            days_back: int | None = field(validator=optional_positive_int)
-
-        with pytest.raises(ValueError, match="must be positive"):
-            TestCommand(days_back=-1)
-
-
-class TestOptionalInChoices:
-    """Tests for optional_in_choices validator."""
-
-    def test_rejects_invalid_choice(self):
-        """Should reject values not in choices list."""
-
-        @define
-        class TestCommand:
-            sort_by: str | None = field(
-                validator=optional_in_choices(["asc", "desc", "random"])
-            )
-
-        with pytest.raises(ValueError, match="must be one of"):
-            TestCommand(sort_by="invalid")
-
-
-class TestTracklistOrConnectorPlaylist:
-    """Tests for tracklist_or_connector_playlist validator."""
+        with pytest.raises(ValueError, match="must contain tracks"):
+            TestCommand(tracklist=TrackList())
 
     def test_accepts_tracklist_with_tracks(self):
-        """Should accept TrackList with tracks even without connector_playlist."""
-
         @define
         class TestCommand:
-            tracklist: TrackList = field(validator=tracklist_or_connector_playlist)
-            connector_playlist: object | None = None
+            tracklist: TrackList = field(validator=validate_tracklist_has_tracks)
 
         artist = Artist(name="Test Artist")
         track = Track(title="Test", artists=[artist])
         cmd = TestCommand(tracklist=TrackList(tracks=[track]))
         assert len(cmd.tracklist.tracks) == 1
 
-    def test_accepts_empty_tracklist_with_connector_playlist(self):
-        """Should accept empty TrackList when connector_playlist field is set."""
-
-        @define
-        class TestCommand:
-            tracklist: TrackList = field(validator=tracklist_or_connector_playlist)
-            connector_playlist: object | None = None
-
-        cmd = TestCommand(
-            tracklist=TrackList(),
-            connector_playlist=object(),  # Any truthy object
-        )
-        assert len(cmd.tracklist.tracks) == 0
-
-    def test_rejects_empty_tracklist_without_connector_playlist(self):
-        """Should reject empty TrackList when connector_playlist is None."""
-
-        @define
-        class TestCommand:
-            tracklist: TrackList = field(validator=tracklist_or_connector_playlist)
-            connector_playlist: object | None = None
-
-        with pytest.raises(
-            ValueError, match="must have tracks or command must have connector_playlist"
-        ):
-            TestCommand(tracklist=TrackList())
-
-    def test_rejects_non_tracklist_type(self):
-        """Should reject non-TrackList types."""
-
-        @define
-        class TestCommand:
-            tracklist: TrackList = field(validator=tracklist_or_connector_playlist)
-            connector_playlist: object | None = None
-
-        with pytest.raises(TypeError, match="must be a TrackList"):
-            TestCommand(tracklist=[])  # type: ignore
-
 
 class TestApiBatchSizeValidator:
-    """Tests for api_batch_size_validator."""
+    """Tests for api_batch_size_validator (dynamic settings-based bound)."""
 
     def test_rejects_oversized_batch(self):
         """Should reject batch sizes exceeding settings limit."""
@@ -215,36 +83,3 @@ class TestApiBatchSizeValidator:
 
         with pytest.raises(ValueError, match="cannot exceed"):
             TestCommand(batch_size=999999)
-
-
-class TestIntegrationScenarios:
-    """Integration tests combining multiple validators."""
-
-    def test_command_with_multiple_validators(self):
-        """Should handle command with multiple field validators."""
-
-        @define(frozen=True, slots=True)
-        class GetLikedTracksCommand:
-            limit: int = field(validator=positive_int_in_range(1, 10000))
-            connector_filter: str | None = field(default=None)
-            sort_by: str | None = field(
-                default=None,
-                validator=optional_in_choices([
-                    "liked_at_desc",
-                    "liked_at_asc",
-                    "title_asc",
-                ]),
-            )
-
-        # Valid command
-        cmd = GetLikedTracksCommand(limit=100, sort_by="liked_at_desc")
-        assert cmd.limit == 100
-        assert cmd.sort_by == "liked_at_desc"
-
-        # Invalid limit
-        with pytest.raises(ValueError, match="must be between"):
-            GetLikedTracksCommand(limit=0)
-
-        # Invalid sort option
-        with pytest.raises(ValueError, match="must be one of"):
-            GetLikedTracksCommand(limit=100, sort_by="invalid")

@@ -7,7 +7,7 @@ Repository interfaces belong in the domain layer according to Clean Architecture
 
 from collections.abc import Awaitable, Callable, Mapping, Sequence
 from datetime import datetime
-from typing import Any, Literal, Protocol, Self, TypedDict
+from typing import Any, Literal, Protocol, Self, TypedDict, overload
 from uuid import UUID
 
 from src.domain.entities import (
@@ -21,10 +21,12 @@ from src.domain.entities import (
     Track,
     TrackLike,
     TrackMapping,
+    TrackMetric,
     TrackPlay,
 )
 from src.domain.entities.match_review import MatchReview
 from src.domain.entities.playlist_link import SyncDirection, SyncStatus
+from src.domain.entities.shared import JsonDict, JsonValue
 from src.domain.entities.workflow import (
     RunStatus,
     Workflow,
@@ -45,7 +47,10 @@ class TrackListingPage(TypedDict):
     tracks: list[Track]
     total: int | None  # None when count was skipped (cursor-paginated pages)
     liked_track_ids: set[UUID]
-    next_page_key: tuple[str | int | float | None, UUID] | None
+    # Cursor value type depends on the active sort column: str (title,
+    # artists_text), int (duration_ms), or datetime (created_at). The
+    # application layer's PageCursor encodes/decodes for the wire.
+    next_page_key: tuple[str | int | datetime | None, UUID] | None
 
 
 class TrackRepositoryProtocol(Protocol):
@@ -527,22 +532,33 @@ class ConnectorRepositoryProtocol(Protocol):
         """
         ...
 
+    @overload
     def get_connector_metadata(
-        self, track_ids: list[UUID], connector: str, metadata_field: str | None = None
-    ) -> Awaitable[dict[UUID, Any]]:  # Value type varies by metadata_field
+        self,
+        track_ids: list[UUID],
+        connector: str,
+        metadata_field: None = ...,
+    ) -> Awaitable[dict[UUID, JsonDict]]: ...
+
+    @overload
+    def get_connector_metadata(
+        self,
+        track_ids: list[UUID],
+        connector: str,
+        metadata_field: str,
+    ) -> Awaitable[dict[UUID, JsonValue]]: ...
+
+    def get_connector_metadata(
+        self,
+        track_ids: list[UUID],
+        connector: str,
+        metadata_field: str | None = None,
+    ) -> Awaitable[dict[UUID, JsonDict] | dict[UUID, JsonValue]]:
         """Get connector metadata for tracks from primary mappings only.
 
         Returns metadata from the primary mapping for each track-connector pair.
-        For relinked tracks with multiple mappings, only the active mapping's
-        metadata is returned.
-
-        Args:
-            track_ids: Track IDs to get metadata for.
-            connector: Connector name to filter by.
-            metadata_field: Optional specific metadata field to retrieve.
-
-        Returns:
-            Dictionary mapping track_id to metadata from primary mapping.
+        When ``metadata_field`` is None, returns the full ``JsonDict`` per track.
+        When set, extracts that specific field's value (which is itself a ``JsonValue``).
         """
         ...
 
@@ -877,12 +893,14 @@ class MetricsRepositoryProtocol(Protocol):
 
     def save_track_metrics(
         self,
-        metrics: list[tuple[UUID, str, str, float]],
+        metrics: list[TrackMetric],
     ) -> Awaitable[int]:
         """Save metrics for multiple tracks efficiently.
 
         Args:
-            metrics: List of (track_id, metric_name, metric_source, metric_value) tuples
+            metrics: List of ``TrackMetric`` entities — bool-valued metrics
+                must be coerced to ``float`` at the construction boundary
+                (the DB column is ``float``).
 
         Returns:
             Number of metrics saved

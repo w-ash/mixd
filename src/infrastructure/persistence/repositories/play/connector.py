@@ -1,9 +1,5 @@
 """Repository for connector play operations."""
 
-# Legitimate Any: SQLAlchemy column types, JSON fields
-
-from typing import Any
-
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.config import get_logger
@@ -56,7 +52,7 @@ class ConnectorTrackPlayRepository(BaseRepository[DBConnectorPlay, ConnectorTrac
         logger.info(f"Bulk inserting {len(connector_plays)} connector plays")
 
         # Prepare data for bulk insert by converting domain objects to db format
-        play_data: list[dict[str, Any]] = []
+        play_data: list[dict[str, object]] = []
         for play in connector_plays:
             played_at = ensure_utc(play.played_at)
             import_timestamp = ensure_utc(play.import_timestamp)

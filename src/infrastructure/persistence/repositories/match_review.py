@@ -158,7 +158,7 @@ class MatchReviewRepository(BaseRepository[DBMatchReview, MatchReview]):
         if not reviews:
             return 0
 
-        entities = [
+        entities: list[dict[str, object]] = [
             {
                 "user_id": r.user_id,
                 "track_id": r.track_id,

@@ -9,12 +9,8 @@ from datetime import UTC, datetime, timedelta
 from typing import cast
 
 from attrs import define, field
+from attrs.validators import and_, ge, gt, in_, instance_of, le, optional
 
-from src.application.use_cases._shared.command_validators import (
-    optional_in_choices,
-    optional_positive_int,
-    positive_int_in_range,
-)
 from src.application.utilities.timing import ExecutionTimer
 from src.config import get_logger
 from src.config.constants import BusinessLimits
@@ -42,22 +38,26 @@ class GetPlayedTracksCommand:
     user_id: str
     limit: int = field(
         default=BusinessLimits.DEFAULT_LIBRARY_QUERY_LIMIT,
-        validator=positive_int_in_range(),
+        validator=and_(instance_of(int), ge(1), le(BusinessLimits.MAX_USER_LIMIT)),
     )
-    days_back: int | None = field(default=None, validator=optional_positive_int)
+    days_back: int | None = field(
+        default=None, validator=optional([instance_of(int), gt(0)])
+    )
     connector_filter: str | None = (
         None  # Optional service filter ("spotify", "lastfm", etc.)
     )
     sort_by: PlaySortBy | None = field(
         default=None,
-        validator=optional_in_choices([
-            "played_at_desc",
-            "total_plays_desc",
-            "last_played_desc",
-            "first_played_asc",
-            "title_asc",
-            "random",
-        ]),
+        validator=optional(
+            in_([
+                "played_at_desc",
+                "total_plays_desc",
+                "last_played_desc",
+                "first_played_asc",
+                "title_asc",
+                "random",
+            ])
+        ),
     )
     timestamp: datetime = field(factory=utc_now_factory)
 

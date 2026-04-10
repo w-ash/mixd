@@ -4,8 +4,6 @@ Handles CRUD operations for playlists from multiple music services (Spotify, Las
 MusicBrainz), maintaining track ordering and synchronizing external IDs.
 """
 
-# pyright: reportAny=false
-
 from collections import defaultdict
 from datetime import UTC, datetime
 from uuid import UUID

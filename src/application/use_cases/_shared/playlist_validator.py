@@ -5,6 +5,7 @@ results using Python 3.13+ patterns.
 """
 
 from src.config import get_logger
+from src.domain.entities.shared import JsonValue
 
 logger = get_logger(__name__)
 
@@ -21,7 +22,7 @@ def is_rate_limit_error(error_msg: str) -> bool:
     return "rate" in msg_lower or "429" in msg_lower
 
 
-def classify_connector_api_error(exception: Exception) -> dict[str, str | bool]:
+def classify_connector_api_error(exception: Exception) -> dict[str, JsonValue]:
     """Classify connector API errors using pattern matching.
 
     Uses Python 3.13+ pattern matching and type guards for error classification.
@@ -46,15 +47,16 @@ def classify_connector_api_error(exception: Exception) -> dict[str, str | bool]:
     is_auth = is_auth_error_message(error_message)
     is_rate_limit = is_rate_limit_error(error_message)
 
-    return {
+    result: dict[str, JsonValue] = {
         "error_type": error_type_name,
         "is_retryable": is_retryable,
         "is_auth_error": is_auth,
         "is_rate_limit": is_rate_limit,
     }
+    return result
 
 
-def classify_db_error_for_logging(exception: Exception) -> dict[str, str | bool]:
+def classify_db_error_for_logging(exception: Exception) -> dict[str, JsonValue]:
     """Classify database errors for retry and recovery decisions.
 
     Args:
@@ -65,10 +67,11 @@ def classify_db_error_for_logging(exception: Exception) -> dict[str, str | bool]
     """
     error_message = str(exception).lower()
 
-    return {
+    result: dict[str, JsonValue] = {
         "error_type": type(exception).__name__,
         "is_constraint_violation": "constraint" in error_message
         or "unique" in error_message,
         "is_connection_error": "connection" in error_message
         or "timeout" in error_message,
     }
+    return result

@@ -15,12 +15,8 @@ NullNodeObserver is the null-object default — eliminates None checks in the
 orchestration loop when no observer is provided.
 """
 
-# pyright: reportAny=false
-# Legitimate Any: _build_sse_node_event data dict, NodeStatusUpdater node_details
-
 import asyncio
 from datetime import UTC, datetime
-from typing import Any
 from uuid import UUID
 
 from attrs import define
@@ -53,9 +49,9 @@ def _build_sse_node_event(
     *,
     run_id: UUID | None = None,
     error_message: str | None = None,
-) -> dict[str, Any]:
+) -> dict[str, object]:
     """Build an SSE node_status event dict, shared by all observer types."""
-    data: dict[str, Any] = {
+    data: dict[str, object] = {
         "node_id": event.task_def.id,
         "node_type": event.task_def.type,
         "status": status,
@@ -358,7 +354,7 @@ class RunHistoryObserver:
         input_track_count: int | None = None,
         output_track_count: int | None = None,
         error_message: str | None = None,
-        node_details: dict[str, Any] | None = None,
+        node_details: dict[str, object] | None = None,
     ) -> None:
         """Delegate node status write to the injected updater."""
         try:

@@ -1,7 +1,7 @@
 """Track-to-connector mapping domain entity.
 
-Replaces dict[str, Any] with a typed frozen entity for track mapping data
-flowing between the persistence layer and domain/application layers.
+Typed frozen entity for track mapping data flowing between the persistence
+layer and domain/application layers.
 """
 
 from uuid import UUID, uuid7
@@ -16,6 +16,11 @@ class TrackMapping:
     Represents the relationship between an internal track and its corresponding
     external service track (Spotify, Last.fm, etc.) with metadata about how
     the match was determined and its reliability.
+
+    ``confidence_evidence`` uses ``dict[str, object]`` rather than ``JsonDict``
+    because application-layer producers (matching pipeline, manual overrides)
+    construct evidence dicts with mixed types (UUID, datetime) that the
+    persistence layer serialises at the JSONB boundary.
     """
 
     user_id: str = "default"

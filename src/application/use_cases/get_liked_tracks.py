@@ -7,11 +7,8 @@ Supports filtering by service, sorting options, and limiting results count.
 from datetime import datetime
 
 from attrs import define, field
+from attrs.validators import and_, ge, in_, instance_of, le, optional
 
-from src.application.use_cases._shared.command_validators import (
-    optional_in_choices,
-    positive_int_in_range,
-)
 from src.application.utilities.timing import ExecutionTimer
 from src.config import get_logger
 from src.config.constants import BusinessLimits
@@ -37,19 +34,21 @@ class GetLikedTracksCommand:
     user_id: str
     limit: int = field(
         default=BusinessLimits.DEFAULT_LIBRARY_QUERY_LIMIT,
-        validator=positive_int_in_range(),
+        validator=and_(instance_of(int), ge(1), le(BusinessLimits.MAX_USER_LIMIT)),
     )
     connector_filter: str | None = (
         None  # Optional service filter ("spotify", "lastfm", etc.)
     )
     sort_by: str | None = field(
         default=None,
-        validator=optional_in_choices([
-            "liked_at_desc",
-            "liked_at_asc",
-            "title_asc",
-            "random",
-        ]),
+        validator=optional(
+            in_([
+                "liked_at_desc",
+                "liked_at_asc",
+                "title_asc",
+                "random",
+            ])
+        ),
     )
     timestamp: datetime = field(factory=utc_now_factory)
 

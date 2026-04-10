@@ -1,8 +1,5 @@
 """Workflow repository mapper for domain-persistence conversions."""
 
-# pyright: reportAny=false
-# Legitimate Any: JSON column produces heterogeneous dicts
-
 from typing import override
 
 import attrs

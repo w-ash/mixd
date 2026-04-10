@@ -4,14 +4,15 @@ This module implements a simplified architecture using hard deletes for all enti
 following SQLAlchemy 2.0 best practices with modern type annotations.
 
 Architecture:
-- DatabaseModel: Single DeclarativeBase foundation for all entities
+- DatabaseModel: Single DeclarativeBase foundation with ``type_annotation_map``
+  that resolves ``Mapped[JsonDict]`` to ``postgresql.JSONB`` automatically.
+  This means JSONB columns can use the domain ``JsonDict`` alias instead of
+  ``dict[str, Any]`` — the type flows all the way from Python to the column.
 - TimestampMixin: Provides created_at/updated_at for audit trails
 
 All entities use hard deletes for simplicity and performance.
 Data recovery relies on external API re-import and database backups.
 """
-
-# Legitimate Any: SQLAlchemy JSON columns, __table_args__, DeclarativeBase types
 
 from datetime import UTC, datetime
 from typing import Any, ClassVar
@@ -35,8 +36,10 @@ from sqlalchemy.orm import (
     mapped_column,
     relationship,
 )
+from sqlalchemy.sql.schema import SchemaItem
 
 from src.config import get_logger
+from src.domain.entities.shared import JsonDict
 
 # Type aliases to avoid import name conflicts between stdlib uuid and SQLAlchemy UUID
 UuidType = uuid_mod.UUID
@@ -64,9 +67,21 @@ class DatabaseModel(AsyncAttrs, DeclarativeBase):
 
     Single DeclarativeBase inheritance following SQLAlchemy 2.0 best practices.
     All database models inherit from this class to ensure consistent metadata handling.
+
+    The ``type_annotation_map`` routes ``Mapped[JsonDict]`` to ``postgresql.JSONB``
+    so JSONB columns get typed metadata without every ``mapped_column`` needing
+    an explicit ``PgJsonb`` argument. SQLAlchemy 2.0.37+ matches union types by
+    content (excluding ``None``), so ``Mapped[JsonDict | None]`` also resolves
+    via this single entry. See: docs.sqlalchemy.org/en/20/orm/declarative_tables.
     """
 
     metadata: ClassVar[MetaData] = metadata
+
+    # SQLAlchemy stubs declare type_annotation_map as dict[Any, Any]; the runtime
+    # match is by key shape (JsonDict here), the value side typing is informational.
+    type_annotation_map: ClassVar[dict[Any, Any]] = {  # pyright: ignore[reportExplicitAny]  # SQLAlchemy stub shape
+        JsonDict: PgJsonb,
+    }
 
     id: Mapped[UuidType] = mapped_column(
         PgUuidCol(as_uuid=True), primary_key=True, default=uuid_mod.uuid7, sort_order=-1
@@ -117,7 +132,7 @@ class DBTrack(BaseEntity):
     )
     version: Mapped[int] = mapped_column(default=1, server_default="1")
     title: Mapped[str] = mapped_column(String(), nullable=False)
-    artists: Mapped[dict[str, Any]] = mapped_column(PgJsonb, nullable=False)
+    artists: Mapped[JsonDict] = mapped_column(PgJsonb, nullable=False)
     album: Mapped[str | None] = mapped_column(String())
     duration_ms: Mapped[int | None]
     release_date: Mapped[datetime | None]
@@ -164,7 +179,7 @@ class DBTrack(BaseEntity):
     # index on artists are created only via Alembic migration 002_pg_opt — they
     # require the pg_trgm extension and would fail with metadata.create_all()
     # in test fixtures.
-    __table_args__: tuple[Any, ...] = (
+    __table_args__: tuple[SchemaItem, ...] = (
         # User-scoped unique constraints for external identifiers
         UniqueConstraint("user_id", "spotify_id", name="uq_tracks_user_spotify_id"),
         UniqueConstraint("user_id", "isrc", name="uq_tracks_user_isrc"),
@@ -190,12 +205,12 @@ class DBConnectorTrack(BaseEntity):
     connector_name: Mapped[str] = mapped_column(String(32))
     connector_track_identifier: Mapped[str] = mapped_column(String())
     title: Mapped[str] = mapped_column(String())
-    artists: Mapped[dict[str, Any]] = mapped_column(PgJsonb)
+    artists: Mapped[JsonDict] = mapped_column(PgJsonb)
     album: Mapped[str | None] = mapped_column(String())
     duration_ms: Mapped[int | None]
     isrc: Mapped[str | None] = mapped_column(String(32), index=True)
     release_date: Mapped[datetime | None]
-    raw_metadata: Mapped[dict[str, Any]] = mapped_column(PgJsonb)
+    raw_metadata: Mapped[JsonDict] = mapped_column(PgJsonb)
     last_updated: Mapped[datetime] = mapped_column(
         DateTime(timezone=True),
         default=lambda: datetime.now(UTC),
@@ -207,7 +222,7 @@ class DBConnectorTrack(BaseEntity):
         passive_deletes=True,
     )
 
-    __table_args__: tuple[Any, ...] = (
+    __table_args__: tuple[SchemaItem, ...] = (
         UniqueConstraint("connector_name", "connector_track_identifier"),
         Index(None, "connector_name", "isrc"),
     )
@@ -235,7 +250,7 @@ class DBTrackMapping(BaseEntity):
     connector_name: Mapped[str] = mapped_column(String(32), nullable=False)
     match_method: Mapped[str] = mapped_column(String(32))
     confidence: Mapped[int]
-    confidence_evidence: Mapped[dict[str, Any] | None] = mapped_column(PgJsonb)
+    confidence_evidence: Mapped[JsonDict | None] = mapped_column(PgJsonb)
     origin: Mapped[str] = mapped_column(
         String(20), nullable=False, default="automatic", server_default="automatic"
     )
@@ -251,7 +266,7 @@ class DBTrackMapping(BaseEntity):
         passive_deletes=True,
     )
 
-    __table_args__: tuple[Any, ...] = (
+    __table_args__: tuple[SchemaItem, ...] = (
         # User-scoped: prevent multiple canonical tracks mapping to same connector track per user
         UniqueConstraint(
             "user_id",
@@ -300,7 +315,7 @@ class DBMatchReview(BaseEntity):
     match_method: Mapped[str] = mapped_column(String(32), nullable=False)
     confidence: Mapped[int] = mapped_column(nullable=False)
     match_weight: Mapped[float] = mapped_column(nullable=False)
-    confidence_evidence: Mapped[dict[str, Any] | None] = mapped_column(PgJsonb)
+    confidence_evidence: Mapped[JsonDict | None] = mapped_column(PgJsonb)
     status: Mapped[str] = mapped_column(
         String(20), nullable=False, default="pending", server_default="pending"
     )
@@ -310,7 +325,7 @@ class DBMatchReview(BaseEntity):
     track: Mapped[DBTrack] = relationship(passive_deletes=True)
     connector_track: Mapped[DBConnectorTrack] = relationship(passive_deletes=True)
 
-    __table_args__: tuple[Any, ...] = (
+    __table_args__: tuple[SchemaItem, ...] = (
         UniqueConstraint(
             "user_id",
             "track_id",
@@ -330,7 +345,7 @@ class DBTrackMetric(BaseEntity):
     """
 
     __tablename__: str = "track_metrics"
-    __table_args__: tuple[Any, ...] = (
+    __table_args__: tuple[SchemaItem, ...] = (
         # Create a unique constraint - let naming convention handle the name
         UniqueConstraint("track_id", "connector_name", "metric_type"),
         # Keep the lookup index
@@ -365,7 +380,7 @@ class DBTrackLike(BaseEntity):
     """
 
     __tablename__: str = "track_likes"
-    __table_args__: tuple[Any, ...] = (
+    __table_args__: tuple[SchemaItem, ...] = (
         UniqueConstraint("user_id", "track_id", "service"),
         Index(None, "service", "is_liked"),
     )
@@ -395,7 +410,7 @@ class DBTrackPlay(BaseEntity):
     """
 
     __tablename__: str = "track_plays"
-    __table_args__: tuple[Any, ...] = (
+    __table_args__: tuple[SchemaItem, ...] = (
         # Unique constraint to prevent duplicate plays (safety net for application-level deduplication)
         UniqueConstraint(
             "user_id",
@@ -433,7 +448,7 @@ class DBTrackPlay(BaseEntity):
         nullable=False,
     )
     ms_played: Mapped[int | None]
-    context: Mapped[dict[str, Any] | None] = mapped_column(PgJsonb)
+    context: Mapped[JsonDict | None] = mapped_column(PgJsonb)
 
     # Cross-source deduplication: which services contributed to this play record
     source_services: Mapped[list[str] | None] = mapped_column(
@@ -480,7 +495,7 @@ class DBConnectorPlay(BaseEntity):
     ms_played: Mapped[int | None]
 
     # Raw API data preservation
-    raw_metadata: Mapped[dict[str, Any]] = mapped_column(PgJsonb)
+    raw_metadata: Mapped[JsonDict] = mapped_column(PgJsonb)
 
     # Resolution tracking (nullable until resolved)
     resolved_track_id: Mapped[UuidType | None] = mapped_column(
@@ -504,7 +519,7 @@ class DBConnectorPlay(BaseEntity):
         passive_deletes=True,
     )
 
-    __table_args__: tuple[Any, ...] = (
+    __table_args__: tuple[SchemaItem, ...] = (
         # Prevent duplicate connector plays (same as track_plays deduplication pattern)
         UniqueConstraint(
             "user_id",
@@ -569,8 +584,8 @@ class DBConnectorPlaylist(BaseEntity):
     is_public: Mapped[bool]
     collaborative: Mapped[bool] = mapped_column(default=False)
     follower_count: Mapped[int | None]
-    items: Mapped[list[dict[str, Any]]] = mapped_column(PgJsonb, default=list)
-    raw_metadata: Mapped[dict[str, Any]] = mapped_column(PgJsonb)
+    items: Mapped[list[JsonDict]] = mapped_column(PgJsonb, default=list)
+    raw_metadata: Mapped[JsonDict] = mapped_column(PgJsonb)
     # Add JSON field to store track positional information
     last_updated: Mapped[datetime]
 
@@ -580,7 +595,7 @@ class DBConnectorPlaylist(BaseEntity):
         passive_deletes=True,
     )
 
-    __table_args__: tuple[Any, ...] = (
+    __table_args__: tuple[SchemaItem, ...] = (
         UniqueConstraint("connector_name", "connector_playlist_identifier"),
     )
 
@@ -592,7 +607,7 @@ class DBPlaylistMapping(BaseEntity):
     """
 
     __tablename__: str = "playlist_mappings"
-    __table_args__: tuple[Any, ...] = (
+    __table_args__: tuple[SchemaItem, ...] = (
         # Prevent one canonical playlist from having multiple mappings to same connector
         UniqueConstraint("playlist_id", "connector_name", name="uq_playlist_connector"),
         # Prevent multiple canonical playlists from claiming same external playlist
@@ -682,7 +697,7 @@ class DBPlaylistTrack(BaseEntity):
     """
 
     __tablename__: str = "playlist_tracks"
-    __table_args__: tuple[Any, ...] = (Index(None, "playlist_id", "sort_key"),)
+    __table_args__: tuple[SchemaItem, ...] = (Index(None, "playlist_id", "sort_key"),)
 
     playlist_id: Mapped[UuidType] = mapped_column(
         PgUuidCol(as_uuid=True),
@@ -722,12 +737,12 @@ class DBWorkflow(BaseEntity):
     user_id: Mapped[str | None] = mapped_column(String(), nullable=True)
     name: Mapped[str] = mapped_column(String(), nullable=False)
     description: Mapped[str | None] = mapped_column(String(1000))
-    definition: Mapped[dict[str, Any]] = mapped_column(PgJsonb, nullable=False)
+    definition: Mapped[JsonDict] = mapped_column(PgJsonb, nullable=False)
     is_template: Mapped[bool] = mapped_column(Boolean, default=False)
     source_template: Mapped[str | None] = mapped_column(String(100))
     definition_version: Mapped[int] = mapped_column(default=1)
 
-    __table_args__: tuple[Any, ...] = (
+    __table_args__: tuple[SchemaItem, ...] = (
         UniqueConstraint("source_template", name="uq_workflows_source_template"),
         Index("ix_workflows_is_template", "is_template"),
         Index("ix_workflows_user_id", "user_id"),
@@ -748,13 +763,13 @@ class DBWorkflowVersion(DatabaseModel, TimestampMixin):
         ForeignKey("workflows.id", ondelete="CASCADE"),
     )
     version: Mapped[int] = mapped_column(nullable=False)
-    definition: Mapped[dict[str, Any]] = mapped_column(PgJsonb, nullable=False)
+    definition: Mapped[JsonDict] = mapped_column(PgJsonb, nullable=False)
     change_summary: Mapped[str | None] = mapped_column(String(1000))
 
     # Relationships
     workflow: Mapped[DBWorkflow] = relationship(passive_deletes=True)
 
-    __table_args__: tuple[Any, ...] = (
+    __table_args__: tuple[SchemaItem, ...] = (
         UniqueConstraint(
             "workflow_id", "version", name="uq_workflow_versions_workflow_version"
         ),
@@ -776,7 +791,7 @@ class DBWorkflowRun(DatabaseModel, TimestampMixin):
         ForeignKey("workflows.id", ondelete="CASCADE"),
     )
     status: Mapped[str] = mapped_column(String(20), nullable=False, default="pending")
-    definition_snapshot: Mapped[dict[str, Any]] = mapped_column(PgJsonb, nullable=False)
+    definition_snapshot: Mapped[JsonDict] = mapped_column(PgJsonb, nullable=False)
     definition_version: Mapped[int] = mapped_column(default=1)
     started_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     completed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
@@ -786,7 +801,14 @@ class DBWorkflowRun(DatabaseModel, TimestampMixin):
         PgUuidCol(as_uuid=True), nullable=True
     )
     error_message: Mapped[str | None] = mapped_column(String(2000))
-    output_tracks: Mapped[Any] = mapped_column(PgJsonb, nullable=True)
+    # Serialized track summaries (track_id, title, artists, rank, metrics) —
+    # see serialize_output_tracks() in application/use_cases/workflow_runs.py.
+    # Uses dict[str, object] (not JsonDict) because entries contain UUIDs and
+    # MetricValue datetime fields that aren't strict JSON values; psycopg
+    # serializes them at write time.
+    output_tracks: Mapped[list[dict[str, object]] | None] = mapped_column(
+        PgJsonb, nullable=True
+    )
 
     # Relationships
     workflow: Mapped[DBWorkflow] = relationship(passive_deletes=True)
@@ -796,7 +818,7 @@ class DBWorkflowRun(DatabaseModel, TimestampMixin):
         passive_deletes=True,
     )
 
-    __table_args__: tuple[Any, ...] = (
+    __table_args__: tuple[SchemaItem, ...] = (
         Index("ix_workflow_runs_workflow_id_started_at", "workflow_id", "started_at"),
         Index("ix_workflow_runs_status", "status"),
     )
@@ -821,7 +843,12 @@ class DBWorkflowRunNode(DatabaseModel):
     output_track_count: Mapped[int | None]
     error_message: Mapped[str | None] = mapped_column(String(2000))
     execution_order: Mapped[int] = mapped_column(default=0)
-    node_details: Mapped[Any] = mapped_column(PgJsonb, nullable=True)
+    # Per-node observation payload (e.g., destination playlist_changes summary).
+    # See application/workflows/destination_nodes.py and observers.py for shapes.
+    # dict[str, object] (not JsonDict) because nested values may include UUIDs.
+    node_details: Mapped[dict[str, object] | None] = mapped_column(
+        PgJsonb, nullable=True
+    )
 
     # Relationships
     run: Mapped[DBWorkflowRun] = relationship(
@@ -829,7 +856,9 @@ class DBWorkflowRunNode(DatabaseModel):
         passive_deletes=True,
     )
 
-    __table_args__: tuple[Any, ...] = (Index("ix_workflow_run_nodes_run_id", "run_id"),)
+    __table_args__: tuple[SchemaItem, ...] = (
+        Index("ix_workflow_run_nodes_run_id", "run_id"),
+    )
 
 
 class DBOAuthToken(BaseEntity):
@@ -856,9 +885,9 @@ class DBOAuthToken(BaseEntity):
     expires_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     scope: Mapped[str | None] = mapped_column(String())
     account_name: Mapped[str | None] = mapped_column(String(255))
-    extra_data: Mapped[dict[str, Any]] = mapped_column(PgJsonb, default=dict)
+    extra_data: Mapped[JsonDict] = mapped_column(PgJsonb, default=dict)
 
-    __table_args__: tuple[Any, ...] = (
+    __table_args__: tuple[SchemaItem, ...] = (
         UniqueConstraint("user_id", "service", name="uq_oauth_tokens_user_service"),
     )
 
@@ -902,9 +931,9 @@ class DBUserSettings(BaseEntity):
         String(), nullable=False, default="default", server_default="default"
     )
     key: Mapped[str] = mapped_column(String(64), nullable=False)
-    settings: Mapped[dict[str, Any]] = mapped_column(PgJsonb, default=dict)
+    settings: Mapped[JsonDict] = mapped_column(PgJsonb, default=dict)
 
-    __table_args__: tuple[Any, ...] = (
+    __table_args__: tuple[SchemaItem, ...] = (
         UniqueConstraint("user_id", "key", name="uq_user_settings_user_key"),
     )
 
@@ -916,7 +945,7 @@ class DBSyncCheckpoint(BaseEntity):
     """
 
     __tablename__: str = "sync_checkpoints"
-    __table_args__: tuple[Any, ...] = (
+    __table_args__: tuple[SchemaItem, ...] = (
         UniqueConstraint("user_id", "service", "entity_type"),
     )
 

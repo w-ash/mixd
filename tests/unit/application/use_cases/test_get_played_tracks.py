@@ -57,27 +57,27 @@ class TestGetPlayedTracksCommand:
 
     def test_invalid_limit_zero(self):
         """Test validation fails for zero limit at construction."""
-        with pytest.raises(ValueError, match="must be between"):
+        with pytest.raises(ValueError, match="must be >= 1"):
             GetPlayedTracksCommand(user_id="test-user", limit=0)
 
     def test_invalid_limit_exceeds_max(self):
         """Test validation fails for limit exceeding 1M sanity guard."""
-        with pytest.raises(ValueError, match="must be between"):
+        with pytest.raises(ValueError, match="must be <="):
             GetPlayedTracksCommand(user_id="test-user", limit=1_000_001)
 
     def test_invalid_days_back_zero(self):
         """Test validation fails for zero days_back at construction."""
-        with pytest.raises(ValueError, match="must be positive"):
+        with pytest.raises(ValueError, match="must be > 0"):
             GetPlayedTracksCommand(user_id="test-user", days_back=0)
 
     def test_invalid_sort_option(self):
         """Test validation fails for invalid sort option at construction."""
-        with pytest.raises(ValueError, match="must be one of"):
+        with pytest.raises(ValueError, match="must be in"):
             GetPlayedTracksCommand(user_id="test-user", sort_by="invalid_sort")
 
     def test_negative_days_back_invalid(self):
         """Test validation fails for negative days_back at construction."""
-        with pytest.raises(ValueError, match="must be positive"):
+        with pytest.raises(ValueError, match="must be > 0"):
             GetPlayedTracksCommand(user_id="test-user", days_back=-1)
 
 
@@ -231,7 +231,7 @@ class TestGetPlayedTracksUseCase:
     async def test_execute_invalid_command_raises_error(self, mock_uow):
         """Test that invalid command raises ValueError at construction."""
         # Invalid command now raises ValueError at construction (fail-fast)
-        with pytest.raises(ValueError, match="must be between"):
+        with pytest.raises(ValueError, match="must be >= 1"):
             GetPlayedTracksCommand(user_id="test-user", limit=0)
 
     async def test_execute_handles_empty_plays(self, mock_uow):

@@ -1,15 +1,13 @@
 """Core track repository implementation for basic track operations."""
 
-# pyright: reportAny=false, reportUnknownMemberType=false, reportUnknownArgumentType=false
-# Legitimate Unknown: SQLAlchemy ColumnElement types from ilike/in_/cast expressions
-
 from datetime import UTC, datetime
-from typing import Any, ClassVar
+from typing import Any, ClassVar, cast
 from uuid import UUID
 
 from sqlalchemy import (
+    ColumnElement,
     String,
-    cast,
+    cast as sa_cast,
     delete,
     func,
     literal,
@@ -20,6 +18,7 @@ from sqlalchemy import (
     update,
 )
 from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy.orm import InstrumentedAttribute
 
 from src.application.pagination import TRACK_SORT_COLUMNS
 from src.config import get_logger
@@ -48,6 +47,18 @@ class TrackRepository(BaseRepository[DBTrack, Track]):
         "internal": "id",
         "isrc": "isrc",
         **DenormalizedTrackColumns.COLUMN_MAP,
+    }
+
+    # Sortable column registry — restricts dynamic sort_field lookups to an
+    # explicit allowlist (security: prevents arbitrary attribute access via
+    # ``getattr(DBTrack, sort_field)``) and gives pyright a typed handle on
+    # the column for ORDER BY / keyset construction. Keys must match the
+    # values used by ``TRACK_SORT_COLUMNS`` in application/pagination.py.
+    _SORT_COLUMNS: ClassVar[dict[str, InstrumentedAttribute[Any]]] = {  # pyright: ignore[reportExplicitAny]  # InstrumentedAttribute is generic over heterogeneous column types
+        "title": DBTrack.title,
+        "artists_text": DBTrack.artists_text,
+        "created_at": DBTrack.created_at,
+        "duration_ms": DBTrack.duration_ms,
     }
 
     def __init__(self, session: AsyncSession) -> None:
@@ -118,7 +129,7 @@ class TrackRepository(BaseRepository[DBTrack, Track]):
         if not track.title or not track.artists:
             raise ValueError("Track must have title and artists")
 
-        values: dict[str, Any] = {
+        values: dict[str, object] = {
             "title": track.title,
             "artists": {"names": [artist.name for artist in track.artists]},
             "album": track.album,
@@ -227,8 +238,10 @@ class TrackRepository(BaseRepository[DBTrack, Track]):
         sort_by: str = "title_asc",
         limit: int = 50,
         offset: int = 0,
-        # Keyset pagination: seek after this (sort_value, id) pair
-        after_value: Any = None,
+        # Keyset pagination: seek after this (sort_value, id) pair.
+        # ``after_value`` is opaque-to-store, comparable-to-use — its concrete
+        # type depends on which sort column is active (str/int/datetime).
+        after_value: object = None,
         after_id: UUID | None = None,
         include_total: bool = True,
     ) -> TrackListingPage:
@@ -239,7 +252,7 @@ class TrackRepository(BaseRepository[DBTrack, Track]):
         for O(1) seeking regardless of page depth. Falls back to OFFSET otherwise.
         """
         # Build base filter conditions — always scoped to user
-        conditions: list[Any] = [DBTrack.user_id == user_id]
+        conditions: list[ColumnElement[bool]] = [DBTrack.user_id == user_id]
 
         if query:
             pattern = f"%{query}%"
@@ -288,9 +301,14 @@ class TrackRepository(BaseRepository[DBTrack, Track]):
                     tracks=[], total=0, liked_track_ids=set(), next_page_key=None
                 )
 
-        # Resolve sort column from canonical mapping (sort_by validated upstream)
-        sort_field, sort_dir = TRACK_SORT_COLUMNS.get(sort_by, ("title", "asc"))  # type: ignore[arg-type]
-        col = getattr(DBTrack, sort_field)
+        # Resolve sort column from canonical mapping (sort_by validated upstream).
+        # TRACK_SORT_COLUMNS is keyed by Literal TrackSortBy; sort_by arrives as
+        # str at this layer (validated by the API/CLI before reaching here).
+        sort_field, sort_dir = cast(
+            "tuple[str, str]",
+            TRACK_SORT_COLUMNS.get(sort_by, ("title", "asc")),  # pyright: ignore[reportCallIssue, reportArgumentType]  # boundary str → Literal narrowing
+        )
+        col = self._SORT_COLUMNS[sort_field]
 
         # Build data query with sorting, pagination, and relationship loading
         data_stmt = self.select()
@@ -324,11 +342,14 @@ class TrackRepository(BaseRepository[DBTrack, Track]):
 
         tracks = [await self.mapper.to_domain(db_track) for db_track in db_tracks]
 
-        # Build next-page keyset from the last row
-        next_page_key: tuple[Any, UUID] | None = None
+        # Build next-page keyset from the last row. The cursor value type
+        # depends on which column is active — see TrackListingPage docstring.
+        next_page_key: tuple[str | int | datetime | None, UUID] | None = None
         if db_tracks and len(db_tracks) == limit:
             last_db = db_tracks[-1]
-            next_page_key = (getattr(last_db, sort_field), last_db.id)
+            cursor_value = cast("object", getattr(last_db, sort_field))
+            if cursor_value is None or isinstance(cursor_value, (str, int, datetime)):
+                next_page_key = (cursor_value, last_db.id)
 
         # Get authoritative liked status from track_likes table for returned tracks
         track_ids = [t.id for t in tracks]
@@ -724,41 +745,49 @@ class TrackRepository(BaseRepository[DBTrack, Track]):
         self, *, user_id: str
     ) -> list[dict[str, object]]:
         """Find tracks with identical (title, first_artist, album) tuples."""
-        first_artist = DBTrack.artists["names"][0].as_string()
+        # JSONB array index → text via .as_string() — SQLAlchemy stub returns Any.
+        first_artist = DBTrack.artists["names"][0].as_string()  # pyright: ignore[reportAny]  # SQLAlchemy JSONB index/cast
         stmt = (
             select(
                 DBTrack.title,
-                first_artist.label("first_artist"),
+                first_artist.label("first_artist"),  # pyright: ignore[reportAny]
                 DBTrack.album,
                 func.count().label("count"),
-                func.string_agg(cast(DBTrack.id, String), ",").label("track_ids"),
+                func.string_agg(sa_cast(DBTrack.id, String), ",").label("track_ids"),
             )
             .where(
                 DBTrack.user_id == user_id,
                 DBTrack.title.isnot(None),
                 func.length(DBTrack.title) > 0,
             )
-            .group_by(DBTrack.title, first_artist, DBTrack.album)
+            .group_by(DBTrack.title, first_artist, DBTrack.album)  # pyright: ignore[reportAny]
             .having(func.count() > 1)
         )
         result = await self.session.execute(stmt)
-        return [
-            {
-                "title": row.title,
-                "artist": row.first_artist,
-                "album": row.album,
-                "count": row.count,
-                "track_ids": [UUID(x) for x in str(row.track_ids).split(",")],
-            }
-            for row in result.all()
-        ]
+        # SQLAlchemy Row[tuple] field access loses column-level typing.
+        duplicates: list[dict[str, object]] = []
+        for row in result.all():
+            duplicates.append(  # noqa: PERF401
+                {
+                    "title": row.title,  # pyright: ignore[reportAny]  # SQLAlchemy Row dynamic field
+                    "artist": row.first_artist,  # pyright: ignore[reportAny]
+                    "album": row.album,  # pyright: ignore[reportAny]
+                    "count": row.count,
+                    "track_ids": [UUID(x) for x in str(row.track_ids).split(",")],  # pyright: ignore[reportAny]
+                }
+            )
+        return duplicates
 
     # -------------------------------------------------------------------------
     # PRIVATE HELPERS
     # -------------------------------------------------------------------------
 
     async def _find_tracks_by_unique_column(
-        self, column: Any, values: list[str], *, user_id: str
+        self,
+        column: InstrumentedAttribute[Any],  # pyright: ignore[reportExplicitAny]  # InstrumentedAttribute is generic over column type
+        values: list[str],
+        *,
+        user_id: str,
     ) -> dict[str, Track]:
         """Batch lookup tracks by a unique string column (ISRC, MBID, etc.)."""
         if not values:
@@ -769,9 +798,11 @@ class TrackRepository(BaseRepository[DBTrack, Track]):
         result = await self.session.execute(stmt)
         rows = result.scalars().all()
 
+        # InstrumentedAttribute.key is str at runtime; stubs declare it str | None.
+        col_key: str = column.key or ""
         matched: dict[str, Track] = {}
         for db_track in rows:
-            key = getattr(db_track, column.key)
+            key = cast("str | None", getattr(db_track, col_key))
             if key:
                 matched[key] = await self.mapper.to_domain(db_track)
         return matched

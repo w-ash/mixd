@@ -145,6 +145,3 @@ RUN_STATUS_CANCELLED  # WorkflowConstants — part of status lifecycle
 # --- Settings fields (used by Pydantic model construction) ---
 database  # MixdSettings nested model field
 last_sync_started_at  # DB model column on DBPlaylistLink
-
-# --- Use case validators (used in attrs field(validator=...)) ---
-tracklist_or_connector_playlist  # attrs validator

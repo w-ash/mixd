@@ -6,12 +6,9 @@ non-metric enrichment — boolean flags, status checks, etc. — that require di
 connector access and custom persistence logic.
 """
 
-# pyright: reportAny=false
-# Legitimate Any: Prefect context dicts
-
 from collections.abc import Mapping
 from datetime import UTC, datetime
-from typing import Any, cast
+from typing import cast
 from uuid import UUID
 
 from src.application.connector_protocols import LibraryContainsConnector
@@ -27,7 +24,7 @@ logger = get_logger(__name__)
 
 
 async def enrich_spotify_liked_status(
-    context: dict[str, Any],
+    context: dict[str, object],
     config: Mapping[str, JsonValue],  # noqa: ARG001
 ) -> NodeResult:
     """Check which tracks are saved in the user's Spotify library.

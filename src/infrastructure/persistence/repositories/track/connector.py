@@ -4,12 +4,11 @@ Handles track ingestion from Spotify, Last.fm, and other music platforms, maps e
 tracks to canonical internal tracks, and stores service-specific metadata and IDs.
 """
 
-# pyright: reportAny=false
 # Lazy import cycle (mapper.py → this module for set_primary_mapping) handled by TYPE_CHECKING guard
 
 from collections.abc import Mapping, Sequence
 from datetime import UTC, datetime, timedelta
-from typing import Any, cast, override
+from typing import Any, cast, overload, override
 from uuid import UUID
 
 from attrs import define
@@ -20,6 +19,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from src.config import get_logger
 from src.config.constants import BusinessLimits, DenormalizedTrackColumns, MappingOrigin
 from src.domain.entities import Artist, ConnectorTrack, Track, TrackMapping
+from src.domain.entities.shared import JsonDict, JsonValue
 from src.domain.exceptions import NotFoundError
 from src.domain.repositories.interfaces import FullMappingInfo, MatchMethodStatRow
 from src.infrastructure.persistence.database.db_models import (
@@ -33,7 +33,10 @@ from src.infrastructure.persistence.repositories.base_repo import (
 )
 from src.infrastructure.persistence.repositories.repo_decorator import db_operation
 from src.infrastructure.persistence.repositories.track.core import TrackRepository
-from src.infrastructure.persistence.repositories.track.mapper import TrackMapper
+from src.infrastructure.persistence.repositories.track.mapper import (
+    TrackMapper,
+    extract_db_artist_names,
+)
 
 logger = get_logger(__name__)
 
@@ -58,7 +61,7 @@ class ConnectorTrackMapper(BaseModelMapper[DBConnectorTrack, ConnectorTrack]):
             connector_name=db_model.connector_name,
             connector_track_identifier=db_model.connector_track_identifier,
             title=db_model.title,
-            artists=[Artist(name=n) for n in db_model.artists.get("names", [])],
+            artists=[Artist(name=n) for n in extract_db_artist_names(db_model.artists)],
             album=db_model.album,
             duration_ms=db_model.duration_ms,
             release_date=db_model.release_date,
@@ -107,12 +110,11 @@ class TrackMappingMapper(BaseModelMapper[DBTrackMapping, TrackMapping]):
     async def to_domain(db_model: DBTrackMapping) -> TrackMapping:
         """Convert database mapping to TrackMapping domain entity.
 
-        Args:
-            db_model: Database mapping instance.
-
-        Returns:
-            TrackMapping domain entity with confidence scores.
+        ``confidence_evidence`` widens from ``JsonDict`` (DB column) to
+        ``dict[str, object]`` (entity field) — JsonValue ⊂ object is safe;
+        the entity is frozen so no mutation risk. Cast avoids a copy.
         """
+        evidence = cast("dict[str, object] | None", db_model.confidence_evidence)
         return TrackMapping(
             id=db_model.id,
             user_id=db_model.user_id,
@@ -121,7 +123,7 @@ class TrackMappingMapper(BaseModelMapper[DBTrackMapping, TrackMapping]):
             connector_name=db_model.connector_name,
             match_method=db_model.match_method,
             confidence=db_model.confidence,
-            confidence_evidence=db_model.confidence_evidence,
+            confidence_evidence=evidence,
             origin=db_model.origin,
             is_primary=db_model.is_primary,
         )
@@ -212,8 +214,8 @@ class TrackConnectorRepository:
         duration_ms: int | None,
         release_date: datetime | None,
         isrc: str | None,
-        raw_metadata: Mapping[str, Any] | None,
-    ) -> dict[str, Any]:
+        raw_metadata: Mapping[str, object] | None,
+    ) -> dict[str, object]:
         """Build a dict suitable for bulk_upsert of connector tracks."""
         return {
             "connector_name": connector_name,
@@ -234,7 +236,7 @@ class TrackConnectorRepository:
     async def ensure_connector_tracks(
         self,
         connector_name: str,
-        tracks_data: Sequence[Mapping[str, Any]],
+        tracks_data: Sequence[Mapping[str, object]],
     ) -> dict[tuple[str, str], UUID]:
         """Ensure connector_tracks rows exist, returning a (name, external_id) -> UUID map.
 
@@ -244,7 +246,7 @@ class TrackConnectorRepository:
             return {}
 
         now = datetime.now(UTC)
-        upsert_data = [
+        upsert_data: list[dict[str, object]] = [
             {
                 "connector_name": connector_name,
                 "connector_track_identifier": td["connector_id"],
@@ -299,20 +301,29 @@ class TrackConnectorRepository:
             )
         )
         result = await self.session.execute(stmt)
-        return [
-            FullMappingInfo(
-                mapping_id=row.id,
-                connector_name=row.connector_name,
-                connector_track_id=row.connector_track_identifier,
-                match_method=row.match_method,
-                confidence=row.confidence,
-                origin=row.origin,
-                is_primary=row.is_primary,
-                connector_track_title=row.title,
-                connector_track_artists=row.artists.get("names", []),
+        rows: list[FullMappingInfo] = []
+        # SQLAlchemy Row[tuple] field access loses column-level typing in stubs.
+        for row in result.fetchall():
+            raw_artists: object = row.artists  # pyright: ignore[reportAny]  # SQLAlchemy Row dynamic field
+            artist_names = (
+                extract_db_artist_names(cast("JsonDict", raw_artists))
+                if isinstance(raw_artists, dict)
+                else []
             )
-            for row in result.fetchall()
-        ]
+            rows.append(
+                FullMappingInfo(
+                    mapping_id=row.id,  # pyright: ignore[reportAny]
+                    connector_name=row.connector_name,  # pyright: ignore[reportAny]
+                    connector_track_id=row.connector_track_identifier,  # pyright: ignore[reportAny]
+                    match_method=row.match_method,  # pyright: ignore[reportAny]
+                    confidence=row.confidence,  # pyright: ignore[reportAny]
+                    origin=row.origin,  # pyright: ignore[reportAny]
+                    is_primary=row.is_primary,  # pyright: ignore[reportAny]
+                    connector_track_title=row.title,  # pyright: ignore[reportAny]
+                    connector_track_artists=artist_names,
+                )
+            )
+        return rows
 
     @db_operation("find_tracks_by_connectors")
     async def find_tracks_by_connectors(
@@ -383,7 +394,13 @@ class TrackConnectorRepository:
         self,
         mappings: list[
             tuple[
-                Track, str, str, str, int, dict[str, Any] | None, dict[str, Any] | None
+                Track,
+                str,
+                str,
+                str,
+                int,
+                dict[str, object] | None,
+                dict[str, object] | None,
             ]
         ],
     ) -> list[Track]:
@@ -400,11 +417,11 @@ class TrackConnectorRepository:
             return []
 
         # Collect all connector tracks for bulk insert
-        connector_tracks_data: list[dict[str, Any]] = []
+        connector_tracks_data: list[dict[str, object]] = []
         connector_track_keys: set[tuple[str, str]] = set()
-        mapping_data: list[dict[str, Any]] = []
+        mapping_data: list[dict[str, object]] = []
         updated_tracks: list[Track] = []
-        track_metadata_map: dict[UUID, dict[str, Any]] = {}
+        track_metadata_map: dict[UUID, JsonDict] = {}
 
         # Prepare all necessary data
         for (
@@ -434,13 +451,17 @@ class TrackConnectorRepository:
                 )
                 connector_track_keys.add(connector_track_key)
 
-            # Create updated track object
+            # Create updated track object. Application-layer metadata is
+            # ``dict[str, object]`` (mixed types) but Track stores
+            # ``Mapping[str, JsonValue]`` — cast at the boundary; the values
+            # are JSON-serialisable at runtime, the type system can't see it.
             updated_track = track.with_connector_track_id(connector, connector_id)
             if metadata:
+                json_metadata = cast("JsonDict", metadata)
                 updated_track = updated_track.with_connector_metadata(
-                    connector, metadata
+                    connector, json_metadata
                 )
-                track_metadata_map.setdefault(track.id, {})[connector] = metadata
+                track_metadata_map.setdefault(track.id, {})[connector] = json_metadata
 
             updated_tracks.append(updated_track)
 
@@ -522,8 +543,8 @@ class TrackConnectorRepository:
         connector_id: str,
         match_method: str,
         confidence: int,
-        metadata: dict[str, Any] | None = None,
-        confidence_evidence: dict[str, Any] | None = None,
+        metadata: dict[str, object] | None = None,
+        confidence_evidence: dict[str, object] | None = None,
         auto_set_primary: bool = True,
         origin: str = "automatic",
     ) -> Track:
@@ -602,7 +623,7 @@ class TrackConnectorRepository:
             tracks_by_identifier[identifier].append(track)
 
         # 1. Bulk upsert connector tracks (one per unique identifier, last occurrence wins)
-        connector_track_data: list[dict[str, Any]] = [
+        connector_track_data: list[dict[str, object]] = [
             self._build_connector_track_dict(
                 connector,
                 identifier,
@@ -639,8 +660,8 @@ class TrackConnectorRepository:
 
         # 4. Create or find domain tracks
         domain_tracks: list[Track] = []
-        track_mappings_data: list[dict[str, Any]] = []
-        metrics_data: list[tuple[UUID, Mapping[str, Any]]] = []
+        track_mappings_data: list[dict[str, object]] = []
+        metrics_data: list[tuple[UUID, Mapping[str, JsonValue]]] = []
 
         # Process each unique connector track identifier
         for connector_track_identifier, track_group in tracks_by_identifier.items():
@@ -815,7 +836,7 @@ class TrackConnectorRepository:
     ) -> TrackMapping:
         """Move a mapping to a different canonical track."""
         result = cast(
-            CursorResult[Any],
+            CursorResult[Any],  # pyright: ignore[reportExplicitAny]  # CursorResult is generic over row tuple shape
             await self.session.execute(
                 update(DBTrackMapping)
                 .where(DBTrackMapping.id == mapping_id)
@@ -946,10 +967,26 @@ class TrackConnectorRepository:
         result = await self.session.execute(stmt)
 
         mappings_dict: dict[UUID, dict[str, str]] = {}
-        for track_id, conn_name, conn_id in result:
-            mappings_dict.setdefault(track_id, {})[conn_name] = conn_id
+        for track_id, conn_name, conn_id in result:  # pyright: ignore[reportAny]  # SQLAlchemy Row tuple unpack
+            mappings_dict.setdefault(track_id, {})[conn_name] = conn_id  # pyright: ignore[reportAny]  # tuple element type
 
         return mappings_dict
+
+    @overload
+    async def get_connector_metadata(
+        self,
+        track_ids: list[UUID],
+        connector: str,
+        metadata_field: None = ...,
+    ) -> dict[UUID, JsonDict]: ...
+
+    @overload
+    async def get_connector_metadata(
+        self,
+        track_ids: list[UUID],
+        connector: str,
+        metadata_field: str,
+    ) -> dict[UUID, JsonValue]: ...
 
     @db_operation("get_connector_metadata")
     async def get_connector_metadata(
@@ -957,8 +994,11 @@ class TrackConnectorRepository:
         track_ids: list[UUID],
         connector: str,
         metadata_field: str | None = None,
-    ) -> dict[UUID, dict[str, Any] | Any]:
+    ) -> dict[UUID, JsonDict] | dict[UUID, JsonValue]:
         """Get service-specific metadata for tracks.
+
+        When ``metadata_field`` is None, returns the full metadata dict per track.
+        When ``metadata_field`` is set, extracts that specific field's value.
 
         Args:
             track_ids: Internal track IDs to lookup.
@@ -992,15 +1032,20 @@ class TrackConnectorRepository:
         # Execute and build response
         result = await self.session.execute(stmt)
 
-        # Return either the specific field or all metadata
+        # SQLAlchemy Row[tuple] field access loses column-level typing in stubs.
+        # Return either the specific field or all metadata.
         if metadata_field:
-            return {
-                track_id: metadata.get(metadata_field)
-                for track_id, metadata in result
-                if metadata and metadata_field in metadata
-            }
-        else:
-            return {track_id: metadata for track_id, metadata in result if metadata}
+            field_result: dict[UUID, JsonValue] = {}
+            for track_id, metadata in result:  # pyright: ignore[reportAny]  # SQLAlchemy Row tuple unpack
+                if metadata and metadata_field in metadata:
+                    field_result[track_id] = metadata.get(metadata_field)  # pyright: ignore[reportAny]
+            return field_result
+        full_result: dict[UUID, JsonDict] = {
+            track_id: metadata
+            for track_id, metadata in result  # pyright: ignore[reportAny]  # SQLAlchemy Row tuple unpack
+            if metadata
+        }
+        return full_result
 
     @db_operation("ensure_primary_mapping")
     async def ensure_primary_mapping(
@@ -1067,7 +1112,7 @@ class TrackConnectorRepository:
 
             # Step 2: Set the specified mapping as primary
             result = cast(
-                CursorResult[Any],
+                CursorResult[Any],  # pyright: ignore[reportExplicitAny]  # CursorResult is generic over row tuple shape
                 await self.session.execute(
                     update(DBTrackMapping)
                     .where(
@@ -1143,7 +1188,7 @@ class TrackConnectorRepository:
             if ct_db_id is None:
                 continue
             result = cast(
-                CursorResult[Any],
+                CursorResult[Any],  # pyright: ignore[reportExplicitAny]  # CursorResult is generic over row tuple shape
                 await self.session.execute(
                     update(DBTrackMapping)
                     .where(
@@ -1163,26 +1208,30 @@ class TrackConnectorRepository:
     @db_operation("find_multiple_primary_violations")
     async def find_multiple_primary_violations(self) -> list[dict[str, object]]:
         """Find tracks with more than one primary mapping per connector."""
+        # InstrumentedAttribute.cast() returns Any in SQLAlchemy stubs; the result
+        # flows into func.sum() which loses arg typing. Suppress at the call sites.
+        is_primary_int = DBTrackMapping.is_primary.cast(Integer)  # pyright: ignore[reportAny]
         stmt = (
             select(
                 DBTrackMapping.track_id,
                 DBTrackMapping.connector_name,
-                func.sum(DBTrackMapping.is_primary.cast(Integer)).label(
-                    "primary_count"
-                ),
+                func.sum(is_primary_int).label("primary_count"),  # pyright: ignore[reportAny]
             )
             .group_by(DBTrackMapping.track_id, DBTrackMapping.connector_name)
-            .having(func.sum(DBTrackMapping.is_primary.cast(Integer)) > 1)
+            .having(func.sum(is_primary_int) > 1)  # pyright: ignore[reportAny]
         )
         result = await self.session.execute(stmt)
-        return [
-            {
-                "track_id": row.track_id,
-                "connector_name": row.connector_name,
-                "primary_count": row.primary_count,
-            }
-            for row in result.all()
-        ]
+        # SQLAlchemy Row[tuple] field access loses column-level typing.
+        violations: list[dict[str, object]] = []
+        for row in result.all():
+            violations.append(  # noqa: PERF401
+                {
+                    "track_id": row.track_id,  # pyright: ignore[reportAny]  # SQLAlchemy Row dynamic field
+                    "connector_name": row.connector_name,  # pyright: ignore[reportAny]
+                    "primary_count": row.primary_count,  # pyright: ignore[reportAny]
+                }
+            )
+        return violations
 
     @db_operation("find_missing_primary_violations")
     async def find_missing_primary_violations(self) -> list[dict[str, object]]:
@@ -1207,14 +1256,17 @@ class TrackConnectorRepository:
             .group_by(DBTrackMapping.track_id, DBTrackMapping.connector_name)
         )
         result = await self.session.execute(stmt)
-        return [
-            {
-                "track_id": row.track_id,
-                "connector_name": row.connector_name,
-                "mapping_count": row.mapping_count,
-            }
-            for row in result.all()
-        ]
+        # SQLAlchemy Row[tuple] field access loses column-level typing.
+        missing: list[dict[str, object]] = []
+        for row in result.all():
+            missing.append(  # noqa: PERF401
+                {
+                    "track_id": row.track_id,  # pyright: ignore[reportAny]  # SQLAlchemy Row dynamic field
+                    "connector_name": row.connector_name,  # pyright: ignore[reportAny]
+                    "mapping_count": row.mapping_count,  # pyright: ignore[reportAny]
+                }
+            )
+        return missing
 
     @db_operation("count_orphaned_connector_tracks")
     async def count_orphaned_connector_tracks(self) -> int:
@@ -1253,15 +1305,19 @@ class TrackConnectorRepository:
             .order_by(func.count().desc())
         )
         result = await self.session.execute(stmt)
-        return [
-            MatchMethodStatRow(
-                match_method=str(row.match_method),
-                connector_name=str(row.connector_name),
-                total_count=int(row.total_count),
-                recent_count=int(row.recent_count),
-                avg_confidence=round(float(row.avg_confidence), 1),
-                min_confidence=int(row.min_confidence),
-                max_confidence=int(row.max_confidence),
+        # SQLAlchemy Row[tuple] aggregate columns (func.count, func.avg, ...) lose
+        # field-level typing in stubs — coerce explicitly with str/int/float.
+        stat_rows: list[MatchMethodStatRow] = []
+        for row in result.fetchall():
+            stat_rows.append(  # noqa: PERF401
+                MatchMethodStatRow(
+                    match_method=str(row.match_method),  # pyright: ignore[reportAny]  # SQLAlchemy Row dynamic field
+                    connector_name=str(row.connector_name),  # pyright: ignore[reportAny]
+                    total_count=int(row.total_count),  # pyright: ignore[reportAny]
+                    recent_count=int(row.recent_count),  # pyright: ignore[reportAny]
+                    avg_confidence=round(float(row.avg_confidence), 1),  # pyright: ignore[reportAny]
+                    min_confidence=int(row.min_confidence),  # pyright: ignore[reportAny]
+                    max_confidence=int(row.max_confidence),  # pyright: ignore[reportAny]
+                )
             )
-            for row in result.fetchall()
-        ]
+        return stat_rows

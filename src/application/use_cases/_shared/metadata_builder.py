@@ -10,6 +10,7 @@ from typing import Self
 from attrs import define, field
 
 from src.application.use_cases._shared.playlist_results import ApiMetadata
+from src.domain.entities.shared import JsonValue
 
 
 @define(slots=True)
@@ -19,7 +20,7 @@ class PlaylistMetadataBuilder:
     Uses Python 3.13+ Self type for proper method chaining type hints.
     """
 
-    _metadata: dict[str, object] = field(factory=dict)
+    _metadata: dict[str, JsonValue] = field(factory=dict)
 
     def with_timestamp(self, timestamp: datetime | None = None) -> Self:
         """Add timestamp to metadata (defaults to now)."""
@@ -59,7 +60,7 @@ class PlaylistMetadataBuilder:
         self._metadata["validation_passed"] = passed
         return self
 
-    def with_custom(self, key: str, value: object) -> Self:
+    def with_custom(self, key: str, value: JsonValue) -> Self:
         """Add custom metadata field."""
         self._metadata[key] = value
         return self
@@ -68,7 +69,7 @@ class PlaylistMetadataBuilder:
         """Build final metadata dictionary."""
         return self._metadata  # pyright: ignore[reportReturnType] — builder accumulates any keys; ApiMetadata is total=False
 
-    def build_dict(self) -> dict[str, object]:
+    def build_dict(self) -> dict[str, JsonValue]:
         """Build as plain dictionary for cases where TypedDict isn't needed."""
         return self._metadata.copy()
 
@@ -80,7 +81,7 @@ def build_api_execution_metadata(
     tracks_removed: int,
     tracks_moved: int,
     validation_passed: bool,
-) -> ApiMetadata:
+) -> dict[str, JsonValue]:
     """Build metadata for successful API execution.
 
     Convenience function for common API execution metadata pattern.
@@ -92,5 +93,5 @@ def build_api_execution_metadata(
         .with_snapshot(snapshot_id)
         .with_track_counts(tracks_added, tracks_removed, tracks_moved)
         .with_validation(validation_passed)
-        .build()
+        .build_dict()
     )

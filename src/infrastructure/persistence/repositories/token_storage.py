@@ -54,7 +54,9 @@ def _row_to_stored_token(row: DBOAuthToken) -> StoredToken:
     if row.account_name:
         token["account_name"] = row.account_name
     if row.extra_data:
-        token["extra_data"] = row.extra_data
+        # JsonDict → dict[str, object]: invariance requires cast, but the data
+        # is never mutated (read-only token load path). No copy needed.
+        token["extra_data"] = cast("dict[str, object]", row.extra_data)
     return token
 
 

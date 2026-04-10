@@ -1,21 +1,21 @@
 """Track mappers for converting between domain and database models."""
 
-# pyright: reportAny=false
-# Legitimate Any: JSON columns, dynamic relationship traversal
-
-from collections.abc import Awaitable, Callable
-from typing import Any, cast, override
+from collections.abc import Awaitable, Callable, Mapping, Sequence
+from typing import cast, override
 from uuid import UUID
 
 from attrs import define
 from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy.orm.interfaces import ORMOption
 
 from src.config import get_logger
 from src.domain.entities import Artist, Track, ensure_utc
 from src.domain.entities.playlist import DB_PSEUDO_CONNECTOR
+from src.domain.entities.shared import JsonDict, JsonValue
 from src.infrastructure.persistence.database.db_models import (
     DBConnectorTrack,
     DBTrack,
+    DBTrackLike,
     DBTrackMapping,
 )
 from src.infrastructure.persistence.repositories.base_repo import BaseModelMapper
@@ -37,6 +37,43 @@ def _get_promote_primary_fn(session: AsyncSession) -> PromotePrimaryMappingFn:
     )
 
     return TrackConnectorRepository(session).set_primary_mapping
+
+
+def extract_db_artist_names(artists: JsonDict) -> list[str]:
+    """Extract artist names from a JSONB ``{"names": [...]}`` column.
+
+    The column type is ``JsonDict`` (``dict[str, JsonValue]``) so the inner
+    ``"names"`` value is a ``JsonValue`` union — narrow defensively before
+    iterating. Used by both ``TrackMapper`` and ``ConnectorTrackMapper``.
+    """
+    names_value = artists.get("names")
+    if isinstance(names_value, list):
+        return [n for n in names_value if isinstance(n, str)]
+    return []
+
+
+def _safe_loaded_list[T](
+    state: object, attr_name: str, item_type: type[T], never_set: object
+) -> list[T]:
+    """Read an eager-loaded relationship list from a SQLAlchemy InstanceState.
+
+    SQLAlchemy's ``state.attrs.get(name).loaded_value`` is untyped (Any) in
+    stubs — this helper narrows it through ``isinstance`` so callers get a
+    typed ``list[T]``. Returns an empty list if the relationship is not loaded
+    (NEVER_SET sentinel) or if the loaded value isn't a list of the expected
+    type. This is the boundary where greenlet-unsafe relationship access
+    becomes safe.
+    """
+    attrs = cast("Mapping[str, object]", getattr(state, "attrs", {}))
+    attr_obj = attrs.get(attr_name)
+    if attr_obj is None:
+        return []
+    loaded = cast("object", getattr(attr_obj, "loaded_value", never_set))
+    if loaded is never_set or not isinstance(loaded, list):
+        return []
+    return [
+        item for item in cast("list[object]", loaded) if isinstance(item, item_type)
+    ]
 
 
 @define(frozen=True, slots=True)
@@ -80,30 +117,22 @@ class TrackMapper(BaseModelMapper[DBTrack, Track]):
                 When provided and a connector has no primary mapping, the mapper
                 delegates the write to the caller via this callback.
         """
-        # Use only eager-loaded relationships to avoid greenlet issues
-        # Check if relationships are loaded to prevent lazy loading that causes MissingGreenlet
+        # Use only eager-loaded relationships to avoid greenlet issues.
+        # SQLAlchemy state.attrs.get(...).loaded_value is untyped in stubs —
+        # narrow defensively before iterating.
         from sqlalchemy import inspect
         from sqlalchemy.orm.base import NEVER_SET
 
         state = inspect(db_model)
 
-        # Safely access mappings - only if already loaded
-        active_mappings: list[DBTrackMapping] = []
-        mappings_attr = state.attrs.get("mappings")
-        if mappings_attr and mappings_attr.loaded_value is not NEVER_SET:
-            mappings: list[DBTrackMapping] = mappings_attr.loaded_value or []
-            active_mappings = mappings
-
-        # Safely access likes - only if already loaded
-        active_likes: list[Any] = []
-        likes_attr = state.attrs.get("likes")
-        if likes_attr and likes_attr.loaded_value is not NEVER_SET:
-            likes: list[Any] = likes_attr.loaded_value or []
-            active_likes = likes
+        active_mappings = _safe_loaded_list(
+            state, "mappings", DBTrackMapping, NEVER_SET
+        )
+        active_likes = _safe_loaded_list(state, "likes", DBTrackLike, NEVER_SET)
 
         # Build connector IDs and metadata
         connector_track_identifiers: dict[str, str] = {}
-        connector_metadata: dict[str, Any] = {}
+        connector_metadata: dict[str, JsonDict] = {}
 
         # Add internal ID first
         if db_model.id:
@@ -190,7 +219,7 @@ class TrackMapper(BaseModelMapper[DBTrack, Track]):
             version=db_model.version,
             user_id=db_model.user_id,
             title=db_model.title,
-            artists=[Artist(name=name) for name in db_model.artists["names"]],
+            artists=[Artist(name=n) for n in extract_db_artist_names(db_model.artists)],
             album=db_model.album,
             duration_ms=db_model.duration_ms,
             release_date=ensure_utc(db_model.release_date),
@@ -259,22 +288,15 @@ class TrackMapper(BaseModelMapper[DBTrack, Track]):
 
     @staticmethod
     async def _get_connector_track(mapping: DBTrackMapping) -> DBConnectorTrack | None:
-        """Safely get connector track using AsyncAttrs.awaitable_attrs pattern.
-
-        Uses a single, consistent approach with SQLAlchemy 2.0 awaitable_attrs.
-        """
+        """Safely get connector track using AsyncAttrs.awaitable_attrs pattern."""
         try:
-            # Standard SQLAlchemy 2.0 pattern: use awaitable_attrs consistently
             if hasattr(mapping, "awaitable_attrs"):
-                return await mapping.awaitable_attrs.connector_track
-            # Simple fallback for non-AsyncAttrs models
-            elif hasattr(mapping, "connector_track"):
+                return await mapping.awaitable_attrs.connector_track  # pyright: ignore[reportAny]  # AsyncAttrs dynamic
+            if hasattr(mapping, "connector_track"):
                 return mapping.connector_track
         except Exception as e:
             logger.debug(f"Error getting connector track: {e}")
-            return None
-        else:
-            return None
+        return None
 
     @override
     @staticmethod
@@ -294,35 +316,29 @@ class TrackMapper(BaseModelMapper[DBTrack, Track]):
         )
 
     @staticmethod
-    def extract_artist_names(artists_data: list[Any]) -> list[str]:
-        """Extract artist names from mixed format artist data."""
-        if not artists_data:
-            return []
+    def extract_artist_names(
+        artists_data: Sequence[str | Mapping[str, JsonValue]],
+    ) -> list[str]:
+        """Extract artist names from mixed format artist data.
 
-        if all(isinstance(a, str) for a in artists_data):
-            return [a for a in artists_data if isinstance(a, str)]
-        elif all(isinstance(a, dict) for a in artists_data):
-            typed_dicts: list[dict[str, Any]] = [
-                a for a in artists_data if isinstance(a, dict)
-            ]
-            return [a.get("name", "") for a in typed_dicts if a.get("name")]
-
-        # Mixed format - extract what we can
+        External APIs deliver artist lists in two shapes: a list of bare strings
+        (Last.fm) or a list of ``{"name": str, ...}`` dicts (Spotify). This
+        helper accepts either and yields the canonical name list.
+        """
         names: list[str] = []
         for artist in artists_data:
-            if isinstance(artist, str) and artist:
-                names.append(artist)
-            elif isinstance(artist, dict):
-                typed_artist = cast(dict[str, Any], artist)
-                name_val = typed_artist.get("name")
-                if isinstance(name_val, str) and name_val:
-                    names.append(name_val)
-
+            if isinstance(artist, str):
+                if artist:
+                    names.append(artist)
+                continue
+            name_val = artist.get("name")
+            if isinstance(name_val, str) and name_val:
+                names.append(name_val)
         return names
 
     @override
     @staticmethod
-    def get_default_relationships() -> list[Any]:
+    def get_default_relationships() -> list[ORMOption]:
         """Get default relationships using SQLAlchemy 2.1 best practices."""
         from sqlalchemy.orm import selectinload
 

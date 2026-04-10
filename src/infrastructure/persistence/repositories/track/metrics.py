@@ -1,10 +1,7 @@
 """Track metrics repository for tracking play counts and other metrics."""
 
-# pyright: reportAny=false
-# Legitimate Any: metric value types from aggregation queries
-
 from datetime import UTC, datetime, timedelta
-from typing import Any, override
+from typing import override
 from uuid import UUID
 
 from attrs import define
@@ -12,6 +9,7 @@ from sqlalchemy.dialects.postgresql import insert as pg_insert
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.config import get_logger
+from src.domain.entities.track import TrackMetric
 from src.infrastructure.persistence.database.db_models import DBTrackMetric
 from src.infrastructure.persistence.repositories.base_repo import (
     BaseModelMapper,
@@ -23,45 +21,38 @@ logger = get_logger(__name__)
 
 
 @define(frozen=True, slots=True)
-class TrackMetricMapper(BaseModelMapper[DBTrackMetric, dict[str, Any]]):
-    """Mapper for track metrics to simple dictionaries."""
+class TrackMetricMapper(BaseModelMapper[DBTrackMetric, TrackMetric]):
+    """Bidirectional mapper between ``DBTrackMetric`` and the ``TrackMetric``
+    domain entity.
+    """
 
     @override
     @staticmethod
-    async def to_domain(db_model: DBTrackMetric) -> dict[str, Any]:
-        """Convert DB metric to dictionary representation."""
-        return {
-            "id": db_model.id,
-            "track_id": db_model.track_id,
-            "connector_name": db_model.connector_name,
-            "metric_type": db_model.metric_type,
-            "value": db_model.value,
-            "collected_at": db_model.collected_at,
-        }
-
-    @override
-    @staticmethod
-    def to_db(domain_model: dict[str, Any]) -> DBTrackMetric:
-        """Convert dictionary to DB model."""
-        return DBTrackMetric(
-            track_id=domain_model.get("track_id"),
-            connector_name=domain_model.get("connector_name"),
-            metric_type=domain_model.get("metric_type"),
-            value=domain_model.get("value"),
-            collected_at=domain_model.get("collected_at", datetime.now(UTC)),
+    async def to_domain(db_model: DBTrackMetric) -> TrackMetric:
+        """Convert DB metric to domain entity."""
+        return TrackMetric(
+            id=db_model.id,
+            track_id=db_model.track_id,
+            connector_name=db_model.connector_name,
+            metric_type=db_model.metric_type,
+            value=db_model.value,
+            collected_at=db_model.collected_at,
         )
 
     @override
     @staticmethod
-    def get_default_relationships() -> list[str]:
-        """Get default relationships to load.
+    def to_db(domain_model: TrackMetric) -> DBTrackMetric:
+        """Convert domain entity to DB model."""
+        return DBTrackMetric(
+            track_id=domain_model.track_id,
+            connector_name=domain_model.connector_name,
+            metric_type=domain_model.metric_type,
+            value=domain_model.value,
+            collected_at=domain_model.collected_at,
+        )
 
-        DBTrackMetric has no relationships that need eager loading.
-        """
-        return []
 
-
-class TrackMetricsRepository(BaseRepository[DBTrackMetric, dict[str, Any]]):
+class TrackMetricsRepository(BaseRepository[DBTrackMetric, TrackMetric]):
     """Repository for track metrics operations."""
 
     def __init__(self, session: AsyncSession) -> None:
@@ -84,7 +75,12 @@ class TrackMetricsRepository(BaseRepository[DBTrackMetric, dict[str, Any]]):
         connector: str = "lastfm",
         max_age_hours: float = 24.0,
     ) -> dict[UUID, float]:
-        """Get cached metrics with TTL awareness."""
+        """Get cached metrics with TTL awareness.
+
+        Returns the flattened ``{track_id: value}`` shape that callers expect —
+        the underlying ``TrackMetric`` entity carries the full record but the
+        application layer only needs the per-track value here.
+        """
         if not track_ids:
             return {}
 
@@ -105,9 +101,8 @@ class TrackMetricsRepository(BaseRepository[DBTrackMetric, dict[str, Any]]):
         # Process results - only keep most recent value per track
         metrics_dict: dict[UUID, float] = {}
         for metric in result:
-            track_id = metric["track_id"]
-            if track_id not in metrics_dict:
-                metrics_dict[track_id] = metric["value"]
+            if metric.track_id not in metrics_dict:
+                metrics_dict[metric.track_id] = metric.value
 
         logger.debug(
             f"Retrieved {len(metrics_dict)}/{len(track_ids)} track metrics",
@@ -118,40 +113,29 @@ class TrackMetricsRepository(BaseRepository[DBTrackMetric, dict[str, Any]]):
         return metrics_dict
 
     @db_operation("save_track_metrics")
-    async def save_track_metrics(
-        self,
-        metrics: list[tuple[UUID, str, str, float]],
-    ) -> int:
+    async def save_track_metrics(self, metrics: list[TrackMetric]) -> int:
         """Save metrics for multiple tracks efficiently with PostgreSQL upsert.
 
-        Prevents duplicate metrics by using the unique constraint defined in
-        the DBTrackMetric model and PostgreSQL's ON CONFLICT clause to perform
-        an update when a constraint violation occurs.
+        Takes ``TrackMetric`` entities (symmetric with ``to_domain``) and
+        bulk-upserts via ``pg_insert(...).on_conflict_do_update``. The unique
+        constraint on ``(track_id, connector_name, metric_type)`` collapses
+        repeated samples to the most recent value.
         """
         if not metrics:
             return 0
 
-        now = datetime.now(UTC)
-
-        # Prepare values for insertion
-        values: list[dict[str, Any]] = []
-        for i, metric_tuple in enumerate(metrics):
-            try:
-                track_id, connector_name, metric_type, value = metric_tuple
-                values.append({
-                    "track_id": track_id,
-                    "connector_name": connector_name,
-                    "metric_type": metric_type,
-                    "value": value,
-                    "collected_at": now,
-                })
-            except ValueError as e:
-                logger.error(
-                    f"Error unpacking metric tuple at index {i}: {metric_tuple} "
-                    + f"(length: {len(metric_tuple) if hasattr(metric_tuple, '__len__') else 'unknown'}). "
-                    + f"Expected 4 values, got {len(metric_tuple) if hasattr(metric_tuple, '__len__') else 'unknown'}: {e}"
-                )
-                continue
+        # Build per-row insert dicts directly from entity fields. dict[str, object]
+        # at the boundary keeps SQLAlchemy happy without leaking Any.
+        values: list[dict[str, object]] = [
+            {
+                "track_id": m.track_id,
+                "connector_name": m.connector_name,
+                "metric_type": m.metric_type,
+                "value": m.value,
+                "collected_at": m.collected_at,
+            }
+            for m in metrics
+        ]
 
         # PostgreSQL upsert via ON CONFLICT
         stmt = pg_insert(DBTrackMetric).values(values)

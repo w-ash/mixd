@@ -177,3 +177,111 @@ class TestExceptionPropagation:
                 uow=mock_uow,
                 connector_instance=mock_connector,
             )
+
+
+class TestExtractMetricsFromMetadataCoercion:
+    """Regression tests for the bool→float coercion at the extraction boundary.
+
+    The DB column is ``float``. Bool values arriving via JSON metadata are
+    coerced to 1.0/0.0 explicitly (guarding ``bool`` BEFORE ``int`` because
+    ``isinstance(True, int)`` is ``True``). Without this, a ``True`` would
+    silently round-trip to 1.0 in the database.
+    """
+
+    def test_bool_true_coerces_to_1_point_0(self):
+        from uuid import uuid4
+
+        from src.application.services.metrics_application_service import (
+            MetricsApplicationService,
+        )
+
+        track_id = uuid4()
+        result = MetricsApplicationService._extract_metrics_from_metadata(
+            fresh_metadata={track_id: {"playcount": True}},
+            metric_names=["playcount"],
+            field_map={"playcount": "playcount"},
+            connector="lastfm",
+        )
+        assert len(result) == 1
+        assert result[0].value == 1.0
+        assert type(result[0].value) is float
+        assert result[0].track_id == track_id
+        assert result[0].connector_name == "lastfm"
+        assert result[0].metric_type == "playcount"
+
+    def test_bool_false_coerces_to_0_point_0(self):
+        from uuid import uuid4
+
+        from src.application.services.metrics_application_service import (
+            MetricsApplicationService,
+        )
+
+        result = MetricsApplicationService._extract_metrics_from_metadata(
+            fresh_metadata={uuid4(): {"playcount": False}},
+            metric_names=["playcount"],
+            field_map={"playcount": "playcount"},
+            connector="lastfm",
+        )
+        assert result[0].value == 0.0
+        assert type(result[0].value) is float
+
+    def test_int_preserved_as_float(self):
+        from uuid import uuid4
+
+        from src.application.services.metrics_application_service import (
+            MetricsApplicationService,
+        )
+
+        result = MetricsApplicationService._extract_metrics_from_metadata(
+            fresh_metadata={uuid4(): {"playcount": 42}},
+            metric_names=["playcount"],
+            field_map={"playcount": "playcount"},
+            connector="lastfm",
+        )
+        assert result[0].value == 42.0
+        assert type(result[0].value) is float
+
+    def test_string_numeric_coerces(self):
+        from uuid import uuid4
+
+        from src.application.services.metrics_application_service import (
+            MetricsApplicationService,
+        )
+
+        result = MetricsApplicationService._extract_metrics_from_metadata(
+            fresh_metadata={uuid4(): {"playcount": "12.5"}},
+            metric_names=["playcount"],
+            field_map={"playcount": "playcount"},
+            connector="lastfm",
+        )
+        assert result[0].value == 12.5
+
+    def test_unconvertible_string_skipped(self):
+        from uuid import uuid4
+
+        from src.application.services.metrics_application_service import (
+            MetricsApplicationService,
+        )
+
+        result = MetricsApplicationService._extract_metrics_from_metadata(
+            fresh_metadata={uuid4(): {"playcount": "not-a-number"}},
+            metric_names=["playcount"],
+            field_map={"playcount": "playcount"},
+            connector="lastfm",
+        )
+        assert result == []
+
+    def test_none_value_skipped(self):
+        from uuid import uuid4
+
+        from src.application.services.metrics_application_service import (
+            MetricsApplicationService,
+        )
+
+        result = MetricsApplicationService._extract_metrics_from_metadata(
+            fresh_metadata={uuid4(): {"playcount": None}},
+            metric_names=["playcount"],
+            field_map={"playcount": "playcount"},
+            connector="lastfm",
+        )
+        assert result == []

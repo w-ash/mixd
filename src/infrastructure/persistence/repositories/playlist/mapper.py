@@ -198,18 +198,31 @@ class ConnectorPlaylistMapper(BaseModelMapper[DBConnectorPlaylist, ConnectorPlay
     @override
     @staticmethod
     async def to_domain(db_model: DBConnectorPlaylist) -> ConnectorPlaylist:
-        """Convert DB connector playlist to domain model."""
-        # Convert stored JSON items to ConnectorPlaylistItem objects
-        items = [
-            ConnectorPlaylistItem(
-                connector_track_identifier=item_dict["connector_track_identifier"],
-                position=item_dict["position"],
-                added_at=item_dict.get("added_at"),
-                added_by_id=item_dict.get("added_by_id"),
-                extras=item_dict.get("extras", {}),
+        """Convert DB connector playlist to domain model.
+
+        ``db_model.items`` is a JSONB list[JsonDict] — each entry has the shape
+        ``{"connector_track_identifier": str, "position": int, "added_at": str|None,
+        "added_by_id": str|None, "extras": dict}``. JsonValue is a union, so each
+        field is narrowed defensively at the boundary.
+        """
+        items: list[ConnectorPlaylistItem] = []
+        for item_dict in db_model.items:
+            ident = item_dict.get("connector_track_identifier")
+            position = item_dict.get("position")
+            if not isinstance(ident, str) or not isinstance(position, int):
+                continue
+            added_at = item_dict.get("added_at")
+            added_by_id = item_dict.get("added_by_id")
+            extras = item_dict.get("extras", {})
+            items.append(
+                ConnectorPlaylistItem(
+                    connector_track_identifier=ident,
+                    position=position,
+                    added_at=added_at if isinstance(added_at, str) else None,
+                    added_by_id=added_by_id if isinstance(added_by_id, str) else None,
+                    extras=extras if isinstance(extras, dict) else {},
+                )
             )
-            for item_dict in db_model.items
-        ]
 
         return ConnectorPlaylist(
             id=db_model.id,

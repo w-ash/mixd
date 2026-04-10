@@ -104,13 +104,13 @@ TRANSFORM_REGISTRY: dict[str, dict[str, TransformEntry]] = {
         ),
         "by_tracks": _tf(
             lambda ctx, cfg: exclude_tracks(
-                ctx.data[cfg_str(cfg, "exclusion_source")]["tracklist"].tracks,
+                ctx.collect_tracklists([cfg_str(cfg, "exclusion_source")])[0].tracks,
             ),
             "Excludes tracks from input that are present in exclusion source",
         ),
         "by_artists": _tf(
             lambda ctx, cfg: exclude_artists(
-                ctx.data[cfg_str(cfg, "exclusion_source")]["tracklist"].tracks,
+                ctx.collect_tracklists([cfg_str(cfg, "exclusion_source")])[0].tracks,
                 cfg_bool(cfg, "exclude_all_artists"),
             ),
             "Excludes tracks whose artists appear in exclusion source",

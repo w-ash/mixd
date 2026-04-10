@@ -10,9 +10,6 @@ The decorators help enforce a consistent pattern for all database operations
 while reducing repetitive error-handling code.
 """
 
-# pyright: reportAny=false
-# Legitimate Any: decorator signatures wrapping heterogeneous repository methods
-
 from collections.abc import Callable, Coroutine
 import functools
 import inspect
@@ -52,8 +49,8 @@ def db_operation(operation_name: str | None = None):
     """
 
     def decorator[**P, T](
-        func: Callable[P, Coroutine[Any, Any, T]],
-    ) -> Callable[P, Coroutine[Any, Any, T]]:
+        func: Callable[P, Coroutine[Any, Any, T]],  # pyright: ignore[reportExplicitAny]  # stdlib Coroutine[Any, Any, T] async return idiom
+    ) -> Callable[P, Coroutine[Any, Any, T]]:  # pyright: ignore[reportExplicitAny]  # stdlib Coroutine[Any, Any, T] async return idiom
         """Wrap an async repository method with logging, timing and error handling."""
         func_name = operation_name or func.__name__
 
@@ -208,7 +205,7 @@ def db_operation(operation_name: str | None = None):
     return decorator
 
 
-def _build_log_context(kwargs: dict[str, Any]) -> dict[str, Any]:
+def _build_log_context(kwargs: dict[str, object]) -> dict[str, object]:
     """Build a context dictionary for logging from function kwargs.
 
     Args:
@@ -218,14 +215,14 @@ def _build_log_context(kwargs: dict[str, Any]) -> dict[str, Any]:
         A dictionary with loggable values extracted from kwargs
     """
     # Extract ID parameters specifically
-    id_params = {
+    id_params: dict[str, object] = {
         k: v
         for k, v in kwargs.items()
         if k.endswith("_id") and isinstance(v, int | str)
     }
 
     # Extract other simple values for logging context
-    simple_params = {
+    simple_params: dict[str, object] = {
         k: v
         for k, v in kwargs.items()
         if (
@@ -236,6 +233,6 @@ def _build_log_context(kwargs: dict[str, Any]) -> dict[str, Any]:
     }
 
     # Combine contexts with IDs taking precedence
-    context = {**simple_params, **id_params}
+    context: dict[str, object] = {**simple_params, **id_params}
 
     return context

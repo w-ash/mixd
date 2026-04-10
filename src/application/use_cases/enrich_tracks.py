@@ -7,9 +7,7 @@ Supports two types of enrichment:
 Processes multiple tracks efficiently in batches.
 """
 
-# Legitimate Any: use case results, OperationResult metadata, metric values
-
-from typing import TYPE_CHECKING, Any, Literal, Never, cast
+from typing import TYPE_CHECKING, Literal, Never, cast
 from uuid import UUID
 
 if TYPE_CHECKING:
@@ -25,6 +23,7 @@ from src.application.services.metrics_application_service import (
 from src.application.utilities.timing import ExecutionTimer
 from src.config import get_logger
 from src.config.logging import logging_context
+from src.domain.entities.shared import MetricValue
 from src.domain.entities.track import TrackList
 from src.domain.repositories import UnitOfWorkProtocol
 
@@ -55,7 +54,7 @@ class EnrichmentConfig:
     period_days: int | None = None
 
     # Common options
-    additional_options: dict[str, Any] = field(factory=dict)
+    additional_options: dict[str, object] = field(factory=dict)
 
     def __attrs_post_init__(self) -> None:
         """Validate enrichment configuration."""
@@ -107,7 +106,7 @@ class EnrichTracksResult:
     """
 
     enriched_tracklist: TrackList
-    metrics_added: dict[str, dict[UUID, Any]]
+    metrics_added: dict[str, dict[UUID, MetricValue]]
     track_count: int
     enriched_count: int
     execution_time_ms: int = 0
@@ -239,7 +238,7 @@ class EnrichTracksUseCase:
         user_id: str,
         progress_manager: AsyncProgressManager | None = None,
         parent_operation_id: str | None = None,
-    ) -> tuple[TrackList, dict[str, dict[UUID, Any]]]:
+    ) -> tuple[TrackList, dict[str, dict[UUID, MetricValue]]]:
         """Enriches tracks with metadata from external APIs.
 
         Fetches track metrics from Spotify, Last.fm, or MusicBrainz using cache-first
@@ -324,7 +323,7 @@ class EnrichTracksUseCase:
         uow: UnitOfWorkProtocol,
         *,
         user_id: str,
-    ) -> tuple[TrackList, dict[str, dict[UUID, Any]]]:
+    ) -> tuple[TrackList, dict[str, dict[UUID, MetricValue]]]:
         """Enriches tracks with play history data from database.
 
         Adds play counts, last played dates, and optionally period-specific
@@ -369,15 +368,22 @@ class EnrichTracksUseCase:
             logger.info("No play data found for tracks")
             return tracklist, {}
 
-        # Merge with existing metrics
+        # Merge with existing metrics. PlayAggregationResult is a TypedDict with
+        # heterogeneous value types (dict[UUID, int], dict[UUID, datetime | None]) —
+        # all subtypes of MetricValue, but dict invariance forces an explicit widening.
+        widened_play_metrics = cast(
+            dict[str, dict[UUID, MetricValue]], dict(play_metrics)
+        )
         current_metrics = tracklist.metadata.get("metrics", {})
-        combined_metrics = {**current_metrics, **play_metrics}
+        combined_metrics: dict[str, dict[UUID, MetricValue]] = {
+            **current_metrics,
+            **widened_play_metrics,
+        }
 
         logger.info(f"Enriched with {len(play_metrics)} play metric types")
         enriched_tracklist = tracklist.with_metadata("metrics", combined_metrics)
 
-        # Widen TypedDict → plain dict to match return type shared with external metadata path
-        return enriched_tracklist, cast(dict[str, dict[UUID, Any]], play_metrics)
+        return enriched_tracklist, widened_play_metrics
 
     async def _ensure_track_identities(
         self,

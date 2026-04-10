@@ -87,7 +87,7 @@ async def _update_node_status(
     input_track_count: int | None = None,
     output_track_count: int | None = None,
     error_message: str | None = None,
-    node_details: dict[str, Any] | None = None,
+    node_details: dict[str, object] | None = None,
 ) -> None:
     """Concrete NodeStatusUpdater for CLI."""
     async with _run_repo_session() as repo:

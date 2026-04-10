@@ -5,12 +5,11 @@ implementing efficient path-based access to nested domain structures.
 This module decouples data access patterns from orchestration logic.
 """
 
-# pyright: reportAny=false
-
-from typing import Any, cast
+from typing import cast
 
 from attrs import define
 
+from src.application.services.progress_manager import AsyncProgressManager
 from src.config import get_logger
 from src.config.constants import NodeType, Phase
 from src.domain.entities.track import TrackList
@@ -27,9 +26,9 @@ type TaskID = str
 class NodeContext:
     """Context extractor with path-based access."""
 
-    data: dict[str, Any]
+    data: dict[str, object]
 
-    def __init__(self, data: dict[str, Any]) -> None:
+    def __init__(self, data: dict[str, object]) -> None:
         object.__setattr__(self, "data", data)
 
     def extract_tracklist(self) -> TrackList:
@@ -131,6 +130,21 @@ class NodeContext:
 
         return registry.get_connector(connector_name)
 
+    def get_upstream_task_ids(self) -> list[str]:
+        """Extract upstream task IDs for combiner nodes."""
+        raw = self.data.get("upstream_task_ids")
+        return cast(list[str], raw) if isinstance(raw, list) else []
+
+    def get_progress_manager(self) -> AsyncProgressManager | None:
+        """Extract progress manager (None outside SSE context)."""
+        pm = self.data.get("progress_manager")
+        return pm if isinstance(pm, AsyncProgressManager) else None
+
+    def get_workflow_operation_id(self) -> str | None:
+        """Extract workflow operation ID (None outside SSE context)."""
+        op_id = self.data.get("workflow_operation_id")
+        return op_id if isinstance(op_id, str) else None
+
     async def emit_phase_progress(
         self, phase: Phase, node_type: NodeType, message: str
     ) -> None:
@@ -139,8 +153,8 @@ class NodeContext:
         No-ops silently when progress_manager or workflow_operation_id are absent
         (e.g., CLI runs without SSE progress).
         """
-        progress_manager = self.data.get("progress_manager")
-        workflow_operation_id = self.data.get("workflow_operation_id")
+        progress_manager = self.get_progress_manager()
+        workflow_operation_id = self.get_workflow_operation_id()
         if progress_manager and workflow_operation_id:
             from src.application.services.sub_operation_progress import (
                 emit_phase_progress,

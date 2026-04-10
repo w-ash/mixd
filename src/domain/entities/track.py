@@ -5,7 +5,7 @@ Pure track representations and related value objects with zero external dependen
 
 from collections.abc import Mapping
 from datetime import datetime
-from typing import Any, Literal, Self, TypedDict, cast
+from typing import Literal, Self, TypedDict, cast, overload
 from uuid import UUID, uuid7
 
 import attrs
@@ -246,10 +246,32 @@ class TrackList:
             metadata=self.metadata.copy(),
         )
 
+    @overload
     def with_metadata(
-        self, key: MetadataKey, value: Any
-    ) -> Self:  # Value type depends on key; cast to TrackListMetadata validates
-        """Add metadata to the TrackList."""
+        self, key: Literal["metrics"], value: dict[str, dict[UUID, MetricValue]]
+    ) -> Self: ...
+    @overload
+    def with_metadata(
+        self, key: Literal["fresh_metric_ids"], value: dict[str, list[UUID]]
+    ) -> Self: ...
+    @overload
+    def with_metadata(
+        self, key: Literal["track_sources"], value: dict[UUID, dict[str, str]]
+    ) -> Self: ...
+    @overload
+    def with_metadata(self, key: Literal["operation"], value: str) -> Self: ...
+    @overload
+    def with_metadata(self, key: Literal["source_count"], value: int) -> Self: ...
+    @overload
+    def with_metadata(
+        self, key: Literal["source_playlist_name"], value: str
+    ) -> Self: ...
+    @overload
+    def with_metadata(
+        self, key: Literal["added_at_dates"], value: dict[UUID, str]
+    ) -> Self: ...
+    def with_metadata(self, key: MetadataKey, value: object) -> Self:
+        """Add metadata to the TrackList. Overloads enforce key-specific value types."""
         new_metadata: dict[str, object] = dict(self.metadata)
         new_metadata[key] = value
         return self.__class__(

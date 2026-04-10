@@ -1,8 +1,5 @@
 """Mapper between DBWorkflowRun/DBWorkflowRunNode and domain entities."""
 
-# pyright: reportAny=false
-# Legitimate Any: JSON column produces heterogeneous dicts
-
 from typing import cast
 from uuid import UUID
 

@@ -5,10 +5,8 @@ service (Spotify, Apple Music), then optimistically syncs the result to the inte
 database. Manages transaction boundaries and provides detailed operation results.
 """
 
-# pyright: reportAny=false
-
 from datetime import UTC, datetime
-from typing import Any, TypedDict
+from typing import TypedDict
 
 import attrs
 from attrs import define, field
@@ -25,6 +23,7 @@ from src.application.utilities.timing import ExecutionTimer
 from src.config import get_logger
 from src.domain.entities import ConnectorPlaylist, utc_now_factory
 from src.domain.entities.playlist import Playlist
+from src.domain.entities.shared import JsonValue
 from src.domain.entities.track import TrackList
 from src.domain.repositories import UnitOfWorkProtocol
 
@@ -37,7 +36,7 @@ class _ExternalPlaylistResult(TypedDict):
     success: bool
     playlist_id: str | None
     # External API metadata is genuinely dynamic (varies by connector)
-    metadata: dict[str, Any]
+    metadata: dict[str, JsonValue]
     errors: list[str]
 
 
@@ -55,7 +54,7 @@ class CreateConnectorPlaylistCommand:
     connector: str = field(validator=non_empty_string)  # "spotify", "apple_music", etc.
     playlist_description: str = "Created by Mixd"
     create_internal_playlist: bool = True  # Whether to also create internal playlist
-    metadata: dict[str, object] = field(factory=dict)
+    metadata: dict[str, JsonValue] = field(factory=dict)
     timestamp: datetime = field(factory=utc_now_factory)
 
 
@@ -73,7 +72,7 @@ class CreateConnectorPlaylistResult:
     tracks_created: int = 0
     execution_time_ms: int = 0
     # External API metadata is genuinely dynamic (varies by connector)
-    external_metadata: dict[str, Any] = field(factory=dict)
+    external_metadata: dict[str, JsonValue] = field(factory=dict)
     errors: list[str] = field(factory=list)
 
     @property
@@ -235,7 +234,7 @@ class CreateConnectorPlaylistUseCase:
             )
 
             # Build metadata response (format may vary by connector)
-            external_metadata: dict[str, Any] = {
+            external_metadata: dict[str, JsonValue] = {
                 "created_at": datetime.now(UTC).isoformat(),
                 "owner": "mixd",
                 "public": False,  # Default for privacy
@@ -243,20 +242,6 @@ class CreateConnectorPlaylistUseCase:
                 "follower_count": 0,
                 "external_url": f"https://{command.connector}.com/playlist/{external_playlist_id}",
             }
-
-            # Add connector-specific metadata if available (optional method)
-            get_metadata = getattr(connector, "get_playlist_metadata", None)
-            if get_metadata is not None:
-                try:
-                    connector_metadata = await get_metadata(external_playlist_id)
-                    external_metadata.update(connector_metadata)
-                except Exception as metadata_error:
-                    logger.warning(
-                        "Failed to retrieve connector metadata",
-                        connector=command.connector,
-                        playlist_id=external_playlist_id,
-                        error=str(metadata_error),
-                    )
 
             logger.info(
                 "External playlist created successfully",
@@ -290,7 +275,7 @@ class CreateConnectorPlaylistUseCase:
         self,
         command: CreateConnectorPlaylistCommand,
         external_playlist_id: str,
-        external_metadata: dict[str, Any],
+        external_metadata: dict[str, JsonValue],
         uow: UnitOfWorkProtocol,
     ) -> Playlist:
         """Creates internal playlist based on successful external playlist creation.
@@ -367,7 +352,7 @@ class CreateConnectorPlaylistUseCase:
         self,
         saved_playlist: Playlist,
         external_playlist_id: str,
-        external_metadata: dict[str, Any],
+        external_metadata: dict[str, JsonValue],
         command: CreateConnectorPlaylistCommand,
         uow: UnitOfWorkProtocol,
     ) -> None:
@@ -392,17 +377,29 @@ class CreateConnectorPlaylistUseCase:
                 connector_name=command.connector,
             )
 
+            # Narrow JsonValue → typed fields for ConnectorPlaylist constructor
+            owner = external_metadata.get("owner")
+            owner_id = external_metadata.get("owner_id")
+            is_public = external_metadata.get("public", False)
+            collaborative = external_metadata.get("collaborative", False)
+            follower_count = external_metadata.get("follower_count")
+
             # Create ConnectorPlaylist domain model
             connector_playlist = ConnectorPlaylist(
                 connector_name=command.connector,
                 connector_playlist_identifier=external_playlist_id,
                 name=command.playlist_name,
                 description=command.playlist_description,
-                owner=external_metadata.get("owner"),
-                owner_id=external_metadata.get("owner_id"),
-                is_public=external_metadata.get("public", False),
-                collaborative=external_metadata.get("collaborative", False),
-                follower_count=external_metadata.get("follower_count", 0),
+                owner=owner if isinstance(owner, str) else None,
+                owner_id=owner_id if isinstance(owner_id, str) else None,
+                is_public=is_public if isinstance(is_public, bool) else False,
+                collaborative=collaborative
+                if isinstance(collaborative, bool)
+                else False,
+                follower_count=follower_count
+                if isinstance(follower_count, int)
+                and not isinstance(follower_count, bool)
+                else None,
                 items=items,
                 raw_metadata=external_metadata,
                 last_updated=datetime.now(UTC),

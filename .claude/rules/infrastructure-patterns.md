@@ -15,3 +15,5 @@ paths:
 - Retry policies integrate with `ErrorClassifier` — retries "temporary"/"rate_limit", fails fast on "permanent"
 - **Connectors must implement `aclose()`** delegating to their `_client.aclose()` — `DatabaseUnitOfWork.__aexit__` calls it to clean up cached httpx pools
 - **Validate at the boundary**: every connector defines Pydantic models in `models.py` — validate raw `dict[str, Any]` → typed model at the API client. Only typed models flow downstream into conversion/matching layers.
+- **Three-layer type propagation**: When a domain entity field changes type, update in order: (1) domain protocol interface, (2) infrastructure concrete implementation, (3) local variable declarations. Pyright resolves types through protocols, not implementations — updating only the concrete class doesn't fix callers.
+- **Covariant at boundaries**: Function parameters accepting lists from callers should use `Sequence[T]` not `list[T]` (list is invariant, Sequence is covariant). Same for `Mapping` vs `dict` for read-only dict params.

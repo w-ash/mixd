@@ -11,12 +11,9 @@ and enable comprehensive testing through dependency injection. They aggregate
 into WorkflowContext, which provides unified access to all workflow dependencies.
 """
 
-# pyright: reportAny=false
-# Legitimate Any: NodeStatusUpdater node_details, NodeResult node_details
-
 from collections.abc import Awaitable, Callable
 from datetime import datetime
-from typing import Any, NotRequired, Protocol, TypedDict, Unpack
+from typing import NotRequired, Protocol, TypedDict, Unpack
 from uuid import UUID
 
 from src.application.use_cases.create_canonical_playlist import (
@@ -249,7 +246,7 @@ class NodeStatusUpdater(Protocol):
         input_track_count: int | None = None,
         output_track_count: int | None = None,
         error_message: str | None = None,
-        node_details: dict[str, Any] | None = None,
+        node_details: dict[str, object] | None = None,
     ) -> None: ...
 
 
@@ -262,7 +259,7 @@ class NodeResult(TypedDict):
     """
 
     tracklist: TrackList
-    node_details: NotRequired[dict[str, Any]]
+    node_details: NotRequired[dict[str, object]]
 
 
 class NodeExecutionObserver(Protocol):

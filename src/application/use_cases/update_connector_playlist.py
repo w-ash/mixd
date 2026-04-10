@@ -4,14 +4,13 @@ Calculates minimal track changes (add/remove/move) to update external service
 playlists while preserving track timestamps and minimizing API calls.
 """
 
-# pyright: reportAny=false
-# Legitimate Any: use case results, OperationResult metadata, metric values
-
 from datetime import UTC, datetime
-from typing import Any, TypedDict
+from typing import TypedDict
 from uuid import UUID
 
+import attrs
 from attrs import define, field
+from attrs.validators import and_, ge, instance_of, le
 
 from src.application.connector_protocols import PlaylistConnector
 from src.application.use_cases._shared import (
@@ -27,13 +26,13 @@ from src.application.use_cases._shared import (
 from src.application.use_cases._shared.command_validators import (
     api_batch_size_validator,
     non_empty_string,
-    positive_int_in_range,
     validate_tracklist_has_tracks,
 )
 from src.application.utilities.timing import ExecutionTimer
 from src.config import get_logger
 from src.domain.entities import ConnectorPlaylist, utc_now_factory
 from src.domain.entities.playlist import ConnectorPlaylistItem, Playlist
+from src.domain.entities.shared import JsonValue
 from src.domain.entities.track import TrackList
 from src.domain.playlist import PlaylistOperation, calculate_playlist_diff
 from src.domain.playlist.execution_strategies import get_execution_strategy
@@ -48,7 +47,7 @@ class _ConnectorApiResult(TypedDict):
 
     success: bool
     api_calls_made: int
-    metadata: dict[str, Any]
+    metadata: dict[str, JsonValue]
     error: str | None
     partial_success: bool
 
@@ -76,9 +75,9 @@ class UpdateConnectorPlaylistCommand:
     )
     max_api_calls: int = field(
         default=50,
-        validator=positive_int_in_range(1, 1000),
+        validator=and_(instance_of(int), ge(1), le(1000)),
     )
-    metadata: dict[str, Any] = field(factory=dict)
+    metadata: dict[str, JsonValue] = field(factory=dict)
     timestamp: datetime = field(factory=utc_now_factory)
 
 
@@ -99,12 +98,14 @@ class UpdateConnectorPlaylistResult:
     tracks_moved: int = 0
     execution_time_ms: int = 0
     confidence_score: float = 1.0
-    external_metadata: dict[str, Any] = field(factory=dict)  # e.g., Spotify snapshot_id
-    playlist_changes: dict[str, Any] = field(factory=dict)
+    external_metadata: dict[str, JsonValue] = field(
+        factory=dict
+    )  # e.g., Spotify snapshot_id
+    playlist_changes: dict[str, object] = field(factory=dict)
     errors: list[str] = field(factory=list)
 
     @property
-    def operation_summary(self) -> dict[str, Any]:
+    def operation_summary(self) -> dict[str, JsonValue]:
         """Dictionary of operation counts and success status for logging."""
         return {
             "playlist_id": self.playlist_id,
@@ -246,7 +247,7 @@ class UpdateConnectorPlaylistUseCase:
         current_playlist: Playlist,
         command: UpdateConnectorPlaylistCommand,
         updated_items: list[ConnectorPlaylistItem],
-        enhanced_metadata: dict[str, Any],
+        enhanced_metadata: dict[str, JsonValue],
         existing_id: UUID | None,
     ) -> ConnectorPlaylist:
         """Build ConnectorPlaylist entity for database update.
@@ -261,18 +262,18 @@ class UpdateConnectorPlaylistUseCase:
         Returns:
             ConnectorPlaylist ready for persistence
         """
-        kwargs: dict[str, Any] = {
-            "connector_name": command.connector,
-            "connector_playlist_identifier": command.playlist_id,
-            "name": current_playlist.name,
-            "description": current_playlist.description,
-            "items": updated_items,
-            "raw_metadata": enhanced_metadata,
-            "last_updated": datetime.now(UTC),
-        }
+        playlist_entity = ConnectorPlaylist(
+            connector_name=command.connector,
+            connector_playlist_identifier=command.playlist_id,
+            name=current_playlist.name,
+            description=current_playlist.description,
+            items=updated_items,
+            raw_metadata=enhanced_metadata,
+            last_updated=datetime.now(UTC),
+        )
         if existing_id is not None:
-            kwargs["id"] = existing_id
-        return ConnectorPlaylist(**kwargs)
+            playlist_entity = attrs.evolve(playlist_entity, id=existing_id)
+        return playlist_entity
 
     async def _persist_connector_playlist_with_verification(
         self,
@@ -374,7 +375,7 @@ class UpdateConnectorPlaylistUseCase:
                 )
 
                 # Step 2: Handle track updates based on mode
-                playlist_changes: dict[str, Any] = {}
+                playlist_changes: dict[str, object] = {}
 
                 if command.append_mode:
                     # Append mode: add new tracks to end of external playlist
@@ -524,7 +525,7 @@ class UpdateConnectorPlaylistUseCase:
         sequenced_operations: list[PlaylistOperation],
         command: UpdateConnectorPlaylistCommand,
         uow: UnitOfWorkProtocol,
-    ) -> tuple[int, dict[str, Any], int, int, int, int]:
+    ) -> tuple[int, dict[str, JsonValue], int, int, int, int]:
         """Executes playlist changes on external service then updates local database.
 
         Applies remove/add/move operations to Spotify/Apple Music playlist via API,
@@ -649,7 +650,7 @@ class UpdateConnectorPlaylistUseCase:
             return _ConnectorApiResult(
                 success=operation_success,
                 api_calls_made=len(sequenced_operations),
-                metadata=dict(external_metadata),
+                metadata=external_metadata,
                 error=None,
                 partial_success=partial_success,
             )
@@ -679,7 +680,7 @@ class UpdateConnectorPlaylistUseCase:
         self,
         current_playlist: Playlist,
         applied_operations: list[PlaylistOperation],
-        api_metadata: dict[str, Any],
+        api_metadata: dict[str, JsonValue],
         command: UpdateConnectorPlaylistCommand,
         uow: UnitOfWorkProtocol,
     ) -> None:
@@ -927,12 +928,22 @@ class UpdateConnectorPlaylistUseCase:
             connector_playlist_id
         )
 
+        # Narrow values from external metadata dict to str
+        name_raw = connector_playlist_info.get("name")
+        description_raw = connector_playlist_info.get("description")
+        playlist_name = (
+            name_raw if isinstance(name_raw, str) else f"{connector.title()} Playlist"
+        )
+        playlist_description = (
+            description_raw
+            if isinstance(description_raw, str)
+            else f"Imported from {connector.title()}"
+        )
+
         # Create canonical playlist with fetched info
         canonical_playlist = Playlist(
-            name=connector_playlist_info.get("name", f"{connector.title()} Playlist"),
-            description=connector_playlist_info.get(
-                "description", f"Imported from {connector.title()}"
-            ),
+            name=playlist_name,
+            description=playlist_description,
             entries=[],  # Will be populated separately if needed
             connector_playlist_identifiers={connector: connector_playlist_id},
             metadata={

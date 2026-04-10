@@ -5,12 +5,12 @@ single-row reads/upserts with no multi-table transaction needs.
 """
 
 from datetime import UTC, datetime
-from typing import Any
 
 from sqlalchemy import select
 from sqlalchemy.dialects.postgresql import insert as pg_insert
 
 from src.config import get_logger
+from src.domain.entities.shared import JsonDict
 from src.infrastructure.persistence.database.db_models import DBUserSettings
 
 logger = get_logger(__name__)
@@ -19,7 +19,7 @@ logger = get_logger(__name__)
 _DEFAULT_KEY = "default"
 
 # Settings returned when no row exists yet
-_DEFAULT_SETTINGS: dict[str, Any] = {"theme_mode": "dark"}
+_DEFAULT_SETTINGS: JsonDict = {"theme_mode": "dark"}
 
 
 class UserSettingsRepository:
@@ -29,7 +29,7 @@ class UserSettingsRepository:
     as DatabaseTokenStorage).
     """
 
-    async def load(self, user_id: str) -> dict[str, Any]:
+    async def load(self, user_id: str) -> JsonDict:
         from src.infrastructure.persistence.database.db_connection import get_session
 
         async with get_session() as session:
@@ -44,14 +44,14 @@ class UserSettingsRepository:
                 return dict(_DEFAULT_SETTINGS)
             return {**_DEFAULT_SETTINGS, **row}
 
-    async def patch(self, updates: dict[str, Any], user_id: str) -> dict[str, Any]:
+    async def patch(self, updates: JsonDict, user_id: str) -> JsonDict:
         from src.infrastructure.persistence.database.db_connection import get_session
 
         now = datetime.now(UTC)
 
         # Load current settings to merge
         current = await self.load(user_id)
-        merged = {**current, **updates}
+        merged: JsonDict = {**current, **updates}
 
         stmt = (
             pg_insert(DBUserSettings)

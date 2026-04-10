@@ -5,10 +5,8 @@ music services. Supports both append mode (add tracks to end) and differential
 mode (calculate minimal changes to transform current playlist into target state).
 """
 
-# Legitimate Any: use case results, OperationResult metadata, metric values
-
 from datetime import UTC, datetime
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING
 
 from attrs import define, evolve, field
 
@@ -66,7 +64,7 @@ class UpdateCanonicalPlaylistCommand:
     append_mode: bool = False  # True=append, False=overwrite with preservation
     playlist_name: str | None = None  # Optional name update
     playlist_description: str | None = None  # Optional description update
-    metadata: dict[str, Any] = field(factory=dict)
+    metadata: dict[str, object] = field(factory=dict)
     timestamp: datetime = field(factory=utc_now_factory)
 
 
@@ -90,7 +88,7 @@ class UpdateCanonicalPlaylistResult:
     operation_counts: OperationCounts = field(factory=OperationCounts)
     execution_time_ms: int = 0
     confidence_score: float = 1.0
-    playlist_changes: dict[str, Any] = field(factory=dict)
+    playlist_changes: dict[str, object] = field(factory=dict)
     errors: list[str] = field(factory=list)
 
     @property
@@ -104,7 +102,7 @@ class UpdateCanonicalPlaylistResult:
         return self.operation_counts.removed
 
     @property
-    def operation_summary(self) -> dict[str, Any]:
+    def operation_summary(self) -> dict[str, object]:
         """Returns operation statistics as a dictionary."""
         return {
             "playlist_id": self.playlist.id,
@@ -213,7 +211,7 @@ class UpdateCanonicalPlaylistUseCase:
                     )
 
                 # Step 3: Handle track updates based on mode
-                playlist_changes: dict[str, Any] = {}
+                playlist_changes: dict[str, object] = {}
                 if command.append_mode:
                     # Append mode: add new tracks to end of existing playlist
                     (
