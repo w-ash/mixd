@@ -2,7 +2,7 @@
 
 **Goal**: Eliminate all `reportExplicitAny` warnings by replacing lazy `Any` usage with precise types. Not just type changes — architectural improvements that make the code more DRY, compact, and type-safe.
 
-**Progress**: 448 → 157 (291 eliminated, 65%). 0 errors. Domain layer complete. Application layer complete (except 1 per-line suppression for Prefect boundary). Persistence layer complete (zero warnings in `src/infrastructure/persistence/`, all file-level suppressions removed). Phase 1, 2a, 2b, 2c, 3a, 3b, 3c, 3d all complete.
+**Progress**: 448 → 158 (290 eliminated, 65%). 0 errors. Domain layer complete. Application layer complete (except 1 per-line suppression for Prefect boundary). Persistence layer complete (zero warnings in `src/infrastructure/persistence/`, all file-level suppressions removed). Phase 1, 2a, 2b, 2c, 3a, 3b, 3c, 3d all complete.
 Completed work archived in [completed/explicit-any-cleanup-batches-1-3.md](completed/explicit-any-cleanup-batches-1-3.md).
 
 **When suppression is legitimate**: External JSON payloads you don't control (webhooks), SQLAlchemy column expressions where stubs are genuinely incomplete, protocol methods that must accept arbitrary types by design, and attrs validators (which receive `object` by the attrs calling convention). Document why with a comment.
