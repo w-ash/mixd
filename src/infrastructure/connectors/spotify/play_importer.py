@@ -10,7 +10,7 @@ parsing, batch processing, and memory optimization logic.
 
 from datetime import datetime
 from pathlib import Path
-from typing import Any, override
+from typing import override
 
 from src.config import get_logger
 from src.domain.entities import ConnectorTrackPlay, OperationResult
@@ -53,7 +53,7 @@ class SpotifyPlayImporter(BasePlayImporter[SpotifyPlayRecord], PlayImporterProto
         self,
         uow: UnitOfWorkProtocol,
         progress_emitter: ProgressEmitter | None = None,
-        **params: Any,
+        **params: object,
     ) -> tuple[OperationResult, list[ConnectorTrackPlay]]:
         """Import Spotify plays as connector_plays for later resolution.
 
@@ -107,7 +107,7 @@ class SpotifyPlayImporter(BasePlayImporter[SpotifyPlayRecord], PlayImporterProto
         self,
         progress_emitter: ProgressEmitter | None = None,
         uow: UnitOfWorkProtocol | None = None,
-        **kwargs: Any,
+        **kwargs: object,
     ) -> list[SpotifyPlayRecord]:
         """Fetch and parse Spotify JSON export file.
 
@@ -119,13 +119,16 @@ class SpotifyPlayImporter(BasePlayImporter[SpotifyPlayRecord], PlayImporterProto
             progress_emitter = NullProgressEmitter()
 
         # Extract required parameters
-        file_path = kwargs.get("file_path")
-        if not file_path:
+        file_path_raw = kwargs.get("file_path")
+        if not file_path_raw:
             raise ValueError("file_path is required for Spotify file imports")
 
         # Validate file exists and is readable
-        if not isinstance(file_path, Path):
-            file_path = Path(file_path)
+        file_path = (
+            file_path_raw
+            if isinstance(file_path_raw, Path)
+            else Path(str(file_path_raw))
+        )
 
         if not file_path.exists():
             raise FileNotFoundError(f"Spotify export file not found: {file_path}")
@@ -168,7 +171,7 @@ class SpotifyPlayImporter(BasePlayImporter[SpotifyPlayRecord], PlayImporterProto
         import_timestamp: datetime,
         progress_emitter: ProgressEmitter | None = None,
         uow: UnitOfWorkProtocol | None = None,
-        **kwargs: Any,
+        **kwargs: object,
     ) -> list[ConnectorTrackPlay]:
         """Process raw Spotify data into ConnectorTrackPlay objects.
 
@@ -208,7 +211,7 @@ class SpotifyPlayImporter(BasePlayImporter[SpotifyPlayRecord], PlayImporterProto
         self,
         raw_data: list[SpotifyPlayRecord],
         uow: UnitOfWorkProtocol | None = None,
-        **kwargs: Any,
+        **kwargs: object,
     ) -> None:
         """Update sync checkpoints to track import progress for incremental syncs.
 

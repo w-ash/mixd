@@ -2,7 +2,7 @@
 
 **Goal**: Eliminate all `reportExplicitAny` warnings by replacing lazy `Any` usage with precise types. Not just type changes — architectural improvements that make the code more DRY, compact, and type-safe.
 
-**Progress**: 448 → 158 (290 eliminated, 65%). 0 errors. Domain layer complete. Application layer complete (except 1 per-line suppression for Prefect boundary). Persistence layer complete (zero warnings in `src/infrastructure/persistence/`, all file-level suppressions removed). Phase 1, 2a, 2b, 2c, 3a, 3b, 3c, 3d all complete.
+**Progress**: 448 → 42 (406 eliminated, 91%). 0 errors. Domain, application, persistence, and connector layers all complete. Phase 1, 2a, 2b, 2c, 3a, 3b, 3c, 3d, 4a, 4b, 4c all complete. Remaining 42 warnings are in Phase 5 (interface layer + config).
 Completed work archived in [completed/explicit-any-cleanup-batches-1-3.md](completed/explicit-any-cleanup-batches-1-3.md).
 
 **When suppression is legitimate**: External JSON payloads you don't control (webhooks), SQLAlchemy column expressions where stubs are genuinely incomplete, protocol methods that must accept arbitrary types by design, and attrs validators (which receive `object` by the attrs calling convention). Document why with a comment.
@@ -112,6 +112,24 @@ type JsonValue = (
 
 **Removing file-level suppressions can cascade**: Removing `# pyright: reportAny=false` from a file may surface `reportAny` warnings (implicit Any from third-party code) even when all `reportExplicitAny` is resolved. Keep the file-level suppression if the file uses Prefect decorators.
 
+### Learnings from Phase 4 (apply to Phase 5 and 6)
+
+**`JsonDict` values are `JsonValue`, not concrete types**: The biggest source of cascading errors. When `dict[str, Any]` becomes `JsonDict`, every `.get()` and `[]` access returns `JsonValue` — a union of `str | int | float | bool | None | Sequence | Mapping`. Chained access like `data.get("tracks", {}).get("items", [])` breaks because `JsonValue` doesn't have `.get()`. Fix: isinstance narrowing at each level, or extract into a Pydantic model at the boundary. Don't underestimate the cascade — client.py had 21 warnings but the `JsonDict` change touched operations.py, personal_data.py, and playlist_sync_operations.py.
+
+**`json_str`/`json_int`/`json_bool` for JsonValue narrowing**: Defined in `src/domain/entities/shared.py` alongside `JsonValue`. Use these instead of ad-hoc isinstance patterns when extracting concrete values from `JsonDict`. `json_int` guards `bool` before `int` (same `isinstance(True, int)` trap from Phase 1 config accessors). Phase 5 should use these for webhook payloads and any other raw JSON parsing.
+
+**`response.json()` returns `Any` permanently**: httpx typeshed issue #9335 confirmed open with no resolution. stdlib `json.loads()` also returns `Any`. Structural fix: `parse_json_response(response) -> JsonDict` in `_shared/http_client.py` centralizes the single `cast`. Phase 5 should use this for any new API response parsing. Don't add per-line ignores — one `cast` in one helper.
+
+**`**kwargs: object` at template method boundaries requires surfacing named params**: When base class uses `**kwargs: Any` → `**kwargs: object`, subclass implementations that extract specific keys via `.get()` get `object` values. Fix by surfacing known params as explicit named parameters (e.g., Last.fm `_fetch_data` gained `operation_id: str | None = None`). Phase 5 CLI commands may have similar kwargs forwarding patterns.
+
+**Non-runtime-checkable Protocols need `cast`, not isinstance**: `ProgressEmitter` and `UnitOfWorkProtocol` are Protocols without `@runtime_checkable`. When narrowing from `object` (after the `**kwargs: object` change), `isinstance` raises `TypeError` at runtime. Use `cast(ProtocolType, value)` — this is an explicit type assertion, not a suppression. Phase 5's `deps.py` and route handlers may encounter the same pattern.
+
+**Don't restore removed suppressions — document for Phase 6**: When removing `# pyright: reportAny=false` from a file during cleanup, if `reportAny` warnings appear from stdlib/third-party (`getattr`, `json.loads`), don't re-add the suppression. Document the warnings in Phase 6a notes so they're tracked for structural fixes. Keeping warnings visible prevents them from being missed.
+
+**Scope estimates are consistently low**: Phase 4 was estimated at ~70 warnings, actual was 101. Base class signature changes (`convert_track_to_connector`, `**kwargs: object`) propagated to files not in the original scope. Phase 5 estimate of ~54 will likely also be higher once propagation is counted.
+
+**TypedDict spreading creates `dict`, not `TypedDict`**: `{**filtering_stats, "key": val}` produces a regular `dict[str, int | list | ...]`, not `ResolutionMetrics`. Add an explicit type annotation: `metrics: ResolutionMetrics = {**filtering_stats, ...}`. Without it, pyright infers the widened dict type and the return type doesn't match the protocol. Phase 5 schemas may have the same pattern.
+
 ---
 
 ## Phases
@@ -162,13 +180,14 @@ Schema models first, then base repo, then leaf repos.
 - [x] **3b — Repository Leaf Files**: all leaf repos (0 warnings each) — Status: Completed (2026-04-09)
     - Notes: `track/connector.py` (84→0): `get_connector_metadata` `@overload`s, `JsonDict` propagation, defensive `isinstance` narrowing for JSONB artist lists. `track/mapper.py` (30→0): `_safe_loaded_list[T]` helper, `ORMOption` return type, `Sequence[str | Mapping[str, JsonValue]]` for `extract_artist_names`. `track/core.py` (32→0): `_SORT_COLUMNS` registry, `sa_cast` alias to avoid `typing.cast` collision. `track/plays.py` (17→0): `add_columns` chain, `isinstance` guards for `bulk_update_play_source_services`. `stats.py` (24→0): `cast("list[tuple[str, int]]", ...)` for aggregate Row unpacking.
 
-### Phase 4: Infrastructure — Connectors (~70 warnings)
+### Phase 4: Infrastructure — Connectors (101 warnings → 0) — Status: Completed (2026-04-10)
 
-Shared bases first, then per-service from root client outward. **Phases 3 and 4 are largely independent** — they can be parallelized if bandwidth allows.
+Shared bases first, then per-service from root client outward.
 
-- [ ] **4a — Shared**: `rate_limited_batch_processor.py` (9) → `base_play_importer.py` (6) → `base.py` (4) → `metric_registry.py` (3) + `protocols.py` (1) + `matching_provider.py` (1) + `http_client.py` (1)
-- [ ] **4b — Spotify**: `client.py` (21) → `conversions.py` (5) + `connector.py` (5) + `operations.py` (4) → `play_importer.py` (4) + `play_resolver.py` (3) → `personal_data.py` + `models.py` + `factory.py` + `auth.py` (1 each)
-- [ ] **4c — Last.fm + MusicBrainz**: `lastfm/play_importer.py` (6) + `lastfm/conversions.py` (6) → `lastfm/play_resolver.py` (3) + `lastfm/models.py` (3) → remaining Last.fm small files → `musicbrainz/conversions.py` (3) + `musicbrainz/connector.py` (1) → `apple_music/error_classifier.py` (2) + `track_identity_service_impl.py` (1)
+- [x] **4a — Shared** (27→0): `_BatchState[TItem, TResult]` extraction in rate_limited_batch_processor (fixes concurrency bug + 9 warnings), `MetricResolveFn` Protocol + `UnitOfWorkProtocol` in metric_registry (3), `*args: object` + `Mapping[str, JsonValue]` in base.py (4), `**kwargs: object` in base_play_importer (6) + play importer subclasses, `_EventHook` type alias + `parse_json_response` helper in http_client, `object` kwargs in matching_provider + protocols — Status: Completed (2026-04-10)
+- [x] **4b — Spotify** (45→0): `JsonDict` + `parse_json_response` in client.py (21), `SpotifyTrack | Mapping` params in conversions.py (5), `SpotifyPlaylistDetails`/`AppendTracksResult` TypedDicts + `Mapping[str, JsonValue]` returns in operations.py (4), `ResolutionMetrics` in play_resolver.py (3), `TrackRepositoryProtocol` + typed returns in connector.py (4), TYPE_CHECKING guard in factory.py, `json_str`/`json_int`/`json_bool` narrowing helpers in personal_data.py, remaining 1-warning files — Status: Completed (2026-04-10)
+- [x] **4c — Last.fm + MusicBrainz** (29→0): `ResolutionMetrics` in lastfm play_resolver (3), `Mapping[str, JsonValue]` params + isinstance narrowing in lastfm conversions (6), `object` kwargs in lastfm play_importer (6) with surfaced `operation_id` param, `list[object]` Pydantic validator in lastfm models (3), `parse_json_response` in lastfm client (2), TYPE_CHECKING guard in lastfm factory, `object` kwargs in lastfm matching_provider + operations, `Mapping[str, JsonValue]` in musicbrainz conversions + connector (4), `dict[str, str]` in apple_music error_classifier (2), `object` kwargs in track_identity_service_impl (1) — Status: Completed (2026-04-10)
+    - Notes: Actual scope was 101 warnings (not ~70 estimated) — base class propagation added ~30 more. Added `json_str`/`json_int`/`json_bool` to `src/domain/entities/shared.py` for cross-layer JsonValue narrowing. Added `parse_json_response` to `_shared/http_client.py` for typed `response.json()` boundary. Added `fallback_resolved`/`redirect_resolved` to `ResolutionMetrics` TypedDict. Removed stale `# Legitimate Any` comments from 8 files. Removed `# pyright: reportAny=false` from `base.py` and `personal_data.py` early — 10 `reportAny` warnings documented for Phase 6a.
 
 ### Phase 5: Interface Layer + Config (~54 warnings)
 
@@ -187,6 +206,7 @@ Shared bases first, then per-service from root client outward. **Phases 3 and 4 
 **Gate**: Run `uv run basedpyright src/` with zero `reportExplicitAny` warnings across all files before proceeding. Any remaining warnings must be resolved or justified with per-line suppression.
 
 - [ ] **6a — Suppression removal**: Remove all per-file `# pyright: reportAny=false` suppressions (~70 files, incremental as each file is cleaned). Replace with per-line `# pyright: ignore[reportAny]` only where genuinely necessary (third-party stubs, attrs validators).
+    - Notes: Phase 4 removed suppressions early from `base.py` (3 `reportAny` from `getattr`) and `spotify/personal_data.py` (7 `reportAny` from `json.loads`). These currently emit warnings and need structural fixes (`getattr` → typed config accessor, `json.loads` → typed parser) or targeted `allowedUntypedLibraries` in 6c.
 - [ ] **6b — Promote `reportExplicitAny` to `"error"`** — prevents new `Any` annotations. This is the primary goal of the cleanup.
 - [ ] **6c — Audit `reportAny` warnings** — with `reportExplicitAny` at error, remaining `reportAny` warnings come from third-party library leaks. Triage: fix with wrapper types where practical, add to `allowedUntypedLibraries` where not.
 - [ ] **6d — Promote `reportAny` to `"error"`** — only after `allowedUntypedLibraries` whitelist is in place. This is the stretch goal — may be deferred if third-party stub quality is insufficient.

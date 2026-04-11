@@ -1465,6 +1465,8 @@ class ResolutionMetrics(TypedDict, total=False):
     updated_tracks_count: int
     unique_tracks_processed: int
     tracks_resolved: int
+    fallback_resolved: int
+    redirect_resolved: int
     spotify_enhanced_count: int
 
 

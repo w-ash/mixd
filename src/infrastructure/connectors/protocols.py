@@ -4,10 +4,10 @@ This module defines standardized configuration for music service connectors,
 ensuring consistent behavior across different implementations.
 """
 
-# Legitimate Any: API response data, framework types
+from collections.abc import Callable, Mapping
+from typing import TypedDict
 
-from collections.abc import Callable
-from typing import Any, TypedDict
+from src.domain.entities.shared import JsonValue
 
 
 class ConnectorConfig(TypedDict):
@@ -23,7 +23,7 @@ class ConnectorConfig(TypedDict):
     """
 
     # Required fields
-    factory: Callable[[dict[str, Any]], object]
+    factory: Callable[[Mapping[str, JsonValue]], object]
 
     # Optional fields (marked using NotRequired)
     dependencies: list[str]

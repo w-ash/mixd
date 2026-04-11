@@ -8,12 +8,12 @@ and sophisticated duration-based filtering.
 # Legitimate Any: API response data, framework types
 
 from collections.abc import Callable
-from typing import Any
 
 from src.config import get_logger, settings
 from src.config.constants import MatchMethod, SpotifyConstants
 from src.domain.entities import ConnectorTrackPlay, Track, TrackPlay
 from src.domain.repositories import UnitOfWorkProtocol
+from src.domain.repositories.interfaces import ResolutionMetrics
 from src.infrastructure.connectors.spotify import SpotifyConnector
 from src.infrastructure.connectors.spotify.inward_resolver import (
     FallbackHint,
@@ -90,7 +90,7 @@ class SpotifyConnectorPlayResolver:
         *,
         user_id: str,
         progress_callback: Callable[[int, int, str], None] | None = None,
-    ) -> tuple[list[TrackPlay], dict[str, Any]]:
+    ) -> tuple[list[TrackPlay], ResolutionMetrics]:
         """Resolve Spotify connector plays with full metadata preservation."""
         _ = progress_callback  # Keep for future progress tracking integration
         if not connector_plays:
@@ -123,7 +123,7 @@ class SpotifyConnectorPlayResolver:
 
         # Step 3: Create TrackPlay objects with Spotify's rich metadata
         track_plays: list[TrackPlay] = []
-        filtering_stats: dict[str, Any] = {
+        filtering_stats: ResolutionMetrics = {
             "raw_plays": len(connector_plays),
             "accepted_plays": 0,
             "duration_excluded": 0,
@@ -142,7 +142,7 @@ class SpotifyConnectorPlayResolver:
                 filtering_stats["error_count"] += 1
                 failure_info = {
                     "track": f"{connector_play.artist_name} - {connector_play.track_name}",
-                    "spotify_id": spotify_id,
+                    "spotify_id": spotify_id or "",
                     "reason": "track_resolution_failed",
                 }
                 filtering_stats["resolution_failures"].append(failure_info)
@@ -239,8 +239,8 @@ class SpotifyConnectorPlayResolver:
 
             track_plays.append(track_play)
 
-        # Combine metrics
-        spotify_metrics = {
+        # Combine metrics into typed ResolutionMetrics
+        spotify_metrics: ResolutionMetrics = {
             **filtering_stats,
             "new_tracks_count": canonical_track_metrics["new_tracks_count"],
             "updated_tracks_count": canonical_track_metrics["updated_tracks_count"],
@@ -331,7 +331,7 @@ class SpotifyConnectorPlayResolver:
             "updated_tracks_count": metrics.existing,
         }
 
-    def _create_empty_metrics(self) -> dict[str, Any]:
+    def _create_empty_metrics(self) -> ResolutionMetrics:
         """Create empty metrics dictionary."""
         return {
             "raw_plays": 0,

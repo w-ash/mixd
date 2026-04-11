@@ -9,7 +9,7 @@ chunking, checkpoint management, and boundary-respecting import logic.
 # Legitimate Any: **kwargs variadic dispatch, PlayRecord raw data
 
 from datetime import UTC, date, datetime, time, timedelta
-from typing import Any, override
+from typing import override
 
 from src.config import get_logger, settings
 from src.config.constants import LastFMConstants
@@ -61,7 +61,7 @@ class LastfmPlayImporter(BasePlayImporter[PlayRecord], PlayImporterProtocol):
         self,
         uow: UnitOfWorkProtocol,
         progress_emitter: ProgressEmitter | None = None,
-        **params: Any,
+        **params: object,
     ) -> tuple[OperationResult, list[ConnectorTrackPlay]]:
         """Import Last.fm plays as connector_plays for later resolution.
 
@@ -129,7 +129,7 @@ class LastfmPlayImporter(BasePlayImporter[PlayRecord], PlayImporterProtocol):
         import_batch_id: str | None = None,
         progress_emitter: ProgressEmitter | None = None,
         uow: UnitOfWorkProtocol | None = None,
-        **kwargs: Any,
+        **kwargs: object,
     ) -> OperationResult:
         """Import Last.fm plays with unified checkpoint-bounded approach.
 
@@ -165,7 +165,8 @@ class LastfmPlayImporter(BasePlayImporter[PlayRecord], PlayImporterProtocol):
         from_date: datetime | None = None,
         to_date: datetime | None = None,
         username: str | None = None,
-        **kwargs: Any,
+        operation_id: str | None = None,
+        **kwargs: object,
     ) -> list[PlayRecord]:
         """Unified import using checkpoint-bounded date ranges.
 
@@ -193,6 +194,7 @@ class LastfmPlayImporter(BasePlayImporter[PlayRecord], PlayImporterProtocol):
             progress_emitter=progress_emitter,
             uow=uow,
             explicit_range=explicit_range,
+            operation_id=operation_id,
             **kwargs,
         )
 
@@ -278,7 +280,7 @@ class LastfmPlayImporter(BasePlayImporter[PlayRecord], PlayImporterProtocol):
         uow: UnitOfWorkProtocol | None = None,
         explicit_range: bool = False,
         operation_id: str | None = None,
-        **additional_options: Any,
+        **additional_options: object,
     ) -> list[PlayRecord]:
         """Download scrobbles using smart daily chunking with auto-scaling for power users.
 
@@ -533,7 +535,7 @@ class LastfmPlayImporter(BasePlayImporter[PlayRecord], PlayImporterProtocol):
         import_timestamp: datetime,
         progress_emitter: ProgressEmitter | None = None,
         uow: UnitOfWorkProtocol | None = None,
-        **kwargs: Any,
+        **kwargs: object,
     ) -> list[ConnectorTrackPlay]:
         """Convert PlayRecord objects to ConnectorTrackPlay objects.
 
@@ -612,7 +614,7 @@ class LastfmPlayImporter(BasePlayImporter[PlayRecord], PlayImporterProtocol):
         self,
         raw_data: list[PlayRecord],
         uow: UnitOfWorkProtocol | None = None,
-        **kwargs: Any,
+        **kwargs: object,
     ) -> None:
         """Update sync checkpoints to track import progress for incremental syncs.
 

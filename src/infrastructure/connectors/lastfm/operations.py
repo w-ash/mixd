@@ -18,7 +18,6 @@ providing reusable business logic while maintaining clean separation of concerns
 # pyright: reportAny=false
 
 from collections.abc import Awaitable, Callable
-from typing import Any
 from uuid import UUID
 
 from attrs import define, field
@@ -265,7 +264,7 @@ class LastFMOperations:
         self,
         tracks: list[Track],
         progress_callback: Callable[[int, int, str], Awaitable[None]] | None = None,
-        **_options: Any,
+        **_options: object,
     ) -> dict[UUID, LastFMTrackInfo]:
         """Fetch track information for multiple tracks using queue-based rate limiting."""
         from src.config import settings

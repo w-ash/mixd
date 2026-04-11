@@ -16,7 +16,7 @@ Key components:
 import asyncio
 from datetime import datetime
 import hashlib
-from typing import Any, ClassVar, cast, override
+from typing import ClassVar, cast, override
 from urllib.parse import quote as _percent_encode
 
 from attrs import define, field
@@ -26,6 +26,8 @@ from tenacity import AsyncRetrying
 
 from src.config import get_logger, settings
 from src.config.constants import LastFMConstants
+from src.domain.entities.shared import JsonValue
+from src.infrastructure.connectors._shared.http_client import parse_json_response
 from src.infrastructure.connectors._shared.retry_policies import (
     RetryConfig,
     RetryPolicyFactory,
@@ -166,7 +168,7 @@ class LastFMAPIClient(BaseAPIClient):
         method: str,
         params: dict[str, str] | None = None,
         authenticated: bool = False,
-    ) -> dict[str, Any]:
+    ) -> dict[str, JsonValue]:
         """Make a Last.fm API call and return parsed JSON response.
 
         Read-only methods use GET with params in the URL query string, matching
@@ -218,10 +220,16 @@ class LastFMAPIClient(BaseAPIClient):
             _ = response.raise_for_status()
 
         # Last.fm returns errors as HTTP 200 with {"error": N, "message": "..."}
-        data = response.json()
+        data = parse_json_response(response)
 
         if "error" in data:
-            raise LastFMAPIError(data["error"], data.get("message", ""))
+            error_code = data["error"]
+            raise LastFMAPIError(
+                int(error_code)
+                if isinstance(error_code, int | float)
+                else str(error_code),
+                str(data.get("message", "")),
+            )
 
         return data
 
@@ -538,7 +546,7 @@ class LastFMAPIClient(BaseAPIClient):
 
 
 def _validate_track_info(
-    data: dict[str, Any], has_user_data: bool
+    data: dict[str, JsonValue], has_user_data: bool
 ) -> LastFMTrackInfo | None:
     """Validate a track.getInfo JSON response and convert to domain model.
 

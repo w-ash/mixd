@@ -14,17 +14,11 @@ through the registration functions. This eliminates static dependencies between
 shared utilities and specific service implementations.
 """
 
-# pyright: reportAny=false
-# Legitimate Any: API response data, framework types
-
-from collections.abc import Awaitable, Callable
-from typing import Any, ClassVar, Protocol, runtime_checkable
+from typing import ClassVar, Protocol, runtime_checkable
 
 from src.config import get_logger
-
-# Type alias for the resolve callback injected by the application layer.
-# Signature: (track_ids, metric_name, connector, field_map, uow) -> dict[int, Any]
-MetricResolveFn = Callable[..., Awaitable[dict[int, Any]]]
+from src.domain.entities.shared import MetricValue
+from src.domain.repositories.interfaces import UnitOfWorkProtocol
 
 logger = get_logger(__name__).bind(service="connectors")
 
@@ -45,6 +39,24 @@ DEFAULT_METRIC_FRESHNESS = 24.0
 # ============================================================================
 
 
+class MetricResolveFn(Protocol):
+    """Typed callback for metric resolution, injected by the application layer.
+
+    Replaces the previous ``Callable[..., Awaitable[dict[int, Any]]]`` — callers
+    now see exact parameter names and types.
+    """
+
+    async def __call__(
+        self,
+        *,
+        track_ids: list[int],
+        metric_name: str,
+        connector: str,
+        field_map: dict[str, str],
+        uow: UnitOfWorkProtocol,
+    ) -> dict[int, MetricValue]: ...
+
+
 @runtime_checkable
 class MetricResolverProtocol(Protocol):
     """Protocol for metric resolver implementations.
@@ -63,9 +75,9 @@ class MetricResolverProtocol(Protocol):
         self,
         track_ids: list[int],
         metric_name: str,
-        uow: Any,  # UnitOfWorkProtocol — kept as Any to avoid cross-layer import
+        uow: UnitOfWorkProtocol,
         resolve_fn: MetricResolveFn,
-    ) -> dict[int, Any]:
+    ) -> dict[int, MetricValue]:
         """Resolve metrics for tracks.
 
         Args:

@@ -1,11 +1,8 @@
 """Base class for importing music listening data from external sources."""
 
-# pyright: reportAny=false
-# Legitimate Any: **kwargs variadic dispatch, import params
-
 from abc import ABC, abstractmethod
 from datetime import UTC, datetime
-from typing import Any, TypedDict
+from typing import TypedDict, cast
 from uuid import uuid4
 
 from src.config import get_logger
@@ -95,7 +92,7 @@ class BasePlayImporter[TRawData](ABC):
         import_batch_id: str | None = None,
         progress_emitter: ProgressEmitter | None = None,
         uow: UnitOfWorkProtocol | None = None,
-        **kwargs: Any,
+        **kwargs: object,
     ) -> OperationResult:
         """Import music listening data from external source to database.
 
@@ -271,7 +268,7 @@ class BasePlayImporter[TRawData](ABC):
         self,
         progress_emitter: ProgressEmitter | None = None,
         uow: UnitOfWorkProtocol | None = None,
-        **kwargs: Any,
+        **kwargs: object,
     ) -> list[TRawData]:
         """Fetch raw listening data from external source.
 
@@ -295,7 +292,7 @@ class BasePlayImporter[TRawData](ABC):
         import_timestamp: datetime,
         progress_emitter: ProgressEmitter | None = None,
         uow: UnitOfWorkProtocol | None = None,
-        **kwargs: Any,
+        **kwargs: object,
     ) -> list[ConnectorTrackPlay]:
         """Convert raw source data into standardized domain objects.
 
@@ -319,7 +316,7 @@ class BasePlayImporter[TRawData](ABC):
         self,
         raw_data: list[TRawData],
         uow: UnitOfWorkProtocol | None = None,
-        **kwargs: Any,
+        **kwargs: object,
     ) -> None:
         """Update sync checkpoints to track import progress for incremental syncs.
 
@@ -515,20 +512,36 @@ class BasePlayImporter[TRawData](ABC):
 
     @staticmethod
     def _extract_common_params(
-        **params: Any,
-    ) -> tuple[CommonImportParams, dict[str, Any]]:
+        **params: object,
+    ) -> tuple[CommonImportParams, dict[str, object]]:
         """Extract common import parameters and return them with remaining service-specific params.
 
         Args:
-            **params: All import parameters
+            **params: All import parameters (typed as object at this template method boundary)
 
         Returns:
             Tuple of (common_params, remaining_service_specific_params)
         """
+        batch_id = params.get("import_batch_id")
+
+        # ProgressEmitter and UnitOfWorkProtocol are Protocols (not runtime_checkable),
+        # so isinstance can't narrow them. Cast is safe: only callers are typed
+        # template methods that always pass the correct types.
+        emitter_raw = params.get("progress_emitter")
+        emitter: ProgressEmitter = (
+            cast(ProgressEmitter, emitter_raw)
+            if emitter_raw is not None
+            else NullProgressEmitter()
+        )
+        uow_raw = params.get("uow")
+        uow: UnitOfWorkProtocol | None = (
+            cast(UnitOfWorkProtocol, uow_raw) if uow_raw is not None else None
+        )
+
         common_params: CommonImportParams = {
-            "import_batch_id": params.get("import_batch_id"),
-            "progress_emitter": params.get("progress_emitter", NullProgressEmitter()),
-            "uow": params.get("uow"),
+            "import_batch_id": batch_id if isinstance(batch_id, str) else None,
+            "progress_emitter": emitter,
+            "uow": uow,
         }
 
         # Remove common parameters from the original params dict

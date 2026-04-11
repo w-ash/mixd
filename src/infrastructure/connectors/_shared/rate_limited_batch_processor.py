@@ -26,13 +26,11 @@ Example:
     ```
 """
 
-# pyright: reportAny=false
-
 import asyncio
 from collections.abc import AsyncIterator, Awaitable, Callable
 import contextlib
 import time
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING
 import uuid
 
 from attrs import define, field
@@ -49,15 +47,31 @@ _RESULT_POLLING_INTERVAL_MS = 10  # Milliseconds between result collection check
 
 
 @define(frozen=True, slots=True)
-class WorkItem:
+class WorkItem[TItem]:
     """Individual work item with tracking metadata."""
 
     item_id: str
-    item: Any
+    item: TItem
     queued_at: float = field(factory=time.time)
 
 
-@define(slots=False)  # Disable slots to allow dynamic attribute assignment
+@define(slots=True)
+class _BatchState[TItem, TResult]:
+    """Mutable per-batch state — isolated per process_batch call.
+
+    Each process_batch invocation creates its own _BatchState, preventing
+    concurrent batch calls from corrupting shared instance state.
+    """
+
+    work_queue: asyncio.Queue[WorkItem[TItem]] = field(factory=asyncio.Queue)
+    completed_results: dict[str, TResult | None] = field(factory=dict)
+    running_tasks: set[asyncio.Task[None]] = field(factory=set)
+    shutdown_event: asyncio.Event = field(factory=asyncio.Event)
+    batch_start_time: float = 0.0
+    total_expected_items: int = 0
+
+
+@define(slots=True)
 class RateLimitedBatchProcessor:
     """Generic queue-based batch processor with rate limiting for any connector.
 
@@ -79,23 +93,11 @@ class RateLimitedBatchProcessor:
     max_concurrent_tasks: int
 
     rate_delay: float = field(init=False)
-    work_queue: asyncio.Queue[WorkItem] = field(init=False)
-    running_tasks: set[asyncio.Task[Any]] = field(init=False)
-    completed_results: dict[str, Any] = field(init=False)
-    batch_start_time: float = field(init=False)
-    total_expected_items: int = field(init=False)
-    shutdown_event: asyncio.Event = field(init=False)
     logger: BoundLogger = field(init=False)
 
-    def __attrs_post_init__(self):
-        """Initialize runtime state after attrs construction."""
+    def __attrs_post_init__(self) -> None:
+        """Initialize computed state after attrs construction."""
         self.rate_delay = 1.0 / self.rate_per_second  # e.g. 0.2s for 5/sec
-        self.work_queue = asyncio.Queue()
-        self.running_tasks = set()
-        self.completed_results = {}
-        self.batch_start_time = 0.0
-        self.total_expected_items = 0
-        self.shutdown_event = asyncio.Event()
 
         # Contextual logger
         self.logger = logger.bind(
@@ -131,14 +133,16 @@ class RateLimitedBatchProcessor:
             self.logger.warning("Empty batch provided for processing")
             return
 
-        self.batch_start_time = time.time()
-        self.total_expected_items = len(items)
+        state = _BatchState[TItem, TResult](
+            batch_start_time=time.time(),
+            total_expected_items=len(items),
+        )
 
         self.logger.info(
             f"Starting batch processing for {len(items)} items",
             batch_size=len(items),
             expected_duration_seconds=round(len(items) * self.rate_delay, 1),
-            batch_start_time=self.batch_start_time,
+            batch_start_time=state.batch_start_time,
         )
 
         # Queue all initial work items
@@ -147,73 +151,75 @@ class RateLimitedBatchProcessor:
                 item_id=str(uuid.uuid7()),  # Time-ordered UUID for better tracking
                 item=item,
             )
-            await self.work_queue.put(work_item)
+            await state.work_queue.put(work_item)
 
             self.logger.debug(
                 "Queued work item for processing",
                 item_id=work_item.item_id,
-                queue_size=self.work_queue.qsize(),
+                queue_size=state.work_queue.qsize(),
                 milliseconds_since_batch_start=round(
-                    (time.time() - self.batch_start_time) * 1000, 1
+                    (time.time() - state.batch_start_time) * 1000, 1
                 ),
             )
 
         # Start background processors
-        rate_limiter_task = asyncio.create_task(self._rate_limiter_loop(process_func))
+        rate_limiter_task = asyncio.create_task(
+            self._rate_limiter_loop(state, process_func)
+        )
 
         try:
             # Yield results as they become available
             completed_count = 0
-            async for item_id, result in self._collect_results():
+            async for item_id, result in self._collect_results(state):
                 completed_count += 1
 
                 self.logger.debug(
-                    f"Batch item completed ({completed_count}/{self.total_expected_items})",
+                    f"Batch item completed ({completed_count}/{state.total_expected_items})",
                     item_id=item_id,
                     completed_count=completed_count,
-                    total_expected=self.total_expected_items,
+                    total_expected=state.total_expected_items,
                     progress_percent=round(
-                        (completed_count / self.total_expected_items) * 100, 1
+                        (completed_count / state.total_expected_items) * 100, 1
                     ),
                     milliseconds_since_batch_start=round(
-                        (time.time() - self.batch_start_time) * 1000, 1
+                        (time.time() - state.batch_start_time) * 1000, 1
                     ),
                 )
 
                 if progress_callback is not None:
                     await progress_callback(
                         completed_count,
-                        self.total_expected_items,
-                        f"Processed {completed_count}/{self.total_expected_items}",
+                        state.total_expected_items,
+                        f"Processed {completed_count}/{state.total_expected_items}",
                     )
 
                 yield item_id, result
 
                 # Check if batch is complete
-                if completed_count >= self.total_expected_items:
+                if completed_count >= state.total_expected_items:
                     break
 
         finally:
             # Clean shutdown
-            self.shutdown_event.set()
+            state.shutdown_event.set()
 
-            batch_duration = time.time() - self.batch_start_time
+            batch_duration = time.time() - state.batch_start_time
             self.logger.info(
                 f"Batch processing completed for {self.connector_name}",
-                total_items=self.total_expected_items,
+                total_items=state.total_expected_items,
                 batch_duration_seconds=round(batch_duration, 2),
                 average_items_per_second=round(
-                    self.total_expected_items / batch_duration, 2
+                    state.total_expected_items / batch_duration, 2
                 ),
-                final_queue_size=self.work_queue.qsize(),
-                running_tasks_count=len(self.running_tasks),
+                final_queue_size=state.work_queue.qsize(),
+                running_tasks_count=len(state.running_tasks),
             )
 
             # Cancel all running work item tasks
-            for task in list(self.running_tasks):
+            for task in list(state.running_tasks):
                 if not task.done():
                     task.cancel()
-            for task in list(self.running_tasks):
+            for task in list(state.running_tasks):
                 with contextlib.suppress(asyncio.CancelledError):
                     _ = await task
 
@@ -223,7 +229,11 @@ class RateLimitedBatchProcessor:
                 with contextlib.suppress(asyncio.CancelledError):
                     _ = await rate_limiter_task
 
-    async def _rate_limiter_loop(self, process_func: Callable[[Any], Any]) -> None:
+    async def _rate_limiter_loop[TItem, TResult](
+        self,
+        state: _BatchState[TItem, TResult],
+        process_func: Callable[[TItem], Awaitable[TResult]],
+    ) -> None:
         """Background loop that launches requests at controlled intervals.
 
         This loop maintains a steady launch rate (e.g. every 200ms for 5/sec) regardless
@@ -237,7 +247,7 @@ class RateLimitedBatchProcessor:
         launch_count = 0
         next_launch_time = time.time()  # Start immediately
 
-        while not self.shutdown_event.is_set():
+        while not state.shutdown_event.is_set():
             try:
                 # Wait until it's time for the next launch
                 now = time.time()
@@ -247,21 +257,21 @@ class RateLimitedBatchProcessor:
 
                 # Try to get work item (non-blocking check)
                 try:
-                    work_item = self.work_queue.get_nowait()
+                    work_item = state.work_queue.get_nowait()
                 except asyncio.QueueEmpty:
                     # No work available, schedule next check and continue
                     next_launch_time += self.rate_delay
                     continue
 
                 # Respect concurrent task limit
-                if len(self.running_tasks) >= self.max_concurrent_tasks:
+                if len(state.running_tasks) >= self.max_concurrent_tasks:
                     self.logger.warning(
                         "Rate limiter waiting for task slot",
-                        running_tasks=len(self.running_tasks),
+                        running_tasks=len(state.running_tasks),
                         max_concurrent=self.max_concurrent_tasks,
                     )
                     # Re-queue the work item and try again next cycle
-                    await self.work_queue.put(work_item)
+                    await state.work_queue.put(work_item)
                     next_launch_time += self.rate_delay
                     continue
 
@@ -270,15 +280,15 @@ class RateLimitedBatchProcessor:
                 launch_time = time.time()
 
                 task = asyncio.create_task(
-                    self._execute_work_item(work_item, process_func),
+                    self._execute_work_item(state, work_item, process_func),
                     name=f"{self.connector_name}_task_{work_item.item_id[:8]}",
                 )
-                self.running_tasks.add(task)
+                state.running_tasks.add(task)
 
                 # Clean up completed tasks
-                def remove_completed_task(completed_task: asyncio.Task[Any]) -> None:
+                def remove_completed_task(completed_task: asyncio.Task[None]) -> None:
                     """Remove task from running_tasks set when completed."""
-                    self.running_tasks.discard(completed_task)
+                    state.running_tasks.discard(completed_task)
 
                 task.add_done_callback(remove_completed_task)
 
@@ -287,10 +297,10 @@ class RateLimitedBatchProcessor:
                     item_id=work_item.item_id,
                     launch_count=launch_count,
                     launch_time=launch_time,
-                    running_tasks=len(self.running_tasks),
-                    queue_size=self.work_queue.qsize(),
+                    running_tasks=len(state.running_tasks),
+                    queue_size=state.work_queue.qsize(),
                     milliseconds_since_batch_start=round(
-                        (launch_time - self.batch_start_time) * 1000, 1
+                        (launch_time - state.batch_start_time) * 1000, 1
                     ),
                     actual_interval_ms=round(
                         (launch_time - (next_launch_time - self.rate_delay)) * 1000, 1
@@ -315,13 +325,14 @@ class RateLimitedBatchProcessor:
         self.logger.info(
             f"Rate limiter loop shutdown for {self.connector_name}",
             total_launches=launch_count,
-            final_running_tasks=len(self.running_tasks),
+            final_running_tasks=len(state.running_tasks),
         )
 
-    async def _execute_work_item(
+    async def _execute_work_item[TItem, TResult](
         self,
-        work_item: WorkItem,
-        process_func: Callable[[Any], Any],
+        state: _BatchState[TItem, TResult],
+        work_item: WorkItem[TItem],
+        process_func: Callable[[TItem], Awaitable[TResult]],
     ) -> None:
         """Execute individual work item and handle result/retry logic."""
         execution_start = time.time()
@@ -341,7 +352,7 @@ class RateLimitedBatchProcessor:
             execution_duration = time.time() - execution_start
 
             # Store successful result
-            self.completed_results[work_item.item_id] = result
+            state.completed_results[work_item.item_id] = result
 
             self.logger.debug(
                 f"Work item completed successfully for {self.connector_name}",
@@ -349,7 +360,7 @@ class RateLimitedBatchProcessor:
                 execution_duration_ms=round(execution_duration * 1000, 1),
                 result_available=result is not None,
                 milliseconds_since_batch_start=round(
-                    (time.time() - self.batch_start_time) * 1000, 1
+                    (time.time() - state.batch_start_time) * 1000, 1
                 ),
             )
 
@@ -363,31 +374,34 @@ class RateLimitedBatchProcessor:
                 error_type=type(e).__name__,
                 execution_duration_ms=round(execution_duration * 1000, 1),
                 milliseconds_since_batch_start=round(
-                    (time.time() - self.batch_start_time) * 1000, 1
+                    (time.time() - state.batch_start_time) * 1000, 1
                 ),
             )
 
             # Handle retry logic - retries are handled by the API client's _api_call()
             # We just log the failure and mark as complete with None result
-            self.completed_results[work_item.item_id] = None
+            state.completed_results[work_item.item_id] = None
 
             self.logger.debug(
                 f"Work item failed for {self.connector_name} (retry handled by API client)",
                 item_id=work_item.item_id,
             )
 
-    async def _collect_results(self) -> AsyncIterator[tuple[str, Any]]:
+    async def _collect_results[TItem, TResult](
+        self,
+        state: _BatchState[TItem, TResult],
+    ) -> AsyncIterator[tuple[str, TResult | None]]:
         """Collect and yield results as they become available."""
         yielded_items: set[str] = set()
 
-        while len(yielded_items) < self.total_expected_items:
+        while len(yielded_items) < state.total_expected_items:
             await asyncio.sleep(
                 _RESULT_POLLING_INTERVAL_MS / 1000.0
             )  # Convert ms to seconds
 
             # Check for newly completed results (snapshot to avoid RuntimeError
             # from concurrent _execute_work_item tasks mutating the dict)
-            for item_id, result in list(self.completed_results.items()):
+            for item_id, result in list(state.completed_results.items()):
                 if item_id not in yielded_items:
                     yielded_items.add(item_id)
                     yield item_id, result

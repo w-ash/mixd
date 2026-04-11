@@ -6,14 +6,14 @@ single public interface while the internal implementation is split across
 MusicBrainzAPIClient and conversion utilities.
 """
 
-# Legitimate Any: API response data, framework types
-
-from typing import Any, override
+from collections.abc import Mapping
+from typing import override
 
 from attrs import define, field
 
 from src.config import get_logger
 from src.domain.entities import ConnectorTrack
+from src.domain.entities.shared import JsonValue
 from src.infrastructure.connectors._shared.isrc import normalize_isrc
 from src.infrastructure.connectors.base import BaseAPIConnector
 from src.infrastructure.connectors.musicbrainz.client import MusicBrainzAPIClient
@@ -90,7 +90,9 @@ class MusicBrainzConnector(BaseAPIConnector):
         return results
 
     @override
-    def convert_track_to_connector(self, track_data: dict[str, Any]) -> ConnectorTrack:
+    def convert_track_to_connector(
+        self, track_data: Mapping[str, JsonValue]
+    ) -> ConnectorTrack:
         """Convert MusicBrainz recording data to ConnectorTrack domain model."""
         from .conversions import convert_musicbrainz_track_to_connector
 

@@ -13,11 +13,8 @@ The conversion functions are stateless and can be used independently across
 different parts of the Spotify integration.
 """
 
-# Legitimate Any: Spotify API response data
-
-from collections.abc import Sequence
+from collections.abc import Mapping, Sequence
 from datetime import UTC, datetime
-from typing import Any
 
 from src.config import get_logger
 from src.domain.entities import (
@@ -26,6 +23,7 @@ from src.domain.entities import (
     ConnectorTrack,
     Track,
 )
+from src.domain.entities.shared import JsonDict, JsonValue
 from src.infrastructure.connectors._shared.isrc import normalize_isrc
 from src.infrastructure.connectors.spotify.models import SpotifyPlaylist, SpotifyTrack
 
@@ -47,9 +45,15 @@ def validate_non_empty[T](items: Sequence[object], empty_result: T) -> T | None:
     return empty_result if not items else None
 
 
-def convert_spotify_track_to_connector(spotify_track: dict[str, Any]) -> ConnectorTrack:
+def convert_spotify_track_to_connector(
+    spotify_track: SpotifyTrack | Mapping[str, JsonValue],
+) -> ConnectorTrack:
     """Convert Spotify track data to ConnectorTrack domain model."""
-    track = SpotifyTrack.model_validate(spotify_track)
+    track = (
+        spotify_track
+        if isinstance(spotify_track, SpotifyTrack)
+        else SpotifyTrack.model_validate(spotify_track)
+    )
 
     artists = [Artist(name=a.name) for a in track.artists]
 
@@ -71,7 +75,7 @@ def convert_spotify_track_to_connector(spotify_track: dict[str, Any]) -> Connect
 
     isrc = normalize_isrc(track.external_ids.isrc) if track.external_ids.isrc else None
 
-    raw_metadata: dict[str, Any] = {
+    raw_metadata: JsonDict = {
         "album_id": track.album.id if track.album else None,
         "explicit": track.explicit,
     }
@@ -91,10 +95,14 @@ def convert_spotify_track_to_connector(spotify_track: dict[str, Any]) -> Connect
 
 
 def convert_spotify_playlist_to_connector(
-    spotify_playlist: dict[str, Any],
+    spotify_playlist: SpotifyPlaylist | Mapping[str, JsonValue],
 ) -> ConnectorPlaylist:
     """Convert Spotify playlist data to ConnectorPlaylist domain model."""
-    playlist = SpotifyPlaylist.model_validate(spotify_playlist)
+    playlist = (
+        spotify_playlist
+        if isinstance(spotify_playlist, SpotifyPlaylist)
+        else SpotifyPlaylist.model_validate(spotify_playlist)
+    )
 
     owner = playlist.owner.display_name or playlist.owner.id or None
 
@@ -134,10 +142,14 @@ def parse_spotify_timestamp(timestamp_str: str) -> datetime | None:
 
 
 def extract_track_metadata_for_playlist_item(
-    spotify_track: dict[str, Any],
-) -> dict[str, Any]:
+    spotify_track: SpotifyTrack | Mapping[str, JsonValue],
+) -> JsonDict:
     """Extract minimal track metadata for playlist item storage."""
-    track = SpotifyTrack.model_validate(spotify_track)
+    track = (
+        spotify_track
+        if isinstance(spotify_track, SpotifyTrack)
+        else SpotifyTrack.model_validate(spotify_track)
+    )
     return {
         "track_name": track.name,
         "artist_names": [a.name for a in track.artists],

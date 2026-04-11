@@ -4,7 +4,7 @@
 # Legitimate Any: API response data, framework types
 
 import json
-from typing import Any, override
+from typing import override
 
 from src.config.constants import HTTPStatus
 from src.infrastructure.connectors._shared.error_classifier import (
@@ -125,7 +125,7 @@ class AppleMusicErrorClassifier(HTTPErrorClassifier):
 
         return None
 
-    def _parse_apple_music_error_details(self, exception: Exception) -> dict[str, Any]:
+    def _parse_apple_music_error_details(self, exception: Exception) -> dict[str, str]:
         """Parse Apple Music API error details from exception.
 
         Apple Music API errors typically follow JSON:API error format with
@@ -133,7 +133,7 @@ class AppleMusicErrorClassifier(HTTPErrorClassifier):
         """
         try:
             error_msg = str(exception)
-            details: dict[str, Any] = {}
+            details: dict[str, str] = {}
 
             # Try to parse JSON error response if present
             # Look for JSON in the error message

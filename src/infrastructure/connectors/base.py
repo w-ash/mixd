@@ -19,12 +19,9 @@ Example:
     ```
 """
 
-# pyright: reportAny=false
-# Legitimate Any: _api_call variadic dispatch, generic API responses
-
 from abc import ABC, abstractmethod
-from collections.abc import Awaitable, Callable
-from typing import Any, ClassVar, Self
+from collections.abc import Awaitable, Callable, Mapping
+from typing import ClassVar, Self
 
 from attrs import define, field
 from tenacity import AsyncRetrying
@@ -32,6 +29,7 @@ from tenacity import AsyncRetrying
 from src.config import get_logger, settings
 from src.config.logging import logging_context
 from src.domain.entities.playlist import ConnectorPlaylist
+from src.domain.entities.shared import JsonValue, MetricValue
 from src.domain.entities.track import ConnectorTrack
 from src.domain.repositories.interfaces import UnitOfWorkProtocol
 from src.infrastructure.connectors._shared.error_classifier import (
@@ -64,7 +62,7 @@ class BaseAPIClient:
         self,
         operation: str,
         impl: Callable[..., Awaitable[T]],
-        *args: Any,
+        *args: object,
     ) -> T | None:
         """Execute API call with retry policy, context propagation, and error suppression.
 
@@ -114,7 +112,7 @@ class BaseMetricResolver:
         metric_name: str,
         uow: UnitOfWorkProtocol,
         resolve_fn: MetricResolveFn,
-    ) -> dict[int, Any]:
+    ) -> dict[int, MetricValue]:
         """Retrieve metric values for multiple tracks from database.
 
         Uses a callback injected by the application layer to perform the actual
@@ -168,7 +166,7 @@ class BaseAPIConnector(ABC):
         """Get error classifier for this connector. Override for service-specific classification."""
         return _DefaultClassifier()
 
-    def get_connector_config(self, key: str, default: object = None) -> Any:
+    def get_connector_config(self, key: str, default: object = None) -> object:
         """Load configuration value from nested ConnectorAPIConfig.
 
         Args:
@@ -226,23 +224,19 @@ class BaseAPIConnector(ABC):
         )
 
     @abstractmethod
-    def convert_track_to_connector(self, track_data: dict[str, Any]) -> ConnectorTrack:
+    def convert_track_to_connector(
+        self, track_data: Mapping[str, JsonValue]
+    ) -> ConnectorTrack:
         """Convert service-specific track data to ConnectorTrack domain model.
 
         Each connector must implement this method to handle conversion from their
         service's API response format to the standardized ConnectorTrack domain model.
 
         Args:
-            track_data: Raw track data from the service's API
+            track_data: Raw track data from the service's API (JSON-shaped)
 
         Returns:
             ConnectorTrack with standardized fields and service-specific metadata
-
-        Example:
-            # In SpotifyConnector
-            def convert_track_to_connector(self, track_data: dict[str, Any]) -> ConnectorTrack:
-                from .conversions import convert_spotify_track_to_connector
-                return convert_spotify_track_to_connector(track_data)
         """
 
 

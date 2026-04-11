@@ -47,3 +47,28 @@ def utc_now_factory() -> datetime:
         timestamp: datetime = field(factory=utc_now_factory)
     """
     return datetime.now(UTC)
+
+
+# ---------------------------------------------------------------------------
+# JsonValue narrowing helpers
+# ---------------------------------------------------------------------------
+# Use at boundaries where raw JSON values (JsonValue) need to be narrowed to
+# concrete types. Avoids repeating isinstance patterns across connector files.
+
+
+def json_str(val: JsonValue, default: str = "") -> str:
+    """Narrow a JsonValue to str, returning default if not a string."""
+    return val if isinstance(val, str) else default
+
+
+def json_int(val: JsonValue, default: int = 0) -> int:
+    """Narrow a JsonValue to int, returning default if not an int.
+
+    Guards against bool (isinstance(True, int) is True in Python).
+    """
+    return val if isinstance(val, int) and not isinstance(val, bool) else default
+
+
+def json_bool(val: JsonValue, default: bool = False) -> bool:
+    """Narrow a JsonValue to bool, returning default if not a bool."""
+    return val if isinstance(val, bool) else default

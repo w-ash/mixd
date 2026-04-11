@@ -11,14 +11,15 @@ Key components:
 """
 
 # pyright: reportAny=false
-# Legitimate Any: Last.fm API response dicts
 
-from typing import Any, Self, cast
+from collections.abc import Mapping
+from typing import Self
 
 from attrs import define, field
 
 from src.config import get_logger
 from src.domain.entities import ConnectorTrack, Track
+from src.domain.entities.shared import JsonDict, JsonValue
 from src.infrastructure.connectors.lastfm.models import LastFMTrackInfoData
 
 # Get contextual logger for conversion operations
@@ -98,7 +99,7 @@ def convert_lastfm_to_domain_track(
     if not lastfm_info:
         return track
     # Create lastfm metadata dictionary using attrs introspection
-    lastfm_metadata: dict[str, Any] = {}
+    lastfm_metadata: JsonDict = {}
     import attrs
 
     for attrs_field in attrs.fields(lastfm_info):
@@ -114,7 +115,7 @@ def convert_lastfm_to_domain_track(
 
 
 def convert_lastfm_track_to_connector(
-    lastfm_track_data: dict[str, Any],
+    lastfm_track_data: Mapping[str, JsonValue],
 ) -> ConnectorTrack:
     """Convert Last.fm track data to ConnectorTrack domain model.
 
@@ -129,15 +130,15 @@ def convert_lastfm_track_to_connector(
     from src.domain.entities import Artist, ConnectorTrack
 
     # Extract basic track information
-    title: str = lastfm_track_data.get("name", "")
+    title: str = str(lastfm_track_data.get("name", "") or "")
 
     # Extract artist information - Last.fm can have multiple artists
     artists: list[Artist] = []
     if "artist" in lastfm_track_data:
         raw_artist = lastfm_track_data["artist"]
         if isinstance(raw_artist, dict):
-            artist_data = cast(dict[str, Any], raw_artist)
-            artist_name: str = artist_data.get("name", "")
+            artist_name_val = raw_artist.get("name", "")
+            artist_name: str = str(artist_name_val) if artist_name_val else ""
             if artist_name:
                 artists.append(Artist(name=artist_name))
         elif isinstance(raw_artist, str) and raw_artist:
@@ -148,36 +149,35 @@ def convert_lastfm_track_to_connector(
     if "album" in lastfm_track_data:
         raw_album = lastfm_track_data["album"]
         if isinstance(raw_album, dict):
-            album_data = cast(dict[str, Any], raw_album)
-            album_name_val: str | None = album_data.get("name")
-            album = album_name_val
+            raw_album_name = raw_album.get("name")
+            album = str(raw_album_name) if raw_album_name else None
         elif isinstance(raw_album, str):
             album = raw_album
 
     # Extract duration (Last.fm returns duration in seconds, convert to ms)
     duration_ms: int | None = None
     if "duration" in lastfm_track_data:
-        duration_seconds: Any = lastfm_track_data["duration"]
-        if duration_seconds and str(duration_seconds).isdigit():
-            duration_ms = int(duration_seconds) * 1000
+        duration_val = lastfm_track_data["duration"]
+        if duration_val and str(duration_val).isdigit():
+            duration_ms = int(str(duration_val)) * 1000
 
     # Prepare raw metadata with Last.fm-specific information
-    raw_metadata: dict[str, Any] = {}
+    raw_metadata: JsonDict = {}
 
     # Add playcount if available
     if "playcount" in lastfm_track_data:
         raw_metadata["lastfm_global_playcount"] = int(
-            lastfm_track_data["playcount"] or 0
+            str(lastfm_track_data["playcount"] or 0)
         )
 
     # Add listeners if available
     if "listeners" in lastfm_track_data:
-        raw_metadata["lastfm_listeners"] = int(lastfm_track_data["listeners"] or 0)
+        raw_metadata["lastfm_listeners"] = int(str(lastfm_track_data["listeners"] or 0))
 
     # Add user playcount if available
     if "userplaycount" in lastfm_track_data:
         raw_metadata["lastfm_user_playcount"] = int(
-            lastfm_track_data["userplaycount"] or 0
+            str(lastfm_track_data["userplaycount"] or 0)
         )
 
     # Add MBID if available
@@ -185,10 +185,10 @@ def convert_lastfm_track_to_connector(
         raw_metadata["lastfm_mbid"] = lastfm_track_data["mbid"]
 
     # Extract MBID for the connector track ID (use MBID if available, otherwise use URL or name)
+    raw_mbid = lastfm_track_data.get("mbid")
+    raw_url = lastfm_track_data.get("url")
     connector_track_id: str = (
-        lastfm_track_data.get("mbid")
-        or lastfm_track_data.get("url")
-        or f"lastfm:{title}"
+        str(raw_mbid) if raw_mbid else str(raw_url) if raw_url else f"lastfm:{title}"
     )
 
     return ConnectorTrack(

@@ -11,7 +11,7 @@ LastFMAPIClient, LastFMOperations, and conversion utilities.
 
 from collections.abc import Awaitable, Callable, Mapping
 from datetime import datetime
-from typing import Any, ClassVar, override
+from typing import ClassVar, override
 from uuid import UUID
 
 from attrs import define, field
@@ -116,7 +116,9 @@ class LastFMConnector(BaseAPIConnector):
         return await self._operations.love_track(artist, title)
 
     @override
-    def convert_track_to_connector(self, track_data: dict[str, Any]) -> ConnectorTrack:
+    def convert_track_to_connector(
+        self, track_data: Mapping[str, JsonValue]
+    ) -> ConnectorTrack:
         """Convert Last.fm track data to ConnectorTrack domain model."""
         from .conversions import convert_lastfm_track_to_connector
 

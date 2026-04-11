@@ -12,9 +12,7 @@ Key design decisions:
 - is_now_playing: dual check — @attr.nowplaying flag OR absent date field
 """
 
-# Legitimate Any: API response data, framework types
-
-from typing import Any, ClassVar
+from typing import ClassVar
 
 from pydantic import AliasChoices, BaseModel, ConfigDict, Field, field_validator
 
@@ -157,7 +155,9 @@ class LastFMRecentTracksPage(LastFMNamedModel):
 
     @field_validator("tracks", mode="before")
     @classmethod
-    def coerce_single_to_list(cls, v: list[Any] | dict[str, Any] | None) -> list[Any]:
+    def coerce_single_to_list(
+        cls, v: list[object] | dict[str, object] | None
+    ) -> list[object]:
         """Last.fm returns a bare dict (not a list) when there is exactly 1 track."""
         if isinstance(v, dict):
             return [v]

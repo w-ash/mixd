@@ -10,7 +10,7 @@ SpotifyAPIClient, SpotifyOperations, and conversion utilities.
 # Legitimate Any: API response dicts, connector facade delegation
 
 from collections.abc import Awaitable, Callable, Mapping
-from typing import Any, ClassVar, cast, override
+from typing import ClassVar, cast, override
 from uuid import UUID
 
 from attrs import define, field
@@ -23,6 +23,7 @@ from src.domain.entities import (
 )
 from src.domain.entities.shared import JsonValue
 from src.domain.playlist.diff_engine import PlaylistOperation
+from src.domain.repositories.interfaces import TrackRepositoryProtocol
 from src.infrastructure.connectors.base import (
     BaseAPIConnector,
     BaseMetricResolver,
@@ -34,7 +35,11 @@ from src.infrastructure.connectors.spotify.error_classifier import (
     SpotifyErrorClassifier,
 )
 from src.infrastructure.connectors.spotify.models import SpotifyTrack
-from src.infrastructure.connectors.spotify.operations import SpotifyOperations
+from src.infrastructure.connectors.spotify.operations import (
+    AppendTracksResult,
+    SpotifyOperations,
+    SpotifyPlaylistDetails,
+)
 
 # Track conversion registry removed - conversions handled directly in modules
 
@@ -169,7 +174,7 @@ class SpotifyConnector(BaseAPIConnector):
         playlist_id: str,
         operations: list[PlaylistOperation],
         snapshot_id: str | None = None,
-        track_repo: Any = None,
+        track_repo: TrackRepositoryProtocol | None = None,
     ) -> str | None:
         """Execute a list of differential playlist operations."""
         return await self._operations.execute_playlist_operations(
@@ -194,7 +199,7 @@ class SpotifyConnector(BaseAPIConnector):
 
     async def append_tracks_to_playlist(
         self, playlist_id: str, tracks: list[Track]
-    ) -> dict[str, Any]:
+    ) -> AppendTracksResult:
         """Append tracks to an existing Spotify playlist."""
         return await self._operations.append_tracks_to_playlist(playlist_id, tracks)
 
@@ -204,12 +209,14 @@ class SpotifyConnector(BaseAPIConnector):
         """Update Spotify playlist metadata (name, description)."""
         await self._operations.update_playlist_metadata(playlist_id, metadata_updates)
 
-    async def get_playlist_details(self, playlist_id: str) -> dict[str, Any]:
+    async def get_playlist_details(self, playlist_id: str) -> SpotifyPlaylistDetails:
         """Get basic Spotify playlist metadata."""
         return await self._operations.get_playlist_details(playlist_id)
 
     @override
-    def convert_track_to_connector(self, track_data: dict[str, Any]) -> ConnectorTrack:
+    def convert_track_to_connector(
+        self, track_data: Mapping[str, JsonValue]
+    ) -> ConnectorTrack:
         """Convert Spotify track data to ConnectorTrack domain model."""
         from .conversions import convert_spotify_track_to_connector
 

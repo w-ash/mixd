@@ -5,12 +5,12 @@ Implements clean architecture by providing creation functions for all Spotify se
 without exposing Spotify internals to other layers.
 """
 
-# pyright: reportAny=false
-# Legitimate Any: API response data, framework types
-
-from typing import Any
+from typing import TYPE_CHECKING
 
 from src.domain.repositories import PlayImporterProtocol
+
+if TYPE_CHECKING:
+    from .play_resolver import SpotifyConnectorPlayResolver
 
 
 def create_play_importer() -> PlayImporterProtocol:
@@ -24,7 +24,7 @@ def create_play_importer() -> PlayImporterProtocol:
     return SpotifyPlayImporter()
 
 
-def create_play_resolver() -> Any:
+def create_play_resolver() -> SpotifyConnectorPlayResolver:
     """Create Spotify-specific play resolver.
 
     Returns:

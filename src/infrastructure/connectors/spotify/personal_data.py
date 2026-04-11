@@ -1,16 +1,14 @@
 """Spotify personal data parser for streaming history import."""
 
-# pyright: reportAny=false
-# Legitimate Any: API response data, framework types
-
 from datetime import datetime
 import json
 from pathlib import Path
-from typing import Any, Self
+from typing import Self
 
 from attrs import define
 
 from src.config import get_logger
+from src.domain.entities.shared import JsonDict, json_bool, json_int, json_str
 
 logger = get_logger(__name__)
 
@@ -35,7 +33,7 @@ class SpotifyPlayRecord:
     incognito_mode: bool
 
     @classmethod
-    def from_json(cls, data: dict[str, Any]) -> Self:
+    def from_json(cls, data: JsonDict) -> Self:
         """Parse Spotify personal data JSON record.
 
         Core fields (ts, spotify_track_uri, track/artist/album names, ms_played)
@@ -44,20 +42,20 @@ class SpotifyPlayRecord:
         in real Spotify exports.
         """
         return cls(
-            timestamp=datetime.fromisoformat(data["ts"]),
-            track_uri=data["spotify_track_uri"],
-            track_name=data["master_metadata_track_name"],
-            artist_name=data["master_metadata_album_artist_name"],
-            album_name=data["master_metadata_album_album_name"],
-            ms_played=data["ms_played"],
-            platform=data.get("platform", "unknown"),
-            country=data.get("conn_country", "unknown"),
-            reason_start=data.get("reason_start", "unknown"),
-            reason_end=data.get("reason_end", "unknown"),
-            shuffle=data.get("shuffle", False) or False,
-            skipped=data.get("skipped", False) or False,
-            offline=data.get("offline", False) or False,
-            incognito_mode=data.get("incognito_mode", False) or False,
+            timestamp=datetime.fromisoformat(json_str(data["ts"])),
+            track_uri=json_str(data["spotify_track_uri"]),
+            track_name=json_str(data["master_metadata_track_name"]),
+            artist_name=json_str(data["master_metadata_album_artist_name"]),
+            album_name=json_str(data["master_metadata_album_album_name"]),
+            ms_played=json_int(data["ms_played"]),
+            platform=json_str(data.get("platform", "unknown"), "unknown"),
+            country=json_str(data.get("conn_country", "unknown"), "unknown"),
+            reason_start=json_str(data.get("reason_start", "unknown"), "unknown"),
+            reason_end=json_str(data.get("reason_end", "unknown"), "unknown"),
+            shuffle=json_bool(data.get("shuffle", False)),
+            skipped=json_bool(data.get("skipped", False)),
+            offline=json_bool(data.get("offline", False)),
+            incognito_mode=json_bool(data.get("incognito_mode", False)),
         )
 
 

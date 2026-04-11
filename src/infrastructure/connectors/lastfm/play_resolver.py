@@ -8,11 +8,11 @@ and Last.fm ecosystem integration data.
 # Legitimate Any: API response data, framework types
 
 from collections.abc import Callable
-from typing import Any
 
 from src.config import get_logger
 from src.domain.entities import ConnectorTrackPlay, PlayRecord, TrackPlay
 from src.domain.repositories import UnitOfWorkProtocol
+from src.domain.repositories.interfaces import ResolutionMetrics
 
 from .track_resolution_service import LastfmTrackResolutionService
 
@@ -47,7 +47,7 @@ class LastfmConnectorPlayResolver:
         *,
         user_id: str,
         progress_callback: Callable[[int, int, str], None] | None = None,
-    ) -> tuple[list[TrackPlay], dict[str, Any]]:
+    ) -> tuple[list[TrackPlay], ResolutionMetrics]:
         """Resolve Last.fm connector plays using existing infrastructure."""
         if not connector_plays:
             return [], self._create_empty_metrics()
@@ -65,7 +65,7 @@ class LastfmConnectorPlayResolver:
 
         # Step 3: Create TrackPlay objects with Last.fm metadata preservation
         track_plays: list[TrackPlay] = []
-        filtering_stats: dict[str, Any] = {
+        filtering_stats: ResolutionMetrics = {
             "raw_plays": len(connector_plays),
             "accepted_plays": 0,
             "error_count": 0,
@@ -148,7 +148,7 @@ class LastfmConnectorPlayResolver:
             track_plays.append(track_play)
 
         # Combine filtering stats with resolution metrics
-        lastfm_metrics = {
+        lastfm_metrics: ResolutionMetrics = {
             **filtering_stats,
             "new_tracks_count": resolution_metrics.get("new_tracks", 0),
             "updated_tracks_count": resolution_metrics.get("existing_mappings", 0),
@@ -189,7 +189,7 @@ class LastfmConnectorPlayResolver:
 
         return play_records
 
-    def _create_empty_metrics(self) -> dict[str, Any]:
+    def _create_empty_metrics(self) -> ResolutionMetrics:
         """Create empty metrics dictionary."""
         return {
             "raw_plays": 0,

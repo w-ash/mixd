@@ -9,7 +9,6 @@ remain in the domain layer.
 # Legitimate Any: API response data, framework types
 
 from abc import ABC, abstractmethod
-from typing import Any
 from uuid import UUID
 
 from src.config import get_logger
@@ -85,7 +84,7 @@ class BaseMatchingProvider(ABC):
         self,
         tracks: list[Track],
         progress_callback: ProgressCallback | None = None,
-        **additional_options: Any,
+        **additional_options: object,
     ) -> ProviderMatchResult:
         """Orchestrate matching workflow using template method pattern.
 

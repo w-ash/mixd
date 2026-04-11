@@ -8,7 +8,7 @@ while delegating to the new unambiguous identity pipeline components.
 # Legitimate Any: **kwargs variadic dispatch, import params
 
 from collections.abc import Callable
-from typing import Any, cast, override
+from typing import cast, override
 from uuid import UUID
 
 from src.config import get_logger
@@ -73,7 +73,7 @@ class TrackIdentityServiceImpl(TrackIdentityServiceProtocol):
         connector: str,
         connector_instance: object,
         progress_callback: ProgressCallback | None = None,
-        **additional_options: Any,
+        **additional_options: object,
     ) -> dict[UUID, RawProviderMatch]:
         """Get raw matches from external providers.
 

@@ -12,6 +12,7 @@ from attrs import define, evolve, field
 
 from src.config import get_logger, settings
 from src.config.constants import BusinessLimits
+from src.domain.entities.shared import JsonDict
 from src.domain.playlist import PlaylistOperation, PlaylistOperationType
 from src.domain.repositories.interfaces import TrackRepositoryProtocol
 from src.infrastructure.connectors.spotify.client import SpotifyAPIClient
@@ -269,8 +270,10 @@ class SpotifyPlaylistSyncOperations:
                 tracks_to_remove[op.spotify_uri].append(op.old_position)
 
         # Build items list
-        items = [
-            {"uri": uri, "positions": positions} if positions else {"uri": uri}
+        items: list[JsonDict] = [
+            {"uri": uri or "", "positions": positions}
+            if positions
+            else {"uri": uri or ""}
             for uri, positions in tracks_to_remove.items()
         ]
 

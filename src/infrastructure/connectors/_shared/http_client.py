@@ -9,14 +9,14 @@ Spotify clients delegate auth to an httpx.Auth instance (SpotifyBearerAuth)
 so token injection and 401-retry are handled transparently.
 """
 
-# Legitimate Any: API response data, framework types
-
+from collections.abc import Awaitable, Callable
 import functools
-from typing import Any
+from typing import cast
 
 import httpx
 
 from src.config import get_logger, settings
+from src.domain.entities.shared import JsonValue
 
 SPOTIFY_API_BASE = "https://api.spotify.com/v1"
 SPOTIFY_ACCOUNTS_BASE = "https://accounts.spotify.com"
@@ -86,10 +86,26 @@ async def _log_response(response: httpx.Response) -> None:
         )
 
 
-_EVENT_HOOKS: dict[str, list[Any]] = {
+type _EventHook = Callable[..., Awaitable[None]]
+
+_EVENT_HOOKS: dict[str, list[_EventHook]] = {
     "request": [_log_request],
     "response": [_log_response],
 }
+
+
+# -------------------------------------------------------------------------
+# JSON PARSING BOUNDARY
+# -------------------------------------------------------------------------
+
+
+def parse_json_response(response: httpx.Response) -> dict[str, JsonValue]:
+    """Parse JSON response with typed return.
+
+    httpx's response.json() returns Any (typeshed #9335, confirmed permanent).
+    This helper centralizes the single cast so callers get typed dicts.
+    """
+    return cast("dict[str, JsonValue]", response.json())
 
 
 # -------------------------------------------------------------------------

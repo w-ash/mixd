@@ -10,9 +10,7 @@ Key components:
 - ConnectorTrack construction from MusicBrainz recording data
 """
 
-# Legitimate Any: API response data, framework types
-
-from typing import Any
+from collections.abc import Mapping
 
 from src.config import get_logger
 from src.domain.entities import Artist, ConnectorTrack
@@ -25,7 +23,7 @@ logger = get_logger(__name__).bind(service="musicbrainz_conversions")
 
 
 def _ensure_recording(
-    data: dict[str, Any] | MusicBrainzRecording,
+    data: Mapping[str, JsonValue] | MusicBrainzRecording,
 ) -> MusicBrainzRecording:
     """Validate raw dict into a MusicBrainzRecording, or pass through if already typed."""
     if isinstance(data, MusicBrainzRecording):
@@ -34,7 +32,7 @@ def _ensure_recording(
 
 
 def extract_recording_metadata(
-    recording_data: dict[str, Any] | MusicBrainzRecording,
+    recording_data: Mapping[str, JsonValue] | MusicBrainzRecording,
 ) -> dict[str, JsonValue]:
     """Extract comprehensive metadata from MusicBrainz recording data."""
     if not recording_data:
@@ -80,7 +78,7 @@ def extract_recording_metadata(
 
 
 def convert_musicbrainz_track_to_connector(
-    recording_data: dict[str, Any] | MusicBrainzRecording,
+    recording_data: Mapping[str, JsonValue] | MusicBrainzRecording,
 ) -> ConnectorTrack:
     """Convert MusicBrainz recording data to ConnectorTrack domain model.
 

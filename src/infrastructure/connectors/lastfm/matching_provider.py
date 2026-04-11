@@ -12,7 +12,6 @@ raise ``NotImplementedError``).
 
 # pyright: reportAny=false
 
-from typing import Any
 from uuid import UUID
 
 from src.config import get_logger
@@ -64,7 +63,7 @@ class LastFMProvider:
         self,
         tracks: list[Track],
         progress_callback: ProgressCallback | None = None,
-        **additional_options: Any,
+        **additional_options: object,
     ) -> ProviderMatchResult:
         """Fetch raw track matches from LastFM.
 

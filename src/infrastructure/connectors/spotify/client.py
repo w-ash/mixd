@@ -10,11 +10,8 @@ Key components:
 - Market-aware API calls with configurable timeouts
 """
 
-# pyright: reportAny=false
-# Legitimate Any: response.json() wire format, API response dicts
-
 import asyncio
-from typing import Any, ClassVar, override
+from typing import ClassVar, cast, override
 
 from attrs import define, field
 import httpx
@@ -23,6 +20,8 @@ from tenacity import AsyncRetrying
 from src.config import get_logger, settings
 from src.config.constants import SpotifyConstants
 from src.config.logging import logging_context
+from src.domain.entities.shared import JsonDict
+from src.infrastructure.connectors._shared.http_client import parse_json_response
 from src.infrastructure.connectors._shared.retry_policies import (
     RetryConfig,
     RetryPolicyFactory,
@@ -115,14 +114,14 @@ class SpotifyAPIClient(BaseAPIClient):
         data = await self._api_call("get_spotify_track", self._get_track_impl, track_id)
         return SpotifyTrack.model_validate(data) if data else None
 
-    async def _get_track_impl(self, track_id: str) -> dict[str, Any] | None:
+    async def _get_track_impl(self, track_id: str) -> JsonDict | None:
         """Pure implementation without retry logic."""
         response = await self._client.get(
             f"/tracks/{track_id}",
             params={"market": self.market},
         )
         _ = response.raise_for_status()
-        return response.json()
+        return parse_json_response(response)
 
     async def get_tracks_concurrent(
         self, track_ids: list[str]
@@ -170,7 +169,7 @@ class SpotifyAPIClient(BaseAPIClient):
         )
         return SpotifyTrack.model_validate(data) if data else None
 
-    async def _search_by_isrc_impl(self, isrc: str) -> dict[str, Any] | None:
+    async def _search_by_isrc_impl(self, isrc: str) -> JsonDict | None:
         """Pure implementation without retry logic."""
         logger.debug(f"Searching Spotify for ISRC: {isrc}")
         response = await self._client.get(
@@ -183,12 +182,17 @@ class SpotifyAPIClient(BaseAPIClient):
             },
         )
         _ = response.raise_for_status()
-        data = response.json()
-        tracks = data.get("tracks", {}).get("items", [])
-        if not tracks:
+        data = parse_json_response(response)
+        tracks_wrapper = data.get("tracks")
+        if not isinstance(tracks_wrapper, dict):
             logger.warning("Spotify search by ISRC returned no results", isrc=isrc)
             return None
-        return tracks[0]
+        items = tracks_wrapper.get("items")
+        if not isinstance(items, list) or not items:
+            logger.warning("Spotify search by ISRC returned no results", isrc=isrc)
+            return None
+        first = items[0]
+        return dict(first) if isinstance(first, dict) else None
 
     async def search_track(
         self, artist: str, title: str, limit: int = 5
@@ -206,7 +210,7 @@ class SpotifyAPIClient(BaseAPIClient):
 
     async def _search_track_impl(
         self, artist: str, title: str, limit: int = 5
-    ) -> list[dict[str, Any]]:
+    ) -> list[JsonDict]:
         """Pure implementation without retry logic."""
         query = f"artist:{artist} track:{title}"
         logger.debug(f"Searching Spotify with query: {query}")
@@ -220,8 +224,14 @@ class SpotifyAPIClient(BaseAPIClient):
             },
         )
         _ = response.raise_for_status()
-        data = response.json()
-        return data.get("tracks", {}).get("items", [])
+        data = parse_json_response(response)
+        tracks_wrapper = data.get("tracks")
+        if not isinstance(tracks_wrapper, dict):
+            return []
+        items = tracks_wrapper.get("items")
+        if not isinstance(items, list):
+            return []
+        return [dict(item) for item in items if isinstance(item, dict)]
 
     # -------------------------------------------------------------------------
     # Playlist Read Methods
@@ -234,14 +244,14 @@ class SpotifyAPIClient(BaseAPIClient):
         )
         return SpotifyPlaylist.model_validate(data) if data else None
 
-    async def _get_playlist_impl(self, playlist_id: str) -> dict[str, Any] | None:
+    async def _get_playlist_impl(self, playlist_id: str) -> JsonDict | None:
         """Pure implementation without retry logic."""
         response = await self._client.get(
             f"/playlists/{playlist_id}",
             params={"market": self.market},
         )
         _ = response.raise_for_status()
-        return response.json()
+        return parse_json_response(response)
 
     async def get_playlist_items(
         self, playlist_id: str, limit: int = 100, offset: int = 0
@@ -258,7 +268,7 @@ class SpotifyAPIClient(BaseAPIClient):
 
     async def _get_playlist_items_impl(
         self, playlist_id: str, limit: int = 100, offset: int = 0
-    ) -> dict[str, Any] | None:
+    ) -> JsonDict | None:
         """Pure implementation without retry logic."""
         response = await self._client.get(
             f"/playlists/{playlist_id}/items",
@@ -269,7 +279,7 @@ class SpotifyAPIClient(BaseAPIClient):
             },
         )
         _ = response.raise_for_status()
-        return response.json()
+        return parse_json_response(response)
 
     async def get_next_page(
         self, current_page: SpotifyPaginatedPlaylistItems
@@ -283,7 +293,7 @@ class SpotifyAPIClient(BaseAPIClient):
         )
         return SpotifyPaginatedPlaylistItems.model_validate(data) if data else None
 
-    async def _get_next_page_impl(self, next_url: str) -> dict[str, Any] | None:
+    async def _get_next_page_impl(self, next_url: str) -> JsonDict | None:
         """Pure implementation without retry logic.
 
         Spotify's "next" cursor is an absolute URL. httpx uses absolute URLs
@@ -291,7 +301,7 @@ class SpotifyAPIClient(BaseAPIClient):
         """
         response = await self._client.get(next_url)
         _ = response.raise_for_status()
-        return response.json()
+        return parse_json_response(response)
 
     # -------------------------------------------------------------------------
     # Playlist Write Methods
@@ -312,7 +322,7 @@ class SpotifyAPIClient(BaseAPIClient):
 
     async def _create_playlist_impl(
         self, name: str, description: str = "", public: bool = False
-    ) -> dict[str, Any] | None:
+    ) -> JsonDict | None:
         """Pure implementation without retry logic.
 
         Uses POST /me/playlists — no user ID prefetch required.
@@ -322,7 +332,7 @@ class SpotifyAPIClient(BaseAPIClient):
             json={"name": name, "public": public, "description": description},
         )
         _ = response.raise_for_status()
-        return response.json()
+        return parse_json_response(response)
 
     async def playlist_add_items(
         self, playlist_id: str, items: list[str], position: int | None = None
@@ -348,9 +358,9 @@ class SpotifyAPIClient(BaseAPIClient):
 
     async def _playlist_add_items_impl(
         self, playlist_id: str, items: list[str], position: int | None = None
-    ) -> dict[str, Any] | None:
+    ) -> JsonDict | None:
         """Pure implementation without retry logic."""
-        body: dict[str, Any] = {"uris": items}
+        body: JsonDict = {"uris": items}
         if position is not None:
             body["position"] = position
 
@@ -359,12 +369,12 @@ class SpotifyAPIClient(BaseAPIClient):
             json=body,
         )
         _ = response.raise_for_status()
-        return response.json()
+        return parse_json_response(response)
 
     async def playlist_remove_specific_occurrences_of_items(
         self,
         playlist_id: str,
-        items: list[dict[str, Any]],
+        items: list[JsonDict],
         snapshot_id: str | None = None,
     ) -> SpotifySnapshotResponse | None:
         """Remove specific occurrences of items from a Spotify playlist.
@@ -389,11 +399,11 @@ class SpotifyAPIClient(BaseAPIClient):
     async def _playlist_remove_specific_occurrences_of_items_impl(
         self,
         playlist_id: str,
-        items: list[dict[str, Any]],
+        items: list[JsonDict],
         snapshot_id: str | None = None,
-    ) -> dict[str, Any] | None:
+    ) -> JsonDict | None:
         """Pure implementation without retry logic."""
-        body: dict[str, Any] = {"items": items}
+        body: JsonDict = {"items": items}
         if snapshot_id is not None:
             body["snapshot_id"] = snapshot_id
 
@@ -403,7 +413,7 @@ class SpotifyAPIClient(BaseAPIClient):
             json=body,
         )
         _ = response.raise_for_status()
-        return response.json()
+        return parse_json_response(response)
 
     async def playlist_reorder_items(
         self,
@@ -443,9 +453,9 @@ class SpotifyAPIClient(BaseAPIClient):
         insert_before: int,
         range_length: int = 1,
         snapshot_id: str | None = None,
-    ) -> dict[str, Any] | None:
+    ) -> JsonDict | None:
         """Pure implementation without retry logic."""
-        body: dict[str, Any] = {
+        body: JsonDict = {
             "range_start": range_start,
             "insert_before": insert_before,
             "range_length": range_length,
@@ -458,7 +468,7 @@ class SpotifyAPIClient(BaseAPIClient):
             json=body,
         )
         _ = response.raise_for_status()
-        return response.json()
+        return parse_json_response(response)
 
     async def playlist_replace_items(
         self, playlist_id: str, items: list[str]
@@ -482,14 +492,14 @@ class SpotifyAPIClient(BaseAPIClient):
 
     async def _playlist_replace_items_impl(
         self, playlist_id: str, items: list[str]
-    ) -> dict[str, Any] | None:
+    ) -> JsonDict | None:
         """Pure implementation without retry logic."""
         response = await self._client.put(
             f"/playlists/{playlist_id}/items",
             json={"uris": items},
         )
         _ = response.raise_for_status()
-        return response.json()
+        return parse_json_response(response)
 
     async def playlist_change_details(
         self, playlist_id: str, name: str | None = None, description: str | None = None
@@ -510,7 +520,7 @@ class SpotifyAPIClient(BaseAPIClient):
         self, playlist_id: str, name: str | None = None, description: str | None = None
     ) -> None:
         """Pure implementation without retry logic."""
-        body: dict[str, Any] = {}
+        body: JsonDict = {}
         if name is not None:
             body["name"] = name
         if description is not None:
@@ -557,11 +567,11 @@ class SpotifyAPIClient(BaseAPIClient):
             params={"uris": ",".join(uris)},
         )
         _ = response.raise_for_status()
-        return response.json()
+        return cast("list[bool]", response.json())
 
     async def get_saved_tracks(
         self, limit: int = 50, offset: int = 0
-    ) -> dict[str, Any] | None:
+    ) -> JsonDict | None:
         """Fetch user's saved/liked tracks from Spotify.
 
         Args:
@@ -577,7 +587,7 @@ class SpotifyAPIClient(BaseAPIClient):
 
     async def _get_saved_tracks_impl(
         self, limit: int = 50, offset: int = 0
-    ) -> dict[str, Any] | None:
+    ) -> JsonDict | None:
         """Pure implementation without retry logic."""
         response = await self._client.get(
             "/me/tracks",
@@ -588,9 +598,9 @@ class SpotifyAPIClient(BaseAPIClient):
             },
         )
         _ = response.raise_for_status()
-        return response.json()
+        return parse_json_response(response)
 
-    async def get_current_user(self) -> dict[str, Any] | None:
+    async def get_current_user(self) -> JsonDict | None:
         """Get current Spotify user information.
 
         Returns:
@@ -600,11 +610,11 @@ class SpotifyAPIClient(BaseAPIClient):
             "get_spotify_current_user", self._get_current_user_impl
         )
 
-    async def _get_current_user_impl(self) -> dict[str, Any] | None:
+    async def _get_current_user_impl(self) -> JsonDict | None:
         """Pure implementation without retry logic."""
         response = await self._client.get("/me")
         _ = response.raise_for_status()
-        return response.json()
+        return parse_json_response(response)
 
     async def get_current_user_id(self) -> str | None:
         """Get (and cache) the current user's Spotify ID."""
@@ -612,5 +622,7 @@ class SpotifyAPIClient(BaseAPIClient):
             return self._cached_user_id
         user_data = await self.get_current_user()
         if user_data and "id" in user_data:
-            self._cached_user_id = user_data["id"]
+            user_id = user_data["id"]
+            if isinstance(user_id, str):
+                self._cached_user_id = user_id
         return self._cached_user_id

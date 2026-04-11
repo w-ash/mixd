@@ -102,12 +102,19 @@ class TestTaskCleanup:
         """Tasks still running when consumer breaks are cancelled in finally."""
         processor = _make_processor()
         items = list(range(5))
+        cancelled_items: list[int] = []
 
         async def blocking_process(item: int) -> int:
-            # First item completes fast, rest block until cancelled
+            # First item completes after brief delay (lets rate limiter launch others),
+            # rest block until cancelled
             if item == 0:
+                await asyncio.sleep(0.05)
                 return item
-            await asyncio.sleep(60)
+            try:
+                await asyncio.sleep(60)
+            except asyncio.CancelledError:
+                cancelled_items.append(item)
+                raise
             return item
 
         async for _item_id, _result in processor.process_batch(items, blocking_process):
@@ -116,4 +123,5 @@ class TestTaskCleanup:
 
         # Give the finally block a tick to cancel tasks
         await asyncio.sleep(0.05)
-        assert len(processor.running_tasks) == 0
+        # At least one blocking task should have been cancelled
+        assert len(cancelled_items) > 0

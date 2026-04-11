@@ -17,11 +17,11 @@ providing reusable business logic while maintaining clean separation of concerns
 """
 
 # pyright: reportAny=false
-# Legitimate Any: Spotify API response data
 
 import asyncio
+from collections.abc import Mapping
 from datetime import UTC, datetime
-from typing import Any, Never
+from typing import Never, TypedDict
 from uuid import UUID
 
 import attrs
@@ -35,6 +35,7 @@ from src.domain.entities import (
     Playlist,
     Track,
 )
+from src.domain.entities.shared import JsonValue
 from src.domain.playlist import PlaylistOperation
 from src.domain.repositories.interfaces import TrackRepositoryProtocol
 from src.infrastructure.connectors.spotify.client import SpotifyAPIClient
@@ -53,6 +54,28 @@ from src.infrastructure.connectors.spotify.playlist_sync_operations import (
 
 # Get contextual logger for operations
 logger = get_logger(__name__).bind(service="spotify_operations")
+
+
+class SpotifyPlaylistDetails(TypedDict):
+    """Typed return for get_playlist_details."""
+
+    id: str
+    name: str
+    description: str
+    owner_name: str | None
+    owner_id: str | None
+    is_public: bool
+    collaborative: bool
+    follower_count: int | None
+
+
+class AppendTracksResult(TypedDict):
+    """Typed return for append_tracks_to_playlist."""
+
+    tracks_added: int
+    api_calls_made: int
+    snapshot_id: str | None
+    last_modified: str
 
 
 class SpotifyPaginationError(Exception):
@@ -103,8 +126,8 @@ class SpotifyOperations:
         return results
 
     async def batch_get_track_info(
-        self, tracks: list[Track], **_options: Any
-    ) -> dict[UUID, dict[str, Any]]:
+        self, tracks: list[Track], **_options: object
+    ) -> dict[UUID, Mapping[str, JsonValue]]:
         """Fetch track metadata for multiple tracks using bulk Spotify API."""
         # Extract Spotify IDs from tracks that have mappings
         spotify_mapped = [
@@ -161,17 +184,13 @@ class SpotifyOperations:
                 logger.warning("Received invalid items data during pagination")
                 break
 
-        # Convert basic playlist metadata (needs raw dict for conversion)
-        connector_playlist = convert_spotify_playlist_to_connector(
-            playlist.model_dump()
-        )
+        connector_playlist = convert_spotify_playlist_to_connector(playlist)
 
         # Process each track item with its metadata
         playlist_items: list[ConnectorPlaylistItem] = []
         for idx, item in enumerate(all_items):
             if item.item is not None:
                 track = item.item
-                track_dict = track.model_dump()
 
                 # Create ConnectorPlaylistItem with track ID and metadata
                 playlist_item = ConnectorPlaylistItem(
@@ -181,9 +200,9 @@ class SpotifyOperations:
                     added_by_id=item.added_by.id or None,
                     extras={
                         "is_local": item.is_local,
-                        **extract_track_metadata_for_playlist_item(track_dict),
+                        **extract_track_metadata_for_playlist_item(track),
                         "added_at": item.added_at,
-                        "full_track_data": track_dict,
+                        "full_track_data": track.model_dump(),
                     },
                 )
                 playlist_items.append(playlist_item)
@@ -362,23 +381,27 @@ class SpotifyOperations:
             msg = f"Spotify API returned no response at offset {offset} (likely rate-limited or network error after retries)"
             raise SpotifyPaginationError(msg)
 
-        remote_total: int | None = saved_tracks.get("total")
+        total_raw = saved_tracks.get("total")
+        remote_total: int | None = total_raw if isinstance(total_raw, int) else None
 
-        if not saved_tracks.get("items"):
+        items_raw = saved_tracks.get("items")
+        if not isinstance(items_raw, list) or not items_raw:
             return [], None, remote_total
 
         connector_tracks: list[ConnectorTrack] = []
-        for item in saved_tracks["items"]:
-            if not item or "track" not in item:
+        for item_raw in items_raw:
+            if not isinstance(item_raw, dict) or "track" not in item_raw:
                 continue
 
-            spotify_track = item["track"]
-            added_at = item.get("added_at")
+            spotify_track = item_raw["track"]
+            if not isinstance(spotify_track, dict):
+                continue
 
             connector_track = convert_spotify_track_to_connector(spotify_track)
 
             # Add liked timestamp to metadata
-            if added_at:
+            added_at = item_raw.get("added_at")
+            if isinstance(added_at, str):
                 parsed_time = parse_spotify_timestamp(added_at)
                 if parsed_time:
                     connector_track = attrs.evolve(
@@ -394,8 +417,8 @@ class SpotifyOperations:
 
         # Determine next cursor
         next_cursor = None
-        if saved_tracks.get("next") and saved_tracks["items"]:
-            next_cursor = str(offset + len(saved_tracks["items"]))
+        if saved_tracks.get("next") and items_raw:
+            next_cursor = str(offset + len(items_raw))
 
         return connector_tracks, next_cursor, remote_total
 
@@ -437,7 +460,7 @@ class SpotifyOperations:
             logger.error(f"Error updating playlist metadata: {e}")
             raise
 
-    async def get_playlist_details(self, playlist_id: str) -> dict[str, Any]:
+    async def get_playlist_details(self, playlist_id: str) -> SpotifyPlaylistDetails:
         """Get comprehensive Spotify playlist metadata.
 
         Args:
@@ -485,7 +508,7 @@ class SpotifyOperations:
 
     async def append_tracks_to_playlist(
         self, playlist_id: str, tracks: list[Track]
-    ) -> dict[str, Any]:
+    ) -> AppendTracksResult:
         """Append tracks to an existing Spotify playlist with metadata tracking.
 
         Args:
@@ -499,11 +522,12 @@ class SpotifyOperations:
 
         if early_return := validate_non_empty(
             spotify_track_uris,
-            {
-                "tracks_added": 0,
-                "api_calls_made": 0,
-                "snapshot_id": None,
-            },
+            AppendTracksResult(
+                tracks_added=0,
+                api_calls_made=0,
+                snapshot_id=None,
+                last_modified=datetime.now(UTC).isoformat(),
+            ),
         ):
             logger.warning("No valid Spotify tracks to append")
             return early_return

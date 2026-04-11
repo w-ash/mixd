@@ -8,9 +8,12 @@ without exposing Last.fm internals to other layers.
 # pyright: reportAny=false
 # Legitimate Any: API response data, framework types
 
-from typing import Any
+from typing import TYPE_CHECKING
 
 from src.domain.repositories import PlayImporterProtocol
+
+if TYPE_CHECKING:
+    from .play_resolver import LastfmConnectorPlayResolver
 
 
 def create_play_importer() -> PlayImporterProtocol:
@@ -27,7 +30,7 @@ def create_play_importer() -> PlayImporterProtocol:
     )
 
 
-def create_play_resolver() -> Any:
+def create_play_resolver() -> LastfmConnectorPlayResolver:
     """Create Last.fm-specific play resolver.
 
     Returns:

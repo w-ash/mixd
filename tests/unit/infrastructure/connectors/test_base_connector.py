@@ -1,5 +1,6 @@
 """Unit tests for BaseAPIConnector generic method delegation."""
 
+from collections.abc import Mapping
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
@@ -16,7 +17,7 @@ class MockConnector(BaseAPIConnector):
     def connector_name(self) -> str:
         return "test"
 
-    def convert_track_to_connector(self, track_data: dict) -> ConnectorTrack:
+    def convert_track_to_connector(self, track_data: Mapping) -> ConnectorTrack:
         """Mock implementation of abstract method."""
         return ConnectorTrack(
             connector_name=self.connector_name,
@@ -33,7 +34,7 @@ class MockSpotifyConnector(BaseAPIConnector):
     def connector_name(self) -> str:
         return "spotify"
 
-    def convert_track_to_connector(self, track_data: dict) -> ConnectorTrack:
+    def convert_track_to_connector(self, track_data: Mapping) -> ConnectorTrack:
         """Mock implementation of abstract method."""
         return ConnectorTrack(
             connector_name=self.connector_name,

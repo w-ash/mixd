@@ -22,7 +22,7 @@ import collections.abc
 from http.server import BaseHTTPRequestHandler, HTTPServer
 import secrets
 import time
-from typing import Any, TypedDict, cast, override
+from typing import TypedDict, cast, override
 import urllib.parse
 import webbrowser
 
@@ -193,7 +193,7 @@ class SpotifyTokenManager:
                 )
 
             @override
-            def log_message(self, format: str, *args: Any) -> None:
+            def log_message(self, format: str, *args: object) -> None:
                 pass  # Suppress HTTP server access logs
 
         server = HTTPServer(("127.0.0.1", 8888), _CallbackHandler)

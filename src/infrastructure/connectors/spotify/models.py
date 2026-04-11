@@ -20,9 +20,7 @@ Endpoint coverage:
 - POST /me/playlists  → SpotifyPlaylist
 """
 
-# Legitimate Any: API response data, framework types
-
-from typing import Any, ClassVar
+from typing import ClassVar
 
 from pydantic import BaseModel, ConfigDict, Field
 
@@ -120,7 +118,7 @@ class SpotifyPlaylist(SpotifyBaseModel):
     public: bool | None = Field(default=None)  # nullable per API spec
     collaborative: bool = Field(default=False)
     snapshot_id: str | None = Field(default=None)
-    images: list[dict[str, Any]] = Field(default_factory=list)
+    images: list[dict[str, str | int | None]] = Field(default_factory=list)
     followers: SpotifyFollowers | None = Field(default=None)
     items: SpotifyPaginatedPlaylistItems = Field(
         default_factory=SpotifyPaginatedPlaylistItems
