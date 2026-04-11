@@ -4,12 +4,9 @@ Provides the sync wrapper that Typer command handlers use to call async
 use cases. FastAPI's web interface won't need this — it's natively async.
 """
 
-# Legitimate Any: Coroutine[Any,Any,T], Rich/Typer display types
-
 import asyncio
-from collections.abc import Coroutine
+from collections.abc import Awaitable
 from concurrent.futures import ThreadPoolExecutor
-from typing import Any
 
 from src.config import get_logger, settings
 
@@ -29,7 +26,7 @@ def create_executor_for_connectors() -> ThreadPoolExecutor:
     )
 
 
-def run_async[T](coro: Coroutine[Any, Any, T]) -> T:
+def run_async[T](coro: Awaitable[T]) -> T:
     """Run coroutine with custom high-concurrency executor.
 
     Uses ``asyncio.run()`` (Python 3.14+ pattern) with a pre-configured

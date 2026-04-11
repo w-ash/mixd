@@ -5,15 +5,15 @@ Pydantic models for JSON serialization.
 """
 
 # pyright: reportAny=false
-# Legitimate Any: node config values are heterogeneous, model_dump() returns dict[str, Any]
+# Pydantic model_dump() returns dict[str, Any] — implicit Any from library stubs
 
 from datetime import datetime
-from typing import Any
 from uuid import UUID
 
 from pydantic import BaseModel, ConfigDict
 
 from src.application.workflows.node_config_fields import ConfigFieldDef, FieldType
+from src.domain.entities.shared import JsonValue
 from src.domain.entities.workflow import (
     RunStatus,
     Workflow,
@@ -31,7 +31,7 @@ class WorkflowTaskDefSchema(BaseModel):
 
     id: str
     type: str
-    config: dict[str, Any] = {}
+    config: dict[str, JsonValue] = {}
     upstream: list[str] = []
     result_key: str | None = None
 
@@ -180,7 +180,7 @@ class WorkflowRunNodeSchema(BaseModel):
     output_track_count: int | None = None
     error_message: str | None = None
     execution_order: int = 0
-    node_details: dict[str, Any] | None = None
+    node_details: dict[str, object] | None = None
 
 
 class WorkflowRunSummarySchema(BaseModel):
@@ -201,7 +201,7 @@ class WorkflowRunSummarySchema(BaseModel):
 
 class WorkflowRunDetailSchema(WorkflowRunSummarySchema):
     definition_snapshot: WorkflowDefSchema
-    output_tracks: list[dict[str, Any]] = []
+    output_tracks: list[dict[str, object]] = []
     metric_columns: list[str] = []
     nodes: list[WorkflowRunNodeSchema] = []
 
@@ -349,11 +349,14 @@ def to_run_summary(run: WorkflowRun) -> WorkflowRunSummarySchema:
     )
 
 
-def _extract_metric_columns(output_tracks: list[dict[str, Any]]) -> list[str]:
+def _extract_metric_columns(output_tracks: list[dict[str, object]]) -> list[str]:
     """Extract metric column names from the first output track's metrics dict."""
     if not output_tracks:
         return []
-    return sorted(output_tracks[0].get("metrics", {}).keys())
+    metrics = output_tracks[0].get("metrics")
+    if isinstance(metrics, dict):
+        return sorted(metrics.keys())
+    return []
 
 
 def to_run_detail(run: WorkflowRun) -> WorkflowRunDetailSchema:

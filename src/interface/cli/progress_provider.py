@@ -6,11 +6,11 @@ Uses Rich Live Display with Progress for proper stdout/stderr coordination.
 """
 
 # pyright: reportAny=false
-# Legitimate Any: Coroutine[Any,Any,T], Rich/Typer display types
+# Rich Progress internals leak implicit Any
 
 import asyncio
 import contextlib
-from typing import TYPE_CHECKING, Any, Self, override
+from typing import TYPE_CHECKING, Self, TypedDict, override
 
 from attrs import define
 from rich.live import Live
@@ -39,6 +39,14 @@ from src.domain.entities.progress import (
 from src.interface.cli.console import GOLD
 
 logger = get_logger(__name__).bind(service="rich_progress_provider")
+
+
+class _ProgressUpdateKwargs(TypedDict, total=False):
+    """Typed kwargs for Rich Progress.update()."""
+
+    completed: int
+    description: str
+    total: int | None
 
 
 class ETAColumn(ProgressColumn):
@@ -265,7 +273,7 @@ class RichProgressProvider:
                 return
 
             # Update Rich task with current progress
-            task_update_kwargs: dict[str, Any] = {
+            task_update_kwargs: _ProgressUpdateKwargs = {
                 "completed": event.current,
                 "description": event.message,
             }

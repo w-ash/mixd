@@ -4,7 +4,7 @@
 # Legitimate Any: Coroutine[Any,Any,T], Rich/Typer display types
 
 import json
-from typing import Any, Literal, cast
+from typing import Literal
 from uuid import UUID
 
 from rich.table import Table
@@ -125,14 +125,13 @@ def _display_table_result(
 
             # Get source information from tracklist metadata
             source_info = "Unknown"
-            track_sources: dict[UUID, dict[str, Any]] = cast(
-                dict[UUID, dict[str, Any]],
+            track_sources = (
                 result.tracklist.metadata.get("track_sources", {})
                 if result.tracklist
-                else {},
+                else {}
             )
             if track.id and track.id in track_sources:
-                source_data: dict[str, Any] = track_sources[track.id]
+                source_data = track_sources[track.id]
                 source_info = source_data.get("playlist_name", "Unknown")
 
             row: list[str] = [str(i), artist_name, track.title, source_info]

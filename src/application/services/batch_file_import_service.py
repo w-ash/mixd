@@ -28,14 +28,19 @@ class ImportExecutorProtocol(Protocol):
         self,
         service: Literal["lastfm", "spotify"],
         mode: Literal["recent", "incremental", "full", "file"],
-        **kwargs: object,
+        *,
+        file_path: Path | None = ...,
+        batch_size: int | None = ...,
+        progress_emitter: ProgressEmitter | None = ...,
     ) -> OperationResult:
         """Execute a single file import.
 
         Args:
             service: Service name (e.g., "spotify")
             mode: Import mode (e.g., "file")
-            **kwargs: Additional import parameters (file_path, batch_size, etc.)
+            file_path: Path to file being imported.
+            batch_size: Batch size for chunked processing.
+            progress_emitter: Progress reporting callback.
 
         Returns:
             Operation result from import

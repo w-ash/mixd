@@ -5,13 +5,10 @@ launches the import as a background task, and immediately returns the
 operation_id so the client can subscribe to progress via SSE.
 """
 
-# Legitimate Any: Coroutine type params in background task helper
-
-from collections.abc import Coroutine
+from collections.abc import Awaitable
 import os
 from pathlib import Path
 import tempfile
-from typing import Any
 
 from fastapi import APIRouter, Depends, HTTPException, UploadFile
 
@@ -60,7 +57,7 @@ def _make_emitter(operation_id: str) -> OperationBoundEmitter:
 
 async def _run_operation(
     operation_id: str,
-    coro: Coroutine[Any, Any, object],
+    coro: Awaitable[object],
 ) -> None:
     """Wrapper that runs a use-case coroutine and cleans up the SSE queue."""
     registry = get_operation_registry()

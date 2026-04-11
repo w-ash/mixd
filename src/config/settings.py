@@ -22,7 +22,7 @@ The configuration is organized into logical groups:
 
 import contextlib
 from pathlib import Path
-from typing import Annotated, Any, ClassVar, Literal, cast
+from typing import Annotated, ClassVar, Literal, cast
 
 from pydantic import BaseModel, Field, SecretStr, model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
@@ -525,7 +525,7 @@ class Settings(BaseSettings):
 
     @model_validator(mode="before")
     @classmethod
-    def transform_flat_env_vars(cls, data: Any) -> Any:
+    def transform_flat_env_vars(cls, data: object) -> object:
         """Transform flat environment variables to nested structure.
 
         Handles flat env vars (DATABASE_URL, SPOTIFY_CLIENT_ID, etc.) and
@@ -546,13 +546,13 @@ class Settings(BaseSettings):
 
         if not isinstance(data, dict):
             return data
-        data = cast(dict[str, Any], data)
-        transformed: dict[str, Any] = {}
+        env_data = cast("dict[str, object]", data)
+        transformed: dict[str, dict[str, object]] = {}
 
         for env_key, (group, field_key) in cls._FLAT_ENV_ROUTES.items():
             # Check data dict first (.env file content), then OS environment
-            if env_key in data:
-                value = data.pop(env_key)
+            if env_key in env_data:
+                value = env_data.pop(env_key)
             elif (os_value := os.environ.get(env_key.upper())) is not None:
                 value = os_value
             else:
@@ -565,8 +565,8 @@ class Settings(BaseSettings):
 
             transformed.setdefault(group, {})[field_key or env_key] = value
 
-        data.update(transformed)
-        return data
+        env_data.update(transformed)
+        return env_data
 
 
 # Singleton instance for application use

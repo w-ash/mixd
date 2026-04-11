@@ -9,6 +9,7 @@ from typing import cast
 from starlette.requests import Request
 
 from src.config.constants import BusinessLimits
+from src.interface.api.auth_gate import JWTClaims
 
 
 def get_current_user_id(request: Request) -> str:
@@ -25,7 +26,7 @@ def get_current_user_id(request: Request) -> str:
     """
     raw_claims = request.scope.get("auth_user")
     if isinstance(raw_claims, dict):
-        claims = cast(dict[str, str], raw_claims)
+        claims = cast(JWTClaims, raw_claims)
         if sub := claims.get("sub"):
             return sub
     return BusinessLimits.DEFAULT_USER_ID

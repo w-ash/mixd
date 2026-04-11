@@ -13,17 +13,17 @@ See: https://neon.com/guides/neon-auth-webhooks-nextjs
 """
 
 # pyright: reportAny=false
-# Legitimate Any: webhook payloads are untyped JSON from external source
+# json.loads() returns Any per typeshed — structural fix deferred to Phase 6
 
 import base64
 from collections.abc import Callable
 import json
 import time
-from typing import Any
 
 from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PublicKey
 from fastapi import APIRouter, Request
 from fastapi.responses import JSONResponse
+from pydantic import BaseModel, ConfigDict, ValidationError
 
 from src.config import get_logger, settings
 from src.interface.api.auth_gate import get_jwk_set, parse_allowed_emails
@@ -93,14 +93,32 @@ async def _verify_signature(
         return True
 
 
-def _handle_user_before_create(event_data: dict[str, Any]) -> dict[str, Any]:
+class _WebhookUser(BaseModel):
+    """Typed subset of Neon Auth user fields consumed by webhook handlers."""
+
+    model_config = ConfigDict(extra="ignore")
+    id: str = ""
+    email: str = ""
+
+
+class _UserEventData(BaseModel):
+    """Typed wrapper for Neon Auth ``event_data`` payloads.
+
+    Both ``user.before_create`` and ``user.created`` events carry a ``user``
+    object. Defaults allow graceful handling of partial payloads.
+    """
+
+    model_config = ConfigDict(extra="ignore")
+    user: _WebhookUser = _WebhookUser()
+
+
+def _handle_user_before_create(event_data: _UserEventData) -> dict[str, str | bool]:
     """Validate whether a user should be allowed to sign up."""
     allowed = parse_allowed_emails(settings.server.allowed_emails)
     if allowed is None:
         return {"allowed": True}
 
-    user = event_data.get("user", {})
-    email = user.get("email", "")
+    email = event_data.user.email
     if email in allowed:
         logger.info("webhook_signup_allowed", email=email)
         return {"allowed": True}
@@ -113,18 +131,17 @@ def _handle_user_before_create(event_data: dict[str, Any]) -> dict[str, Any]:
     }
 
 
-def _handle_user_created(event_data: dict[str, Any]) -> dict[str, Any]:
+def _handle_user_created(event_data: _UserEventData) -> dict[str, str | bool]:
     """Log a new user signup."""
-    user = event_data.get("user", {})
     logger.info(
         "webhook_user_created",
-        user_id=user.get("id"),
-        email=user.get("email"),
+        user_id=event_data.user.id,
+        email=event_data.user.email,
     )
     return {"success": True}
 
 
-_EventHandler = Callable[[dict[str, Any]], dict[str, Any]]
+_EventHandler = Callable[[_UserEventData], dict[str, str | bool]]
 
 _EVENT_HANDLERS: dict[str, _EventHandler] = {
     "user.before_create": _handle_user_before_create,
@@ -186,5 +203,14 @@ async def neon_auth_webhook(request: Request) -> JSONResponse:
         logger.debug("webhook_unhandled_event", event_type=event_type)
         return JSONResponse({"success": True})
 
-    result = handler(event_data)
+    try:
+        validated = _UserEventData.model_validate(event_data)
+    except ValidationError as exc:
+        logger.warning("webhook_invalid_payload", event_type=event_type, error=str(exc))
+        return JSONResponse(
+            {"error": {"code": "INVALID_PAYLOAD", "message": "Malformed event data"}},
+            status_code=400,
+        )
+
+    result = handler(validated)
     return JSONResponse(result)

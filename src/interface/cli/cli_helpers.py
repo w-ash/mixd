@@ -7,11 +7,11 @@ Consolidates common CLI patterns to eliminate duplication across command modules
 """
 
 # pyright: reportAny=false
-# Legitimate Any: Coroutine[Any,Any,T], Rich/Typer display types
+# Rich/Typer display types leak implicit Any
 
 from datetime import UTC, datetime
 from pathlib import Path
-from typing import Any, Literal, Never
+from typing import Literal, Never
 
 from rich.prompt import Prompt
 import typer
@@ -165,7 +165,15 @@ def validate_file_path(file_path: Path) -> None:
 def run_import_with_progress(
     service: Literal["lastfm", "spotify"],
     mode: Literal["recent", "incremental", "full", "file"],
-    **import_params: Any,
+    *,
+    limit: int | None = None,
+    username: str | None = None,
+    file_path: Path | None = None,
+    confirm: bool = False,
+    from_date: datetime | None = None,
+    to_date: datetime | None = None,
+    batch_size: int | None = None,
+    progress_emitter: ProgressEmitter | None = None,
 ) -> OperationResult:
     """Execute import with unified progress context and display.
 
@@ -175,10 +183,21 @@ def run_import_with_progress(
     3. Running import use case
     4. Handling async execution
 
+    The caller-supplied ``progress_emitter`` is accepted for protocol
+    compatibility but not forwarded — this function creates its own
+    adapter from the progress coordination context.
+
     Args:
         service: Service name ("lastfm" or "spotify")
         mode: Import mode ("incremental", "file", etc.)
-        **import_params: Additional parameters for run_import()
+        limit: Maximum tracks to import (LastFM only).
+        username: LastFM username for user-specific imports.
+        file_path: Path to import file (Spotify file imports).
+        confirm: Whether user confirmed destructive operations.
+        from_date: Start date for date range filtering.
+        to_date: End date for date range filtering.
+        batch_size: Batch size for chunked processing.
+        progress_emitter: Fallback emitter when no progress manager is active in context.
 
     Returns:
         Operation result from import execution
@@ -191,17 +210,23 @@ def run_import_with_progress(
             # Get progress manager from unified context
             progress_manager = context.get_progress_manager()
 
-            # AsyncProgressManager structurally satisfies ProgressEmitter
+            # Prefer context manager, then caller-supplied emitter, then null
             progress_adapter: ProgressEmitter = (
-                progress_manager or NullProgressEmitter()
+                progress_manager or progress_emitter or NullProgressEmitter()
             )
 
             return await run_import(
                 user_id=get_cli_user_id(),
                 service=service,
                 mode=mode,
+                limit=limit,
+                username=username,
+                file_path=file_path,
+                confirm=confirm,
+                from_date=from_date,
+                to_date=to_date,
                 progress_emitter=progress_adapter,
-                **import_params,
+                batch_size=batch_size,
             )
 
     return run_async(_execute_with_progress())

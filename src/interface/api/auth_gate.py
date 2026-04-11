@@ -10,12 +10,12 @@ mounted — see ``app.py``.
 """
 
 # pyright: reportAny=false
-# Legitimate Any: ASGI scope/message dicts are untyped
+# ASGI scope/message dicts and PyJWT internals leak implicit Any
 
 import asyncio
 import json
 import time
-from typing import Any
+from typing import TypedDict, cast
 from urllib.parse import urlparse
 
 import httpx
@@ -83,9 +83,24 @@ async def get_jwk_set(jwks_url: str) -> jwt.PyJWKSet:
         return jwk_set
 
 
+class JWTClaims(TypedDict, total=False):
+    """Typed subset of Neon Auth JWT claims consumed by mixd.
+
+    ``total=False`` because JWT claims are optional by nature — only ``sub``
+    and ``exp`` are required (enforced by PyJWT ``options={"require": ...}``).
+    """
+
+    sub: str
+    email: str
+    exp: int
+    iat: int
+    iss: str
+    aud: str
+
+
 def _decode_jwt(
     token: str, jwk_set: jwt.PyJWKSet, *, auth_origin: str | None = None
-) -> dict[str, Any]:
+) -> JWTClaims:
     """Validate and decode a JWT using a cached JWKS key set.
 
     Extracts the signing key from the JWKS by matching the ``kid`` header
@@ -106,13 +121,16 @@ def _decode_jwt(
     else:
         raise jwt.InvalidTokenError("No kid in JWT header and multiple keys in JWKS")
 
-    return jwt.decode(
-        token,
-        signing_key,
-        algorithms=_ACCEPTED_ALGORITHMS,
-        audience=auth_origin,
-        issuer=auth_origin,
-        options={"require": ["exp", "sub"]},
+    return cast(
+        JWTClaims,
+        jwt.decode(
+            token,
+            signing_key,
+            algorithms=_ACCEPTED_ALGORITHMS,
+            audience=auth_origin,
+            issuer=auth_origin,
+            options={"require": ["exp", "sub"]},
+        ),
     )
 
 
@@ -206,6 +224,8 @@ class NeonAuthMiddleware:
             else:
                 if self.allowed_emails:
                     email = claims.get("email", "")
+                    if not email:
+                        logger.warning("jwt_missing_email_claim", sub=claims.get("sub"))
                     if email not in self.allowed_emails:
                         await _send_403(send)
                         return

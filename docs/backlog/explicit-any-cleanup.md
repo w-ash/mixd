@@ -2,7 +2,7 @@
 
 **Goal**: Eliminate all `reportExplicitAny` warnings by replacing lazy `Any` usage with precise types. Not just type changes — architectural improvements that make the code more DRY, compact, and type-safe.
 
-**Progress**: 448 → 42 (406 eliminated, 91%). 0 errors. Domain, application, persistence, and connector layers all complete. Phase 1, 2a, 2b, 2c, 3a, 3b, 3c, 3d, 4a, 4b, 4c all complete. Remaining 42 warnings are in Phase 5 (interface layer + config).
+**Progress**: 448 → 0 (100%). 0 errors, 0 `reportExplicitAny` warnings. All layers complete. Phases 1–5 done. Ready for Phase 6 endgame (promote to error).
 Completed work archived in [completed/explicit-any-cleanup-batches-1-3.md](completed/explicit-any-cleanup-batches-1-3.md).
 
 **When suppression is legitimate**: External JSON payloads you don't control (webhooks), SQLAlchemy column expressions where stubs are genuinely incomplete, protocol methods that must accept arbitrary types by design, and attrs validators (which receive `object` by the attrs calling convention). Document why with a comment.
@@ -189,21 +189,33 @@ Shared bases first, then per-service from root client outward.
 - [x] **4c — Last.fm + MusicBrainz** (29→0): `ResolutionMetrics` in lastfm play_resolver (3), `Mapping[str, JsonValue]` params + isinstance narrowing in lastfm conversions (6), `object` kwargs in lastfm play_importer (6) with surfaced `operation_id` param, `list[object]` Pydantic validator in lastfm models (3), `parse_json_response` in lastfm client (2), TYPE_CHECKING guard in lastfm factory, `object` kwargs in lastfm matching_provider + operations, `Mapping[str, JsonValue]` in musicbrainz conversions + connector (4), `dict[str, str]` in apple_music error_classifier (2), `object` kwargs in track_identity_service_impl (1) — Status: Completed (2026-04-10)
     - Notes: Actual scope was 101 warnings (not ~70 estimated) — base class propagation added ~30 more. Added `json_str`/`json_int`/`json_bool` to `src/domain/entities/shared.py` for cross-layer JsonValue narrowing. Added `parse_json_response` to `_shared/http_client.py` for typed `response.json()` boundary. Added `fallback_resolved`/`redirect_resolved` to `ResolutionMetrics` TypedDict. Removed stale `# Legitimate Any` comments from 8 files. Removed `# pyright: reportAny=false` from `base.py` and `personal_data.py` early — 10 `reportAny` warnings documented for Phase 6a.
 
-### Phase 5: Interface Layer + Config (~54 warnings)
+### Phase 5: Interface Layer + Config (29 warnings → 0) — Status: Completed (2026-04-10)
 
 **Pre-implementation (before 5a)**:
-- [ ] **Webhook Pydantic models** — Replace unsafe `.get()` chaining in `webhooks.py` with Pydantic v2 discriminated union. Define typed event models for `user.before_create` and `user.created` (known event types), with a `GenericEvent` fallback for unknown types. Use `TypeAdapter` for validation. This is a genuine architectural improvement, not just a type fix — malformed-but-signed payloads currently cause unhandled 500s.
-- [ ] **`auth_gate.py` email assertion** — `claims.get("email", "")` defaults to empty string if JWT lacks `email` claim. If `allowed_emails` is configured but `email` is absent, the empty string silently fails the allowlist check (correct behavior today). But if Neon Auth ever stops including `email`, *every* user silently passes. Add `assert email` or log a warning when `email` is absent and `allowed_emails` is configured.
-- [ ] **`deps.py` claims cast** — `cast(dict[str, str], raw_claims)` asserts all-string values, but JWT claims contain mixed types (`exp: int`, `iat: int`). Safe today because only `sub` (string) is consumed downstream, but fragile. Narrow the cast to `dict[str, Any]` and extract `sub` with an explicit `str()` conversion.
-- [ ] **Config accessor `bool` guard test** — Add unit test confirming `cfg_int(cfg, "count")` where the stored value is `True` returns `default` not `1`. The guard order learning from Phase 1 is not backed by a test.
+- [x] **Webhook Pydantic models** — Replaced unsafe `.get()` chaining in `webhooks.py` with Pydantic `_WebhookUser`/`_UserEventData` models. `model_validate()` at the dispatch boundary catches malformed payloads with a 400 instead of unhandled 500s. — Status: Completed (2026-04-10)
+- [x] **`auth_gate.py` email assertion** — Added warning log when `allowed_emails` is configured but JWT lacks `email` claim. Created `JWTClaims` TypedDict for typed claims access. — Status: Completed (2026-04-10)
+- [x] **`deps.py` claims cast** — Fixed incorrect `cast(dict[str, str], raw_claims)` (JWT claims have int values) to `cast(JWTClaims, raw_claims)`. — Status: Completed (2026-04-10)
+- [x] **Config accessor `bool` guard test** — Added 31 tests for `cfg_str`, `cfg_int`, `cfg_float`, `cfg_bool`, `cfg_str_list`, `cfg_str_or_none` including bool-as-int guard coverage. — Status: Completed (2026-04-10)
 
-- [ ] **5a — API**: `webhooks.py` (6) → `sse_operations.py` (5) + `progress.py` (4) → `schemas/workflows.py` (4) + `routes/workflows.py` (4) → `background.py` (3) + `imports.py` (2) + `operations.py` (1) + `auth_gate.py` (1)
-- [ ] **5b — CLI**: `workflow_commands.py` (3) + `ui.py` (3) + `async_runner.py` (2) → `progress_provider.py` (1) + `cli_helpers.py` (1)
-- [ ] **5c — Config**: `settings.py` (4)
+- [x] **5a — API** (7 warnings → 0): `JWTClaims` TypedDict in `auth_gate.py`, `cast(JWTClaims, ...)` in `deps.py`, Pydantic event models in `webhooks.py` — Status: Completed (2026-04-10)
+- [x] **5b — CLI** (9 warnings → 0): `Awaitable[T]` in `async_runner.py`, `Unpack[RunStatusKwargs]` in `workflow_commands.py`, explicit named params in `cli_helpers.py` + `ImportExecutorProtocol`, domain-aligned `dict[UUID, dict[str, str]]` in `ui.py`, `_ProgressUpdateKwargs` TypedDict in `progress_provider.py` — Status: Completed (2026-04-10)
+- [x] **5c — API schemas + services** (9 warnings → 0): `dict[str, JsonValue]` for config, `dict[str, object]` for node_details/output_tracks in `schemas/workflows.py`, `dict[str, object]` + `Coroutine[object, object, None]` in `background.py`, `Awaitable[object]` in `imports.py` — Status: Completed (2026-04-10)
+- [x] **5d — Config** (4 warnings → 0): `data: object -> object` with isinstance guard in `settings.py`, `dict[str, dict[str, object]]` for transformed config — Status: Completed (2026-04-10)
+    - Notes: Zero per-line suppressions across all of Phase 5. Key structural patterns: `Awaitable[T]` replaces `Coroutine[Any, Any, T]` when param is only awaited; `Coroutine[object, object, T]` when `asyncio.create_task` requires `Coroutine`; `object` replaces `Any` for Pydantic `model_validator(mode="before")` since the decorator returns `Any` and doesn't constrain the annotated type. `ImportExecutorProtocol` updated from `**kwargs: object` to explicit named params for self-documenting call sites.
+
+### Learnings from Phase 5 (apply to Phase 6)
+
+**`Awaitable[T]` over `Coroutine[Any, Any, T]`**: When a coroutine parameter is only `await`-ed (not passed to `asyncio.create_task`), `Awaitable[T]` is the correct abstraction. It drops the unused yield/send type params that force `Any`. `Coroutine` inherits from `Awaitable`, so all callers still work. Use `Coroutine[object, object, T]` only when `asyncio.create_task` requires the full `Coroutine` type.
+
+**`object` for Pydantic `model_validator(mode="before")`**: The decorator returns `Any`, so it doesn't constrain the annotated type. Using `data: object -> object` with `isinstance(data, dict)` gives pyright real narrowing. After the guard, `cast("dict[str, object]", data)` provides the specific dict type.
+
+**Explicit params > `**kwargs: object` for protocols**: When the protocol's callers only pass known keyword args, surfacing those as explicit named params is more self-documenting and lets pyright verify every call site. A function with extra optional params (beyond the protocol's) satisfies the protocol — the extra params use their defaults when called through the protocol.
+
+**Remove unnecessary casts after domain typing**: When inner layers are tightened (e.g., `TrackListMetadata.track_sources: dict[UUID, dict[str, str]]`), outer layers that previously cast to `dict[str, Any]` may have casts that are now unnecessary. basedpyright flags these as `reportUnnecessaryCast` — remove them and let inference propagate the domain type.
 
 ### Phase 6: Endgame (two-step)
 
-**Gate**: Run `uv run basedpyright src/` with zero `reportExplicitAny` warnings across all files before proceeding. Any remaining warnings must be resolved or justified with per-line suppression.
+**Gate**: Run `uv run basedpyright src/` with zero `reportExplicitAny` warnings across all files before proceeding.
 
 - [ ] **6a — Suppression removal**: Remove all per-file `# pyright: reportAny=false` suppressions (~70 files, incremental as each file is cleaned). Replace with per-line `# pyright: ignore[reportAny]` only where genuinely necessary (third-party stubs, attrs validators).
     - Notes: Phase 4 removed suppressions early from `base.py` (3 `reportAny` from `getattr`) and `spotify/personal_data.py` (7 `reportAny` from `json.loads`). These currently emit warnings and need structural fixes (`getattr` → typed config accessor, `json.loads` → typed parser) or targeted `allowedUntypedLibraries` in 6c.

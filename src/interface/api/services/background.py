@@ -6,12 +6,9 @@ Shared by import and workflow endpoints:
   pattern that both import and workflow background tasks share.
 """
 
-# Legitimate Any: Coroutine type params are inherently Any
-
 import asyncio
 from collections.abc import Callable, Coroutine
 import time
-from typing import Any
 from uuid import UUID
 
 from attrs import define
@@ -43,7 +40,7 @@ def _on_task_done(task: asyncio.Task[None]) -> None:
 
     # Extract and clean up metadata
     meta = _task_meta.pop(name, None)
-    extra: dict[str, Any] = {"task_name": name}
+    extra: dict[str, object] = {"task_name": name}
     if meta is not None:
         extra["workflow_id"] = meta.workflow_id
         extra["run_id"] = meta.run_id
@@ -61,7 +58,7 @@ def _on_task_done(task: asyncio.Task[None]) -> None:
 
 def launch_background(
     name: str,
-    coro_factory: Callable[[], Coroutine[Any, Any, None]],
+    coro_factory: Callable[[], Coroutine[object, object, None]],
     *,
     workflow_id: str | None = None,
     run_id: UUID | None = None,

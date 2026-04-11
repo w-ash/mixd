@@ -9,6 +9,8 @@ import json
 import time
 from unittest.mock import AsyncMock, patch
 
+import pytest
+
 import src.interface.api.routes.webhooks as webhooks_mod
 from tests.fixtures.auth_keys import TEST_JWK_SET, sign_test_webhook
 
@@ -123,19 +125,21 @@ class TestUserBeforeCreate:
         webhooks_mod.settings.server, "allowed_emails", "a@mixd.app,b@mixd.app"
     )
     def test_allowed_email_returns_true(self):
-        body = _webhook_body("user.before_create", email="a@mixd.app")
-        payload = json.loads(body)
+        event_data = webhooks_mod._UserEventData.model_validate({
+            "user": {"id": "usr-1", "email": "a@mixd.app"}
+        })
 
-        result = webhooks_mod._handle_user_before_create(payload["event_data"])
+        result = webhooks_mod._handle_user_before_create(event_data)
 
         assert result == {"allowed": True}
 
     @patch.object(webhooks_mod.settings.server, "allowed_emails", "a@mixd.app")
     def test_denied_email_returns_false(self):
-        body = _webhook_body("user.before_create", email="outsider@evil.com")
-        payload = json.loads(body)
+        event_data = webhooks_mod._UserEventData.model_validate({
+            "user": {"id": "usr-1", "email": "outsider@evil.com"}
+        })
 
-        result = webhooks_mod._handle_user_before_create(payload["event_data"])
+        result = webhooks_mod._handle_user_before_create(event_data)
 
         assert result["allowed"] is False
         assert "error_message" in result
@@ -143,10 +147,11 @@ class TestUserBeforeCreate:
 
     @patch.object(webhooks_mod.settings.server, "allowed_emails", "")
     def test_no_allowlist_permits_all(self):
-        body = _webhook_body("user.before_create", email="anyone@anywhere.com")
-        payload = json.loads(body)
+        event_data = webhooks_mod._UserEventData.model_validate({
+            "user": {"id": "usr-1", "email": "anyone@anywhere.com"}
+        })
 
-        result = webhooks_mod._handle_user_before_create(payload["event_data"])
+        result = webhooks_mod._handle_user_before_create(event_data)
 
         assert result == {"allowed": True}
 
@@ -155,12 +160,20 @@ class TestUserCreated:
     """user.created event: logs signup, returns success."""
 
     def test_returns_success(self):
-        body = _webhook_body("user.created", email="new@mixd.app")
-        payload = json.loads(body)
+        event_data = webhooks_mod._UserEventData.model_validate({
+            "user": {"id": "usr-1", "email": "new@mixd.app"}
+        })
 
-        result = webhooks_mod._handle_user_created(payload["event_data"])
+        result = webhooks_mod._handle_user_created(event_data)
 
         assert result == {"success": True}
+
+    def test_malformed_event_data_rejects(self):
+        """Non-dict event_data raises ValidationError (caught by route handler)."""
+        from pydantic import ValidationError
+
+        with pytest.raises(ValidationError):
+            webhooks_mod._UserEventData.model_validate("not a dict")
 
 
 # ---------------------------------------------------------------------------

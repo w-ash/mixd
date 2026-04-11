@@ -7,14 +7,14 @@ machine-readable output consumed by the workflow-manager agent.
 """
 
 # pyright: reportAny=false
-# Legitimate Any: Coroutine[Any,Any,T], Rich/Typer display types, **kwargs pass-through, json.loads()
+# Rich/Typer display types and json.loads() leak implicit Any
 
 from collections.abc import Sequence
 import contextlib
 from datetime import datetime
 from pathlib import Path
 import sys
-from typing import Annotated, Any, Literal
+from typing import Annotated, Literal, Unpack
 from uuid import UUID
 
 from rich.panel import Panel
@@ -22,6 +22,7 @@ from rich.prompt import Prompt
 from rich.table import Table
 import typer
 
+from src.application.workflows.protocols import RunStatusKwargs
 from src.domain.entities.workflow import RunStatus, Workflow
 from src.interface.cli.async_runner import run_async
 from src.interface.cli.cli_helpers import get_cli_user_id, handle_cli_error
@@ -69,7 +70,7 @@ async def _run_repo_session():
 async def _update_run_status(
     run_id: UUID,
     status: RunStatus,
-    **kwargs: Any,
+    **kwargs: Unpack[RunStatusKwargs],
 ) -> None:
     """Concrete RunStatusUpdater for CLI."""
     async with _run_repo_session() as repo:
@@ -527,7 +528,7 @@ def nodes(
     config_fields = get_node_config_fields()
 
     if output_format == "json":
-        catalog: list[dict[str, Any]] = []
+        catalog: list[dict[str, object]] = []
         for node_id, meta in sorted(all_nodes.items()):
             fields = config_fields.get(node_id, ())
             catalog.append({
