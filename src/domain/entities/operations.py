@@ -6,7 +6,7 @@ from music services like Spotify and Last.fm.
 
 from collections.abc import Mapping
 from datetime import datetime
-from typing import TYPE_CHECKING, Any, Final, Self
+from typing import TYPE_CHECKING, Final, Self
 from uuid import UUID, uuid7
 
 from attrs import Attribute, define, field
@@ -167,13 +167,13 @@ class PlayRecord:
     raw_data: Mapping[str, JsonValue] = field(factory=empty_json_map)
 
 
-def _validate_timezone_aware_datetime(
+def _validate_timezone_aware_datetime[T](
     _instance: object,
-    attribute: Attribute[Any],
-    value: datetime | None,  # Attribute[Any]: attrs validator protocol requires Any
+    attribute: Attribute[T],
+    value: T,
 ) -> None:
     """Validator to ensure datetime fields are timezone-aware."""
-    if value is not None and value.tzinfo is None:
+    if isinstance(value, datetime) and value.tzinfo is None:
         raise ValueError(
             f"Field '{attribute.name}' must be timezone-aware. Use datetime.now(UTC) or datetime.replace(tzinfo=UTC) for naive datetimes."
         )
@@ -381,13 +381,13 @@ class OperationResult:
 
     def to_dict(
         self,
-    ) -> dict[str, Any]:  # JSON serialization boundary — heterogeneous output
+    ) -> dict[str, object]:  # JSON serialization boundary — heterogeneous output
         """Converts result to JSON-serializable dictionary for API responses.
 
         Returns:
             Dictionary with operation stats, summary metrics, track details, and per-track metrics
         """
-        result: dict[str, Any] = {
+        result: dict[str, object] = {
             "operation_name": self.operation_name,
             "execution_time": self.execution_time,
             "track_count": len(self.tracks),

@@ -5,16 +5,13 @@ session and unit-of-work wiring. Both CLI (via run_async) and FastAPI
 (via Depends) should use this runner — zero business logic duplication.
 """
 
-# Legitimate Any: use case results, OperationResult metadata, metric values
-
-from collections.abc import Callable, Coroutine
-from typing import Any
+from collections.abc import Awaitable, Callable
 
 from src.domain.repositories import UnitOfWorkProtocol
 
 
 async def execute_use_case[TResult](
-    use_case_factory: Callable[[UnitOfWorkProtocol], Coroutine[Any, Any, TResult]],
+    use_case_factory: Callable[[UnitOfWorkProtocol], Awaitable[TResult]],
     user_id: str | None = None,
 ) -> TResult:
     """Run a use case with proper session/UoW lifecycle.

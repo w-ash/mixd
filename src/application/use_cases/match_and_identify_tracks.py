@@ -7,7 +7,7 @@ business logic to the domain layer and all infrastructure concerns to the infras
 This replaces MatchTracksUseCase and will become the single way to resolve track identities.
 """
 
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING
 from uuid import UUID
 
 if TYPE_CHECKING:
@@ -46,7 +46,7 @@ class MatchAndIdentifyTracksCommand:
     user_id: str
     tracklist: TrackList
     connector: str
-    connector_instance: Any  # Dynamic connector — type varies by service
+    connector_instance: object  # Dynamic connector — type varies by service
     max_age_hours: float | None = None
     additional_options: dict[str, object] = field(factory=dict)
     progress_manager: AsyncProgressManager | None = None

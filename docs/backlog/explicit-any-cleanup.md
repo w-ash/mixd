@@ -2,7 +2,7 @@
 
 **Goal**: Eliminate all `reportExplicitAny` warnings by replacing lazy `Any` usage with precise types. Not just type changes — architectural improvements that make the code more DRY, compact, and type-safe.
 
-**Progress**: 448 → 0 (100%). 0 errors, 0 `reportExplicitAny` warnings. All layers complete. Phases 1–5 done. Ready for Phase 6 endgame (promote to error).
+**Progress**: 448 → 0 (100%). `reportExplicitAny` promoted to `"error"` — no new explicit `Any` can enter the codebase. Phases 1–6b complete. Remaining: 6a/6c/6d (`reportAny` audit, 38 file-level suppressions).
 Completed work archived in [completed/explicit-any-cleanup-batches-1-3.md](completed/explicit-any-cleanup-batches-1-3.md).
 
 **When suppression is legitimate**: External JSON payloads you don't control (webhooks), SQLAlchemy column expressions where stubs are genuinely incomplete, protocol methods that must accept arbitrary types by design, and attrs validators (which receive `object` by the attrs calling convention). Document why with a comment.
@@ -213,13 +213,15 @@ Shared bases first, then per-service from root client outward.
 
 **Remove unnecessary casts after domain typing**: When inner layers are tightened (e.g., `TrackListMetadata.track_sources: dict[UUID, dict[str, str]]`), outer layers that previously cast to `dict[str, Any]` may have casts that are now unnecessary. basedpyright flags these as `reportUnnecessaryCast` — remove them and let inference propagate the domain type.
 
-### Phase 6: Endgame (two-step)
+### Phase 6: Endgame
 
-**Gate**: Run `uv run basedpyright src/` with zero `reportExplicitAny` warnings across all files before proceeding.
+**Gate**: ✅ Zero `reportExplicitAny` warnings across all files. `reportExplicitAny` promoted to `"error"` in `pyproject.toml`.
 
-- [ ] **6a — Suppression removal**: Remove all per-file `# pyright: reportAny=false` suppressions (~70 files, incremental as each file is cleaned). Replace with per-line `# pyright: ignore[reportAny]` only where genuinely necessary (third-party stubs, attrs validators).
+- [x] **6-gate — Fix remaining 13 reportExplicitAny warnings** (4 files): `Awaitable[T]` in `runner.py`, `object` in `match_and_identify_tracks.py`, `ConnectorConfig` + `object` in `context.py`, unbounded generic validator + `dict[str, object]` in `operations.py`, `SortKey | None` + `object` in `interfaces.py` (5 fixes) — Status: Completed (2026-04-10)
+    - Notes: `_validate_timezone_aware_datetime` uses unbounded `[T]` (not `[T: datetime | None]`) because basedpyright can't infer bounded TypeVar from attrs field context. isinstance narrowing inside the body provides the same safety. `after_value` uses existing `SortKey` type alias from `domain/entities/shared.py`.
+- [x] **6b — Promote `reportExplicitAny` to `"error"`** — `pyproject.toml`: `reportExplicitAny = "error"`. Any future explicit `Any` annotation fails CI. — Status: Completed (2026-04-10)
+- [ ] **6a — Suppression removal**: Remove all per-file `# pyright: reportAny=false` suppressions (~38 files, incremental as each file is cleaned). Structural fixes for implicit Any from third-party libraries.
     - Notes: Phase 4 removed suppressions early from `base.py` (3 `reportAny` from `getattr`) and `spotify/personal_data.py` (7 `reportAny` from `json.loads`). These currently emit warnings and need structural fixes (`getattr` → typed config accessor, `json.loads` → typed parser) or targeted `allowedUntypedLibraries` in 6c.
-- [ ] **6b — Promote `reportExplicitAny` to `"error"`** — prevents new `Any` annotations. This is the primary goal of the cleanup.
 - [ ] **6c — Audit `reportAny` warnings** — with `reportExplicitAny` at error, remaining `reportAny` warnings come from third-party library leaks. Triage: fix with wrapper types where practical, add to `allowedUntypedLibraries` where not.
 - [ ] **6d — Promote `reportAny` to `"error"`** — only after `allowedUntypedLibraries` whitelist is in place. This is the stretch goal — may be deferred if third-party stub quality is insufficient.
 

@@ -7,7 +7,7 @@ Repository interfaces belong in the domain layer according to Clean Architecture
 
 from collections.abc import Awaitable, Callable, Mapping, Sequence
 from datetime import datetime
-from typing import Any, Literal, Protocol, Self, TypedDict, overload
+from typing import Literal, Protocol, Self, TypedDict, overload
 from uuid import UUID
 
 from src.domain.entities import (
@@ -26,7 +26,7 @@ from src.domain.entities import (
 )
 from src.domain.entities.match_review import MatchReview
 from src.domain.entities.playlist_link import SyncDirection, SyncStatus
-from src.domain.entities.shared import JsonDict, JsonValue
+from src.domain.entities.shared import JsonDict, JsonValue, SortKey
 from src.domain.entities.workflow import (
     RunStatus,
     Workflow,
@@ -145,7 +145,7 @@ class TrackRepositoryProtocol(Protocol):
         sort_by: str = "title_asc",
         limit: int = 50,
         offset: int = 0,
-        after_value: Any = None,  # Keyset pagination — type depends on sort column
+        after_value: SortKey | None = None,
         after_id: UUID | None = None,
         include_total: bool = True,
     ) -> Awaitable[TrackListingPage]:
@@ -600,7 +600,7 @@ class ConnectorRepositoryProtocol(Protocol):
     def ensure_connector_tracks(
         self,
         connector_name: str,
-        tracks_data: Sequence[Mapping[str, Any]],
+        tracks_data: Sequence[Mapping[str, object]],
     ) -> Awaitable[dict[tuple[str, str], UUID]]:
         """Ensure connector_tracks rows exist, returning a (name, external_id) -> UUID map.
 
@@ -1013,7 +1013,7 @@ class PlaysRepositoryProtocol(Protocol):
 
     def bulk_update_play_source_services(
         self,
-        updates: Sequence[tuple[UUID, Mapping[str, Any]]],
+        updates: Sequence[tuple[UUID, Mapping[str, object]]],
     ) -> Awaitable[None]:
         """Batch-update cross-source dedup metadata for multiple plays."""
         ...
@@ -1054,7 +1054,7 @@ class TrackIdentityServiceProtocol(Protocol):
         connector: str,
         connector_instance: object,
         progress_callback: ProgressCallback | None = None,
-        **additional_options: Any,  # Pass-through to external provider
+        **additional_options: object,
     ) -> Awaitable[dict[UUID, RawProviderMatch]]:
         """Get raw matches from external providers without business logic.
 
@@ -1442,7 +1442,7 @@ class PlayImporterProtocol(Protocol):
     async def import_plays(
         self,
         uow: UnitOfWorkProtocol,
-        **params: Any,  # Importer-specific params
+        **params: object,
     ) -> tuple[OperationResult, list[ConnectorTrackPlay]]:
         """Import plays and return result with connector plays for resolution."""
         ...

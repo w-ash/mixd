@@ -5,7 +5,6 @@ and business logic use cases needed for playlist synchronization workflows.
 """
 
 from collections.abc import Awaitable, Callable
-from typing import Any
 
 from attrs import define
 
@@ -15,6 +14,7 @@ from src.domain.repositories import UnitOfWorkProtocol
 # Approved infrastructure bridge: context.py is a DI container (like runner.py and
 # prefect.py). Infrastructure imports for session creation and SQLAlchemy AsyncSession
 # are intentional wiring — this is the designated integration point for workflow DI.
+from src.infrastructure.connectors.protocols import ConnectorConfig
 from src.infrastructure.persistence.database.db_connection import get_session
 
 # Repository factory functions will be imported locally where needed
@@ -35,10 +35,8 @@ class ConnectorRegistryImpl:
     instances so repeated calls return the same connector (same httpx pool).
     """
 
-    _connectors: dict[
-        str, Any
-    ]  # DI container — connector configs with factory callables
-    _cache: dict[str, Any]  # DI container — cached connector instances of varying types
+    _connectors: dict[str, ConnectorConfig]
+    _cache: dict[str, object]
 
     def __init__(self):
         """Initialize connector registry and discover available connectors."""

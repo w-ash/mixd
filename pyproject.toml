@@ -280,11 +280,10 @@ reportUnknownVariableType = "warning"
 reportUnknownMemberType = "warning"
 reportUnknownArgumentType = "warning"
 reportUnknownLambdaType = "warning"
-# Disable: noise from legitimate patterns
-# Any is the correct type for JSON payloads, loguru kwargs, protocol flexibility.
-# reportUnknown* already catches genuinely unresolvable types.
+# reportExplicitAny at error: no explicit Any annotations allowed.
+# reportAny at warning: implicit Any from third-party libraries is visible but non-blocking.
 reportAny = "warning"
-reportExplicitAny = "warning"
+reportExplicitAny = "error"
 # basedpyright-specific: narrow TypeVars to their bound union under isinstance
 # checks instead of collapsing to Unknown/Any. Helps BaseRepository generics.
 strictGenericNarrowing = true
