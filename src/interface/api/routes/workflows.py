@@ -4,9 +4,6 @@ Each handler is 5-10 lines: parse request -> build Command -> execute_use_case()
 All business logic lives in the use cases.
 """
 
-# pyright: reportAny=false
-# Legitimate Any: node config schema values, Coroutine type params
-
 import asyncio
 from asyncio import CancelledError
 import contextlib

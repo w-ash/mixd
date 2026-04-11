@@ -9,8 +9,6 @@ Provides a thin wrapper around the MusicBrainz JSON API with:
 No authentication required — MusicBrainz read-only endpoints are public.
 """
 
-# pyright: reportAny=false
-
 import asyncio
 import time
 from typing import ClassVar, override
@@ -22,6 +20,7 @@ from tenacity import AsyncRetrying
 from src.config import get_logger, settings
 from src.infrastructure.connectors._shared.http_client import (
     make_musicbrainz_client,
+    parse_json_response,
 )
 from src.infrastructure.connectors._shared.retry_policies import (
     RetryConfig,
@@ -99,13 +98,19 @@ class MusicBrainzAPIClient(BaseAPIClient):
             params={"inc": "artist-credits+releases"},
         )
         response.raise_for_status()
-        data = response.json()
+        data = parse_json_response(response)
 
-        recordings = data.get("recordings", [])
-        if recordings:
-            mbid = recordings[0].get("id")
-            logger.debug(f"Found MBID {mbid} for ISRC {isrc}")
-            return mbid
+        recordings_val = data.get("recordings")
+        if not isinstance(recordings_val, list) or not recordings_val:
+            logger.debug(f"No recording found for ISRC {isrc}")
+            return None
+
+        first = recordings_val[0]
+        if isinstance(first, dict):
+            mbid = first.get("id")
+            if isinstance(mbid, str):
+                logger.debug(f"Found MBID {mbid} for ISRC {isrc}")
+                return mbid
 
         logger.debug(f"No recording found for ISRC {isrc}")
         return None
@@ -136,11 +141,11 @@ class MusicBrainzAPIClient(BaseAPIClient):
             params={"query": query, "limit": "1"},
         )
         response.raise_for_status()
-        data = response.json()
+        data = parse_json_response(response)
 
-        recordings = data.get("recordings", [])
-        if recordings:
-            return MusicBrainzRecording.model_validate(recordings[0])
+        recordings_val = data.get("recordings")
+        if isinstance(recordings_val, list) and recordings_val:
+            return MusicBrainzRecording.model_validate(recordings_val[0])
         return None
 
     # ── Rate Limiting ────────────────────────────────────────────────────

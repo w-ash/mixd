@@ -16,7 +16,7 @@ import { SmartBezierEdge } from "@jalez/react-flow-smart-edge";
 import type { Edge, EdgeTypes, Node } from "@xyflow/react";
 import { Maximize2, Minimize2 } from "lucide-react";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import type { WorkflowTaskDefSchema } from "#/api/generated/model";
+import type { WorkflowTaskDefSchemaInput } from "#/api/generated/model";
 import {
   BaseWorkflowNode,
   type WorkflowNodeData,
@@ -54,7 +54,7 @@ const MEASUREMENT_TIMEOUT_MS = 2000;
 import type { DiffStatus } from "#/lib/workflow-diff";
 
 interface WorkflowGraphProps {
-  tasks: WorkflowTaskDefSchema[];
+  tasks: WorkflowTaskDefSchemaInput[];
   nodeStatuses?: Map<string, NodeStatus>;
   /** Optional diff highlight map: node ID → diff status for coloring */
   highlightMap?: Map<string, DiffStatus>;

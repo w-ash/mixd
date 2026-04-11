@@ -17,9 +17,6 @@ The configuration is organized into logical groups:
 - SecurityConfig: Token encryption key
 """
 
-# pyright: reportAny=false
-# Legitimate Any: Pydantic settings validators, loguru config
-
 import contextlib
 from pathlib import Path
 from typing import Annotated, ClassVar, Literal, cast
@@ -561,7 +558,7 @@ class Settings(BaseSettings):
             # Parse JSON strings for complex types (lists, dicts)
             if isinstance(value, str) and value.startswith(("[", "{")):
                 with contextlib.suppress(json.JSONDecodeError, ValueError):
-                    value = json.loads(value)
+                    value = cast("object", json.loads(value))
 
             transformed.setdefault(group, {})[field_key or env_key] = value
 

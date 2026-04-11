@@ -9,9 +9,6 @@ When ``neon_auth_jwks_url`` is empty (local dev), this middleware is never
 mounted — see ``app.py``.
 """
 
-# pyright: reportAny=false
-# ASGI scope/message dicts and PyJWT internals leak implicit Any
-
 import asyncio
 import json
 import time
@@ -77,7 +74,7 @@ async def get_jwk_set(jwks_url: str) -> jwt.PyJWKSet:
         async with httpx.AsyncClient(verify=True) as client:
             resp = await client.get(jwks_url, timeout=10)
             resp.raise_for_status()
-            jwk_set = jwt.PyJWKSet.from_dict(resp.json())
+            jwk_set = jwt.PyJWKSet.from_dict(cast("dict[str, object]", resp.json()))
 
         _jwks_cache = (jwk_set, time.monotonic())
         return jwk_set
@@ -197,7 +194,7 @@ class NeonAuthMiddleware:
             await self.app(scope, receive, send)
             return
 
-        path: str = scope.get("path", "")
+        path: str = cast(str, scope.get("path", ""))
 
         # Non-API paths pass through (SPA shell, assets, auth callbacks)
         if not path.startswith(_PROTECTED_PREFIX):

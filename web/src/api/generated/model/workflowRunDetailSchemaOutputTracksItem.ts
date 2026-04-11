@@ -3,7 +3,7 @@
  * Do not edit manually.
  * Mixd
  * Personal music metadata hub
- * OpenAPI spec version: 0.6.11
+ * OpenAPI spec version: 0.6.12
  */
 
 export type WorkflowRunDetailSchemaOutputTracksItem = { [key: string]: unknown };

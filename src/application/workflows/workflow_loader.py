@@ -5,9 +5,6 @@ the CLI (workflow_commands.py) and FastAPI routes to load definitions
 from the same directory without duplicating parsing logic.
 """
 
-# pyright: reportAny=false
-# Legitimate Any: JSON parsing produces heterogeneous dicts
-
 import json
 from pathlib import Path
 from typing import cast

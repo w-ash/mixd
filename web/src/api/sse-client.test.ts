@@ -20,7 +20,7 @@ function mockFetchHanging() {
       return new Promise((_resolve, reject) => {
         init?.signal?.addEventListener(
           "abort",
-          () => reject(init.signal!.reason),
+          () => reject(init.signal?.reason),
           { once: true },
         );
       });

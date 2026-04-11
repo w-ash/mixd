@@ -9,11 +9,9 @@ correct contextvars propagation. Adds:
 - **Server-Timing** header for API response time measurement
 """
 
-# pyright: reportAny=false
-# Legitimate Any: ASGI Message dicts are untyped per Starlette's type stubs
-
 import hashlib
 import time
+from typing import cast
 
 from starlette.datastructures import Headers, MutableHeaders
 from starlette.types import ASGIApp, Message, Receive, Scope, Send
@@ -61,8 +59,8 @@ class CachingMiddleware:
             await self.app(scope, receive, send)
             return
 
-        method = scope.get("method", "")
-        path = scope.get("path", "")
+        method = cast(str, scope.get("method", ""))
+        path = cast(str, scope.get("path", ""))
 
         # Only process GET requests on API paths
         if method != "GET" or not path.startswith("/api/"):
@@ -98,8 +96,8 @@ class CachingMiddleware:
                     await send(message)
                     return
 
-                body = message.get("body", b"")
-                more_body = message.get("more_body", False)
+                body = cast(bytes, message.get("body", b""))
+                more_body = cast(bool, message.get("more_body", False))
                 body_parts.append(body)
 
                 if (
@@ -149,7 +147,7 @@ class StaticCacheMiddleware:
             await self.app(scope, receive, send)
             return
 
-        path = scope.get("path", "")
+        path = cast(str, scope.get("path", ""))
         if not path.startswith("/assets/"):
             await self.app(scope, receive, send)
             return

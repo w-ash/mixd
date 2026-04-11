@@ -1,10 +1,10 @@
 import { describe, expect, it } from "vitest";
-import type { WorkflowTaskDefSchema } from "#/api/generated/model";
+import type { WorkflowTaskDefSchemaInput } from "#/api/generated/model";
 import { diffWorkflowDefs } from "#/lib/workflow-diff";
 
 function makeTask(
-  overrides: Partial<WorkflowTaskDefSchema> & { id: string },
-): WorkflowTaskDefSchema {
+  overrides: Partial<WorkflowTaskDefSchemaInput> & { id: string },
+): WorkflowTaskDefSchemaInput {
   return {
     type: "filter",
     ...overrides,
@@ -13,7 +13,7 @@ function makeTask(
 
 describe("diffWorkflowDefs", () => {
   it("marks all tasks unchanged when definitions are identical", () => {
-    const tasks: WorkflowTaskDefSchema[] = [
+    const tasks: WorkflowTaskDefSchemaInput[] = [
       makeTask({ id: "a", type: "source", config: { service: "spotify" } }),
       makeTask({
         id: "b",

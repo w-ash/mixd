@@ -237,10 +237,12 @@ class SimpleMapperFactory:
             async def to_domain(db_model: TDBModel) -> TDomainModel:
                 """Convert database model to domain model using attrs field mapping."""
                 if attrs.has(domain_class):
-                    # attrs.fields() returns FieldGroup with reflective field access.
                     field_names: list[str] = [
                         f.name
-                        for f in attrs.fields(domain_class)  # pyright: ignore[reportAny]  # attrs reflective
+                        for f in cast(
+                            "tuple[attrs.Attribute[object], ...]",
+                            attrs.fields(domain_class),
+                        )
                     ]
 
                     # Extract values from db_model for each field

@@ -3,9 +3,9 @@
  * Do not edit manually.
  * Mixd
  * Personal music metadata hub
- * OpenAPI spec version: 0.6.11
+ * OpenAPI spec version: 0.6.12
  */
-import type { WorkflowDefSchema } from './workflowDefSchema';
+import type { WorkflowDefSchemaOutput } from './workflowDefSchemaOutput';
 import type { WorkflowRunDetailSchemaOutputTracksItem } from './workflowRunDetailSchemaOutputTracksItem';
 import type { WorkflowRunDetailSchemaStatus } from './workflowRunDetailSchemaStatus';
 import type { WorkflowRunNodeSchema } from './workflowRunNodeSchema';
@@ -22,7 +22,7 @@ export interface WorkflowRunDetailSchema {
   output_playlist_id?: string | null;
   error_message?: string | null;
   created_at?: string | null;
-  definition_snapshot: WorkflowDefSchema;
+  definition_snapshot: WorkflowDefSchemaOutput;
   output_tracks?: WorkflowRunDetailSchemaOutputTracksItem[];
   metric_columns?: string[];
   nodes?: WorkflowRunNodeSchema[];

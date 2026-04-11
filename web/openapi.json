@@ -3,7 +3,7 @@
   "info": {
     "title": "Mixd",
     "description": "Personal music metadata hub",
-    "version": "0.6.11"
+    "version": "0.6.12"
   },
   "paths": {
     "/api/v1/connectors/spotify/auth-url": {
@@ -3074,7 +3074,7 @@
       "CreateWorkflowRequest": {
         "properties": {
           "definition": {
-            "$ref": "#/components/schemas/WorkflowDefSchema"
+            "$ref": "#/components/schemas/WorkflowDefSchema-Input"
           }
         },
         "type": "object",
@@ -3340,6 +3340,68 @@
         ],
         "title": "IntegrityReportSchema",
         "description": "Full integrity report response."
+      },
+      "JsonValue-Input": {
+        "anyOf": [
+          {
+            "type": "string"
+          },
+          {
+            "type": "integer"
+          },
+          {
+            "type": "number"
+          },
+          {
+            "type": "boolean"
+          },
+          {
+            "items": {
+              "$ref": "#/components/schemas/JsonValue-Input"
+            },
+            "type": "array"
+          },
+          {
+            "additionalProperties": {
+              "$ref": "#/components/schemas/JsonValue-Input"
+            },
+            "type": "object"
+          },
+          {
+            "type": "null"
+          }
+        ]
+      },
+      "JsonValue-Output": {
+        "anyOf": [
+          {
+            "type": "string"
+          },
+          {
+            "type": "integer"
+          },
+          {
+            "type": "number"
+          },
+          {
+            "type": "boolean"
+          },
+          {
+            "items": {
+              "$ref": "#/components/schemas/JsonValue-Output"
+            },
+            "type": "array"
+          },
+          {
+            "additionalProperties": {
+              "$ref": "#/components/schemas/JsonValue-Output"
+            },
+            "type": "object"
+          },
+          {
+            "type": "null"
+          }
+        ]
       },
       "LastRunSchema": {
         "properties": {
@@ -4750,7 +4812,7 @@
       "UpdateWorkflowRequest": {
         "properties": {
           "definition": {
-            "$ref": "#/components/schemas/WorkflowDefSchema"
+            "$ref": "#/components/schemas/WorkflowDefSchema-Input"
           }
         },
         "type": "object",
@@ -4831,7 +4893,7 @@
         ],
         "title": "ValidationError"
       },
-      "WorkflowDefSchema": {
+      "WorkflowDefSchema-Input": {
         "properties": {
           "id": {
             "type": "string",
@@ -4853,7 +4915,43 @@
           },
           "tasks": {
             "items": {
-              "$ref": "#/components/schemas/WorkflowTaskDefSchema"
+              "$ref": "#/components/schemas/WorkflowTaskDefSchema-Input"
+            },
+            "type": "array",
+            "title": "Tasks",
+            "default": []
+          }
+        },
+        "type": "object",
+        "required": [
+          "id",
+          "name"
+        ],
+        "title": "WorkflowDefSchema"
+      },
+      "WorkflowDefSchema-Output": {
+        "properties": {
+          "id": {
+            "type": "string",
+            "title": "Id"
+          },
+          "name": {
+            "type": "string",
+            "title": "Name"
+          },
+          "description": {
+            "type": "string",
+            "title": "Description",
+            "default": ""
+          },
+          "version": {
+            "type": "string",
+            "title": "Version",
+            "default": "1.0"
+          },
+          "tasks": {
+            "items": {
+              "$ref": "#/components/schemas/WorkflowTaskDefSchema-Output"
             },
             "type": "array",
             "title": "Tasks",
@@ -4955,7 +5053,7 @@
             ]
           },
           "definition": {
-            "$ref": "#/components/schemas/WorkflowDefSchema"
+            "$ref": "#/components/schemas/WorkflowDefSchema-Output"
           }
         },
         "type": "object",
@@ -5079,7 +5177,7 @@
             "title": "Created At"
           },
           "definition_snapshot": {
-            "$ref": "#/components/schemas/WorkflowDefSchema"
+            "$ref": "#/components/schemas/WorkflowDefSchema-Output"
           },
           "output_tracks": {
             "items": {
@@ -5466,7 +5564,7 @@
         ],
         "title": "WorkflowSummarySchema"
       },
-      "WorkflowTaskDefSchema": {
+      "WorkflowTaskDefSchema-Input": {
         "properties": {
           "id": {
             "type": "string",
@@ -5477,7 +5575,54 @@
             "title": "Type"
           },
           "config": {
-            "additionalProperties": true,
+            "additionalProperties": {
+              "$ref": "#/components/schemas/JsonValue-Input"
+            },
+            "type": "object",
+            "title": "Config",
+            "default": {}
+          },
+          "upstream": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "title": "Upstream",
+            "default": []
+          },
+          "result_key": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Result Key"
+          }
+        },
+        "type": "object",
+        "required": [
+          "id",
+          "type"
+        ],
+        "title": "WorkflowTaskDefSchema"
+      },
+      "WorkflowTaskDefSchema-Output": {
+        "properties": {
+          "id": {
+            "type": "string",
+            "title": "Id"
+          },
+          "type": {
+            "type": "string",
+            "title": "Type"
+          },
+          "config": {
+            "additionalProperties": {
+              "$ref": "#/components/schemas/JsonValue-Output"
+            },
             "type": "object",
             "title": "Config",
             "default": {}
@@ -5546,7 +5691,7 @@
       "WorkflowValidationRequest": {
         "properties": {
           "definition": {
-            "$ref": "#/components/schemas/WorkflowDefSchema"
+            "$ref": "#/components/schemas/WorkflowDefSchema-Input"
           }
         },
         "type": "object",
@@ -5593,7 +5738,7 @@
             "title": "Version"
           },
           "definition": {
-            "$ref": "#/components/schemas/WorkflowDefSchema"
+            "$ref": "#/components/schemas/WorkflowDefSchema-Output"
           },
           "created_at": {
             "anyOf": [

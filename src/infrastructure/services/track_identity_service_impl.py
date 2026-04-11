@@ -4,9 +4,6 @@ This service provides the infrastructure layer implementation of track identity 
 while delegating to the new unambiguous identity pipeline components.
 """
 
-# pyright: reportAny=false
-# Legitimate Any: **kwargs variadic dispatch, import params
-
 from collections.abc import Callable
 from typing import cast, override
 from uuid import UUID

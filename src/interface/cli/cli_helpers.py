@@ -6,9 +6,6 @@ Consolidates common CLI patterns to eliminate duplication across command modules
 - User input prompts
 """
 
-# pyright: reportAny=false
-# Rich/Typer display types leak implicit Any
-
 from datetime import UTC, datetime
 from pathlib import Path
 from typing import Literal, Never

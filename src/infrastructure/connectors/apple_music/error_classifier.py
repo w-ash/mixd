@@ -1,10 +1,7 @@
 """Apple Music API error classification for retry behavior."""
 
-# pyright: reportAny=false
-# Legitimate Any: API response data, framework types
-
 import json
-from typing import override
+from typing import cast, override
 
 from src.config.constants import HTTPStatus
 from src.infrastructure.connectors._shared.error_classifier import (
@@ -102,9 +99,9 @@ class AppleMusicErrorClassifier(HTTPErrorClassifier):
     def _extract_http_status(self, exception: Exception) -> int | None:
         """Extract HTTP status code from various exception types."""
         # Check common attributes where HTTP status might be stored
-        for attr in ["status_code", "http_status", "code", "response"]:
-            if hasattr(exception, attr):
-                value = getattr(exception, attr)
+        for attr_name in ["status_code", "http_status", "code", "response"]:
+            if hasattr(exception, attr_name):
+                value = cast("object", getattr(exception, attr_name))
                 if (
                     isinstance(value, int)
                     and HTTPStatus.HTTP_STATUS_MIN
@@ -113,8 +110,9 @@ class AppleMusicErrorClassifier(HTTPErrorClassifier):
                 ):
                     return value
                 # Handle response objects that might contain status
-                elif hasattr(value, "status_code") and not isinstance(value, int):
-                    status = value.status_code
+                if not isinstance(value, int) and hasattr(value, "status_code"):
+                    sc_attr = "status_code"
+                    status = cast("object", getattr(value, sc_attr))
                     if (
                         isinstance(status, int)
                         and HTTPStatus.HTTP_STATUS_MIN
@@ -141,17 +139,19 @@ class AppleMusicErrorClassifier(HTTPErrorClassifier):
             if json_start != -1:
                 try:
                     json_part = error_msg[json_start:]
-                    error_data = json.loads(json_part)
+                    error_data = cast("dict[str, object]", json.loads(json_part))
 
                     # Apple Music API uses JSON:API format
-                    if error_data.get("errors"):
-                        first_error = error_data["errors"][0]
-                        if "code" in first_error:
-                            details["code"] = first_error["code"]
-                        if "detail" in first_error:
-                            details["detail"] = first_error["detail"]
-                        if "title" in first_error:
-                            details["title"] = first_error["title"]
+                    errors_raw = error_data.get("errors")
+                    if isinstance(errors_raw, list) and errors_raw:
+                        errors_list = cast("list[object]", errors_raw)
+                        first_error = errors_list[0]
+                        if isinstance(first_error, dict):
+                            error_obj = cast("dict[str, object]", first_error)
+                            for field_name in ("code", "detail", "title"):
+                                val = error_obj.get(field_name)
+                                if isinstance(val, str):
+                                    details[field_name] = val
 
                 except json.JSONDecodeError:
                     pass  # JSON parsing failed, continue with text parsing

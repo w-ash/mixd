@@ -9,12 +9,12 @@ No authentication required. Uses shared httpx client patterns with
 event hooks for structured logging.
 """
 
-# pyright: reportAny=false, reportUnknownVariableType=false, reportUnknownMemberType=false, reportUnknownArgumentType=false
-# Legitimate Any: JSON API response parsing
+from typing import cast
 
 import httpx
 
 from src.config import get_logger
+from src.domain.entities.shared import JsonValue
 
 logger = get_logger(__name__)
 
@@ -50,15 +50,19 @@ class ListenBrainzLookup:
                 ],
             )
             response.raise_for_status()
-            data = response.json()
+            raw = cast("object", response.json())
+            if not isinstance(raw, list) or not raw:
+                return None
+            data = cast("list[dict[str, JsonValue]]", raw)
 
-            if not data or not isinstance(data, list) or len(data) == 0:
+            if not data:
                 return None
 
-            result = data[0]
-            spotify_id = result.get("spotify_track_id")
-            if not spotify_id or not isinstance(spotify_id, str):
+            result: dict[str, JsonValue] = data[0]
+            spotify_id_val: JsonValue = result.get("spotify_track_id")
+            if not spotify_id_val or not isinstance(spotify_id_val, str):
                 return None
+            spotify_id: str = spotify_id_val
 
             # Strip "spotify:track:" prefix if present
             spotify_id = spotify_id.removeprefix("spotify:track:")

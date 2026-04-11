@@ -71,7 +71,7 @@ Dependencies only flow inward, creating a stable core surrounded by adaptable in
     - `playlist_backup_service.py` - Playlist backup and restoration
     - `progress_manager.py` - Progress tracking and UI coordination
   - `metadata_transforms/` - Metadata-aware transforms (metrics, shuffle, play_history, _helpers)
-  - `utilities/` - Batch processing utilities (batch_results, enhanced_database_batch_processor, results)
+  - `utilities/` - Application utilities (batch_results, timing)
   - `workflows/` - Prefect workflow definitions and node implementations (14 modules + workflow definitions/)
   - `runner.py` - Generic `execute_use_case[TResult]()` — session/UoW lifecycle for both CLI and FastAPI
 - **Key Principle**: Uses repositories like contract-based tools, owns transaction control logic

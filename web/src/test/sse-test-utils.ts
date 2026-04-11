@@ -24,7 +24,7 @@ export function mockSSEWithEvents(events: SSEEvent[]) {
 /** Mock connectToSSE with events that keep the stream open after yielding.
  *  Call `close()` on the return value to end the stream. */
 export function mockSSEOpenStream(events: SSEEvent[] = []) {
-  let close: () => void;
+  let close: () => void = () => {};
   const done = new Promise<void>((r) => {
     close = r;
   });
@@ -33,5 +33,5 @@ export function mockSSEOpenStream(events: SSEEvent[] = []) {
     await done;
   };
   vi.mocked(connectToSSE).mockResolvedValue(gen());
-  return { close: close! };
+  return { close };
 }

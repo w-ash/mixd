@@ -5,9 +5,6 @@ service requests to appropriate connector factories without the application laye
 needing to know about specific connectors.
 """
 
-# pyright: reportAny=false
-# Legitimate Any: **kwargs variadic dispatch, import params
-
 from collections.abc import Awaitable, Callable
 
 from src.domain.repositories import (

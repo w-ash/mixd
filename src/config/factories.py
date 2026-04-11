@@ -4,9 +4,6 @@ Separates object construction from Pydantic settings definitions,
 keeping settings.py focused on configuration schema and validation.
 """
 
-# pyright: reportAny=false
-# Legitimate Any: Pydantic model_dump() returns dict[str, Any]
-
 import functools
 from typing import TYPE_CHECKING
 
@@ -23,10 +20,32 @@ def create_matching_config() -> DomainMatchingConfig:
     """Create domain MatchingConfig from application settings.
 
     Bridges the Pydantic settings layer to the domain value object,
-    keeping domain code free of config imports. Uses model_dump() so
-    adding a field to one side but not the other fails loudly (TypeError).
+    keeping domain code free of config imports. Explicit field mapping
+    so pyright verifies each assignment — type mismatches fail at check time.
     """
-    return DomainMatchingConfig(**settings.matching.model_dump())
+    m = settings.matching
+    return DomainMatchingConfig(
+        identical_similarity_score=m.identical_similarity_score,
+        variation_similarity_score=m.variation_similarity_score,
+        base_confidence_isrc=m.base_confidence_isrc,
+        base_confidence_mbid=m.base_confidence_mbid,
+        base_confidence_artist_title=m.base_confidence_artist_title,
+        isrc_suspect_base_confidence=m.isrc_suspect_base_confidence,
+        auto_accept_threshold=m.auto_accept_threshold,
+        review_threshold=m.review_threshold,
+        threshold_isrc=m.threshold_isrc,
+        threshold_mbid=m.threshold_mbid,
+        threshold_artist_title=m.threshold_artist_title,
+        threshold_default=m.threshold_default,
+        high_similarity_threshold=m.high_similarity_threshold,
+        title_max_penalty=m.title_max_penalty,
+        artist_max_penalty=m.artist_max_penalty,
+        phonetic_similarity_score=m.phonetic_similarity_score,
+        duration_missing_penalty=m.duration_missing_penalty,
+        duration_max_penalty=m.duration_max_penalty,
+        duration_tolerance_ms=m.duration_tolerance_ms,
+        duration_per_second_penalty=m.duration_per_second_penalty,
+    )
 
 
 @functools.cache

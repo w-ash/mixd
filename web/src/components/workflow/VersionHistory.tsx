@@ -11,7 +11,7 @@ import { useState } from "react";
 import { toast } from "sonner";
 
 import type {
-  WorkflowDefSchema,
+  WorkflowDefSchemaInput,
   WorkflowVersionSchema,
 } from "#/api/generated/model";
 import {
@@ -50,7 +50,7 @@ export function VersionHistory({ workflowId }: { workflowId: string }) {
         onSuccess: (res) => {
           if (res.status === 200) {
             const data = res.data as {
-              definition: WorkflowDefSchema;
+              definition: WorkflowDefSchemaInput;
             };
             loadWorkflow(data.definition, workflowId);
             queryClient.invalidateQueries({

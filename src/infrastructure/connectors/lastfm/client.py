@@ -10,9 +10,6 @@ Key components:
 - Centralized retry policy using tenacity
 """
 
-# pyright: reportAny=false
-# Legitimate Any: API response data, framework types
-
 import asyncio
 from datetime import datetime
 import hashlib
@@ -299,15 +296,25 @@ class LastFMAPIClient(BaseAPIClient):
 
             response = await self._client.post("/", data=auth_params)
             _ = response.raise_for_status()
-            data = response.json()
+            data = parse_json_response(response)
 
             if "error" in data:
-                raise LastFMAPIError(data["error"], data.get("message", ""))
+                error_code = data["error"]
+                raise LastFMAPIError(
+                    int(error_code)
+                    if isinstance(error_code, int | float)
+                    else str(error_code),
+                    str(data.get("message", "")),
+                )
 
-            self._session_key = data["session"]["key"]
-            logger.debug("Last.fm session key obtained via mobile auth")
-            if self._session_key is None:
+            session_node = data.get("session")
+            if not isinstance(session_node, dict):
+                raise TypeError("Last.fm auth response missing session object")
+            session_key_val = session_node.get("key")
+            if not isinstance(session_key_val, str) or not session_key_val:
                 raise RuntimeError("Session key not available after authentication")
+            self._session_key = session_key_val
+            logger.debug("Last.fm session key obtained via mobile auth")
 
             # Persist to storage so it survives restarts
             await self._storage.save_token(
@@ -355,10 +362,16 @@ class LastFMAPIClient(BaseAPIClient):
 
         response = await self._client.get("/", params=request_params)
         _ = response.raise_for_status()
-        data = response.json()
+        data = parse_json_response(response)
 
         if "error" in data:
-            raise LastFMAPIError(data["error"], data.get("message", ""))
+            error_code = data["error"]
+            raise LastFMAPIError(
+                int(error_code)
+                if isinstance(error_code, int | float)
+                else str(error_code),
+                str(data.get("message", "")),
+            )
 
         raw_session = data.get("session")
         if not isinstance(raw_session, dict):

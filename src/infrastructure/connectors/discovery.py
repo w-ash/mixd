@@ -4,11 +4,11 @@ Scans the connectors package for modules implementing the `get_connector_config(
 interface and builds a cached registry of available connectors.
 """
 
-# pyright: reportAny=false
-
+from collections.abc import Callable
 import importlib
 import pkgutil
 import sys
+from typing import cast
 
 from src.config import get_logger
 from src.infrastructure.connectors.protocols import ConnectorConfig
@@ -63,7 +63,11 @@ def discover_connectors() -> dict[str, ConnectorConfig]:
             # Check if module implements connector interface
             if hasattr(connector_module, "get_connector_config"):
                 # Register the connector by name
-                config = connector_module.get_connector_config()
+                get_config = cast(
+                    "Callable[[], ConnectorConfig]",
+                    connector_module.get_connector_config,
+                )
+                config = get_config()
                 _connectors[module_name] = config
                 logger.debug(f"Registered connector: {module_name}")
         except ImportError as e:

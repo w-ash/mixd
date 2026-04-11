@@ -6,14 +6,12 @@ and creating/updating playlists across music platforms. Provides progress tracki
 recovery, and database session management for long-running playlist operations.
 """
 
-# pyright: reportAny=false
-
 import asyncio
-from collections.abc import Mapping
+from collections.abc import Callable, Coroutine, Mapping
 import datetime
 import signal
 import time
-from typing import Any
+from typing import cast
 from uuid import UUID
 
 import attrs
@@ -187,7 +185,7 @@ def build_flow(
     observer: NodeExecutionObserver | None = None,
     dry_run: bool = False,
     user_id: str = BusinessLimits.DEFAULT_USER_ID,
-) -> Any:  # pyright: ignore[reportExplicitAny]  # Prefect stubs are ~23% type-complete; Flow[P,R] invariance breaks async returns
+) -> object:
     """Converts typed workflow definition into executable Prefect flow function.
 
     Computes parallel execution levels from the task DAG, then executes each
@@ -712,13 +710,16 @@ async def run_workflow(
                     start_time = datetime.datetime.now(datetime.UTC)
 
                     # Build and execute the workflow
-                    workflow = build_flow(
-                        workflow_def,
-                        observer=effective_observer,
-                        dry_run=dry_run,
-                        user_id=user_id,
+                    workflow_fn = cast(
+                        "Callable[..., Coroutine[object, object, dict[str, object]]]",
+                        build_flow(
+                            workflow_def,
+                            observer=effective_observer,
+                            dry_run=dry_run,
+                            user_id=user_id,
+                        ),
                     )
-                    context = await workflow(
+                    context = await workflow_fn(
                         workflow_progress_manager=progress_manager,
                         workflow_operation_id=workflow_operation_id,
                         **parameters,
@@ -729,8 +730,9 @@ async def run_workflow(
                     execution_time = (end_time - start_time).total_seconds()
 
                     # Extract typed task results from context
-                    task_results: dict[str, NodeResult] = context.pop(
-                        "_task_results", {}
+                    task_results: dict[str, NodeResult] = cast(
+                        "dict[str, NodeResult]",
+                        context.pop("_task_results", {}),
                     )
 
                     # Extract result with actual execution time

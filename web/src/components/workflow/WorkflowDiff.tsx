@@ -9,7 +9,7 @@
 
 import { useMemo } from "react";
 import type {
-  WorkflowTaskDefSchema,
+  WorkflowTaskDefSchemaInput,
   WorkflowVersionSchema,
 } from "#/api/generated/model";
 import { useGetWorkflowVersionApiV1WorkflowsWorkflowIdVersionsVersionGet } from "#/api/generated/workflows/workflows";
@@ -25,12 +25,13 @@ interface WorkflowDiffProps {
 export function WorkflowDiff({ workflowId, version }: WorkflowDiffProps) {
   const nodes = useEditorStore((s) => s.nodes);
   const edges = useEditorStore((s) => s.edges);
-  const currentTasks = useMemo<WorkflowTaskDefSchema[]>(
+  const currentTasks = useMemo<WorkflowTaskDefSchemaInput[]>(
     () =>
       nodes.map((node) => ({
         id: node.data.taskId as string,
         type: node.data.nodeType as string,
-        config: (node.data.config as Record<string, unknown>) ?? {},
+        config:
+          (node.data.config as WorkflowTaskDefSchemaInput["config"]) ?? {},
         upstream: edges
           .filter((e) => e.target === node.id)
           .map((e) => e.source),

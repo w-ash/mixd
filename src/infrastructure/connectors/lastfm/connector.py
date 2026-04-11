@@ -6,14 +6,12 @@ single public interface while the internal implementation is split across
 LastFMAPIClient, LastFMOperations, and conversion utilities.
 """
 
-# pyright: reportAny=false
-# Legitimate Any: API response data, framework types
-
 from collections.abc import Awaitable, Callable, Mapping
 from datetime import datetime
-from typing import ClassVar, override
+from typing import ClassVar, cast, override
 from uuid import UUID
 
+import attrs
 from attrs import define, field
 
 from src.config import get_logger, settings
@@ -97,19 +95,15 @@ class LastFMConnector(BaseAPIConnector):
         Uses Last.fm's batch_get_track_info to fetch complete track information objects,
         then converts to dict for protocol compliance.
         """
-        import attrs
 
         typed_results = await self._operations.batch_get_track_info(
             tracks, progress_callback=progress_callback
         )
-        return {
-            track_id: {
-                f.name: v
-                for f in attrs.fields(info)
-                if (v := getattr(info, f.name)) is not None
-            }
-            for track_id, info in typed_results.items()
-        }
+        result: dict[UUID, Mapping[str, JsonValue]] = {}
+        for track_id, info in typed_results.items():
+            raw: dict[str, JsonValue] = cast("dict[str, JsonValue]", attrs.asdict(info))
+            result[track_id] = {k: v for k, v in raw.items() if v is not None}
+        return result
 
     async def love_track(self, artist: str, title: str) -> bool:
         """Love a track on Last.fm for the authenticated user."""

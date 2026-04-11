@@ -6,10 +6,8 @@ for credential persistence (database-backed in production, file-backed
 in CLI development).
 """
 
-# pyright: reportAny=false
-# Legitimate Any: JSON cache data, httpx response
-
 import time
+from typing import cast
 
 from attrs import define
 import httpx
@@ -51,7 +49,7 @@ async def fetch_spotify_display_name(access_token: str) -> str | None:
                 headers={"Authorization": f"Bearer {access_token}"},
             )
             resp.raise_for_status()
-            data: dict[str, object] = resp.json()
+            data = cast("dict[str, object]", resp.json())
             name = data.get("display_name") or data.get("id")
             return str(name) if name else None
     except Exception:

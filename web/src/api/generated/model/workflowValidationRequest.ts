@@ -3,10 +3,10 @@
  * Do not edit manually.
  * Mixd
  * Personal music metadata hub
- * OpenAPI spec version: 0.6.11
+ * OpenAPI spec version: 0.6.12
  */
-import type { WorkflowDefSchema } from './workflowDefSchema';
+import type { WorkflowDefSchemaInput } from './workflowDefSchemaInput';
 
 export interface WorkflowValidationRequest {
-  definition: WorkflowDefSchema;
+  definition: WorkflowDefSchemaInput;
 }

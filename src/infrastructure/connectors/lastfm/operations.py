@@ -15,8 +15,6 @@ The operations layer sits between the thin API client and the connector facade,
 providing reusable business logic while maintaining clean separation of concerns.
 """
 
-# pyright: reportAny=false
-
 from collections.abc import Awaitable, Callable
 from uuid import UUID
 

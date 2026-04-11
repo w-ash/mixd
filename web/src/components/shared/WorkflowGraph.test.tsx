@@ -14,12 +14,12 @@ vi.mock("#/lib/workflow-layout", async (importOriginal) => {
   };
 });
 
-import type { WorkflowTaskDefSchema } from "#/api/generated/model";
+import type { WorkflowTaskDefSchemaInput } from "#/api/generated/model";
 import { renderWithProviders, screen } from "#/test/test-utils";
 
 import { WorkflowGraph } from "./WorkflowGraph";
 
-const sampleTasks: WorkflowTaskDefSchema[] = [
+const sampleTasks: WorkflowTaskDefSchemaInput[] = [
   { id: "src", type: "source.liked_tracks", config: {}, upstream: [] },
   {
     id: "flt",

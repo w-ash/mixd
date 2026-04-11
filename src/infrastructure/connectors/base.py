@@ -21,7 +21,7 @@ Example:
 
 from abc import ABC, abstractmethod
 from collections.abc import Awaitable, Callable, Mapping
-from typing import ClassVar, Self
+from typing import ClassVar, Self, cast
 
 from attrs import define, field
 from tenacity import AsyncRetrying
@@ -190,10 +190,12 @@ class BaseAPIConnector(ABC):
         }
 
         modern_key = key_mapping.get(key, key.lower())
-        connector_config = getattr(settings.api, self.connector_name.lower(), None)
+        connector_config = cast(
+            "object", getattr(settings.api, self.connector_name.lower(), None)
+        )
         if connector_config is None:
             return default
-        return getattr(connector_config, modern_key, default)
+        return cast("object", getattr(connector_config, modern_key, default))
 
     async def get_playlist(self, playlist_id: str) -> ConnectorPlaylist:
         """Fetch playlist from service by delegating to service-specific method.
@@ -215,7 +217,10 @@ class BaseAPIConnector(ABC):
         # Try connector-specific method first (more efficient)
         method_name = f"get_{self.connector_name}_playlist"
         if hasattr(self, method_name):
-            method = getattr(self, method_name)
+            method = cast(
+                "Callable[[str], Awaitable[ConnectorPlaylist]]",
+                getattr(self, method_name),
+            )
             return await method(playlist_id)
 
         # Fallback: connector doesn't support playlists

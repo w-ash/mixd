@@ -3,10 +3,10 @@
  * Do not edit manually.
  * Mixd
  * Personal music metadata hub
- * OpenAPI spec version: 0.6.11
+ * OpenAPI spec version: 0.6.12
  */
 import type { LastRunSchema } from './lastRunSchema';
-import type { WorkflowDefSchema } from './workflowDefSchema';
+import type { WorkflowDefSchemaOutput } from './workflowDefSchemaOutput';
 
 export interface WorkflowDetailSchema {
   id: string;
@@ -20,5 +20,5 @@ export interface WorkflowDetailSchema {
   created_at?: string | null;
   updated_at?: string | null;
   last_run?: LastRunSchema | null;
-  definition: WorkflowDefSchema;
+  definition: WorkflowDefSchemaOutput;
 }

@@ -1,7 +1,7 @@
 import type { Edge, Node } from "@xyflow/react";
 import type { ELK } from "elkjs/lib/elk-api";
 
-import type { WorkflowTaskDefSchema } from "#/api/generated/model";
+import type { WorkflowTaskDefSchemaInput } from "#/api/generated/model";
 import { getNodeCategoryName } from "#/lib/workflow-config";
 
 let elk: ELK | null = null;
@@ -42,7 +42,7 @@ export function generateNodeId(type: string, existingIds: string[]): string {
  * Validates upstream references against known task IDs to guard
  * against malformed workflow definitions.
  */
-export function buildEdges(tasks: WorkflowTaskDefSchema[]): {
+export function buildEdges(tasks: WorkflowTaskDefSchemaInput[]): {
   flowEdges: Edge[];
   elkEdges: { id: string; sources: string[]; targets: string[] }[];
 } {
@@ -66,7 +66,7 @@ export function buildEdges(tasks: WorkflowTaskDefSchema[]): {
  * All nodes are placed at (0, 0) with opacity 0 so React Flow can mount and
  * measure them via ResizeObserver without the user seeing unpositioned nodes.
  */
-export function createInitialNodes(tasks: WorkflowTaskDefSchema[]): {
+export function createInitialNodes(tasks: WorkflowTaskDefSchemaInput[]): {
   nodes: Node[];
   edges: Edge[];
 } {
@@ -101,7 +101,7 @@ export function createInitialNodes(tasks: WorkflowTaskDefSchema[]): {
  * uses its actual rendered size for precise ELK spacing.
  */
 export async function layoutWorkflow(
-  tasks: WorkflowTaskDefSchema[],
+  tasks: WorkflowTaskDefSchemaInput[],
   nodeDimensions?: Map<string, NodeDimension>,
 ): Promise<{ nodes: Node[]; edges: Edge[] }> {
   if (tasks.length === 0) {

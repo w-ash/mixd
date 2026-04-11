@@ -6,15 +6,12 @@ from both CLI and web UI. Full CRUD commands support `--format json` for
 machine-readable output consumed by the workflow-manager agent.
 """
 
-# pyright: reportAny=false
-# Rich/Typer display types and json.loads() leak implicit Any
-
 from collections.abc import Sequence
 import contextlib
 from datetime import datetime
 from pathlib import Path
 import sys
-from typing import Annotated, Literal, Unpack
+from typing import Annotated, Literal, Unpack, cast
 from uuid import UUID
 
 from rich.panel import Panel
@@ -23,6 +20,7 @@ from rich.table import Table
 import typer
 
 from src.application.workflows.protocols import RunStatusKwargs
+from src.domain.entities.shared import JsonDict
 from src.domain.entities.workflow import RunStatus, Workflow
 from src.interface.cli.async_runner import run_async
 from src.interface.cli.cli_helpers import get_cli_user_id, handle_cli_error
@@ -238,7 +236,7 @@ def create(
 
     raw_json = _read_json_input(file)
     try:
-        raw = json_mod.loads(raw_json)
+        raw = cast("JsonDict", json_mod.loads(raw_json))
         definition = parse_workflow_def(raw)
     except (json_mod.JSONDecodeError, KeyError, TypeError) as e:
         err_console.print(f"[red]Error: Invalid JSON definition: {e}[/red]")
@@ -312,7 +310,7 @@ def update(
 
     raw_json = _read_json_input(file)
     try:
-        raw = json_mod.loads(raw_json)
+        raw = cast("JsonDict", json_mod.loads(raw_json))
         definition = parse_workflow_def(raw)
     except (json_mod.JSONDecodeError, KeyError, TypeError) as e:
         err_console.print(f"[red]Error: Invalid JSON definition: {e}[/red]")
@@ -469,7 +467,7 @@ def validate(
 
     raw_json = _read_json_input(file)
     try:
-        raw = json_mod.loads(raw_json)
+        raw = cast("JsonDict", json_mod.loads(raw_json))
         definition = parse_workflow_def(raw)
     except (json_mod.JSONDecodeError, KeyError, TypeError) as e:
         err_console.print(f"[red]Error: Invalid JSON: {e}[/red]")

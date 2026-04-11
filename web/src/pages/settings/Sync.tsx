@@ -275,7 +275,7 @@ function SpotifyLikesImport({
             : `${checkpoint.local_count.toLocaleString()} tracks imported`}
         </p>
       )}
-      {hasGap && (
+      {checkpoint != null && (
         <label
           htmlFor="spotify-reimport-all"
           className="mt-2 flex items-center gap-2"

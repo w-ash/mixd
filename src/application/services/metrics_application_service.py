@@ -16,9 +16,6 @@ from src.application.services.sub_operation_progress import (
     complete_sub_operation,
     create_sub_operation,
 )
-from src.application.utilities.enhanced_database_batch_processor import (
-    EnhancedDatabaseBatchProcessor,
-)
 from src.config import get_logger
 from src.domain.entities.progress import OperationStatus
 from src.domain.entities.shared import JsonValue, MetricValue
@@ -363,7 +360,7 @@ class MetricsApplicationService:
                     track_count=len(tracks_with_metadata),
                 )
 
-                await self.batch_process_fresh_metadata(
+                await self._save_extracted_metrics(
                     fresh_metadata=fresh_metadata,
                     connector=connector,
                     available_metrics=available_metrics,
@@ -371,7 +368,7 @@ class MetricsApplicationService:
                     uow=uow,
                 )
 
-    async def batch_process_fresh_metadata(
+    async def _save_extracted_metrics(
         self,
         fresh_metadata: dict[UUID, Mapping[str, JsonValue]],
         connector: str,
@@ -379,11 +376,10 @@ class MetricsApplicationService:
         field_map: dict[str, str],
         uow: UnitOfWorkProtocol,
     ) -> int:
-        """Efficiently processes metrics from fresh metadata in batches.
+        """Extract metrics from connector metadata and persist them.
 
-        Extracts and persists all available metrics from pre-fetched metadata
-        for multiple tracks. Uses small batch sizes to prevent database locks
-        when processing large datasets.
+        Converts raw metadata mappings to TrackMetric entities and saves
+        them in a single PostgreSQL upsert operation.
 
         Args:
             fresh_metadata: Dictionary of track_id -> metadata mappings.
@@ -393,53 +389,23 @@ class MetricsApplicationService:
             uow: Unit of work for database transaction management.
 
         Returns:
-            Number of individual metrics successfully processed and saved.
+            Number of individual metrics successfully saved.
         """
         if not fresh_metadata or not available_metrics:
             return 0
 
-        logger.info(
-            f"Batch processing {len(fresh_metadata)} fresh metadata entries",
-            connector=connector,
-            track_count=len(fresh_metadata),
-        )
-
-        all_metrics_batch = self._extract_metrics_from_metadata(
+        all_metrics = self._extract_metrics_from_metadata(
             fresh_metadata, available_metrics, field_map, connector
         )
 
-        # Batch save all metrics using unified BatchProcessor
-        if all_metrics_batch:
-            metrics_repo = uow.get_metrics_repository()
+        if not all_metrics:
+            return 0
 
-            # Create enhanced database batch processor with progress tracking
-            batch_processor = EnhancedDatabaseBatchProcessor[
-                TrackMetric, int
-            ](
-                batch_size=10,  # Small batch size for incremental progress tracking
-                retry_count=3,  # Simple retry for database deadlock scenarios
-                retry_base_delay=1.0,  # Basic retry delay, no complex exponential backoff needed
-                logger_instance=logger,
-            )
+        metrics_repo = uow.get_metrics_repository()
+        saved_count = await metrics_repo.save_track_metrics(all_metrics)
 
-            async def save_metrics_batch(metrics_batch: list[TrackMetric]) -> int:
-                """Save a batch of metrics to the database."""
-                return await metrics_repo.save_track_metrics(metrics_batch)
-
-            # Process using EnhancedBatchProcessor (it handles batching internally)
-            batch_results = await batch_processor.process(
-                items=all_metrics_batch,
-                process_func=save_metrics_batch,
-                operation_description=f"Saving {len(all_metrics_batch)} metrics to database",
-                source="metrics_service",
-                batch_type="database_metrics_save",
-            )
-
-            saved_count = sum(batch_results)
-            logger.info(
-                f"Batch saved {saved_count} metrics for {len(fresh_metadata)} tracks",
-                connector=connector,
-            )
-            return saved_count
-
-        return 0
+        logger.info(
+            f"Saved {saved_count} metrics for {len(fresh_metadata)} tracks",
+            connector=connector,
+        )
+        return saved_count

@@ -10,8 +10,8 @@ import { addEdge, applyEdgeChanges, applyNodeChanges } from "@xyflow/react";
 import { create } from "zustand";
 
 import type {
-  WorkflowDefSchema,
-  WorkflowTaskDefSchema,
+  WorkflowDefSchemaInput,
+  WorkflowTaskDefSchemaInput,
 } from "#/api/generated/model";
 import { getNodeCategoryName } from "#/lib/workflow-config";
 import {
@@ -65,8 +65,8 @@ interface EditorState {
   pushHistory: () => void;
 
   // Actions - Persistence
-  loadWorkflow: (def: WorkflowDefSchema, workflowId?: string) => void;
-  toWorkflowDef: () => WorkflowDefSchema;
+  loadWorkflow: (def: WorkflowDefSchemaInput, workflowId?: string) => void;
+  toWorkflowDef: () => WorkflowDefSchemaInput;
   resetDirty: () => void;
   setName: (name: string) => void;
   setDescription: (desc: string) => void;
@@ -280,10 +280,10 @@ export const useEditorStore = create<EditorState>()((set, get) => ({
     const { nodes, edges, workflowId, workflowName, workflowDescription } =
       get();
 
-    const tasks: WorkflowTaskDefSchema[] = nodes.map((node) => ({
+    const tasks: WorkflowTaskDefSchemaInput[] = nodes.map((node) => ({
       id: node.data.taskId as string,
       type: node.data.nodeType as string,
-      config: (node.data.config as Record<string, unknown>) ?? {},
+      config: (node.data.config as WorkflowTaskDefSchemaInput["config"]) ?? {},
       upstream: edges.filter((e) => e.target === node.id).map((e) => e.source),
     }));
 

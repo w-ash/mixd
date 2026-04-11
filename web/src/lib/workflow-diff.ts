@@ -5,29 +5,32 @@
  * added, removed, modified, and unchanged nodes for visual highlighting.
  */
 
-import type { WorkflowTaskDefSchema } from "#/api/generated/model";
+import type { WorkflowTaskDefSchemaInput } from "#/api/generated/model";
 
 export type DiffStatus = "added" | "removed" | "modified" | "unchanged";
 
 export interface TaskDiff {
   taskId: string;
   status: DiffStatus;
-  oldTask?: WorkflowTaskDefSchema;
-  newTask?: WorkflowTaskDefSchema;
+  oldTask?: WorkflowTaskDefSchemaInput;
+  newTask?: WorkflowTaskDefSchemaInput;
 }
 
 export interface WorkflowDiff {
-  added: WorkflowTaskDefSchema[];
-  removed: WorkflowTaskDefSchema[];
-  modified: Array<{ old: WorkflowTaskDefSchema; new: WorkflowTaskDefSchema }>;
-  unchanged: WorkflowTaskDefSchema[];
+  added: WorkflowTaskDefSchemaInput[];
+  removed: WorkflowTaskDefSchemaInput[];
+  modified: Array<{
+    old: WorkflowTaskDefSchemaInput;
+    new: WorkflowTaskDefSchemaInput;
+  }>;
+  unchanged: WorkflowTaskDefSchemaInput[];
   /** Map from task ID → diff status, for highlight coloring */
   highlightMap: Map<string, DiffStatus>;
 }
 
 function tasksEqual(
-  a: WorkflowTaskDefSchema,
-  b: WorkflowTaskDefSchema,
+  a: WorkflowTaskDefSchemaInput,
+  b: WorkflowTaskDefSchemaInput,
 ): boolean {
   if (a.type !== b.type) return false;
 
@@ -42,19 +45,19 @@ function tasksEqual(
 }
 
 export function diffWorkflowDefs(
-  oldTasks: WorkflowTaskDefSchema[],
-  newTasks: WorkflowTaskDefSchema[],
+  oldTasks: WorkflowTaskDefSchemaInput[],
+  newTasks: WorkflowTaskDefSchemaInput[],
 ): WorkflowDiff {
   const oldMap = new Map(oldTasks.map((t) => [t.id, t]));
   const newMap = new Map(newTasks.map((t) => [t.id, t]));
 
-  const added: WorkflowTaskDefSchema[] = [];
-  const removed: WorkflowTaskDefSchema[] = [];
+  const added: WorkflowTaskDefSchemaInput[] = [];
+  const removed: WorkflowTaskDefSchemaInput[] = [];
   const modified: Array<{
-    old: WorkflowTaskDefSchema;
-    new: WorkflowTaskDefSchema;
+    old: WorkflowTaskDefSchemaInput;
+    new: WorkflowTaskDefSchemaInput;
   }> = [];
-  const unchanged: WorkflowTaskDefSchema[] = [];
+  const unchanged: WorkflowTaskDefSchemaInput[] = [];
   const highlightMap = new Map<string, DiffStatus>();
 
   // Check old tasks: removed or modified

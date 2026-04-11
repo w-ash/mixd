@@ -11,12 +11,11 @@ Flow:
 4. Callback exchanges code/token, stores credentials, redirects to /settings/integrations
 """
 
-# pyright: reportAny=false
-
 import base64
 from datetime import UTC, datetime, timedelta
 import hashlib
 import secrets
+from typing import cast
 import urllib.parse
 
 from fastapi import APIRouter, Depends, Request
@@ -117,7 +116,9 @@ async def _validate_state(state: str) -> tuple[bool, str | None, str | None]:
         if row is None:
             return False, None, None
 
-    return True, row.code_verifier, row.user_id
+    code_verifier = cast("str | None", row.code_verifier)
+    user_id = cast("str | None", row.user_id)
+    return True, code_verifier, user_id
 
 
 # ---------------------------------------------------------------------------

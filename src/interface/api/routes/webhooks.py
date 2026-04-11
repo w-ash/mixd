@@ -12,13 +12,11 @@ NeonAuthMiddleware passes it through without requiring a Bearer token.
 See: https://neon.com/guides/neon-auth-webhooks-nextjs
 """
 
-# pyright: reportAny=false
-# json.loads() returns Any per typeshed — structural fix deferred to Phase 6
-
 import base64
 from collections.abc import Callable
 import json
 import time
+from typing import cast
 
 from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PublicKey
 from fastapi import APIRouter, Request
@@ -26,6 +24,7 @@ from fastapi.responses import JSONResponse
 from pydantic import BaseModel, ConfigDict, ValidationError
 
 from src.config import get_logger, settings
+from src.domain.entities.shared import JsonDict
 from src.interface.api.auth_gate import get_jwk_set, parse_allowed_emails
 
 logger = get_logger(__name__)
@@ -79,7 +78,7 @@ async def _verify_signature(
     sig_padded = jws_signature_b64 + "=" * (-len(jws_signature_b64) % 4)
     sig_bytes = base64.urlsafe_b64decode(sig_padded)
 
-    public_key = jwk.key
+    public_key = cast("object", jwk.key)
     if not isinstance(public_key, Ed25519PublicKey):
         logger.warning("webhook_wrong_key_type", key_type=type(public_key).__name__)
         return False
@@ -188,14 +187,14 @@ async def neon_auth_webhook(request: Request) -> JSONResponse:
         )
 
     try:
-        payload = json.loads(body)
+        payload = cast("JsonDict", json.loads(body))
     except json.JSONDecodeError:
         return JSONResponse(
             {"error": {"code": "INVALID_BODY", "message": "Invalid JSON body"}},
             status_code=400,
         )
 
-    event_type = payload.get("event_type", "")
+    event_type = str(payload.get("event_type", ""))
     event_data = payload.get("event_data", {})
 
     handler = _EVENT_HANDLERS.get(event_type)

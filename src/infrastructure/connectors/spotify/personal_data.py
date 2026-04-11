@@ -3,7 +3,7 @@
 from datetime import datetime
 import json
 from pathlib import Path
-from typing import Self
+from typing import Self, cast
 
 from attrs import define
 
@@ -64,7 +64,7 @@ def parse_spotify_personal_data(file_path: Path) -> list[SpotifyPlayRecord]:
     logger.info(f"Parsing Spotify personal data file: {file_path}")
 
     with file_path.open(encoding="utf-8") as f:
-        data = json.load(f)
+        data = cast("list[JsonDict]", json.load(f))
 
     # Filter out non-music content and parse records
     records: list[SpotifyPlayRecord] = []
@@ -76,9 +76,9 @@ def parse_spotify_personal_data(file_path: Path) -> list[SpotifyPlayRecord]:
                 logger.warning(
                     "Skipping malformed Spotify record",
                     error=str(e),
-                    track_name=item.get("master_metadata_track_name", "unknown"),
-                    artist_name=item.get(
-                        "master_metadata_album_artist_name", "unknown"
+                    track_name=str(item.get("master_metadata_track_name", "unknown")),
+                    artist_name=str(
+                        item.get("master_metadata_album_artist_name", "unknown")
                     ),
                 )
                 continue

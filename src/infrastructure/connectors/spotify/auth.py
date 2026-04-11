@@ -14,8 +14,6 @@ Thread safety: asyncio.Lock prevents concurrent token refresh storms when
 multiple tasks call get_valid_token() simultaneously.
 """
 
-# pyright: reportAny=false
-
 import asyncio
 import base64
 import collections.abc
@@ -30,7 +28,10 @@ from attrs import define, field
 import httpx
 
 from src.config import get_logger, settings
-from src.infrastructure.connectors._shared.http_client import make_spotify_auth_client
+from src.infrastructure.connectors._shared.http_client import (
+    make_spotify_auth_client,
+    parse_json_response,
+)
 from src.infrastructure.connectors._shared.token_storage import (
     StoredToken,
     TokenStorage,
@@ -140,7 +141,7 @@ class SpotifyTokenManager:
                 },
             )
             _ = response.raise_for_status()
-            raw = cast(dict[str, object], response.json())
+            raw = parse_json_response(response)
 
         # Spotify sometimes omits refresh_token in refresh responses — preserve the old one
         if "refresh_token" not in raw:
@@ -241,7 +242,7 @@ class SpotifyTokenManager:
                 data=data,
             )
             _ = response.raise_for_status()
-            raw = cast(dict[str, object], response.json())
+            raw = parse_json_response(response)
 
         expires_in = raw.get("expires_in", 3600)
         raw["expires_at"] = int(time.time()) + (

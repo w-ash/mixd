@@ -16,8 +16,6 @@ The operations layer sits between the thin API client and the connector facade,
 providing reusable business logic while maintaining clean separation of concerns.
 """
 
-# pyright: reportAny=false
-
 import asyncio
 from collections.abc import Mapping
 from datetime import UTC, datetime

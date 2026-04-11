@@ -1,6 +1,6 @@
 [project]
 name = "mixd"
-version = "0.6.11"
+version = "0.6.12"
 description = "Music metadata integration and playlist management platform"
 authors = [{name = "Ash Wright", email = "a@ashwright.net"}]
 readme = "README.md"
@@ -280,9 +280,8 @@ reportUnknownVariableType = "warning"
 reportUnknownMemberType = "warning"
 reportUnknownArgumentType = "warning"
 reportUnknownLambdaType = "warning"
-# reportExplicitAny at error: no explicit Any annotations allowed.
-# reportAny at warning: implicit Any from third-party libraries is visible but non-blocking.
-reportAny = "warning"
+# Both reportAny and reportExplicitAny at error: no Any — explicit or implicit — allowed.
+reportAny = "error"
 reportExplicitAny = "error"
 # basedpyright-specific: narrow TypeVars to their bound union under isinstance
 # checks instead of collapsing to Unknown/Any. Helps BaseRepository generics.

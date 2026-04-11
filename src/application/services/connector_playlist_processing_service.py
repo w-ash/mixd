@@ -5,8 +5,6 @@ with PlaylistEntry objects (tracks + position metadata), handling bulk operation
 duplicate preservation, and performance optimization across create and update use cases.
 """
 
-# pyright: reportAny=false
-
 from datetime import datetime
 
 from src.config import get_logger, settings

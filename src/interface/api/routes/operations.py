@@ -6,7 +6,7 @@ snapshot endpoints for querying operation state.
 
 from collections.abc import AsyncGenerator
 import contextlib
-from typing import Annotated
+from typing import Annotated, cast
 
 from fastapi import APIRouter, Depends, Request
 from fastapi.sse import EventSourceResponse, ServerSentEvent
@@ -73,7 +73,7 @@ async def stream_operation_progress(
         if not isinstance(raw, dict):
             continue
 
-        event_dict: dict[str, object] = raw
+        event_dict = cast("dict[str, object]", raw)
 
         # Reconnection support: skip events the client already received
         event_id = str(event_dict.get("id", ""))

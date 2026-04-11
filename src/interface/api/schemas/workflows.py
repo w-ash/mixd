@@ -4,10 +4,8 @@ Domain-to-schema conversion functions translate attrs entities into
 Pydantic models for JSON serialization.
 """
 
-# pyright: reportAny=false
-# Pydantic model_dump() returns dict[str, Any] — implicit Any from library stubs
-
 from datetime import datetime
+from typing import cast
 from uuid import UUID
 
 from pydantic import BaseModel, ConfigDict
@@ -296,7 +294,17 @@ def to_workflow_detail(
 ) -> WorkflowDetailSchema:
     summary = to_workflow_summary(workflow, last_run=last_run)
     return WorkflowDetailSchema(
-        **summary.model_dump(),
+        id=summary.id,
+        name=summary.name,
+        description=summary.description,
+        is_template=summary.is_template,
+        source_template=summary.source_template,
+        definition_version=summary.definition_version,
+        task_count=summary.task_count,
+        node_types=summary.node_types,
+        created_at=summary.created_at,
+        updated_at=summary.updated_at,
+        last_run=summary.last_run,
         definition=_def_to_schema(workflow.definition),
     )
 
@@ -355,14 +363,24 @@ def _extract_metric_columns(output_tracks: list[dict[str, object]]) -> list[str]
         return []
     metrics = output_tracks[0].get("metrics")
     if isinstance(metrics, dict):
-        return sorted(metrics.keys())
+        return sorted(cast("dict[str, object]", metrics))
     return []
 
 
 def to_run_detail(run: WorkflowRun) -> WorkflowRunDetailSchema:
     summary = to_run_summary(run)
     return WorkflowRunDetailSchema(
-        **summary.model_dump(),
+        id=summary.id,
+        workflow_id=summary.workflow_id,
+        status=summary.status,
+        definition_version=summary.definition_version,
+        started_at=summary.started_at,
+        completed_at=summary.completed_at,
+        duration_ms=summary.duration_ms,
+        output_track_count=summary.output_track_count,
+        output_playlist_id=summary.output_playlist_id,
+        error_message=summary.error_message,
+        created_at=summary.created_at,
         definition_snapshot=_def_to_schema(run.definition_snapshot),
         output_tracks=run.output_tracks,
         metric_columns=_extract_metric_columns(run.output_tracks),

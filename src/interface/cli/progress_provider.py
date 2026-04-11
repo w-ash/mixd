@@ -5,12 +5,9 @@ progress bars, spinners, and status information for long-running operations.
 Uses Rich Live Display with Progress for proper stdout/stderr coordination.
 """
 
-# pyright: reportAny=false
-# Rich Progress internals leak implicit Any
-
 import asyncio
 import contextlib
-from typing import TYPE_CHECKING, Self, TypedDict, override
+from typing import TYPE_CHECKING, Self, TypedDict, cast, override
 
 from attrs import define
 from rich.live import Live
@@ -56,7 +53,7 @@ class ETAColumn(ProgressColumn):
     def render(self, task: Task) -> str:
         """Render ETA from task description or metadata."""
         if "eta_seconds" in task.fields:
-            eta_seconds = task.fields["eta_seconds"]
+            eta_seconds = cast("float | None", task.fields["eta_seconds"])
             if eta_seconds is not None and eta_seconds > 0:
                 minutes, seconds = divmod(int(eta_seconds), 60)
                 if minutes > 0:
@@ -73,7 +70,7 @@ class RateColumn(ProgressColumn):
     def render(self, task: Task) -> str:
         """Render processing rate from task metadata."""
         if "items_per_second" in task.fields:
-            rate = task.fields["items_per_second"]
+            rate = cast("float | None", task.fields["items_per_second"])
             if rate is not None and rate > 0:
                 return f"{rate:.1f}/sec"
         return ""

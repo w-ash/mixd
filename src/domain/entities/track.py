@@ -64,7 +64,9 @@ class Track:
     id: UUID = field(factory=uuid7)
     version: int = 0  # 0 = unpersisted, ≥1 = persisted (set by repository on load/save)
     connector_track_identifiers: dict[str, str] = field(factory=dict)
-    connector_metadata: Mapping[str, Mapping[str, JsonValue]] = field(factory=dict)
+    connector_metadata: Mapping[str, Mapping[str, JsonValue]] = field(
+        factory=dict[str, Mapping[str, JsonValue]]
+    )
 
     @property
     def artists_display(self) -> str:

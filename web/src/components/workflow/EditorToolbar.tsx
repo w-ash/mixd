@@ -21,7 +21,7 @@ import {
 import { useCallback, useEffect, useRef } from "react";
 import { useNavigate } from "react-router";
 import { toast } from "sonner";
-import type { WorkflowTaskDefSchema } from "#/api/generated/model";
+import type { WorkflowTaskDefSchemaInput } from "#/api/generated/model";
 import {
   useCreateWorkflowApiV1WorkflowsPost,
   useUpdateWorkflowApiV1WorkflowsWorkflowIdPatch,
@@ -118,7 +118,7 @@ export function EditorToolbar() {
 
   const handleAutoLayout = useCallback(async () => {
     const def = toWorkflowDef();
-    const tasks: WorkflowTaskDefSchema[] = def.tasks ?? [];
+    const tasks: WorkflowTaskDefSchemaInput[] = def.tasks ?? [];
     if (tasks.length === 0) return;
 
     const result = await layoutWorkflow(tasks);

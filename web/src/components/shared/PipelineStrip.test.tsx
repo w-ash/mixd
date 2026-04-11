@@ -1,6 +1,7 @@
 import { render, screen } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
+import type { WorkflowTaskDefSchemaInput } from "#/api/generated/model";
 import type { NodeStatus } from "#/lib/sse-types";
 import { PipelineStrip } from "./PipelineStrip";
 
@@ -13,7 +14,7 @@ afterEach(() => {
   scrollIntoViewMock.mockClear();
 });
 
-const mockTasks = [
+const mockTasks: WorkflowTaskDefSchemaInput[] = [
   {
     id: "source",
     type: "source.liked_tracks",

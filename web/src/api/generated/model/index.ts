@@ -3,7 +3,7 @@
  * Do not edit manually.
  * Mixd
  * Personal music metadata hub
- * OpenAPI spec version: 0.6.11
+ * OpenAPI spec version: 0.6.12
  */
 
 export * from './artistSchema';
@@ -36,6 +36,8 @@ export * from './importSpotifyLikesRequest';
 export * from './integrityCheckSchema';
 export * from './integrityCheckSchemaDetailsItem';
 export * from './integrityReportSchema';
+export * from './jsonValueInput';
+export * from './jsonValueOutput';
 export * from './lastfmCallbackAuthLastfmCallbackGetParams';
 export * from './lastRunSchema';
 export * from './lastRunSchemaStatus';
@@ -87,7 +89,8 @@ export * from './userSettingsPatch';
 export * from './userSettingsResponse';
 export * from './validationError';
 export * from './validationErrorCtx';
-export * from './workflowDefSchema';
+export * from './workflowDefSchemaInput';
+export * from './workflowDefSchemaOutput';
 export * from './workflowDetailSchema';
 export * from './workflowRunDetailSchema';
 export * from './workflowRunDetailSchemaOutputTracksItem';
@@ -99,8 +102,10 @@ export * from './workflowRunStartedResponse';
 export * from './workflowRunSummarySchema';
 export * from './workflowRunSummarySchemaStatus';
 export * from './workflowSummarySchema';
-export * from './workflowTaskDefSchema';
-export * from './workflowTaskDefSchemaConfig';
+export * from './workflowTaskDefSchemaInput';
+export * from './workflowTaskDefSchemaInputConfig';
+export * from './workflowTaskDefSchemaOutput';
+export * from './workflowTaskDefSchemaOutputConfig';
 export * from './workflowValidationErrorSchema';
 export * from './workflowValidationRequest';
 export * from './workflowValidationResponse';

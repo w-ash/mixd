@@ -8,8 +8,6 @@ Provides:
 - validate_workflow_def: Structural validation (required fields, upstream refs, node types, config)
 """
 
-# pyright: reportAny=false
-
 from collections.abc import Mapping
 
 from src.domain.entities.shared import JsonValue

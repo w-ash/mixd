@@ -10,11 +10,10 @@ Key components:
 - Helper utilities: metadata extraction, field processing
 """
 
-# pyright: reportAny=false
-
 from collections.abc import Mapping
-from typing import Self
+from typing import Self, cast
 
+import attrs
 from attrs import define, field
 
 from src.config import get_logger
@@ -99,13 +98,9 @@ def convert_lastfm_to_domain_track(
     if not lastfm_info:
         return track
     # Create lastfm metadata dictionary using attrs introspection
-    lastfm_metadata: JsonDict = {}
-    import attrs
 
-    for attrs_field in attrs.fields(lastfm_info):
-        value = getattr(lastfm_info, attrs_field.name)
-        if value is not None:
-            lastfm_metadata[attrs_field.name] = value
+    lastfm_metadata = cast("JsonDict", attrs.asdict(lastfm_info))
+    lastfm_metadata = {k: v for k, v in lastfm_metadata.items() if v is not None}
 
     # Attach the metadata to the track if we have any
     if lastfm_metadata:

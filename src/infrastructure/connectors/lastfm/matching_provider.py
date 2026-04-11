@@ -10,8 +10,6 @@ inheriting would violate LSP (the abstract template-method hooks would
 raise ``NotImplementedError``).
 """
 
-# pyright: reportAny=false
-
 from uuid import UUID
 
 from src.config import get_logger
