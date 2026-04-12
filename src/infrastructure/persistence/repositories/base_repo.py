@@ -237,12 +237,16 @@ class SimpleMapperFactory:
             async def to_domain(db_model: TDBModel) -> TDomainModel:
                 """Convert database model to domain model using attrs field mapping."""
                 if attrs.has(domain_class):
+                    # Only pass fields that accept __init__ kwargs — fields with
+                    # init=False (e.g. derived fields via Factory(takes_self=True))
+                    # reject constructor kwargs and compute their own values.
                     field_names: list[str] = [
                         f.name
                         for f in cast(
                             "tuple[attrs.Attribute[object], ...]",
                             attrs.fields(domain_class),
                         )
+                        if f.init
                     ]
 
                     # Extract values from db_model for each field

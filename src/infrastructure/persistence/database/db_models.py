@@ -178,6 +178,10 @@ class DBTrack(BaseEntity):
         back_populates="track",
         cascade="all, delete-orphan",
     )
+    tags: Mapped[list[DBTrackTag]] = relationship(
+        back_populates="track",
+        cascade="all, delete-orphan",
+    )
 
     # NOTE: pg_trgm GIN indexes (title, album, artists_text) and the JSONB GIN
     # index on artists are created only via Alembic migration 002_pg_opt — they
@@ -1023,3 +1027,70 @@ class DBTrackPreferenceEvent(BaseEntity):
     preferred_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), nullable=False
     )
+
+
+class DBTrackTag(BaseEntity):
+    """User-assigned tag on a track (mood:chill, energy:high, banger).
+
+    A track can carry many tags per user — UNIQUE key is three-part
+    (user_id, track_id, tag). ``namespace`` / ``value`` are derived from
+    ``tag`` at the domain layer and stored here so the DB can index them
+    directly. ``tagged_at`` preserves the original timestamp from the
+    source action (manual click, service import, playlist mapping).
+    """
+
+    __tablename__: str = "track_tags"
+
+    # NOTE: GIN trigram index on `tag` (ix_track_tags_tag_trgm) is created in
+    # migration c602c5a08631 only — it requires the pg_trgm extension and
+    # would fail with metadata.create_all() in test fixtures.
+    __table_args__: tuple[SchemaItem, ...] = (
+        UniqueConstraint("user_id", "track_id", "tag"),
+        Index("ix_track_tags_user_id_tag", "user_id", "tag"),
+        Index("ix_track_tags_user_id_namespace", "user_id", "namespace"),
+        Index("ix_track_tags_user_id_tagged_at", "user_id", "tagged_at"),
+    )
+
+    user_id: Mapped[str] = mapped_column(
+        String(), nullable=False, default="default", server_default="default"
+    )
+    track_id: Mapped[UuidType] = mapped_column(
+        PgUuidCol(as_uuid=True), ForeignKey("tracks.id", ondelete="CASCADE")
+    )
+    tag: Mapped[str] = mapped_column(String(64))
+    namespace: Mapped[str | None] = mapped_column(String(32))
+    value: Mapped[str] = mapped_column(String(64))
+    source: Mapped[str] = mapped_column(
+        String(32)
+    )  # manual, service_import, playlist_mapping
+    tagged_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+
+    track: Mapped[DBTrack] = relationship(
+        back_populates="tags",
+        passive_deletes=True,
+    )
+
+
+class DBTrackTagEvent(BaseEntity):
+    """Append-only log of tag add/remove events.
+
+    Events are never updated or deleted. Captures the full timeline so
+    "when did I first tag this as chill?" stays answerable even after
+    the tag is later removed.
+    """
+
+    __tablename__: str = "track_tag_events"
+    __table_args__: tuple[SchemaItem, ...] = (
+        Index("ix_track_tag_events_user_id_track_id", "user_id", "track_id"),
+    )
+
+    user_id: Mapped[str] = mapped_column(
+        String(), nullable=False, default="default", server_default="default"
+    )
+    track_id: Mapped[UuidType] = mapped_column(
+        PgUuidCol(as_uuid=True), ForeignKey("tracks.id", ondelete="CASCADE")
+    )
+    tag: Mapped[str] = mapped_column(String(64))
+    action: Mapped[str] = mapped_column(String(8))  # add, remove
+    source: Mapped[str] = mapped_column(String(32))
+    tagged_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)

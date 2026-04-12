@@ -24,6 +24,7 @@ from src.domain.repositories.interfaces import (
     PreferenceRepositoryProtocol,
     ServiceConnectorProvider,
     StatsRepositoryProtocol,
+    TagRepositoryProtocol,
     TrackIdentityServiceProtocol,
     TrackMergeServiceProtocol,
     TrackRepositoryProtocol,
@@ -243,6 +244,14 @@ class DatabaseUnitOfWork:
         )
 
         return TrackPreferenceRepository(self._session)
+
+    def get_tag_repository(self) -> TagRepositoryProtocol:
+        """Get tag repository for track tag operations."""
+        from src.infrastructure.persistence.repositories.track.tags import (
+            TrackTagRepository,
+        )
+
+        return TrackTagRepository(self._session)
 
     def get_stats_repository(self) -> StatsRepositoryProtocol:
         """Get cross-table stats repository for dashboard aggregation."""

@@ -40,6 +40,16 @@ from .sourced_metadata import SOURCE_PRIORITY, MetadataSource, should_override
 
 # Summary metrics
 from .summary_metrics import SummaryMetric, SummaryMetricCollection
+
+# Tag entities
+from .tag import (
+    MAX_TAG_LENGTH,
+    TagAction,
+    TagEvent,
+    TrackTag,
+    normalize_tag,
+    parse_tag,
+)
 from .track import (
     Artist,
     ConnectorTrack,
@@ -60,6 +70,7 @@ from .workflow import WorkflowDef, WorkflowTaskDef
 
 __all__ = [
     "DB_PSEUDO_CONNECTOR",
+    "MAX_TAG_LENGTH",
     "PREFERENCE_ORDER",
     "SOURCE_PRIORITY",
     "Artist",
@@ -87,6 +98,8 @@ __all__ = [
     "SyncCheckpointStatus",
     "SyncDirection",
     "SyncStatus",
+    "TagAction",
+    "TagEvent",
     "Track",
     "TrackLike",
     "TrackList",
@@ -95,10 +108,13 @@ __all__ = [
     "TrackMetric",
     "TrackPlay",
     "TrackPreference",
+    "TrackTag",
     "WorkflowDef",
     "WorkflowTaskDef",
     "create_lastfm_play_record",
     "ensure_utc",
+    "normalize_tag",
+    "parse_tag",
     "should_override",
     "utc_now_factory",
 ]

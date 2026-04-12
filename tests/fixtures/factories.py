@@ -26,6 +26,7 @@ from src.domain.entities.playlist import (
     PlaylistEntry,
 )
 from src.domain.entities.preference import PreferenceEvent, TrackPreference
+from src.domain.entities.tag import TagEvent, TrackTag
 from src.domain.entities.track import Artist, ConnectorTrack, Track, TrackLike
 from src.domain.entities.workflow import Workflow, WorkflowDef, WorkflowTaskDef
 from src.infrastructure.connectors.spotify.models import (
@@ -294,5 +295,50 @@ def make_preference_event(
         source=source,  # type: ignore[arg-type]
         user_id=user_id,
         preferred_at=preferred_at or datetime.now(UTC),
+        **kwargs,
+    )
+
+
+# ---------------------------------------------------------------------------
+# Tag factories
+# ---------------------------------------------------------------------------
+
+
+def make_track_tag(
+    tag: str = "mood:chill",
+    track_id: UUID | None = None,
+    source: str = "manual",
+    user_id: str = "default",
+    tagged_at: datetime | None = None,
+    **kwargs,
+) -> TrackTag:
+    """Build a :class:`TrackTag` via ``TrackTag.create`` (with normalization)."""
+    return TrackTag.create(
+        user_id=user_id,
+        track_id=track_id or uuid7(),
+        raw_tag=tag,
+        tagged_at=tagged_at or datetime.now(UTC),
+        source=source,  # type: ignore[arg-type]
+        **kwargs,
+    )
+
+
+def make_tag_event(
+    tag: str = "mood:chill",
+    action: str = "add",
+    track_id: UUID | None = None,
+    source: str = "manual",
+    user_id: str = "default",
+    tagged_at: datetime | None = None,
+    **kwargs,
+) -> TagEvent:
+    """Build a :class:`TagEvent` with sensible defaults."""
+    return TagEvent(
+        track_id=track_id or uuid7(),
+        tag=tag,
+        action=action,  # type: ignore[arg-type]
+        source=source,  # type: ignore[arg-type]
+        user_id=user_id,
+        tagged_at=tagged_at or datetime.now(UTC),
         **kwargs,
     )

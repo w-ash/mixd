@@ -198,6 +198,25 @@ def make_mock_preference_repo(**overrides) -> AsyncMock:
     return repo
 
 
+def make_mock_tag_repo(**overrides) -> AsyncMock:
+    """Build an ``AsyncMock`` mimicking :class:`TagRepositoryProtocol`."""
+    repo = AsyncMock()
+    repo.get_tags.return_value = overrides.pop("get_tags", {})
+    repo.add_tags.side_effect = overrides.pop("add_tags", lambda tags, **kw: list(tags))
+    repo.remove_tags.side_effect = overrides.pop(
+        "remove_tags", lambda pairs, **kw: list(pairs)
+    )
+    repo.add_events.side_effect = overrides.pop(
+        "add_events", lambda events, **kw: list(events)
+    )
+    repo.list_tags.return_value = overrides.pop("list_tags", [])
+    repo.count_by_tag.return_value = overrides.pop("count_by_tag", {})
+    repo.list_by_tagged_at.return_value = overrides.pop("list_by_tagged_at", [])
+    for k, v in overrides.items():
+        setattr(repo, k, v)
+    return repo
+
+
 def make_mock_connector_playlist_repo(**overrides) -> AsyncMock:
     """Build an ``AsyncMock`` mimicking :class:`ConnectorPlaylistRepositoryProtocol`."""
     repo = AsyncMock()
@@ -341,6 +360,9 @@ def make_mock_uow(**repo_overrides) -> MagicMock:
     )
     uow.get_preference_repository = MagicMock(
         return_value=repo_overrides.get("preference_repo", make_mock_preference_repo())
+    )
+    uow.get_tag_repository = MagicMock(
+        return_value=repo_overrides.get("tag_repo", make_mock_tag_repo())
     )
 
     uow.get_stats_repository = MagicMock(

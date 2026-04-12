@@ -32,6 +32,7 @@ from src.domain.entities.preference import (
     TrackPreference,
 )
 from src.domain.entities.shared import JsonDict, JsonValue, SortKey
+from src.domain.entities.tag import TagEvent, TrackTag
 from src.domain.entities.workflow import (
     RunStatus,
     Workflow,
@@ -1361,6 +1362,82 @@ class PreferenceRepositoryProtocol(Protocol):
         ...
 
 
+class TagRepositoryProtocol(Protocol):
+    """Repository interface for track tag persistence.
+
+    Batch-first: single-item operations pass a one-element sequence. The
+    UNIQUE key is three-part ``(user_id, track_id, tag)`` (unlike
+    preferences' two-part key), because a track can carry many tags.
+    ``add_tags`` uses ON CONFLICT DO NOTHING at the DB layer and returns
+    only the rows actually inserted, so callers can build event rows for
+    real changes only.
+    """
+
+    def get_tags(
+        self, track_ids: Sequence[UUID], *, user_id: str
+    ) -> Awaitable[dict[UUID, list[TrackTag]]]:
+        """Get tags for a set of tracks. Returns {track_id: [tags]}."""
+        ...
+
+    def add_tags(
+        self, tags: Sequence[TrackTag], *, user_id: str
+    ) -> Awaitable[list[TrackTag]]:
+        """Bulk insert tags with ON CONFLICT DO NOTHING.
+
+        Returns only the tags actually inserted — duplicates are silently
+        skipped. Callers should write one ``TagEvent`` per returned row.
+        """
+        ...
+
+    def remove_tags(
+        self, pairs: Sequence[tuple[UUID, str]], *, user_id: str
+    ) -> Awaitable[list[tuple[UUID, str]]]:
+        """Remove (track_id, tag) pairs. Returns the pairs actually removed.
+
+        Missing rows are silently skipped (idempotent). Callers should
+        write one ``TagEvent`` per returned pair.
+        """
+        ...
+
+    def add_events(
+        self, events: Sequence[TagEvent], *, user_id: str
+    ) -> Awaitable[list[TagEvent]]:
+        """Append tag add/remove events. Events are never updated."""
+        ...
+
+    def list_tags(
+        self,
+        *,
+        user_id: str,
+        query: str | None = None,
+        limit: int = 100,
+    ) -> Awaitable[list[tuple[str, int]]]:
+        """List tags with track counts, sorted by count desc.
+
+        When ``query`` is set, results are filtered via the trigram index
+        (GIN on ``tag``) for autocomplete. Returns ``[(tag, count)]``.
+        Track-side filtering by tag (for the Library page) flows through
+        ``TrackRepositoryProtocol.list_tracks`` so pagination, sort, and
+        hydration happen in one query.
+        """
+        ...
+
+    def count_by_tag(self, *, user_id: str) -> Awaitable[dict[str, int]]:
+        """Count tag usage across all of a user's tracks."""
+        ...
+
+    def list_by_tagged_at(
+        self,
+        *,
+        user_id: str,
+        before: datetime | None = None,
+        after: datetime | None = None,
+        limit: int = 50,
+    ) -> Awaitable[list[TrackTag]]:
+        """List tags within a date range, ordered by tagged_at desc."""
+        ...
+
+
 class StatsRepositoryProtocol(Protocol):
     """Cross-table read-only aggregation queries."""
 
@@ -1469,6 +1546,10 @@ class UnitOfWorkProtocol(Protocol):
 
     def get_preference_repository(self) -> PreferenceRepositoryProtocol:
         """Get preference repository for track preference operations."""
+        ...
+
+    def get_tag_repository(self) -> TagRepositoryProtocol:
+        """Get tag repository for track tag operations."""
         ...
 
     def get_stats_repository(self) -> StatsRepositoryProtocol:
