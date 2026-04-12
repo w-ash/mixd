@@ -3,7 +3,7 @@
  * Do not edit manually.
  * Mixd
  * Personal music metadata hub
- * OpenAPI spec version: 0.6.12
+ * OpenAPI spec version: 0.7.1
  */
 import {
   useMutation,
@@ -31,6 +31,7 @@ import type {
   PaginatedResponseLibraryTrackSchema,
   PlaylistBriefSchema,
   RelinkMappingRequest,
+  SetPreferenceRequest,
   TrackDetailSchema,
   UnlinkMappingResponse
 } from '../model';
@@ -773,3 +774,183 @@ export function useGetTrackPlaylistsApiV1TracksTrackIdPlaylistsGet<TData = Await
 
 
 
+/**
+ * Set a preference on a track. Source is always 'manual'.
+ * @summary Set Track Preference
+ */
+export type setTrackPreferenceApiV1TracksTrackIdPreferencePutResponse200 = {
+  data: SetPreferenceRequest
+  status: 200
+}
+
+export type setTrackPreferenceApiV1TracksTrackIdPreferencePutResponse422 = {
+  data: HTTPValidationError
+  status: 422
+}
+
+export type setTrackPreferenceApiV1TracksTrackIdPreferencePutResponseSuccess = (setTrackPreferenceApiV1TracksTrackIdPreferencePutResponse200) & {
+  headers: Headers;
+};
+export type setTrackPreferenceApiV1TracksTrackIdPreferencePutResponseError = (setTrackPreferenceApiV1TracksTrackIdPreferencePutResponse422) & {
+  headers: Headers;
+};
+
+export type setTrackPreferenceApiV1TracksTrackIdPreferencePutResponse = (setTrackPreferenceApiV1TracksTrackIdPreferencePutResponseSuccess | setTrackPreferenceApiV1TracksTrackIdPreferencePutResponseError)
+
+export const getSetTrackPreferenceApiV1TracksTrackIdPreferencePutUrl = (trackId: string,) => {
+
+
+
+
+  return `/api/v1/tracks/${trackId}/preference`
+}
+
+export const setTrackPreferenceApiV1TracksTrackIdPreferencePut = async (trackId: string,
+    setPreferenceRequest: SetPreferenceRequest, options?: RequestInit): Promise<setTrackPreferenceApiV1TracksTrackIdPreferencePutResponse> => {
+
+  return customFetch<setTrackPreferenceApiV1TracksTrackIdPreferencePutResponse>(getSetTrackPreferenceApiV1TracksTrackIdPreferencePutUrl(trackId),
+  {
+    ...options,
+    method: 'PUT',
+    headers: { 'Content-Type': 'application/json', ...options?.headers },
+    body: JSON.stringify(
+      setPreferenceRequest,)
+  }
+);}
+
+
+
+
+export const getSetTrackPreferenceApiV1TracksTrackIdPreferencePutMutationOptions = <TError = HTTPValidationError,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof setTrackPreferenceApiV1TracksTrackIdPreferencePut>>, TError,{trackId: string;data: SetPreferenceRequest}, TContext>, request?: SecondParameter<typeof customFetch>}
+): UseMutationOptions<Awaited<ReturnType<typeof setTrackPreferenceApiV1TracksTrackIdPreferencePut>>, TError,{trackId: string;data: SetPreferenceRequest}, TContext> => {
+
+const mutationKey = ['setTrackPreferenceApiV1TracksTrackIdPreferencePut'];
+const {mutation: mutationOptions, request: requestOptions} = options ?
+      options.mutation && 'mutationKey' in options.mutation && options.mutation.mutationKey ?
+      options
+      : {...options, mutation: {...options.mutation, mutationKey}}
+      : {mutation: { mutationKey, }, request: undefined};
+
+
+
+
+      const mutationFn: MutationFunction<Awaited<ReturnType<typeof setTrackPreferenceApiV1TracksTrackIdPreferencePut>>, {trackId: string;data: SetPreferenceRequest}> = (props) => {
+          const {trackId,data} = props ?? {};
+
+          return  setTrackPreferenceApiV1TracksTrackIdPreferencePut(trackId,data,requestOptions)
+        }
+
+
+
+
+
+
+  return  { mutationFn, ...mutationOptions }}
+
+    export type SetTrackPreferenceApiV1TracksTrackIdPreferencePutMutationResult = NonNullable<Awaited<ReturnType<typeof setTrackPreferenceApiV1TracksTrackIdPreferencePut>>>
+    export type SetTrackPreferenceApiV1TracksTrackIdPreferencePutMutationBody = SetPreferenceRequest
+    export type SetTrackPreferenceApiV1TracksTrackIdPreferencePutMutationError = HTTPValidationError
+
+    /**
+ * @summary Set Track Preference
+ */
+export const useSetTrackPreferenceApiV1TracksTrackIdPreferencePut = <TError = HTTPValidationError,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof setTrackPreferenceApiV1TracksTrackIdPreferencePut>>, TError,{trackId: string;data: SetPreferenceRequest}, TContext>, request?: SecondParameter<typeof customFetch>}
+ , queryClient?: QueryClient): UseMutationResult<
+        Awaited<ReturnType<typeof setTrackPreferenceApiV1TracksTrackIdPreferencePut>>,
+        TError,
+        {trackId: string;data: SetPreferenceRequest},
+        TContext
+      > => {
+      return useMutation(getSetTrackPreferenceApiV1TracksTrackIdPreferencePutMutationOptions(options), queryClient);
+    }
+    /**
+ * Remove a preference from a track. Idempotent — 204 even if none existed.
+ * @summary Delete Track Preference
+ */
+export type deleteTrackPreferenceApiV1TracksTrackIdPreferenceDeleteResponse204 = {
+  data: void
+  status: 204
+}
+
+export type deleteTrackPreferenceApiV1TracksTrackIdPreferenceDeleteResponse422 = {
+  data: HTTPValidationError
+  status: 422
+}
+
+export type deleteTrackPreferenceApiV1TracksTrackIdPreferenceDeleteResponseSuccess = (deleteTrackPreferenceApiV1TracksTrackIdPreferenceDeleteResponse204) & {
+  headers: Headers;
+};
+export type deleteTrackPreferenceApiV1TracksTrackIdPreferenceDeleteResponseError = (deleteTrackPreferenceApiV1TracksTrackIdPreferenceDeleteResponse422) & {
+  headers: Headers;
+};
+
+export type deleteTrackPreferenceApiV1TracksTrackIdPreferenceDeleteResponse = (deleteTrackPreferenceApiV1TracksTrackIdPreferenceDeleteResponseSuccess | deleteTrackPreferenceApiV1TracksTrackIdPreferenceDeleteResponseError)
+
+export const getDeleteTrackPreferenceApiV1TracksTrackIdPreferenceDeleteUrl = (trackId: string,) => {
+
+
+
+
+  return `/api/v1/tracks/${trackId}/preference`
+}
+
+export const deleteTrackPreferenceApiV1TracksTrackIdPreferenceDelete = async (trackId: string, options?: RequestInit): Promise<deleteTrackPreferenceApiV1TracksTrackIdPreferenceDeleteResponse> => {
+
+  return customFetch<deleteTrackPreferenceApiV1TracksTrackIdPreferenceDeleteResponse>(getDeleteTrackPreferenceApiV1TracksTrackIdPreferenceDeleteUrl(trackId),
+  {
+    ...options,
+    method: 'DELETE'
+
+
+  }
+);}
+
+
+
+
+export const getDeleteTrackPreferenceApiV1TracksTrackIdPreferenceDeleteMutationOptions = <TError = HTTPValidationError,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof deleteTrackPreferenceApiV1TracksTrackIdPreferenceDelete>>, TError,{trackId: string}, TContext>, request?: SecondParameter<typeof customFetch>}
+): UseMutationOptions<Awaited<ReturnType<typeof deleteTrackPreferenceApiV1TracksTrackIdPreferenceDelete>>, TError,{trackId: string}, TContext> => {
+
+const mutationKey = ['deleteTrackPreferenceApiV1TracksTrackIdPreferenceDelete'];
+const {mutation: mutationOptions, request: requestOptions} = options ?
+      options.mutation && 'mutationKey' in options.mutation && options.mutation.mutationKey ?
+      options
+      : {...options, mutation: {...options.mutation, mutationKey}}
+      : {mutation: { mutationKey, }, request: undefined};
+
+
+
+
+      const mutationFn: MutationFunction<Awaited<ReturnType<typeof deleteTrackPreferenceApiV1TracksTrackIdPreferenceDelete>>, {trackId: string}> = (props) => {
+          const {trackId} = props ?? {};
+
+          return  deleteTrackPreferenceApiV1TracksTrackIdPreferenceDelete(trackId,requestOptions)
+        }
+
+
+
+
+
+
+  return  { mutationFn, ...mutationOptions }}
+
+    export type DeleteTrackPreferenceApiV1TracksTrackIdPreferenceDeleteMutationResult = NonNullable<Awaited<ReturnType<typeof deleteTrackPreferenceApiV1TracksTrackIdPreferenceDelete>>>
+
+    export type DeleteTrackPreferenceApiV1TracksTrackIdPreferenceDeleteMutationError = HTTPValidationError
+
+    /**
+ * @summary Delete Track Preference
+ */
+export const useDeleteTrackPreferenceApiV1TracksTrackIdPreferenceDelete = <TError = HTTPValidationError,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof deleteTrackPreferenceApiV1TracksTrackIdPreferenceDelete>>, TError,{trackId: string}, TContext>, request?: SecondParameter<typeof customFetch>}
+ , queryClient?: QueryClient): UseMutationResult<
+        Awaited<ReturnType<typeof deleteTrackPreferenceApiV1TracksTrackIdPreferenceDelete>>,
+        TError,
+        {trackId: string},
+        TContext
+      > => {
+      return useMutation(getDeleteTrackPreferenceApiV1TracksTrackIdPreferenceDeleteMutationOptions(options), queryClient);
+    }

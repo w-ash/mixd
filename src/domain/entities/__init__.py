@@ -24,8 +24,19 @@ from .playlist import (
 )
 from .playlist_link import PlaylistLink, SyncDirection, SyncStatus
 
+# Preference entities
+from .preference import (
+    PREFERENCE_ORDER,
+    PreferenceEvent,
+    PreferenceState,
+    TrackPreference,
+)
+
 # Shared utilities
 from .shared import MetricValue, ensure_utc, utc_now_factory
+
+# Sourced metadata (shared by preferences, tags, playlist metadata)
+from .sourced_metadata import SOURCE_PRIORITY, MetadataSource, should_override
 
 # Summary metrics
 from .summary_metrics import SummaryMetric, SummaryMetricCollection
@@ -49,6 +60,8 @@ from .workflow import WorkflowDef, WorkflowTaskDef
 
 __all__ = [
     "DB_PSEUDO_CONNECTOR",
+    "PREFERENCE_ORDER",
+    "SOURCE_PRIORITY",
     "Artist",
     "CheckStatus",
     "ConnectorPlaylist",
@@ -59,12 +72,15 @@ __all__ = [
     "IntegrityCheckResult",
     "IntegrityReport",
     "MetadataKey",
+    "MetadataSource",
     "MetricValue",
     "OperationResult",
     "PlayRecord",
     "Playlist",
     "PlaylistEntry",
     "PlaylistLink",
+    "PreferenceEvent",
+    "PreferenceState",
     "SummaryMetric",
     "SummaryMetricCollection",
     "SyncCheckpoint",
@@ -78,9 +94,11 @@ __all__ = [
     "TrackMapping",
     "TrackMetric",
     "TrackPlay",
+    "TrackPreference",
     "WorkflowDef",
     "WorkflowTaskDef",
     "create_lastfm_play_record",
     "ensure_utc",
+    "should_override",
     "utc_now_factory",
 ]

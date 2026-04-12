@@ -16,6 +16,7 @@ const mockStats = {
   liked_by_connector: { spotify: 300, lastfm: 150 },
   plays_by_connector: { lastfm: 45000, spotify: 11789 },
   playlists_by_connector: { spotify: 3 },
+  preference_counts: { star: 42, yah: 88, hmm: 19, nah: 23 },
 };
 
 const mockMatchingHealth: MatchMethodHealthSchema = {
@@ -135,6 +136,7 @@ describe("Dashboard", () => {
             liked_by_connector: {},
             plays_by_connector: {},
             playlists_by_connector: {},
+            preference_counts: {},
           },
           { status: 200 },
         );

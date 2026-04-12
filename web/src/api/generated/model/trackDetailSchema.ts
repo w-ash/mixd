@@ -3,12 +3,13 @@
  * Do not edit manually.
  * Mixd
  * Personal music metadata hub
- * OpenAPI spec version: 0.6.12
+ * OpenAPI spec version: 0.7.1
  */
 import type { ArtistSchema } from './artistSchema';
 import type { ConnectorMappingSchema } from './connectorMappingSchema';
 import type { PlaylistBriefSchema } from './playlistBriefSchema';
 import type { PlaySummarySchema } from './playSummarySchema';
+import type { PreferenceState } from './preferenceState';
 import type { TrackDetailSchemaLikeStatus } from './trackDetailSchemaLikeStatus';
 
 /**
@@ -26,4 +27,5 @@ export interface TrackDetailSchema {
   like_status: TrackDetailSchemaLikeStatus;
   play_summary: PlaySummarySchema;
   playlists: PlaylistBriefSchema[];
+  preference?: PreferenceState | null;
 }

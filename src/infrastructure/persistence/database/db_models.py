@@ -174,6 +174,10 @@ class DBTrack(BaseEntity):
         back_populates="resolved_track",
         passive_deletes=True,
     )
+    preferences: Mapped[list[DBTrackPreference]] = relationship(
+        back_populates="track",
+        cascade="all, delete-orphan",
+    )
 
     # NOTE: pg_trgm GIN indexes (title, album, artists_text) and the JSONB GIN
     # index on artists are created only via Alembic migration 002_pg_opt — they
@@ -957,3 +961,65 @@ class DBSyncCheckpoint(BaseEntity):
     remote_total: Mapped[int | None] = mapped_column(
         nullable=True
     )  # total items reported by remote service
+
+
+class DBTrackPreference(BaseEntity):
+    """User preference state for a track (hmm, nah, yah, star).
+
+    One preference per user+track pair. Source tracks where the opinion came from
+    (manual, service_import, playlist_mapping). preferred_at preserves the original
+    timestamp from the source service.
+    """
+
+    __tablename__: str = "track_preferences"
+    __table_args__: tuple[SchemaItem, ...] = (
+        UniqueConstraint("user_id", "track_id"),
+        Index("ix_track_preferences_user_id_state", "user_id", "state"),
+        Index("ix_track_preferences_user_id_preferred_at", "user_id", "preferred_at"),
+    )
+
+    user_id: Mapped[str] = mapped_column(
+        String(), nullable=False, default="default", server_default="default"
+    )
+    track_id: Mapped[UuidType] = mapped_column(
+        PgUuidCol(as_uuid=True), ForeignKey("tracks.id", ondelete="CASCADE")
+    )
+    state: Mapped[str] = mapped_column(String(16))  # hmm, nah, yah, star
+    source: Mapped[str] = mapped_column(
+        String(32)
+    )  # manual, service_import, playlist_mapping
+    preferred_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False
+    )
+
+    # Relationships
+    track: Mapped[DBTrack] = relationship(
+        back_populates="preferences",
+        passive_deletes=True,
+    )
+
+
+class DBTrackPreferenceEvent(BaseEntity):
+    """Append-only log of preference changes.
+
+    Events are never updated or deleted. Captures the full timeline of
+    preference changes so "when did I first yah this?" is always answerable.
+    """
+
+    __tablename__: str = "track_preference_events"
+    __table_args__: tuple[SchemaItem, ...] = (
+        Index("ix_track_preference_events_user_id_track_id", "user_id", "track_id"),
+    )
+
+    user_id: Mapped[str] = mapped_column(
+        String(), nullable=False, default="default", server_default="default"
+    )
+    track_id: Mapped[UuidType] = mapped_column(
+        PgUuidCol(as_uuid=True), ForeignKey("tracks.id", ondelete="CASCADE")
+    )
+    old_state: Mapped[str | None] = mapped_column(String(16))
+    new_state: Mapped[str | None] = mapped_column(String(16))
+    source: Mapped[str] = mapped_column(String(32))
+    preferred_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False
+    )

@@ -179,6 +179,25 @@ def make_mock_match_review_repo(**overrides) -> AsyncMock:
     return repo
 
 
+def make_mock_preference_repo(**overrides) -> AsyncMock:
+    """Build an ``AsyncMock`` mimicking :class:`PreferenceRepositoryProtocol`."""
+    repo = AsyncMock()
+    repo.get_preferences.return_value = overrides.pop("get_preferences", {})
+    repo.set_preferences.side_effect = overrides.pop(
+        "set_preferences", lambda prefs, **kw: list(prefs)
+    )
+    repo.remove_preferences.return_value = overrides.pop("remove_preferences", 0)
+    repo.add_events.side_effect = overrides.pop(
+        "add_events", lambda events, **kw: list(events)
+    )
+    repo.list_by_state.return_value = overrides.pop("list_by_state", [])
+    repo.count_by_state.return_value = overrides.pop("count_by_state", {})
+    repo.list_by_preferred_at.return_value = overrides.pop("list_by_preferred_at", [])
+    for k, v in overrides.items():
+        setattr(repo, k, v)
+    return repo
+
+
 def make_mock_connector_playlist_repo(**overrides) -> AsyncMock:
     """Build an ``AsyncMock`` mimicking :class:`ConnectorPlaylistRepositoryProtocol`."""
     repo = AsyncMock()
@@ -319,6 +338,9 @@ def make_mock_uow(**repo_overrides) -> MagicMock:
         return_value=repo_overrides.get(
             "match_review_repo", make_mock_match_review_repo()
         )
+    )
+    uow.get_preference_repository = MagicMock(
+        return_value=repo_overrides.get("preference_repo", make_mock_preference_repo())
     )
 
     uow.get_stats_repository = MagicMock(

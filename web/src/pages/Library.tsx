@@ -6,6 +6,7 @@ import { useListTracksApiV1TracksGet } from "#/api/generated/tracks/tracks";
 import { PageHeader } from "#/components/layout/PageHeader";
 import { ConnectorIcon } from "#/components/shared/ConnectorIcon";
 import { EmptyState } from "#/components/shared/EmptyState";
+import { PreferenceBadge } from "#/components/shared/PreferenceToggle";
 import { QueryErrorState } from "#/components/shared/QueryErrorState";
 import { TablePagination } from "#/components/shared/TablePagination";
 import { Button } from "#/components/ui/button";
@@ -132,6 +133,7 @@ export function Library() {
   // URL-driven filter state
   const likedParam = searchParams.get("liked");
   const connectorParam = searchParams.get("connector");
+  const preferenceParam = searchParams.get("preference");
   const sortParam = searchParams.get("sort") ?? "title_asc";
   const { field: sortField, dir: sortDir } = parseSortParam(sortParam);
 
@@ -158,6 +160,7 @@ export function Library() {
         q: querySearch,
         liked: likedFilter,
         connector: connectorParam ?? undefined,
+        preference: preferenceParam ?? undefined,
         sort: sortParam,
         limit: PAGE_SIZE,
         offset: queryOffset,
@@ -232,7 +235,8 @@ export function Library() {
     );
   };
 
-  const hasFilters = querySearch || likedParam || connectorParam;
+  const hasFilters =
+    querySearch || likedParam || connectorParam || preferenceParam;
 
   return (
     <div>
@@ -299,6 +303,24 @@ export function Library() {
                 {c.name.charAt(0).toUpperCase() + c.name.slice(1)}
               </SelectItem>
             ))}
+          </SelectContent>
+        </Select>
+
+        <Select
+          value={preferenceParam ?? "all"}
+          onValueChange={(value) =>
+            setFilter("preference", value === "all" ? null : value)
+          }
+        >
+          <SelectTrigger aria-label="Filter by preference">
+            <SelectValue />
+          </SelectTrigger>
+          <SelectContent>
+            <SelectItem value="all">All preferences</SelectItem>
+            <SelectItem value="star">Star</SelectItem>
+            <SelectItem value="yah">Yah</SelectItem>
+            <SelectItem value="hmm">Hmm</SelectItem>
+            <SelectItem value="nah">Nah</SelectItem>
           </SelectContent>
         </Select>
       </div>
@@ -371,6 +393,7 @@ export function Library() {
                 >
                   Duration
                 </SortableHead>
+                <TableHead className="w-10 text-center">Pref</TableHead>
                 <TableHead className="w-24 text-center">Sources</TableHead>
               </TableRow>
             </TableHeader>
@@ -418,6 +441,12 @@ export function Library() {
                   {/* Duration */}
                   <TableCell className="text-right tabular-nums text-text-muted text-sm">
                     {formatDuration(track.duration_ms)}
+                  </TableCell>
+                  {/* Preference */}
+                  <TableCell className="w-10 text-center">
+                    {track.preference && (
+                      <PreferenceBadge state={track.preference} />
+                    )}
                   </TableCell>
                   {/* Sources */}
                   <TableCell className="w-24">

@@ -35,6 +35,7 @@ class TestGetDashboardStatsUseCase:
                 liked_by_connector={"spotify": 42, "lastfm": 30},
                 plays_by_connector={"spotify": 3000, "lastfm": 1200},
                 playlists_by_connector={"spotify": 5, "lastfm": 2},
+                preference_counts={"star": 10, "yah": 20, "hmm": 5, "nah": 3},
             )
         )
 
@@ -63,6 +64,7 @@ class TestGetDashboardStatsUseCase:
                 liked_by_connector={},
                 plays_by_connector={},
                 playlists_by_connector={},
+                preference_counts={},
             )
         )
 
@@ -89,6 +91,7 @@ class TestGetDashboardStatsUseCase:
                 liked_by_connector={"spotify": 5},
                 plays_by_connector={"spotify": 80},
                 playlists_by_connector={"spotify": 1},
+                preference_counts={"star": 1},
             )
         )
 

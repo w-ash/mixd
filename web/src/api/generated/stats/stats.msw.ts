@@ -3,7 +3,7 @@
  * Do not edit manually.
  * Mixd
  * Personal music metadata hub
- * OpenAPI spec version: 0.6.12
+ * OpenAPI spec version: 0.7.1
  */
 import {
   faker
@@ -31,6 +31,8 @@ export const getGetDashboardStatsApiV1StatsDashboardGetResponseMock = (overrideR
       }, plays_by_connector: {
         [faker.string.alphanumeric(5)]: faker.number.int()
       }, playlists_by_connector: {
+        [faker.string.alphanumeric(5)]: faker.number.int()
+      }, preference_counts: {
         [faker.string.alphanumeric(5)]: faker.number.int()
       }, ...overrideResponse})
 

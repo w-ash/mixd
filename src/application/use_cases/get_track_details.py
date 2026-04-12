@@ -12,6 +12,7 @@ from attrs import Factory, define
 
 from src.config.constants import MappingOrigin
 from src.domain.entities import Playlist, Track, TrackLike
+from src.domain.entities.preference import PreferenceState
 from src.domain.repositories.interfaces import (
     FullMappingInfo,
     PlayAggregationResult,
@@ -75,6 +76,7 @@ class TrackDetailsResult:
     like_status: dict[str, LikeInfo]
     play_summary: PlaySummary
     playlists: list[PlaylistSummary]
+    preference: PreferenceState | None = None
 
 
 def _build_connector_mappings(
@@ -163,10 +165,16 @@ class GetTrackDetailsUseCase:
                 track_id, user_id=command.user_id
             )
 
+            prefs = await uow.get_preference_repository().get_preferences(
+                [track_id], user_id=command.user_id
+            )
+            pref = prefs.get(track_id)
+
             return TrackDetailsResult(
                 track=track,
                 connector_mappings=_build_connector_mappings(full_mappings),
                 like_status=_build_like_status(likes),
                 play_summary=_build_play_summary(play_agg, track_id),
                 playlists=_build_playlist_summaries(playlists),
+                preference=pref.state if pref else None,
             )

@@ -8,14 +8,17 @@ import { ApiError } from "#/api/client";
 import type { ConnectorMappingSchema } from "#/api/generated/model";
 import {
   getGetTrackDetailApiV1TracksTrackIdGetQueryKey,
+  useDeleteTrackPreferenceApiV1TracksTrackIdPreferenceDelete,
   useGetTrackDetailApiV1TracksTrackIdGet,
   useSetPrimaryMappingApiV1TracksTrackIdMappingsMappingIdPrimaryPatch,
+  useSetTrackPreferenceApiV1TracksTrackIdPreferencePut,
 } from "#/api/generated/tracks/tracks";
 import { PageHeader } from "#/components/layout/PageHeader";
 import { BackLink } from "#/components/shared/BackLink";
 import { ConnectorListItem } from "#/components/shared/ConnectorListItem";
 import { EmptyState } from "#/components/shared/EmptyState";
 import { MergeTrackDialog } from "#/components/shared/MergeTrackDialog";
+import { PreferenceToggle } from "#/components/shared/PreferenceToggle";
 import { QueryErrorState } from "#/components/shared/QueryErrorState";
 import { RelinkMappingDialog } from "#/components/shared/RelinkMappingDialog";
 import {
@@ -329,11 +332,44 @@ function MappingList({
 export function TrackDetail() {
   const { id } = useParams<{ id: string }>();
   const trackId = id ?? "";
+  const queryClient = useQueryClient();
 
   const { data, isLoading, isError, error } =
     useGetTrackDetailApiV1TracksTrackIdGet(trackId, {
       query: { staleTime: 2 * 60_000 },
     });
+
+  const queryKey = getGetTrackDetailApiV1TracksTrackIdGetQueryKey(trackId);
+
+  const setPref = useSetTrackPreferenceApiV1TracksTrackIdPreferencePut({
+    mutation: {
+      onSuccess: () => queryClient.invalidateQueries({ queryKey }),
+      onError: (err: Error) =>
+        toast.error("Failed to set preference", { description: err.message }),
+    },
+  });
+
+  const deletePref = useDeleteTrackPreferenceApiV1TracksTrackIdPreferenceDelete(
+    {
+      mutation: {
+        onSuccess: () => queryClient.invalidateQueries({ queryKey }),
+        onError: (err: Error) =>
+          toast.error("Failed to clear preference", {
+            description: err.message,
+          }),
+      },
+    },
+  );
+
+  const handlePreferenceChange = (
+    state: "hmm" | "nah" | "yah" | "star" | null,
+  ) => {
+    if (state === null) {
+      deletePref.mutate({ trackId });
+    } else {
+      setPref.mutate({ trackId, data: { state } });
+    }
+  };
 
   if (isLoading) return <DetailSkeleton />;
 
@@ -382,6 +418,18 @@ export function TrackDetail() {
           </Field>
         )}
       </dl>
+
+      {/* Preference */}
+      <div className="mb-6 flex items-center gap-3">
+        <span className="text-xs font-medium uppercase tracking-wider text-text-faint">
+          Preference
+        </span>
+        <PreferenceToggle
+          value={track.preference ?? null}
+          onChange={handlePreferenceChange}
+          disabled={setPref.isPending || deletePref.isPending}
+        />
+      </div>
 
       <div className="grid gap-4 md:grid-cols-2">
         {/* Connector Mappings with Provenance */}

@@ -3,7 +3,7 @@
  * Do not edit manually.
  * Mixd
  * Personal music metadata hub
- * OpenAPI spec version: 0.6.12
+ * OpenAPI spec version: 0.7.1
  */
 
 export * from './artistSchema';
@@ -22,6 +22,7 @@ export * from './dashboardStatsSchema';
 export * from './dashboardStatsSchemaLikedByConnector';
 export * from './dashboardStatsSchemaPlaylistsByConnector';
 export * from './dashboardStatsSchemaPlaysByConnector';
+export * from './dashboardStatsSchemaPreferenceCounts';
 export * from './dashboardStatsSchemaTracksByConnector';
 export * from './exportLastfmLikesRequest';
 export * from './fieldType';
@@ -68,12 +69,14 @@ export * from './playlistEntrySchema';
 export * from './playlistLinkSchema';
 export * from './playlistSummarySchema';
 export * from './playSummarySchema';
+export * from './preferenceState';
 export * from './previewPlaylistSyncApiV1PlaylistsPlaylistIdLinksLinkIdSyncPreviewGetParams';
 export * from './previewStartedResponse';
 export * from './relinkMappingRequest';
 export * from './resolveReviewRequest';
 export * from './resolveReviewRequestAction';
 export * from './resolveReviewResponse';
+export * from './setPreferenceRequest';
 export * from './spotifyCallbackAuthSpotifyCallbackGetParams';
 export * from './syncLinkRequest';
 export * from './syncPreviewResponse';

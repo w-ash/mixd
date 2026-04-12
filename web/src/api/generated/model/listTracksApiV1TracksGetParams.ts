@@ -3,7 +3,7 @@
  * Do not edit manually.
  * Mixd
  * Personal music metadata hub
- * OpenAPI spec version: 0.6.12
+ * OpenAPI spec version: 0.7.1
  */
 
 export type ListTracksApiV1TracksGetParams = {
@@ -19,6 +19,10 @@ liked?: boolean | null;
  * Filter by connector
  */
 connector?: string | null;
+/**
+ * Filter by preference state
+ */
+preference?: string | null;
 /**
  * Sort field and direction
  * @pattern ^(title|artist|added|duration)_(asc|desc)$

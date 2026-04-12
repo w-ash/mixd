@@ -6,6 +6,7 @@ import {
   Link2,
   ListMusic,
   Music,
+  Sparkles,
   Upload,
 } from "lucide-react";
 import type { ReactNode } from "react";
@@ -22,6 +23,7 @@ import {
 import { STALE } from "#/api/query-client";
 import { PageHeader } from "#/components/layout/PageHeader";
 import { ConnectorIcon } from "#/components/shared/ConnectorIcon";
+import { PreferenceBadge } from "#/components/shared/PreferenceToggle";
 import { QueryErrorState } from "#/components/shared/QueryErrorState";
 import { SectionHeader } from "#/components/shared/SectionHeader";
 import {
@@ -116,6 +118,56 @@ function StatCard({
   );
 }
 
+/* ── Preference stat card ────────────────────────────────── */
+
+const PREFERENCE_ORDER = ["star", "yah", "hmm", "nah"] as const;
+
+function PreferenceStatCard({
+  counts,
+  delay,
+}: {
+  counts: Record<string, number>;
+  delay?: string;
+}) {
+  const total = Object.values(counts).reduce((a, b) => a + b, 0);
+  const hasAny = total > 0;
+
+  return (
+    <article
+      className="animate-fade-up rounded-xl border border-border-muted bg-surface p-5 space-y-1"
+      style={delay ? { animationDelay: delay } : undefined}
+    >
+      <span className="text-text-faint">
+        <Sparkles className="size-5" />
+      </span>
+      <p className="font-mono text-3xl font-semibold tracking-tight text-text">
+        {formatCount(total)}
+      </p>
+      <p className="font-display text-xs font-medium uppercase tracking-wider text-text-muted">
+        Rated Tracks
+      </p>
+
+      {hasAny && (
+        <div className="flex flex-wrap gap-x-4 gap-y-1 pt-2 border-t border-border-muted mt-3">
+          {PREFERENCE_ORDER.map((state) => {
+            const count = counts[state] ?? 0;
+            if (count === 0) return null;
+            return (
+              <span
+                key={state}
+                className="flex items-center gap-1.5 text-xs text-text-faint"
+              >
+                <PreferenceBadge state={state} />
+                <span className="font-mono">{formatCount(count)}</span>
+              </span>
+            );
+          })}
+        </div>
+      )}
+    </article>
+  );
+}
+
 /* ── Stats grid ──────────────────────────────────────────── */
 
 function StatsGrid({ stats }: { stats: DashboardStatsSchema }) {
@@ -133,7 +185,7 @@ function StatsGrid({ stats }: { stats: DashboardStatsSchema }) {
     linkedCount > 0 ? `Playlists \u00b7 ${linkedCount} linked` : "Playlists";
 
   return (
-    <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
+    <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4 xl:grid-cols-5">
       <StatCard
         icon={<Music className="size-5" />}
         label={tracksLabel}
@@ -162,6 +214,7 @@ function StatsGrid({ stats }: { stats: DashboardStatsSchema }) {
         breakdown={stats.playlists_by_connector}
         delay="150ms"
       />
+      <PreferenceStatCard counts={stats.preference_counts} delay="200ms" />
     </div>
   );
 }

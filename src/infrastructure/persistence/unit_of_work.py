@@ -21,6 +21,7 @@ from src.domain.repositories.interfaces import (
     PlaylistLinkRepositoryProtocol,
     PlaylistRepositoryProtocol,
     PlaysRepositoryProtocol,
+    PreferenceRepositoryProtocol,
     ServiceConnectorProvider,
     StatsRepositoryProtocol,
     TrackIdentityServiceProtocol,
@@ -234,6 +235,14 @@ class DatabaseUnitOfWork:
         )
 
         return MatchReviewRepository(self._session)
+
+    def get_preference_repository(self) -> PreferenceRepositoryProtocol:
+        """Get preference repository for track preference operations."""
+        from src.infrastructure.persistence.repositories.track.preferences import (
+            TrackPreferenceRepository,
+        )
+
+        return TrackPreferenceRepository(self._session)
 
     def get_stats_repository(self) -> StatsRepositoryProtocol:
         """Get cross-table stats repository for dashboard aggregation."""

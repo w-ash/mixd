@@ -19,6 +19,7 @@ from src.application.use_cases.get_track_details import (
 )
 from src.domain.entities import Playlist
 from src.domain.entities.playlist import DB_PSEUDO_CONNECTOR
+from src.domain.entities.preference import PreferenceState
 from src.domain.entities.track import Track
 from src.interface.api.schemas.playlists import ArtistSchema, to_artist_schema
 
@@ -36,6 +37,13 @@ class LibraryTrackSchema(BaseModel):
     isrc: str | None = None
     connector_names: list[str]
     is_liked: bool
+    preference: PreferenceState | None = None
+
+
+class SetPreferenceRequest(BaseModel):
+    """Request body for PUT /tracks/{id}/preference."""
+
+    state: PreferenceState
 
 
 class ConnectorMappingSchema(BaseModel):
@@ -99,6 +107,7 @@ class TrackDetailSchema(BaseModel):
     like_status: dict[str, LikeStatusSchema]
     play_summary: PlaySummarySchema
     playlists: list[PlaylistBriefSchema]
+    preference: PreferenceState | None = None
 
 
 class MergeTrackRequest(BaseModel):
@@ -128,12 +137,18 @@ def _get_connector_names(track: Track) -> list[str]:
     return [c for c in track.connector_track_identifiers if c != DB_PSEUDO_CONNECTOR]
 
 
-def to_library_track(track: Track, *, liked_track_ids: set[UUID]) -> LibraryTrackSchema:
+def to_library_track(
+    track: Track,
+    *,
+    liked_track_ids: set[UUID],
+    preference_map: dict[UUID, PreferenceState] | None = None,
+) -> LibraryTrackSchema:
     """Convert domain Track to library list schema.
 
     Args:
         track: Domain Track entity.
         liked_track_ids: Set of track IDs liked on any service (from track_likes table).
+        preference_map: Optional {track_id: state} for preference column.
     """
     return LibraryTrackSchema(
         id=track.id,
@@ -144,6 +159,7 @@ def to_library_track(track: Track, *, liked_track_ids: set[UUID]) -> LibraryTrac
         isrc=track.isrc,
         connector_names=_get_connector_names(track),
         is_liked=track.id in liked_track_ids,
+        preference=preference_map.get(track.id) if preference_map else None,
     )
 
 
@@ -206,4 +222,5 @@ def to_track_detail(result: TrackDetailsResult) -> TrackDetailSchema:
         },
         play_summary=_to_play_summary_schema(result.play_summary),
         playlists=[_to_playlist_brief_schema(p) for p in result.playlists],
+        preference=result.preference,
     )

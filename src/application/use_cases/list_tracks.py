@@ -21,6 +21,7 @@ from src.application.pagination import (
 from src.config import get_logger
 from src.config.constants import BusinessLimits
 from src.domain.entities import Track
+from src.domain.entities.preference import PreferenceState
 from src.domain.repositories.interfaces import TrackListingPage, UnitOfWorkProtocol
 
 logger = get_logger(__name__)
@@ -34,6 +35,7 @@ class ListTracksCommand:
     query: str | None = None
     liked: bool | None = None
     connector: str | None = None
+    preference: str | None = None
     sort_by: TrackSortBy = "title_asc"
     limit: int = field(default=BusinessLimits.DEFAULT_PAGE_SIZE)
     offset: int = 0
@@ -49,6 +51,7 @@ class ListTracksResult:
     limit: int
     offset: int
     liked_track_ids: set[UUID]
+    preference_map: dict[UUID, PreferenceState]
     next_cursor: str | None = None
 
 
@@ -94,6 +97,7 @@ class ListTracksUseCase:
                 query=command.query,
                 liked=command.liked,
                 connector=command.connector,
+                preference=command.preference,
                 sort_by=command.sort_by,
                 limit=command.limit,
                 offset=command.offset,
@@ -114,11 +118,21 @@ class ListTracksUseCase:
                     )
                 )
 
+            # Batch-fetch preferences for this page of tracks
+            track_ids = [t.id for t in page["tracks"]]
+            prefs = await uow.get_preference_repository().get_preferences(
+                track_ids, user_id=command.user_id
+            )
+            preference_map: dict[UUID, PreferenceState] = {
+                tid: p.state for tid, p in prefs.items()
+            }
+
             return ListTracksResult(
                 tracks=page["tracks"],
                 total=page["total"],
                 limit=command.limit,
                 offset=command.offset,
                 liked_track_ids=page["liked_track_ids"],
+                preference_map=preference_map,
                 next_cursor=next_cursor,
             )

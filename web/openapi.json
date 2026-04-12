@@ -3,7 +3,7 @@
   "info": {
     "title": "Mixd",
     "description": "Personal music metadata hub",
-    "version": "0.6.12"
+    "version": "0.7.1"
   },
   "paths": {
     "/api/v1/connectors/spotify/auth-url": {
@@ -1052,6 +1052,24 @@
             "description": "Filter by connector"
           },
           {
+            "name": "preference",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "Filter by preference state",
+              "title": "Preference"
+            },
+            "description": "Filter by preference state"
+          },
+          {
             "name": "sort",
             "in": "query",
             "required": false,
@@ -1432,6 +1450,95 @@
                 }
               }
             }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/tracks/{track_id}/preference": {
+      "put": {
+        "tags": [
+          "tracks"
+        ],
+        "summary": "Set Track Preference",
+        "description": "Set a preference on a track. Source is always 'manual'.",
+        "operationId": "set_track_preference_api_v1_tracks__track_id__preference_put",
+        "parameters": [
+          {
+            "name": "track_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid",
+              "title": "Track Id"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/SetPreferenceRequest"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SetPreferenceRequest"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      },
+      "delete": {
+        "tags": [
+          "tracks"
+        ],
+        "summary": "Delete Track Preference",
+        "description": "Remove a preference from a track. Idempotent \u2014 204 even if none existed.",
+        "operationId": "delete_track_preference_api_v1_tracks__track_id__preference_delete",
+        "parameters": [
+          {
+            "name": "track_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid",
+              "title": "Track Id"
+            }
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": "Successful Response"
           },
           "422": {
             "description": "Validation Error",
@@ -3128,6 +3235,13 @@
             },
             "type": "object",
             "title": "Playlists By Connector"
+          },
+          "preference_counts": {
+            "additionalProperties": {
+              "type": "integer"
+            },
+            "type": "object",
+            "title": "Preference Counts"
           }
         },
         "type": "object",
@@ -3139,7 +3253,8 @@
           "tracks_by_connector",
           "liked_by_connector",
           "plays_by_connector",
-          "playlists_by_connector"
+          "playlists_by_connector",
+          "preference_counts"
         ],
         "title": "DashboardStatsSchema",
         "description": "Dashboard aggregate statistics response."
@@ -3519,6 +3634,16 @@
           "is_liked": {
             "type": "boolean",
             "title": "Is Liked"
+          },
+          "preference": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/PreferenceState"
+              },
+              {
+                "type": "null"
+              }
+            ]
           }
         },
         "type": "object",
@@ -4421,6 +4546,15 @@
         "title": "PlaylistSummarySchema",
         "description": "Compact playlist representation for list views.\n\nBreaking change from v0.4.3: connector_links changed from list[str]\nto list[ConnectorLinkBriefSchema] with sync direction and status."
       },
+      "PreferenceState": {
+        "type": "string",
+        "enum": [
+          "hmm",
+          "nah",
+          "yah",
+          "star"
+        ]
+      },
       "PreviewStartedResponse": {
         "properties": {
           "operation_id": {
@@ -4484,6 +4618,19 @@
         ],
         "title": "ResolveReviewResponse",
         "description": "Response after resolving a review."
+      },
+      "SetPreferenceRequest": {
+        "properties": {
+          "state": {
+            "$ref": "#/components/schemas/PreferenceState"
+          }
+        },
+        "type": "object",
+        "required": [
+          "state"
+        ],
+        "title": "SetPreferenceRequest",
+        "description": "Request body for PUT /tracks/{id}/preference."
       },
       "SyncLinkRequest": {
         "properties": {
@@ -4668,6 +4815,16 @@
             },
             "type": "array",
             "title": "Playlists"
+          },
+          "preference": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/PreferenceState"
+              },
+              {
+                "type": "null"
+              }
+            ]
           }
         },
         "type": "object",

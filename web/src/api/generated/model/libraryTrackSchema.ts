@@ -3,9 +3,10 @@
  * Do not edit manually.
  * Mixd
  * Personal music metadata hub
- * OpenAPI spec version: 0.6.12
+ * OpenAPI spec version: 0.7.1
  */
 import type { ArtistSchema } from './artistSchema';
+import type { PreferenceState } from './preferenceState';
 
 /**
  * Track in library list views — lightweight with summary fields.
@@ -19,4 +20,5 @@ export interface LibraryTrackSchema {
   isrc?: string | null;
   connector_names: string[];
   is_liked: boolean;
+  preference?: PreferenceState | null;
 }

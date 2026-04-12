@@ -376,7 +376,7 @@ class ImportSpotifyLikesUseCase:
                     operation_id,
                     current=imported + already_synced,
                     total=spotify_total,
-                    message=f"Processed batch {batches}: {imported} imported, {already_synced} already synced",
+                    message=f"Fetching batch {batches + 1}...",
                 )
             )
 

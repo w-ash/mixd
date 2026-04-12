@@ -26,6 +26,11 @@ from src.domain.entities import (
 )
 from src.domain.entities.match_review import MatchReview
 from src.domain.entities.playlist_link import SyncDirection, SyncStatus
+from src.domain.entities.preference import (
+    PreferenceEvent,
+    PreferenceState,
+    TrackPreference,
+)
 from src.domain.entities.shared import JsonDict, JsonValue, SortKey
 from src.domain.entities.workflow import (
     RunStatus,
@@ -142,6 +147,7 @@ class TrackRepositoryProtocol(Protocol):
         query: str | None = None,
         liked: bool | None = None,
         connector: str | None = None,
+        preference: str | None = None,
         sort_by: str = "title_asc",
         limit: int = 50,
         offset: int = 0,
@@ -1295,6 +1301,64 @@ class DashboardAggregates(TypedDict):
     liked_by_connector: dict[str, int]
     plays_by_connector: dict[str, int]
     playlists_by_connector: dict[str, int]
+    preference_counts: dict[PreferenceState, int]
+
+
+class PreferenceRepositoryProtocol(Protocol):
+    """Repository interface for track preference persistence.
+
+    Batch-first: single-item operations are the degenerate case of batches.
+    Callers with one track pass a one-element sequence.
+    """
+
+    def get_preferences(
+        self, track_ids: Sequence[UUID], *, user_id: str
+    ) -> Awaitable[dict[UUID, TrackPreference]]:
+        """Get preferences for a set of tracks. Returns {track_id: preference}."""
+        ...
+
+    def set_preferences(
+        self, preferences: Sequence[TrackPreference], *, user_id: str
+    ) -> Awaitable[list[TrackPreference]]:
+        """Upsert preferences. UNIQUE on (user_id, track_id)."""
+        ...
+
+    def remove_preferences(
+        self, track_ids: Sequence[UUID], *, user_id: str
+    ) -> Awaitable[int]:
+        """Remove preferences for a set of tracks. Returns the count removed."""
+        ...
+
+    def add_events(
+        self, events: Sequence[PreferenceEvent], *, user_id: str
+    ) -> Awaitable[list[PreferenceEvent]]:
+        """Append preference change events. Events are never updated."""
+        ...
+
+    def list_by_state(
+        self,
+        state: PreferenceState,
+        *,
+        user_id: str,
+        limit: int = 50,
+    ) -> Awaitable[list[TrackPreference]]:
+        """List preferences filtered by state, ordered by preferred_at desc."""
+        ...
+
+    def count_by_state(self, *, user_id: str) -> Awaitable[dict[PreferenceState, int]]:
+        """Count preferences grouped by state."""
+        ...
+
+    def list_by_preferred_at(
+        self,
+        *,
+        user_id: str,
+        before: datetime | None = None,
+        after: datetime | None = None,
+        limit: int = 50,
+    ) -> Awaitable[list[TrackPreference]]:
+        """List preferences within a date range, ordered by preferred_at desc."""
+        ...
 
 
 class StatsRepositoryProtocol(Protocol):
@@ -1401,6 +1465,10 @@ class UnitOfWorkProtocol(Protocol):
 
     def get_match_review_repository(self) -> MatchReviewRepositoryProtocol:
         """Get match review repository for review queue operations."""
+        ...
+
+    def get_preference_repository(self) -> PreferenceRepositoryProtocol:
+        """Get preference repository for track preference operations."""
         ...
 
     def get_stats_repository(self) -> StatsRepositoryProtocol:

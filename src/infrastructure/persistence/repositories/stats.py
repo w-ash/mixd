@@ -15,6 +15,7 @@ from typing import cast
 from sqlalchemy import distinct, func, select, true
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from src.domain.entities.preference import PreferenceState
 from src.domain.repositories.interfaces import DashboardAggregates
 from src.infrastructure.persistence.database.db_models import (
     DBPlaylist,
@@ -23,6 +24,7 @@ from src.infrastructure.persistence.database.db_models import (
     DBTrackLike,
     DBTrackMapping,
     DBTrackPlay,
+    DBTrackPreference,
 )
 from src.infrastructure.persistence.repositories.repo_decorator import db_operation
 
@@ -121,6 +123,23 @@ class StatsRepository:
         )
         playlists_by_connector = {str(name): int(cnt) for name, cnt in playlists_rows}
 
+        # --- Query 4: preference counts by state -----------------------------
+        pref_stmt = (
+            select(
+                DBTrackPreference.state,
+                func.count(DBTrackPreference.id),
+            )
+            .where(DBTrackPreference.user_id == user_id)
+            .group_by(DBTrackPreference.state)
+        )
+        pref_rows = cast(
+            "list[tuple[PreferenceState, int]]",
+            (await self._session.execute(pref_stmt)).all(),
+        )
+        preference_counts: dict[PreferenceState, int] = {
+            state: int(cnt) for state, cnt in pref_rows
+        }
+
         return DashboardAggregates(
             total_tracks=int(totals_row.total_tracks),  # pyright: ignore[reportAny]  # SQLAlchemy Row dynamic field
             total_plays=int(totals_row.total_plays),  # pyright: ignore[reportAny]
@@ -130,4 +149,5 @@ class StatsRepository:
             liked_by_connector=liked_by_connector,
             plays_by_connector=plays_by_connector,
             playlists_by_connector=playlists_by_connector,
+            preference_counts=preference_counts,
         )

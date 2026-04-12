@@ -6,6 +6,7 @@ minimal round trips, instead of querying 6 repositories sequentially.
 
 from attrs import define
 
+from src.domain.entities.preference import PreferenceState
 from src.domain.repositories.interfaces import UnitOfWorkProtocol
 
 
@@ -28,6 +29,7 @@ class DashboardStatsResult:
     liked_by_connector: dict[str, int]
     plays_by_connector: dict[str, int]
     playlists_by_connector: dict[str, int]
+    preference_counts: dict[PreferenceState, int]
 
 
 @define(slots=True)

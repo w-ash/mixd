@@ -4,9 +4,10 @@ Merged search+list on GET /tracks (query param `q` triggers search).
 All filtering, sorting, and pagination is server-side.
 """
 
+from datetime import UTC, datetime
 from uuid import UUID
 
-from fastapi import APIRouter, Depends, Query
+from fastapi import APIRouter, Depends, Query, Response
 
 from src.application.runner import execute_use_case
 from src.application.use_cases.get_track_details import (
@@ -30,6 +31,10 @@ from src.application.use_cases.set_primary_mapping import (
     SetPrimaryMappingCommand,
     SetPrimaryMappingUseCase,
 )
+from src.application.use_cases.set_track_preference import (
+    SetTrackPreferenceCommand,
+    SetTrackPreferenceUseCase,
+)
 from src.application.use_cases.unlink_connector_track import (
     UnlinkConnectorTrackCommand,
     UnlinkConnectorTrackUseCase,
@@ -42,6 +47,7 @@ from src.interface.api.schemas.tracks import (
     MergeTrackRequest,
     PlaylistBriefSchema,
     RelinkMappingRequest,
+    SetPreferenceRequest,
     TrackDetailSchema,
     UnlinkMappingResponse,
     playlist_to_brief_schema,
@@ -62,6 +68,9 @@ async def list_tracks(
     ),
     liked: bool | None = Query(default=None, description="Filter by liked status"),
     connector: str | None = Query(default=None, description="Filter by connector"),
+    preference: str | None = Query(
+        default=None, description="Filter by preference state"
+    ),
     sort: str = Query(
         default="title_asc",
         description="Sort field and direction",
@@ -84,6 +93,7 @@ async def list_tracks(
         query=q,
         liked=liked,
         connector=connector,
+        preference=preference,
         sort_by=sort,  # type: ignore[arg-type]  # validated by FastAPI regex pattern
         limit=limit,
         offset=offset,
@@ -95,7 +105,11 @@ async def list_tracks(
     )
     return PaginatedResponse(
         data=[
-            to_library_track(t, liked_track_ids=result.liked_track_ids)
+            to_library_track(
+                t,
+                liked_track_ids=result.liked_track_ids,
+                preference_map=result.preference_map,
+            )
             for t in result.tracks
         ],
         total=result.total,
@@ -224,3 +238,44 @@ async def get_track_playlists(
         user_id=user_id,
     )
     return [playlist_to_brief_schema(p) for p in result.playlists]
+
+
+@router.put("/{track_id}/preference")
+async def set_track_preference(
+    track_id: UUID,
+    body: SetPreferenceRequest,
+    user_id: str = Depends(get_current_user_id),
+) -> SetPreferenceRequest:
+    """Set a preference on a track. Source is always 'manual'."""
+    command = SetTrackPreferenceCommand(
+        user_id=user_id,
+        track_id=track_id,
+        state=body.state,
+        source="manual",
+        preferred_at=datetime.now(UTC),
+    )
+    await execute_use_case(
+        lambda uow: SetTrackPreferenceUseCase().execute(command, uow),
+        user_id=user_id,
+    )
+    return body
+
+
+@router.delete("/{track_id}/preference", status_code=204)
+async def delete_track_preference(
+    track_id: UUID,
+    user_id: str = Depends(get_current_user_id),
+) -> Response:
+    """Remove a preference from a track. Idempotent — 204 even if none existed."""
+    command = SetTrackPreferenceCommand(
+        user_id=user_id,
+        track_id=track_id,
+        state=None,
+        source="manual",
+        preferred_at=datetime.now(UTC),
+    )
+    await execute_use_case(
+        lambda uow: SetTrackPreferenceUseCase().execute(command, uow),
+        user_id=user_id,
+    )
+    return Response(status_code=204)

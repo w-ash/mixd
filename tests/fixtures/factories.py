@@ -25,6 +25,7 @@ from src.domain.entities.playlist import (
     Playlist,
     PlaylistEntry,
 )
+from src.domain.entities.preference import PreferenceEvent, TrackPreference
 from src.domain.entities.track import Artist, ConnectorTrack, Track, TrackLike
 from src.domain.entities.workflow import Workflow, WorkflowDef, WorkflowTaskDef
 from src.infrastructure.connectors.spotify.models import (
@@ -248,5 +249,50 @@ def make_connector_playlist(
     return ConnectorPlaylist(
         connector_name=connector_name,
         items=items or [],
+        **kwargs,
+    )
+
+
+# ---------------------------------------------------------------------------
+# Preference factories
+# ---------------------------------------------------------------------------
+
+
+def make_track_preference(
+    track_id: UUID | None = None,
+    state: str = "yah",
+    source: str = "manual",
+    user_id: str = "default",
+    preferred_at: datetime | None = None,
+    **kwargs,
+) -> TrackPreference:
+    """Build a :class:`TrackPreference` with sensible defaults."""
+    return TrackPreference(
+        track_id=track_id or uuid7(),
+        state=state,  # type: ignore[arg-type]
+        source=source,  # type: ignore[arg-type]
+        user_id=user_id,
+        preferred_at=preferred_at or datetime.now(UTC),
+        **kwargs,
+    )
+
+
+def make_preference_event(
+    track_id: UUID | None = None,
+    old_state: str | None = None,
+    new_state: str = "yah",
+    source: str = "manual",
+    user_id: str = "default",
+    preferred_at: datetime | None = None,
+    **kwargs,
+) -> PreferenceEvent:
+    """Build a :class:`PreferenceEvent` with sensible defaults."""
+    return PreferenceEvent(
+        track_id=track_id or uuid7(),
+        old_state=old_state,  # type: ignore[arg-type]
+        new_state=new_state,  # type: ignore[arg-type]
+        source=source,  # type: ignore[arg-type]
+        user_id=user_id,
+        preferred_at=preferred_at or datetime.now(UTC),
         **kwargs,
     )

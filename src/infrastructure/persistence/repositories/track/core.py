@@ -1,5 +1,6 @@
 """Core track repository implementation for basic track operations."""
 
+from collections.abc import Mapping
 from datetime import UTC, datetime
 from typing import Any, ClassVar, cast
 from uuid import UUID
@@ -24,6 +25,8 @@ from src.application.pagination import TRACK_SORT_COLUMNS
 from src.config import get_logger
 from src.config.constants import DenormalizedTrackColumns, MappingOrigin
 from src.domain.entities import Track
+from src.domain.entities.preference import PREFERENCE_ORDER
+from src.domain.entities.sourced_metadata import SOURCE_PRIORITY
 from src.domain.exceptions import OptimisticLockError
 from src.domain.matching import normalize_for_comparison, strip_parentheticals
 from src.domain.repositories.interfaces import TrackListingPage
@@ -31,12 +34,172 @@ from src.infrastructure.persistence.database.db_models import (
     DBTrack,
     DBTrackLike,
     DBTrackMapping,
+    DBTrackPreference,
 )
 from src.infrastructure.persistence.repositories.base_repo import BaseRepository
 from src.infrastructure.persistence.repositories.repo_decorator import db_operation
 from src.infrastructure.persistence.repositories.track.mapper import TrackMapper
 
 logger = get_logger(__name__)
+
+
+def _sql_case[K: str](values: Mapping[K, int], column: str) -> str:
+    """Build a SQL CASE expression from a Python {string_key: int} mapping.
+
+    Used to generate source-priority and preference-order ranking expressions
+    from the domain constants so the merge CTE stays in sync with Python.
+    """
+    whens = " ".join(f"WHEN '{k}' THEN {v}" for k, v in values.items())
+    return f"CASE {column} {whens} ELSE 0 END"
+
+
+# SQL rank expressions derived from the domain's SOURCE_PRIORITY / PREFERENCE_ORDER.
+# Used in the preference-merge CTE to keep conflict resolution consistent with
+# the Python ``resolve_preference_change`` logic.
+_LOSER_SOURCE_RANK = _sql_case(SOURCE_PRIORITY, "pc.loser_source")
+_WINNER_SOURCE_RANK = _sql_case(SOURCE_PRIORITY, "pc.winner_source")
+_LOSER_STATE_RANK = _sql_case(PREFERENCE_ORDER, "pc.loser_state")
+_WINNER_STATE_RANK = _sql_case(PREFERENCE_ORDER, "pc.winner_state")
+
+
+# Template with placeholder tokens that are substituted below at import time
+# with the rank expressions derived from domain constants. Using a plain
+# string + ``.replace()`` (rather than f-string) keeps the template auditable
+# and avoids triggering SQL-injection lint heuristics, since there is no
+# runtime interpolation.
+_MOVE_REFERENCES_TEMPLATE = """
+WITH moved_playlist_tracks AS (
+    UPDATE playlist_tracks SET track_id = :to_id, updated_at = :now
+    WHERE track_id = :from_id
+    RETURNING id
+),
+moved_plays AS (
+    UPDATE track_plays SET track_id = :to_id, updated_at = :now
+    WHERE track_id = :from_id
+    RETURNING id
+),
+-- Find likes where both tracks have the same service
+like_conflicts AS (
+    SELECT
+        loser.id AS loser_id,
+        winner.id AS winner_id,
+        loser.is_liked AS loser_is_liked,
+        loser.liked_at AS loser_liked_at,
+        loser.last_synced AS loser_last_synced,
+        winner.last_synced AS winner_last_synced
+    FROM track_likes loser
+    JOIN track_likes winner ON loser.service = winner.service
+    WHERE loser.track_id = :from_id AND winner.track_id = :to_id
+),
+-- Update winner with loser's data when loser was synced more recently
+updated_winner_likes AS (
+    UPDATE track_likes tl
+    SET
+        is_liked = lc.loser_is_liked,
+        liked_at = lc.loser_liked_at,
+        last_synced = lc.loser_last_synced,
+        updated_at = :now
+    FROM like_conflicts lc
+    WHERE tl.id = lc.winner_id
+      AND (
+          (lc.loser_last_synced IS NOT NULL AND lc.winner_last_synced IS NOT NULL
+           AND lc.loser_last_synced > lc.winner_last_synced)
+          OR
+          (lc.loser_last_synced IS NOT NULL AND lc.winner_last_synced IS NULL)
+      )
+    RETURNING tl.id
+),
+-- Delete all conflicting loser likes
+deleted_conflict_likes AS (
+    DELETE FROM track_likes
+    WHERE id IN (SELECT loser_id FROM like_conflicts)
+    RETURNING id
+),
+-- Move non-conflicting likes (explicitly exclude conflict IDs because CTE
+-- snapshot semantics mean the DELETE above hasn't removed them from this
+-- CTE's view of the table)
+moved_likes AS (
+    UPDATE track_likes
+    SET track_id = :to_id, updated_at = :now
+    WHERE track_id = :from_id
+      AND id NOT IN (SELECT loser_id FROM like_conflicts)
+    RETURNING id
+),
+-- Find preferences where both tracks have a row for the same user
+preference_conflicts AS (
+    SELECT
+        loser.id AS loser_id,
+        winner.id AS winner_id,
+        loser.state AS loser_state,
+        loser.source AS loser_source,
+        loser.preferred_at AS loser_preferred_at,
+        winner.state AS winner_state,
+        winner.source AS winner_source
+    FROM track_preferences loser
+    JOIN track_preferences winner ON loser.user_id = winner.user_id
+    WHERE loser.track_id = :from_id AND winner.track_id = :to_id
+),
+-- Copy loser's values into winner when loser wins the priority comparison:
+--   source_priority(loser) > source_priority(winner) OR
+--   (same source AND preference_order(loser) > preference_order(winner))
+updated_winner_prefs AS (
+    UPDATE track_preferences tp
+    SET
+        state = pc.loser_state,
+        source = pc.loser_source,
+        preferred_at = pc.loser_preferred_at,
+        updated_at = :now
+    FROM preference_conflicts pc
+    WHERE tp.id = pc.winner_id
+      AND (
+          (__LOSER_SOURCE_RANK__) > (__WINNER_SOURCE_RANK__)
+          OR (
+              pc.loser_source = pc.winner_source
+              AND (__LOSER_STATE_RANK__) > (__WINNER_STATE_RANK__)
+          )
+      )
+    RETURNING tp.id
+),
+-- Delete all conflicting loser preferences (either winner kept its own
+-- or winner was updated to loser's values — either way, loser row goes)
+deleted_conflict_prefs AS (
+    DELETE FROM track_preferences
+    WHERE id IN (SELECT loser_id FROM preference_conflicts)
+    RETURNING id
+),
+-- Move non-conflicting preferences (loser has row, winner doesn't for that user)
+moved_prefs AS (
+    UPDATE track_preferences
+    SET track_id = :to_id, updated_at = :now
+    WHERE track_id = :from_id
+      AND id NOT IN (SELECT loser_id FROM preference_conflicts)
+    RETURNING id
+),
+-- Move all preference events to winner (append-only — no conflict resolution)
+moved_preference_events AS (
+    UPDATE track_preference_events
+    SET track_id = :to_id, updated_at = :now
+    WHERE track_id = :from_id
+    RETURNING id
+)
+SELECT
+    (SELECT count(*) FROM moved_playlist_tracks) AS playlist_tracks_moved,
+    (SELECT count(*) FROM moved_plays) AS plays_moved,
+    (SELECT count(*) FROM deleted_conflict_likes) AS like_conflicts_resolved,
+    (SELECT count(*) FROM moved_likes) AS likes_moved,
+    (SELECT count(*) FROM deleted_conflict_prefs) AS pref_conflicts_resolved,
+    (SELECT count(*) FROM moved_prefs) AS prefs_moved,
+    (SELECT count(*) FROM moved_preference_events) AS preference_events_moved
+"""
+
+
+_MOVE_REFERENCES_SQL = (
+    _MOVE_REFERENCES_TEMPLATE
+    .replace("__LOSER_SOURCE_RANK__", _LOSER_SOURCE_RANK)
+    .replace("__WINNER_SOURCE_RANK__", _WINNER_SOURCE_RANK)
+    .replace("__LOSER_STATE_RANK__", _LOSER_STATE_RANK)
+    .replace("__WINNER_STATE_RANK__", _WINNER_STATE_RANK)
+)
 
 
 class TrackRepository(BaseRepository[DBTrack, Track]):
@@ -235,6 +398,7 @@ class TrackRepository(BaseRepository[DBTrack, Track]):
         query: str | None = None,
         liked: bool | None = None,
         connector: str | None = None,
+        preference: str | None = None,
         sort_by: str = "title_asc",
         limit: int = 50,
         offset: int = 0,
@@ -286,6 +450,13 @@ class TrackRepository(BaseRepository[DBTrack, Track]):
                 .distinct()
             )
             conditions.append(DBTrack.id.in_(connector_subq))
+
+        if preference:
+            pref_subq = select(DBTrackPreference.track_id).where(
+                DBTrackPreference.state == preference,
+                DBTrackPreference.user_id == user_id,
+            )
+            conditions.append(DBTrack.id.in_(pref_subq))
 
         # Count total matching tracks (skipped on cursor-paginated pages)
         total: int | None = None
@@ -382,81 +553,21 @@ class TrackRepository(BaseRepository[DBTrack, Track]):
     async def move_references_to_track(self, from_id: UUID, to_id: UUID) -> None:
         """Move all foreign key references from one track to another.
 
-        Single CTE chain: moves playlist tracks, plays, and likes (with
-        conflict resolution — keeps the most recently synced like per service).
+        Single CTE chain: moves playlist tracks, plays, likes, and preferences
+        (with conflict resolution). Preference events are moved unconditionally
+        — the append-only log preserves history from both tracks.
         """
         result = await self.session.execute(
-            text("""
-            WITH moved_playlist_tracks AS (
-                UPDATE playlist_tracks SET track_id = :to_id, updated_at = :now
-                WHERE track_id = :from_id
-                RETURNING id
-            ),
-            moved_plays AS (
-                UPDATE track_plays SET track_id = :to_id, updated_at = :now
-                WHERE track_id = :from_id
-                RETURNING id
-            ),
-            -- Find likes where both tracks have the same service
-            like_conflicts AS (
-                SELECT
-                    loser.id AS loser_id,
-                    winner.id AS winner_id,
-                    loser.is_liked AS loser_is_liked,
-                    loser.liked_at AS loser_liked_at,
-                    loser.last_synced AS loser_last_synced,
-                    winner.last_synced AS winner_last_synced
-                FROM track_likes loser
-                JOIN track_likes winner ON loser.service = winner.service
-                WHERE loser.track_id = :from_id AND winner.track_id = :to_id
-            ),
-            -- Update winner with loser's data when loser was synced more recently
-            updated_winner_likes AS (
-                UPDATE track_likes tl
-                SET
-                    is_liked = lc.loser_is_liked,
-                    liked_at = lc.loser_liked_at,
-                    last_synced = lc.loser_last_synced,
-                    updated_at = :now
-                FROM like_conflicts lc
-                WHERE tl.id = lc.winner_id
-                  AND (
-                      (lc.loser_last_synced IS NOT NULL AND lc.winner_last_synced IS NOT NULL
-                       AND lc.loser_last_synced > lc.winner_last_synced)
-                      OR
-                      (lc.loser_last_synced IS NOT NULL AND lc.winner_last_synced IS NULL)
-                  )
-                RETURNING tl.id
-            ),
-            -- Delete all conflicting loser likes
-            deleted_conflict_likes AS (
-                DELETE FROM track_likes
-                WHERE id IN (SELECT loser_id FROM like_conflicts)
-                RETURNING id
-            ),
-            -- Move non-conflicting likes (explicitly exclude conflict IDs
-            -- because CTE snapshot semantics mean the DELETE above hasn't
-            -- removed them from this CTE's view of the table)
-            moved_likes AS (
-                UPDATE track_likes
-                SET track_id = :to_id, updated_at = :now
-                WHERE track_id = :from_id
-                  AND id NOT IN (SELECT loser_id FROM like_conflicts)
-                RETURNING id
-            )
-            SELECT
-                (SELECT count(*) FROM moved_playlist_tracks) AS playlist_tracks_moved,
-                (SELECT count(*) FROM moved_plays) AS plays_moved,
-                (SELECT count(*) FROM deleted_conflict_likes) AS like_conflicts_resolved,
-                (SELECT count(*) FROM moved_likes) AS likes_moved
-            """),
+            text(_MOVE_REFERENCES_SQL),
             {"from_id": from_id, "to_id": to_id, "now": datetime.now(UTC)},
         )
         counts = result.fetchone()
         logger.debug(
             f"Moved references: {from_id} → {to_id} "
             f"(playlist_tracks={counts[0]}, plays={counts[1]}, "  # type: ignore[index]
-            f"like_conflicts={counts[2]}, likes_moved={counts[3]})"  # type: ignore[index]
+            f"like_conflicts={counts[2]}, likes_moved={counts[3]}, "  # type: ignore[index]
+            f"pref_conflicts={counts[4]}, prefs_moved={counts[5]}, "  # type: ignore[index]
+            f"preference_events_moved={counts[6]})"  # type: ignore[index]
         )
 
     @db_operation("merge_mappings_to_track")

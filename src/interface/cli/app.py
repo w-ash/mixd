@@ -138,10 +138,12 @@ def _register_commands() -> None:
     """Register all CLI commands."""
     # Import command modules here to avoid circular imports
     from src.interface.cli import (
+        admin_commands,
         connector_commands,
         history_commands,
         likes_commands,
         playlist_commands,
+        preference_commands,
         review_commands,
         stats_commands,
         track_commands,
@@ -203,6 +205,20 @@ def _register_commands() -> None:
         name="reviews",
         help="Manage pending track match reviews",
         rich_help_panel="🎵 Track Operations",
+    )
+
+    app.add_typer(
+        preference_commands.app,
+        name="preference",
+        help="Rate tracks and browse your preferences",
+        rich_help_panel="🎵 Track Operations",
+    )
+
+    app.add_typer(
+        admin_commands.app,
+        name="admin",
+        help="Operational admin commands",
+        rich_help_panel="⚙️ System",
     )
 
 

@@ -20,6 +20,7 @@ class DashboardStatsSchema(BaseModel):
     liked_by_connector: dict[str, int]
     plays_by_connector: dict[str, int]
     playlists_by_connector: dict[str, int]
+    preference_counts: dict[str, int]
 
 
 def to_dashboard_stats(result: DashboardStatsResult) -> DashboardStatsSchema:

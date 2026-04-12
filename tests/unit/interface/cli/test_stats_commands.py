@@ -21,6 +21,7 @@ class TestStatsCommand:
             liked_by_connector={"spotify": 50},
             plays_by_connector={"spotify": 3000, "lastfm": 2000},
             playlists_by_connector={"spotify": 10},
+            preference_counts={"star": 5, "yah": 12},
         )
 
         with patch(
@@ -46,6 +47,7 @@ class TestStatsCommand:
             liked_by_connector={},
             plays_by_connector={"spotify": 5000},
             playlists_by_connector={},
+            preference_counts={},
         )
 
         with patch(

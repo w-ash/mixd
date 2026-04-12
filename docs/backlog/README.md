@@ -1,7 +1,7 @@
 # Project Mixd — Planning
 
-**Current Version**: 0.6.11
-**Next**: v0.7.0 Preference System & Likes Migration
+**Current Version**: 0.7.1
+**Next**: v0.7.2 Tagging System
 
 → [Completed milestones](completed/) | [Unscheduled ideas](unscheduled.md)
 
@@ -55,10 +55,12 @@ Each milestone delivers a **vertical slice** — backend API + frontend page tog
 | **v0.6.10** | Neon platform integration & multi-user hardening | ✅ Completed | [details](completed/v0.6.x.md#v0610-neon-platform-integration--multi-user-hardening) |
 | **v0.6.11** | Likes sync resilience & Sync page redesign | ✅ Completed | [details](completed/v0.6.x.md#v0611-likes-sync-resilience--sync-page-redesign) |
 | **v0.6.12** | Explicit Any cleanup — zero Any codebase | ✅ Completed | [details](completed/v0.6.x.md#v0612-explicit-any-cleanup--zero-any-codebase) |
-| **v0.7.0** | Preference system & likes migration | 🔜 Not Started | [details](v0.7.x.md#v070-preference-system--likes-migration) |
-| **v0.7.1** | Tagging system | 🔜 Not Started | [details](v0.7.x.md#v071-tagging-system) |
-| **v0.7.2** | Spotify playlist mapping (preference & tag import) | 🔜 Not Started | [details](v0.7.x.md#v072-spotify-playlist-mapping-preference--tag-import) |
-| **v0.7.3** | Workflow integration & quick filters | 🔜 Not Started | [details](v0.7.x.md#v073-workflow-integration--quick-filters) |
+| **v0.7.0** | Preference system — rate tracks as hmm/nah/yah/star | ✅ Completed | [details](v0.7.0-1.md#v070-preference-system) |
+| **v0.7.1** | Preference sync from likes — imported likes become preferences with original dates | ✅ Completed | [details](v0.7.0-1.md#v071-preference-sync-from-likes) |
+| **v0.7.2** | Tagging system — categorize tracks by mood, energy, context | 🔜 Not Started | [details](v0.7.2-3.md#v072-tagging-system) |
+| **v0.7.3** | Playlist browser — browse & import Spotify playlists | 🔜 Not Started | [details](v0.7.2-3.md#v073-playlist-browser) |
+| **v0.7.4** | Tag & preference bootstrap — bulk-map playlists to tags/preferences | 🔜 Not Started | [details](v0.7.4-5.md#v074-tag--preference-bootstrap) |
+| **v0.7.5** | Workflow integration & quick filters | 🔜 Not Started | [details](v0.7.4-5.md#v075-workflow-integration--quick-filters) |
 | **v0.8.0** | Workflow & sync scheduling | 🔜 Not Started | [details](v0.8.x.md#v080-workflow--sync-scheduling) |
 | **v0.8.1** | Editor polish, templates & playlist browse | 🔜 Not Started | [details](v0.8.x.md#v081-editor-polish-templates--playlist-browse) |
 | **v0.9.0** | LLM-assisted workflow creation | 🔜 Not Started | [details](v0.9.x.md#v090-llm-assisted-workflow-creation) |
@@ -89,7 +91,7 @@ See [docs/personas.md](../personas.md) for full persona definitions.
 | v0.5.4 | OAuth + auth UX + WCAG + theming + settings | Connects services, picks light/dark mode, settings persist across devices | May prefer CLI auth, but web flow should be clean; appreciates system theme respect | "Connect Spotify" button IS the first impression; light mode widens appeal |
 | v0.5.5 | Performance | Faster workflow execution, snappier pages | Appreciates efficient infrastructure | Expects modern web app responsiveness |
 | v0.6.x | Multi-user data isolation + first-class CLI | Per-user data isolation, CLI for power curation | Security hardening, CLI as primary interface | Account creation on hosted instance |
-| v0.7.x | Preferences + tags | Graduates binary likes into rich curation metadata | Explores tag system, builds taxonomies | Likes/dislikes via simple UI affordances |
+| v0.7.x | Preferences + tags + playlist bootstrap | Replaces 4 Spotify playlists with hmm/nah/yah/star, bulk-imports hundreds of themed playlists as tags | Explores tag system, builds taxonomies, workflow nodes for preferences/tags | Likes/dislikes via simple toggle, quick filters for "what should I listen to?" |
 | v0.8.x | Scheduling + templates | Automates the weekly ritual | Templates as onboarding entry point | Scheduling means playlists stay fresh without effort |
 | v0.9.0 | LLM-assisted creation | Power use — complex intent in natural language | Interesting tech to explore | THE adoption enabler — changes who can use mixd |
 | v0.10.x | Artists, albums, physical | Deeper library modeling, Discogs integration | Rich data model to explore | Browsing by artist/album is intuitive |
