@@ -37,9 +37,10 @@ class LastfmTrackResolutionService:
         self,
         cross_discovery: CrossDiscoveryProvider | None = None,
         lastfm_client: LastFMAPIClient | None = None,
+        inward_resolver: LastfmInwardResolver | None = None,
     ):
         self.lastfm_client = lastfm_client or LastFMAPIClient()
-        self._inward_resolver = LastfmInwardResolver(
+        self._inward_resolver = inward_resolver or LastfmInwardResolver(
             lastfm_client=self.lastfm_client,
             cross_discovery=cross_discovery,
         )
