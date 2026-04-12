@@ -1,10 +1,15 @@
-import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
+import {
+  MutationCache,
+  QueryClient,
+  QueryClientProvider,
+} from "@tanstack/react-query";
 import { type RenderOptions, render } from "@testing-library/react";
 import { type ReactElement, type ReactNode, useState } from "react";
 import { MemoryRouter, type MemoryRouterProps } from "react-router";
 
 import { ThemeProvider } from "#/contexts/ThemeContext";
 import { WorkflowExecutionProvider } from "#/contexts/WorkflowExecutionContext";
+import { createMutationErrorHandler } from "#/lib/toasts";
 
 interface ProvidersProps {
   children: ReactNode;
@@ -13,6 +18,10 @@ interface ProvidersProps {
 
 export function createTestQueryClient() {
   return new QueryClient({
+    // Mirror production so tests exercise the global error-toast handler.
+    mutationCache: new MutationCache({
+      onError: createMutationErrorHandler(),
+    }),
     defaultOptions: {
       queries: {
         retry: false,

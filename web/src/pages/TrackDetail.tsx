@@ -2,13 +2,13 @@ import { useQueryClient } from "@tanstack/react-query";
 import { ExternalLink, HelpCircle, Link2Off, Repeat, Star } from "lucide-react";
 import { useState } from "react";
 import { Link, useParams } from "react-router";
-import { toast } from "sonner";
-
 import { ApiError } from "#/api/client";
 import type { ConnectorMappingSchema } from "#/api/generated/model";
 import {
   getGetTrackDetailApiV1TracksTrackIdGetQueryKey,
+  useAddTrackTagApiV1TracksTrackIdTagsPost,
   useDeleteTrackPreferenceApiV1TracksTrackIdPreferenceDelete,
+  useDeleteTrackTagApiV1TracksTrackIdTagsTagDelete,
   useGetTrackDetailApiV1TracksTrackIdGet,
   useSetPrimaryMappingApiV1TracksTrackIdMappingsMappingIdPrimaryPatch,
   useSetTrackPreferenceApiV1TracksTrackIdPreferencePut,
@@ -25,6 +25,7 @@ import {
   confidenceVariant,
   StatusIndicator,
 } from "#/components/shared/StatusIndicator";
+import { TagEditor } from "#/components/shared/TagEditor";
 import { UnlinkMappingDialog } from "#/components/shared/UnlinkMappingDialog";
 import { Badge } from "#/components/ui/badge";
 import { Button } from "#/components/ui/button";
@@ -36,6 +37,7 @@ import {
   formatDateTime,
   formatDuration,
 } from "#/lib/format";
+import { toasts } from "#/lib/toasts";
 
 function DetailSkeleton() {
   return (
@@ -180,11 +182,9 @@ function MappingList({
           queryClient.invalidateQueries({
             queryKey: getGetTrackDetailApiV1TracksTrackIdGetQueryKey(trackId),
           });
-          toast.success("Primary mapping updated");
+          toasts.success("Primary mapping updated");
         },
-        onError: (error: Error) => {
-          toast.error("Failed to set primary", { description: error.message });
-        },
+        meta: { errorLabel: "Failed to set primary" },
       },
     });
 
@@ -344,8 +344,7 @@ export function TrackDetail() {
   const setPref = useSetTrackPreferenceApiV1TracksTrackIdPreferencePut({
     mutation: {
       onSuccess: () => queryClient.invalidateQueries({ queryKey }),
-      onError: (err: Error) =>
-        toast.error("Failed to set preference", { description: err.message }),
+      meta: { errorLabel: "Failed to set preference" },
     },
   });
 
@@ -353,10 +352,7 @@ export function TrackDetail() {
     {
       mutation: {
         onSuccess: () => queryClient.invalidateQueries({ queryKey }),
-        onError: (err: Error) =>
-          toast.error("Failed to clear preference", {
-            description: err.message,
-          }),
+        meta: { errorLabel: "Failed to clear preference" },
       },
     },
   );
@@ -370,6 +366,20 @@ export function TrackDetail() {
       setPref.mutate({ trackId, data: { state } });
     }
   };
+
+  const addTag = useAddTrackTagApiV1TracksTrackIdTagsPost({
+    mutation: {
+      onSuccess: () => queryClient.invalidateQueries({ queryKey }),
+      meta: { errorLabel: "Failed to add tag" },
+    },
+  });
+
+  const deleteTag = useDeleteTrackTagApiV1TracksTrackIdTagsTagDelete({
+    mutation: {
+      onSuccess: () => queryClient.invalidateQueries({ queryKey }),
+      meta: { errorLabel: "Failed to remove tag" },
+    },
+  });
 
   if (isLoading) return <DetailSkeleton />;
 
@@ -428,6 +438,22 @@ export function TrackDetail() {
           value={track.preference ?? null}
           onChange={handlePreferenceChange}
           disabled={setPref.isPending || deletePref.isPending}
+        />
+      </div>
+
+      <div className="mb-6 flex items-start gap-3">
+        <span className="pt-1.5 text-xs font-medium uppercase tracking-wider text-text-faint">
+          Tags
+        </span>
+        <TagEditor
+          value={track.tags ?? []}
+          onAdd={(rawTag) => addTag.mutate({ trackId, data: { tag: rawTag } })}
+          onRemove={(tag) =>
+            // Orval does not encode path params — tags can contain `:` / `/`,
+            // so encode here before the DELETE hits the route.
+            deleteTag.mutate({ trackId, tag: encodeURIComponent(tag) })
+          }
+          disabled={addTag.isPending || deleteTag.isPending}
         />
       </div>
 

@@ -180,6 +180,7 @@ def create_app() -> FastAPI:
     from src.interface.api.routes.reviews import router as reviews_router
     from src.interface.api.routes.settings import router as settings_router
     from src.interface.api.routes.stats import router as stats_router
+    from src.interface.api.routes.tags import router as tags_router
     from src.interface.api.routes.tracks import router as tracks_router
     from src.interface.api.routes.workflows import router as workflows_router
 
@@ -196,6 +197,7 @@ def create_app() -> FastAPI:
     app.include_router(stats_router, prefix="/api/v1")
     app.include_router(playlists_router, prefix="/api/v1")
     app.include_router(tracks_router, prefix="/api/v1")
+    app.include_router(tags_router, prefix="/api/v1")
     app.include_router(workflows_router, prefix="/api/v1")
     app.include_router(connectors_router, prefix="/api/v1")
     app.include_router(imports_router, prefix="/api/v1")

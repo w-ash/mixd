@@ -6,10 +6,11 @@
  */
 
 import { useCallback, useState } from "react";
-import { toast } from "sonner";
+
 import { useRunWorkflowEndpointApiV1WorkflowsWorkflowIdRunPost } from "#/api/generated/workflows/workflows";
 import { useWorkflowExecutionContext } from "#/contexts/WorkflowExecutionContext";
 import type { NodeStatus } from "#/lib/sse-types";
+import { toasts } from "#/lib/toasts";
 
 /** Referentially-stable empty map for non-matching workflows. */
 const EMPTY_MAP: Map<string, NodeStatus> = new Map();
@@ -27,7 +28,9 @@ export function useWorkflowExecution(
   workflowId: string,
 ): UseWorkflowExecutionReturn {
   const ctx = useWorkflowExecutionContext();
-  const mutation = useRunWorkflowEndpointApiV1WorkflowsWorkflowIdRunPost();
+  const mutation = useRunWorkflowEndpointApiV1WorkflowsWorkflowIdRunPost({
+    mutation: { meta: { errorLabel: "Failed to start workflow" } },
+  });
   const [mutationError, setMutationError] = useState<Error | null>(null);
 
   const isThisWorkflow = ctx.workflowId === workflowId;
@@ -46,16 +49,14 @@ export function useWorkflowExecution(
             };
             ctx.startExecution(workflowId, data.operation_id, data.run_id);
           } else {
-            toast.error("Failed to start workflow");
+            toasts.message("Failed to start workflow");
           }
         },
         onError: (err) => {
-          const error =
-            err instanceof Error ? err : new Error("Failed to start workflow");
-          setMutationError(error);
-          toast.error("Failed to start workflow", {
-            description: error.message,
-          });
+          setMutationError(
+            err instanceof Error ? err : new Error("Failed to start workflow"),
+          );
+          // Toast fires from MutationCache.onError via meta.errorLabel.
         },
       },
     );

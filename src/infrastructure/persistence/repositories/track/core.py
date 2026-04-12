@@ -1,8 +1,8 @@
 """Core track repository implementation for basic track operations."""
 
-from collections.abc import Mapping
+from collections.abc import Mapping, Sequence
 from datetime import UTC, datetime
-from typing import Any, ClassVar, cast
+from typing import Any, ClassVar, Literal, cast
 from uuid import UUID
 
 from sqlalchemy import (
@@ -35,6 +35,7 @@ from src.infrastructure.persistence.database.db_models import (
     DBTrackLike,
     DBTrackMapping,
     DBTrackPreference,
+    DBTrackTag,
 )
 from src.infrastructure.persistence.repositories.base_repo import BaseRepository
 from src.infrastructure.persistence.repositories.repo_decorator import db_operation
@@ -399,6 +400,9 @@ class TrackRepository(BaseRepository[DBTrack, Track]):
         liked: bool | None = None,
         connector: str | None = None,
         preference: str | None = None,
+        tags: Sequence[str] | None = None,
+        tag_mode: Literal["and", "or"] = "and",
+        namespace: str | None = None,
         sort_by: str = "title_asc",
         limit: int = 50,
         offset: int = 0,
@@ -457,6 +461,44 @@ class TrackRepository(BaseRepository[DBTrack, Track]):
                 DBTrackPreference.user_id == user_id,
             )
             conditions.append(DBTrack.id.in_(pref_subq))
+
+        if tags:
+            # "and" needs each track to match EVERY listed tag; "or" needs any.
+            # For "and" we group by track_id and require the distinct count to
+            # hit the requested length — this is the standard relational
+            # "tag-filter intersection" shape and keeps the filter as a single
+            # correlated subquery.
+            if tag_mode == "and":
+                tag_subq = (
+                    select(DBTrackTag.track_id)
+                    .where(
+                        DBTrackTag.tag.in_(tags),
+                        DBTrackTag.user_id == user_id,
+                    )
+                    .group_by(DBTrackTag.track_id)
+                    .having(func.count(func.distinct(DBTrackTag.tag)) == len(tags))
+                )
+            else:
+                tag_subq = (
+                    select(DBTrackTag.track_id)
+                    .where(
+                        DBTrackTag.tag.in_(tags),
+                        DBTrackTag.user_id == user_id,
+                    )
+                    .distinct()
+                )
+            conditions.append(DBTrack.id.in_(tag_subq))
+
+        if namespace:
+            ns_subq = (
+                select(DBTrackTag.track_id)
+                .where(
+                    DBTrackTag.namespace == namespace,
+                    DBTrackTag.user_id == user_id,
+                )
+                .distinct()
+            )
+            conditions.append(DBTrack.id.in_(ns_subq))
 
         # Count total matching tracks (skipped on cursor-paginated pages)
         total: int | None = None

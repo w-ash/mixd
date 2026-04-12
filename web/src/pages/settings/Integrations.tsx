@@ -2,8 +2,6 @@ import { useQueryClient } from "@tanstack/react-query";
 import { HelpCircle } from "lucide-react";
 import { useEffect, useState } from "react";
 import { useNavigate, useSearchParams } from "react-router";
-import { toast } from "sonner";
-
 import {
   getGetConnectorsApiV1ConnectorsGetQueryKey,
   useGetConnectorsApiV1ConnectorsGet,
@@ -18,6 +16,7 @@ import { QueryErrorState } from "#/components/shared/QueryErrorState";
 import { SectionHeader } from "#/components/shared/SectionHeader";
 import { Skeleton } from "#/components/ui/skeleton";
 import { humanizeAuthError } from "#/lib/connectors";
+import { toasts } from "#/lib/toasts";
 
 const sections = [
   {
@@ -147,13 +146,13 @@ export function Integrations() {
     const label = getConnectorLabel(service);
 
     if (status === "success") {
-      toast.success(`${label} connected`);
+      toasts.success(`${label} connected`);
       queryClient.invalidateQueries({
         queryKey: getGetConnectorsApiV1ConnectorsGetQueryKey(),
       });
     } else {
       const message = reason ? humanizeAuthError(reason) : "Unknown error";
-      toast.error(`${label} connection failed`, { description: message });
+      toasts.message(`${label} connection failed`, { description: message });
       setAuthResult({ service, status, reason });
     }
 

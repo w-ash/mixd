@@ -20,7 +20,6 @@ import {
 } from "lucide-react";
 import { useCallback, useEffect, useRef } from "react";
 import { useNavigate } from "react-router";
-import { toast } from "sonner";
 import type { WorkflowTaskDefSchemaInput } from "#/api/generated/model";
 import {
   useCreateWorkflowApiV1WorkflowsPost,
@@ -35,6 +34,7 @@ import {
   DialogTrigger,
 } from "#/components/ui/dialog";
 import { VersionHistory } from "#/components/workflow/VersionHistory";
+import { toasts } from "#/lib/toasts";
 import { layoutWorkflow } from "#/lib/workflow-layout";
 import { useEditorStore } from "#/stores/editor-store";
 
@@ -59,8 +59,12 @@ export function EditorToolbar() {
 
   const nameInputRef = useRef<HTMLInputElement>(null);
 
-  const createMutation = useCreateWorkflowApiV1WorkflowsPost();
-  const updateMutation = useUpdateWorkflowApiV1WorkflowsWorkflowIdPatch();
+  const createMutation = useCreateWorkflowApiV1WorkflowsPost({
+    mutation: { meta: { errorLabel: "Failed to save workflow" } },
+  });
+  const updateMutation = useUpdateWorkflowApiV1WorkflowsWorkflowIdPatch({
+    mutation: { meta: { errorLabel: "Failed to save workflow" } },
+  });
   const isSaving = createMutation.isPending || updateMutation.isPending;
 
   const { mutate: createWorkflow } = createMutation;
@@ -77,12 +81,9 @@ export function EditorToolbar() {
             if (res.status === 201) {
               const newId = (res.data as { id: string }).id;
               resetDirty();
-              toast.success("Workflow created");
+              toasts.success("Workflow created");
               navigate(`/workflows/${newId}/edit`, { replace: true });
             }
-          },
-          onError: () => {
-            toast.error("Failed to save workflow");
           },
         },
       );
@@ -92,10 +93,7 @@ export function EditorToolbar() {
         {
           onSuccess: () => {
             resetDirty();
-            toast.success("Workflow saved");
-          },
-          onError: () => {
-            toast.error("Failed to save workflow");
+            toasts.success("Workflow saved");
           },
         },
       );

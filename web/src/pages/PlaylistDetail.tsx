@@ -11,7 +11,6 @@ import {
 } from "lucide-react";
 import { useEffect, useState } from "react";
 import { Link, useNavigate, useParams } from "react-router";
-import { toast } from "sonner";
 import type {
   PlaylistLinkSchema,
   SyncStartedResponse,
@@ -85,6 +84,7 @@ import {
   formatTotalDuration,
 } from "#/lib/format";
 import { formatSyncResults, getSyncStatusConfig } from "#/lib/sync-status";
+import { toasts } from "#/lib/toasts";
 
 function DetailSkeleton() {
   return (
@@ -124,11 +124,7 @@ function DeletePlaylistDialog({ playlistId }: { playlistId: string }) {
         });
         navigate("/playlists");
       },
-      onError: (error: Error) => {
-        toast.error("Failed to delete playlist", {
-          description: error.message,
-        });
-      },
+      meta: { errorLabel: "Failed to delete playlist" },
     },
   });
 
@@ -188,15 +184,16 @@ function EditPlaylistDialog({
       onSuccess: () => {
         setOpen(false);
       },
+      // Custom onError keeps the optimistic-rollback logic; toast is
+      // handled locally rather than via the global MutationCache handler
+      // to keep rollback and notification in one atomic step.
       onError: (error: Error, _vars, context) => {
-        // Rollback to previous data on failure
         if (context?.previous) {
           queryClient.setQueryData(detailQueryKey, context.previous);
         }
-        toast.error("Failed to update playlist", {
-          description: error.message,
-        });
+        toasts.error("Failed to update playlist", error);
       },
+      meta: { suppressErrorToast: true },
       onSettled: () => {
         // Always refetch authoritative data after mutation settles
         queryClient.invalidateQueries({ queryKey: detailQueryKey });
@@ -330,13 +327,9 @@ function LinkPlaylistDialog({ playlistId }: { playlistId: string }) {
         invalidateLinkQueries(queryClient, playlistId);
         setOpen(false);
         setPlaylistInput("");
-        toast.success("Playlist linked");
+        toasts.success("Playlist linked");
       },
-      onError: (error: Error) => {
-        toast.error("Failed to link playlist", {
-          description: error.message,
-        });
-      },
+      meta: { errorLabel: "Failed to link playlist" },
     },
   });
 
@@ -521,11 +514,9 @@ function LinkedServicesSection({ playlistId }: { playlistId: string }) {
       mutation: {
         onSuccess: () => {
           invalidateLinkQueries(queryClient, playlistId);
-          toast.success("Playlist unlinked");
+          toasts.success("Playlist unlinked");
         },
-        onError: (error: Error) => {
-          toast.error("Failed to unlink", { description: error.message });
-        },
+        meta: { errorLabel: "Failed to unlink" },
       },
     });
 
@@ -535,13 +526,11 @@ function LinkedServicesSection({ playlistId }: { playlistId: string }) {
         onSuccess: (res) => {
           if (res.status === 202) {
             setSyncOperationId((res.data as SyncStartedResponse).operation_id);
-            toast.success("Sync started");
+            toasts.success("Sync started");
           }
           invalidateLinkQueries(queryClient, playlistId);
         },
-        onError: (error: Error) => {
-          toast.error("Sync failed", { description: error.message });
-        },
+        meta: { errorLabel: "Sync failed" },
       },
     });
 
@@ -551,11 +540,7 @@ function LinkedServicesSection({ playlistId }: { playlistId: string }) {
         onSuccess: () => {
           invalidateLinkQueries(queryClient, playlistId);
         },
-        onError: (error: Error) => {
-          toast.error("Failed to update direction", {
-            description: error.message,
-          });
-        },
+        meta: { errorLabel: "Failed to update direction" },
       },
     });
 

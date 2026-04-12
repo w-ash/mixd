@@ -24,6 +24,19 @@ connector?: string | null;
  */
 preference?: string | null;
 /**
+ * Filter by tag (repeat for multi-tag). Normalized server-side.
+ */
+tag?: string[] | null;
+/**
+ * Intersection (and) or union (or) when tag has multiple values.
+ * @pattern ^(and|or)$
+ */
+tag_mode?: string;
+/**
+ * Filter to tracks carrying any mood:*\/energy:* tag.
+ */
+namespace?: string | null;
+/**
  * Sort field and direction
  * @pattern ^(title|artist|added|duration)_(asc|desc)$
  */

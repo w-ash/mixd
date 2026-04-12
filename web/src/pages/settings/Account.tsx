@@ -2,14 +2,13 @@ import { useAuthenticate } from "@neondatabase/auth/react/ui";
 import { LogOut, Trash2 } from "lucide-react";
 import { useState } from "react";
 import { useNavigate } from "react-router";
-import { toast } from "sonner";
-
 import { authClient } from "#/api/auth";
 import { PageHeader } from "#/components/layout/PageHeader";
 import { DeleteAccountDialog } from "#/components/shared/DeleteAccountDialog";
 import { SectionHeader } from "#/components/shared/SectionHeader";
 import { Button } from "#/components/ui/button";
 import { Skeleton } from "#/components/ui/skeleton";
+import { toasts } from "#/lib/toasts";
 
 function AccountSkeleton() {
   return (
@@ -72,7 +71,7 @@ export function Account() {
       fetchOptions: {
         onSuccess: () => navigate("/auth/sign-in", { replace: true }),
         onError: () => {
-          toast.error("Failed to sign out");
+          toasts.message("Failed to sign out");
         },
       },
     });
@@ -85,16 +84,11 @@ export function Account() {
     setIsDeleting(true);
     try {
       await authClient.deleteUser({ fetchOptions: { throw: true } });
-      toast.success("Account deleted");
+      toasts.success("Account deleted");
       setDeleteOpen(false);
       navigate("/auth/sign-in", { replace: true });
     } catch (error) {
-      toast.error("Failed to delete account", {
-        description:
-          error instanceof Error
-            ? error.message
-            : "An unexpected error occurred",
-      });
+      toasts.error("Failed to delete account", error);
     } finally {
       setIsDeleting(false);
     }

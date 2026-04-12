@@ -6,8 +6,12 @@
  * OpenAPI spec version: 0.7.1
  */
 
+export * from './addTagRequest';
+export * from './addTagResponse';
 export * from './artistSchema';
 export * from './backupPlaylistRequest';
+export * from './batchTagRequest';
+export * from './batchTagResponse';
 export * from './bodyImportSpotifyHistoryApiV1ImportsSpotifyHistoryPost';
 export * from './checkpointStatusSchema';
 export * from './configFieldOptionSchema';
@@ -47,6 +51,7 @@ export * from './likeStatusSchema';
 export * from './listActiveOperationsApiV1OperationsGet200';
 export * from './listPlaylistsApiV1PlaylistsGetParams';
 export * from './listReviewsApiV1ReviewsGetParams';
+export * from './listTagsApiV1TagsGetParams';
 export * from './listTracksApiV1TracksGetParams';
 export * from './listWorkflowRunsApiV1WorkflowsWorkflowIdRunsGetParams';
 export * from './listWorkflowsApiV1WorkflowsGetParams';
@@ -81,6 +86,7 @@ export * from './spotifyCallbackAuthSpotifyCallbackGetParams';
 export * from './syncLinkRequest';
 export * from './syncPreviewResponse';
 export * from './syncStartedResponse';
+export * from './tagCountSchema';
 export * from './trackDetailSchema';
 export * from './trackDetailSchemaLikeStatus';
 export * from './trackSummarySchema';

@@ -1,6 +1,5 @@
 import { AlertTriangle } from "lucide-react";
 import { useState } from "react";
-import { toast } from "sonner";
 import {
   getGetCheckpointsApiV1ImportsCheckpointsGetQueryKey,
   useExportLastfmLikesApiV1ImportsLastfmLikesPost,
@@ -30,6 +29,7 @@ import { Button } from "#/components/ui/button";
 import { Switch } from "#/components/ui/switch";
 import { useOperationProgress } from "#/hooks/useOperationProgress";
 import { formatDateTime } from "#/lib/format";
+import { toasts } from "#/lib/toasts";
 import { cn } from "#/lib/utils";
 
 /** Query keys to invalidate when an import operation completes. */
@@ -47,15 +47,13 @@ function makeOperationCallbacks(
       if (res.status === 200) {
         setOperationId((res.data as OperationStartedResponse).operation_id);
       } else {
-        toast.error(`Failed to start ${label}`, {
+        toasts.message(`Failed to start ${label}`, {
           description: `Unexpected response (${res.status})`,
         });
       }
     },
     onError: (error: unknown) => {
-      toast.error(`Failed to start ${label}`, {
-        description: error instanceof Error ? error.message : "Unknown error",
-      });
+      toasts.error(`Failed to start ${label}`, error);
     },
   };
 }

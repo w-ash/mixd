@@ -5,11 +5,16 @@ All filtering, sorting, and pagination is server-side.
 """
 
 from datetime import UTC, datetime
+from typing import Annotated
 from uuid import UUID
 
-from fastapi import APIRouter, Depends, Query, Response
+from fastapi import APIRouter, Depends, HTTPException, Query, Response
 
 from src.application.runner import execute_use_case
+from src.application.use_cases.batch_tag_tracks import (
+    BatchTagTracksCommand,
+    BatchTagTracksUseCase,
+)
 from src.application.use_cases.get_track_details import (
     GetTrackDetailsCommand,
     GetTrackDetailsUseCase,
@@ -35,14 +40,23 @@ from src.application.use_cases.set_track_preference import (
     SetTrackPreferenceCommand,
     SetTrackPreferenceUseCase,
 )
+from src.application.use_cases.tag_track import TagTrackCommand, TagTrackUseCase
 from src.application.use_cases.unlink_connector_track import (
     UnlinkConnectorTrackCommand,
     UnlinkConnectorTrackUseCase,
+)
+from src.application.use_cases.untag_track import (
+    UntagTrackCommand,
+    UntagTrackUseCase,
 )
 from src.config.constants import BusinessLimits
 from src.interface.api.deps import get_current_user_id
 from src.interface.api.schemas.common import PaginatedResponse
 from src.interface.api.schemas.tracks import (
+    AddTagRequest,
+    AddTagResponse,
+    BatchTagRequest,
+    BatchTagResponse,
     LibraryTrackSchema,
     MergeTrackRequest,
     PlaylistBriefSchema,
@@ -71,6 +85,20 @@ async def list_tracks(
     preference: str | None = Query(
         default=None, description="Filter by preference state"
     ),
+    tag: Annotated[
+        list[str] | None,
+        Query(
+            description="Filter by tag (repeat for multi-tag). Normalized server-side.",
+        ),
+    ] = None,
+    tag_mode: str = Query(
+        default="and",
+        pattern="^(and|or)$",
+        description="Intersection (and) or union (or) when tag has multiple values.",
+    ),
+    namespace: str | None = Query(
+        default=None, description="Filter to tracks carrying any mood:*/energy:* tag."
+    ),
     sort: str = Query(
         default="title_asc",
         description="Sort field and direction",
@@ -88,12 +116,25 @@ async def list_tracks(
     When ``cursor`` is provided, it takes precedence over ``offset`` for
     O(1) page seeking regardless of depth.
     """
+    # Normalize any raw tag values before they reach the filter subquery —
+    # a user could hit ?tag=Mood:Chill and still match stored mood:chill.
+    # Invalid tags surface as 422 rather than 500.
+    from src.domain.entities.tag import normalize_tag
+
+    try:
+        normalized_tags = [normalize_tag(t) for t in tag] if tag else None
+    except ValueError as e:
+        raise HTTPException(status_code=422, detail=str(e)) from e
+
     command = ListTracksCommand(
         user_id=user_id,
         query=q,
         liked=liked,
         connector=connector,
         preference=preference,
+        tags=normalized_tags,
+        tag_mode=tag_mode,  # type: ignore[arg-type]  # validated by regex pattern
+        namespace=namespace,
         sort_by=sort,  # type: ignore[arg-type]  # validated by FastAPI regex pattern
         limit=limit,
         offset=offset,
@@ -109,6 +150,7 @@ async def list_tracks(
                 t,
                 liked_track_ids=result.liked_track_ids,
                 preference_map=result.preference_map,
+                tag_map=result.tag_map,
             )
             for t in result.tracks
         ],
@@ -279,3 +321,88 @@ async def delete_track_preference(
         user_id=user_id,
     )
     return Response(status_code=204)
+
+
+@router.post("/{track_id}/tags", status_code=201)
+async def add_track_tag(
+    track_id: UUID,
+    body: AddTagRequest,
+    user_id: str = Depends(get_current_user_id),
+) -> AddTagResponse:
+    """Add a tag to a track. Source is always 'manual'.
+
+    Re-tagging an already-tagged track returns 201 with ``changed=false``
+    — the response tells the client whether a new row actually inserted.
+    """
+    command = TagTrackCommand(
+        user_id=user_id,
+        track_id=track_id,
+        raw_tag=body.tag,
+        source="manual",
+        tagged_at=datetime.now(UTC),
+    )
+    result = await execute_use_case(
+        lambda uow: TagTrackUseCase().execute(command, uow),
+        user_id=user_id,
+    )
+    return AddTagResponse(
+        track_id=result.track_id, tag=result.tag, changed=result.changed
+    )
+
+
+@router.delete("/{track_id}/tags/{tag}", status_code=204)
+async def delete_track_tag(
+    track_id: UUID,
+    tag: str,
+    user_id: str = Depends(get_current_user_id),
+) -> Response:
+    """Remove a tag from a track. Idempotent — 204 even if the tag wasn't present.
+
+    Path segments are URL-decoded by FastAPI before arriving here; the use
+    case normalizes the value (lowercase/strip/etc.) so clients that send
+    ``Mood%3AChill`` still match the stored ``mood:chill``.
+    """
+    command = UntagTrackCommand(
+        user_id=user_id,
+        track_id=track_id,
+        raw_tag=tag,
+        source="manual",
+        tagged_at=datetime.now(UTC),
+    )
+    try:
+        await execute_use_case(
+            lambda uow: UntagTrackUseCase().execute(command, uow),
+            user_id=user_id,
+        )
+    except ValueError as e:
+        raise HTTPException(status_code=422, detail=str(e)) from e
+    return Response(status_code=204)
+
+
+@router.post("/tags/batch", status_code=200)
+async def batch_tag_tracks(
+    body: BatchTagRequest,
+    user_id: str = Depends(get_current_user_id),
+) -> BatchTagResponse:
+    """Apply one tag to many tracks atomically.
+
+    Batches are capped at 15,000 track_ids (enforced by the request
+    schema's ``max_length``). An invalid tag rejects the whole batch —
+    Pydantic surfaces the ValueError from ``normalize_tag`` as a 422
+    before the use case runs, so the user never ends up with half-tagged
+    tracks.
+    """
+    command = BatchTagTracksCommand(
+        user_id=user_id,
+        track_ids=body.track_ids,
+        raw_tag=body.tag,
+        source="manual",
+        tagged_at=datetime.now(UTC),
+    )
+    result = await execute_use_case(
+        lambda uow: BatchTagTracksUseCase().execute(command, uow),
+        user_id=user_id,
+    )
+    return BatchTagResponse(
+        tag=result.tag, requested=result.requested, tagged=result.tagged
+    )

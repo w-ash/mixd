@@ -25,6 +25,10 @@ import type {
 } from '@tanstack/react-query';
 
 import type {
+  AddTagRequest,
+  AddTagResponse,
+  BatchTagRequest,
+  BatchTagResponse,
   HTTPValidationError,
   ListTracksApiV1TracksGetParams,
   MergeTrackRequest,
@@ -953,4 +957,289 @@ export const useDeleteTrackPreferenceApiV1TracksTrackIdPreferenceDelete = <TErro
         TContext
       > => {
       return useMutation(getDeleteTrackPreferenceApiV1TracksTrackIdPreferenceDeleteMutationOptions(options), queryClient);
+    }
+    /**
+ * Add a tag to a track. Source is always 'manual'.
+
+Re-tagging an already-tagged track returns 201 with ``changed=false``
+— the response tells the client whether a new row actually inserted.
+ * @summary Add Track Tag
+ */
+export type addTrackTagApiV1TracksTrackIdTagsPostResponse201 = {
+  data: AddTagResponse
+  status: 201
+}
+
+export type addTrackTagApiV1TracksTrackIdTagsPostResponse422 = {
+  data: HTTPValidationError
+  status: 422
+}
+
+export type addTrackTagApiV1TracksTrackIdTagsPostResponseSuccess = (addTrackTagApiV1TracksTrackIdTagsPostResponse201) & {
+  headers: Headers;
+};
+export type addTrackTagApiV1TracksTrackIdTagsPostResponseError = (addTrackTagApiV1TracksTrackIdTagsPostResponse422) & {
+  headers: Headers;
+};
+
+export type addTrackTagApiV1TracksTrackIdTagsPostResponse = (addTrackTagApiV1TracksTrackIdTagsPostResponseSuccess | addTrackTagApiV1TracksTrackIdTagsPostResponseError)
+
+export const getAddTrackTagApiV1TracksTrackIdTagsPostUrl = (trackId: string,) => {
+
+
+
+
+  return `/api/v1/tracks/${trackId}/tags`
+}
+
+export const addTrackTagApiV1TracksTrackIdTagsPost = async (trackId: string,
+    addTagRequest: AddTagRequest, options?: RequestInit): Promise<addTrackTagApiV1TracksTrackIdTagsPostResponse> => {
+
+  return customFetch<addTrackTagApiV1TracksTrackIdTagsPostResponse>(getAddTrackTagApiV1TracksTrackIdTagsPostUrl(trackId),
+  {
+    ...options,
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', ...options?.headers },
+    body: JSON.stringify(
+      addTagRequest,)
+  }
+);}
+
+
+
+
+export const getAddTrackTagApiV1TracksTrackIdTagsPostMutationOptions = <TError = HTTPValidationError,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof addTrackTagApiV1TracksTrackIdTagsPost>>, TError,{trackId: string;data: AddTagRequest}, TContext>, request?: SecondParameter<typeof customFetch>}
+): UseMutationOptions<Awaited<ReturnType<typeof addTrackTagApiV1TracksTrackIdTagsPost>>, TError,{trackId: string;data: AddTagRequest}, TContext> => {
+
+const mutationKey = ['addTrackTagApiV1TracksTrackIdTagsPost'];
+const {mutation: mutationOptions, request: requestOptions} = options ?
+      options.mutation && 'mutationKey' in options.mutation && options.mutation.mutationKey ?
+      options
+      : {...options, mutation: {...options.mutation, mutationKey}}
+      : {mutation: { mutationKey, }, request: undefined};
+
+
+
+
+      const mutationFn: MutationFunction<Awaited<ReturnType<typeof addTrackTagApiV1TracksTrackIdTagsPost>>, {trackId: string;data: AddTagRequest}> = (props) => {
+          const {trackId,data} = props ?? {};
+
+          return  addTrackTagApiV1TracksTrackIdTagsPost(trackId,data,requestOptions)
+        }
+
+
+
+
+
+
+  return  { mutationFn, ...mutationOptions }}
+
+    export type AddTrackTagApiV1TracksTrackIdTagsPostMutationResult = NonNullable<Awaited<ReturnType<typeof addTrackTagApiV1TracksTrackIdTagsPost>>>
+    export type AddTrackTagApiV1TracksTrackIdTagsPostMutationBody = AddTagRequest
+    export type AddTrackTagApiV1TracksTrackIdTagsPostMutationError = HTTPValidationError
+
+    /**
+ * @summary Add Track Tag
+ */
+export const useAddTrackTagApiV1TracksTrackIdTagsPost = <TError = HTTPValidationError,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof addTrackTagApiV1TracksTrackIdTagsPost>>, TError,{trackId: string;data: AddTagRequest}, TContext>, request?: SecondParameter<typeof customFetch>}
+ , queryClient?: QueryClient): UseMutationResult<
+        Awaited<ReturnType<typeof addTrackTagApiV1TracksTrackIdTagsPost>>,
+        TError,
+        {trackId: string;data: AddTagRequest},
+        TContext
+      > => {
+      return useMutation(getAddTrackTagApiV1TracksTrackIdTagsPostMutationOptions(options), queryClient);
+    }
+    /**
+ * Remove a tag from a track. Idempotent — 204 even if the tag wasn't present.
+
+Path segments are URL-decoded by FastAPI before arriving here; the use
+case normalizes the value (lowercase/strip/etc.) so clients that send
+``Mood%3AChill`` still match the stored ``mood:chill``.
+ * @summary Delete Track Tag
+ */
+export type deleteTrackTagApiV1TracksTrackIdTagsTagDeleteResponse204 = {
+  data: void
+  status: 204
+}
+
+export type deleteTrackTagApiV1TracksTrackIdTagsTagDeleteResponse422 = {
+  data: HTTPValidationError
+  status: 422
+}
+
+export type deleteTrackTagApiV1TracksTrackIdTagsTagDeleteResponseSuccess = (deleteTrackTagApiV1TracksTrackIdTagsTagDeleteResponse204) & {
+  headers: Headers;
+};
+export type deleteTrackTagApiV1TracksTrackIdTagsTagDeleteResponseError = (deleteTrackTagApiV1TracksTrackIdTagsTagDeleteResponse422) & {
+  headers: Headers;
+};
+
+export type deleteTrackTagApiV1TracksTrackIdTagsTagDeleteResponse = (deleteTrackTagApiV1TracksTrackIdTagsTagDeleteResponseSuccess | deleteTrackTagApiV1TracksTrackIdTagsTagDeleteResponseError)
+
+export const getDeleteTrackTagApiV1TracksTrackIdTagsTagDeleteUrl = (trackId: string,
+    tag: string,) => {
+
+
+
+
+  return `/api/v1/tracks/${trackId}/tags/${tag}`
+}
+
+export const deleteTrackTagApiV1TracksTrackIdTagsTagDelete = async (trackId: string,
+    tag: string, options?: RequestInit): Promise<deleteTrackTagApiV1TracksTrackIdTagsTagDeleteResponse> => {
+
+  return customFetch<deleteTrackTagApiV1TracksTrackIdTagsTagDeleteResponse>(getDeleteTrackTagApiV1TracksTrackIdTagsTagDeleteUrl(trackId,tag),
+  {
+    ...options,
+    method: 'DELETE'
+
+
+  }
+);}
+
+
+
+
+export const getDeleteTrackTagApiV1TracksTrackIdTagsTagDeleteMutationOptions = <TError = HTTPValidationError,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof deleteTrackTagApiV1TracksTrackIdTagsTagDelete>>, TError,{trackId: string;tag: string}, TContext>, request?: SecondParameter<typeof customFetch>}
+): UseMutationOptions<Awaited<ReturnType<typeof deleteTrackTagApiV1TracksTrackIdTagsTagDelete>>, TError,{trackId: string;tag: string}, TContext> => {
+
+const mutationKey = ['deleteTrackTagApiV1TracksTrackIdTagsTagDelete'];
+const {mutation: mutationOptions, request: requestOptions} = options ?
+      options.mutation && 'mutationKey' in options.mutation && options.mutation.mutationKey ?
+      options
+      : {...options, mutation: {...options.mutation, mutationKey}}
+      : {mutation: { mutationKey, }, request: undefined};
+
+
+
+
+      const mutationFn: MutationFunction<Awaited<ReturnType<typeof deleteTrackTagApiV1TracksTrackIdTagsTagDelete>>, {trackId: string;tag: string}> = (props) => {
+          const {trackId,tag} = props ?? {};
+
+          return  deleteTrackTagApiV1TracksTrackIdTagsTagDelete(trackId,tag,requestOptions)
+        }
+
+
+
+
+
+
+  return  { mutationFn, ...mutationOptions }}
+
+    export type DeleteTrackTagApiV1TracksTrackIdTagsTagDeleteMutationResult = NonNullable<Awaited<ReturnType<typeof deleteTrackTagApiV1TracksTrackIdTagsTagDelete>>>
+
+    export type DeleteTrackTagApiV1TracksTrackIdTagsTagDeleteMutationError = HTTPValidationError
+
+    /**
+ * @summary Delete Track Tag
+ */
+export const useDeleteTrackTagApiV1TracksTrackIdTagsTagDelete = <TError = HTTPValidationError,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof deleteTrackTagApiV1TracksTrackIdTagsTagDelete>>, TError,{trackId: string;tag: string}, TContext>, request?: SecondParameter<typeof customFetch>}
+ , queryClient?: QueryClient): UseMutationResult<
+        Awaited<ReturnType<typeof deleteTrackTagApiV1TracksTrackIdTagsTagDelete>>,
+        TError,
+        {trackId: string;tag: string},
+        TContext
+      > => {
+      return useMutation(getDeleteTrackTagApiV1TracksTrackIdTagsTagDeleteMutationOptions(options), queryClient);
+    }
+    /**
+ * Apply one tag to many tracks atomically.
+
+Batches are capped at 15,000 track_ids (enforced by the request
+schema's ``max_length``). An invalid tag rejects the whole batch —
+Pydantic surfaces the ValueError from ``normalize_tag`` as a 422
+before the use case runs, so the user never ends up with half-tagged
+tracks.
+ * @summary Batch Tag Tracks
+ */
+export type batchTagTracksApiV1TracksTagsBatchPostResponse200 = {
+  data: BatchTagResponse
+  status: 200
+}
+
+export type batchTagTracksApiV1TracksTagsBatchPostResponse422 = {
+  data: HTTPValidationError
+  status: 422
+}
+
+export type batchTagTracksApiV1TracksTagsBatchPostResponseSuccess = (batchTagTracksApiV1TracksTagsBatchPostResponse200) & {
+  headers: Headers;
+};
+export type batchTagTracksApiV1TracksTagsBatchPostResponseError = (batchTagTracksApiV1TracksTagsBatchPostResponse422) & {
+  headers: Headers;
+};
+
+export type batchTagTracksApiV1TracksTagsBatchPostResponse = (batchTagTracksApiV1TracksTagsBatchPostResponseSuccess | batchTagTracksApiV1TracksTagsBatchPostResponseError)
+
+export const getBatchTagTracksApiV1TracksTagsBatchPostUrl = () => {
+
+
+
+
+  return `/api/v1/tracks/tags/batch`
+}
+
+export const batchTagTracksApiV1TracksTagsBatchPost = async (batchTagRequest: BatchTagRequest, options?: RequestInit): Promise<batchTagTracksApiV1TracksTagsBatchPostResponse> => {
+
+  return customFetch<batchTagTracksApiV1TracksTagsBatchPostResponse>(getBatchTagTracksApiV1TracksTagsBatchPostUrl(),
+  {
+    ...options,
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', ...options?.headers },
+    body: JSON.stringify(
+      batchTagRequest,)
+  }
+);}
+
+
+
+
+export const getBatchTagTracksApiV1TracksTagsBatchPostMutationOptions = <TError = HTTPValidationError,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof batchTagTracksApiV1TracksTagsBatchPost>>, TError,{data: BatchTagRequest}, TContext>, request?: SecondParameter<typeof customFetch>}
+): UseMutationOptions<Awaited<ReturnType<typeof batchTagTracksApiV1TracksTagsBatchPost>>, TError,{data: BatchTagRequest}, TContext> => {
+
+const mutationKey = ['batchTagTracksApiV1TracksTagsBatchPost'];
+const {mutation: mutationOptions, request: requestOptions} = options ?
+      options.mutation && 'mutationKey' in options.mutation && options.mutation.mutationKey ?
+      options
+      : {...options, mutation: {...options.mutation, mutationKey}}
+      : {mutation: { mutationKey, }, request: undefined};
+
+
+
+
+      const mutationFn: MutationFunction<Awaited<ReturnType<typeof batchTagTracksApiV1TracksTagsBatchPost>>, {data: BatchTagRequest}> = (props) => {
+          const {data} = props ?? {};
+
+          return  batchTagTracksApiV1TracksTagsBatchPost(data,requestOptions)
+        }
+
+
+
+
+
+
+  return  { mutationFn, ...mutationOptions }}
+
+    export type BatchTagTracksApiV1TracksTagsBatchPostMutationResult = NonNullable<Awaited<ReturnType<typeof batchTagTracksApiV1TracksTagsBatchPost>>>
+    export type BatchTagTracksApiV1TracksTagsBatchPostMutationBody = BatchTagRequest
+    export type BatchTagTracksApiV1TracksTagsBatchPostMutationError = HTTPValidationError
+
+    /**
+ * @summary Batch Tag Tracks
+ */
+export const useBatchTagTracksApiV1TracksTagsBatchPost = <TError = HTTPValidationError,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof batchTagTracksApiV1TracksTagsBatchPost>>, TError,{data: BatchTagRequest}, TContext>, request?: SecondParameter<typeof customFetch>}
+ , queryClient?: QueryClient): UseMutationResult<
+        Awaited<ReturnType<typeof batchTagTracksApiV1TracksTagsBatchPost>>,
+        TError,
+        {data: BatchTagRequest},
+        TContext
+      > => {
+      return useMutation(getBatchTagTracksApiV1TracksTagsBatchPostMutationOptions(options), queryClient);
     }

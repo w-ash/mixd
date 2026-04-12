@@ -1,8 +1,6 @@
 import { useQueryClient } from "@tanstack/react-query";
 import { GitMerge } from "lucide-react";
 import { useState } from "react";
-import { toast } from "sonner";
-
 import type {
   LibraryTrackSchema,
   TrackDetailSchema,
@@ -25,6 +23,7 @@ import {
   DialogTrigger,
 } from "#/components/ui/dialog";
 import { formatArtists } from "#/lib/format";
+import { toasts } from "#/lib/toasts";
 
 interface MergeTrackDialogProps {
   winner: TrackDetailSchema;
@@ -75,17 +74,13 @@ export function MergeTrackDialog({ winner }: MergeTrackDialogProps) {
         queryClient.invalidateQueries({
           queryKey: getGetTrackDetailApiV1TracksTrackIdGetQueryKey(winner.id),
         });
-        toast.success("Tracks merged", {
+        toasts.success("Tracks merged", {
           description: `${selectedLoser?.title} has been merged into ${winner.title}.`,
         });
         setOpen(false);
         setSelectedLoser(null);
       },
-      onError: (error: Error) => {
-        toast.error("Failed to merge tracks", {
-          description: error.message,
-        });
-      },
+      meta: { errorLabel: "Failed to merge tracks" },
     },
   });
 

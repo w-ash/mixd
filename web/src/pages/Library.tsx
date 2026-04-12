@@ -1,15 +1,19 @@
-import { ArrowUp, Heart, Music } from "lucide-react";
-import { useCallback, useEffect, useRef } from "react";
+import { ArrowUp, Heart, Music, X } from "lucide-react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { Link, useSearchParams } from "react-router";
 import { useGetConnectorsApiV1ConnectorsGet } from "#/api/generated/connectors/connectors";
 import { useListTracksApiV1TracksGet } from "#/api/generated/tracks/tracks";
 import { PageHeader } from "#/components/layout/PageHeader";
+import { BulkTagDialog } from "#/components/shared/BulkTagDialog";
 import { ConnectorIcon } from "#/components/shared/ConnectorIcon";
 import { EmptyState } from "#/components/shared/EmptyState";
 import { PreferenceBadge } from "#/components/shared/PreferenceToggle";
 import { QueryErrorState } from "#/components/shared/QueryErrorState";
 import { TablePagination } from "#/components/shared/TablePagination";
+import { TagChip } from "#/components/shared/TagChip";
+import { TagFilter } from "#/components/shared/TagFilter";
 import { Button } from "#/components/ui/button";
+import { Checkbox } from "#/components/ui/checkbox";
 import { Input } from "#/components/ui/input";
 import {
   Select,
@@ -34,6 +38,23 @@ import { cn } from "#/lib/utils";
 
 const PAGE_SIZE = 50;
 const STAGGER_CAP = 15;
+const TAGS_PREVIEW_CAP = 3;
+
+/** Inline tag list for a Library row — shows first few chips, then "+N". */
+function TagRowChips({ tags }: { tags: string[] }) {
+  const visible = tags.slice(0, TAGS_PREVIEW_CAP);
+  const overflow = tags.length - visible.length;
+  return (
+    <div className="flex flex-wrap items-center gap-1">
+      {visible.map((tag) => (
+        <TagChip key={tag} tag={tag} />
+      ))}
+      {overflow > 0 && (
+        <span className="font-mono text-xs text-text-muted">+{overflow}</span>
+      )}
+    </div>
+  );
+}
 
 type SortField = "title" | "artist" | "duration" | "added";
 type SortDir = "asc" | "desc";
@@ -134,6 +155,9 @@ export function Library() {
   const likedParam = searchParams.get("liked");
   const connectorParam = searchParams.get("connector");
   const preferenceParam = searchParams.get("preference");
+  const tagParams = searchParams.getAll("tag");
+  const tagModeParam: "and" | "or" =
+    searchParams.get("tag_mode") === "or" ? "or" : "and";
   const sortParam = searchParams.get("sort") ?? "title_asc";
   const { field: sortField, dir: sortDir } = parseSortParam(sortParam);
 
@@ -151,6 +175,11 @@ export function Library() {
   // Map: page number → cursor for the *next* page after that page.
   const cursorMapRef = useRef<Map<number, string>>(new Map());
 
+  // Multi-track selection is local. The URL-change handlers below clear it
+  // so the user can't silently bulk-tag tracks they can no longer see.
+  const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
+  const [bulkTagOpen, setBulkTagOpen] = useState(false);
+
   // Use cursor if available from the previous page (sequential next-page)
   const cursorForPage = cursorMapRef.current.get(pageParam - 1);
 
@@ -161,6 +190,8 @@ export function Library() {
         liked: likedFilter,
         connector: connectorParam ?? undefined,
         preference: preferenceParam ?? undefined,
+        tag: tagParams.length > 0 ? tagParams : undefined,
+        tag_mode: tagModeParam,
         sort: sortParam,
         limit: PAGE_SIZE,
         offset: queryOffset,
@@ -187,10 +218,11 @@ export function Library() {
   const { data: connectorsData } = useGetConnectorsApiV1ConnectorsGet();
   const connectors = connectorsData?.status === 200 ? connectorsData.data : [];
 
-  /** Update a URL search param, resetting page and cursor cache to 1 */
+  /** Update a URL search param, resetting page, cursor cache, and selection. */
   const setFilter = useCallback(
     (key: string, value: string | null) => {
       cursorMapRef.current.clear();
+      setSelectedIds(new Set());
       setSearchParams(
         (prev) => {
           const next = new URLSearchParams(prev);
@@ -200,6 +232,25 @@ export function Library() {
             next.set(key, value);
           }
           next.delete("page"); // reset pagination on filter change
+          return next;
+        },
+        { replace: true },
+      );
+    },
+    [setSearchParams],
+  );
+
+  /** Replace the full set of ?tag= params (repeated keys) and reset pagination. */
+  const setTagFilters = useCallback(
+    (tags: string[]) => {
+      cursorMapRef.current.clear();
+      setSelectedIds(new Set());
+      setSearchParams(
+        (prev) => {
+          const next = new URLSearchParams(prev);
+          next.delete("tag");
+          for (const t of tags) next.append("tag", t);
+          next.delete("page");
           return next;
         },
         { replace: true },
@@ -219,6 +270,7 @@ export function Library() {
     const value = e.target.value;
     setSearch(value);
     cursorMapRef.current.clear();
+    setSelectedIds(new Set());
     // Sync to URL for deep-linking (debounced via deferred value for API)
     setSearchParams(
       (prev) => {
@@ -236,7 +288,11 @@ export function Library() {
   };
 
   const hasFilters =
-    querySearch || likedParam || connectorParam || preferenceParam;
+    querySearch ||
+    likedParam ||
+    connectorParam ||
+    preferenceParam ||
+    tagParams.length > 0;
 
   return (
     <div>
@@ -323,7 +379,40 @@ export function Library() {
             <SelectItem value="nah">Nah</SelectItem>
           </SelectContent>
         </Select>
+
+        <TagFilter
+          tags={tagParams}
+          mode={tagModeParam}
+          onTagsChange={setTagFilters}
+          onModeChange={(mode) =>
+            setFilter("tag_mode", mode === "and" ? null : mode)
+          }
+        />
       </div>
+
+      {/* Bulk-action toolbar — only visible while a selection exists. */}
+      {selectedIds.size > 0 && (
+        <section
+          aria-label="Bulk selection"
+          className="mb-3 flex items-center gap-3 rounded-md border border-primary/40 bg-primary/5 px-3 py-2 text-sm"
+        >
+          <span className="font-display text-text">
+            {selectedIds.size} selected
+          </span>
+          <Button size="sm" onClick={() => setBulkTagOpen(true)}>
+            Tag selected
+          </Button>
+          <Button
+            size="sm"
+            variant="ghost"
+            onClick={() => setSelectedIds(new Set())}
+            aria-label="Clear selection"
+          >
+            <X className="mr-1 size-3.5" />
+            Clear
+          </Button>
+        </section>
+      )}
 
       {/* Loading */}
       {isLoading && <TrackTableSkeleton />}
@@ -365,6 +454,27 @@ export function Library() {
             <TableHeader>
               <TableRow>
                 <TableHead className="w-8">
+                  <Checkbox
+                    aria-label="Select all rows on this page"
+                    checked={
+                      tracks.length === 0
+                        ? false
+                        : tracks.every((t) => selectedIds.has(t.id))
+                          ? true
+                          : tracks.some((t) => selectedIds.has(t.id))
+                            ? "indeterminate"
+                            : false
+                    }
+                    onCheckedChange={(checked) => {
+                      if (checked) {
+                        setSelectedIds(new Set(tracks.map((t) => t.id)));
+                      } else {
+                        setSelectedIds(new Set());
+                      }
+                    }}
+                  />
+                </TableHead>
+                <TableHead className="w-8">
                   <span className="sr-only">Liked</span>
                 </TableHead>
                 <SortableHead
@@ -394,6 +504,7 @@ export function Library() {
                   Duration
                 </SortableHead>
                 <TableHead className="w-10 text-center">Pref</TableHead>
+                <TableHead className="w-48">Tags</TableHead>
                 <TableHead className="w-24 text-center">Sources</TableHead>
               </TableRow>
             </TableHeader>
@@ -410,6 +521,21 @@ export function Library() {
                       : undefined
                   }
                 >
+                  {/* Select */}
+                  <TableCell className="w-8 text-center">
+                    <Checkbox
+                      aria-label={`Select ${track.title}`}
+                      checked={selectedIds.has(track.id)}
+                      onCheckedChange={(checked) => {
+                        setSelectedIds((prev) => {
+                          const next = new Set(prev);
+                          if (checked) next.add(track.id);
+                          else next.delete(track.id);
+                          return next;
+                        });
+                      }}
+                    />
+                  </TableCell>
                   {/* Liked */}
                   <TableCell className="relative w-8 text-center">
                     {/* Gold hover accent bar */}
@@ -448,6 +574,12 @@ export function Library() {
                       <PreferenceBadge state={track.preference} />
                     )}
                   </TableCell>
+                  {/* Tags */}
+                  <TableCell className="w-48">
+                    {track.tags && track.tags.length > 0 && (
+                      <TagRowChips tags={track.tags} />
+                    )}
+                  </TableCell>
                   {/* Sources */}
                   <TableCell className="w-24">
                     <span className="flex justify-center gap-1">
@@ -466,10 +598,20 @@ export function Library() {
             totalPages={totalPages}
             total={total}
             limit={PAGE_SIZE}
-            onPageChange={setPage}
+            onPageChange={(nextPage) => {
+              setSelectedIds(new Set());
+              setPage(nextPage);
+            }}
           />
         </div>
       )}
+
+      <BulkTagDialog
+        open={bulkTagOpen}
+        onOpenChange={setBulkTagOpen}
+        trackIds={Array.from(selectedIds)}
+        onTagged={() => setSelectedIds(new Set())}
+      />
     </div>
   );
 }

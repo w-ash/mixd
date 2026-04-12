@@ -1,7 +1,5 @@
 import { useQueryClient } from "@tanstack/react-query";
 import { Link } from "react-router";
-import { toast } from "sonner";
-
 import type { ConnectorMappingSchema } from "#/api/generated/model";
 import {
   getGetTrackDetailApiV1TracksTrackIdGetQueryKey,
@@ -9,6 +7,7 @@ import {
 } from "#/api/generated/tracks/tracks";
 import { ConfirmationDialog } from "#/components/shared/ConfirmationDialog";
 import { MappingInfoCard } from "#/components/shared/MappingInfoCard";
+import { toasts } from "#/lib/toasts";
 
 interface UnlinkMappingDialogProps {
   trackId: string;
@@ -33,7 +32,7 @@ export function UnlinkMappingDialog({
           });
           const orphanId =
             response.status === 200 ? response.data.orphan_track_id : null;
-          toast.success("Mapping unlinked", {
+          toasts.success("Mapping unlinked", {
             description: orphanId ? (
               <span>
                 An orphan track was created.{" "}
@@ -47,9 +46,7 @@ export function UnlinkMappingDialog({
           });
           onOpenChange(false);
         },
-        onError: (error: Error) => {
-          toast.error("Failed to unlink", { description: error.message });
-        },
+        meta: { errorLabel: "Failed to unlink" },
       },
     });
 

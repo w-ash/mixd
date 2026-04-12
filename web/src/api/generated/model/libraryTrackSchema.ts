@@ -21,4 +21,5 @@ export interface LibraryTrackSchema {
   connector_names: string[];
   is_liked: boolean;
   preference?: PreferenceState | null;
+  tags?: string[];
 }

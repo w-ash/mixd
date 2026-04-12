@@ -8,7 +8,7 @@ answering "which playlists contain this track?".
 from datetime import datetime
 from uuid import UUID
 
-from attrs import Factory, define
+from attrs import Factory, define, field
 
 from src.config.constants import MappingOrigin
 from src.domain.entities import Playlist, Track, TrackLike
@@ -77,6 +77,7 @@ class TrackDetailsResult:
     play_summary: PlaySummary
     playlists: list[PlaylistSummary]
     preference: PreferenceState | None = None
+    tags: list[str] = field(factory=list)
 
 
 def _build_connector_mappings(
@@ -170,6 +171,11 @@ class GetTrackDetailsUseCase:
             )
             pref = prefs.get(track_id)
 
+            tags_by_track = await uow.get_tag_repository().get_tags(
+                [track_id], user_id=command.user_id
+            )
+            tag_names = [t.tag for t in tags_by_track.get(track_id, [])]
+
             return TrackDetailsResult(
                 track=track,
                 connector_mappings=_build_connector_mappings(full_mappings),
@@ -177,4 +183,5 @@ class GetTrackDetailsUseCase:
                 play_summary=_build_play_summary(play_agg, track_id),
                 playlists=_build_playlist_summaries(playlists),
                 preference=pref.state if pref else None,
+                tags=tag_names,
             )

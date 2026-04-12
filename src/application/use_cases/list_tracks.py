@@ -5,6 +5,8 @@ plain listing. This avoids two nearly-identical use cases and maps cleanly to
 `GET /tracks?q=...`.
 """
 
+from collections.abc import Sequence
+from typing import Literal
 from uuid import UUID
 
 from attrs import define, field
@@ -36,6 +38,9 @@ class ListTracksCommand:
     liked: bool | None = None
     connector: str | None = None
     preference: str | None = None
+    tags: Sequence[str] | None = None
+    tag_mode: Literal["and", "or"] = "and"
+    namespace: str | None = None
     sort_by: TrackSortBy = "title_asc"
     limit: int = field(default=BusinessLimits.DEFAULT_PAGE_SIZE)
     offset: int = 0
@@ -52,6 +57,7 @@ class ListTracksResult:
     offset: int
     liked_track_ids: set[UUID]
     preference_map: dict[UUID, PreferenceState]
+    tag_map: dict[UUID, list[str]] = field(factory=dict)
     next_cursor: str | None = None
 
 
@@ -98,6 +104,9 @@ class ListTracksUseCase:
                 liked=command.liked,
                 connector=command.connector,
                 preference=command.preference,
+                tags=command.tags,
+                tag_mode=command.tag_mode,
+                namespace=command.namespace,
                 sort_by=command.sort_by,
                 limit=command.limit,
                 offset=command.offset,
@@ -118,13 +127,20 @@ class ListTracksUseCase:
                     )
                 )
 
-            # Batch-fetch preferences for this page of tracks
+            # Batch-fetch preferences and tags for this page of tracks
             track_ids = [t.id for t in page["tracks"]]
             prefs = await uow.get_preference_repository().get_preferences(
                 track_ids, user_id=command.user_id
             )
             preference_map: dict[UUID, PreferenceState] = {
                 tid: p.state for tid, p in prefs.items()
+            }
+            tags_by_track = await uow.get_tag_repository().get_tags(
+                track_ids, user_id=command.user_id
+            )
+            tag_map: dict[UUID, list[str]] = {
+                tid: [t.tag for t in tag_list]
+                for tid, tag_list in tags_by_track.items()
             }
 
             return ListTracksResult(
@@ -134,5 +150,6 @@ class ListTracksUseCase:
                 offset=command.offset,
                 liked_track_ids=page["liked_track_ids"],
                 preference_map=preference_map,
+                tag_map=tag_map,
                 next_cursor=next_cursor,
             )

@@ -6,7 +6,6 @@
  */
 
 import { useCallback, useState } from "react";
-import { toast } from "sonner";
 
 import {
   usePreviewSavedWorkflowApiV1WorkflowsWorkflowIdPreviewPost,
@@ -14,6 +13,7 @@ import {
 } from "#/api/generated/workflows/workflows";
 import { useWorkflowSSE } from "#/hooks/useWorkflowSSE";
 import type { NodeStatus } from "#/lib/sse-types";
+import { toasts } from "#/lib/toasts";
 import { useEditorStore } from "#/stores/editor-store";
 
 export interface PreviewTrack {
@@ -88,15 +88,15 @@ export function useWorkflowPreview(): UseWorkflowPreviewReturn {
         const data = res.data as { operation_id: string };
         sse.start(data.operation_id);
       } else {
-        toast.error("Failed to start preview");
+        toasts.message("Failed to start preview");
       }
     };
 
     const handleError = (err: unknown) => {
-      const error =
-        err instanceof Error ? err : new Error("Failed to start preview");
-      setMutationError(error);
-      toast.error("Failed to start preview");
+      setMutationError(
+        err instanceof Error ? err : new Error("Failed to start preview"),
+      );
+      toasts.error("Failed to start preview", err);
     };
 
     if (workflowId !== null) {

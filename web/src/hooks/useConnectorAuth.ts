@@ -1,6 +1,5 @@
 import { useQueryClient } from "@tanstack/react-query";
 import { useState } from "react";
-import { toast } from "sonner";
 
 import {
   getLastfmAuthUrlApiV1ConnectorsLastfmAuthUrlGet,
@@ -11,6 +10,7 @@ import {
   useDeleteConnectorTokenApiV1ConnectorsServiceTokenDelete,
 } from "#/api/generated/connectors/connectors";
 import { getConnectorLabel } from "#/components/shared/ConnectorIcon";
+import { toasts } from "#/lib/toasts";
 
 type AuthUrlFetcher = (
   options?: RequestInit,
@@ -40,11 +40,9 @@ export function useConnectorAuth(service: string) {
       mutation: {
         onSuccess: () => {
           queryClient.invalidateQueries({ queryKey: connectorsQueryKey });
-          toast.success(`${label} disconnected`);
+          toasts.success(`${label} disconnected`);
         },
-        onError: () => {
-          toast.error(`Failed to disconnect ${label}`);
-        },
+        meta: { errorLabel: `Failed to disconnect ${label}` },
       },
     });
 
@@ -61,9 +59,9 @@ export function useConnectorAuth(service: string) {
         // Don't reset isConnecting — page is navigating away
         return;
       }
-      toast.error(`No auth URL returned for ${label}`);
+      toasts.message(`No auth URL returned for ${label}`);
     } catch {
-      toast.error(`Failed to start ${label} authorization`);
+      toasts.message(`Failed to start ${label} authorization`);
     }
     setIsConnecting(false);
   }

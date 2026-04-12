@@ -149,6 +149,9 @@ class TrackRepositoryProtocol(Protocol):
         liked: bool | None = None,
         connector: str | None = None,
         preference: str | None = None,
+        tags: Sequence[str] | None = None,
+        tag_mode: Literal["and", "or"] = "and",
+        namespace: str | None = None,
         sort_by: str = "title_asc",
         limit: int = 50,
         offset: int = 0,
@@ -166,6 +169,13 @@ class TrackRepositoryProtocol(Protocol):
             query: Text search across title, artist, album.
             liked: Filter by canonical liked status (liked on any service).
             connector: Filter by connector mapping presence.
+            tags: Filter to tracks carrying the given tag(s). When set,
+                ``tag_mode`` picks intersection ("and") or union ("or") semantics.
+            tag_mode: Combine multi-tag filters. ``"and"`` returns tracks
+                carrying every listed tag; ``"or"`` returns tracks carrying
+                any listed tag. Ignored when ``tags`` is None.
+            namespace: Filter to tracks carrying any tag whose namespace
+                matches (e.g. ``"mood"`` → any ``mood:*`` tag).
             sort_by: Sort field and direction.
             limit: Maximum tracks to return.
             offset: Number of tracks to skip (ignored when keyset params present).

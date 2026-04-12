@@ -1,7 +1,5 @@
 import { useQueryClient } from "@tanstack/react-query";
 import { useState } from "react";
-import { toast } from "sonner";
-
 import type {
   ConnectorMappingSchema,
   LibraryTrackSchema,
@@ -22,6 +20,7 @@ import {
   DialogTitle,
 } from "#/components/ui/dialog";
 import { formatArtists } from "#/lib/format";
+import { toasts } from "#/lib/toasts";
 
 interface RelinkMappingDialogProps {
   trackId: string;
@@ -54,14 +53,12 @@ export function RelinkMappingDialog({
               ),
             });
           }
-          toast.success("Mapping relinked", {
+          toasts.success("Mapping relinked", {
             description: `Moved to "${selectedTarget?.title}".`,
           });
           onOpenChange(false);
         },
-        onError: (error: Error) => {
-          toast.error("Failed to relink", { description: error.message });
-        },
+        meta: { errorLabel: "Failed to relink" },
       },
     });
 

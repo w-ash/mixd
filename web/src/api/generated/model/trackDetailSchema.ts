@@ -28,4 +28,5 @@ export interface TrackDetailSchema {
   play_summary: PlaySummarySchema;
   playlists: PlaylistBriefSchema[];
   preference?: PreferenceState | null;
+  tags?: string[];
 }

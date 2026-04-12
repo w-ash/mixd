@@ -1,6 +1,21 @@
-import { QueryClient } from "@tanstack/react-query";
+import { MutationCache, QueryClient } from "@tanstack/react-query";
+
+import { createMutationErrorHandler } from "#/lib/toasts";
 
 import { API_ERROR_CODES, ApiError } from "./client";
+
+// Type-register the shape of `meta` on mutations so callers get
+// strongly-typed `meta: { errorLabel }` / `meta: { suppressErrorToast }`.
+declare module "@tanstack/react-query" {
+  interface Register {
+    mutationMeta: {
+      /** Toast title shown by the global MutationCache.onError handler. */
+      errorLabel?: string;
+      /** Skip the global toast (caller shows an inline error instead). */
+      suppressErrorToast?: boolean;
+    };
+  }
+}
 
 /** Named staleTime presets by data volatility. */
 export const STALE = {
@@ -16,6 +31,9 @@ export const STALE = {
 
 export function createQueryClient(): QueryClient {
   return new QueryClient({
+    mutationCache: new MutationCache({
+      onError: createMutationErrorHandler(),
+    }),
     defaultOptions: {
       queries: {
         staleTime: 30_000,

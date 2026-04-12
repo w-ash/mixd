@@ -8,8 +8,6 @@
 import { useQueryClient } from "@tanstack/react-query";
 import { Clock, Eye, RotateCcw } from "lucide-react";
 import { useState } from "react";
-import { toast } from "sonner";
-
 import type {
   WorkflowDefSchemaInput,
   WorkflowVersionSchema,
@@ -29,6 +27,7 @@ import {
 } from "#/components/ui/dialog";
 import { WorkflowDiff } from "#/components/workflow/WorkflowDiff";
 import { formatDateTime } from "#/lib/format";
+import { toasts } from "#/lib/toasts";
 import { useEditorStore } from "#/stores/editor-store";
 
 export function VersionHistory({ workflowId }: { workflowId: string }) {
@@ -41,7 +40,9 @@ export function VersionHistory({ workflowId }: { workflowId: string }) {
   const versions = versionsData?.status === 200 ? versionsData.data : [];
 
   const revertMutation =
-    useRevertWorkflowVersionApiV1WorkflowsWorkflowIdVersionsVersionRevertPost();
+    useRevertWorkflowVersionApiV1WorkflowsWorkflowIdVersionsVersionRevertPost({
+      mutation: { meta: { errorLabel: "Failed to revert" } },
+    });
 
   const handleRevert = (version: number) => {
     revertMutation.mutate(
@@ -57,11 +58,8 @@ export function VersionHistory({ workflowId }: { workflowId: string }) {
               queryKey:
                 getGetWorkflowApiV1WorkflowsWorkflowIdGetQueryKey(workflowId),
             });
-            toast.success(`Reverted to version ${version}`);
+            toasts.success(`Reverted to version ${version}`);
           }
-        },
-        onError: () => {
-          toast.error("Failed to revert");
         },
       },
     );

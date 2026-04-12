@@ -6,9 +6,10 @@ use case result objects into Pydantic models for JSON serialization.
 """
 
 from datetime import datetime
+from typing import Annotated
 from uuid import UUID
 
-from pydantic import BaseModel, ConfigDict
+from pydantic import AfterValidator, BaseModel, ConfigDict, Field
 
 from src.application.use_cases.get_track_details import (
     ConnectorMappingInfo,
@@ -20,8 +21,13 @@ from src.application.use_cases.get_track_details import (
 from src.domain.entities import Playlist
 from src.domain.entities.playlist import DB_PSEUDO_CONNECTOR
 from src.domain.entities.preference import PreferenceState
+from src.domain.entities.tag import normalize_tag
 from src.domain.entities.track import Track
 from src.interface.api.schemas.playlists import ArtistSchema, to_artist_schema
+
+# Raw tag strings are validated + normalized at the Pydantic layer so
+# invalid input surfaces as a 422 BEFORE hitting the use case or DB.
+TagString = Annotated[str, AfterValidator(normalize_tag)]
 
 
 class LibraryTrackSchema(BaseModel):
@@ -38,12 +44,54 @@ class LibraryTrackSchema(BaseModel):
     connector_names: list[str]
     is_liked: bool
     preference: PreferenceState | None = None
+    tags: list[str] = Field(default_factory=list)
 
 
 class SetPreferenceRequest(BaseModel):
     """Request body for PUT /tracks/{id}/preference."""
 
     state: PreferenceState
+
+
+class AddTagRequest(BaseModel):
+    """Request body for POST /tracks/{id}/tags."""
+
+    tag: TagString
+
+
+# Cap the batch endpoint at 15,000 track_ids — matches the backlog guardrail
+# and prevents a single request from locking the write path for minutes.
+BATCH_TAG_MAX_TRACKS = 15_000
+
+
+class BatchTagRequest(BaseModel):
+    """Request body for POST /tracks/tags/batch."""
+
+    track_ids: list[UUID] = Field(max_length=BATCH_TAG_MAX_TRACKS)
+    tag: TagString
+
+
+class TagCountSchema(BaseModel):
+    """Tag with its usage count, for autocomplete and tag browsers."""
+
+    tag: str
+    count: int
+
+
+class AddTagResponse(BaseModel):
+    """Response from POST /tracks/{id}/tags."""
+
+    track_id: UUID
+    tag: str
+    changed: bool
+
+
+class BatchTagResponse(BaseModel):
+    """Response from POST /tracks/tags/batch."""
+
+    tag: str
+    requested: int
+    tagged: int
 
 
 class ConnectorMappingSchema(BaseModel):
@@ -108,6 +156,7 @@ class TrackDetailSchema(BaseModel):
     play_summary: PlaySummarySchema
     playlists: list[PlaylistBriefSchema]
     preference: PreferenceState | None = None
+    tags: list[str] = Field(default_factory=list)
 
 
 class MergeTrackRequest(BaseModel):
@@ -142,6 +191,7 @@ def to_library_track(
     *,
     liked_track_ids: set[UUID],
     preference_map: dict[UUID, PreferenceState] | None = None,
+    tag_map: dict[UUID, list[str]] | None = None,
 ) -> LibraryTrackSchema:
     """Convert domain Track to library list schema.
 
@@ -149,6 +199,7 @@ def to_library_track(
         track: Domain Track entity.
         liked_track_ids: Set of track IDs liked on any service (from track_likes table).
         preference_map: Optional {track_id: state} for preference column.
+        tag_map: Optional {track_id: [tag, ...]} for tag chips column.
     """
     return LibraryTrackSchema(
         id=track.id,
@@ -160,6 +211,7 @@ def to_library_track(
         connector_names=_get_connector_names(track),
         is_liked=track.id in liked_track_ids,
         preference=preference_map.get(track.id) if preference_map else None,
+        tags=tag_map.get(track.id, []) if tag_map else [],
     )
 
 
@@ -223,4 +275,5 @@ def to_track_detail(result: TrackDetailsResult) -> TrackDetailSchema:
         play_summary=_to_play_summary_schema(result.play_summary),
         playlists=[_to_playlist_brief_schema(p) for p in result.playlists],
         preference=result.preference,
+        tags=result.tags,
     )

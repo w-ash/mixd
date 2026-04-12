@@ -1070,6 +1070,58 @@
             "description": "Filter by preference state"
           },
           {
+            "name": "tag",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "array",
+                  "items": {
+                    "type": "string"
+                  }
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "Filter by tag (repeat for multi-tag). Normalized server-side.",
+              "title": "Tag"
+            },
+            "description": "Filter by tag (repeat for multi-tag). Normalized server-side."
+          },
+          {
+            "name": "tag_mode",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string",
+              "pattern": "^(and|or)$",
+              "description": "Intersection (and) or union (or) when tag has multiple values.",
+              "default": "and",
+              "title": "Tag Mode"
+            },
+            "description": "Intersection (and) or union (or) when tag has multiple values."
+          },
+          {
+            "name": "namespace",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "Filter to tracks carrying any mood:*/energy:* tag.",
+              "title": "Namespace"
+            },
+            "description": "Filter to tracks carrying any mood:*/energy:* tag."
+          },
+          {
             "name": "sort",
             "in": "query",
             "required": false,
@@ -1539,6 +1591,217 @@
         "responses": {
           "204": {
             "description": "Successful Response"
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/tracks/{track_id}/tags": {
+      "post": {
+        "tags": [
+          "tracks"
+        ],
+        "summary": "Add Track Tag",
+        "description": "Add a tag to a track. Source is always 'manual'.\n\nRe-tagging an already-tagged track returns 201 with ``changed=false``\n\u2014 the response tells the client whether a new row actually inserted.",
+        "operationId": "add_track_tag_api_v1_tracks__track_id__tags_post",
+        "parameters": [
+          {
+            "name": "track_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid",
+              "title": "Track Id"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/AddTagRequest"
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AddTagResponse"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/tracks/{track_id}/tags/{tag}": {
+      "delete": {
+        "tags": [
+          "tracks"
+        ],
+        "summary": "Delete Track Tag",
+        "description": "Remove a tag from a track. Idempotent \u2014 204 even if the tag wasn't present.\n\nPath segments are URL-decoded by FastAPI before arriving here; the use\ncase normalizes the value (lowercase/strip/etc.) so clients that send\n``Mood%3AChill`` still match the stored ``mood:chill``.",
+        "operationId": "delete_track_tag_api_v1_tracks__track_id__tags__tag__delete",
+        "parameters": [
+          {
+            "name": "track_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid",
+              "title": "Track Id"
+            }
+          },
+          {
+            "name": "tag",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Tag"
+            }
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": "Successful Response"
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/tracks/tags/batch": {
+      "post": {
+        "tags": [
+          "tracks"
+        ],
+        "summary": "Batch Tag Tracks",
+        "description": "Apply one tag to many tracks atomically.\n\nBatches are capped at 15,000 track_ids (enforced by the request\nschema's ``max_length``). An invalid tag rejects the whole batch \u2014\nPydantic surfaces the ValueError from ``normalize_tag`` as a 422\nbefore the use case runs, so the user never ends up with half-tagged\ntracks.",
+        "operationId": "batch_tag_tracks_api_v1_tracks_tags_batch_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/BatchTagRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/BatchTagResponse"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/tags": {
+      "get": {
+        "tags": [
+          "tags"
+        ],
+        "summary": "List Tags",
+        "description": "List a user's tags with usage counts, sorted by count desc.\n\nWhen ``q`` is set, results filter via the GIN trigram index on ``tag``\nfor sub-millisecond lookups \u2014 powers the tag autocomplete in the UI.",
+        "operationId": "list_tags_api_v1_tags_get",
+        "parameters": [
+          {
+            "name": "q",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string",
+                  "minLength": 1
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "Trigram-filtered autocomplete query",
+              "title": "Q"
+            },
+            "description": "Trigram-filtered autocomplete query"
+          },
+          {
+            "name": "limit",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "maximum": 500,
+              "minimum": 1,
+              "default": 100,
+              "title": "Limit"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/components/schemas/TagCountSchema"
+                  },
+                  "title": "Response List Tags Api V1 Tags Get"
+                }
+              }
+            }
           },
           "422": {
             "description": "Validation Error",
@@ -2776,6 +3039,45 @@
   },
   "components": {
     "schemas": {
+      "AddTagRequest": {
+        "properties": {
+          "tag": {
+            "type": "string",
+            "title": "Tag"
+          }
+        },
+        "type": "object",
+        "required": [
+          "tag"
+        ],
+        "title": "AddTagRequest",
+        "description": "Request body for POST /tracks/{id}/tags."
+      },
+      "AddTagResponse": {
+        "properties": {
+          "track_id": {
+            "type": "string",
+            "format": "uuid",
+            "title": "Track Id"
+          },
+          "tag": {
+            "type": "string",
+            "title": "Tag"
+          },
+          "changed": {
+            "type": "boolean",
+            "title": "Changed"
+          }
+        },
+        "type": "object",
+        "required": [
+          "track_id",
+          "tag",
+          "changed"
+        ],
+        "title": "AddTagResponse",
+        "description": "Response from POST /tracks/{id}/tags."
+      },
       "ArtistSchema": {
         "properties": {
           "name": {
@@ -2808,6 +3110,54 @@
         ],
         "title": "BackupPlaylistRequest",
         "description": "Request body for POST /playlists/backup."
+      },
+      "BatchTagRequest": {
+        "properties": {
+          "track_ids": {
+            "items": {
+              "type": "string",
+              "format": "uuid"
+            },
+            "type": "array",
+            "maxItems": 15000,
+            "title": "Track Ids"
+          },
+          "tag": {
+            "type": "string",
+            "title": "Tag"
+          }
+        },
+        "type": "object",
+        "required": [
+          "track_ids",
+          "tag"
+        ],
+        "title": "BatchTagRequest",
+        "description": "Request body for POST /tracks/tags/batch."
+      },
+      "BatchTagResponse": {
+        "properties": {
+          "tag": {
+            "type": "string",
+            "title": "Tag"
+          },
+          "requested": {
+            "type": "integer",
+            "title": "Requested"
+          },
+          "tagged": {
+            "type": "integer",
+            "title": "Tagged"
+          }
+        },
+        "type": "object",
+        "required": [
+          "tag",
+          "requested",
+          "tagged"
+        ],
+        "title": "BatchTagResponse",
+        "description": "Response from POST /tracks/tags/batch."
       },
       "Body_import_spotify_history_api_v1_imports_spotify_history_post": {
         "properties": {
@@ -3644,6 +3994,13 @@
                 "type": "null"
               }
             ]
+          },
+          "tags": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "title": "Tags"
           }
         },
         "type": "object",
@@ -4729,6 +5086,25 @@
         "title": "SyncStartedResponse",
         "description": "Response for sync operations that run in the background."
       },
+      "TagCountSchema": {
+        "properties": {
+          "tag": {
+            "type": "string",
+            "title": "Tag"
+          },
+          "count": {
+            "type": "integer",
+            "title": "Count"
+          }
+        },
+        "type": "object",
+        "required": [
+          "tag",
+          "count"
+        ],
+        "title": "TagCountSchema",
+        "description": "Tag with its usage count, for autocomplete and tag browsers."
+      },
       "TrackDetailSchema": {
         "properties": {
           "id": {
@@ -4825,6 +5201,13 @@
                 "type": "null"
               }
             ]
+          },
+          "tags": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "title": "Tags"
           }
         },
         "type": "object",

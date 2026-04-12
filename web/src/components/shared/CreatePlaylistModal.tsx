@@ -1,7 +1,6 @@
 import { useQueryClient } from "@tanstack/react-query";
 import { Plus } from "lucide-react";
 import { useState } from "react";
-import { toast } from "sonner";
 
 import {
   getListPlaylistsApiV1PlaylistsGetQueryKey,
@@ -35,11 +34,7 @@ export function CreatePlaylistModal() {
         setName("");
         setDescription("");
       },
-      onError: (error: Error) => {
-        toast.error("Failed to create playlist", {
-          description: error.message,
-        });
-      },
+      meta: { errorLabel: "Failed to create playlist" },
     },
   });
 
