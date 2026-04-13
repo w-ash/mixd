@@ -226,3 +226,157 @@ class TestRunImportWithProgress:
             # Verify run_async was called
             assert mock_run_async.called
             assert result == expected_result
+
+
+# ---------------------------------------------------------------------------
+# Epic 6 additions: validators, resolvers, renderers
+# ---------------------------------------------------------------------------
+
+
+class TestValidatePreferenceState:
+    def test_accepts_valid_state(self):
+        from src.interface.cli.cli_helpers import validate_preference_state
+
+        assert validate_preference_state("star") == "star"
+
+    def test_rejects_invalid_state_with_bad_parameter(self):
+        from src.interface.cli.cli_helpers import validate_preference_state
+
+        with pytest.raises(typer.BadParameter) as exc_info:
+            validate_preference_state("superlike")
+        assert "superlike" in str(exc_info.value)
+
+
+class TestValidateTag:
+    def test_returns_normalized_form(self):
+        from src.interface.cli.cli_helpers import validate_tag
+
+        assert validate_tag("Mood:Chill") == "mood:chill"
+
+    def test_wraps_value_error_in_bad_parameter(self):
+        from src.interface.cli.cli_helpers import validate_tag
+
+        with pytest.raises(typer.BadParameter):
+            validate_tag("cafe!")
+
+
+class TestResolveTrackRef:
+    def test_uuid_path_fetches_by_id(self):
+        from uuid import uuid7
+
+        from src.interface.cli.cli_helpers import resolve_track_ref
+        from tests.fixtures import make_track
+
+        track = make_track()
+        with patch("src.interface.cli.cli_helpers.run_async", return_value=track):
+            result = resolve_track_ref(str(uuid7()), user_id="u1")
+        assert result is track
+
+    def test_search_returns_unique_match(self):
+        from src.interface.cli.cli_helpers import resolve_track_ref
+        from tests.fixtures import make_track
+
+        track = make_track(title="Creep")
+        with patch("src.interface.cli.cli_helpers.run_async", return_value=[track]):
+            result = resolve_track_ref("Creep", user_id="u1")
+        assert result is track
+
+    def test_empty_search_raises_bad_parameter(self):
+        from src.interface.cli.cli_helpers import resolve_track_ref
+
+        with patch("src.interface.cli.cli_helpers.run_async", return_value=[]):
+            with pytest.raises(typer.BadParameter, match="No track matching"):
+                resolve_track_ref("nosuchtrack", user_id="u1")
+
+    def test_ambiguous_search_lists_candidates(self):
+        from src.interface.cli.cli_helpers import resolve_track_ref
+        from tests.fixtures import make_tracks
+
+        candidates = make_tracks(count=3)
+        with patch("src.interface.cli.cli_helpers.run_async", return_value=candidates):
+            with pytest.raises(typer.BadParameter) as exc_info:
+                resolve_track_ref("song", user_id="u1")
+        message = str(exc_info.value)
+        assert "multiple tracks" in message
+        for t in candidates:
+            assert str(t.id) in message
+
+
+class TestResolvePlaylistRef:
+    def test_exact_name_match(self):
+        from src.interface.cli.cli_helpers import resolve_playlist_ref
+        from tests.fixtures import make_playlist
+
+        p = make_playlist(name="Chill")
+        with patch("src.interface.cli.cli_helpers.run_async", return_value=[p]):
+            assert resolve_playlist_ref("chill", user_id="u1") is p
+
+    def test_no_match_raises(self):
+        from src.interface.cli.cli_helpers import resolve_playlist_ref
+
+        with patch("src.interface.cli.cli_helpers.run_async", return_value=[]):
+            with pytest.raises(typer.BadParameter, match="No playlist matching"):
+                resolve_playlist_ref("nothing", user_id="u1")
+
+    def test_ambiguous_suggests_uuid(self):
+        from src.interface.cli.cli_helpers import resolve_playlist_ref
+        from tests.fixtures import make_playlist
+
+        playlists = [
+            make_playlist(name="Chill Morning"),
+            make_playlist(name="Chill Night"),
+        ]
+        with patch("src.interface.cli.cli_helpers.run_async", return_value=playlists):
+            with pytest.raises(typer.BadParameter, match="multiple playlists"):
+                resolve_playlist_ref("chill", user_id="u1")
+
+
+class TestRenderTracksTable:
+    def test_default_columns(self):
+        from src.interface.cli.cli_helpers import render_tracks_table
+        from tests.fixtures import make_track
+
+        track = make_track(title="Creep")
+        table = render_tracks_table([track], title="Test")
+        headers = [col.header for col in table.columns]
+        assert "Title" in headers
+        assert "Artist" in headers
+        assert "ID" in headers
+
+    def test_extra_column_appended(self):
+        from src.interface.cli.cli_helpers import render_tracks_table
+        from tests.fixtures import make_track
+
+        track = make_track(title="Creep")
+        table = render_tracks_table(
+            [track],
+            title="Test",
+            extra_columns=[("Plays", lambda _t: "42")],
+        )
+        headers = [col.header for col in table.columns]
+        assert "Plays" in headers
+
+
+class TestBatchOperationResult:
+    def test_total_counts_all_outcomes(self):
+        from src.interface.cli.cli_helpers import BatchOperationResult
+
+        result = BatchOperationResult(
+            succeeded=5, skipped=2, failed=["bad-id", "timeout"]
+        )
+        assert result.total == 9
+
+    def test_render_summary_uses_counts(self):
+        from src.interface.cli.cli_helpers import (
+            BatchOperationResult,
+            render_batch_summary,
+        )
+
+        table = render_batch_summary(
+            BatchOperationResult(succeeded=3, skipped=1, failed=[]),
+            title="Batch Tag",
+        )
+        assert str(table.title) == "Batch Tag"
+        count_cells = list(table.columns[1]._cells)
+        assert "3" in count_cells
+        assert "1" in count_cells

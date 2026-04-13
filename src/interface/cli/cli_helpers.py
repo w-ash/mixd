@@ -4,18 +4,32 @@ Consolidates common CLI patterns to eliminate duplication across command modules
 - Progress context setup for async operations
 - Date parsing and validation
 - User input prompts
+- Argument validators (preference state, tag)
+- Reference resolvers (track by UUID-or-search, playlist by UUID-or-name)
+- Shared Rich renderers (track tables, batch-operation summaries)
+
+Prefer `typer.BadParameter` over ad-hoc `typer.Exit(1)` for argument validation
+— Typer formats the message consistently with its own error output and never
+leaks a stack trace.
 """
 
+from collections.abc import Callable, Sequence
 from datetime import UTC, datetime
 from pathlib import Path
 from typing import Literal, Never
+from uuid import UUID
 
+from attrs import define, field
 from rich.prompt import Prompt
+from rich.table import Table
 import typer
 
 from src.config.constants import BusinessLimits
-from src.domain.entities import OperationResult
+from src.domain.entities import OperationResult, Playlist, Track
+from src.domain.entities.preference import PREFERENCE_ORDER, PreferenceState
 from src.domain.entities.progress import NullProgressEmitter, ProgressEmitter
+from src.domain.entities.tag import normalize_tag
+from src.domain.repositories import UnitOfWorkProtocol
 from src.interface.cli.async_runner import run_async
 from src.interface.cli.console import (
     get_console,
@@ -227,3 +241,243 @@ def run_import_with_progress(
             )
 
     return run_async(_execute_with_progress())
+
+
+# ---------------------------------------------------------------------------
+# Argument validators
+# ---------------------------------------------------------------------------
+# Raise `typer.BadParameter` on invalid input so Typer prints a clean,
+# single-line error and exits with code 2 (conventional for CLI usage errors).
+
+
+_VALID_PREFERENCE_STATES: tuple[PreferenceState, ...] = tuple(PREFERENCE_ORDER)
+
+
+def validate_preference_state(raw: str) -> PreferenceState:
+    """Return a typed ``PreferenceState`` or raise ``typer.BadParameter``."""
+    if raw not in _VALID_PREFERENCE_STATES:
+        raise typer.BadParameter(
+            f"'{raw}' is not a valid state — expected one of: "
+            f"{', '.join(_VALID_PREFERENCE_STATES)}."
+        )
+    return raw  # runtime-narrowed to PreferenceState
+
+
+def validate_tag(raw: str) -> str:
+    """Return the normalized tag or raise ``typer.BadParameter``.
+
+    Delegates to ``normalize_tag`` (lowercase / trim / charset / length /
+    colon-boundary rules) so CLI and API share a single source of truth.
+    """
+    try:
+        return normalize_tag(raw)
+    except ValueError as e:
+        raise typer.BadParameter(str(e)) from e
+
+
+# ---------------------------------------------------------------------------
+# Reference resolvers (accept UUID OR search / name)
+# ---------------------------------------------------------------------------
+# CLI commands take `<id_or_search>` arguments — the user should be able to
+# paste a UUID or type a memorable fragment of the title / artist / playlist
+# name. Resolvers normalize that into a domain entity with consistent
+# ambiguity handling (zero matches → error, one match → return, many →
+# error listing the candidates so the user can retry with a UUID).
+
+
+_MAX_CANDIDATES_SHOWN = 10
+
+
+def _render_candidate_list(items: Sequence[str]) -> str:
+    shown = list(items[:_MAX_CANDIDATES_SHOWN])
+    extra = len(items) - len(shown)
+    lines = "\n  - ".join(shown)
+    suffix = f"\n  … and {extra} more" if extra > 0 else ""
+    return f"\n  - {lines}{suffix}"
+
+
+def resolve_track_ref(ref: str, *, user_id: str) -> Track:
+    """Resolve a CLI ``<id_or_search>`` track argument to a domain ``Track``.
+
+    If ``ref`` parses as a UUID, fetches the track directly. Otherwise runs
+    the track list search (``q=``) and returns the unique match, or raises
+    ``typer.BadParameter`` with a candidate list when the search is
+    ambiguous or empty.
+    """
+    from src.application.runner import execute_use_case
+
+    try:
+        track_id = UUID(ref)
+    except ValueError:
+        track_id = None
+
+    if track_id is not None:
+
+        async def _by_id(uow: UnitOfWorkProtocol) -> Track:
+            async with uow:
+                return await uow.get_track_repository().get_track_by_id(
+                    track_id, user_id=user_id
+                )
+
+        from src.domain.exceptions import NotFoundError
+
+        try:
+            return run_async(execute_use_case(_by_id, user_id=user_id))
+        except NotFoundError as e:
+            raise typer.BadParameter(f"No track with id {ref}") from e
+
+    async def _by_search(uow: UnitOfWorkProtocol) -> list[Track]:
+        async with uow:
+            page = await uow.get_track_repository().list_tracks(
+                user_id=user_id,
+                query=ref,
+                limit=_MAX_CANDIDATES_SHOWN + 1,
+                include_total=False,
+            )
+            return page["tracks"]
+
+    tracks: list[Track] = run_async(execute_use_case(_by_search, user_id=user_id))
+    if not tracks:
+        raise typer.BadParameter(f"No track matching '{ref}'")
+    if len(tracks) > 1:
+        candidates = [
+            f"{t.title} — {', '.join(a.name for a in t.artists)} [{t.id}]"
+            for t in tracks
+        ]
+        raise typer.BadParameter(
+            f"'{ref}' matches multiple tracks — pass a UUID to disambiguate:"
+            + _render_candidate_list(candidates)
+        )
+    return tracks[0]
+
+
+def resolve_playlist_ref(ref: str, *, user_id: str) -> Playlist:
+    """Resolve a ``--playlist <name_or_id>`` argument to a domain ``Playlist``.
+
+    Parses ``ref`` as UUID first; otherwise case-insensitively matches
+    ``name`` across the user's playlists. Ambiguous or missing matches
+    raise ``typer.BadParameter`` with candidate names.
+    """
+    from src.application.runner import execute_use_case
+
+    try:
+        playlist_id = UUID(ref)
+    except ValueError:
+        playlist_id = None
+
+    if playlist_id is not None:
+
+        async def _by_id(uow: UnitOfWorkProtocol) -> Playlist:
+            async with uow:
+                return await uow.get_playlist_repository().get_playlist_by_id(
+                    playlist_id, user_id=user_id
+                )
+
+        from src.domain.exceptions import NotFoundError
+
+        try:
+            return run_async(execute_use_case(_by_id, user_id=user_id))
+        except NotFoundError as e:
+            raise typer.BadParameter(f"No playlist with id {ref}") from e
+
+    async def _all(uow: UnitOfWorkProtocol) -> list[Playlist]:
+        async with uow:
+            return await uow.get_playlist_repository().list_all_playlists(
+                user_id=user_id
+            )
+
+    all_playlists: list[Playlist] = run_async(execute_use_case(_all, user_id=user_id))
+    needle = ref.casefold()
+    matches = [p for p in all_playlists if p.name.casefold() == needle]
+    if not matches:
+        # Fall back to substring match so users don't need exact casing.
+        matches = [p for p in all_playlists if needle in p.name.casefold()]
+
+    if not matches:
+        raise typer.BadParameter(f"No playlist matching '{ref}'")
+    if len(matches) > 1:
+        raise typer.BadParameter(
+            f"'{ref}' matches multiple playlists — pass a UUID to disambiguate:"
+            + _render_candidate_list([f"{p.name} [{p.id}]" for p in matches])
+        )
+    return matches[0]
+
+
+# ---------------------------------------------------------------------------
+# Shared Rich renderers
+# ---------------------------------------------------------------------------
+
+
+TrackColumn = tuple[str, Callable[[Track], str]]
+
+
+def render_tracks_table(
+    tracks: Sequence[Track],
+    *,
+    title: str,
+    extra_columns: Sequence[TrackColumn] = (),
+) -> Table:
+    """Build a consistent ``Track`` listing table.
+
+    Default columns: Title, Artist, ID (truncated). Callers pass
+    ``extra_columns`` as ``(label, accessor)`` tuples to append
+    feature-specific fields (e.g. preference state, tag count).
+    """
+    table = Table(title=title)
+    table.add_column("Title", style="cyan")
+    table.add_column("Artist", style="dim")
+    for label, _ in extra_columns:
+        table.add_column(label)
+    table.add_column("ID", style="dim")
+
+    for track in tracks:
+        row = [
+            track.title,
+            ", ".join(a.name for a in track.artists),
+            *[accessor(track) for _, accessor in extra_columns],
+            str(track.id),
+        ]
+        table.add_row(*row)
+    return table
+
+
+@define(frozen=True, slots=True)
+class BatchOperationResult:
+    """Summary of a CLI batch operation with per-item outcomes.
+
+    ``succeeded`` is the count of items that completed as requested.
+    ``skipped`` covers idempotent no-ops (tag already attached, preference
+    already at target state). ``failed`` carries human-readable error
+    messages — one per item — so the user sees exactly which items
+    couldn't be processed.
+    """
+
+    succeeded: int = 0
+    skipped: int = 0
+    failed: list[str] = field(factory=list)
+
+    @property
+    def total(self) -> int:
+        return self.succeeded + self.skipped + len(self.failed)
+
+
+def render_batch_summary(result: BatchOperationResult, *, title: str) -> Table:
+    """Three-row summary table: succeeded / skipped / failed counts.
+
+    Callers print this after a batch operation so the user can see at a
+    glance how many items landed, how many were no-ops, and how many need
+    follow-up.
+    """
+    table = Table(title=title, show_header=False)
+    table.add_column("", style="bold")
+    table.add_column("", justify="right")
+    table.add_row("Succeeded", str(result.succeeded), style="green")
+    table.add_row("Skipped", str(result.skipped), style="dim")
+    table.add_row(
+        "Failed",
+        str(len(result.failed)),
+        style="red" if result.failed else "dim",
+    )
+    table.add_section()
+    table.add_row("Total", str(result.total), style="bold")
+    return table

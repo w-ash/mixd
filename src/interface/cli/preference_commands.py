@@ -1,20 +1,21 @@
 """CLI commands for managing track preferences (hmm, nah, yah, star)."""
 
 from typing import Annotated
-from uuid import UUID
 
 from rich.table import Table
 import typer
 
 from src.domain.entities.preference import PREFERENCE_ORDER
 from src.interface.cli.async_runner import run_async
-from src.interface.cli.cli_helpers import get_cli_user_id
-from src.interface.cli.console import brand_status, get_console, get_error_console
+from src.interface.cli.cli_helpers import (
+    get_cli_user_id,
+    render_tracks_table,
+    resolve_track_ref,
+    validate_preference_state,
+)
+from src.interface.cli.console import brand_status, get_console
 
 console = get_console()
-err_console = get_error_console()
-
-VALID_STATES = tuple(PREFERENCE_ORDER)
 
 app = typer.Typer(
     help="Rate tracks and browse your preferences",
@@ -24,32 +25,34 @@ app = typer.Typer(
 
 @app.command(name="set")
 def set_preference(
-    track_id: Annotated[str, typer.Argument(help="Track UUID")],
+    track_ref: Annotated[
+        str, typer.Argument(help="Track UUID or search string", metavar="TRACK")
+    ],
     state: Annotated[
         str,
         typer.Option("--state", "-s", help="Preference: hmm, nah, yah, or star"),
     ],
 ) -> None:
     """Set a preference on a track."""
-    if state not in VALID_STATES:
-        err_console.print(
-            f"[red]Invalid state '{state}'. Must be one of: {', '.join(VALID_STATES)}[/red]"
-        )
-        raise typer.Exit(code=1)
-
     from src.application.use_cases.set_track_preference import run_set_track_preference
+
+    validated_state = validate_preference_state(state)
+    user_id = get_cli_user_id()
+    track = resolve_track_ref(track_ref, user_id=user_id)
 
     with brand_status("Setting preference..."):
         result = run_async(
             run_set_track_preference(
-                user_id=get_cli_user_id(),
-                track_id=UUID(track_id),
-                state=state,
+                user_id=user_id,
+                track_id=track.id,
+                state=validated_state,
             )
         )
 
     if result.changed:
-        console.print(f"[green]Set preference to [bold]{state}[/bold][/green]")
+        console.print(
+            f"[green]Set preference to [bold]{validated_state}[/bold][/green]"
+        )
     else:
         console.print(
             f"[dim]Preference already {result.state or 'unset'} — no change[/dim]"
@@ -58,16 +61,21 @@ def set_preference(
 
 @app.command(name="clear")
 def clear_preference(
-    track_id: Annotated[str, typer.Argument(help="Track UUID")],
+    track_ref: Annotated[
+        str, typer.Argument(help="Track UUID or search string", metavar="TRACK")
+    ],
 ) -> None:
     """Remove a preference from a track."""
     from src.application.use_cases.set_track_preference import run_set_track_preference
 
+    user_id = get_cli_user_id()
+    track = resolve_track_ref(track_ref, user_id=user_id)
+
     with brand_status("Clearing preference..."):
         result = run_async(
             run_set_track_preference(
-                user_id=get_cli_user_id(),
-                track_id=UUID(track_id),
+                user_id=user_id,
+                track_id=track.id,
                 state=None,
             )
         )
@@ -87,40 +95,49 @@ def list_preferences(
     limit: Annotated[int, typer.Option("--limit", "-l", help="Max results")] = 50,
 ) -> None:
     """List tracks with a specific preference."""
-    if state not in VALID_STATES:
-        err_console.print(
-            f"[red]Invalid state '{state}'. Must be one of: {', '.join(VALID_STATES)}[/red]"
-        )
-        raise typer.Exit(code=1)
-
     from src.application.runner import execute_use_case
+    from src.domain.repositories import UnitOfWorkProtocol
 
+    validated_state = validate_preference_state(state)
     user_id = get_cli_user_id()
-    prefs = run_async(
-        execute_use_case(
-            lambda uow: uow.get_preference_repository().list_by_state(
-                state, user_id=user_id, limit=limit
-            ),
-            user_id=user_id,
-        )
-    )
 
-    if not prefs:
-        console.print(f"[dim]No tracks with preference '{state}'[/dim]")
+    async def _fetch(uow: UnitOfWorkProtocol):
+        async with uow:
+            prefs = await uow.get_preference_repository().list_by_state(
+                validated_state, user_id=user_id, limit=limit
+            )
+            by_id = await uow.get_track_repository().find_tracks_by_ids([
+                p.track_id for p in prefs
+            ])
+            # Preserve the preferred_at ordering from list_by_state.
+            return [
+                (by_id[p.track_id], p.preferred_at)
+                for p in prefs
+                if p.track_id in by_id
+            ]
+
+    rows = run_async(execute_use_case(_fetch, user_id=user_id))
+
+    if not rows:
+        console.print(f"[dim]No tracks with preference '{validated_state}'[/dim]")
         return
 
-    table = Table(title=f"Tracks — {state}")
-    table.add_column("Track ID", style="dim")
-    table.add_column("Preferred At", style="cyan")
-
-    for p in prefs:
-        table.add_row(
-            str(p.track_id),
-            p.preferred_at.strftime("%Y-%m-%d %H:%M") if p.preferred_at else "—",
-        )
-
+    tracks = [r[0] for r in rows]
+    times = {t.id: r[1] for t, r in zip(tracks, rows, strict=True)}
+    table = render_tracks_table(
+        tracks,
+        title=f"Tracks — {validated_state}",
+        extra_columns=[
+            (
+                "Preferred At",
+                lambda t: (
+                    times[t.id].strftime("%Y-%m-%d %H:%M") if times[t.id] else "—"
+                ),
+            )
+        ],
+    )
     console.print(table)
-    console.print(f"[dim]{len(prefs)} track(s)[/dim]")
+    console.print(f"[dim]{len(tracks)} track(s)[/dim]")
 
 
 @app.command(name="stats")
@@ -147,7 +164,7 @@ def preference_stats() -> None:
     table.add_column("State", style="bold")
     table.add_column("Count", justify="right", style="cyan")
 
-    for s in VALID_STATES:
+    for s in PREFERENCE_ORDER:
         table.add_row(s, str(counts.get(s, 0)))
 
     total = sum(counts.values())
