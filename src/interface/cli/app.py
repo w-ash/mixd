@@ -146,6 +146,7 @@ def _register_commands() -> None:
         preference_commands,
         review_commands,
         stats_commands,
+        tag_commands,
         track_commands,
         workflow_commands,
     )
@@ -211,6 +212,13 @@ def _register_commands() -> None:
         preference_commands.app,
         name="preference",
         help="Rate tracks and browse your preferences",
+        rich_help_panel="🎵 Track Operations",
+    )
+
+    app.add_typer(
+        tag_commands.app,
+        name="tag",
+        help="Tag tracks and browse your tag vocabulary",
         rich_help_panel="🎵 Track Operations",
     )
 

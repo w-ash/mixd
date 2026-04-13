@@ -3,7 +3,7 @@
  * Do not edit manually.
  * Mixd
  * Personal music metadata hub
- * OpenAPI spec version: 0.7.1
+ * OpenAPI spec version: 0.7.2
  */
 
 export type DashboardStatsSchemaLikedByConnector = {[key: string]: number};

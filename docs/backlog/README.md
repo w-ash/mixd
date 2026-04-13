@@ -1,7 +1,7 @@
 # Project Mixd — Planning
 
-**Current Version**: 0.7.1
-**Next**: v0.7.2 Tagging System
+**Current Version**: 0.7.2
+**Next**: v0.7.3 Playlist Browser
 
 → [Completed milestones](completed/) | [Unscheduled ideas](unscheduled.md)
 
@@ -57,7 +57,7 @@ Each milestone delivers a **vertical slice** — backend API + frontend page tog
 | **v0.6.12** | Explicit Any cleanup — zero Any codebase | ✅ Completed | [details](completed/v0.6.x.md#v0612-explicit-any-cleanup--zero-any-codebase) |
 | **v0.7.0** | Preference system — rate tracks as hmm/nah/yah/star | ✅ Completed | [details](v0.7.0-1.md#v070-preference-system) |
 | **v0.7.1** | Preference sync from likes — imported likes become preferences with original dates | ✅ Completed | [details](v0.7.0-1.md#v071-preference-sync-from-likes) |
-| **v0.7.2** | Tagging system — categorize tracks by mood, energy, context | 🔜 Not Started | [details](v0.7.2-3.md#v072-tagging-system) |
+| **v0.7.2** | Tagging system — categorize tracks by mood, energy, context | ✅ Completed | [details](v0.7.2-3.md#v072-tagging-system) |
 | **v0.7.3** | Playlist browser — browse & import Spotify playlists | 🔜 Not Started | [details](v0.7.2-3.md#v073-playlist-browser) |
 | **v0.7.4** | Tag & preference bootstrap — bulk-map playlists to tags/preferences | 🔜 Not Started | [details](v0.7.4-5.md#v074-tag--preference-bootstrap) |
 | **v0.7.5** | Workflow integration & quick filters | 🔜 Not Started | [details](v0.7.4-5.md#v075-workflow-integration--quick-filters) |
