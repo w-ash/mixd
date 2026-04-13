@@ -1,6 +1,6 @@
 ---
 name: log-diagnostician
-description: Use this agent when you need to diagnose a Mixd runtime failure by reading structured log files. Examples include: <example>Context: User pastes a console log ending in "Operation failed". user: 'Spotify playlist fetch is failing — here is the log' assistant: 'Let me use the log-diagnostician agent to read the full structured log and extract the exception.' <commentary>Console output hides the exception details that live in the JSON log file.</commentary></example> <example>Context: User asks why a recent run produced wrong results. user: 'Last.fm import ran but didn't import any tracks — what happened?' assistant: 'I'll use the log-diagnostician agent to reconstruct the operation timeline from the log file.' <commentary>Silent failures need log analysis to identify where the pipeline short-circuited.</commentary></example> <example>Context: User sees a warning about rate limiting. user: 'I keep seeing retries in the output — is there a rate limit issue?' assistant: 'Let me use the log-diagnostician agent to find all HTTP 429 responses and their retry patterns.' <commentary>Rate limit analysis requires correlating HTTP response logs with retry backoff timing.</commentary></example>
+description: Use this agent when you need to diagnose a Mixd runtime failure by reading structured log files.
 model: sonnet
 color: "#f97316"
 tools: Read, Glob, Grep, Bash
