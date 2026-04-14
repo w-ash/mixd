@@ -8,6 +8,7 @@ For active backlog, see [../](../).
 |---------------|------|----------|
 | **v0.2.x** | [v0.2.x.md](v0.2.x.md) | v0.2.7 |
 | **v0.3.x** | [v0.3.x.md](v0.3.x.md) | v0.3.0, v0.3.1, v0.3.2, v0.3.3 |
+| **v0.7.x (partial)** | [v0.7.2-3.md](v0.7.2-3.md) | v0.7.2 (Tagging), v0.7.3 (Playlist Browser) |
 | **Any Cleanup 1-3** | [explicit-any-cleanup-batches-1-3.md](explicit-any-cleanup-batches-1-3.md) | Domain + App XS (448→385) — early batches before v0.6.12 |
 
 ---

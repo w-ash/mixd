@@ -4,7 +4,7 @@ from uuid import uuid4
 
 import pytest
 
-from src.domain.entities import Artist, Playlist, Track
+from src.domain.entities import Artist, Playlist, PlaylistEntry, Track
 from src.domain.exceptions import NotFoundError
 from src.infrastructure.persistence.repositories.factories import get_unit_of_work
 
@@ -335,3 +335,77 @@ class TestPlaylistRepositoryIntegration:
         for track in retrieved_playlist.tracks:
             assert track.id == saved_track.id
             assert track.title == saved_track.title
+
+
+class TestSavePlaylistsBatch:
+    """Bulk save of N canonical playlists with pre-resolved tracks."""
+
+    async def test_bulk_saves_playlists_and_entries(
+        self, db_session, test_data_tracker
+    ):
+        uow = get_unit_of_work(db_session)
+        playlist_repo = uow.get_playlist_repository()
+        track_repo = uow.get_track_repository()
+
+        # Pre-resolve two tracks (the import path guarantees this).
+        track_a = await track_repo.save_track(
+            Track(
+                id=None,
+                title=f"Batch_T_A_{uuid4()}",
+                artists=[Artist(name=f"TEST_{uuid4()}")],
+                connector_track_identifiers={},
+            )
+        )
+        track_b = await track_repo.save_track(
+            Track(
+                id=None,
+                title=f"Batch_T_B_{uuid4()}",
+                artists=[Artist(name=f"TEST_{uuid4()}")],
+                connector_track_identifiers={},
+            )
+        )
+        test_data_tracker.add_track(track_a.id)
+        test_data_tracker.add_track(track_b.id)
+
+        uid = uuid4().hex[:8]
+        playlists = [
+            Playlist(
+                name=f"BATCH_PL_A_{uid}",
+                description="alpha",
+                entries=[
+                    PlaylistEntry(track=track_a),
+                    PlaylistEntry(track=track_b),
+                ],
+            ),
+            Playlist(
+                name=f"BATCH_PL_B_{uid}",
+                description=None,
+                entries=[PlaylistEntry(track=track_b)],
+            ),
+        ]
+
+        saved = await playlist_repo.save_playlists_batch(playlists)
+        await db_session.commit()
+        for p in saved:
+            test_data_tracker.add_playlist(p.id)
+
+        assert len(saved) == 2
+
+        # Round-trip: read each back.
+        back_a = await playlist_repo.get_playlist_by_id(
+            playlists[0].id, user_id="default"
+        )
+        assert back_a.name == f"BATCH_PL_A_{uid}"
+        assert len(back_a.entries) == 2
+        back_b = await playlist_repo.get_playlist_by_id(
+            playlists[1].id, user_id="default"
+        )
+        assert len(back_b.entries) == 1
+
+    async def test_empty_batch_short_circuits(self, db_session):
+        uow = get_unit_of_work(db_session)
+        playlist_repo = uow.get_playlist_repository()
+
+        result = await playlist_repo.save_playlists_batch([])
+
+        assert result == []

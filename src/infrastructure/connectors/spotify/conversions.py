@@ -117,11 +117,11 @@ def convert_spotify_playlist_to_connector(
         collaborative=playlist.collaborative,
         follower_count=playlist.followers.total if playlist.followers else None,
         raw_metadata={
-            "snapshot_id": playlist.snapshot_id,
             "items_href": playlist.items.href,
             "images": playlist.images,
             "total_tracks": playlist.items.total,
         },
+        snapshot_id=playlist.snapshot_id,
         last_updated=datetime.now(UTC),
     )
 

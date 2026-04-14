@@ -20,6 +20,9 @@ from src.infrastructure.persistence.repositories.factories import get_unit_of_wo
 
 async def _setup_playlist_with_link(
     db_session,
+    *,
+    user_id: str = "default",
+    connector_name: str = "spotify",
 ) -> tuple[UUID, UUID, UUID]:
     """Create a playlist + connector playlist + mapping, return (playlist_id, cp_id, mapping_id)."""
     uid = uuid4().hex[:8]
@@ -28,15 +31,16 @@ async def _setup_playlist_with_link(
         name=f"Test Playlist {uid}",
         description="test",
         track_count=0,
+        user_id=user_id,
     )
     db_playlist.playlist_tracks = []
     db_session.add(db_playlist)
     await db_session.flush()
 
     db_cp = DBConnectorPlaylist(
-        connector_name="spotify",
+        connector_name=connector_name,
         connector_playlist_identifier=f"sp_{uid}",
-        name=f"Spotify Playlist {uid}",
+        name=f"{connector_name} Playlist {uid}",
         description=None,
         owner="testuser",
         owner_id="user123",
@@ -52,10 +56,11 @@ async def _setup_playlist_with_link(
 
     db_mapping = DBPlaylistMapping(
         playlist_id=db_playlist.id,
-        connector_name="spotify",
+        connector_name=connector_name,
         connector_playlist_id=db_cp.id,
         sync_direction="push",
         sync_status="synced",
+        user_id=user_id,
     )
     db_session.add(db_mapping)
     await db_session.flush()
@@ -257,3 +262,162 @@ class TestDeleteLink:
         result = await link_repo.delete_link(uuid4())
 
         assert result is False
+
+
+class TestListByUserConnector:
+    """list_by_user_connector scopes links to (user_id, connector_name)."""
+
+    async def test_returns_links_for_user(self, db_session):
+        await _setup_playlist_with_link(db_session, user_id="alice")
+        await _setup_playlist_with_link(db_session, user_id="alice")
+
+        uow = get_unit_of_work(db_session)
+        link_repo = uow.get_playlist_link_repository()
+
+        links = await link_repo.list_by_user_connector("alice", "spotify")
+
+        assert len(links) >= 2
+        for link in links:
+            assert link.connector_name == "spotify"
+
+    async def test_excludes_other_users(self, db_session):
+        _, _, alice_id = await _setup_playlist_with_link(db_session, user_id="alice")
+        _, _, bob_id = await _setup_playlist_with_link(db_session, user_id="bob")
+
+        uow = get_unit_of_work(db_session)
+        link_repo = uow.get_playlist_link_repository()
+
+        alice_links = await link_repo.list_by_user_connector("alice", "spotify")
+        alice_ids = {link.id for link in alice_links}
+
+        assert alice_id in alice_ids
+        assert bob_id not in alice_ids
+
+    async def test_excludes_other_connectors(self, db_session):
+        _, _, sp_id = await _setup_playlist_with_link(
+            db_session, user_id="alice", connector_name="spotify"
+        )
+        _, _, lf_id = await _setup_playlist_with_link(
+            db_session, user_id="alice", connector_name="lastfm"
+        )
+
+        uow = get_unit_of_work(db_session)
+        link_repo = uow.get_playlist_link_repository()
+
+        spotify_links = await link_repo.list_by_user_connector("alice", "spotify")
+        ids = {link.id for link in spotify_links}
+
+        assert sp_id in ids
+        assert lf_id not in ids
+
+
+async def _seed_playlists_and_cps(db_session, *, count: int) -> list[tuple[UUID, str]]:
+    """Seed N DBPlaylist + N DBConnectorPlaylist rows; return [(playlist_id, cp_identifier)]."""
+    pairs: list[tuple[UUID, str]] = []
+    uid = uuid4().hex[:8]
+    for i in range(count):
+        db_playlist = DBPlaylist(
+            name=f"Batch {uid} {i}",
+            description=None,
+            track_count=0,
+        )
+        db_playlist.playlist_tracks = []
+        db_session.add(db_playlist)
+        await db_session.flush()
+
+        cp_identifier = f"sp_batch_{uid}_{i}"
+        db_cp = DBConnectorPlaylist(
+            connector_name="spotify",
+            connector_playlist_identifier=cp_identifier,
+            name=f"Ext {uid} {i}",
+            description=None,
+            owner=None,
+            owner_id=None,
+            is_public=True,
+            collaborative=False,
+            follower_count=None,
+            items=[],
+            raw_metadata={},
+            last_updated=datetime.now(UTC),
+        )
+        db_session.add(db_cp)
+        await db_session.flush()
+        pairs.append((db_playlist.id, cp_identifier))
+    await db_session.commit()
+    return pairs
+
+
+class TestCreateLinksBatch:
+    """Bulk create with ON CONFLICT DO NOTHING semantics."""
+
+    async def test_inserts_all_new_links(self, db_session):
+        pairs = await _seed_playlists_and_cps(db_session, count=3)
+
+        uow = get_unit_of_work(db_session)
+        link_repo = uow.get_playlist_link_repository()
+
+        links = [
+            PlaylistLink(
+                playlist_id=pid,
+                connector_name="spotify",
+                connector_playlist_identifier=ident,
+                sync_direction=SyncDirection.PULL,
+                sync_status=SyncStatus.NEVER_SYNCED,
+            )
+            for pid, ident in pairs
+        ]
+        inserted = await link_repo.create_links_batch(links)
+        await db_session.commit()
+
+        assert len(inserted) == 3
+        # Each canonical playlist now has exactly one link.
+        for pid, _ in pairs:
+            existing = await link_repo.get_links_for_playlist(pid)
+            assert len(existing) == 1
+            assert existing[0].sync_direction == SyncDirection.PULL
+
+    async def test_on_conflict_returns_only_newly_inserted(self, db_session):
+        pairs = await _seed_playlists_and_cps(db_session, count=2)
+
+        uow = get_unit_of_work(db_session)
+        link_repo = uow.get_playlist_link_repository()
+
+        links = [
+            PlaylistLink(
+                playlist_id=pid,
+                connector_name="spotify",
+                connector_playlist_identifier=ident,
+                sync_direction=SyncDirection.PULL,
+            )
+            for pid, ident in pairs
+        ]
+        first = await link_repo.create_links_batch(links)
+        await db_session.commit()
+        assert len(first) == 2
+
+        # Replay — both exist now, ON CONFLICT DO NOTHING skips them.
+        second = await link_repo.create_links_batch(links)
+        await db_session.commit()
+        assert second == []
+
+    async def test_missing_connector_playlist_raises(self, db_session):
+        uow = get_unit_of_work(db_session)
+        link_repo = uow.get_playlist_link_repository()
+
+        bogus = PlaylistLink(
+            playlist_id=uuid4(),
+            connector_name="spotify",
+            connector_playlist_identifier=f"nonexistent_{uuid4().hex[:6]}",
+            sync_direction=SyncDirection.PULL,
+        )
+
+        with pytest.raises(ValueError, match="ConnectorPlaylist not found"):
+            _ = await link_repo.create_links_batch([bogus])
+
+    async def test_empty_batch_short_circuits(self, db_session):
+        uow = get_unit_of_work(db_session)
+        link_repo = uow.get_playlist_link_repository()
+
+        result = await link_repo.create_links_batch([])
+
+        assert result == []

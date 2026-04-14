@@ -253,6 +253,17 @@ class PlaylistRepositoryProtocol(Protocol):
         """Save playlist."""
         ...
 
+    def save_playlists_batch(
+        self, playlists: Sequence[Playlist]
+    ) -> Awaitable[list[Playlist]]:
+        """Bulk-create N canonical playlists with entries in one round-trip.
+
+        Requires every ``entry.track.id`` to be populated — raises
+        ``ValueError`` otherwise. Connector mappings are NOT written here;
+        pair with ``PlaylistLinkRepositoryProtocol.create_links_batch``.
+        """
+        ...
+
     def get_playlist_by_connector(
         self,
         connector: str,
@@ -864,6 +875,25 @@ class ConnectorPlaylistRepositoryProtocol(Protocol):
         """
         ...
 
+    def list_by_connector(self, connector: str) -> Awaitable[list[ConnectorPlaylist]]:
+        """List every cached playlist for a connector.
+
+        Connector playlists are a cross-user cache — the browse UI reads
+        from here after the fetch-and-upsert pass, so all users see the
+        same Spotify playlist metadata without re-fetching.
+        """
+        ...
+
+    def bulk_upsert_models(
+        self, connector_playlists: Sequence[ConnectorPlaylist]
+    ) -> Awaitable[list[ConnectorPlaylist]]:
+        """Bulk upsert N connector playlists in a single round-trip.
+
+        Returns domain models with IDs populated. ``upsert_model`` is the
+        one-element degenerate case.
+        """
+        ...
+
 
 class PlaylistLinkRepositoryProtocol(Protocol):
     """Repository interface for playlist link (mapping) operations."""
@@ -874,12 +904,30 @@ class PlaylistLinkRepositoryProtocol(Protocol):
         """Get all connector links for a canonical playlist."""
         ...
 
+    def list_by_user_connector(
+        self, user_id: str, connector_name: str
+    ) -> Awaitable[list[PlaylistLink]]:
+        """Every playlist link for a given user on a given connector.
+
+        Used by the Spotify browser to compute per-playlist import status
+        (not-imported / imported / mapped) via set lookup against
+        ``connector_playlist_identifier``.
+        """
+        ...
+
     def get_link(self, link_id: UUID) -> Awaitable[PlaylistLink | None]:
         """Get a single playlist link by ID."""
         ...
 
     def create_link(self, link: PlaylistLink) -> Awaitable[PlaylistLink]:
         """Create a new playlist link. Ensures the DBConnectorPlaylist exists."""
+        ...
+
+    def create_links_batch(
+        self, links: Sequence[PlaylistLink]
+    ) -> Awaitable[list[PlaylistLink]]:
+        """Bulk-insert N playlist links. Returns only links actually inserted;
+        duplicates (by (playlist_id, connector_name)) are skipped silently."""
         ...
 
     def update_sync_status(

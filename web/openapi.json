@@ -3,7 +3,7 @@
   "info": {
     "title": "Mixd",
     "description": "Personal music metadata hub",
-    "version": "0.7.2"
+    "version": "0.7.3"
   },
   "paths": {
     "/api/v1/connectors/spotify/auth-url": {
@@ -2589,6 +2589,94 @@
         }
       }
     },
+    "/api/v1/connectors/spotify/playlists": {
+      "get": {
+        "tags": [
+          "connectors"
+        ],
+        "summary": "List Spotify Playlists",
+        "description": "List the user's Spotify playlists for the browser dialog.\n\nCache-first: reads from ``connector_playlists`` unless ``force_refresh``\nis true. Per-playlist ``import_status`` reflects whether this user has\nalready linked the Spotify playlist into Mixd.",
+        "operationId": "list_spotify_playlists_api_v1_connectors_spotify_playlists_get",
+        "parameters": [
+          {
+            "name": "force_refresh",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "boolean",
+              "description": "Bypass the DBConnectorPlaylist cache and re-fetch from Spotify",
+              "default": false,
+              "title": "Force Refresh"
+            },
+            "description": "Bypass the DBConnectorPlaylist cache and re-fetch from Spotify"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SpotifyPlaylistBrowseResponse"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/connectors/spotify/playlists/import": {
+      "post": {
+        "tags": [
+          "connectors"
+        ],
+        "summary": "Import Spotify Playlists",
+        "description": "Import a batch of Spotify playlists with a chosen sync direction.\n\nNon-atomic: one failing playlist doesn't abort the others. Each\nsuccessful import creates a canonical ``Playlist`` + ``PlaylistLink``;\npreviously-imported playlists with a known snapshot are short-circuited\ninto ``skipped_unchanged``.",
+        "operationId": "import_spotify_playlists_api_v1_connectors_spotify_playlists_import_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ImportSpotifyPlaylistsRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ImportSpotifyPlaylistsResponse"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/api/v1/imports/lastfm/history": {
       "post": {
         "tags": [
@@ -3660,6 +3748,25 @@
         "type": "object",
         "title": "HTTPValidationError"
       },
+      "ImportFailureSchema": {
+        "properties": {
+          "connector_playlist_identifier": {
+            "type": "string",
+            "title": "Connector Playlist Identifier"
+          },
+          "message": {
+            "type": "string",
+            "title": "Message"
+          }
+        },
+        "type": "object",
+        "required": [
+          "connector_playlist_identifier",
+          "message"
+        ],
+        "title": "ImportFailureSchema",
+        "description": "One playlist that errored during import."
+      },
       "ImportLastfmHistoryRequest": {
         "properties": {
           "mode": {
@@ -3712,6 +3819,35 @@
         "title": "ImportLastfmHistoryRequest",
         "description": "Request body for triggering a Last.fm history import."
       },
+      "ImportOutcomeSchema": {
+        "properties": {
+          "connector_playlist_identifier": {
+            "type": "string",
+            "title": "Connector Playlist Identifier"
+          },
+          "canonical_playlist_id": {
+            "type": "string",
+            "title": "Canonical Playlist Id"
+          },
+          "resolved": {
+            "type": "integer",
+            "title": "Resolved"
+          },
+          "unresolved": {
+            "type": "integer",
+            "title": "Unresolved"
+          }
+        },
+        "type": "object",
+        "required": [
+          "connector_playlist_identifier",
+          "canonical_playlist_id",
+          "resolved",
+          "unresolved"
+        ],
+        "title": "ImportOutcomeSchema",
+        "description": "One successfully-imported playlist in the import response."
+      },
       "ImportSpotifyLikesRequest": {
         "properties": {
           "limit": {
@@ -3745,6 +3881,65 @@
         "type": "object",
         "title": "ImportSpotifyLikesRequest",
         "description": "Request body for triggering a Spotify likes import."
+      },
+      "ImportSpotifyPlaylistsRequest": {
+        "properties": {
+          "connector_playlist_ids": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "title": "Connector Playlist Ids"
+          },
+          "sync_direction": {
+            "type": "string",
+            "enum": [
+              "pull",
+              "push"
+            ],
+            "title": "Sync Direction"
+          }
+        },
+        "type": "object",
+        "required": [
+          "connector_playlist_ids",
+          "sync_direction"
+        ],
+        "title": "ImportSpotifyPlaylistsRequest",
+        "description": "Body for POST /connectors/spotify/playlists/import.\n\nEach ID is a Spotify-native playlist ID (not a Mixd UUID). The whole\nbatch shares one ``sync_direction`` \u2014 per-playlist direction overrides\ncan be added later if a workflow demands it."
+      },
+      "ImportSpotifyPlaylistsResponse": {
+        "properties": {
+          "succeeded": {
+            "items": {
+              "$ref": "#/components/schemas/ImportOutcomeSchema"
+            },
+            "type": "array",
+            "title": "Succeeded"
+          },
+          "skipped_unchanged": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "title": "Skipped Unchanged"
+          },
+          "failed": {
+            "items": {
+              "$ref": "#/components/schemas/ImportFailureSchema"
+            },
+            "type": "array",
+            "title": "Failed"
+          }
+        },
+        "type": "object",
+        "required": [
+          "succeeded",
+          "skipped_unchanged",
+          "failed"
+        ],
+        "title": "ImportSpotifyPlaylistsResponse",
+        "description": "Grouped per-playlist outcomes so the UI can render a clear summary."
       },
       "IntegrityCheckSchema": {
         "properties": {
@@ -4988,6 +5183,125 @@
         ],
         "title": "SetPreferenceRequest",
         "description": "Request body for PUT /tracks/{id}/preference."
+      },
+      "SpotifyPlaylistBrowseResponse": {
+        "properties": {
+          "data": {
+            "items": {
+              "$ref": "#/components/schemas/SpotifyPlaylistBrowseSchema"
+            },
+            "type": "array",
+            "title": "Data"
+          },
+          "from_cache": {
+            "type": "boolean",
+            "title": "From Cache"
+          },
+          "fetched_at": {
+            "type": "string",
+            "format": "date-time",
+            "title": "Fetched At"
+          }
+        },
+        "type": "object",
+        "required": [
+          "data",
+          "from_cache",
+          "fetched_at"
+        ],
+        "title": "SpotifyPlaylistBrowseResponse",
+        "description": "Full payload for GET /connectors/spotify/playlists.\n\n``from_cache=True`` means the response was served from DBConnectorPlaylist\nwithout hitting Spotify; the refresh button in the UI sets\n``force_refresh=true`` to force the cache miss."
+      },
+      "SpotifyPlaylistBrowseSchema": {
+        "properties": {
+          "connector_playlist_identifier": {
+            "type": "string",
+            "title": "Connector Playlist Identifier"
+          },
+          "name": {
+            "type": "string",
+            "title": "Name"
+          },
+          "description": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Description"
+          },
+          "owner": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Owner"
+          },
+          "image_url": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Image Url"
+          },
+          "track_count": {
+            "type": "integer",
+            "title": "Track Count"
+          },
+          "snapshot_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Snapshot Id"
+          },
+          "collaborative": {
+            "type": "boolean",
+            "title": "Collaborative"
+          },
+          "is_public": {
+            "type": "boolean",
+            "title": "Is Public"
+          },
+          "import_status": {
+            "type": "string",
+            "enum": [
+              "not_imported",
+              "imported"
+            ],
+            "title": "Import Status"
+          }
+        },
+        "type": "object",
+        "required": [
+          "connector_playlist_identifier",
+          "name",
+          "description",
+          "owner",
+          "image_url",
+          "track_count",
+          "snapshot_id",
+          "collaborative",
+          "is_public",
+          "import_status"
+        ],
+        "title": "SpotifyPlaylistBrowseSchema",
+        "description": "One playlist row in the Spotify browser dialog.\n\nMirrors ``SpotifyPlaylistView`` from the use case layer \u2014 the UI reads\nthis shape directly; the API wraps the list in ``SpotifyPlaylistBrowseResponse``."
       },
       "SyncLinkRequest": {
         "properties": {

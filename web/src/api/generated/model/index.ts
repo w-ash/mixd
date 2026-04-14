@@ -3,7 +3,7 @@
  * Do not edit manually.
  * Mixd
  * Personal music metadata hub
- * OpenAPI spec version: 0.7.2
+ * OpenAPI spec version: 0.7.3
  */
 
 export * from './addTagRequest';
@@ -35,9 +35,14 @@ export * from './getMatchingHealthApiV1StatsMatchingGetParams';
 export * from './getPlaylistTracksApiV1PlaylistsPlaylistIdTracksGetParams';
 export * from './getSpotifyAuthUrlApiV1ConnectorsSpotifyAuthUrlGet200';
 export * from './hTTPValidationError';
+export * from './importFailureSchema';
 export * from './importLastfmHistoryRequest';
 export * from './importLastfmHistoryRequestMode';
+export * from './importOutcomeSchema';
 export * from './importSpotifyLikesRequest';
+export * from './importSpotifyPlaylistsRequest';
+export * from './importSpotifyPlaylistsRequestSyncDirection';
+export * from './importSpotifyPlaylistsResponse';
 export * from './integrityCheckSchema';
 export * from './integrityCheckSchemaDetailsItem';
 export * from './integrityReportSchema';
@@ -51,6 +56,7 @@ export * from './likeStatusSchema';
 export * from './listActiveOperationsApiV1OperationsGet200';
 export * from './listPlaylistsApiV1PlaylistsGetParams';
 export * from './listReviewsApiV1ReviewsGetParams';
+export * from './listSpotifyPlaylistsApiV1ConnectorsSpotifyPlaylistsGetParams';
 export * from './listTagsApiV1TagsGetParams';
 export * from './listTracksApiV1TracksGetParams';
 export * from './listWorkflowRunsApiV1WorkflowsWorkflowIdRunsGetParams';
@@ -83,6 +89,9 @@ export * from './resolveReviewRequestAction';
 export * from './resolveReviewResponse';
 export * from './setPreferenceRequest';
 export * from './spotifyCallbackAuthSpotifyCallbackGetParams';
+export * from './spotifyPlaylistBrowseResponse';
+export * from './spotifyPlaylistBrowseSchema';
+export * from './spotifyPlaylistBrowseSchemaImportStatus';
 export * from './syncLinkRequest';
 export * from './syncPreviewResponse';
 export * from './syncStartedResponse';

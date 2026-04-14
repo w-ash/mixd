@@ -7,10 +7,12 @@ Joins through DBConnectorPlaylist to denormalize the external playlist identifie
 # pyright: reportAttributeAccessIssue=false, reportUnknownMemberType=false, reportAny=false
 # Legitimate Any: SQLAlchemy column expressions
 
+from collections.abc import Sequence
 from datetime import UTC, datetime
 from uuid import UUID
 
-from sqlalchemy import select, update
+from sqlalchemy import select, tuple_, update
+from sqlalchemy.dialects.postgresql import insert as pg_insert
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import joinedload
 
@@ -58,6 +60,31 @@ class PlaylistLinkRepository:
         stmt = (
             select(DBPlaylistMapping)
             .where(DBPlaylistMapping.playlist_id == playlist_id)
+            .options(joinedload(DBPlaylistMapping.connector_playlist))
+        )
+        result = await self._session.execute(stmt)
+        rows = result.scalars().all()
+
+        return [
+            _to_link(db_mapping, db_mapping.connector_playlist) for db_mapping in rows
+        ]
+
+    @db_operation("list_by_user_connector")
+    async def list_by_user_connector(
+        self, user_id: str, connector_name: str
+    ) -> list[PlaylistLink]:
+        """Every link owned by this user on the given connector.
+
+        Used by the Spotify browser to compute per-playlist import status.
+        The browse use case turns this into a set of external IDs for O(1)
+        lookup during projection.
+        """
+        stmt = (
+            select(DBPlaylistMapping)
+            .where(
+                DBPlaylistMapping.user_id == user_id,
+                DBPlaylistMapping.connector_name == connector_name,
+            )
             .options(joinedload(DBPlaylistMapping.connector_playlist))
         )
         result = await self._session.execute(stmt)
@@ -178,3 +205,77 @@ class PlaylistLinkRepository:
 
         await self._session.delete(db_mapping)
         return True
+
+    @db_operation("create_links_batch")
+    async def create_links_batch(
+        self, links: Sequence[PlaylistLink]
+    ) -> list[PlaylistLink]:
+        """Bulk-insert N playlist links in one round-trip.
+
+        Resolves ``(connector_name, connector_playlist_identifier)`` →
+        ``DBConnectorPlaylist.id`` in a single SELECT, then one
+        ``pg_insert`` with ``ON CONFLICT DO NOTHING`` against the
+        ``(playlist_id, connector_name)`` unique index. Returns the
+        ``PlaylistLink`` domain entities actually inserted; duplicates are
+        skipped silently (idempotent for retries).
+        """
+        if not links:
+            return []
+
+        cp_keys = [
+            (link.connector_name, link.connector_playlist_identifier) for link in links
+        ]
+        cp_stmt = select(
+            DBConnectorPlaylist.id,
+            DBConnectorPlaylist.connector_name,
+            DBConnectorPlaylist.connector_playlist_identifier,
+        ).where(
+            tuple_(
+                DBConnectorPlaylist.connector_name,
+                DBConnectorPlaylist.connector_playlist_identifier,
+            ).in_(cp_keys)
+        )
+        cp_result = await self._session.execute(cp_stmt)
+        cp_id_by_key: dict[tuple[str, str], UUID] = {
+            (row.connector_name, row.connector_playlist_identifier): row.id
+            for row in cp_result
+        }
+
+        missing = [k for k in cp_keys if k not in cp_id_by_key]
+        if missing:
+            raise ValueError(f"ConnectorPlaylist not found for: {missing}")
+
+        rows: list[dict[str, object]] = []
+        now = datetime.now(UTC)
+        for link in links:
+            cp_id = cp_id_by_key[
+                link.connector_name, link.connector_playlist_identifier
+            ]
+            # user_id omitted — DBPlaylistMapping.user_id has server_default
+            # "default". Matches the single-row create_link behavior; both
+            # paths become user-scoped when PlaylistLink gains a user_id field.
+            rows.append({
+                "id": link.id,
+                "playlist_id": link.playlist_id,
+                "connector_name": link.connector_name,
+                "connector_playlist_id": cp_id,
+                "sync_direction": link.sync_direction.value,
+                "sync_status": link.sync_status.value,
+                "last_synced": now,
+            })
+
+        stmt = (
+            pg_insert(DBPlaylistMapping)
+            .values(rows)
+            .on_conflict_do_nothing(
+                index_elements=[
+                    DBPlaylistMapping.playlist_id,
+                    DBPlaylistMapping.connector_name,
+                ]
+            )
+            .returning(DBPlaylistMapping.playlist_id)
+        )
+        result = await self._session.execute(stmt)
+        inserted_playlist_ids = {row.playlist_id for row in result}
+
+        return [link for link in links if link.playlist_id in inserted_playlist_ids]

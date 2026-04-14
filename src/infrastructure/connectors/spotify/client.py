@@ -33,6 +33,7 @@ from src.infrastructure.connectors.spotify.models import (
     SpotifyPlaylist,
     SpotifySnapshotResponse,
     SpotifyTrack,
+    SpotifyUserPlaylistsResponse,
 )
 
 logger = get_logger(__name__).bind(service="spotify_client")
@@ -300,6 +301,34 @@ class SpotifyAPIClient(BaseAPIClient):
         as-is when a base_url is set, so self._client handles them correctly.
         """
         response = await self._client.get(next_url)
+        _ = response.raise_for_status()
+        return parse_json_response(response)
+
+    async def get_current_user_playlists(
+        self, limit: int = 50, offset: int = 0
+    ) -> SpotifyUserPlaylistsResponse | None:
+        """Fetch one page of the current user's playlists.
+
+        Metadata-only: each item's `items` node is a `{href, total}` summary,
+        not a full tracks list. Scope: `playlist-read-private`. Pagination
+        caps: limit max 50 (Spotify default 20), offset max 100,000.
+        """
+        data = await self._api_call(
+            "get_current_user_playlists",
+            self._get_current_user_playlists_impl,
+            limit,
+            offset,
+        )
+        return SpotifyUserPlaylistsResponse.model_validate(data) if data else None
+
+    async def _get_current_user_playlists_impl(
+        self, limit: int = 50, offset: int = 0
+    ) -> JsonDict | None:
+        """Pure implementation without retry logic."""
+        response = await self._client.get(
+            "/me/playlists",
+            params={"limit": min(limit, 50), "offset": offset},
+        )
         _ = response.raise_for_status()
         return parse_json_response(response)
 

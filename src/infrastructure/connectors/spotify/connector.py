@@ -14,6 +14,7 @@ from attrs import define, field
 
 from src.config import get_logger, settings
 from src.domain.entities import (
+    ConnectorPlaylist,
     ConnectorTrack,
     Playlist,
     Track,
@@ -209,6 +210,28 @@ class SpotifyConnector(BaseAPIConnector):
     async def get_playlist_details(self, playlist_id: str) -> SpotifyPlaylistDetails:
         """Get basic Spotify playlist metadata."""
         return await self._operations.get_playlist_details(playlist_id)
+
+    @override
+    async def get_playlist(self, playlist_id: str) -> ConnectorPlaylist:
+        """Fetch one playlist with all items (paginated until exhausted).
+
+        Overrides the base-class ``hasattr(get_{connector}_playlist)`` dispatch
+        with an explicit delegation — cleaner to read and keeps the typed
+        ``PlaylistConnector`` protocol satisfied.
+        """
+        return await self._operations.get_playlist_with_all_tracks(playlist_id)
+
+    async def fetch_user_playlists(self) -> list[ConnectorPlaylist]:
+        """List every playlist the authenticated user owns or follows.
+
+        Metadata-only: per-playlist items are a ``{href, total}`` summary,
+        not a full tracks list. Callers that need tracks must follow up
+        with ``get_playlist`` or ``get_playlist_with_all_tracks`` per ID.
+        """
+        from .conversions import convert_spotify_playlist_to_connector
+
+        spotify_playlists = await self._operations.fetch_all_user_playlists()
+        return [convert_spotify_playlist_to_connector(p) for p in spotify_playlists]
 
     @override
     def convert_track_to_connector(

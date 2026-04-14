@@ -8,6 +8,7 @@ from src.application.use_cases._shared.connector_resolver import (
     resolve_liked_track_connector,
     resolve_love_track_connector,
     resolve_playlist_connector,
+    resolve_user_playlists_connector,
 )
 from src.application.use_cases._shared.metadata_builder import (
     build_api_execution_metadata,
@@ -46,4 +47,5 @@ __all__ = [
     "resolve_love_track_connector",
     "resolve_playlist",
     "resolve_playlist_connector",
+    "resolve_user_playlists_connector",
 ]

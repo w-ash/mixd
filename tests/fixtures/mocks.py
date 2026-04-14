@@ -44,6 +44,7 @@ def make_mock_playlist_repo(**overrides) -> AsyncMock:
         "get_playlist_by_connector", None
     )
     repo.save_playlist.side_effect = overrides.pop("save_playlist", lambda p: p)
+    repo.save_playlists_batch.side_effect = overrides.pop("save_playlists_batch", list)
     repo.delete_playlist.return_value = overrides.pop("delete_playlist", True)
     for k, v in overrides.items():
         setattr(repo, k, v)
@@ -157,6 +158,10 @@ def make_mock_playlist_link_repo(**overrides) -> AsyncMock:
     repo.create_link.side_effect = overrides.pop("create_link", lambda link: link)
     repo.delete_link.return_value = overrides.pop("delete_link", True)
     repo.update_sync_status.return_value = overrides.pop("update_sync_status", None)
+    repo.list_by_user_connector.return_value = overrides.pop(
+        "list_by_user_connector", []
+    )
+    repo.create_links_batch.side_effect = overrides.pop("create_links_batch", list)
     for k, v in overrides.items():
         setattr(repo, k, v)
     return repo
@@ -222,6 +227,8 @@ def make_mock_connector_playlist_repo(**overrides) -> AsyncMock:
     repo = AsyncMock()
     repo.upsert_model.side_effect = overrides.pop("upsert_model", lambda cp: cp)
     repo.get_by_connector_id.return_value = overrides.pop("get_by_connector_id", None)
+    repo.list_by_connector.return_value = overrides.pop("list_by_connector", [])
+    repo.bulk_upsert_models.side_effect = overrides.pop("bulk_upsert_models", list)
     for k, v in overrides.items():
         setattr(repo, k, v)
     return repo

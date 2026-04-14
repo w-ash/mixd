@@ -236,40 +236,51 @@ class ConnectorPlaylistMapper(BaseModelMapper[DBConnectorPlaylist, ConnectorPlay
             collaborative=db_model.collaborative,
             follower_count=db_model.follower_count,
             raw_metadata=db_model.raw_metadata,
+            snapshot_id=db_model.snapshot_id,
             items=items,
             last_updated=db_model.last_updated,
         )
+
+    @staticmethod
+    def to_values_dict(domain_model: ConnectorPlaylist) -> dict[str, object]:
+        """Convert domain model to a column-name-keyed dict for bulk inserts.
+
+        Single source of truth for the column → value mapping; ``to_db``
+        now delegates here so a new field added on ``DBConnectorPlaylist``
+        only needs to be threaded through one place.
+        """
+        return {
+            "id": domain_model.id,
+            "connector_name": domain_model.connector_name,
+            "connector_playlist_identifier": domain_model.connector_playlist_identifier,
+            "name": domain_model.name,
+            "description": domain_model.description,
+            "owner": domain_model.owner,
+            "owner_id": domain_model.owner_id,
+            "is_public": domain_model.is_public,
+            "collaborative": domain_model.collaborative,
+            "follower_count": domain_model.follower_count,
+            "raw_metadata": domain_model.raw_metadata,
+            "snapshot_id": domain_model.snapshot_id,
+            "items": [
+                {
+                    "connector_track_identifier": item.connector_track_identifier,
+                    "position": item.position,
+                    "added_at": item.added_at,
+                    "added_by_id": item.added_by_id,
+                    "extras": item.extras,
+                }
+                for item in domain_model.items
+            ],
+            "last_updated": domain_model.last_updated,
+        }
 
     @override
     @staticmethod
     def to_db(domain_model: ConnectorPlaylist) -> DBConnectorPlaylist:
         """Convert domain model to DB connector playlist."""
-        # Convert ConnectorPlaylistItem objects to serializable dictionaries
-        items_dicts = [
-            {
-                "connector_track_identifier": item.connector_track_identifier,
-                "position": item.position,
-                "added_at": item.added_at,
-                "added_by_id": item.added_by_id,
-                "extras": item.extras,
-            }
-            for item in domain_model.items
-        ]
-
         return DBConnectorPlaylist(
-            id=domain_model.id,
-            connector_name=domain_model.connector_name,
-            connector_playlist_identifier=domain_model.connector_playlist_identifier,
-            name=domain_model.name,
-            description=domain_model.description,
-            owner=domain_model.owner,
-            owner_id=domain_model.owner_id,
-            is_public=domain_model.is_public,
-            collaborative=domain_model.collaborative,
-            follower_count=domain_model.follower_count,
-            raw_metadata=domain_model.raw_metadata,
-            items=items_dicts,
-            last_updated=domain_model.last_updated,
+            **ConnectorPlaylistMapper.to_values_dict(domain_model)
         )
 
     @override

@@ -1,5 +1,6 @@
 """Connector playlist repository implementation."""
 
+from collections.abc import Sequence
 from typing import Any
 
 from sqlalchemy import Select
@@ -89,6 +90,7 @@ class ConnectorPlaylistRepository(
                 "follower_count",
                 "items",
                 "raw_metadata",
+                "snapshot_id",
                 "last_updated",
             ]
         }
@@ -101,3 +103,37 @@ class ConnectorPlaylistRepository(
 
         # Return the domain model with ID
         return result
+
+    @db_operation("list_by_connector")
+    async def list_by_connector(self, connector: str) -> list[ConnectorPlaylist]:
+        """List every cached playlist for a connector (cross-user cache)."""
+        stmt = (
+            self
+            .select()
+            .where(self.model_class.connector_name == connector)
+            .order_by(self.model_class.name)
+        )
+        db_entities = await self._execute_query(stmt)
+        return [await self.mapper.to_domain(db) for db in db_entities]
+
+    @db_operation("bulk_upsert_models")
+    async def bulk_upsert_models(
+        self, connector_playlists: Sequence[ConnectorPlaylist]
+    ) -> list[ConnectorPlaylist]:
+        """Bulk upsert N connector playlists in a single round-trip.
+
+        Batch-first counterpart to ``upsert_model``; the single-row method
+        is the one-element degenerate case. Returns the persisted domain
+        models with IDs populated via RETURNING.
+        """
+        if not connector_playlists:
+            return []
+
+        entities = [
+            ConnectorPlaylistMapper.to_values_dict(cp) for cp in connector_playlists
+        ]
+        return await self.bulk_upsert(
+            entities,
+            lookup_keys=["connector_name", "connector_playlist_identifier"],
+            return_models=True,
+        )

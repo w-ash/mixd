@@ -217,3 +217,11 @@ class TestLastfmStatus:
         # Result depends on env vars — just verify shape
         assert "connected" in lastfm
         assert "account_name" in lastfm
+
+
+# NOTE: GET /api/v1/connectors/spotify/playlists route-level behavior is
+# covered by unit tests at tests/unit/application/use_cases/
+# test_list_spotify_playlists.py. Integration-test attempts here hit real
+# Spotify API because the fixture env carries OAuth tokens — not safe in
+# CI. Revisit once a reliable connector-mocking seam exists at the
+# integration-test level.

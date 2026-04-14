@@ -16,6 +16,10 @@ from .track import Track, TrackList
 # Pseudo-connector name for internal DB track IDs (filtered from API responses)
 DB_PSEUDO_CONNECTOR: Final = "db"
 
+# Canonical connector identifiers — keep external service names in one place
+# so use cases and connector resolvers can't drift on capitalization.
+SPOTIFY_CONNECTOR: Final = "spotify"
+
 
 @define(frozen=True, slots=True)
 class PlaylistEntry:
@@ -198,6 +202,7 @@ class ConnectorPlaylist:
     collaborative: bool = False
     follower_count: int | None = None
     raw_metadata: Mapping[str, JsonValue] = field(factory=empty_json_map)
+    snapshot_id: str | None = None
     last_updated: datetime = field(factory=utc_now_factory)
     id: UUID = field(factory=uuid7)
 

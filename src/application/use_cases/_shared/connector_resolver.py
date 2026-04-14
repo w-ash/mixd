@@ -12,6 +12,7 @@ from src.application.connector_protocols import (
     LoveTrackConnector,
     PlaylistConnector,
     TrackConversionConnector,
+    UserPlaylistsConnector,
 )
 from src.domain.repositories import UnitOfWorkProtocol
 
@@ -63,6 +64,19 @@ def resolve_playlist_connector(
     if not hasattr(connector, "get_playlist_details"):
         raise TypeError(f"Connector '{service}' does not support playlist operations")
     return cast(PlaylistConnector, connector)
+
+
+def resolve_user_playlists_connector(
+    service: str, uow: UnitOfWorkProtocol
+) -> UserPlaylistsConnector:
+    """Resolve a connector typed for listing the user's own playlists.
+
+    Raises TypeError if the connector doesn't implement fetch_user_playlists.
+    """
+    connector = resolve_connector(service, uow)
+    if not hasattr(connector, "fetch_user_playlists"):
+        raise TypeError(f"Connector '{service}' does not support user playlist listing")
+    return cast(UserPlaylistsConnector, connector)
 
 
 def resolve_track_conversion_connector(

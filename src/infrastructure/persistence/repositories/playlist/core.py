@@ -5,11 +5,13 @@ MusicBrainz), maintaining track ordering and synchronizing external IDs.
 """
 
 from collections import defaultdict
+from collections.abc import Sequence
 from datetime import UTC, datetime
 from uuid import UUID
 
 import attrs
 from sqlalchemy import Select, delete, insert, select, update
+from sqlalchemy.dialects.postgresql import insert as pg_insert
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
@@ -682,6 +684,58 @@ class PlaylistRepository(BaseRepository[DBPlaylist, Playlist]):
 
         # Convert to domain model
         return await self.mapper.to_domain(db_model)
+
+    @db_operation("save_playlists_batch")
+    async def save_playlists_batch(
+        self, playlists: Sequence[Playlist]
+    ) -> list[Playlist]:
+        """Bulk-create N canonical playlists with entries in one round-trip.
+
+        Batch-first counterpart to ``save_playlist`` for the import path,
+        where tracks are pre-resolved (every ``entry.track.id`` is set) and
+        playlists are always new. Writes one bulk INSERT for ``DBPlaylist``
+        and one bulk INSERT for all ``DBPlaylistTrack`` rows across every
+        playlist. Connector mappings are handled separately by
+        ``PlaylistLinkRepository.create_links_batch`` — this method does
+        not write them.
+        """
+        if not playlists:
+            return []
+
+        for p in playlists:
+            if not p.name:
+                raise ValueError("Playlist must have a name")
+
+        playlist_rows: list[dict[str, object]] = [
+            {
+                "id": p.id,
+                "user_id": p.user_id,
+                "name": p.name,
+                "description": p.description,
+                "track_count": len(p.entries),
+            }
+            for p in playlists
+        ]
+        _ = await self.bulk_insert_ignore_conflicts(playlist_rows, conflict_keys=["id"])
+
+        # DBPlaylistTrack has no natural conflict key (the PK is auto-
+        # generated) and we want hard failures on FK violations rather
+        # than silent skips, so stay with raw pg_insert here.
+        track_rows: list[dict[str, object]] = [
+            {
+                "playlist_id": p.id,
+                "track_id": entry.track.id,
+                "sort_key": self._generate_sort_key(idx),
+                "added_at": entry.added_at,
+            }
+            for p in playlists
+            for idx, entry in enumerate(p.entries)
+        ]
+        if track_rows:
+            await self.session.execute(pg_insert(DBPlaylistTrack), track_rows)
+            await self.session.flush()
+
+        return list(playlists)
 
     @db_operation("save_playlist")
     async def save_playlist(

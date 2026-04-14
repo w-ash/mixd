@@ -594,6 +594,7 @@ class DBConnectorPlaylist(BaseEntity):
     follower_count: Mapped[int | None]
     items: Mapped[list[JsonDict]] = mapped_column(PgJsonb, default=list)
     raw_metadata: Mapped[JsonDict] = mapped_column(PgJsonb)
+    snapshot_id: Mapped[str | None] = mapped_column(String(64), default=None)
     # Add JSON field to store track positional information
     last_updated: Mapped[datetime]
 

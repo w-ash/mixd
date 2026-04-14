@@ -86,6 +86,20 @@ class LoveTrackConnector(Protocol):
     async def love_track(self, artist: str, title: str) -> bool: ...
 
 
+class UserPlaylistsConnector(Protocol):
+    """Connector that can enumerate the authenticated user's own playlists.
+
+    Distinct from ``PlaylistConnector`` because listing every playlist the
+    user has access to is a materially different capability than fetching
+    or mutating a single known-ID playlist — some connectors may only
+    support the latter.
+    """
+
+    async def fetch_user_playlists(self) -> list[ConnectorPlaylist]:
+        """Return every playlist the authenticated user owns or follows."""
+        ...
+
+
 class PlaylistConnector(Protocol):
     """Connector that supports playlist fetch and CRUD operations."""
 

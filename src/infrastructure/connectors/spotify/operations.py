@@ -45,7 +45,7 @@ from src.infrastructure.connectors.spotify.conversions import (
     parse_spotify_timestamp,
     validate_non_empty,
 )
-from src.infrastructure.connectors.spotify.models import SpotifyTrack
+from src.infrastructure.connectors.spotify.models import SpotifyPlaylist, SpotifyTrack
 from src.infrastructure.connectors.spotify.playlist_sync_operations import (
     SpotifyPlaylistSyncOperations,
 )
@@ -149,6 +149,31 @@ class SpotifyOperations:
         }
 
     # Advanced Playlist Operations
+
+    async def fetch_all_user_playlists(
+        self, page_size: int = 50
+    ) -> list[SpotifyPlaylist]:
+        """Fetch every playlist visible to the current user across all pages.
+
+        Loops GET /me/playlists with offset=0, page_size, 2*page_size, …
+        until the response's `next` cursor is None. At the ~200-playlist
+        scale of a typical user, this is 4 calls at page_size=50.
+        """
+        all_playlists: list[SpotifyPlaylist] = []
+        offset = 0
+        while True:
+            page = await self.client.get_current_user_playlists(
+                limit=page_size, offset=offset
+            )
+            if page is None:
+                raise SpotifyPaginationError(
+                    "get_current_user_playlists returned None — suppressed retry failure"
+                )
+            all_playlists.extend(page.items)
+            if page.next is None:
+                break
+            offset += page_size
+        return all_playlists
 
     async def get_playlist_with_all_tracks(self, playlist_id: str) -> ConnectorPlaylist:
         """Fetch a Spotify playlist with all tracks using pagination."""

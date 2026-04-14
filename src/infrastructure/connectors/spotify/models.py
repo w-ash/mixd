@@ -18,6 +18,10 @@ Endpoint coverage:
 - GET /playlists/{id}/items  → SpotifyPaginatedPlaylistItems (items: SpotifyPlaylistItem)
 - POST|DELETE|PUT /playlists/{id}/items  → SpotifySnapshotResponse
 - POST /me/playlists  → SpotifyPlaylist
+- GET /me/playlists  → SpotifyUserPlaylistsResponse
+  (SimplifiedPlaylistObject per item: `items` is a `{href, total}` summary,
+  not a full tracks list — the SpotifyPlaylist.items field parses it via
+  all-defaults on SpotifyPaginatedPlaylistItems.)
 """
 
 from typing import ClassVar
@@ -129,3 +133,21 @@ class SpotifySnapshotResponse(SpotifyBaseModel):
     """Response from playlist write operations: add, remove, reorder, replace."""
 
     snapshot_id: str
+
+
+class SpotifyUserPlaylistsResponse(SpotifyBaseModel):
+    """Paging wrapper for GET /me/playlists.
+
+    Each item is a SimplifiedPlaylistObject. Feb 2026 rename: `tracks` →
+    `items` on the per-playlist body. Our SpotifyPlaylist model already
+    targets `items`, so parsing works for both GET /playlists/{id} (full
+    items list) and GET /me/playlists (items summary with href + total).
+    """
+
+    href: str = Field(default="")
+    limit: int = Field(default=20)
+    next: str | None = Field(default=None)
+    offset: int = Field(default=0)
+    previous: str | None = Field(default=None)
+    total: int = Field(default=0)
+    items: list[SpotifyPlaylist] = Field(default_factory=list)
