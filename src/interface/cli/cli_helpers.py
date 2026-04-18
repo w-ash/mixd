@@ -26,6 +26,7 @@ import typer
 
 from src.config.constants import BusinessLimits
 from src.domain.entities import OperationResult, Playlist, Track
+from src.domain.entities.playlist_link import SyncDirection
 from src.domain.entities.preference import PREFERENCE_ORDER, PreferenceState
 from src.domain.entities.progress import NullProgressEmitter, ProgressEmitter
 from src.domain.entities.tag import normalize_tag
@@ -273,6 +274,23 @@ def validate_tag(raw: str) -> str:
         return normalize_tag(raw)
     except ValueError as e:
         raise typer.BadParameter(str(e)) from e
+
+
+def validate_sync_source(raw: str) -> SyncDirection:
+    """Map ``--source {spotify,mixd}`` to a ``SyncDirection`` or raise.
+
+    ``spotify`` means "source is Spotify" → pull into Mixd.
+    ``mixd`` means "source is Mixd" → push out to Spotify.
+    """
+    match raw:
+        case "spotify":
+            return SyncDirection.PULL
+        case "mixd":
+            return SyncDirection.PUSH
+        case _:
+            raise typer.BadParameter(
+                f"'{raw}' is not a valid source — expected 'spotify' or 'mixd'."
+            )
 
 
 # ---------------------------------------------------------------------------

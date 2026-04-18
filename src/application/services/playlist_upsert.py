@@ -1,8 +1,8 @@
 """Shared command builders and orchestrator for playlist create-or-update logic.
 
-Eliminates duplication between playlist_backup_service.py (direct UoW execution)
-and source_nodes.py (workflow context execution). Both construct identical commands;
-the shared builders DRY that up while each caller retains its own execution model.
+The shared builders keep command construction DRY across callers that need
+different execution models (direct UoW vs. workflow context) while each
+caller retains its own transaction boundary.
 """
 
 from typing import TYPE_CHECKING
@@ -80,11 +80,8 @@ async def upsert_canonical_playlist(
     *,
     user_id: str,
 ) -> CreateCanonicalPlaylistResult | UpdateCanonicalPlaylistResult:
-    """Full create-or-update flow for callers with direct UoW access.
-
-    Reads existing playlist, builds appropriate command, executes use case.
-    Used by playlist_backup_service and source_nodes for atomic sync+upsert flows.
-    """
+    """CREATE or UPDATE the canonical Playlist that mirrors the connector
+    playlist. Caller owns the UoW and the commit boundary."""
     # Check if playlist already exists locally
     existing_playlist = None
     try:

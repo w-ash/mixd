@@ -65,7 +65,6 @@ from src.infrastructure.connectors._shared.metric_registry import (
 from src.interface.api.deps import get_current_user_id
 from src.interface.api.schemas.common import PaginatedResponse
 from src.interface.api.schemas.playlists import (
-    BackupPlaylistRequest,
     CreateLinkRequest,
     CreatePlaylistRequest,
     PlaylistDetailSchema,
@@ -137,22 +136,6 @@ async def create_playlist(
         lambda uow: CreateCanonicalPlaylistUseCase(
             metric_config=MetricConfigProviderImpl()
         ).execute(command, uow),
-        user_id=user_id,
-    )
-    return to_playlist_detail(result.playlist)
-
-
-@router.post("/backup", status_code=201)
-async def backup_playlist(
-    body: BackupPlaylistRequest,
-    user_id: str = Depends(get_current_user_id),
-) -> PlaylistDetailSchema:
-    """Backup a playlist from a connector service to the local database."""
-    from src.application.services.playlist_backup_service import run_playlist_backup
-
-    result = await run_playlist_backup(
-        connector_name=body.connector,
-        playlist_id=body.playlist_id,
         user_id=user_id,
     )
     return to_playlist_detail(result.playlist)

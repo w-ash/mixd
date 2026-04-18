@@ -397,48 +397,6 @@
         }
       }
     },
-    "/api/v1/playlists/backup": {
-      "post": {
-        "tags": [
-          "playlists"
-        ],
-        "summary": "Backup Playlist",
-        "description": "Backup a playlist from a connector service to the local database.",
-        "operationId": "backup_playlist_api_v1_playlists_backup_post",
-        "requestBody": {
-          "content": {
-            "application/json": {
-              "schema": {
-                "$ref": "#/components/schemas/BackupPlaylistRequest"
-              }
-            }
-          },
-          "required": true
-        },
-        "responses": {
-          "201": {
-            "description": "Successful Response",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/PlaylistDetailSchema"
-                }
-              }
-            }
-          },
-          "422": {
-            "description": "Validation Error",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/HTTPValidationError"
-                }
-              }
-            }
-          }
-        }
-      }
-    },
     "/api/v1/playlists/{playlist_id}": {
       "get": {
         "tags": [
@@ -3179,25 +3137,6 @@
         ],
         "title": "ArtistSchema",
         "description": "Artist representation in API responses."
-      },
-      "BackupPlaylistRequest": {
-        "properties": {
-          "connector": {
-            "type": "string",
-            "title": "Connector"
-          },
-          "playlist_id": {
-            "type": "string",
-            "title": "Playlist Id"
-          }
-        },
-        "type": "object",
-        "required": [
-          "connector",
-          "playlist_id"
-        ],
-        "title": "BackupPlaylistRequest",
-        "description": "Request body for POST /playlists/backup."
       },
       "BatchTagRequest": {
         "properties": {

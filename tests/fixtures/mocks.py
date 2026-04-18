@@ -389,3 +389,26 @@ def make_mock_uow(**repo_overrides) -> MagicMock:
     uow.rollback = AsyncMock()
 
     return uow
+
+
+def make_mock_uow_with_connector(
+    get_playlist_return=None,
+    **uow_overrides,
+) -> tuple[MagicMock, AsyncMock]:
+    """Build a mock UoW wired with an AsyncMock playlist connector.
+
+    Returns ``(uow, connector)``. The connector implements
+    ``get_playlist`` (returns ``get_playlist_return`` when provided) and
+    a stub ``get_playlist_details`` so ``resolve_playlist_connector``'s
+    capability check passes. Additional uow_overrides are forwarded to
+    ``make_mock_uow``.
+    """
+    connector = AsyncMock()
+    if get_playlist_return is not None:
+        connector.get_playlist.return_value = get_playlist_return
+    connector.get_playlist_details = AsyncMock()
+
+    provider = MagicMock()
+    provider.get_connector.return_value = connector
+    uow = make_mock_uow(connector_provider=provider, **uow_overrides)
+    return uow, connector

@@ -7,14 +7,14 @@ and status determination to the connector_status application service.
 from fastapi import APIRouter, Depends, HTTPException, Query
 
 from src.application.runner import execute_use_case
-from src.application.use_cases.import_spotify_playlists import (
-    ImportSpotifyPlaylistsCommand,
-    ImportSpotifyPlaylistsUseCase,
+from src.application.use_cases.import_connector_playlist_as_canonical import (
+    run_import_connector_playlists_as_canonical,
 )
 from src.application.use_cases.list_spotify_playlists import (
     ListSpotifyPlaylistsCommand,
     ListSpotifyPlaylistsUseCase,
 )
+from src.domain.entities.playlist import SPOTIFY_CONNECTOR
 from src.domain.entities.playlist_link import SyncDirection
 from src.infrastructure.connectors._shared.connector_status import (
     get_all_connector_statuses,
@@ -103,14 +103,11 @@ async def import_spotify_playlists(
     previously-imported playlists with a known snapshot are short-circuited
     into ``skipped_unchanged``.
     """
-    command = ImportSpotifyPlaylistsCommand(
+    result = await run_import_connector_playlists_as_canonical(
         user_id=user_id,
+        connector_name=SPOTIFY_CONNECTOR,
         connector_playlist_ids=body.connector_playlist_ids,
         sync_direction=SyncDirection(body.sync_direction),
-    )
-    result = await execute_use_case(
-        lambda uow: ImportSpotifyPlaylistsUseCase().execute(command, uow),
-        user_id=user_id,
     )
     return ImportSpotifyPlaylistsResponse(
         succeeded=[

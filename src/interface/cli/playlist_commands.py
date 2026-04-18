@@ -1,10 +1,6 @@
-"""CLI commands for playlist data management and CRUD operations.
+"""CLI commands for playlist CRUD, connector links, and Spotify import."""
 
-Clean implementation focused solely on stored playlist operations:
-list, backup, delete. Workflow functionality moved to workflow_commands.py.
-"""
-
-from collections.abc import Sequence
+from collections.abc import Mapping, Sequence
 from typing import Annotated
 
 from rich.panel import Panel
@@ -14,11 +10,15 @@ import typer
 
 from src.domain.entities.playlist import Playlist
 from src.interface.cli.async_runner import run_async
-from src.interface.cli.cli_helpers import get_cli_user_id, handle_cli_error
+from src.interface.cli.cli_helpers import (
+    BatchOperationResult,
+    get_cli_user_id,
+    handle_cli_error,
+    render_batch_summary,
+    validate_sync_source,
+)
 from src.interface.cli.console import (
     GOLD,
-    brand_panel,
-    brand_status,
     get_console,
     get_error_console,
 )
@@ -41,26 +41,6 @@ def list_playlists() -> None:
     Shows playlist ID, name, description, and track count in a Rich table.
     """
     run_async(_list_stored_playlists())
-
-
-@app.command()
-def backup(
-    connector: Annotated[str, typer.Argument(help="Connector name (e.g., 'spotify')")],
-    playlist_id: Annotated[
-        str, typer.Argument(help="Playlist ID from the connector service")
-    ],
-) -> None:
-    """Backup a playlist from a music service to your local database.
-
-    Downloads a playlist from the specified connector (Spotify, etc.) and saves it
-    to your local database. If the playlist already exists locally, it will be updated
-    with the latest tracks and metadata from the service.
-
-    Examples:
-        mixd playlist backup spotify 37i9dQZF1DX0XUsuxWHRQd
-        mixd playlist backup spotify 1A2B3C4D5E6F7G8H9I0J1K
-    """
-    run_async(_backup_playlist_async(connector, playlist_id))
 
 
 @app.command()
@@ -279,66 +259,6 @@ async def _delete_playlist_async(playlist_id: str, force: bool) -> None:
         raise
     except Exception as e:
         handle_cli_error(e, "Failed to delete playlist")
-
-
-async def _backup_playlist_async(connector_name: str, playlist_id: str) -> None:
-    """Backup a playlist from a connector service to the local database."""
-    # Import here to avoid circular dependencies
-    from src.application.services.playlist_backup_service import run_playlist_backup
-
-    console.print(
-        brand_panel(
-            f"[bold]{connector_name.title()} Playlist Backup[/bold]\n"
-            + f"[dim]Playlist ID: {playlist_id}[/dim]",
-            "Starting Backup",
-            emoji="🎵",
-        )
-    )
-
-    try:
-        with brand_status(f"Backing up playlist from {connector_name}..."):
-            result = await run_playlist_backup(
-                connector_name=connector_name,
-                playlist_id=playlist_id,
-                user_id=get_cli_user_id(),
-            )
-
-        from src.application.use_cases.update_canonical_playlist import (
-            UpdateCanonicalPlaylistResult,
-        )
-
-        # Both result types share .playlist — isinstance narrows for type-safe access
-        playlist = result.playlist
-        detail_lines = [
-            f"[cyan]Name:[/cyan] {playlist.name}",
-            f"[cyan]Tracks:[/cyan] {len(playlist.tracks)}",
-        ]
-
-        if isinstance(result, UpdateCanonicalPlaylistResult):
-            detail_lines.extend([
-                f"[cyan]Operations:[/cyan] {result.operations_performed} changes",
-                f"[cyan]Added:[/cyan] {result.tracks_added}, [cyan]Removed:[/cyan] {result.tracks_removed}",
-            ])
-            action = "Updated"
-        else:
-            detail_lines.append(
-                f"[cyan]New tracks saved:[/cyan] {result.tracks_created}"
-            )
-            action = "Created"
-
-        console.print(
-            Panel.fit(
-                f"[bold green]✓ Playlist {action}[/bold green]\n"
-                + "\n".join(detail_lines),
-                title="[bold green]🎵 Backup Complete[/bold green]",
-                border_style="green",
-            )
-        )
-
-    except ValueError as e:
-        handle_cli_error(e, str(e))
-    except Exception as e:
-        handle_cli_error(e, "Backup failed")
 
 
 async def _create_playlist_async(name: str, description: str | None) -> None:
@@ -623,6 +543,222 @@ def sync_link(
         f"[green]Sync complete[/green] — "
         f"added: {result.tracks_added}, removed: {result.tracks_removed}"
     )
+
+
+@app.command(name="browse-spotify")
+def browse_spotify(
+    refresh: Annotated[
+        bool,
+        typer.Option("--refresh", help="Bypass the cache and force-fetch from Spotify"),
+    ] = False,
+    not_imported: Annotated[
+        bool,
+        typer.Option(
+            "--not-imported", help="Show only playlists not yet imported into Mixd"
+        ),
+    ] = False,
+    search: Annotated[
+        str | None,
+        typer.Option("--search", help="Filter by substring match on playlist name"),
+    ] = None,
+) -> None:
+    """Browse your Spotify playlists with import status.
+
+    Examples:
+        mixd playlist browse-spotify
+        mixd playlist browse-spotify --not-imported
+        mixd playlist browse-spotify --search chill
+        mixd playlist browse-spotify --refresh
+    """
+    from src.application.use_cases.list_spotify_playlists import (
+        run_list_spotify_playlists,
+    )
+
+    try:
+        result = run_async(
+            run_list_spotify_playlists(user_id=get_cli_user_id(), force_refresh=refresh)
+        )
+    except Exception as e:
+        handle_cli_error(e, "Failed to list Spotify playlists")
+
+    views = result.playlists
+    if not_imported:
+        views = [v for v in views if v.import_status == "not_imported"]
+    if search:
+        needle = search.casefold()
+        views = [v for v in views if needle in v.name.casefold()]
+
+    if not views:
+        console.print("[yellow]No matching Spotify playlists.[/yellow]")
+        return
+
+    table = Table(
+        title=f"Spotify Playlists ({'cached' if result.from_cache else 'refreshed'})",
+        show_header=True,
+        header_style="bold magenta",
+    )
+    table.add_column("Name", style="green")
+    table.add_column("Tracks", style="yellow", justify="right")
+    table.add_column("Owner", style="dim")
+    table.add_column("Status", style="cyan")
+    table.add_column("ID", style="dim")
+
+    for v in views:
+        table.add_row(
+            v.name,
+            str(v.track_count),
+            v.owner or "—",
+            v.import_status,
+            v.connector_playlist_identifier,
+        )
+    console.print(table)
+
+
+def _resolve_spotify_playlist_refs(
+    refs: Sequence[str],
+    names_by_id: Mapping[str, str],
+) -> tuple[list[str], list[str]]:
+    """Resolve CLI refs to Spotify ``connector_playlist_identifier`` values.
+
+    A ref is either an exact identifier (the 22-char Spotify base62 ID)
+    or a case-insensitive match on the playlist name (exact first, then
+    substring). Returns ``(resolved_ids, errors)`` — errors are
+    human-readable strings the caller emits via the error console.
+    """
+    cased = [(ident, name, name.casefold()) for ident, name in names_by_id.items()]
+    resolved: list[str] = []
+    errors: list[str] = []
+
+    for ref in refs:
+        if ref in names_by_id:
+            resolved.append(ref)
+            continue
+
+        needle = ref.casefold()
+        exact = [(i, n) for i, n, c in cased if c == needle]
+        matches = exact or [(i, n) for i, n, c in cased if needle in c]
+
+        if not matches:
+            errors.append(f"No Spotify playlist matching '{ref}'")
+        elif len(matches) > 1:
+            shown = ", ".join(f"'{n}'" for _, n in matches[:5])
+            errors.append(
+                f"'{ref}' matches multiple playlists ({shown}) — "
+                "pass the ID to disambiguate"
+            )
+        else:
+            resolved.append(matches[0][0])
+
+    return resolved, errors
+
+
+@app.command(name="import-spotify")
+def import_spotify(
+    refs: Annotated[
+        list[str] | None,
+        typer.Argument(help="Spotify playlist IDs or names (omit with --all)"),
+    ] = None,
+    source: Annotated[
+        str,
+        typer.Option(
+            "--source",
+            help="Which side is the source of truth: 'spotify' (pull) or 'mixd' (push)",
+        ),
+    ] = "spotify",
+    all_not_imported: Annotated[
+        bool,
+        typer.Option(
+            "--all",
+            help="Import all playlists (combine with --not-imported to skip existing)",
+        ),
+    ] = False,
+    not_imported: Annotated[
+        bool,
+        typer.Option(
+            "--not-imported",
+            help="Restrict --all to playlists not yet imported into Mixd",
+        ),
+    ] = False,
+) -> None:
+    """Import one or more Spotify playlists into Mixd.
+
+    Examples:
+        mixd playlist import-spotify 37i9dQZF1DX0XUsuxWHRQd
+        mixd playlist import-spotify "Chill Vibes"
+        mixd playlist import-spotify "Chill" "Workout" --source spotify
+        mixd playlist import-spotify --all --not-imported
+    """
+    sync_direction = validate_sync_source(source)
+
+    if not all_not_imported and not refs:
+        raise typer.BadParameter(
+            "Provide one or more playlist IDs/names, or pass --all"
+        )
+
+    from src.application.use_cases.import_connector_playlist_as_canonical import (
+        run_import_connector_playlists_as_canonical,
+    )
+    from src.application.use_cases.list_spotify_playlists import (
+        run_list_spotify_playlists,
+    )
+    from src.domain.entities.playlist import SPOTIFY_CONNECTOR
+
+    try:
+        listing = run_async(run_list_spotify_playlists(user_id=get_cli_user_id()))
+    except Exception as e:
+        handle_cli_error(e, "Failed to list Spotify playlists")
+
+    views = listing.playlists
+
+    if all_not_imported:
+        target_views = (
+            [v for v in views if v.import_status == "not_imported"]
+            if not_imported
+            else views
+        )
+        resolved_ids = [v.connector_playlist_identifier for v in target_views]
+        if not resolved_ids:
+            console.print(
+                "[yellow]No Spotify playlists matched the import criteria.[/yellow]"
+            )
+            return
+        console.print(
+            f"[cyan]Importing {len(resolved_ids)} playlists from Spotify...[/cyan]"
+        )
+    else:
+        names_by_id = {v.connector_playlist_identifier: v.name for v in views}
+        resolved_ids, errors = _resolve_spotify_playlist_refs(refs or [], names_by_id)
+        for err in errors:
+            err_console.print(f"[red]{err}[/red]")
+        if not resolved_ids:
+            raise typer.Exit(1)
+
+    try:
+        result = run_async(
+            run_import_connector_playlists_as_canonical(
+                user_id=get_cli_user_id(),
+                connector_name=SPOTIFY_CONNECTOR,
+                connector_playlist_ids=resolved_ids,
+                sync_direction=sync_direction,
+            )
+        )
+    except Exception as e:
+        handle_cli_error(e, "Import failed")
+
+    for failure in result.failed:
+        err_console.print(
+            f"[red]Failed:[/red] {failure.connector_playlist_identifier} — "
+            f"{failure.message}"
+        )
+
+    summary = BatchOperationResult(
+        succeeded=len(result.succeeded),
+        skipped=len(result.skipped_unchanged),
+        failed=[
+            f"{f.connector_playlist_identifier}: {f.message}" for f in result.failed
+        ],
+    )
+    console.print(render_batch_summary(summary, title="Spotify Import"))
 
 
 @app.command(name="sync-preview")

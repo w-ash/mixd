@@ -9,7 +9,6 @@
 export * from './addTagRequest';
 export * from './addTagResponse';
 export * from './artistSchema';
-export * from './backupPlaylistRequest';
 export * from './batchTagRequest';
 export * from './batchTagResponse';
 export * from './bodyImportSpotifyHistoryApiV1ImportsSpotifyHistoryPost';

@@ -58,16 +58,8 @@ class SyncPlaylistLinkResult:
 
 @define(slots=True)
 class SyncPlaylistLinkUseCase:
-    """Sync a playlist link in its configured (or overridden) direction.
-
-    Push (canonical → external):
-        Loads canonical playlist, builds UpdateConnectorPlaylistCommand,
-        delegates to UpdateConnectorPlaylistUseCase for diff + API ops.
-
-    Pull (external → canonical):
-        Fetches external playlist via connector, upserts canonical playlist.
-        Exact pattern from playlist_backup_service.
-    """
+    """Sync a playlist link bidirectionally. Push: canonical → external.
+    Pull: external → canonical."""
 
     async def execute(
         self, command: SyncPlaylistLinkCommand, uow: UnitOfWorkProtocol
