@@ -19,6 +19,7 @@ from src.domain.repositories.interfaces import (
     MatchReviewRepositoryProtocol,
     MetricsRepositoryProtocol,
     PlaylistLinkRepositoryProtocol,
+    PlaylistMetadataMappingRepositoryProtocol,
     PlaylistRepositoryProtocol,
     PlaysRepositoryProtocol,
     PreferenceRepositoryProtocol,
@@ -252,6 +253,16 @@ class DatabaseUnitOfWork:
         )
 
         return TrackTagRepository(self._session)
+
+    def get_playlist_metadata_mapping_repository(
+        self,
+    ) -> PlaylistMetadataMappingRepositoryProtocol:
+        """Get playlist metadata mapping repository."""
+        from src.infrastructure.persistence.repositories.playlist.metadata_mapping import (
+            PlaylistMetadataMappingRepository,
+        )
+
+        return PlaylistMetadataMappingRepository(self._session)
 
     def get_stats_repository(self) -> StatsRepositoryProtocol:
         """Get cross-table stats repository for dashboard aggregation."""

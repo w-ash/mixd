@@ -239,6 +239,27 @@ def make_mock_metric_config() -> MagicMock:
     return MagicMock()
 
 
+def make_mock_playlist_metadata_mapping_repo(**overrides) -> AsyncMock:
+    """Build an ``AsyncMock`` mimicking :class:`PlaylistMetadataMappingRepositoryProtocol`."""
+    repo = AsyncMock()
+    repo.list_for_user.return_value = overrides.pop("list_for_user", [])
+    repo.list_for_connector_playlist.return_value = overrides.pop(
+        "list_for_connector_playlist", []
+    )
+    repo.find_by_id.return_value = overrides.pop("find_by_id", None)
+    repo.create_mappings.side_effect = overrides.pop(
+        "create_mappings", lambda mappings, **kw: list(mappings)
+    )
+    repo.delete_mapping.return_value = overrides.pop("delete_mapping", True)
+    repo.get_members.return_value = overrides.pop("get_members", [])
+    repo.replace_members.side_effect = overrides.pop(
+        "replace_members", lambda mid, members, **kw: list(members)
+    )
+    for k, v in overrides.items():
+        setattr(repo, k, v)
+    return repo
+
+
 def make_mock_workflow_run_repo(**overrides) -> AsyncMock:
     """Build an ``AsyncMock`` mimicking :class:`WorkflowRunRepositoryProtocol`."""
     repo = AsyncMock()
@@ -370,6 +391,12 @@ def make_mock_uow(**repo_overrides) -> MagicMock:
     )
     uow.get_tag_repository = MagicMock(
         return_value=repo_overrides.get("tag_repo", make_mock_tag_repo())
+    )
+    uow.get_playlist_metadata_mapping_repository = MagicMock(
+        return_value=repo_overrides.get(
+            "playlist_metadata_mapping_repo",
+            make_mock_playlist_metadata_mapping_repo(),
+        )
     )
 
     uow.get_stats_repository = MagicMock(

@@ -26,6 +26,10 @@ from src.domain.entities import (
 )
 from src.domain.entities.match_review import MatchReview
 from src.domain.entities.playlist_link import SyncDirection, SyncStatus
+from src.domain.entities.playlist_metadata_mapping import (
+    PlaylistMappingMember,
+    PlaylistMetadataMapping,
+)
 from src.domain.entities.preference import (
     PreferenceEvent,
     PreferenceState,
@@ -1496,6 +1500,59 @@ class TagRepositoryProtocol(Protocol):
         ...
 
 
+class PlaylistMetadataMappingRepositoryProtocol(Protocol):
+    """Repository interface for playlist metadata mapping persistence.
+
+    Batch-first: single-item operations are the degenerate case. Mappings
+    are created once and deleted individually; membership snapshots are
+    replaced wholesale (DELETE-by-mapping + INSERT) on every import.
+    """
+
+    def list_for_user(
+        self, *, user_id: str
+    ) -> Awaitable[list[PlaylistMetadataMapping]]:
+        """All mappings for a user, across every connector playlist."""
+        ...
+
+    def list_for_connector_playlist(
+        self, connector_playlist_id: UUID, *, user_id: str
+    ) -> Awaitable[list[PlaylistMetadataMapping]]:
+        """All mappings bound to one connector playlist (may have many)."""
+        ...
+
+    def find_by_id(
+        self, mapping_id: UUID, *, user_id: str
+    ) -> Awaitable[PlaylistMetadataMapping | None]:
+        """Fetch one mapping by its ID. Returns None when not found."""
+        ...
+
+    def create_mappings(
+        self, mappings: Sequence[PlaylistMetadataMapping], *, user_id: str
+    ) -> Awaitable[list[PlaylistMetadataMapping]]:
+        """Insert mappings. UNIQUE on (connector_playlist_id, action_type, action_value)."""
+        ...
+
+    def delete_mapping(self, mapping_id: UUID, *, user_id: str) -> Awaitable[bool]:
+        """Delete one mapping. Returns True if a row was removed."""
+        ...
+
+    def get_members(
+        self, mapping_id: UUID, *, user_id: str
+    ) -> Awaitable[list[PlaylistMappingMember]]:
+        """Current membership snapshot for one mapping."""
+        ...
+
+    def replace_members(
+        self,
+        mapping_id: UUID,
+        members: Sequence[PlaylistMappingMember],
+        *,
+        user_id: str,
+    ) -> Awaitable[list[PlaylistMappingMember]]:
+        """DELETE all members for this mapping, INSERT the new set. Atomic."""
+        ...
+
+
 class StatsRepositoryProtocol(Protocol):
     """Cross-table read-only aggregation queries."""
 
@@ -1608,6 +1665,12 @@ class UnitOfWorkProtocol(Protocol):
 
     def get_tag_repository(self) -> TagRepositoryProtocol:
         """Get tag repository for track tag operations."""
+        ...
+
+    def get_playlist_metadata_mapping_repository(
+        self,
+    ) -> PlaylistMetadataMappingRepositoryProtocol:
+        """Get playlist metadata mapping repository for connector-playlist → metadata bindings."""
         ...
 
     def get_stats_repository(self) -> StatsRepositoryProtocol:
