@@ -1,9 +1,10 @@
-"""Tests for `mixd playlist browse-spotify` and `playlist import-spotify`.
+"""Tests for the playlist CLI commands.
 
-Focus on the CLI command contract — argument parsing, reference resolution,
---source flag mapping, and clean error output. Use-case behavior itself is
-covered by ``test_import_connector_playlist_as_canonical.py`` and
-``test_list_spotify_playlists.py``.
+Focus on the CLI command contract — argument parsing, reference
+resolution, --source flag mapping, validation errors, and clean error
+output. Use-case behavior itself is covered by
+``test_import_connector_playlist_as_canonical.py``,
+``test_import_playlist_metadata.py``, and ``test_list_spotify_playlists.py``.
 """
 
 from collections.abc import Sequence
@@ -261,3 +262,57 @@ class TestImportSpotifyAllNotImported:
         assert "Succeeded" in result.output
         assert "Skipped" in result.output
         assert "Total" in result.output
+
+
+class TestMappingValidation:
+    """`mixd playlist map` rejects bad action types + values cleanly."""
+
+    def test_invalid_action_rejected(self) -> None:
+        result = runner.invoke(
+            app,
+            [
+                "playlist",
+                "map",
+                "Chill",
+                "--action",
+                "not_a_real_action",
+                "--value",
+                "star",
+            ],
+        )
+        assert result.exit_code == 2
+        assert "set_preference" in result.output
+        assert "Traceback" not in result.output
+
+    def test_invalid_preference_value_rejected(self) -> None:
+        result = runner.invoke(
+            app,
+            [
+                "playlist",
+                "map",
+                "Chill",
+                "--action",
+                "set_preference",
+                "--value",
+                "love",
+            ],
+        )
+        assert result.exit_code == 2
+        assert "hmm/nah/yah/star" in result.output
+        assert "Traceback" not in result.output
+
+    def test_invalid_tag_value_rejected(self) -> None:
+        result = runner.invoke(
+            app,
+            [
+                "playlist",
+                "map",
+                "Chill",
+                "--action",
+                "add_tag",
+                "--value",
+                "bad/tag",
+            ],
+        )
+        assert result.exit_code == 2
+        assert "Traceback" not in result.output

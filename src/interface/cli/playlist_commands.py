@@ -761,6 +761,254 @@ def import_spotify(
     console.print(render_batch_summary(summary, title="Spotify Import"))
 
 
+# ---------------------------------------------------------------------------
+# Metadata mapping commands (v0.7.4 epic 4)
+# ---------------------------------------------------------------------------
+
+
+@app.command(name="map")
+def map_playlist(
+    playlist_ref: Annotated[
+        str, typer.Argument(help="Spotify playlist ID or name fragment")
+    ],
+    action: Annotated[
+        str,
+        typer.Option(
+            "--action", "-a", help="set_preference or add_tag", show_default=False
+        ),
+    ],
+    value: Annotated[
+        str,
+        typer.Option(
+            "--value", "-v", help="hmm/nah/yah/star (preference) or tag string"
+        ),
+    ],
+) -> None:
+    """Map a Spotify playlist to a preference state or tag.
+
+    The mapping is applied to all the playlist's tracks on the next
+    ``mixd playlist import-metadata`` run.
+
+    Examples:
+        mixd playlist map "Chill Vibes" --action add_tag --value "mood:chill"
+        mixd playlist map "Starred" --action set_preference --value star
+    """
+    from src.interface.cli.cli_helpers import (
+        validate_mapping_action,
+        validate_mapping_action_value,
+    )
+
+    action_type = validate_mapping_action(action)
+    canonical_value = validate_mapping_action_value(value, action_type=action_type)
+
+    cp_id = _resolve_connector_playlist_id(playlist_ref)
+
+    from src.application.use_cases.create_playlist_metadata_mapping import (
+        run_create_playlist_metadata_mapping,
+    )
+
+    try:
+        result = run_async(
+            run_create_playlist_metadata_mapping(
+                user_id=get_cli_user_id(),
+                connector_playlist_id=cp_id,
+                action_type=action_type,
+                raw_action_value=canonical_value,
+            )
+        )
+    except Exception as e:
+        handle_cli_error(e, "Failed to create mapping")
+
+    if result.created:
+        console.print(
+            f"[green]Mapped[/green] {playlist_ref} → {action_type}={canonical_value} "
+            f"(mapping id: {result.mapping.id})"
+        )
+    else:
+        console.print(
+            f"[dim]Mapping already exists for {action_type}={canonical_value}[/dim]"
+        )
+
+
+@app.command(name="unmap")
+def unmap_playlist(
+    playlist_ref: Annotated[
+        str, typer.Argument(help="Spotify playlist ID or name fragment")
+    ],
+    action: Annotated[
+        str, typer.Option("--action", "-a", help="set_preference or add_tag")
+    ],
+    value: Annotated[
+        str, typer.Option("--value", "-v", help="The action value to remove")
+    ],
+) -> None:
+    """Remove a mapping from a Spotify playlist.
+
+    Does NOT clear preferences/tags already written by past imports.
+    Re-run ``import-metadata`` to clear mapping-sourced metadata for
+    tracks no longer covered by any mapping.
+
+    Examples:
+        mixd playlist unmap "Chill Vibes" --action add_tag --value "mood:chill"
+    """
+    from src.interface.cli.cli_helpers import (
+        validate_mapping_action,
+        validate_mapping_action_value,
+    )
+
+    action_type = validate_mapping_action(action)
+    canonical_value = validate_mapping_action_value(value, action_type=action_type)
+
+    cp_id = _resolve_connector_playlist_id(playlist_ref)
+
+    from src.application.runner import execute_use_case
+    from src.application.use_cases.delete_playlist_metadata_mapping import (
+        DeletePlaylistMetadataMappingCommand,
+        DeletePlaylistMetadataMappingUseCase,
+    )
+
+    user_id = get_cli_user_id()
+
+    async def _find_and_delete() -> tuple[bool, str | None]:
+        from src.domain.repositories import UnitOfWorkProtocol
+
+        async def _inner(uow: UnitOfWorkProtocol):
+            async with uow:
+                repo = uow.get_playlist_metadata_mapping_repository()
+                mappings = await repo.list_for_connector_playlist(
+                    cp_id, user_id=user_id
+                )
+                match = next(
+                    (
+                        m
+                        for m in mappings
+                        if m.action_type == action_type
+                        and m.action_value == canonical_value
+                    ),
+                    None,
+                )
+                if match is None:
+                    return False, None
+                cmd = DeletePlaylistMetadataMappingCommand(
+                    user_id=user_id, mapping_id=match.id
+                )
+                deleted_result = await DeletePlaylistMetadataMappingUseCase().execute(
+                    cmd, uow
+                )
+                return deleted_result.deleted, str(match.id)
+
+        return await execute_use_case(_inner, user_id=user_id)
+
+    try:
+        deleted, mapping_id = run_async(_find_and_delete())
+    except Exception as e:
+        handle_cli_error(e, "Failed to remove mapping")
+
+    if deleted:
+        console.print(
+            f"[green]Removed mapping[/green] {action_type}={canonical_value} "
+            f"({mapping_id})"
+        )
+    else:
+        console.print(
+            f"[yellow]No mapping found[/yellow] for {action_type}={canonical_value}"
+        )
+
+
+@app.command(name="import-metadata")
+def import_metadata() -> None:
+    """Apply all configured playlist metadata mappings.
+
+    For each mapping, walks the cached connector playlist's tracks and
+    applies the action (set_preference / add_tag). Manual preferences
+    are never overwritten. Tracks removed from a playlist since the
+    last run have their mapping-sourced metadata cleared (manual stays).
+
+    Re-running on unchanged playlists is idempotent — re-applies use
+    ON CONFLICT DO NOTHING so duplicates are silent.
+    """
+    from src.application.use_cases.import_playlist_metadata import (
+        run_import_playlist_metadata,
+    )
+
+    try:
+        result = run_async(run_import_playlist_metadata(user_id=get_cli_user_id()))
+    except Exception as e:
+        handle_cli_error(e, "Metadata import failed")
+
+    if result.mappings_processed == 0:
+        console.print(
+            "[yellow]No active mappings to import. "
+            "Use `mixd playlist map` to create one.[/yellow]"
+        )
+        return
+
+    table = Table(
+        title="Playlist Metadata Import", show_header=False, header_style="bold"
+    )
+    table.add_column("", style="bold")
+    table.add_column("", justify="right")
+    table.add_row("Mappings processed", str(result.mappings_processed))
+    table.add_row("Preferences applied", str(result.preferences_applied))
+    table.add_row("Preferences cleared", str(result.preferences_cleared))
+    table.add_row("Tags applied", str(result.tags_applied))
+    table.add_row("Tags cleared", str(result.tags_cleared))
+    if result.conflicts_logged:
+        table.add_row(
+            "Conflicts (logged)", str(result.conflicts_logged), style="yellow"
+        )
+    console.print(table)
+
+
+def _resolve_connector_playlist_id(ref: str):
+    """Resolve a CLI playlist ref to a DBConnectorPlaylist UUID.
+
+    Accepts the Spotify base62 identifier OR a substring of the
+    playlist name. Uses the cached browser listing — does not hit
+    Spotify. Raises ``typer.BadParameter`` on missing or ambiguous.
+    """
+    from uuid import UUID
+
+    from src.application.use_cases.list_spotify_playlists import (
+        run_list_spotify_playlists,
+    )
+
+    try:
+        listing = run_async(run_list_spotify_playlists(user_id=get_cli_user_id()))
+    except Exception as e:
+        handle_cli_error(e, "Failed to list cached Spotify playlists")
+
+    views = listing.playlists
+    names_by_id = {v.connector_playlist_identifier: v.name for v in views}
+    resolved_ids, errors = _resolve_spotify_playlist_refs([ref], names_by_id)
+    if errors:
+        raise typer.BadParameter(errors[0])
+
+    spotify_id = resolved_ids[0]
+    # Look up the DBConnectorPlaylist UUID for this connector_playlist_identifier.
+
+    async def _by_identifier() -> UUID:
+        from src.application.runner import execute_use_case
+        from src.domain.entities.playlist import SPOTIFY_CONNECTOR
+        from src.domain.repositories import UnitOfWorkProtocol
+
+        async def _inner(uow: UnitOfWorkProtocol):
+            async with uow:
+                cp_repo = uow.get_connector_playlist_repository()
+                cps = await cp_repo.list_by_connector(SPOTIFY_CONNECTOR)
+                for cp in cps:
+                    if cp.connector_playlist_identifier == spotify_id:
+                        return cp.id
+                raise typer.BadParameter(
+                    f"Spotify playlist {spotify_id!r} is not in the local cache. "
+                    "Run `mixd playlist browse-spotify --refresh` first."
+                )
+
+        return await execute_use_case(_inner, user_id=get_cli_user_id())
+
+    return run_async(_by_identifier())
+
+
 @app.command(name="sync-preview")
 def sync_preview(
     link_id: Annotated[str, typer.Argument(help="Link UUID to preview")],

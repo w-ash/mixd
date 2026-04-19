@@ -276,6 +276,30 @@ def validate_tag(raw: str) -> str:
         raise typer.BadParameter(str(e)) from e
 
 
+def validate_mapping_action(raw: str):  # -> MappingActionType (deferred type)
+    """Return a typed ``MappingActionType`` or raise ``typer.BadParameter``."""
+    if raw not in ("set_preference", "add_tag"):
+        raise typer.BadParameter(
+            f"'{raw}' is not a valid mapping action — "
+            "expected 'set_preference' or 'add_tag'."
+        )
+    return raw  # runtime-narrowed to MappingActionType
+
+
+def validate_mapping_action_value(raw: str, *, action_type: str) -> str:
+    """Validate + canonicalize an ``action_value`` for the given action type.
+
+    Delegates to the domain ``validate_action_value`` so CLI, API schemas,
+    and direct domain callers share a single source of truth.
+    """
+    from src.domain.entities.playlist_metadata_mapping import validate_action_value
+
+    try:
+        return validate_action_value(action_type, raw)  # type: ignore[arg-type]
+    except ValueError as e:
+        raise typer.BadParameter(str(e)) from e
+
+
 def validate_sync_source(raw: str) -> SyncDirection:
     """Map ``--source {spotify,mixd}`` to a ``SyncDirection`` or raise.
 
