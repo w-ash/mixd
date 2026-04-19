@@ -1560,6 +1560,12 @@ class PlaylistMetadataMappingRepositoryProtocol(Protocol):
         """Current membership snapshot for one mapping."""
         ...
 
+    def get_members_for_mappings(
+        self, mapping_ids: Sequence[UUID], *, user_id: str
+    ) -> Awaitable[dict[UUID, list[PlaylistMappingMember]]]:
+        """Batch member load for many mappings in one query."""
+        ...
+
     def replace_members(
         self,
         mapping_id: UUID,
@@ -1567,7 +1573,16 @@ class PlaylistMetadataMappingRepositoryProtocol(Protocol):
         *,
         user_id: str,
     ) -> Awaitable[list[PlaylistMappingMember]]:
-        """DELETE all members for this mapping, INSERT the new set. Atomic."""
+        """DELETE all members for this mapping, INSERT the new set."""
+        ...
+
+    def replace_members_for_mappings(
+        self,
+        snapshots: Mapping[UUID, Sequence[PlaylistMappingMember]],
+        *,
+        user_id: str,
+    ) -> Awaitable[int]:
+        """Batch member replace for many mappings: one DELETE + one INSERT."""
         ...
 
 

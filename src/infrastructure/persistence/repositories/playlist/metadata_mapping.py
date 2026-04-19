@@ -1,11 +1,6 @@
-"""Repository for playlist metadata mapping persistence.
+"""Repository for playlist metadata mapping persistence."""
 
-Batch-first: mappings are created as a sequence (idempotent on conflict),
-deleted individually, and the per-mapping membership snapshot is replaced
-wholesale (DELETE by mapping_id + INSERT) on every import.
-"""
-
-from collections.abc import Sequence
+from collections.abc import Mapping, Sequence
 from uuid import UUID
 
 from sqlalchemy import delete, select
@@ -147,6 +142,28 @@ class PlaylistMetadataMappingRepository(
             await self._member_mapper.to_domain(row) for row in result.scalars().all()
         ]
 
+    @db_operation("get_members_for_mappings")
+    async def get_members_for_mappings(
+        self, mapping_ids: Sequence[UUID], *, user_id: str
+    ) -> dict[UUID, list[PlaylistMappingMember]]:
+        """Batch-load member snapshots for many mappings in one query.
+
+        Returns ``{mapping_id: [members]}`` — mappings with no members
+        are absent from the result.
+        """
+        if not mapping_ids:
+            return {}
+        stmt = select(DBPlaylistMappingMember).where(
+            DBPlaylistMappingMember.mapping_id.in_(mapping_ids),
+            DBPlaylistMappingMember.user_id == user_id,
+        )
+        result = await self.session.execute(stmt)
+        grouped: dict[UUID, list[PlaylistMappingMember]] = {}
+        for row in result.scalars().all():
+            member = await self._member_mapper.to_domain(row)
+            grouped.setdefault(member.mapping_id, []).append(member)
+        return grouped
+
     @db_operation("replace_members")
     async def replace_members(
         self,
@@ -155,39 +172,77 @@ class PlaylistMetadataMappingRepository(
         *,
         user_id: str,
     ) -> list[PlaylistMappingMember]:
-        """DELETE all existing members for this mapping, INSERT the new set.
-
-        Atomic within the caller's UoW — if the INSERT raises, the DELETE
-        rolls back too. Replacement semantics keep the snapshot diff-correct
-        (no accumulation of stale rows) while tolerating full track-set churn.
-        """
-        async with self.session.begin_nested():
-            await self.session.execute(
-                delete(DBPlaylistMappingMember).where(
-                    DBPlaylistMappingMember.mapping_id == mapping_id,
-                    DBPlaylistMappingMember.user_id == user_id,
-                )
+        """DELETE all existing members for this mapping, INSERT the new set."""
+        await self.session.execute(
+            delete(DBPlaylistMappingMember).where(
+                DBPlaylistMappingMember.mapping_id == mapping_id,
+                DBPlaylistMappingMember.user_id == user_id,
             )
+        )
 
-            if not members:
-                return []
+        if not members:
+            return []
 
-            entities: list[dict[str, object]] = [
-                {
-                    "id": m.id,
-                    "user_id": user_id,
-                    "mapping_id": m.mapping_id,
-                    "track_id": m.track_id,
-                    "synced_at": m.synced_at,
-                }
-                for m in members
-            ]
-            entities = self._deduplicate_batch(
-                entities, ["mapping_id", "track_id"], label="replace_members"
-            )
-            self._add_timestamps(entities)
-            await self.session.execute(
-                pg_insert(DBPlaylistMappingMember).values(entities)
-            )
+        entities: list[dict[str, object]] = [
+            {
+                "id": m.id,
+                "user_id": user_id,
+                "mapping_id": m.mapping_id,
+                "track_id": m.track_id,
+                "synced_at": m.synced_at,
+            }
+            for m in members
+        ]
+        entities = self._deduplicate_batch(
+            entities, ["mapping_id", "track_id"], label="replace_members"
+        )
+        self._add_timestamps(entities)
+        await self.session.execute(pg_insert(DBPlaylistMappingMember).values(entities))
 
         return list(members)
+
+    @db_operation("replace_members_for_mappings")
+    async def replace_members_for_mappings(
+        self,
+        snapshots: Mapping[UUID, Sequence[PlaylistMappingMember]],
+        *,
+        user_id: str,
+    ) -> int:
+        """Batch-replace member snapshots for many mappings.
+
+        ONE bulk DELETE over all mapping_ids, then ONE bulk INSERT of the
+        flattened member set. Returns the total members written.
+        """
+        if not snapshots:
+            return 0
+
+        await self.session.execute(
+            delete(DBPlaylistMappingMember).where(
+                DBPlaylistMappingMember.mapping_id.in_(snapshots.keys()),
+                DBPlaylistMappingMember.user_id == user_id,
+            )
+        )
+
+        flattened: list[dict[str, object]] = [
+            {
+                "id": m.id,
+                "user_id": user_id,
+                "mapping_id": m.mapping_id,
+                "track_id": m.track_id,
+                "synced_at": m.synced_at,
+            }
+            for members in snapshots.values()
+            for m in members
+        ]
+
+        if not flattened:
+            return 0
+
+        flattened = self._deduplicate_batch(
+            flattened,
+            ["mapping_id", "track_id"],
+            label="replace_members_for_mappings",
+        )
+        self._add_timestamps(flattened)
+        await self.session.execute(pg_insert(DBPlaylistMappingMember).values(flattened))
+        return len(flattened)

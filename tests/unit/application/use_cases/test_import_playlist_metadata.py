@@ -206,14 +206,16 @@ class TestRemovalTracking:
         mapping_repo = uow.get_playlist_metadata_mapping_repository()
         mapping_repo.list_for_user.return_value = [mapping]
         # Prior snapshot included track B, which is no longer in the playlist.
-        mapping_repo.get_members.return_value = [
-            PlaylistMappingMember(
-                user_id="default", mapping_id=mapping.id, track_id=old_track_b_id
-            ),
-            PlaylistMappingMember(
-                user_id="default", mapping_id=mapping.id, track_id=track_a.id
-            ),
-        ]
+        mapping_repo.get_members_for_mappings.return_value = {
+            mapping.id: [
+                PlaylistMappingMember(
+                    user_id="default", mapping_id=mapping.id, track_id=old_track_b_id
+                ),
+                PlaylistMappingMember(
+                    user_id="default", mapping_id=mapping.id, track_id=track_a.id
+                ),
+            ]
+        }
         uow.get_connector_playlist_repository().list_by_connector.return_value = [cp]
         uow.get_connector_repository().find_tracks_by_connectors.return_value = {
             ("spotify", "sp_a"): track_a,
@@ -243,14 +245,16 @@ class TestRemovalTracking:
         uow = make_mock_uow()
         mapping_repo = uow.get_playlist_metadata_mapping_repository()
         mapping_repo.list_for_user.return_value = [mapping]
-        mapping_repo.get_members.return_value = [
-            PlaylistMappingMember(
-                user_id="default", mapping_id=mapping.id, track_id=old_track_id
-            ),
-            PlaylistMappingMember(
-                user_id="default", mapping_id=mapping.id, track_id=track_a.id
-            ),
-        ]
+        mapping_repo.get_members_for_mappings.return_value = {
+            mapping.id: [
+                PlaylistMappingMember(
+                    user_id="default", mapping_id=mapping.id, track_id=old_track_id
+                ),
+                PlaylistMappingMember(
+                    user_id="default", mapping_id=mapping.id, track_id=track_a.id
+                ),
+            ]
+        }
         uow.get_connector_playlist_repository().list_by_connector.return_value = [cp]
         uow.get_connector_repository().find_tracks_by_connectors.return_value = {
             ("spotify", "sp_a"): track_a,
@@ -285,10 +289,11 @@ class TestMembershipSnapshot:
 
         _ = await ImportPlaylistMetadataUseCase().execute(_cmd(), uow)
 
-        mapping_repo.replace_members.assert_awaited_once()
-        replace_call = mapping_repo.replace_members.call_args
-        assert replace_call.args[0] == mapping.id
-        written_members = list(replace_call.args[1])
+        mapping_repo.replace_members_for_mappings.assert_awaited_once()
+        replace_call = mapping_repo.replace_members_for_mappings.call_args
+        snapshots = replace_call.args[0]
+        assert mapping.id in snapshots
+        written_members = list(snapshots[mapping.id])
         assert len(written_members) == 1
         assert written_members[0].track_id == track.id
 

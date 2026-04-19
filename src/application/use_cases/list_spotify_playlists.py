@@ -11,6 +11,7 @@ existing ``PlaylistLink`` rows.
 from collections.abc import Sequence
 from datetime import UTC, datetime
 from typing import Literal
+from uuid import UUID
 
 from attrs import define, field
 
@@ -38,6 +39,7 @@ class SpotifyPlaylistView:
     """
 
     connector_playlist_identifier: str
+    connector_playlist_db_id: UUID
     name: str
     description: str | None
     owner: str | None
@@ -116,6 +118,7 @@ class ListSpotifyPlaylistsUseCase:
             views: list[SpotifyPlaylistView] = [
                 SpotifyPlaylistView(
                     connector_playlist_identifier=cp.connector_playlist_identifier,
+                    connector_playlist_db_id=cp.id,
                     name=cp.name,
                     description=cp.description,
                     owner=cp.owner,

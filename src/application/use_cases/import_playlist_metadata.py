@@ -1,35 +1,13 @@
-"""Apply playlist metadata mappings — the v0.7.4 engine.
+"""Apply active PlaylistMetadataMappings to canonical metadata.
 
-For each active ``PlaylistMetadataMapping`` owned by the user, this use
-case walks the cached ``DBConnectorPlaylist``'s track list, resolves
-each connector track to a canonical ``Track``, and applies the mapping's
-action:
+For each mapping, walks the cached connector playlist's tracks and
+upserts ``TrackPreference`` / ``TrackTag`` rows with
+``source="playlist_mapping"``. Manual metadata always wins via the
+shared ``should_override`` source-priority rule. Per-import membership
+snapshots let us diff against the prior run and clear mapping-sourced
+metadata for tracks that dropped out of the playlist.
 
-- ``set_preference``: upsert ``TrackPreference`` with
-  ``source="playlist_mapping"`` and ``preferred_at`` from the Spotify
-  ``added_at`` (so temporal history is preserved).
-- ``add_tag``: add the tag with ``source="playlist_mapping"`` and
-  ``tagged_at`` from the Spotify ``added_at``. Idempotent — existing
-  tags from any source are silently skipped.
-
-Membership snapshots (``PlaylistMappingMember``) are replaced on every
-run. The diff ``prior_members - current_members`` gives us the tracks
-that dropped out of the playlist; we clear **only the mapping-sourced**
-metadata for those tracks (preferences/tags with ``source="manual"``
-are never touched) via the source-filtered
-``remove_preferences`` / ``remove_tags`` repository methods.
-
-The caller is responsible for refreshing the ``DBConnectorPlaylist``
-cache first — typically via ``RefreshConnectorPlaylistsUseCase``. This
-use case reads whatever is in the cache.
-
-Source priority: ``resolve_preference_change`` + ``should_override``
-already encode the rule that ``manual`` outranks ``playlist_mapping``
-outranks ``service_import``. When multiple mappings on the same
-ConnectorPlaylist target the same track with contradictory preferences,
-the **stronger preference state** wins (star > yah > hmm > nah) and a
-warning is logged. Conflict handling is log-only for v1 — surfacing it
-to the UI is a v0.7.4 follow-up (backlog open question #1).
+Caller is responsible for refreshing the connector cache first.
 """
 
 from datetime import UTC, datetime
@@ -64,15 +42,6 @@ class ImportPlaylistMetadataCommand:
 
 @define(frozen=True, slots=True)
 class ImportPlaylistMetadataResult:
-    """Per-action counters grouped by disposition.
-
-    ``preferences_applied`` / ``tags_applied`` count new or upgraded
-    rows. ``preferences_cleared`` / ``tags_cleared`` count mapping-
-    sourced rows removed because their track dropped out of the
-    playlist. ``conflicts_logged`` is the per-track contradiction count
-    within this run.
-    """
-
     preferences_applied: int
     preferences_cleared: int
     tags_applied: int
@@ -82,11 +51,8 @@ class ImportPlaylistMetadataResult:
 
 
 def _parse_added_at(raw: str | None) -> datetime:
-    """Parse Spotify's ISO ``added_at`` or fall back to now(UTC).
-
-    Spotify occasionally returns null for very old playlist rows;
-    the fallback keeps the import moving rather than dropping tracks.
-    """
+    """Spotify occasionally returns null for very old playlist rows;
+    fallback keeps the import moving rather than dropping tracks."""
     if raw is None:
         return datetime.now(UTC)
     try:
@@ -113,7 +79,6 @@ class ImportPlaylistMetadataUseCase:
             if not mappings:
                 return ImportPlaylistMetadataResult(0, 0, 0, 0, 0, 0)
 
-            # Index: connector_playlist_id → [mappings]
             mappings_by_cp: dict[UUID, list[PlaylistMetadataMapping]] = {}
             for m in mappings:
                 mappings_by_cp.setdefault(m.connector_playlist_id, []).append(m)
@@ -121,7 +86,6 @@ class ImportPlaylistMetadataUseCase:
             cached_cps = await cp_repo.list_by_connector(command.connector_name)
             cached_by_db_id = {cp.id: cp for cp in cached_cps}
 
-            # Resolve all (connector, track_identifier) pairs in one query.
             all_connections: list[tuple[str, str]] = []
             for cp_id in mappings_by_cp:
                 cp = cached_by_db_id.get(cp_id)
@@ -139,7 +103,6 @@ class ImportPlaylistMetadataUseCase:
                 else {}
             )
 
-            # Build desired state across all mappings, aggregating conflicts.
             desired_preferences: dict[UUID, tuple[PreferenceState, datetime]] = {}
             desired_tags: dict[UUID, dict[str, datetime]] = {}
             current_members_by_mapping: dict[UUID, list[PlaylistMappingMember]] = {}
@@ -176,7 +139,7 @@ class ImportPlaylistMetadataUseCase:
                         )
 
                         if mapping.action_type == "set_preference":
-                            state: PreferenceState = mapping.action_value  # type: ignore[assignment]
+                            state = mapping.as_preference_state()
                             prior = desired_preferences.get(track.id)
                             if prior is None:
                                 desired_preferences[track.id] = (state, added_at)
@@ -189,8 +152,6 @@ class ImportPlaylistMetadataUseCase:
                                     incoming=state,
                                     connector_playlist_id=cp_id,
                                 )
-                                # Stronger preference wins; tiebreak on
-                                # later added_at.
                                 if PREFERENCE_ORDER[state] > PREFERENCE_ORDER[prior[0]]:
                                     desired_preferences[track.id] = (
                                         state,
@@ -198,12 +159,10 @@ class ImportPlaylistMetadataUseCase:
                                     )
                         elif mapping.action_type == "add_tag":
                             tags_for_track = desired_tags.setdefault(track.id, {})
-                            # First-write-wins on added_at per (track, tag).
-                            tags_for_track.setdefault(mapping.action_value, added_at)
+                            tags_for_track.setdefault(mapping.as_tag(), added_at)
 
                     current_members_by_mapping[mapping.id] = members
 
-            # Apply preferences (batched).
             preferences_applied = 0
             if desired_preferences:
                 existing_prefs = await pref_repo.get_preferences(
@@ -243,7 +202,6 @@ class ImportPlaylistMetadataUseCase:
                     await pref_repo.add_events(pref_events, user_id=command.user_id)
                 preferences_applied = len(prefs_to_write)
 
-            # Apply tags (batched).
             tags_to_write: list[TrackTag] = []
             for track_id, tag_map in desired_tags.items():
                 for tag_value, tagged_at in tag_map.items():
@@ -278,39 +236,49 @@ class ImportPlaylistMetadataUseCase:
                         user_id=command.user_id,
                     )
 
-            # Diff members + clear mapping-sourced metadata for dropped tracks.
-            preferences_cleared = 0
-            tags_cleared = 0
+            # Diff prior vs current members in one batched fetch; accumulate
+            # cleared work across all mappings so the removal calls collapse
+            # to two queries (one per metadata kind).
+            prior_by_mapping = await mapping_repo.get_members_for_mappings(
+                [m.id for m in mappings], user_id=command.user_id
+            )
+            removed_pref_track_ids: set[UUID] = set()
+            removed_tag_pairs: list[tuple[UUID, str]] = []
             for mapping in mappings:
                 current = current_members_by_mapping.get(mapping.id, [])
                 current_track_ids = {m.track_id for m in current}
+                prior_track_ids = {
+                    m.track_id for m in prior_by_mapping.get(mapping.id, [])
+                }
+                removed = prior_track_ids - current_track_ids
+                if not removed:
+                    continue
+                if mapping.action_type == "set_preference":
+                    removed_pref_track_ids.update(removed)
+                elif mapping.action_type == "add_tag":
+                    tag_value = mapping.as_tag()
+                    removed_tag_pairs.extend((tid, tag_value) for tid in removed)
 
-                prior = await mapping_repo.get_members(
-                    mapping.id, user_id=command.user_id
+            preferences_cleared = 0
+            if removed_pref_track_ids:
+                preferences_cleared = await pref_repo.remove_preferences(
+                    list(removed_pref_track_ids),
+                    user_id=command.user_id,
+                    source="playlist_mapping",
                 )
-                prior_track_ids = {m.track_id for m in prior}
-                removed = list(prior_track_ids - current_track_ids)
 
-                if removed:
-                    if mapping.action_type == "set_preference":
-                        cleared = await pref_repo.remove_preferences(
-                            removed,
-                            user_id=command.user_id,
-                            source="playlist_mapping",
-                        )
-                        preferences_cleared += cleared
-                    elif mapping.action_type == "add_tag":
-                        pairs = [(tid, mapping.action_value) for tid in removed]
-                        cleared_pairs = await tag_repo.remove_tags(
-                            pairs,
-                            user_id=command.user_id,
-                            source="playlist_mapping",
-                        )
-                        tags_cleared += len(cleared_pairs)
-
-                await mapping_repo.replace_members(
-                    mapping.id, current, user_id=command.user_id
+            tags_cleared = 0
+            if removed_tag_pairs:
+                cleared_pairs = await tag_repo.remove_tags(
+                    removed_tag_pairs,
+                    user_id=command.user_id,
+                    source="playlist_mapping",
                 )
+                tags_cleared = len(cleared_pairs)
+
+            await mapping_repo.replace_members_for_mappings(
+                current_members_by_mapping, user_id=command.user_id
+            )
 
             await uow.commit()
 

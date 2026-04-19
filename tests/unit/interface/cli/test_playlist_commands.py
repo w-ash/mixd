@@ -9,7 +9,7 @@ output. Use-case behavior itself is covered by
 
 from collections.abc import Sequence
 from unittest.mock import AsyncMock, patch
-from uuid import uuid4
+from uuid import uuid4, uuid7
 
 from typer.testing import CliRunner
 
@@ -45,6 +45,7 @@ def _view(
 ) -> SpotifyPlaylistView:
     return SpotifyPlaylistView(
         connector_playlist_identifier=identifier,
+        connector_playlist_db_id=uuid7(),
         name=name,
         description=None,
         owner="ash",
@@ -298,7 +299,7 @@ class TestMappingValidation:
             ],
         )
         assert result.exit_code == 2
-        assert "hmm/nah/yah/star" in result.output
+        assert "must be one of" in result.output
         assert "Traceback" not in result.output
 
     def test_invalid_tag_value_rejected(self) -> None:

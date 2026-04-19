@@ -868,39 +868,35 @@ def unmap_playlist(
     )
 
     user_id = get_cli_user_id()
+    from src.domain.repositories import UnitOfWorkProtocol
 
-    async def _find_and_delete() -> tuple[bool, str | None]:
-        from src.domain.repositories import UnitOfWorkProtocol
-
-        async def _inner(uow: UnitOfWorkProtocol):
-            async with uow:
-                repo = uow.get_playlist_metadata_mapping_repository()
-                mappings = await repo.list_for_connector_playlist(
-                    cp_id, user_id=user_id
-                )
-                match = next(
-                    (
-                        m
-                        for m in mappings
-                        if m.action_type == action_type
-                        and m.action_value == canonical_value
-                    ),
-                    None,
-                )
-                if match is None:
-                    return False, None
-                cmd = DeletePlaylistMetadataMappingCommand(
-                    user_id=user_id, mapping_id=match.id
-                )
-                deleted_result = await DeletePlaylistMetadataMappingUseCase().execute(
-                    cmd, uow
-                )
-                return deleted_result.deleted, str(match.id)
-
-        return await execute_use_case(_inner, user_id=user_id)
+    async def _find_and_delete(uow: UnitOfWorkProtocol) -> tuple[bool, str | None]:
+        async with uow:
+            repo = uow.get_playlist_metadata_mapping_repository()
+            mappings = await repo.list_for_connector_playlist(cp_id, user_id=user_id)
+            match = next(
+                (
+                    m
+                    for m in mappings
+                    if m.action_type == action_type
+                    and m.action_value == canonical_value
+                ),
+                None,
+            )
+            if match is None:
+                return False, None
+            cmd = DeletePlaylistMetadataMappingCommand(
+                user_id=user_id, mapping_id=match.id
+            )
+            deleted_result = await DeletePlaylistMetadataMappingUseCase().execute(
+                cmd, uow
+            )
+            return deleted_result.deleted, str(match.id)
 
     try:
-        deleted, mapping_id = run_async(_find_and_delete())
+        deleted, mapping_id = run_async(
+            execute_use_case(_find_and_delete, user_id=user_id)
+        )
     except Exception as e:
         handle_cli_error(e, "Failed to remove mapping")
 
@@ -961,14 +957,8 @@ def import_metadata() -> None:
 
 
 def _resolve_connector_playlist_id(ref: str):
-    """Resolve a CLI playlist ref to a DBConnectorPlaylist UUID.
-
-    Accepts the Spotify base62 identifier OR a substring of the
-    playlist name. Uses the cached browser listing — does not hit
-    Spotify. Raises ``typer.BadParameter`` on missing or ambiguous.
-    """
-    from uuid import UUID
-
+    """Resolve a CLI ref (Spotify base62 ID or name fragment) to a
+    ``DBConnectorPlaylist`` UUID via the cached browser listing."""
     from src.application.use_cases.list_spotify_playlists import (
         run_list_spotify_playlists,
     )
@@ -985,28 +975,10 @@ def _resolve_connector_playlist_id(ref: str):
         raise typer.BadParameter(errors[0])
 
     spotify_id = resolved_ids[0]
-    # Look up the DBConnectorPlaylist UUID for this connector_playlist_identifier.
-
-    async def _by_identifier() -> UUID:
-        from src.application.runner import execute_use_case
-        from src.domain.entities.playlist import SPOTIFY_CONNECTOR
-        from src.domain.repositories import UnitOfWorkProtocol
-
-        async def _inner(uow: UnitOfWorkProtocol):
-            async with uow:
-                cp_repo = uow.get_connector_playlist_repository()
-                cps = await cp_repo.list_by_connector(SPOTIFY_CONNECTOR)
-                for cp in cps:
-                    if cp.connector_playlist_identifier == spotify_id:
-                        return cp.id
-                raise typer.BadParameter(
-                    f"Spotify playlist {spotify_id!r} is not in the local cache. "
-                    "Run `mixd playlist browse-spotify --refresh` first."
-                )
-
-        return await execute_use_case(_inner, user_id=get_cli_user_id())
-
-    return run_async(_by_identifier())
+    db_id_by_identifier = {
+        v.connector_playlist_identifier: v.connector_playlist_db_id for v in views
+    }
+    return db_id_by_identifier[spotify_id]
 
 
 @app.command(name="sync-preview")

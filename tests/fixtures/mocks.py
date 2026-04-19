@@ -252,8 +252,15 @@ def make_mock_playlist_metadata_mapping_repo(**overrides) -> AsyncMock:
     )
     repo.delete_mapping.return_value = overrides.pop("delete_mapping", True)
     repo.get_members.return_value = overrides.pop("get_members", [])
+    repo.get_members_for_mappings.return_value = overrides.pop(
+        "get_members_for_mappings", {}
+    )
     repo.replace_members.side_effect = overrides.pop(
         "replace_members", lambda mid, members, **kw: list(members)
+    )
+    repo.replace_members_for_mappings.side_effect = overrides.pop(
+        "replace_members_for_mappings",
+        lambda snapshots, **kw: sum(len(m) for m in snapshots.values()),
     )
     for k, v in overrides.items():
         setattr(repo, k, v)
