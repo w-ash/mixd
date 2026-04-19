@@ -59,7 +59,7 @@ Each milestone delivers a **vertical slice** — backend API + frontend page tog
 | **v0.7.1** | Preference sync from likes — imported likes become preferences with original dates | ✅ Completed | [details](v0.7.0-1.md#v071-preference-sync-from-likes) |
 | **v0.7.2** | Tagging system — categorize tracks by mood, energy, context | ✅ Completed | [details](completed/v0.7.2-3.md#v072-tagging-system) |
 | **v0.7.3** | Playlist browser — browse & import Spotify playlists | ✅ Completed | [details](completed/v0.7.2-3.md#v073-playlist-browser) |
-| **v0.7.4** | Tag & preference bootstrap — bulk-map playlists to tags/preferences | 🔜 Not Started | [details](v0.7.4-5.md#v074-tag--preference-bootstrap) |
+| **v0.7.4** | Tag & preference bootstrap — bulk-map playlists to tags/preferences | 🚧 In Progress (6 of 7 epics shipped — Web UI pending) | [details](v0.7.4-5.md#v074-tag--preference-bootstrap) |
 | **v0.7.5** | Workflow integration & quick filters | 🔜 Not Started | [details](v0.7.4-5.md#v075-workflow-integration--quick-filters) |
 | **v0.7.6** | Spotify flow polish — cold-start tags, tag mgmt, import preview | 🔜 Not Started | [details](v0.7.6.md#v076-spotify-flow-polish) |
 | **v0.8.0** | Workflow & sync scheduling | 🔜 Not Started | [details](v0.8.x.md#v080-workflow--sync-scheduling) |
