@@ -36,6 +36,7 @@ from src.domain.entities.preference import (
     TrackPreference,
 )
 from src.domain.entities.shared import JsonDict, JsonValue, SortKey
+from src.domain.entities.sourced_metadata import MetadataSource
 from src.domain.entities.tag import TagEvent, TrackTag
 from src.domain.entities.workflow import (
     RunStatus,
@@ -1387,9 +1388,18 @@ class PreferenceRepositoryProtocol(Protocol):
         ...
 
     def remove_preferences(
-        self, track_ids: Sequence[UUID], *, user_id: str
+        self,
+        track_ids: Sequence[UUID],
+        *,
+        user_id: str,
+        source: MetadataSource | None = None,
     ) -> Awaitable[int]:
-        """Remove preferences for a set of tracks. Returns the count removed."""
+        """Remove preferences for a set of tracks. Returns the count removed.
+
+        When ``source`` is provided, only preferences matching that source
+        are removed — used by the playlist-metadata-mapping flow to clear
+        only its own contributions without touching manual preferences.
+        """
         ...
 
     def add_events(
@@ -1452,12 +1462,20 @@ class TagRepositoryProtocol(Protocol):
         ...
 
     def remove_tags(
-        self, pairs: Sequence[tuple[UUID, str]], *, user_id: str
+        self,
+        pairs: Sequence[tuple[UUID, str]],
+        *,
+        user_id: str,
+        source: MetadataSource | None = None,
     ) -> Awaitable[list[tuple[UUID, str]]]:
         """Remove (track_id, tag) pairs. Returns the pairs actually removed.
 
         Missing rows are silently skipped (idempotent). Callers should
         write one ``TagEvent`` per returned pair.
+
+        When ``source`` is provided, only tags matching that source are
+        removed — used by the playlist-metadata-mapping flow to clear
+        only its own contributions without touching manual tags.
         """
         ...
 

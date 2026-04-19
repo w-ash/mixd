@@ -15,6 +15,7 @@ from sqlalchemy.dialects.postgresql import insert as pg_insert
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.config import get_logger
+from src.domain.entities.sourced_metadata import MetadataSource
 from src.domain.entities.tag import TagEvent, TrackTag
 from src.infrastructure.persistence.database.db_models import (
     DBTrackTag,
@@ -107,17 +108,24 @@ class TrackTagRepository(BaseRepository[DBTrackTag, TrackTag]):
 
     @db_operation("remove_tags")
     async def remove_tags(
-        self, pairs: Sequence[tuple[UUID, str]], *, user_id: str
+        self,
+        pairs: Sequence[tuple[UUID, str]],
+        *,
+        user_id: str,
+        source: MetadataSource | None = None,
     ) -> list[tuple[UUID, str]]:
         """Returns only the pairs actually removed (missing rows skipped silently)."""
         if not pairs:
             return []
+        where_clauses = [
+            self.model_class.user_id == user_id,
+            tuple_(self.model_class.track_id, self.model_class.tag).in_(pairs),
+        ]
+        if source is not None:
+            where_clauses.append(self.model_class.source == source)
         stmt = (
             delete(self.model_class)
-            .where(
-                self.model_class.user_id == user_id,
-                tuple_(self.model_class.track_id, self.model_class.tag).in_(pairs),
-            )
+            .where(*where_clauses)
             .returning(self.model_class.track_id, self.model_class.tag)
         )
         result = await self.session.execute(stmt)

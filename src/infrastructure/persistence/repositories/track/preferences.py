@@ -17,6 +17,7 @@ from src.domain.entities.preference import (
     PreferenceState,
     TrackPreference,
 )
+from src.domain.entities.sourced_metadata import MetadataSource
 from src.infrastructure.persistence.database.db_models import (
     DBTrackPreference,
     DBTrackPreferenceEvent,
@@ -88,17 +89,24 @@ class TrackPreferenceRepository(BaseRepository[DBTrackPreference, TrackPreferenc
 
     @db_operation("remove_preferences")
     async def remove_preferences(
-        self, track_ids: Sequence[UUID], *, user_id: str
+        self,
+        track_ids: Sequence[UUID],
+        *,
+        user_id: str,
+        source: MetadataSource | None = None,
     ) -> int:
         """Remove preferences for a set of tracks. Returns the count removed."""
         if not track_ids:
             return 0
+        where_clauses = [
+            self.model_class.track_id.in_(track_ids),
+            self.model_class.user_id == user_id,
+        ]
+        if source is not None:
+            where_clauses.append(self.model_class.source == source)
         stmt = (
             delete(self.model_class)
-            .where(
-                self.model_class.track_id.in_(track_ids),
-                self.model_class.user_id == user_id,
-            )
+            .where(*where_clauses)
             .returning(self.model_class.id)
         )
         result = await self.session.execute(stmt)
