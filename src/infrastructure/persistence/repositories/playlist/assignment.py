@@ -84,20 +84,6 @@ class PlaylistAssignmentRepository(
             grouped.setdefault(row.connector_playlist_id, []).append(row)
         return grouped
 
-    @db_operation("find_by_id")
-    async def find_by_id(
-        self, assignment_id: UUID, *, user_id: str
-    ) -> PlaylistAssignment | None:
-        stmt = select(self.model_class).where(
-            self.model_class.id == assignment_id,
-            self.model_class.user_id == user_id,
-        )
-        result = await self.session.execute(stmt)
-        row = result.scalar_one_or_none()
-        if row is None:
-            return None
-        return await self.mapper.to_domain(row)
-
     @db_operation("create_assignments")
     async def create_assignments(
         self, assignments: Sequence[PlaylistAssignment], *, user_id: str
@@ -154,19 +140,6 @@ class PlaylistAssignmentRepository(
         )
         result = await self.session.execute(stmt)
         return result.scalar_one_or_none() is not None
-
-    @db_operation("get_members")
-    async def get_members(
-        self, assignment_id: UUID, *, user_id: str
-    ) -> list[PlaylistAssignmentMember]:
-        stmt = select(DBPlaylistAssignmentMember).where(
-            DBPlaylistAssignmentMember.assignment_id == assignment_id,
-            DBPlaylistAssignmentMember.user_id == user_id,
-        )
-        result = await self.session.execute(stmt)
-        return [
-            await self._member_mapper.to_domain(row) for row in result.scalars().all()
-        ]
 
     @db_operation("get_members_for_assignments")
     async def get_members_for_assignments(

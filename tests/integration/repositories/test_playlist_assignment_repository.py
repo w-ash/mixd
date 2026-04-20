@@ -228,7 +228,10 @@ class TestReplaceMembers:
 
         async with uow:
             repo = uow.get_playlist_assignment_repository()
-            members = await repo.get_members(assignment.id, user_id="default")
+            grouped = await repo.get_members_for_assignments(
+                [assignment.id], user_id="default"
+            )
+            members = grouped.get(assignment.id, [])
 
         track_ids = {m.track_id for m in members}
         assert track_ids == {track2, track3}
@@ -267,8 +270,10 @@ class TestReplaceMembers:
 
         async with uow:
             repo = uow.get_playlist_assignment_repository()
-            members = await repo.get_members(assignment.id, user_id="default")
-        assert members == []
+            grouped = await repo.get_members_for_assignments(
+                [assignment.id], user_id="default"
+            )
+        assert grouped.get(assignment.id, []) == []
 
 
 class TestDeleteAssignment:
@@ -295,8 +300,8 @@ class TestDeleteAssignment:
 
         async with uow:
             repo = uow.get_playlist_assignment_repository()
-            found = await repo.find_by_id(assignment.id, user_id="default")
-        assert found is None
+            remaining = await repo.list_for_connector_playlist(cp_id, user_id="default")
+        assert all(a.id != assignment.id for a in remaining)
 
     async def test_delete_missing_returns_false(self, db_session):
         uow = get_unit_of_work(db_session)

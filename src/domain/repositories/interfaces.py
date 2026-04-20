@@ -1553,12 +1553,6 @@ class PlaylistAssignmentRepositoryProtocol(Protocol):
         """
         ...
 
-    def find_by_id(
-        self, assignment_id: UUID, *, user_id: str
-    ) -> Awaitable[PlaylistAssignment | None]:
-        """Fetch one assignment by its ID. Returns None when not found."""
-        ...
-
     def create_assignments(
         self, assignments: Sequence[PlaylistAssignment], *, user_id: str
     ) -> Awaitable[list[PlaylistAssignment]]:
@@ -1569,12 +1563,6 @@ class PlaylistAssignmentRepositoryProtocol(Protocol):
         self, assignment_id: UUID, *, user_id: str
     ) -> Awaitable[bool]:
         """Delete one assignment. Returns True if a row was removed."""
-        ...
-
-    def get_members(
-        self, assignment_id: UUID, *, user_id: str
-    ) -> Awaitable[list[PlaylistAssignmentMember]]:
-        """Current membership snapshot for one assignment."""
         ...
 
     def get_members_for_assignments(

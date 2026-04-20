@@ -254,12 +254,10 @@ def make_mock_playlist_assignment_repo(**overrides) -> AsyncMock:
         "list_for_connector_playlist_ids",
         lambda ids, **kw: {},
     )
-    repo.find_by_id.return_value = overrides.pop("find_by_id", None)
     repo.create_assignments.side_effect = overrides.pop(
         "create_assignments", lambda assignments, **kw: list(assignments)
     )
     repo.delete_assignment.return_value = overrides.pop("delete_assignment", True)
-    repo.get_members.return_value = overrides.pop("get_members", [])
     repo.get_members_for_assignments.return_value = overrides.pop(
         "get_members_for_assignments", {}
     )
