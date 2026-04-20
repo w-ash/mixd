@@ -9,6 +9,7 @@ import {
   getConnectorLabel,
 } from "#/components/shared/ConnectorIcon";
 import { Button } from "#/components/ui/button";
+import { pluralize } from "#/lib/pluralize";
 
 interface SyncConfirmationDialogProps {
   open: boolean;
@@ -156,9 +157,10 @@ export function SyncConfirmationDialog({
     }
     if (!hasChanges) return "Already in sync";
     const count = preview.tracks_to_add + preview.tracks_to_remove;
+    const tracksLabel = pluralize(count, "track");
     return effectiveDirection === "push"
-      ? `Sync ${count} tracks to ${label}`
-      : `Sync ${count} tracks from ${label}`;
+      ? `Sync ${tracksLabel} to ${label}`
+      : `Sync ${tracksLabel} from ${label}`;
   })();
 
   return (

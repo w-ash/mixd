@@ -34,6 +34,7 @@ import {
 import { usePagination } from "#/hooks/usePagination";
 import { useTrackSearch } from "#/hooks/useTrackSearch";
 import { formatArtists, formatDuration } from "#/lib/format";
+import { pluralSuffix } from "#/lib/pluralize";
 import { cn } from "#/lib/utils";
 
 const PAGE_SIZE = 50;
@@ -301,7 +302,7 @@ export function Library() {
         title="Library"
         description={
           total > 0
-            ? `${total.toLocaleString()} track${total !== 1 ? "s" : ""} across all services.`
+            ? `${total.toLocaleString()} track${pluralSuffix(total)} across all services.`
             : "Your complete track collection."
         }
       />

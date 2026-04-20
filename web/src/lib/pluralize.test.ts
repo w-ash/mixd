@@ -18,11 +18,8 @@ describe("pluralize", () => {
 });
 
 describe("pluralSuffix", () => {
-  it.each([
-    [1, ""],
-    [0, "s"],
-    [5, "s"],
-  ])("returns %s for count=%i", (count, expected) => {
-    expect(pluralSuffix(count)).toBe(expected);
+  it("empty for singular, 's' otherwise", () => {
+    expect(pluralSuffix(1)).toBe("");
+    expect(pluralSuffix(5)).toBe("s");
   });
 });

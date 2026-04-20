@@ -29,6 +29,7 @@ import { Button } from "#/components/ui/button";
 import { Switch } from "#/components/ui/switch";
 import { useOperationProgress } from "#/hooks/useOperationProgress";
 import { formatDateTime } from "#/lib/format";
+import { pluralSuffix } from "#/lib/pluralize";
 import { toasts } from "#/lib/toasts";
 import { cn } from "#/lib/utils";
 
@@ -269,8 +270,8 @@ function SpotifyLikesImport({
       {checkpoint?.local_count != null && (
         <p className="mt-2 font-mono text-xs text-text-muted">
           {hasGap
-            ? `${checkpoint.local_count.toLocaleString()} of ${checkpoint.remote_total?.toLocaleString()} tracks imported`
-            : `${checkpoint.local_count.toLocaleString()} tracks imported`}
+            ? `${checkpoint.local_count.toLocaleString()} of ${checkpoint.remote_total?.toLocaleString()} track${pluralSuffix(checkpoint.remote_total ?? 0)} imported`
+            : `${checkpoint.local_count.toLocaleString()} track${pluralSuffix(checkpoint.local_count)} imported`}
         </p>
       )}
       {checkpoint != null && (

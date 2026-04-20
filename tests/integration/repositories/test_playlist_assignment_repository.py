@@ -46,7 +46,7 @@ async def _setup_connector_playlist(db_session, *, user_id: str = "default") -> 
 
 async def _create_track(db_session, *, user_id: str = "default") -> UUID:
     uid = uuid4().hex[:8]
-    track = DBTrack(title=f"T {uid}", user_id=user_id)
+    track = DBTrack(title=f"T {uid}", user_id=user_id, artists=[])
     db_session.add(track)
     await db_session.flush()
     await db_session.commit()

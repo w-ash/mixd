@@ -39,6 +39,7 @@ import {
   formatMetricHeader,
   formatMetricValue,
 } from "#/lib/format";
+import { pluralize } from "#/lib/pluralize";
 import type { NodeStatus } from "#/lib/sse-types";
 import { cn } from "#/lib/utils";
 import {
@@ -88,8 +89,7 @@ function PlaylistChangesPanel({ node }: { node: WorkflowRunNodeSchema }) {
       )}
       {changes.tracks_moved > 0 && (
         <p className="px-2 text-xs text-text-muted">
-          {changes.tracks_moved} track{changes.tracks_moved !== 1 ? "s" : ""}{" "}
-          reordered
+          {pluralize(changes.tracks_moved, "track")} reordered
         </p>
       )}
     </div>
