@@ -5,6 +5,7 @@ import {
   useImportSpotifyPlaylistsApiV1ConnectorsSpotifyPlaylistsImportPost,
 } from "#/api/generated/connectors/connectors";
 import { getListPlaylistsApiV1PlaylistsGetQueryKey } from "#/api/generated/playlists/playlists";
+import { pluralize } from "#/lib/pluralize";
 import { toasts } from "#/lib/toasts";
 
 import { ConfirmationDialog } from "./ConfirmationDialog";
@@ -55,7 +56,7 @@ export function ImportPlaylistsConfirmDialog({
 
           const sMsg =
             succeeded.length > 0
-              ? `Imported ${succeeded.length} playlist${succeeded.length === 1 ? "" : "s"}`
+              ? `Imported ${pluralize(succeeded.length, "playlist")}`
               : "";
           const kMsg =
             skipped_unchanged.length > 0
@@ -79,7 +80,7 @@ export function ImportPlaylistsConfirmDialog({
     });
 
   const count = playlists.length;
-  const countLabel = `${count} playlist${count === 1 ? "" : "s"}`;
+  const countLabel = pluralize(count, "playlist");
   const displayedNames = playlists.slice(0, 10).map((p) => p.name);
   const extraCount = count - displayedNames.length;
 

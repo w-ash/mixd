@@ -35,6 +35,7 @@ import {
 import { Input } from "#/components/ui/input";
 import { Skeleton } from "#/components/ui/skeleton";
 import { useTrackSearch } from "#/hooks/useTrackSearch";
+import { pluralize } from "#/lib/pluralize";
 import { toasts } from "#/lib/toasts";
 import { cn } from "#/lib/utils";
 
@@ -575,7 +576,7 @@ export function SpotifyPlaylistPickerDialog({
               onConfirm?.(picked);
             }}
           >
-            Import {selectedCount} playlist{selectedCount === 1 ? "" : "s"}
+            Import {pluralize(selectedCount, "playlist")}
           </Button>
         </DialogFooter>
       </DialogContent>

@@ -40,6 +40,7 @@ import {
   TableRow,
 } from "#/components/ui/table";
 import { formatCount } from "#/lib/format";
+import { pluralize } from "#/lib/pluralize";
 import { cn } from "#/lib/utils";
 
 /* ── Skeleton loader ─────────────────────────────────────── */
@@ -174,7 +175,7 @@ function StatsGrid({ stats }: { stats: DashboardStatsSchema }) {
   const connectorCount = Object.keys(stats.tracks_by_connector).length;
   const tracksLabel =
     connectorCount > 0
-      ? `Tracks across ${connectorCount} ${connectorCount === 1 ? "service" : "services"}`
+      ? `Tracks across ${pluralize(connectorCount, "service")}`
       : "Total Tracks";
 
   const linkedCount = Object.values(stats.playlists_by_connector ?? {}).reduce(

@@ -6,6 +6,7 @@ import {
   getListTracksApiV1TracksGetQueryKey,
   useBatchTagTracksApiV1TracksTagsBatchPost,
 } from "#/api/generated/tracks/tracks";
+import { pluralize } from "#/lib/pluralize";
 import { toasts } from "#/lib/toasts";
 
 import { ConfirmationDialog } from "./ConfirmationDialog";
@@ -42,7 +43,7 @@ export function BulkTagDialog({
         });
         toasts.success(
           tagged === requested
-            ? `Tagged ${tagged} track${tagged === 1 ? "" : "s"} with ${tag}`
+            ? `Tagged ${pluralize(tagged, "track")} with ${tag}`
             : `Tagged ${tagged} of ${requested} (others already had ${tag})`,
         );
         onTagged?.();
@@ -58,7 +59,7 @@ export function BulkTagDialog({
     onOpenChange(next);
   };
 
-  const countLabel = `${trackIds.length} track${trackIds.length === 1 ? "" : "s"}`;
+  const countLabel = pluralize(trackIds.length, "track");
 
   return (
     <ConfirmationDialog

@@ -83,6 +83,7 @@ import {
   formatRelativeTime,
   formatTotalDuration,
 } from "#/lib/format";
+import { pluralize } from "#/lib/pluralize";
 import { formatSyncResults, getSyncStatusConfig } from "#/lib/sync-status";
 import { toasts } from "#/lib/toasts";
 
@@ -769,10 +770,7 @@ export function PlaylistDetail() {
       />
 
       <div className="mb-6 flex items-center gap-3 text-sm text-text-muted">
-        <span>
-          {playlist.track_count}{" "}
-          {playlist.track_count === 1 ? "track" : "tracks"}
-        </span>
+        <span>{pluralize(playlist.track_count, "track")}</span>
         {entries.length > 0 && (
           <>
             <span aria-hidden="true">&middot;</span>

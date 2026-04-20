@@ -16,6 +16,7 @@ import {
   DialogHeader,
   DialogTitle,
 } from "#/components/ui/dialog";
+import { pluralize } from "#/lib/pluralize";
 import { toasts } from "#/lib/toasts";
 
 import { type PreferenceState, PreferenceToggle } from "./PreferenceToggle";
@@ -38,12 +39,10 @@ function summarizeApply(result: ApplyResultSchema, mode: AssignMode): string {
     const n = result.tags_applied;
     return n === 0
       ? "No new tracks to tag."
-      : `Tagged ${n} ${n === 1 ? "track" : "tracks"}.`;
+      : `Tagged ${pluralize(n, "track")}.`;
   }
   const n = result.preferences_applied;
-  return n === 0
-    ? "No new tracks to rate."
-    : `Rated ${n} ${n === 1 ? "track" : "tracks"}.`;
+  return n === 0 ? "No new tracks to rate." : `Rated ${pluralize(n, "track")}.`;
 }
 
 export function AssignPlaylistDialog({
