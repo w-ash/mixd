@@ -62,12 +62,26 @@ def upgrade() -> None:
         "RENAME CONSTRAINT ck_playlist_metadata_mappings_valid_action_type "
         "TO ck_playlist_assignments_valid_action_type"
     )
-    op.execute(
-        "ALTER TABLE playlist_assignments "
-        "RENAME CONSTRAINT "
-        "fk_playlist_metadata_mappings_connector_playlist_id_connector_playlists "
-        "TO fk_playlist_assignments_connector_playlist_id_connector_playlists"
-    )
+    # The two FK constraint names declared in 016 exceeded Postgres's 63-char
+    # identifier limit, so SQLAlchemy's naming_convention hash-truncated them
+    # on creation (e.g. `fk_playlist_metadata_mappings_connector_playlist_id_con_fef9`).
+    # We can't reliably predict the hash suffix, so look up the actual name
+    # and rename to a shorter, fixed one that won't need truncation going forward.
+    op.execute("""
+        DO $$
+        DECLARE old_name text;
+        BEGIN
+            SELECT conname INTO old_name FROM pg_constraint
+            WHERE conrelid = 'playlist_assignments'::regclass
+              AND contype = 'f'
+              AND conname LIKE 'fk_playlist_metadata_mappings_connector_playlist_id%';
+            IF old_name IS NOT NULL THEN
+                EXECUTE 'ALTER TABLE playlist_assignments RENAME CONSTRAINT '
+                     || quote_ident(old_name)
+                     || ' TO fk_playlist_assignments_connector_playlist_id';
+            END IF;
+        END $$;
+    """)
     op.execute(
         "ALTER TABLE playlist_assignment_members "
         "RENAME CONSTRAINT pk_playlist_mapping_members "
@@ -78,12 +92,21 @@ def upgrade() -> None:
         "RENAME CONSTRAINT uq_playlist_mapping_members_pair "
         "TO uq_playlist_assignment_members_pair"
     )
-    op.execute(
-        "ALTER TABLE playlist_assignment_members "
-        "RENAME CONSTRAINT "
-        "fk_playlist_mapping_members_mapping_id_playlist_metadata_mappings "
-        "TO fk_playlist_assignment_members_assignment_id_playlist_assignments"
-    )
+    op.execute("""
+        DO $$
+        DECLARE old_name text;
+        BEGIN
+            SELECT conname INTO old_name FROM pg_constraint
+            WHERE conrelid = 'playlist_assignment_members'::regclass
+              AND contype = 'f'
+              AND conname LIKE 'fk_playlist_mapping_members_mapping_id%';
+            IF old_name IS NOT NULL THEN
+                EXECUTE 'ALTER TABLE playlist_assignment_members RENAME CONSTRAINT '
+                     || quote_ident(old_name)
+                     || ' TO fk_playlist_assignment_members_assignment_id';
+            END IF;
+        END $$;
+    """)
     op.execute(
         "ALTER TABLE playlist_assignment_members "
         "RENAME CONSTRAINT fk_playlist_mapping_members_track_id_tracks "
@@ -148,11 +171,13 @@ def downgrade() -> None:
         "RENAME CONSTRAINT fk_playlist_assignment_members_track_id_tracks "
         "TO fk_playlist_mapping_members_track_id_tracks"
     )
+    # Reverse of the dynamic forward rename — we know the short new name we
+    # introduced, we don't know what hash Postgres originally gave the long
+    # declared name, so just rename back to a shorter sentinel that fits.
     op.execute(
-        "ALTER TABLE playlist_assignment_members "
-        "RENAME CONSTRAINT "
-        "fk_playlist_assignment_members_assignment_id_playlist_assignments "
-        "TO fk_playlist_mapping_members_mapping_id_playlist_metadata_mappings"
+        "ALTER TABLE playlist_assignment_members RENAME CONSTRAINT "
+        "fk_playlist_assignment_members_assignment_id "
+        "TO fk_playlist_mapping_members_mapping_id"
     )
     op.execute(
         "ALTER TABLE playlist_assignment_members "
@@ -165,10 +190,9 @@ def downgrade() -> None:
         "TO pk_playlist_mapping_members"
     )
     op.execute(
-        "ALTER TABLE playlist_assignments "
-        "RENAME CONSTRAINT "
-        "fk_playlist_assignments_connector_playlist_id_connector_playlists "
-        "TO fk_playlist_metadata_mappings_connector_playlist_id_connector_playlists"
+        "ALTER TABLE playlist_assignments RENAME CONSTRAINT "
+        "fk_playlist_assignments_connector_playlist_id "
+        "TO fk_playlist_metadata_mappings_connector_playlist_id"
     )
     op.execute(
         "ALTER TABLE playlist_assignments "
