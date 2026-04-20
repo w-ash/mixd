@@ -6,9 +6,13 @@
  * OpenAPI spec version: 0.7.3
  */
 
+export * from './activeAssignmentSchema';
 export * from './addTagRequest';
 export * from './addTagResponse';
+export * from './applyResultSchema';
 export * from './artistSchema';
+export * from './assignmentActionType';
+export * from './assignmentSchema';
 export * from './batchTagRequest';
 export * from './batchTagResponse';
 export * from './bodyImportSpotifyHistoryApiV1ImportsSpotifyHistoryPost';
@@ -18,6 +22,8 @@ export * from './configFieldSchema';
 export * from './connectorLinkBriefSchema';
 export * from './connectorMappingSchema';
 export * from './connectorStatusSchema';
+export * from './createAssignmentRequest';
+export * from './createAssignmentResponse';
 export * from './createLinkRequest';
 export * from './createPlaylistRequest';
 export * from './createWorkflowRequest';

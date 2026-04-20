@@ -945,6 +945,129 @@
         }
       }
     },
+    "/api/v1/playlist-assignments": {
+      "post": {
+        "tags": [
+          "playlist-assignments"
+        ],
+        "summary": "Create And Apply Assignment",
+        "description": "Create an assignment and apply it to the playlist's tracks.\n\nCreate and apply share one session to halve connection churn. The create\nleg commits first; if the apply leg errors, the assignment persists and\ncan be retried via ``POST /{id}/apply``.",
+        "operationId": "create_and_apply_assignment_api_v1_playlist_assignments_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CreateAssignmentRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "201": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CreateAssignmentResponse"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/playlist-assignments/{assignment_id}/apply": {
+      "post": {
+        "tags": [
+          "playlist-assignments"
+        ],
+        "summary": "Apply Assignment",
+        "description": "Re-run the engine for a single existing assignment.",
+        "operationId": "apply_assignment_api_v1_playlist_assignments__assignment_id__apply_post",
+        "parameters": [
+          {
+            "name": "assignment_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid",
+              "title": "Assignment Id"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApplyResultSchema"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/playlist-assignments/{assignment_id}": {
+      "delete": {
+        "tags": [
+          "playlist-assignments"
+        ],
+        "summary": "Delete Assignment",
+        "description": "Remove an assignment. Already-applied tags/preferences are preserved.",
+        "operationId": "delete_assignment_api_v1_playlist_assignments__assignment_id__delete",
+        "parameters": [
+          {
+            "name": "assignment_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid",
+              "title": "Assignment Id"
+            }
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": "Successful Response"
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/api/v1/tracks": {
       "get": {
         "tags": [
@@ -3085,6 +3208,30 @@
   },
   "components": {
     "schemas": {
+      "ActiveAssignmentSchema": {
+        "properties": {
+          "assignment_id": {
+            "type": "string",
+            "format": "uuid",
+            "title": "Assignment Id"
+          },
+          "action_type": {
+            "$ref": "#/components/schemas/AssignmentActionType"
+          },
+          "action_value": {
+            "type": "string",
+            "title": "Action Value"
+          }
+        },
+        "type": "object",
+        "required": [
+          "assignment_id",
+          "action_type",
+          "action_value"
+        ],
+        "title": "ActiveAssignmentSchema",
+        "description": "One active assignment on a Spotify playlist row."
+      },
       "AddTagRequest": {
         "properties": {
           "tag": {
@@ -3124,6 +3271,45 @@
         "title": "AddTagResponse",
         "description": "Response from POST /tracks/{id}/tags."
       },
+      "ApplyResultSchema": {
+        "properties": {
+          "preferences_applied": {
+            "type": "integer",
+            "title": "Preferences Applied"
+          },
+          "preferences_cleared": {
+            "type": "integer",
+            "title": "Preferences Cleared"
+          },
+          "tags_applied": {
+            "type": "integer",
+            "title": "Tags Applied"
+          },
+          "tags_cleared": {
+            "type": "integer",
+            "title": "Tags Cleared"
+          },
+          "conflicts_logged": {
+            "type": "integer",
+            "title": "Conflicts Logged"
+          },
+          "assignments_processed": {
+            "type": "integer",
+            "title": "Assignments Processed"
+          }
+        },
+        "type": "object",
+        "required": [
+          "preferences_applied",
+          "preferences_cleared",
+          "tags_applied",
+          "tags_cleared",
+          "conflicts_logged",
+          "assignments_processed"
+        ],
+        "title": "ApplyResultSchema",
+        "description": "Counts from one ApplyPlaylistAssignmentsUseCase run."
+      },
       "ArtistSchema": {
         "properties": {
           "name": {
@@ -3137,6 +3323,43 @@
         ],
         "title": "ArtistSchema",
         "description": "Artist representation in API responses."
+      },
+      "AssignmentActionType": {
+        "type": "string",
+        "enum": [
+          "set_preference",
+          "add_tag"
+        ]
+      },
+      "AssignmentSchema": {
+        "properties": {
+          "id": {
+            "type": "string",
+            "format": "uuid",
+            "title": "Id"
+          },
+          "connector_playlist_id": {
+            "type": "string",
+            "format": "uuid",
+            "title": "Connector Playlist Id"
+          },
+          "action_type": {
+            "$ref": "#/components/schemas/AssignmentActionType"
+          },
+          "action_value": {
+            "type": "string",
+            "title": "Action Value"
+          }
+        },
+        "type": "object",
+        "required": [
+          "id",
+          "connector_playlist_id",
+          "action_type",
+          "action_value"
+        ],
+        "title": "AssignmentSchema",
+        "description": "One PlaylistAssignment row, serialized for the wire."
       },
       "BatchTagRequest": {
         "properties": {
@@ -3505,6 +3728,47 @@
         ],
         "title": "ConnectorStatusSchema",
         "description": "Current authentication status of a music service connector."
+      },
+      "CreateAssignmentRequest": {
+        "properties": {
+          "connector_playlist_id": {
+            "type": "string",
+            "format": "uuid",
+            "title": "Connector Playlist Id"
+          },
+          "action_type": {
+            "$ref": "#/components/schemas/AssignmentActionType"
+          },
+          "action_value": {
+            "type": "string",
+            "title": "Action Value"
+          }
+        },
+        "type": "object",
+        "required": [
+          "connector_playlist_id",
+          "action_type",
+          "action_value"
+        ],
+        "title": "CreateAssignmentRequest",
+        "description": "Body for POST /api/v1/playlist-assignments.\n\n``action_value`` is canonicalized server-side via the same domain\n``validate_action_value`` that the CLI helper uses \u2014 invalid input\nfails fast with 422 before the use case touches the DB."
+      },
+      "CreateAssignmentResponse": {
+        "properties": {
+          "assignment": {
+            "$ref": "#/components/schemas/AssignmentSchema"
+          },
+          "result": {
+            "$ref": "#/components/schemas/ApplyResultSchema"
+          }
+        },
+        "type": "object",
+        "required": [
+          "assignment",
+          "result"
+        ],
+        "title": "CreateAssignmentResponse",
+        "description": "Response for POST /api/v1/playlist-assignments.\n\nBundles the newly-created assignment AND the engine result from the\nimmediate apply, so the Web UI can render the success toast with real\ncounts (``\"412 tracks tagged mood:chill\"``) without a follow-up call."
       },
       "CreateLinkRequest": {
         "properties": {
@@ -5157,6 +5421,11 @@
             "type": "string",
             "title": "Connector Playlist Identifier"
           },
+          "connector_playlist_db_id": {
+            "type": "string",
+            "format": "uuid",
+            "title": "Connector Playlist Db Id"
+          },
           "name": {
             "type": "string",
             "title": "Name"
@@ -5224,11 +5493,20 @@
               "imported"
             ],
             "title": "Import Status"
+          },
+          "current_assignments": {
+            "items": {
+              "$ref": "#/components/schemas/ActiveAssignmentSchema"
+            },
+            "type": "array",
+            "title": "Current Assignments",
+            "default": []
           }
         },
         "type": "object",
         "required": [
           "connector_playlist_identifier",
+          "connector_playlist_db_id",
           "name",
           "description",
           "owner",

@@ -5,6 +5,7 @@
  * Personal music metadata hub
  * OpenAPI spec version: 0.7.3
  */
+import type { ActiveAssignmentSchema } from './activeAssignmentSchema';
 import type { SpotifyPlaylistBrowseSchemaImportStatus } from './spotifyPlaylistBrowseSchemaImportStatus';
 
 /**
@@ -15,6 +16,7 @@ this shape directly; the API wraps the list in ``SpotifyPlaylistBrowseResponse``
  */
 export interface SpotifyPlaylistBrowseSchema {
   connector_playlist_identifier: string;
+  connector_playlist_db_id: string;
   name: string;
   description: string | null;
   owner: string | null;
@@ -24,4 +26,5 @@ export interface SpotifyPlaylistBrowseSchema {
   collaborative: boolean;
   is_public: boolean;
   import_status: SpotifyPlaylistBrowseSchemaImportStatus;
+  current_assignments?: ActiveAssignmentSchema[];
 }
