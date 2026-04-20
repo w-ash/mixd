@@ -14,7 +14,7 @@ from collections.abc import Sequence
 from datetime import UTC, datetime
 from uuid import UUID
 
-from attrs import define, field
+from attrs import define
 
 from src.config import get_logger
 from src.domain.entities.playlist import SPOTIFY_CONNECTOR
@@ -39,9 +39,9 @@ logger = get_logger(__name__)
 class ApplyPlaylistAssignmentsCommand:
     user_id: str
     connector_name: str = SPOTIFY_CONNECTOR
-    # When set, scope the apply to these assignment IDs only. None means
-    # "apply every assignment for the user" (the bulk CLI path).
-    assignment_ids: Sequence[UUID] | None = field(default=None)
+    # None means "apply every assignment for the user" (the bulk CLI path);
+    # a list scopes the apply to those ids (the Web UI's per-row path).
+    assignment_ids: Sequence[UUID] | None = None
 
 
 @define(frozen=True, slots=True)
@@ -79,10 +79,13 @@ class ApplyPlaylistAssignmentsUseCase:
             pref_repo = uow.get_preference_repository()
             tag_repo = uow.get_tag_repository()
 
-            assignments = await assignment_repo.list_for_user(user_id=command.user_id)
-            if command.assignment_ids is not None:
-                wanted = set(command.assignment_ids)
-                assignments = [a for a in assignments if a.id in wanted]
+            assignments = (
+                await assignment_repo.list_for_ids(
+                    command.assignment_ids, user_id=command.user_id
+                )
+                if command.assignment_ids is not None
+                else await assignment_repo.list_for_user(user_id=command.user_id)
+            )
             if not assignments:
                 return ApplyPlaylistAssignmentsResult(0, 0, 0, 0, 0, 0)
 

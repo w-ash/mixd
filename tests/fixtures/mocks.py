@@ -243,6 +243,10 @@ def make_mock_playlist_assignment_repo(**overrides) -> AsyncMock:
     """Build an ``AsyncMock`` mimicking :class:`PlaylistAssignmentRepositoryProtocol`."""
     repo = AsyncMock()
     repo.list_for_user.return_value = overrides.pop("list_for_user", [])
+    repo.list_for_ids.side_effect = overrides.pop(
+        "list_for_ids",
+        lambda ids, **kw: [],
+    )
     repo.list_for_connector_playlist.return_value = overrides.pop(
         "list_for_connector_playlist", []
     )

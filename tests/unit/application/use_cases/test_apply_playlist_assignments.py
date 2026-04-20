@@ -14,19 +14,23 @@ from src.application.use_cases.apply_playlist_assignments import (
     ApplyPlaylistAssignmentsCommand,
     ApplyPlaylistAssignmentsUseCase,
 )
-from src.domain.entities.playlist import ConnectorPlaylistItem
 from src.domain.entities.playlist_assignment import (
     PlaylistAssignment,
     PlaylistAssignmentMember,
 )
 from src.domain.entities.preference import TrackPreference
-from tests.fixtures import make_connector_playlist, make_mock_uow, make_track
+from tests.fixtures import (
+    make_connector_playlist,
+    make_connector_playlist_item,
+    make_mock_uow,
+    make_track,
+)
 
 
 def _cp_with_items(db_id, item_track_ids, name="P"):
     items = [
-        ConnectorPlaylistItem(
-            connector_track_identifier=tid,
+        make_connector_playlist_item(
+            tid,
             position=i,
             added_at=f"2025-0{1 + (i % 9)}-01T00:00:00+00:00",
         )
@@ -307,21 +311,17 @@ class TestMembershipSnapshot:
 
 
 class TestAssignmentIdsFilter:
-    async def test_filter_scopes_apply_to_one_assignment(self) -> None:
-        """`assignment_ids=[id]` only processes that assignment, not the user's full set."""
+    async def test_filter_routes_to_list_for_ids(self) -> None:
+        """`assignment_ids=[id]` calls list_for_ids (one query), not list_for_user."""
         cp_id = uuid7()
         track = make_track(id=uuid7())
 
         target = _assignment(cp_id, "add_tag", "mood:chill")
-        other = _assignment(cp_id, "set_preference", "star")
         cp = _cp_with_items(cp_id, ["sp_t"])
 
         uow = make_mock_uow()
-        # list_for_user returns BOTH; the filter must drop `other`.
-        uow.get_playlist_assignment_repository().list_for_user.return_value = [
-            target,
-            other,
-        ]
+        assignment_repo = uow.get_playlist_assignment_repository()
+        assignment_repo.list_for_ids.side_effect = lambda ids, **kw: [target]
         uow.get_connector_playlist_repository().list_by_connector.return_value = [cp]
         uow.get_connector_repository().find_tracks_by_connectors.return_value = {
             ("spotify", "sp_t"): track,
@@ -335,10 +335,10 @@ class TestAssignmentIdsFilter:
             uow,
         )
 
-        # Only the target was processed — preference assignment skipped.
+        assignment_repo.list_for_user.assert_not_called()
+        assignment_repo.list_for_ids.assert_awaited_once()
         assert result.assignments_processed == 1
         assert result.tags_applied == 1
-        uow.get_preference_repository().set_preferences.assert_not_called()
 
 
 class TestUnresolvedTracksSkipped:

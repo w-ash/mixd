@@ -1530,6 +1530,12 @@ class PlaylistAssignmentRepositoryProtocol(Protocol):
         """All assignments for a user, across every connector playlist."""
         ...
 
+    def list_for_ids(
+        self, assignment_ids: Sequence[UUID], *, user_id: str
+    ) -> Awaitable[list[PlaylistAssignment]]:
+        """Fetch the given subset of assignments in one round-trip."""
+        ...
+
     def list_for_connector_playlist(
         self, connector_playlist_id: UUID, *, user_id: str
     ) -> Awaitable[list[PlaylistAssignment]]:

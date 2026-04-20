@@ -41,19 +41,3 @@ class DeletePlaylistAssignmentUseCase:
             if deleted:
                 await uow.commit()
             return DeletePlaylistAssignmentResult(deleted=deleted)
-
-
-async def run_delete_playlist_assignment(
-    user_id: str,
-    assignment_id: UUID,
-) -> DeletePlaylistAssignmentResult:
-    """Convenience wrapper for CLI / API handlers."""
-    from src.application.runner import execute_use_case
-
-    command = DeletePlaylistAssignmentCommand(
-        user_id=user_id, assignment_id=assignment_id
-    )
-    return await execute_use_case(
-        lambda uow: DeletePlaylistAssignmentUseCase().execute(command, uow),
-        user_id=user_id,
-    )

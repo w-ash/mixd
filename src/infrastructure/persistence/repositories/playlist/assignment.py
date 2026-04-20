@@ -49,6 +49,17 @@ class PlaylistAssignmentRepository(
     async def list_for_user(self, *, user_id: str) -> list[PlaylistAssignment]:
         return await self.find_by([self.model_class.user_id == user_id])
 
+    @db_operation("list_for_ids")
+    async def list_for_ids(
+        self, assignment_ids: Sequence[UUID], *, user_id: str
+    ) -> list[PlaylistAssignment]:
+        if not assignment_ids:
+            return []
+        return await self.find_by([
+            self.model_class.user_id == user_id,
+            self.model_class.id.in_(assignment_ids),
+        ])
+
     @db_operation("list_for_connector_playlist")
     async def list_for_connector_playlist(
         self, connector_playlist_id: UUID, *, user_id: str
