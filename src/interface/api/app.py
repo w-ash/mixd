@@ -176,6 +176,9 @@ def create_app() -> FastAPI:
     from src.interface.api.routes.connectors import router as connectors_router
     from src.interface.api.routes.imports import router as imports_router
     from src.interface.api.routes.operations import router as operations_router
+    from src.interface.api.routes.playlist_assignments import (
+        router as playlist_assignments_router,
+    )
     from src.interface.api.routes.playlists import router as playlists_router
     from src.interface.api.routes.reviews import router as reviews_router
     from src.interface.api.routes.settings import router as settings_router
@@ -196,6 +199,7 @@ def create_app() -> FastAPI:
     app.include_router(health_router, prefix="/api/v1")
     app.include_router(stats_router, prefix="/api/v1")
     app.include_router(playlists_router, prefix="/api/v1")
+    app.include_router(playlist_assignments_router, prefix="/api/v1")
     app.include_router(tracks_router, prefix="/api/v1")
     app.include_router(tags_router, prefix="/api/v1")
     app.include_router(workflows_router, prefix="/api/v1")

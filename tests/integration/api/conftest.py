@@ -41,6 +41,7 @@ def _test_db_env(postgres_url: str) -> Generator[None]:
 _TRUNCATE_ALL = (
     "TRUNCATE TABLE workflow_run_nodes, workflow_runs, workflow_versions,"
     " workflows, sync_checkpoints, playlist_tracks, playlist_mappings,"
+    " playlist_assignment_members, playlist_assignments,"
     " connector_playlists, playlists, connector_plays, track_plays,"
     " track_likes, track_metrics, match_reviews, track_mappings,"
     " connector_tracks, tracks CASCADE"

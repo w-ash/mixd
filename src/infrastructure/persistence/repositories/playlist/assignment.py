@@ -69,6 +69,21 @@ class PlaylistAssignmentRepository(
             self.model_class.connector_playlist_id == connector_playlist_id,
         ])
 
+    @db_operation("list_for_connector_playlist_ids")
+    async def list_for_connector_playlist_ids(
+        self, connector_playlist_ids: Sequence[UUID], *, user_id: str
+    ) -> dict[UUID, list[PlaylistAssignment]]:
+        if not connector_playlist_ids:
+            return {}
+        rows = await self.find_by([
+            self.model_class.user_id == user_id,
+            self.model_class.connector_playlist_id.in_(connector_playlist_ids),
+        ])
+        grouped: dict[UUID, list[PlaylistAssignment]] = {}
+        for row in rows:
+            grouped.setdefault(row.connector_playlist_id, []).append(row)
+        return grouped
+
     @db_operation("find_by_id")
     async def find_by_id(
         self, assignment_id: UUID, *, user_id: str

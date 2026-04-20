@@ -16,6 +16,7 @@ from src.application.use_cases.list_spotify_playlists import (
     ListSpotifyPlaylistsCommand,
     ListSpotifyPlaylistsUseCase,
 )
+from src.domain.entities.playlist_assignment import PlaylistAssignment
 from src.domain.entities.playlist_link import PlaylistLink, SyncDirection
 from tests.fixtures import make_connector_playlist, make_mock_uow
 
@@ -206,3 +207,35 @@ class TestProjection:
         )
 
         assert result.playlists[0].image_url is None
+
+
+class TestCurrentAssignments:
+    async def test_active_assignments_surface_on_matching_row(self) -> None:
+        cp_a = _cache_cp("A", "s1")
+        cp_b = _cache_cp("B", "s2")
+        assignment = PlaylistAssignment.create(
+            user_id="default",
+            connector_playlist_id=cp_a.id,
+            action_type="add_tag",
+            raw_action_value="mood:chill",
+        )
+
+        uow, _ = _uow_with_connector()
+        uow.get_connector_playlist_repository().list_by_connector.return_value = [
+            cp_a,
+            cp_b,
+        ]
+        uow.get_playlist_assignment_repository().list_for_connector_playlist_ids.side_effect = (
+            lambda ids, **kw: {
+                cp_a.id: [assignment],
+            }
+        )
+
+        result = await ListSpotifyPlaylistsUseCase().execute(
+            ListSpotifyPlaylistsCommand(user_id="default"), uow
+        )
+
+        by_id = {p.connector_playlist_identifier: p for p in result.playlists}
+        assert len(by_id["s1"].current_assignments) == 1
+        assert by_id["s1"].current_assignments[0].action_value == "mood:chill"
+        assert by_id["s2"].current_assignments == []

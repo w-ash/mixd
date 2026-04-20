@@ -1542,6 +1542,17 @@ class PlaylistAssignmentRepositoryProtocol(Protocol):
         """All assignments bound to one connector playlist (may have many)."""
         ...
 
+    def list_for_connector_playlist_ids(
+        self, connector_playlist_ids: Sequence[UUID], *, user_id: str
+    ) -> Awaitable[dict[UUID, list[PlaylistAssignment]]]:
+        """Batch-fetch assignments for many connector playlists in one query.
+
+        Returns ``{connector_playlist_id: [assignments]}`` — playlists with no
+        assignments are absent from the result. Powers the Spotify picker's
+        per-row badge / overflow-menu state without N+1 calls.
+        """
+        ...
+
     def find_by_id(
         self, assignment_id: UUID, *, user_id: str
     ) -> Awaitable[PlaylistAssignment | None]:

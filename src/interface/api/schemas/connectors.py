@@ -2,8 +2,11 @@
 
 from datetime import datetime
 from typing import Literal
+from uuid import UUID
 
 from pydantic import BaseModel, ConfigDict
+
+from src.domain.entities.playlist_assignment import AssignmentActionType
 
 
 class ConnectorStatusSchema(BaseModel):
@@ -17,6 +20,16 @@ class ConnectorStatusSchema(BaseModel):
     token_expires_at: int | None = None
 
 
+class ActiveAssignmentSchema(BaseModel):
+    """One active assignment on a Spotify playlist row."""
+
+    model_config = ConfigDict(from_attributes=True)
+
+    assignment_id: UUID
+    action_type: AssignmentActionType
+    action_value: str
+
+
 class SpotifyPlaylistBrowseSchema(BaseModel):
     """One playlist row in the Spotify browser dialog.
 
@@ -27,6 +40,7 @@ class SpotifyPlaylistBrowseSchema(BaseModel):
     model_config = ConfigDict(from_attributes=True)
 
     connector_playlist_identifier: str
+    connector_playlist_db_id: UUID
     name: str
     description: str | None
     owner: str | None
@@ -36,6 +50,7 @@ class SpotifyPlaylistBrowseSchema(BaseModel):
     collaborative: bool
     is_public: bool
     import_status: Literal["not_imported", "imported"]
+    current_assignments: list[ActiveAssignmentSchema] = []
 
 
 class SpotifyPlaylistBrowseResponse(BaseModel):

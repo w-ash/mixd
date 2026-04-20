@@ -19,6 +19,7 @@ from src.application.use_cases._shared import resolve_user_playlists_connector
 from src.config import get_logger
 from src.domain.entities import ConnectorPlaylist
 from src.domain.entities.playlist import SPOTIFY_CONNECTOR
+from src.domain.entities.playlist_assignment import AssignmentActionType
 from src.domain.entities.shared import json_int, json_str
 from src.domain.repositories import UnitOfWorkProtocol
 
@@ -28,14 +29,27 @@ ImportStatus = Literal["not_imported", "imported"]
 
 
 @define(frozen=True, slots=True)
+class ActiveAssignmentSummary:
+    """One active assignment on a Spotify playlist, projected for the UI.
+
+    Lets the picker render status badges + drive the Update / Re-apply /
+    Remove states in the AssignPlaylistDialog without a separate fetch.
+    """
+
+    assignment_id: UUID
+    action_type: AssignmentActionType
+    action_value: str
+
+
+@define(frozen=True, slots=True)
 class SpotifyPlaylistView:
     """App-layer projection for the Spotify browser UI.
 
     Derived from ``ConnectorPlaylist`` + per-user ``PlaylistLink`` set
-    membership. Keeps the UI payload narrow and the import-status field
-    typed, rather than leaking the full ``ConnectorPlaylist`` (which
-    carries internal DB IDs and ``raw_metadata`` internals the UI has
-    no business reading).
+    membership + per-CP assignment list. Keeps the UI payload narrow
+    and the import-status field typed, rather than leaking the full
+    ``ConnectorPlaylist`` (which carries internal DB IDs and
+    ``raw_metadata`` internals the UI has no business reading).
     """
 
     connector_playlist_identifier: str
@@ -49,6 +63,7 @@ class SpotifyPlaylistView:
     collaborative: bool
     is_public: bool
     import_status: ImportStatus
+    current_assignments: list[ActiveAssignmentSummary] = field(factory=list)
 
 
 @define(frozen=True, slots=True)
@@ -95,6 +110,7 @@ class ListSpotifyPlaylistsUseCase:
         async with uow:
             cp_repo = uow.get_connector_playlist_repository()
             link_repo = uow.get_playlist_link_repository()
+            assignment_repo = uow.get_playlist_assignment_repository()
 
             if command.force_refresh or not (
                 cached := await cp_repo.list_by_connector(SPOTIFY_CONNECTOR)
@@ -114,6 +130,9 @@ class ListSpotifyPlaylistsUseCase:
             imported_ids: set[str] = {
                 link.connector_playlist_identifier for link in imported_links
             }
+            assignments_by_cp = await assignment_repo.list_for_connector_playlist_ids(
+                [cp.id for cp in playlists], user_id=command.user_id
+            )
 
             views: list[SpotifyPlaylistView] = [
                 SpotifyPlaylistView(
@@ -132,6 +151,14 @@ class ListSpotifyPlaylistsUseCase:
                         if cp.connector_playlist_identifier in imported_ids
                         else "not_imported"
                     ),
+                    current_assignments=[
+                        ActiveAssignmentSummary(
+                            assignment_id=a.id,
+                            action_type=a.action_type,
+                            action_value=a.action_value,
+                        )
+                        for a in assignments_by_cp.get(cp.id, [])
+                    ],
                 )
                 for cp in playlists
             ]
