@@ -9,7 +9,7 @@ React SPA with a catch-all fallback to index.html for client-side routing.
 """
 
 import asyncio
-from collections.abc import AsyncIterator
+from collections.abc import AsyncGenerator
 import contextlib
 from contextlib import asynccontextmanager
 from pathlib import Path
@@ -77,7 +77,7 @@ async def _prune_expired_oauth_states() -> None:
 
 
 @asynccontextmanager
-async def lifespan(_app: FastAPI) -> AsyncIterator[None]:
+async def lifespan(_app: FastAPI) -> AsyncGenerator[None]:
     """Wire SSE progress subscriber to the global progress manager."""
 
     from src.config import setup_logging

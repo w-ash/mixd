@@ -1,6 +1,6 @@
 [project]
 name = "mixd"
-version = "0.7.4"
+version = "0.7.4.post2"
 description = "Music metadata integration and playlist management platform"
 authors = [{name = "Ash Wright", email = "a@ashwright.net"}]
 readme = "README.md"

@@ -19,7 +19,7 @@ logging_context(**kwargs) -> ContextManager
     Usage: with logging_context(workflow_id=42): ...
 """
 
-from collections.abc import Iterator
+from collections.abc import Generator
 from contextlib import contextmanager
 import logging
 import logging.handlers
@@ -207,7 +207,7 @@ def get_logger(name: str) -> BoundLogger:
 
 
 @contextmanager
-def logging_context(**kwargs: object) -> Iterator[None]:
+def logging_context(**kwargs: object) -> Generator[None]:
     """Bind structured log context for the duration of a block.
 
     Replaces loguru's ``logger.contextualize()``. Uses structlog's contextvars

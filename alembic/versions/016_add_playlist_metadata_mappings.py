@@ -23,7 +23,7 @@ import sqlalchemy as sa
 from alembic import op
 
 revision: str = "016_playlist_metadata_mappings"
-down_revision: str | None = "f80e19f95cdd"
+down_revision: str | None = "132d77157489"
 branch_labels: str | Sequence[str] | None = None
 depends_on: str | Sequence[str] | None = None
 

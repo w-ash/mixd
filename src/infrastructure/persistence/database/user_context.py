@@ -14,7 +14,7 @@ get_current_user_id_from_context() -> str
     Read the current user ID from the contextvar.
 """
 
-from collections.abc import Iterator
+from collections.abc import Generator
 from contextlib import contextmanager
 from contextvars import ContextVar
 
@@ -35,7 +35,7 @@ def get_current_user_id_from_context() -> str:
 
 
 @contextmanager
-def user_context(user_id: str) -> Iterator[None]:
+def user_context(user_id: str) -> Generator[None]:
     """Set the current user for the duration of a block.
 
     Async-safe via PEP 567 contextvars — child coroutines inherit the value.
