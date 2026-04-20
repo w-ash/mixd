@@ -26,12 +26,12 @@ import typer
 
 from src.config.constants import BusinessLimits
 from src.domain.entities import OperationResult, Playlist, Track
-from src.domain.entities.playlist_link import SyncDirection
-from src.domain.entities.playlist_metadata_mapping import (
-    MAPPING_ACTION_TYPES,
-    MappingActionType,
+from src.domain.entities.playlist_assignment import (
+    ASSIGNMENT_ACTION_TYPES,
+    AssignmentActionType,
     validate_action_value,
 )
+from src.domain.entities.playlist_link import SyncDirection
 from src.domain.entities.preference import PREFERENCE_ORDER, PreferenceState
 from src.domain.entities.progress import NullProgressEmitter, ProgressEmitter
 from src.domain.entities.tag import normalize_tag
@@ -281,17 +281,19 @@ def validate_tag(raw: str) -> str:
         raise typer.BadParameter(str(e)) from e
 
 
-def validate_mapping_action(raw: str) -> MappingActionType:
-    """Return a typed ``MappingActionType`` or raise ``typer.BadParameter``."""
-    if raw not in MAPPING_ACTION_TYPES:
+def validate_assignment_action(raw: str) -> AssignmentActionType:
+    """Return a typed ``AssignmentActionType`` or raise ``typer.BadParameter``."""
+    if raw not in ASSIGNMENT_ACTION_TYPES:
         raise typer.BadParameter(
-            f"'{raw}' is not a valid mapping action — expected one of: "
-            f"{', '.join(sorted(MAPPING_ACTION_TYPES))}."
+            f"'{raw}' is not a valid assignment action — expected one of: "
+            f"{', '.join(sorted(ASSIGNMENT_ACTION_TYPES))}."
         )
-    return raw  # narrowed to MappingActionType by the membership check
+    return raw  # narrowed to AssignmentActionType by the membership check
 
 
-def validate_mapping_action_value(raw: str, *, action_type: MappingActionType) -> str:
+def validate_assignment_action_value(
+    raw: str, *, action_type: AssignmentActionType
+) -> str:
     """Validate + canonicalize an ``action_value`` for the given action type.
 
     Delegates to the domain ``validate_action_value`` so CLI, API schemas,

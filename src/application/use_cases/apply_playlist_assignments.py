@@ -1,10 +1,10 @@
-"""Apply active PlaylistMetadataMappings to canonical metadata.
+"""Apply active PlaylistAssignments to canonical metadata.
 
-For each mapping, walks the cached connector playlist's tracks and
+For each assignment, walks the cached connector playlist's tracks and
 upserts ``TrackPreference`` / ``TrackTag`` rows with
-``source="playlist_mapping"``. Manual metadata always wins via the
-shared ``should_override`` source-priority rule. Per-import membership
-snapshots let us diff against the prior run and clear mapping-sourced
+``source="playlist_assignment"``. Manual metadata always wins via the
+shared ``should_override`` source-priority rule. Per-apply membership
+snapshots let us diff against the prior run and clear assignment-sourced
 metadata for tracks that dropped out of the playlist.
 
 Caller is responsible for refreshing the connector cache first.
@@ -17,9 +17,9 @@ from attrs import define
 
 from src.config import get_logger
 from src.domain.entities.playlist import SPOTIFY_CONNECTOR
-from src.domain.entities.playlist_metadata_mapping import (
-    PlaylistMappingMember,
-    PlaylistMetadataMapping,
+from src.domain.entities.playlist_assignment import (
+    PlaylistAssignment,
+    PlaylistAssignmentMember,
 )
 from src.domain.entities.preference import (
     PREFERENCE_ORDER,
@@ -35,24 +35,24 @@ logger = get_logger(__name__)
 
 
 @define(frozen=True, slots=True)
-class ImportPlaylistMetadataCommand:
+class ApplyPlaylistAssignmentsCommand:
     user_id: str
     connector_name: str = SPOTIFY_CONNECTOR
 
 
 @define(frozen=True, slots=True)
-class ImportPlaylistMetadataResult:
+class ApplyPlaylistAssignmentsResult:
     preferences_applied: int
     preferences_cleared: int
     tags_applied: int
     tags_cleared: int
     conflicts_logged: int
-    mappings_processed: int
+    assignments_processed: int
 
 
 def _parse_added_at(raw: str | None) -> datetime:
     """Spotify occasionally returns null for very old playlist rows;
-    fallback keeps the import moving rather than dropping tracks."""
+    fallback keeps the apply moving rather than dropping tracks."""
     if raw is None:
         return datetime.now(UTC)
     try:
@@ -62,32 +62,32 @@ def _parse_added_at(raw: str | None) -> datetime:
 
 
 @define(slots=True)
-class ImportPlaylistMetadataUseCase:
+class ApplyPlaylistAssignmentsUseCase:
     async def execute(
         self,
-        command: ImportPlaylistMetadataCommand,
+        command: ApplyPlaylistAssignmentsCommand,
         uow: UnitOfWorkProtocol,
-    ) -> ImportPlaylistMetadataResult:
+    ) -> ApplyPlaylistAssignmentsResult:
         async with uow:
-            mapping_repo = uow.get_playlist_metadata_mapping_repository()
+            assignment_repo = uow.get_playlist_assignment_repository()
             cp_repo = uow.get_connector_playlist_repository()
             connector_repo = uow.get_connector_repository()
             pref_repo = uow.get_preference_repository()
             tag_repo = uow.get_tag_repository()
 
-            mappings = await mapping_repo.list_for_user(user_id=command.user_id)
-            if not mappings:
-                return ImportPlaylistMetadataResult(0, 0, 0, 0, 0, 0)
+            assignments = await assignment_repo.list_for_user(user_id=command.user_id)
+            if not assignments:
+                return ApplyPlaylistAssignmentsResult(0, 0, 0, 0, 0, 0)
 
-            mappings_by_cp: dict[UUID, list[PlaylistMetadataMapping]] = {}
-            for m in mappings:
-                mappings_by_cp.setdefault(m.connector_playlist_id, []).append(m)
+            assignments_by_cp: dict[UUID, list[PlaylistAssignment]] = {}
+            for a in assignments:
+                assignments_by_cp.setdefault(a.connector_playlist_id, []).append(a)
 
             cached_cps = await cp_repo.list_by_connector(command.connector_name)
             cached_by_db_id = {cp.id: cp for cp in cached_cps}
 
             all_connections: list[tuple[str, str]] = []
-            for cp_id in mappings_by_cp:
+            for cp_id in assignments_by_cp:
                 cp = cached_by_db_id.get(cp_id)
                 if cp is None:
                     continue
@@ -105,21 +105,23 @@ class ImportPlaylistMetadataUseCase:
 
             desired_preferences: dict[UUID, tuple[PreferenceState, datetime]] = {}
             desired_tags: dict[UUID, dict[str, datetime]] = {}
-            current_members_by_mapping: dict[UUID, list[PlaylistMappingMember]] = {}
+            current_members_by_assignment: dict[
+                UUID, list[PlaylistAssignmentMember]
+            ] = {}
             conflicts_logged = 0
             now = datetime.now(UTC)
 
-            for cp_id, cp_mappings in mappings_by_cp.items():
+            for cp_id, cp_assignments in assignments_by_cp.items():
                 cp = cached_by_db_id.get(cp_id)
                 if cp is None:
                     logger.warning(
-                        "Skipping mapping: cached ConnectorPlaylist not found",
+                        "Skipping assignment: cached ConnectorPlaylist not found",
                         connector_playlist_id=cp_id,
                     )
                     continue
 
-                for mapping in cp_mappings:
-                    members: list[PlaylistMappingMember] = []
+                for assignment in cp_assignments:
+                    members: list[PlaylistAssignmentMember] = []
                     for item in cp.items:
                         track = track_by_key.get((
                             command.connector_name,
@@ -130,23 +132,23 @@ class ImportPlaylistMetadataUseCase:
 
                         added_at = _parse_added_at(item.added_at)
                         members.append(
-                            PlaylistMappingMember(
+                            PlaylistAssignmentMember(
                                 user_id=command.user_id,
-                                mapping_id=mapping.id,
+                                assignment_id=assignment.id,
                                 track_id=track.id,
                                 synced_at=now,
                             )
                         )
 
-                        if mapping.action_type == "set_preference":
-                            state = mapping.as_preference_state()
+                        if assignment.action_type == "set_preference":
+                            state = assignment.as_preference_state()
                             prior = desired_preferences.get(track.id)
                             if prior is None:
                                 desired_preferences[track.id] = (state, added_at)
                             elif prior[0] != state:
                                 conflicts_logged += 1
                                 logger.warning(
-                                    "Conflicting preference mappings for track",
+                                    "Conflicting preference assignments for track",
                                     track_id=track.id,
                                     existing=prior[0],
                                     incoming=state,
@@ -157,11 +159,11 @@ class ImportPlaylistMetadataUseCase:
                                         state,
                                         added_at,
                                     )
-                        elif mapping.action_type == "add_tag":
+                        elif assignment.action_type == "add_tag":
                             tags_for_track = desired_tags.setdefault(track.id, {})
-                            tags_for_track.setdefault(mapping.as_tag(), added_at)
+                            tags_for_track.setdefault(assignment.as_tag(), added_at)
 
-                    current_members_by_mapping[mapping.id] = members
+                    current_members_by_assignment[assignment.id] = members
 
             preferences_applied = 0
             if desired_preferences:
@@ -173,7 +175,7 @@ class ImportPlaylistMetadataUseCase:
                 for track_id, (state, preferred_at) in desired_preferences.items():
                     existing = existing_prefs.get(track_id)
                     if not resolve_preference_change(
-                        existing, state, "playlist_mapping"
+                        existing, state, "playlist_assignment"
                     ):
                         continue
                     prefs_to_write.append(
@@ -181,7 +183,7 @@ class ImportPlaylistMetadataUseCase:
                             user_id=command.user_id,
                             track_id=track_id,
                             state=state,
-                            source="playlist_mapping",
+                            source="playlist_assignment",
                             preferred_at=preferred_at,
                         )
                     )
@@ -191,7 +193,7 @@ class ImportPlaylistMetadataUseCase:
                             track_id=track_id,
                             old_state=existing.state if existing else None,
                             new_state=state,
-                            source="playlist_mapping",
+                            source="playlist_assignment",
                             preferred_at=preferred_at,
                         )
                     )
@@ -211,7 +213,7 @@ class ImportPlaylistMetadataUseCase:
                             track_id=track_id,
                             raw_tag=tag_value,
                             tagged_at=tagged_at,
-                            source="playlist_mapping",
+                            source="playlist_assignment",
                         )
                     )
             tags_applied = 0
@@ -228,7 +230,7 @@ class ImportPlaylistMetadataUseCase:
                                 track_id=t.track_id,
                                 tag=t.tag,
                                 action="add",
-                                source="playlist_mapping",
+                                source="playlist_assignment",
                                 tagged_at=t.tagged_at,
                             )
                             for t in created_tags
@@ -237,26 +239,26 @@ class ImportPlaylistMetadataUseCase:
                     )
 
             # Diff prior vs current members in one batched fetch; accumulate
-            # cleared work across all mappings so the removal calls collapse
+            # cleared work across all assignments so the removal calls collapse
             # to two queries (one per metadata kind).
-            prior_by_mapping = await mapping_repo.get_members_for_mappings(
-                [m.id for m in mappings], user_id=command.user_id
+            prior_by_assignment = await assignment_repo.get_members_for_assignments(
+                [a.id for a in assignments], user_id=command.user_id
             )
             removed_pref_track_ids: set[UUID] = set()
             removed_tag_pairs: list[tuple[UUID, str]] = []
-            for mapping in mappings:
-                current = current_members_by_mapping.get(mapping.id, [])
+            for assignment in assignments:
+                current = current_members_by_assignment.get(assignment.id, [])
                 current_track_ids = {m.track_id for m in current}
                 prior_track_ids = {
-                    m.track_id for m in prior_by_mapping.get(mapping.id, [])
+                    m.track_id for m in prior_by_assignment.get(assignment.id, [])
                 }
                 removed = prior_track_ids - current_track_ids
                 if not removed:
                     continue
-                if mapping.action_type == "set_preference":
+                if assignment.action_type == "set_preference":
                     removed_pref_track_ids.update(removed)
-                elif mapping.action_type == "add_tag":
-                    tag_value = mapping.as_tag()
+                elif assignment.action_type == "add_tag":
+                    tag_value = assignment.as_tag()
                     removed_tag_pairs.extend((tid, tag_value) for tid in removed)
 
             preferences_cleared = 0
@@ -264,7 +266,7 @@ class ImportPlaylistMetadataUseCase:
                 preferences_cleared = await pref_repo.remove_preferences(
                     list(removed_pref_track_ids),
                     user_id=command.user_id,
-                    source="playlist_mapping",
+                    source="playlist_assignment",
                 )
 
             tags_cleared = 0
@@ -272,19 +274,19 @@ class ImportPlaylistMetadataUseCase:
                 cleared_pairs = await tag_repo.remove_tags(
                     removed_tag_pairs,
                     user_id=command.user_id,
-                    source="playlist_mapping",
+                    source="playlist_assignment",
                 )
                 tags_cleared = len(cleared_pairs)
 
-            await mapping_repo.replace_members_for_mappings(
-                current_members_by_mapping, user_id=command.user_id
+            await assignment_repo.replace_members_for_assignments(
+                current_members_by_assignment, user_id=command.user_id
             )
 
             await uow.commit()
 
             logger.info(
-                "Playlist metadata import complete",
-                mappings=len(mappings),
+                "Playlist assignment apply complete",
+                assignments=len(assignments),
                 preferences_applied=preferences_applied,
                 preferences_cleared=preferences_cleared,
                 tags_applied=tags_applied,
@@ -292,27 +294,27 @@ class ImportPlaylistMetadataUseCase:
                 conflicts=conflicts_logged,
             )
 
-            return ImportPlaylistMetadataResult(
+            return ApplyPlaylistAssignmentsResult(
                 preferences_applied=preferences_applied,
                 preferences_cleared=preferences_cleared,
                 tags_applied=tags_applied,
                 tags_cleared=tags_cleared,
                 conflicts_logged=conflicts_logged,
-                mappings_processed=len(mappings),
+                assignments_processed=len(assignments),
             )
 
 
-async def run_import_playlist_metadata(
+async def run_apply_playlist_assignments(
     user_id: str,
     connector_name: str = SPOTIFY_CONNECTOR,
-) -> ImportPlaylistMetadataResult:
+) -> ApplyPlaylistAssignmentsResult:
     """Convenience wrapper for route and CLI handlers."""
     from src.application.runner import execute_use_case
 
-    command = ImportPlaylistMetadataCommand(
+    command = ApplyPlaylistAssignmentsCommand(
         user_id=user_id, connector_name=connector_name
     )
     return await execute_use_case(
-        lambda uow: ImportPlaylistMetadataUseCase().execute(command, uow),
+        lambda uow: ApplyPlaylistAssignmentsUseCase().execute(command, uow),
         user_id=user_id,
     )

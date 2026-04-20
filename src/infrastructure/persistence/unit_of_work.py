@@ -18,8 +18,8 @@ from src.domain.repositories.interfaces import (
     LikeRepositoryProtocol,
     MatchReviewRepositoryProtocol,
     MetricsRepositoryProtocol,
+    PlaylistAssignmentRepositoryProtocol,
     PlaylistLinkRepositoryProtocol,
-    PlaylistMetadataMappingRepositoryProtocol,
     PlaylistRepositoryProtocol,
     PlaysRepositoryProtocol,
     PreferenceRepositoryProtocol,
@@ -254,15 +254,15 @@ class DatabaseUnitOfWork:
 
         return TrackTagRepository(self._session)
 
-    def get_playlist_metadata_mapping_repository(
+    def get_playlist_assignment_repository(
         self,
-    ) -> PlaylistMetadataMappingRepositoryProtocol:
-        """Get playlist metadata mapping repository."""
-        from src.infrastructure.persistence.repositories.playlist.metadata_mapping import (
-            PlaylistMetadataMappingRepository,
+    ) -> PlaylistAssignmentRepositoryProtocol:
+        """Get playlist assignment repository."""
+        from src.infrastructure.persistence.repositories.playlist.assignment import (
+            PlaylistAssignmentRepository,
         )
 
-        return PlaylistMetadataMappingRepository(self._session)
+        return PlaylistAssignmentRepository(self._session)
 
     def get_stats_repository(self) -> StatsRepositoryProtocol:
         """Get cross-table stats repository for dashboard aggregation."""

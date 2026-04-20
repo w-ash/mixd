@@ -972,7 +972,7 @@ class DBTrackPreference(BaseEntity):
     """User preference state for a track (hmm, nah, yah, star).
 
     One preference per user+track pair. Source tracks where the opinion came from
-    (manual, service_import, playlist_mapping). preferred_at preserves the original
+    (manual, service_import, playlist_assignment). preferred_at preserves the original
     timestamp from the source service.
     """
 
@@ -992,7 +992,7 @@ class DBTrackPreference(BaseEntity):
     state: Mapped[str] = mapped_column(String(16))  # hmm, nah, yah, star
     source: Mapped[str] = mapped_column(
         String(32)
-    )  # manual, service_import, playlist_mapping
+    )  # manual, service_import, playlist_assignment
     preferred_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), nullable=False
     )
@@ -1063,7 +1063,7 @@ class DBTrackTag(BaseEntity):
     value: Mapped[str] = mapped_column(String(64))
     source: Mapped[str] = mapped_column(
         String(32)
-    )  # manual, service_import, playlist_mapping
+    )  # manual, service_import, playlist_assignment
     tagged_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
 
     track: Mapped[DBTrack] = relationship(
@@ -1097,31 +1097,31 @@ class DBTrackTagEvent(BaseEntity):
     tagged_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
 
 
-class DBPlaylistMetadataMapping(BaseEntity):
+class DBPlaylistAssignment(BaseEntity):
     """One metadata action bound to a cached connector playlist.
 
-    Applied to every track in the playlist on the next metadata import —
+    Applied to every track in the playlist on the next assignment apply —
     either a preference state ("star", "nah", ...) or a normalized tag.
-    One connector playlist can carry multiple mappings (a "Workout
-    Starred" playlist might map to BOTH ``set_preference=star`` AND
+    One connector playlist can carry multiple assignments (a "Workout
+    Starred" playlist might assign BOTH ``set_preference=star`` AND
     ``add_tag=context:workout``).
 
-    FKs to ``connector_playlists.id``, NOT ``playlist_mappings.id`` —
-    canonical Mixd ``Playlist`` + ``PlaylistLink`` are optional; the
-    mapping drives tag application via the existing
-    ``ConnectorTrack → Track`` resolution.
+    FKs to ``connector_playlists.id`` (the cached connector playlist),
+    NOT to a canonical Mixd ``Playlist`` — canonical playlists and
+    ``PlaylistLink`` are optional; the assignment drives tag application
+    via the existing ``ConnectorTrack → Track`` resolution.
     """
 
-    __tablename__: str = "playlist_metadata_mappings"
+    __tablename__: str = "playlist_assignments"
     __table_args__: tuple[SchemaItem, ...] = (
         UniqueConstraint(
             "connector_playlist_id",
             "action_type",
             "action_value",
-            name="uq_playlist_metadata_mappings_action",
+            name="uq_playlist_assignments_action",
         ),
         Index(
-            "ix_playlist_metadata_mappings_user_id",
+            "ix_playlist_assignments_user_id",
             "user_id",
         ),
     )
@@ -1139,40 +1139,40 @@ class DBPlaylistMetadataMapping(BaseEntity):
         String(64)
     )  # hmm/nah/yah/star, or normalized tag
 
-    members: Mapped[list[DBPlaylistMappingMember]] = relationship(
-        back_populates="mapping",
+    members: Mapped[list[DBPlaylistAssignmentMember]] = relationship(
+        back_populates="assignment",
         passive_deletes=True,
         cascade="all, delete-orphan",
     )
 
 
-class DBPlaylistMappingMember(BaseEntity):
-    """Snapshot of which canonical tracks matched a mapping on last import.
+class DBPlaylistAssignmentMember(BaseEntity):
+    """Snapshot of which canonical tracks matched an assignment on last apply.
 
-    Replaced (DELETE + INSERT) on every import so membership diffs —
+    Replaced (DELETE + INSERT) on every apply so membership diffs —
     "this track was in the Starred playlist last time, now it's not" —
     are computable without accumulation errors. ``synced_at`` carries the
-    import timestamp for Epic 2's conflict-detection tiebreaker.
+    apply timestamp for conflict-detection tiebreakers.
 
-    ``user_id`` is denormalized from the parent mapping so RLS isolates
+    ``user_id`` is denormalized from the parent assignment so RLS isolates
     direct queries against this table (matches the 015 child-table RLS
     pattern).
     """
 
-    __tablename__: str = "playlist_mapping_members"
+    __tablename__: str = "playlist_assignment_members"
     __table_args__: tuple[SchemaItem, ...] = (
         UniqueConstraint(
-            "mapping_id", "track_id", name="uq_playlist_mapping_members_pair"
+            "assignment_id", "track_id", name="uq_playlist_assignment_members_pair"
         ),
-        Index("ix_playlist_mapping_members_mapping_id", "mapping_id"),
+        Index("ix_playlist_assignment_members_assignment_id", "assignment_id"),
     )
 
     user_id: Mapped[str] = mapped_column(
         String(), nullable=False, default="default", server_default="default"
     )
-    mapping_id: Mapped[UuidType] = mapped_column(
+    assignment_id: Mapped[UuidType] = mapped_column(
         PgUuidCol(as_uuid=True),
-        ForeignKey("playlist_metadata_mappings.id", ondelete="CASCADE"),
+        ForeignKey("playlist_assignments.id", ondelete="CASCADE"),
         nullable=False,
     )
     track_id: Mapped[UuidType] = mapped_column(
@@ -1182,7 +1182,7 @@ class DBPlaylistMappingMember(BaseEntity):
     )
     synced_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
 
-    mapping: Mapped[DBPlaylistMetadataMapping] = relationship(
+    assignment: Mapped[DBPlaylistAssignment] = relationship(
         back_populates="members",
         passive_deletes=True,
     )

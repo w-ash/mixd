@@ -25,11 +25,11 @@ from src.domain.entities import (
     TrackPlay,
 )
 from src.domain.entities.match_review import MatchReview
-from src.domain.entities.playlist_link import SyncDirection, SyncStatus
-from src.domain.entities.playlist_metadata_mapping import (
-    PlaylistMappingMember,
-    PlaylistMetadataMapping,
+from src.domain.entities.playlist_assignment import (
+    PlaylistAssignment,
+    PlaylistAssignmentMember,
 )
+from src.domain.entities.playlist_link import SyncDirection, SyncStatus
 from src.domain.entities.preference import (
     PreferenceEvent,
     PreferenceState,
@@ -1518,71 +1518,71 @@ class TagRepositoryProtocol(Protocol):
         ...
 
 
-class PlaylistMetadataMappingRepositoryProtocol(Protocol):
-    """Repository interface for playlist metadata mapping persistence.
+class PlaylistAssignmentRepositoryProtocol(Protocol):
+    """Repository interface for playlist assignment persistence.
 
-    Batch-first: single-item operations are the degenerate case. Mappings
+    Batch-first: single-item operations are the degenerate case. Assignments
     are created once and deleted individually; membership snapshots are
-    replaced wholesale (DELETE-by-mapping + INSERT) on every import.
+    replaced wholesale (DELETE-by-assignment + INSERT) on every apply.
     """
 
-    def list_for_user(
-        self, *, user_id: str
-    ) -> Awaitable[list[PlaylistMetadataMapping]]:
-        """All mappings for a user, across every connector playlist."""
+    def list_for_user(self, *, user_id: str) -> Awaitable[list[PlaylistAssignment]]:
+        """All assignments for a user, across every connector playlist."""
         ...
 
     def list_for_connector_playlist(
         self, connector_playlist_id: UUID, *, user_id: str
-    ) -> Awaitable[list[PlaylistMetadataMapping]]:
-        """All mappings bound to one connector playlist (may have many)."""
+    ) -> Awaitable[list[PlaylistAssignment]]:
+        """All assignments bound to one connector playlist (may have many)."""
         ...
 
     def find_by_id(
-        self, mapping_id: UUID, *, user_id: str
-    ) -> Awaitable[PlaylistMetadataMapping | None]:
-        """Fetch one mapping by its ID. Returns None when not found."""
+        self, assignment_id: UUID, *, user_id: str
+    ) -> Awaitable[PlaylistAssignment | None]:
+        """Fetch one assignment by its ID. Returns None when not found."""
         ...
 
-    def create_mappings(
-        self, mappings: Sequence[PlaylistMetadataMapping], *, user_id: str
-    ) -> Awaitable[list[PlaylistMetadataMapping]]:
-        """Insert mappings. UNIQUE on (connector_playlist_id, action_type, action_value)."""
+    def create_assignments(
+        self, assignments: Sequence[PlaylistAssignment], *, user_id: str
+    ) -> Awaitable[list[PlaylistAssignment]]:
+        """Insert assignments. UNIQUE on (connector_playlist_id, action_type, action_value)."""
         ...
 
-    def delete_mapping(self, mapping_id: UUID, *, user_id: str) -> Awaitable[bool]:
-        """Delete one mapping. Returns True if a row was removed."""
+    def delete_assignment(
+        self, assignment_id: UUID, *, user_id: str
+    ) -> Awaitable[bool]:
+        """Delete one assignment. Returns True if a row was removed."""
         ...
 
     def get_members(
-        self, mapping_id: UUID, *, user_id: str
-    ) -> Awaitable[list[PlaylistMappingMember]]:
-        """Current membership snapshot for one mapping."""
+        self, assignment_id: UUID, *, user_id: str
+    ) -> Awaitable[list[PlaylistAssignmentMember]]:
+        """Current membership snapshot for one assignment."""
         ...
 
-    def get_members_for_mappings(
-        self, mapping_ids: Sequence[UUID], *, user_id: str
-    ) -> Awaitable[dict[UUID, list[PlaylistMappingMember]]]:
-        """Batch member load for many mappings in one query."""
+    def get_members_for_assignments(
+        self, assignment_ids: Sequence[UUID], *, user_id: str
+    ) -> Awaitable[dict[UUID, list[PlaylistAssignmentMember]]]:
+        """Batch member load for many assignments in one query."""
         ...
 
     def replace_members(
         self,
-        mapping_id: UUID,
-        members: Sequence[PlaylistMappingMember],
+        assignment_id: UUID,
+        members: Sequence[PlaylistAssignmentMember],
         *,
         user_id: str,
-    ) -> Awaitable[list[PlaylistMappingMember]]:
-        """DELETE all members for this mapping, INSERT the new set."""
+    ) -> Awaitable[list[PlaylistAssignmentMember]]:
+        """DELETE all members for this assignment, INSERT the new set."""
         ...
 
-    def replace_members_for_mappings(
+    def replace_members_for_assignments(
         self,
-        snapshots: Mapping[UUID, Sequence[PlaylistMappingMember]],
+        snapshots: Mapping[UUID, Sequence[PlaylistAssignmentMember]],
         *,
         user_id: str,
     ) -> Awaitable[int]:
-        """Batch member replace for many mappings: one DELETE + one INSERT."""
+        """Batch member replace for many assignments: one DELETE + one INSERT."""
         ...
 
 
@@ -1700,10 +1700,10 @@ class UnitOfWorkProtocol(Protocol):
         """Get tag repository for track tag operations."""
         ...
 
-    def get_playlist_metadata_mapping_repository(
+    def get_playlist_assignment_repository(
         self,
-    ) -> PlaylistMetadataMappingRepositoryProtocol:
-        """Get playlist metadata mapping repository for connector-playlist → metadata bindings."""
+    ) -> PlaylistAssignmentRepositoryProtocol:
+        """Get playlist assignment repository for connector-playlist → metadata bindings."""
         ...
 
     def get_stats_repository(self) -> StatsRepositoryProtocol:

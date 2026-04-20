@@ -1,8 +1,8 @@
-"""Integration tests for PlaylistMetadataMappingRepository.
+"""Integration tests for PlaylistAssignmentRepository.
 
 Covers UNIQUE enforcement on (connector_playlist_id, action_type,
 action_value), CASCADE from DBConnectorPlaylist, member-snapshot
-replacement semantics, and the Epic 7 decoupling guarantee: a mapping
+replacement semantics, and the Epic 7 decoupling guarantee: an assignment
 can exist for a ConnectorPlaylist that has NO canonical Playlist or
 PlaylistLink.
 """
@@ -10,9 +10,9 @@ PlaylistLink.
 from datetime import UTC, datetime
 from uuid import UUID, uuid4
 
-from src.domain.entities.playlist_metadata_mapping import (
-    PlaylistMappingMember,
-    PlaylistMetadataMapping,
+from src.domain.entities.playlist_assignment import (
+    PlaylistAssignment,
+    PlaylistAssignmentMember,
 )
 from src.infrastructure.persistence.database.db_models import (
     DBConnectorPlaylist,
@@ -53,22 +53,22 @@ async def _create_track(db_session, *, user_id: str = "default") -> UUID:
     return track.id
 
 
-class TestCreateMappings:
-    async def test_persists_tag_mapping_without_canonical_playlist(self, db_session):
-        """Validates Epic 7 decoupling: mapping works with only a
+class TestCreateAssignments:
+    async def test_persists_tag_assignment_without_canonical_playlist(self, db_session):
+        """Validates Epic 7 decoupling: assignment works with only a
         ConnectorPlaylist — no canonical Playlist or PlaylistLink needed."""
         cp_id = await _setup_connector_playlist(db_session)
 
         uow = get_unit_of_work(db_session)
         async with uow:
-            mapping = PlaylistMetadataMapping.create(
+            assignment = PlaylistAssignment.create(
                 user_id="default",
                 connector_playlist_id=cp_id,
                 action_type="add_tag",
                 raw_action_value="mood:chill",
             )
-            repo = uow.get_playlist_metadata_mapping_repository()
-            created = await repo.create_mappings([mapping], user_id="default")
+            repo = uow.get_playlist_assignment_repository()
+            created = await repo.create_assignments([assignment], user_id="default")
             await uow.commit()
 
         assert len(created) == 1
@@ -77,13 +77,13 @@ class TestCreateMappings:
     async def test_unique_constraint_skips_duplicate(self, db_session):
         cp_id = await _setup_connector_playlist(db_session)
 
-        m1 = PlaylistMetadataMapping.create(
+        a1 = PlaylistAssignment.create(
             user_id="default",
             connector_playlist_id=cp_id,
             action_type="set_preference",
             raw_action_value="star",
         )
-        m2 = PlaylistMetadataMapping.create(
+        a2 = PlaylistAssignment.create(
             user_id="default",
             connector_playlist_id=cp_id,
             action_type="set_preference",
@@ -92,12 +92,12 @@ class TestCreateMappings:
 
         uow = get_unit_of_work(db_session)
         async with uow:
-            repo = uow.get_playlist_metadata_mapping_repository()
-            first = await repo.create_mappings([m1], user_id="default")
+            repo = uow.get_playlist_assignment_repository()
+            first = await repo.create_assignments([a1], user_id="default")
             await uow.commit()
         async with uow:
-            repo = uow.get_playlist_metadata_mapping_repository()
-            second = await repo.create_mappings([m2], user_id="default")
+            repo = uow.get_playlist_assignment_repository()
+            second = await repo.create_assignments([a2], user_id="default")
             await uow.commit()
 
         assert len(first) == 1
@@ -107,13 +107,13 @@ class TestCreateMappings:
         """'Workout Starred' → preference=star AND tag context:workout."""
         cp_id = await _setup_connector_playlist(db_session)
 
-        preference_mapping = PlaylistMetadataMapping.create(
+        preference_assignment = PlaylistAssignment.create(
             user_id="default",
             connector_playlist_id=cp_id,
             action_type="set_preference",
             raw_action_value="star",
         )
-        tag_mapping = PlaylistMetadataMapping.create(
+        tag_assignment = PlaylistAssignment.create(
             user_id="default",
             connector_playlist_id=cp_id,
             action_type="add_tag",
@@ -122,13 +122,13 @@ class TestCreateMappings:
 
         uow = get_unit_of_work(db_session)
         async with uow:
-            repo = uow.get_playlist_metadata_mapping_repository()
-            created = await repo.create_mappings(
-                [preference_mapping, tag_mapping], user_id="default"
+            repo = uow.get_playlist_assignment_repository()
+            created = await repo.create_assignments(
+                [preference_assignment, tag_assignment], user_id="default"
             )
             await uow.commit()
         async with uow:
-            repo = uow.get_playlist_metadata_mapping_repository()
+            repo = uow.get_playlist_assignment_repository()
             listed = await repo.list_for_connector_playlist(cp_id, user_id="default")
 
         assert len(created) == 2
@@ -136,10 +136,12 @@ class TestCreateMappings:
 
 
 class TestCascadeDelete:
-    async def test_deleting_connector_playlist_cascades_to_mappings(self, db_session):
+    async def test_deleting_connector_playlist_cascades_to_assignments(
+        self, db_session
+    ):
         cp_id = await _setup_connector_playlist(db_session)
 
-        mapping = PlaylistMetadataMapping.create(
+        assignment = PlaylistAssignment.create(
             user_id="default",
             connector_playlist_id=cp_id,
             action_type="add_tag",
@@ -147,20 +149,20 @@ class TestCascadeDelete:
         )
         uow = get_unit_of_work(db_session)
         async with uow:
-            repo = uow.get_playlist_metadata_mapping_repository()
-            await repo.create_mappings([mapping], user_id="default")
+            repo = uow.get_playlist_assignment_repository()
+            await repo.create_assignments([assignment], user_id="default")
             await uow.commit()
 
-        # Delete the ConnectorPlaylist; mapping should cascade.
+        # Delete the ConnectorPlaylist; assignment should cascade.
         async with uow:
             cp = await db_session.get(DBConnectorPlaylist, cp_id)
             await db_session.delete(cp)
             await uow.commit()
 
         async with uow:
-            repo = uow.get_playlist_metadata_mapping_repository()
+            repo = uow.get_playlist_assignment_repository()
             remaining = await repo.list_for_user(user_id="default")
-        assert all(m.connector_playlist_id != cp_id for m in remaining)
+        assert all(a.connector_playlist_id != cp_id for a in remaining)
 
 
 class TestReplaceMembers:
@@ -170,7 +172,7 @@ class TestReplaceMembers:
         track2 = await _create_track(db_session)
         track3 = await _create_track(db_session)
 
-        mapping = PlaylistMetadataMapping.create(
+        assignment = PlaylistAssignment.create(
             user_id="default",
             connector_playlist_id=cp_id,
             action_type="add_tag",
@@ -178,21 +180,25 @@ class TestReplaceMembers:
         )
         uow = get_unit_of_work(db_session)
         async with uow:
-            repo = uow.get_playlist_metadata_mapping_repository()
-            await repo.create_mappings([mapping], user_id="default")
+            repo = uow.get_playlist_assignment_repository()
+            await repo.create_assignments([assignment], user_id="default")
             await uow.commit()
 
         # First snapshot: tracks 1 + 2.
         async with uow:
-            repo = uow.get_playlist_metadata_mapping_repository()
+            repo = uow.get_playlist_assignment_repository()
             await repo.replace_members(
-                mapping.id,
+                assignment.id,
                 [
-                    PlaylistMappingMember(
-                        user_id="default", mapping_id=mapping.id, track_id=track1
+                    PlaylistAssignmentMember(
+                        user_id="default",
+                        assignment_id=assignment.id,
+                        track_id=track1,
                     ),
-                    PlaylistMappingMember(
-                        user_id="default", mapping_id=mapping.id, track_id=track2
+                    PlaylistAssignmentMember(
+                        user_id="default",
+                        assignment_id=assignment.id,
+                        track_id=track2,
                     ),
                 ],
                 user_id="default",
@@ -201,15 +207,19 @@ class TestReplaceMembers:
 
         # Replace with tracks 2 + 3 (track1 should be removed).
         async with uow:
-            repo = uow.get_playlist_metadata_mapping_repository()
+            repo = uow.get_playlist_assignment_repository()
             await repo.replace_members(
-                mapping.id,
+                assignment.id,
                 [
-                    PlaylistMappingMember(
-                        user_id="default", mapping_id=mapping.id, track_id=track2
+                    PlaylistAssignmentMember(
+                        user_id="default",
+                        assignment_id=assignment.id,
+                        track_id=track2,
                     ),
-                    PlaylistMappingMember(
-                        user_id="default", mapping_id=mapping.id, track_id=track3
+                    PlaylistAssignmentMember(
+                        user_id="default",
+                        assignment_id=assignment.id,
+                        track_id=track3,
                     ),
                 ],
                 user_id="default",
@@ -217,8 +227,8 @@ class TestReplaceMembers:
             await uow.commit()
 
         async with uow:
-            repo = uow.get_playlist_metadata_mapping_repository()
-            members = await repo.get_members(mapping.id, user_id="default")
+            repo = uow.get_playlist_assignment_repository()
+            members = await repo.get_members(assignment.id, user_id="default")
 
         track_ids = {m.track_id for m in members}
         assert track_ids == {track2, track3}
@@ -227,7 +237,7 @@ class TestReplaceMembers:
         cp_id = await _setup_connector_playlist(db_session)
         track = await _create_track(db_session)
 
-        mapping = PlaylistMetadataMapping.create(
+        assignment = PlaylistAssignment.create(
             user_id="default",
             connector_playlist_id=cp_id,
             action_type="add_tag",
@@ -235,13 +245,15 @@ class TestReplaceMembers:
         )
         uow = get_unit_of_work(db_session)
         async with uow:
-            repo = uow.get_playlist_metadata_mapping_repository()
-            await repo.create_mappings([mapping], user_id="default")
+            repo = uow.get_playlist_assignment_repository()
+            await repo.create_assignments([assignment], user_id="default")
             await repo.replace_members(
-                mapping.id,
+                assignment.id,
                 [
-                    PlaylistMappingMember(
-                        user_id="default", mapping_id=mapping.id, track_id=track
+                    PlaylistAssignmentMember(
+                        user_id="default",
+                        assignment_id=assignment.id,
+                        track_id=track,
                     )
                 ],
                 user_id="default",
@@ -249,21 +261,21 @@ class TestReplaceMembers:
             await uow.commit()
 
         async with uow:
-            repo = uow.get_playlist_metadata_mapping_repository()
-            await repo.replace_members(mapping.id, [], user_id="default")
+            repo = uow.get_playlist_assignment_repository()
+            await repo.replace_members(assignment.id, [], user_id="default")
             await uow.commit()
 
         async with uow:
-            repo = uow.get_playlist_metadata_mapping_repository()
-            members = await repo.get_members(mapping.id, user_id="default")
+            repo = uow.get_playlist_assignment_repository()
+            members = await repo.get_members(assignment.id, user_id="default")
         assert members == []
 
 
-class TestDeleteMapping:
+class TestDeleteAssignment:
     async def test_delete_returns_true_and_removes(self, db_session):
         cp_id = await _setup_connector_playlist(db_session)
 
-        mapping = PlaylistMetadataMapping.create(
+        assignment = PlaylistAssignment.create(
             user_id="default",
             connector_playlist_id=cp_id,
             action_type="add_tag",
@@ -271,24 +283,24 @@ class TestDeleteMapping:
         )
         uow = get_unit_of_work(db_session)
         async with uow:
-            repo = uow.get_playlist_metadata_mapping_repository()
-            await repo.create_mappings([mapping], user_id="default")
+            repo = uow.get_playlist_assignment_repository()
+            await repo.create_assignments([assignment], user_id="default")
             await uow.commit()
 
         async with uow:
-            repo = uow.get_playlist_metadata_mapping_repository()
-            removed = await repo.delete_mapping(mapping.id, user_id="default")
+            repo = uow.get_playlist_assignment_repository()
+            removed = await repo.delete_assignment(assignment.id, user_id="default")
             await uow.commit()
         assert removed is True
 
         async with uow:
-            repo = uow.get_playlist_metadata_mapping_repository()
-            found = await repo.find_by_id(mapping.id, user_id="default")
+            repo = uow.get_playlist_assignment_repository()
+            found = await repo.find_by_id(assignment.id, user_id="default")
         assert found is None
 
     async def test_delete_missing_returns_false(self, db_session):
         uow = get_unit_of_work(db_session)
         async with uow:
-            repo = uow.get_playlist_metadata_mapping_repository()
-            removed = await repo.delete_mapping(uuid4(), user_id="default")
+            repo = uow.get_playlist_assignment_repository()
+            removed = await repo.delete_assignment(uuid4(), user_id="default")
         assert removed is False

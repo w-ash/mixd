@@ -762,12 +762,12 @@ def import_spotify(
 
 
 # ---------------------------------------------------------------------------
-# Metadata mapping commands (v0.7.4 epic 4)
+# Playlist assignment commands (v0.7.4 epic 4)
 # ---------------------------------------------------------------------------
 
 
-@app.command(name="map")
-def map_playlist(
+@app.command(name="assign")
+def assign_playlist(
     playlist_ref: Annotated[
         str, typer.Argument(help="Spotify playlist ID or name fragment")
     ],
@@ -784,32 +784,32 @@ def map_playlist(
         ),
     ],
 ) -> None:
-    """Map a Spotify playlist to a preference state or tag.
+    """Assign a tag or rating to all tracks in a Spotify playlist.
 
-    The mapping is applied to all the playlist's tracks on the next
-    ``mixd playlist import-metadata`` run.
+    The assignment is applied to all the playlist's tracks on the next
+    ``mixd playlist apply-assignments`` run.
 
     Examples:
-        mixd playlist map "Chill Vibes" --action add_tag --value "mood:chill"
-        mixd playlist map "Starred" --action set_preference --value star
+        mixd playlist assign "Chill Vibes" --action add_tag --value "mood:chill"
+        mixd playlist assign "Starred" --action set_preference --value star
     """
     from src.interface.cli.cli_helpers import (
-        validate_mapping_action,
-        validate_mapping_action_value,
+        validate_assignment_action,
+        validate_assignment_action_value,
     )
 
-    action_type = validate_mapping_action(action)
-    canonical_value = validate_mapping_action_value(value, action_type=action_type)
+    action_type = validate_assignment_action(action)
+    canonical_value = validate_assignment_action_value(value, action_type=action_type)
 
     cp_id = _resolve_connector_playlist_id(playlist_ref)
 
-    from src.application.use_cases.create_playlist_metadata_mapping import (
-        run_create_playlist_metadata_mapping,
+    from src.application.use_cases.create_playlist_assignment import (
+        run_create_playlist_assignment,
     )
 
     try:
         result = run_async(
-            run_create_playlist_metadata_mapping(
+            run_create_playlist_assignment(
                 user_id=get_cli_user_id(),
                 connector_playlist_id=cp_id,
                 action_type=action_type,
@@ -817,21 +817,21 @@ def map_playlist(
             )
         )
     except Exception as e:
-        handle_cli_error(e, "Failed to create mapping")
+        handle_cli_error(e, "Failed to create assignment")
 
     if result.created:
         console.print(
-            f"[green]Mapped[/green] {playlist_ref} → {action_type}={canonical_value} "
-            f"(mapping id: {result.mapping.id})"
+            f"[green]Assigned[/green] {playlist_ref} → {action_type}={canonical_value} "
+            f"(assignment id: {result.assignment.id})"
         )
     else:
         console.print(
-            f"[dim]Mapping already exists for {action_type}={canonical_value}[/dim]"
+            f"[dim]Assignment already exists for {action_type}={canonical_value}[/dim]"
         )
 
 
-@app.command(name="unmap")
-def unmap_playlist(
+@app.command(name="unassign")
+def unassign_playlist(
     playlist_ref: Annotated[
         str, typer.Argument(help="Spotify playlist ID or name fragment")
     ],
@@ -842,29 +842,29 @@ def unmap_playlist(
         str, typer.Option("--value", "-v", help="The action value to remove")
     ],
 ) -> None:
-    """Remove a mapping from a Spotify playlist.
+    """Remove an assignment from a Spotify playlist.
 
-    Does NOT clear preferences/tags already written by past imports.
-    Re-run ``import-metadata`` to clear mapping-sourced metadata for
-    tracks no longer covered by any mapping.
+    Does NOT clear preferences/tags already written by past applies.
+    Re-run ``apply-assignments`` to clear assignment-sourced metadata for
+    tracks no longer covered by any assignment.
 
     Examples:
-        mixd playlist unmap "Chill Vibes" --action add_tag --value "mood:chill"
+        mixd playlist unassign "Chill Vibes" --action add_tag --value "mood:chill"
     """
     from src.interface.cli.cli_helpers import (
-        validate_mapping_action,
-        validate_mapping_action_value,
+        validate_assignment_action,
+        validate_assignment_action_value,
     )
 
-    action_type = validate_mapping_action(action)
-    canonical_value = validate_mapping_action_value(value, action_type=action_type)
+    action_type = validate_assignment_action(action)
+    canonical_value = validate_assignment_action_value(value, action_type=action_type)
 
     cp_id = _resolve_connector_playlist_id(playlist_ref)
 
     from src.application.runner import execute_use_case
-    from src.application.use_cases.delete_playlist_metadata_mapping import (
-        DeletePlaylistMetadataMappingCommand,
-        DeletePlaylistMetadataMappingUseCase,
+    from src.application.use_cases.delete_playlist_assignment import (
+        DeletePlaylistAssignmentCommand,
+        DeletePlaylistAssignmentUseCase,
     )
 
     user_id = get_cli_user_id()
@@ -872,79 +872,77 @@ def unmap_playlist(
 
     async def _find_and_delete(uow: UnitOfWorkProtocol) -> tuple[bool, str | None]:
         async with uow:
-            repo = uow.get_playlist_metadata_mapping_repository()
-            mappings = await repo.list_for_connector_playlist(cp_id, user_id=user_id)
+            repo = uow.get_playlist_assignment_repository()
+            assignments = await repo.list_for_connector_playlist(cp_id, user_id=user_id)
             match = next(
                 (
-                    m
-                    for m in mappings
-                    if m.action_type == action_type
-                    and m.action_value == canonical_value
+                    a
+                    for a in assignments
+                    if a.action_type == action_type
+                    and a.action_value == canonical_value
                 ),
                 None,
             )
             if match is None:
                 return False, None
-            cmd = DeletePlaylistMetadataMappingCommand(
-                user_id=user_id, mapping_id=match.id
+            cmd = DeletePlaylistAssignmentCommand(
+                user_id=user_id, assignment_id=match.id
             )
-            deleted_result = await DeletePlaylistMetadataMappingUseCase().execute(
-                cmd, uow
-            )
+            deleted_result = await DeletePlaylistAssignmentUseCase().execute(cmd, uow)
             return deleted_result.deleted, str(match.id)
 
     try:
-        deleted, mapping_id = run_async(
+        deleted, assignment_id = run_async(
             execute_use_case(_find_and_delete, user_id=user_id)
         )
     except Exception as e:
-        handle_cli_error(e, "Failed to remove mapping")
+        handle_cli_error(e, "Failed to remove assignment")
 
     if deleted:
         console.print(
-            f"[green]Removed mapping[/green] {action_type}={canonical_value} "
-            f"({mapping_id})"
+            f"[green]Removed assignment[/green] {action_type}={canonical_value} "
+            f"({assignment_id})"
         )
     else:
         console.print(
-            f"[yellow]No mapping found[/yellow] for {action_type}={canonical_value}"
+            f"[yellow]No assignment found[/yellow] for {action_type}={canonical_value}"
         )
 
 
-@app.command(name="import-metadata")
-def import_metadata() -> None:
-    """Apply all configured playlist metadata mappings.
+@app.command(name="apply-assignments")
+def apply_assignments() -> None:
+    """Apply all configured playlist assignments.
 
-    For each mapping, walks the cached connector playlist's tracks and
+    For each assignment, walks the cached connector playlist's tracks and
     applies the action (set_preference / add_tag). Manual preferences
     are never overwritten. Tracks removed from a playlist since the
-    last run have their mapping-sourced metadata cleared (manual stays).
+    last run have their assignment-sourced metadata cleared (manual stays).
 
     Re-running on unchanged playlists is idempotent — re-applies use
     ON CONFLICT DO NOTHING so duplicates are silent.
     """
-    from src.application.use_cases.import_playlist_metadata import (
-        run_import_playlist_metadata,
+    from src.application.use_cases.apply_playlist_assignments import (
+        run_apply_playlist_assignments,
     )
 
     try:
-        result = run_async(run_import_playlist_metadata(user_id=get_cli_user_id()))
+        result = run_async(run_apply_playlist_assignments(user_id=get_cli_user_id()))
     except Exception as e:
-        handle_cli_error(e, "Metadata import failed")
+        handle_cli_error(e, "Apply assignments failed")
 
-    if result.mappings_processed == 0:
+    if result.assignments_processed == 0:
         console.print(
-            "[yellow]No active mappings to import. "
-            "Use `mixd playlist map` to create one.[/yellow]"
+            "[yellow]No active assignments to apply. "
+            "Use `mixd playlist assign` to create one.[/yellow]"
         )
         return
 
     table = Table(
-        title="Playlist Metadata Import", show_header=False, header_style="bold"
+        title="Playlist Assignments Applied", show_header=False, header_style="bold"
     )
     table.add_column("", style="bold")
     table.add_column("", justify="right")
-    table.add_row("Mappings processed", str(result.mappings_processed))
+    table.add_row("Assignments processed", str(result.assignments_processed))
     table.add_row("Preferences applied", str(result.preferences_applied))
     table.add_row("Preferences cleared", str(result.preferences_cleared))
     table.add_row("Tags applied", str(result.tags_applied))

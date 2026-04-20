@@ -4,7 +4,7 @@ Focus on the CLI command contract — argument parsing, reference
 resolution, --source flag mapping, validation errors, and clean error
 output. Use-case behavior itself is covered by
 ``test_import_connector_playlist_as_canonical.py``,
-``test_import_playlist_metadata.py``, and ``test_list_spotify_playlists.py``.
+``test_apply_playlist_assignments.py``, and ``test_list_spotify_playlists.py``.
 """
 
 from collections.abc import Sequence
@@ -265,15 +265,15 @@ class TestImportSpotifyAllNotImported:
         assert "Total" in result.output
 
 
-class TestMappingValidation:
-    """`mixd playlist map` rejects bad action types + values cleanly."""
+class TestAssignmentValidation:
+    """`mixd playlist assign` rejects bad action types + values cleanly."""
 
     def test_invalid_action_rejected(self) -> None:
         result = runner.invoke(
             app,
             [
                 "playlist",
-                "map",
+                "assign",
                 "Chill",
                 "--action",
                 "not_a_real_action",
@@ -290,7 +290,7 @@ class TestMappingValidation:
             app,
             [
                 "playlist",
-                "map",
+                "assign",
                 "Chill",
                 "--action",
                 "set_preference",
@@ -307,7 +307,7 @@ class TestMappingValidation:
             app,
             [
                 "playlist",
-                "map",
+                "assign",
                 "Chill",
                 "--action",
                 "add_tag",

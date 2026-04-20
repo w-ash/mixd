@@ -239,27 +239,27 @@ def make_mock_metric_config() -> MagicMock:
     return MagicMock()
 
 
-def make_mock_playlist_metadata_mapping_repo(**overrides) -> AsyncMock:
-    """Build an ``AsyncMock`` mimicking :class:`PlaylistMetadataMappingRepositoryProtocol`."""
+def make_mock_playlist_assignment_repo(**overrides) -> AsyncMock:
+    """Build an ``AsyncMock`` mimicking :class:`PlaylistAssignmentRepositoryProtocol`."""
     repo = AsyncMock()
     repo.list_for_user.return_value = overrides.pop("list_for_user", [])
     repo.list_for_connector_playlist.return_value = overrides.pop(
         "list_for_connector_playlist", []
     )
     repo.find_by_id.return_value = overrides.pop("find_by_id", None)
-    repo.create_mappings.side_effect = overrides.pop(
-        "create_mappings", lambda mappings, **kw: list(mappings)
+    repo.create_assignments.side_effect = overrides.pop(
+        "create_assignments", lambda assignments, **kw: list(assignments)
     )
-    repo.delete_mapping.return_value = overrides.pop("delete_mapping", True)
+    repo.delete_assignment.return_value = overrides.pop("delete_assignment", True)
     repo.get_members.return_value = overrides.pop("get_members", [])
-    repo.get_members_for_mappings.return_value = overrides.pop(
-        "get_members_for_mappings", {}
+    repo.get_members_for_assignments.return_value = overrides.pop(
+        "get_members_for_assignments", {}
     )
     repo.replace_members.side_effect = overrides.pop(
-        "replace_members", lambda mid, members, **kw: list(members)
+        "replace_members", lambda aid, members, **kw: list(members)
     )
-    repo.replace_members_for_mappings.side_effect = overrides.pop(
-        "replace_members_for_mappings",
+    repo.replace_members_for_assignments.side_effect = overrides.pop(
+        "replace_members_for_assignments",
         lambda snapshots, **kw: sum(len(m) for m in snapshots.values()),
     )
     for k, v in overrides.items():
@@ -399,10 +399,10 @@ def make_mock_uow(**repo_overrides) -> MagicMock:
     uow.get_tag_repository = MagicMock(
         return_value=repo_overrides.get("tag_repo", make_mock_tag_repo())
     )
-    uow.get_playlist_metadata_mapping_repository = MagicMock(
+    uow.get_playlist_assignment_repository = MagicMock(
         return_value=repo_overrides.get(
-            "playlist_metadata_mapping_repo",
-            make_mock_playlist_metadata_mapping_repo(),
+            "playlist_assignment_repo",
+            make_mock_playlist_assignment_repo(),
         )
     )
 

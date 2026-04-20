@@ -1,11 +1,12 @@
-"""Playlist metadata mapping domain entities.
+"""Playlist assignment domain entities.
 
-A mapping binds a cached connector playlist to a metadata action
+An assignment binds a cached connector playlist to a metadata action
 (``set_preference`` or ``add_tag``). One ConnectorPlaylist can carry
-multiple mappings.
+multiple assignments — e.g. a "Workout Starred" playlist might assign
+both ``set_preference=star`` AND ``add_tag=context:workout``.
 
-Mappings target the cached connector playlist directly so users can
-tag-map without forking into a canonical Mixd Playlist.
+Assignments target the cached connector playlist directly so users can
+declare meaning without forking into a canonical Mixd Playlist.
 """
 
 from __future__ import annotations
@@ -20,13 +21,13 @@ from .preference import PreferenceState
 from .shared import utc_now_factory
 from .tag import normalize_tag
 
-type MappingActionType = Literal["set_preference", "add_tag"]
+type AssignmentActionType = Literal["set_preference", "add_tag"]
 
 # Typing the element as the literal alias forces pyright to reject any
 # typo'd value here at type-check time — keeping the runtime frozenset
 # in sync with the type alias without runtime ``get_args`` introspection
 # (which trips the strict reportAny rule on PEP 695 ``__value__``).
-MAPPING_ACTION_TYPES: Final[frozenset[MappingActionType]] = frozenset({
+ASSIGNMENT_ACTION_TYPES: Final[frozenset[AssignmentActionType]] = frozenset({
     "set_preference",
     "add_tag",
 })
@@ -39,7 +40,7 @@ _VALID_PREFERENCE_VALUES: Final[frozenset[PreferenceState]] = frozenset({
 })
 
 
-def validate_action_value(action_type: MappingActionType, raw: str) -> str:
+def validate_action_value(action_type: AssignmentActionType, raw: str) -> str:
     """Return the canonical ``action_value`` or raise ``ValueError``.
 
     Tags get normalized; preferences must already be a valid literal.
@@ -59,12 +60,12 @@ def validate_action_value(action_type: MappingActionType, raw: str) -> str:
 
 
 @define(frozen=True, slots=True)
-class PlaylistMetadataMapping:
+class PlaylistAssignment:
     """One metadata action applied to every track in a connector playlist."""
 
     user_id: str
     connector_playlist_id: UUID
-    action_type: MappingActionType
+    action_type: AssignmentActionType
     action_value: str
     id: UUID = field(factory=uuid7)
 
@@ -79,10 +80,10 @@ class PlaylistMetadataMapping:
         *,
         user_id: str,
         connector_playlist_id: UUID,
-        action_type: MappingActionType,
+        action_type: AssignmentActionType,
         raw_action_value: str,
         id: UUID | None = None,
-    ) -> PlaylistMetadataMapping:
+    ) -> PlaylistAssignment:
         """Build from a raw action value. Equivalent to direct construction
         but reads more clearly when the input is known to be unnormalized."""
         return cls(
@@ -114,15 +115,15 @@ class PlaylistMetadataMapping:
 
 
 @define(frozen=True, slots=True)
-class PlaylistMappingMember:
-    """One (mapping, track) pair from the last import's membership snapshot.
+class PlaylistAssignmentMember:
+    """One (assignment, track) pair from the last apply's membership snapshot.
 
-    ``user_id`` is denormalized from the parent mapping for direct-query
+    ``user_id`` is denormalized from the parent assignment for direct-query
     RLS isolation.
     """
 
     user_id: str
-    mapping_id: UUID
+    assignment_id: UUID
     track_id: UUID
     synced_at: datetime = field(factory=utc_now_factory)
     id: UUID = field(factory=uuid7)

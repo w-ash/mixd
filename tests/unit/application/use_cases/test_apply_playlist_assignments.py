@@ -1,23 +1,23 @@
-"""Unit tests for ImportPlaylistMetadataUseCase.
+"""Unit tests for ApplyPlaylistAssignmentsUseCase.
 
 Verifies the core engine contract: preferences/tags applied with source
 timestamps from the cached ConnectorPlaylist, manual metadata never
 overwritten, snapshot-based removal tracking clears only
-mapping-sourced rows, and conflicting mappings log warnings while
+assignment-sourced rows, and conflicting assignments log warnings while
 resolving via preference order.
 """
 
 from datetime import UTC, datetime
 from uuid import uuid7
 
-from src.application.use_cases.import_playlist_metadata import (
-    ImportPlaylistMetadataCommand,
-    ImportPlaylistMetadataUseCase,
+from src.application.use_cases.apply_playlist_assignments import (
+    ApplyPlaylistAssignmentsCommand,
+    ApplyPlaylistAssignmentsUseCase,
 )
 from src.domain.entities.playlist import ConnectorPlaylistItem
-from src.domain.entities.playlist_metadata_mapping import (
-    PlaylistMappingMember,
-    PlaylistMetadataMapping,
+from src.domain.entities.playlist_assignment import (
+    PlaylistAssignment,
+    PlaylistAssignmentMember,
 )
 from src.domain.entities.preference import TrackPreference
 from tests.fixtures import make_connector_playlist, make_mock_uow, make_track
@@ -41,10 +41,10 @@ def _cp_with_items(db_id, item_track_ids, name="P"):
     )
 
 
-def _mapping(
+def _assignment(
     cp_id, action_type, action_value, user_id="default"
-) -> PlaylistMetadataMapping:
-    return PlaylistMetadataMapping.create(
+) -> PlaylistAssignment:
+    return PlaylistAssignment.create(
         user_id=user_id,
         connector_playlist_id=cp_id,
         action_type=action_type,
@@ -52,18 +52,18 @@ def _mapping(
     )
 
 
-def _cmd(user="default") -> ImportPlaylistMetadataCommand:
-    return ImportPlaylistMetadataCommand(user_id=user)
+def _cmd(user="default") -> ApplyPlaylistAssignmentsCommand:
+    return ApplyPlaylistAssignmentsCommand(user_id=user)
 
 
-class TestNoMappings:
-    async def test_empty_mappings_returns_zero_result(self) -> None:
+class TestNoAssignments:
+    async def test_empty_assignments_returns_zero_result(self) -> None:
         uow = make_mock_uow()
-        uow.get_playlist_metadata_mapping_repository().list_for_user.return_value = []
+        uow.get_playlist_assignment_repository().list_for_user.return_value = []
 
-        result = await ImportPlaylistMetadataUseCase().execute(_cmd(), uow)
+        result = await ApplyPlaylistAssignmentsUseCase().execute(_cmd(), uow)
 
-        assert result.mappings_processed == 0
+        assert result.assignments_processed == 0
         assert result.preferences_applied == 0
         assert result.tags_applied == 0
         uow.commit.assert_not_called()
@@ -75,12 +75,12 @@ class TestTagApplication:
         track_a = make_track(id=uuid7(), title="A")
         track_b = make_track(id=uuid7(), title="B")
 
-        mapping = _mapping(cp_id, "add_tag", "mood:chill")
+        assignment = _assignment(cp_id, "add_tag", "mood:chill")
         cp = _cp_with_items(cp_id, ["sp_a", "sp_b"], name="Chill")
 
         uow = make_mock_uow()
-        uow.get_playlist_metadata_mapping_repository().list_for_user.return_value = [
-            mapping
+        uow.get_playlist_assignment_repository().list_for_user.return_value = [
+            assignment
         ]
         uow.get_connector_playlist_repository().list_by_connector.return_value = [cp]
         uow.get_connector_repository().find_tracks_by_connectors.return_value = {
@@ -89,7 +89,7 @@ class TestTagApplication:
         }
         uow.get_tag_repository().add_tags.side_effect = lambda tags, **kw: list(tags)
 
-        result = await ImportPlaylistMetadataUseCase().execute(_cmd(), uow)
+        result = await ApplyPlaylistAssignmentsUseCase().execute(_cmd(), uow)
 
         assert result.tags_applied == 2
         # One add_tags call, with both resolved tracks.
@@ -105,10 +105,10 @@ class TestTagApplication:
 
 class TestPreferenceApplication:
     async def test_preference_skipped_when_manual_exists(self) -> None:
-        """source priority: manual must never be overwritten by playlist_mapping."""
+        """source priority: manual must never be overwritten by playlist_assignment."""
         cp_id = uuid7()
         track = make_track(id=uuid7(), title="T")
-        mapping = _mapping(cp_id, "set_preference", "star")
+        assignment = _assignment(cp_id, "set_preference", "star")
         cp = _cp_with_items(cp_id, ["sp_t"])
 
         existing_manual = TrackPreference(
@@ -120,8 +120,8 @@ class TestPreferenceApplication:
         )
 
         uow = make_mock_uow()
-        uow.get_playlist_metadata_mapping_repository().list_for_user.return_value = [
-            mapping
+        uow.get_playlist_assignment_repository().list_for_user.return_value = [
+            assignment
         ]
         uow.get_connector_playlist_repository().list_by_connector.return_value = [cp]
         uow.get_connector_repository().find_tracks_by_connectors.return_value = {
@@ -131,7 +131,7 @@ class TestPreferenceApplication:
             track.id: existing_manual
         }
 
-        result = await ImportPlaylistMetadataUseCase().execute(_cmd(), uow)
+        result = await ApplyPlaylistAssignmentsUseCase().execute(_cmd(), uow)
 
         assert result.preferences_applied == 0
         uow.get_preference_repository().set_preferences.assert_not_called()
@@ -139,12 +139,12 @@ class TestPreferenceApplication:
     async def test_preference_applied_when_no_existing(self) -> None:
         cp_id = uuid7()
         track = make_track(id=uuid7())
-        mapping = _mapping(cp_id, "set_preference", "star")
+        assignment = _assignment(cp_id, "set_preference", "star")
         cp = _cp_with_items(cp_id, ["sp_t"])
 
         uow = make_mock_uow()
-        uow.get_playlist_metadata_mapping_repository().list_for_user.return_value = [
-            mapping
+        uow.get_playlist_assignment_repository().list_for_user.return_value = [
+            assignment
         ]
         uow.get_connector_playlist_repository().list_by_connector.return_value = [cp]
         uow.get_connector_repository().find_tracks_by_connectors.return_value = {
@@ -152,30 +152,30 @@ class TestPreferenceApplication:
         }
         uow.get_preference_repository().get_preferences.return_value = {}
 
-        result = await ImportPlaylistMetadataUseCase().execute(_cmd(), uow)
+        result = await ApplyPlaylistAssignmentsUseCase().execute(_cmd(), uow)
 
         assert result.preferences_applied == 1
         written_call = uow.get_preference_repository().set_preferences.call_args
         written_prefs = list(written_call.args[0])
         assert written_prefs[0].state == "star"
-        assert written_prefs[0].source == "playlist_mapping"
+        assert written_prefs[0].source == "playlist_assignment"
         # Event should also be written.
         uow.get_preference_repository().add_events.assert_awaited_once()
 
 
 class TestConflictDetection:
     async def test_conflicting_preferences_resolve_by_order(self) -> None:
-        """Two mappings on one playlist → ``star`` AND ``nah`` → star wins."""
+        """Two assignments on one playlist → ``star`` AND ``nah`` → star wins."""
         cp_id = uuid7()
         track = make_track(id=uuid7())
-        mapping_star = _mapping(cp_id, "set_preference", "star")
-        mapping_nah = _mapping(cp_id, "set_preference", "nah")
+        assignment_star = _assignment(cp_id, "set_preference", "star")
+        assignment_nah = _assignment(cp_id, "set_preference", "nah")
         cp = _cp_with_items(cp_id, ["sp_t"])
 
         uow = make_mock_uow()
-        uow.get_playlist_metadata_mapping_repository().list_for_user.return_value = [
-            mapping_nah,  # logged first but lower priority
-            mapping_star,
+        uow.get_playlist_assignment_repository().list_for_user.return_value = [
+            assignment_nah,  # logged first but lower priority
+            assignment_star,
         ]
         uow.get_connector_playlist_repository().list_by_connector.return_value = [cp]
         uow.get_connector_repository().find_tracks_by_connectors.return_value = {
@@ -183,7 +183,7 @@ class TestConflictDetection:
         }
         uow.get_preference_repository().get_preferences.return_value = {}
 
-        result = await ImportPlaylistMetadataUseCase().execute(_cmd(), uow)
+        result = await ApplyPlaylistAssignmentsUseCase().execute(_cmd(), uow)
 
         assert result.conflicts_logged == 1
         written = uow.get_preference_repository().set_preferences.call_args.args[0]
@@ -191,7 +191,7 @@ class TestConflictDetection:
 
 
 class TestRemovalTracking:
-    async def test_tracks_removed_from_playlist_clear_mapping_sourced(
+    async def test_tracks_removed_from_playlist_clear_assignment_sourced(
         self,
     ) -> None:
         cp_id = uuid7()
@@ -199,20 +199,24 @@ class TestRemovalTracking:
         track_a = make_track(id=uuid7(), title="A")
         old_track_b_id = uuid7()
 
-        mapping = _mapping(cp_id, "add_tag", "mood:chill")
+        assignment = _assignment(cp_id, "add_tag", "mood:chill")
         cp = _cp_with_items(cp_id, ["sp_a"])
 
         uow = make_mock_uow()
-        mapping_repo = uow.get_playlist_metadata_mapping_repository()
-        mapping_repo.list_for_user.return_value = [mapping]
+        assignment_repo = uow.get_playlist_assignment_repository()
+        assignment_repo.list_for_user.return_value = [assignment]
         # Prior snapshot included track B, which is no longer in the playlist.
-        mapping_repo.get_members_for_mappings.return_value = {
-            mapping.id: [
-                PlaylistMappingMember(
-                    user_id="default", mapping_id=mapping.id, track_id=old_track_b_id
+        assignment_repo.get_members_for_assignments.return_value = {
+            assignment.id: [
+                PlaylistAssignmentMember(
+                    user_id="default",
+                    assignment_id=assignment.id,
+                    track_id=old_track_b_id,
                 ),
-                PlaylistMappingMember(
-                    user_id="default", mapping_id=mapping.id, track_id=track_a.id
+                PlaylistAssignmentMember(
+                    user_id="default",
+                    assignment_id=assignment.id,
+                    track_id=track_a.id,
                 ),
             ]
         }
@@ -224,14 +228,14 @@ class TestRemovalTracking:
         tag_repo.add_tags.side_effect = lambda tags, **kw: list(tags)
         tag_repo.remove_tags.side_effect = lambda pairs, **kw: list(pairs)
 
-        result = await ImportPlaylistMetadataUseCase().execute(_cmd(), uow)
+        result = await ApplyPlaylistAssignmentsUseCase().execute(_cmd(), uow)
 
-        # The removed track had its mapping-sourced tag cleared, with source filter.
+        # The removed track had its assignment-sourced tag cleared, with source filter.
         tag_repo.remove_tags.assert_awaited_once()
         remove_call = tag_repo.remove_tags.call_args
         removed_pairs = list(remove_call.args[0])
         assert (old_track_b_id, "mood:chill") in removed_pairs
-        assert remove_call.kwargs["source"] == "playlist_mapping"
+        assert remove_call.kwargs["source"] == "playlist_assignment"
         assert result.tags_cleared == 1
 
     async def test_preference_removal_uses_source_filter(self) -> None:
@@ -239,19 +243,23 @@ class TestRemovalTracking:
         track_a = make_track(id=uuid7())
         old_track_id = uuid7()
 
-        mapping = _mapping(cp_id, "set_preference", "star")
+        assignment = _assignment(cp_id, "set_preference", "star")
         cp = _cp_with_items(cp_id, ["sp_a"])
 
         uow = make_mock_uow()
-        mapping_repo = uow.get_playlist_metadata_mapping_repository()
-        mapping_repo.list_for_user.return_value = [mapping]
-        mapping_repo.get_members_for_mappings.return_value = {
-            mapping.id: [
-                PlaylistMappingMember(
-                    user_id="default", mapping_id=mapping.id, track_id=old_track_id
+        assignment_repo = uow.get_playlist_assignment_repository()
+        assignment_repo.list_for_user.return_value = [assignment]
+        assignment_repo.get_members_for_assignments.return_value = {
+            assignment.id: [
+                PlaylistAssignmentMember(
+                    user_id="default",
+                    assignment_id=assignment.id,
+                    track_id=old_track_id,
                 ),
-                PlaylistMappingMember(
-                    user_id="default", mapping_id=mapping.id, track_id=track_a.id
+                PlaylistAssignmentMember(
+                    user_id="default",
+                    assignment_id=assignment.id,
+                    track_id=track_a.id,
                 ),
             ]
         }
@@ -262,12 +270,12 @@ class TestRemovalTracking:
         uow.get_preference_repository().get_preferences.return_value = {}
         uow.get_preference_repository().remove_preferences.return_value = 1
 
-        _ = await ImportPlaylistMetadataUseCase().execute(_cmd(), uow)
+        _ = await ApplyPlaylistAssignmentsUseCase().execute(_cmd(), uow)
 
         remove_call = uow.get_preference_repository().remove_preferences.call_args
         removed_ids = list(remove_call.args[0])
         assert old_track_id in removed_ids
-        assert remove_call.kwargs["source"] == "playlist_mapping"
+        assert remove_call.kwargs["source"] == "playlist_assignment"
 
 
 class TestMembershipSnapshot:
@@ -275,25 +283,25 @@ class TestMembershipSnapshot:
         cp_id = uuid7()
         track = make_track(id=uuid7())
 
-        mapping = _mapping(cp_id, "add_tag", "mood:chill")
+        assignment = _assignment(cp_id, "add_tag", "mood:chill")
         cp = _cp_with_items(cp_id, ["sp_t"])
 
         uow = make_mock_uow()
-        mapping_repo = uow.get_playlist_metadata_mapping_repository()
-        mapping_repo.list_for_user.return_value = [mapping]
+        assignment_repo = uow.get_playlist_assignment_repository()
+        assignment_repo.list_for_user.return_value = [assignment]
         uow.get_connector_playlist_repository().list_by_connector.return_value = [cp]
         uow.get_connector_repository().find_tracks_by_connectors.return_value = {
             ("spotify", "sp_t"): track,
         }
         uow.get_tag_repository().add_tags.side_effect = lambda tags, **kw: list(tags)
 
-        _ = await ImportPlaylistMetadataUseCase().execute(_cmd(), uow)
+        _ = await ApplyPlaylistAssignmentsUseCase().execute(_cmd(), uow)
 
-        mapping_repo.replace_members_for_mappings.assert_awaited_once()
-        replace_call = mapping_repo.replace_members_for_mappings.call_args
+        assignment_repo.replace_members_for_assignments.assert_awaited_once()
+        replace_call = assignment_repo.replace_members_for_assignments.call_args
         snapshots = replace_call.args[0]
-        assert mapping.id in snapshots
-        written_members = list(snapshots[mapping.id])
+        assert assignment.id in snapshots
+        written_members = list(snapshots[assignment.id])
         assert len(written_members) == 1
         assert written_members[0].track_id == track.id
 
@@ -304,12 +312,12 @@ class TestUnresolvedTracksSkipped:
         cp_id = uuid7()
         track_a = make_track(id=uuid7())
 
-        mapping = _mapping(cp_id, "add_tag", "mood:chill")
+        assignment = _assignment(cp_id, "add_tag", "mood:chill")
         cp = _cp_with_items(cp_id, ["sp_a", "sp_unknown"])
 
         uow = make_mock_uow()
-        uow.get_playlist_metadata_mapping_repository().list_for_user.return_value = [
-            mapping
+        uow.get_playlist_assignment_repository().list_for_user.return_value = [
+            assignment
         ]
         uow.get_connector_playlist_repository().list_by_connector.return_value = [cp]
         # Only one track resolves; sp_unknown is missing from the library.
@@ -318,7 +326,7 @@ class TestUnresolvedTracksSkipped:
         }
         uow.get_tag_repository().add_tags.side_effect = lambda tags, **kw: list(tags)
 
-        result = await ImportPlaylistMetadataUseCase().execute(_cmd(), uow)
+        result = await ApplyPlaylistAssignmentsUseCase().execute(_cmd(), uow)
 
         assert result.tags_applied == 1
         written = uow.get_tag_repository().add_tags.call_args.args[0]

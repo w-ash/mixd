@@ -103,7 +103,7 @@ class TestIdempotency:
 
 
 class TestSourcePriority:
-    """Source priority enforcement: manual > playlist_mapping > service_import."""
+    """Source priority enforcement: manual > playlist_assignment > service_import."""
 
     async def test_service_import_cannot_override_manual(self) -> None:
         track = make_track()

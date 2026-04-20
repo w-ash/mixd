@@ -96,10 +96,10 @@ class TestSourcePriority:
         assert result.skipped == 1
         uow.get_preference_repository().set_preferences.assert_not_called()
 
-    async def test_playlist_mapping_not_overwritten(self) -> None:
+    async def test_playlist_assignment_not_overwritten(self) -> None:
         tid = uuid7()
         existing = make_track_preference(
-            track_id=tid, state="yah", source="playlist_mapping"
+            track_id=tid, state="yah", source="playlist_assignment"
         )
         uow = _uow_with_likes([_like(tid, "spotify")], [], {tid: existing})
 

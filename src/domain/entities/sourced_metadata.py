@@ -1,21 +1,21 @@
 """Shared source priority logic for user-facing metadata.
 
-Preferences, tags, and playlist metadata imports all need to resolve conflicts
-when multiple sources (manual action, service import, playlist mapping) claim
-different values for the same track. This module defines the priority ranking
-and a pure function for conflict resolution.
+Preferences, tags, and playlist assignment applies all need to resolve
+conflicts when multiple sources (manual action, service import, playlist
+assignment) claim different values for the same track. This module defines
+the priority ranking and a pure function for conflict resolution.
 
-Reused by: preference.py (v0.7.0), tags (v0.7.2), playlist metadata (v0.7.4).
+Reused by: preference.py (v0.7.0), tags (v0.7.2), playlist_assignment (v0.7.4).
 """
 
 from typing import Final, Literal
 
-type MetadataSource = Literal["manual", "service_import", "playlist_mapping"]
+type MetadataSource = Literal["manual", "service_import", "playlist_assignment"]
 
 # Higher number = higher priority. The user's direct opinion always wins.
 SOURCE_PRIORITY: Final[dict[MetadataSource, int]] = {
     "service_import": 0,
-    "playlist_mapping": 1,
+    "playlist_assignment": 1,
     "manual": 2,
 }
 
