@@ -50,7 +50,7 @@ class SpotifyPlaylistBrowseSchema(BaseModel):
     collaborative: bool
     is_public: bool
     import_status: Literal["not_imported", "imported"]
-    current_assignments: list[ActiveAssignmentSchema] = []
+    current_assignments: list[ActiveAssignmentSchema]
 
 
 class SpotifyPlaylistBrowseResponse(BaseModel):

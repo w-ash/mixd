@@ -5499,8 +5499,7 @@
               "$ref": "#/components/schemas/ActiveAssignmentSchema"
             },
             "type": "array",
-            "title": "Current Assignments",
-            "default": []
+            "title": "Current Assignments"
           }
         },
         "type": "object",
@@ -5515,7 +5514,8 @@
           "snapshot_id",
           "collaborative",
           "is_public",
-          "import_status"
+          "import_status",
+          "current_assignments"
         ],
         "title": "SpotifyPlaylistBrowseSchema",
         "description": "One playlist row in the Spotify browser dialog.\n\nMirrors ``SpotifyPlaylistView`` from the use case layer \u2014 the UI reads\nthis shape directly; the API wraps the list in ``SpotifyPlaylistBrowseResponse``."

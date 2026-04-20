@@ -26,5 +26,5 @@ export interface SpotifyPlaylistBrowseSchema {
   collaborative: boolean;
   is_public: boolean;
   import_status: SpotifyPlaylistBrowseSchemaImportStatus;
-  current_assignments?: ActiveAssignmentSchema[];
+  current_assignments: ActiveAssignmentSchema[];
 }

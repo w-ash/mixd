@@ -1,5 +1,5 @@
 import { useMutation, useQueryClient } from "@tanstack/react-query";
-import { Loader2, RefreshCw, Search } from "lucide-react";
+import { Loader2, MoreHorizontal, RefreshCw, Search } from "lucide-react";
 import { useMemo, useState } from "react";
 
 import {
@@ -7,7 +7,15 @@ import {
   listSpotifyPlaylistsApiV1ConnectorsSpotifyPlaylistsGet,
   useListSpotifyPlaylistsApiV1ConnectorsSpotifyPlaylistsGet,
 } from "#/api/generated/connectors/connectors";
-import type { SpotifyPlaylistBrowseSchema } from "#/api/generated/model";
+import type {
+  ActiveAssignmentSchema,
+  SpotifyPlaylistBrowseSchema,
+} from "#/api/generated/model";
+import {
+  applyAssignmentApiV1PlaylistAssignmentsAssignmentIdApplyPost,
+  deleteAssignmentApiV1PlaylistAssignmentsAssignmentIdDelete,
+  useCreateAndApplyAssignmentApiV1PlaylistAssignmentsPost,
+} from "#/api/generated/playlist-assignments/playlist-assignments";
 import { Button } from "#/components/ui/button";
 import { Checkbox } from "#/components/ui/checkbox";
 import {
@@ -17,14 +25,25 @@ import {
   DialogHeader,
   DialogTitle,
 } from "#/components/ui/dialog";
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuSeparator,
+  DropdownMenuTrigger,
+} from "#/components/ui/dropdown-menu";
 import { Input } from "#/components/ui/input";
 import { Skeleton } from "#/components/ui/skeleton";
 import { useTrackSearch } from "#/hooks/useTrackSearch";
+import { toasts } from "#/lib/toasts";
 import { cn } from "#/lib/utils";
 
+import { type AssignMode, AssignPlaylistDialog } from "./AssignPlaylistDialog";
 import { EmptyState } from "./EmptyState";
 import { ImportStatusPill } from "./ImportStatusPill";
+import { PreferenceBadge, type PreferenceState } from "./PreferenceToggle";
 import { QueryErrorState } from "./QueryErrorState";
+import { TagChip } from "./TagChip";
 
 /**
  * On-demand picker: opened contextually from action buttons (Playlists
@@ -104,6 +123,16 @@ export function SpotifyPlaylistPickerDialog({
   const [statusFilter, setStatusFilter] = useState<StatusFilter>("all");
   const [attributeFilter, setAttributeFilter] =
     useState<AttributeFilter>("all");
+  const [assignDialog, setAssignDialog] = useState<{
+    mode: AssignMode;
+    playlist: SpotifyPlaylistBrowseSchema;
+  } | null>(null);
+
+  const invalidatePlaylists = () =>
+    queryClient.invalidateQueries({
+      queryKey:
+        getListSpotifyPlaylistsApiV1ConnectorsSpotifyPlaylistsGetQueryKey(),
+    });
 
   const { data, isLoading, isError, error } =
     useListSpotifyPlaylistsApiV1ConnectorsSpotifyPlaylistsGet(
@@ -117,12 +146,87 @@ export function SpotifyPlaylistPickerDialog({
         force_refresh: true,
       }),
     onSuccess: async () => {
-      await queryClient.invalidateQueries({
-        queryKey:
-          getListSpotifyPlaylistsApiV1ConnectorsSpotifyPlaylistsGetQueryKey(),
-      });
+      await invalidatePlaylists();
     },
     meta: { errorLabel: "Failed to refresh Spotify playlists" },
+  });
+
+  const reApply = useMutation({
+    mutationFn: async (playlist: SpotifyPlaylistBrowseSchema) => {
+      const results = await Promise.all(
+        playlist.current_assignments.map((a) =>
+          applyAssignmentApiV1PlaylistAssignmentsAssignmentIdApplyPost(
+            a.assignment_id,
+          ),
+        ),
+      );
+      return { playlist, results };
+    },
+    onSuccess: async ({ playlist, results }) => {
+      await invalidatePlaylists();
+      const tags = results.reduce(
+        (sum, r) => sum + (r.status === 200 ? r.data.tags_applied : 0),
+        0,
+      );
+      const prefs = results.reduce(
+        (sum, r) => sum + (r.status === 200 ? r.data.preferences_applied : 0),
+        0,
+      );
+      toasts.success(`Re-applied '${playlist.name}'`, {
+        description:
+          tags + prefs === 0
+            ? "Nothing changed — playlist is in sync."
+            : `${tags} tags · ${prefs} ratings refreshed.`,
+      });
+    },
+    meta: { errorLabel: "Re-apply failed" },
+  });
+
+  const undoRemove = useCreateAndApplyAssignmentApiV1PlaylistAssignmentsPost({
+    mutation: {
+      onSuccess: async () => {
+        await invalidatePlaylists();
+      },
+      meta: { errorLabel: "Undo failed" },
+    },
+  });
+
+  const remove = useMutation({
+    mutationFn: async ({
+      playlist,
+      assignment,
+    }: {
+      playlist: SpotifyPlaylistBrowseSchema;
+      assignment: ActiveAssignmentSchema;
+    }) => {
+      await deleteAssignmentApiV1PlaylistAssignmentsAssignmentIdDelete(
+        assignment.assignment_id,
+      );
+      return { playlist, assignment };
+    },
+    onSuccess: async ({ playlist, assignment }) => {
+      await invalidatePlaylists();
+      const isTag = assignment.action_type === "add_tag";
+      const label = isTag
+        ? `${assignment.action_value} removed from '${playlist.name}'`
+        : `Rating removed from '${playlist.name}'`;
+      toasts.success(label, {
+        description: "Tags you've added directly in Mixd are untouched.",
+        action: {
+          label: "Undo",
+          onClick: () => {
+            undoRemove.mutate({
+              data: {
+                connector_playlist_id: playlist.connector_playlist_db_id,
+                action_type: assignment.action_type,
+                action_value: assignment.action_value,
+              },
+            });
+          },
+        },
+      });
+    },
+    meta: { errorLabel: "Failed to remove assignment" },
   });
 
   const response = data?.status === 200 ? data.data : undefined;
@@ -317,6 +421,13 @@ export function SpotifyPlaylistPickerDialog({
                 const id = p.connector_playlist_identifier;
                 const checked = selectedIds.has(id);
                 const rowId = `spotify-pick-${id}`;
+                const tagAssignments = p.current_assignments.filter(
+                  (a) => a.action_type === "add_tag",
+                );
+                const ratingAssignment = p.current_assignments.find(
+                  (a) => a.action_type === "set_preference",
+                );
+                const hasAssignments = p.current_assignments.length > 0;
                 return (
                   <div
                     key={id}
@@ -344,7 +455,25 @@ export function SpotifyPlaylistPickerDialog({
                       htmlFor={rowId}
                       className="min-w-0 flex-1 cursor-pointer"
                     >
-                      <p className="truncate font-medium text-text">{p.name}</p>
+                      <div className="flex flex-wrap items-center gap-x-2 gap-y-1">
+                        <p className="truncate font-medium text-text">
+                          {p.name}
+                        </p>
+                        {ratingAssignment && (
+                          <PreferenceBadge
+                            state={
+                              ratingAssignment.action_value as PreferenceState
+                            }
+                          />
+                        )}
+                        {tagAssignments.map((a) => (
+                          <TagChip
+                            key={a.assignment_id}
+                            tag={a.action_value}
+                            className="text-xs"
+                          />
+                        ))}
+                      </div>
                       <p className="truncate text-xs text-text-muted">
                         {p.owner ?? "Unknown"} ·{" "}
                         <span className="tabular-nums">
@@ -354,6 +483,71 @@ export function SpotifyPlaylistPickerDialog({
                       </p>
                     </label>
                     <ImportStatusPill status={p.import_status} />
+                    <DropdownMenu>
+                      <DropdownMenuTrigger asChild>
+                        <Button
+                          variant="ghost"
+                          size="icon"
+                          aria-label={`More actions for ${p.name}`}
+                        >
+                          <MoreHorizontal />
+                        </Button>
+                      </DropdownMenuTrigger>
+                      <DropdownMenuContent align="end">
+                        <DropdownMenuItem
+                          onSelect={() =>
+                            setAssignDialog({ mode: "tag", playlist: p })
+                          }
+                        >
+                          Tag tracks…
+                        </DropdownMenuItem>
+                        <DropdownMenuItem
+                          onSelect={() =>
+                            setAssignDialog({ mode: "rate", playlist: p })
+                          }
+                        >
+                          {ratingAssignment ? "Update rating…" : "Rate tracks…"}
+                        </DropdownMenuItem>
+                        {hasAssignments && (
+                          <>
+                            <DropdownMenuSeparator />
+                            <DropdownMenuItem
+                              onSelect={() => reApply.mutate(p)}
+                              disabled={reApply.isPending}
+                            >
+                              Re-apply
+                            </DropdownMenuItem>
+                            {tagAssignments.map((a) => (
+                              <DropdownMenuItem
+                                key={`remove-${a.assignment_id}`}
+                                variant="destructive"
+                                onSelect={() =>
+                                  remove.mutate({
+                                    playlist: p,
+                                    assignment: a,
+                                  })
+                                }
+                              >
+                                Remove tag: {a.action_value}
+                              </DropdownMenuItem>
+                            ))}
+                            {ratingAssignment && (
+                              <DropdownMenuItem
+                                variant="destructive"
+                                onSelect={() =>
+                                  remove.mutate({
+                                    playlist: p,
+                                    assignment: ratingAssignment,
+                                  })
+                                }
+                              >
+                                Remove rating
+                              </DropdownMenuItem>
+                            )}
+                          </>
+                        )}
+                      </DropdownMenuContent>
+                    </DropdownMenu>
                   </div>
                 );
               })}
@@ -385,6 +579,16 @@ export function SpotifyPlaylistPickerDialog({
           </Button>
         </DialogFooter>
       </DialogContent>
+      {assignDialog && (
+        <AssignPlaylistDialog
+          open
+          onOpenChange={(next) => {
+            if (!next) setAssignDialog(null);
+          }}
+          mode={assignDialog.mode}
+          playlist={assignDialog.playlist}
+        />
+      )}
     </Dialog>
   );
 }

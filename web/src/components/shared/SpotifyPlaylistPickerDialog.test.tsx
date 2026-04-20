@@ -1,6 +1,8 @@
 import { HttpResponse, http } from "msw";
 import { describe, expect, it, vi } from "vitest";
 
+import type { SpotifyPlaylistBrowseSchema } from "#/api/generated/model";
+import { makeSpotifyPlaylistBrowse } from "#/test/factories";
 import { server } from "#/test/setup";
 import {
   renderWithProviders,
@@ -11,59 +13,29 @@ import {
 
 import { SpotifyPlaylistPickerDialog } from "./SpotifyPlaylistPickerDialog";
 
-type Playlist = {
-  connector_playlist_identifier: string;
-  name: string;
-  description: string | null;
-  owner: string | null;
-  image_url: string | null;
-  track_count: number;
-  snapshot_id: string | null;
-  collaborative: boolean;
-  is_public: boolean;
-  import_status: "not_imported" | "imported";
-};
-
-const CHILL: Playlist = {
+const CHILL = makeSpotifyPlaylistBrowse({
   connector_playlist_identifier: "sp1",
   name: "Chill Vibes",
-  description: null,
-  owner: "me",
-  image_url: null,
   track_count: 247,
-  snapshot_id: "snap-a",
-  collaborative: false,
-  is_public: true,
-  import_status: "not_imported",
-};
+});
 
-const WORKOUT: Playlist = {
+const WORKOUT = makeSpotifyPlaylistBrowse({
   connector_playlist_identifier: "sp2",
   name: "Workout Mix",
-  description: null,
-  owner: "me",
-  image_url: null,
   track_count: 156,
-  snapshot_id: "snap-b",
-  collaborative: false,
   is_public: false,
   import_status: "imported",
-};
+});
 
-const LATE_NIGHT: Playlist = {
+const LATE_NIGHT = makeSpotifyPlaylistBrowse({
   connector_playlist_identifier: "sp3",
   name: "Late Night",
-  description: null,
-  owner: "me",
-  image_url: null,
   track_count: 89,
-  snapshot_id: "snap-c",
   collaborative: true,
   is_public: false,
-  import_status: "not_imported",
-};
+});
 
-function mockList(playlists: Playlist[], fromCache = true) {
+function mockList(playlists: SpotifyPlaylistBrowseSchema[], fromCache = true) {
   server.use(
     http.get("*/api/v1/connectors/spotify/playlists", () =>
       HttpResponse.json({
@@ -236,5 +208,110 @@ describe("SpotifyPlaylistPickerDialog", () => {
     await userEvent.click(screen.getByRole("button", { name: "Cancel" }));
 
     expect(onOpenChange).toHaveBeenCalledWith(false);
+  });
+
+  describe("assignments", () => {
+    const TAG_ASSIGN_ID = "aaaaaaaa-0000-0000-0000-000000000001";
+    const RATING_ASSIGN_ID = "aaaaaaaa-0000-0000-0000-000000000002";
+
+    const TAGGED_PLAYLIST = makeSpotifyPlaylistBrowse({
+      ...CHILL,
+      current_assignments: [
+        {
+          assignment_id: TAG_ASSIGN_ID,
+          action_type: "add_tag",
+          action_value: "mood:chill",
+        },
+      ],
+    });
+
+    const FULLY_ASSIGNED = makeSpotifyPlaylistBrowse({
+      ...CHILL,
+      current_assignments: [
+        {
+          assignment_id: TAG_ASSIGN_ID,
+          action_type: "add_tag",
+          action_value: "mood:chill",
+        },
+        {
+          assignment_id: RATING_ASSIGN_ID,
+          action_type: "set_preference",
+          action_value: "star",
+        },
+      ],
+    });
+
+    it("renders the tag status badge on a mapped row", async () => {
+      mockList([TAGGED_PLAYLIST]);
+      setup();
+
+      expect(await screen.findByText("mood:chill")).toBeInTheDocument();
+    });
+
+    it("hides Re-apply / Remove from the overflow menu when no assignments", async () => {
+      mockList([CHILL]);
+      setup();
+
+      await screen.findByText("Chill Vibes");
+      await userEvent.click(
+        screen.getByRole("button", { name: /More actions for Chill Vibes/ }),
+      );
+
+      // Menuitem by role ensures we don't confuse with other elements.
+      expect(
+        screen.getByRole("menuitem", { name: "Tag tracks…" }),
+      ).toBeInTheDocument();
+      expect(
+        screen.getByRole("menuitem", { name: "Rate tracks…" }),
+      ).toBeInTheDocument();
+      expect(
+        screen.queryByRole("menuitem", { name: "Re-apply" }),
+      ).not.toBeInTheDocument();
+      expect(
+        screen.queryByRole("menuitem", { name: /Remove/ }),
+      ).not.toBeInTheDocument();
+    });
+
+    it("shows Remove items per-assignment when the playlist is mapped", async () => {
+      mockList([FULLY_ASSIGNED]);
+      setup();
+
+      await screen.findByText("Chill Vibes");
+      await userEvent.click(
+        screen.getByRole("button", { name: /More actions for Chill Vibes/ }),
+      );
+
+      expect(
+        screen.getByRole("menuitem", { name: "Re-apply" }),
+      ).toBeInTheDocument();
+      expect(
+        screen.getByRole("menuitem", { name: "Remove tag: mood:chill" }),
+      ).toBeInTheDocument();
+      expect(
+        screen.getByRole("menuitem", { name: "Remove rating" }),
+      ).toBeInTheDocument();
+    });
+
+    it("DELETEs the assignment when Remove is clicked", async () => {
+      mockList([TAGGED_PLAYLIST]);
+      const deleteSpy = vi.fn(() => HttpResponse.json({}, { status: 204 }));
+      server.use(
+        http.delete(
+          `*/api/v1/playlist-assignments/${TAG_ASSIGN_ID}`,
+          deleteSpy,
+        ),
+      );
+      setup();
+
+      await screen.findByText("mood:chill");
+      await userEvent.click(
+        screen.getByRole("button", { name: /More actions for Chill Vibes/ }),
+      );
+      await userEvent.click(
+        screen.getByRole("menuitem", { name: "Remove tag: mood:chill" }),
+      );
+
+      await waitFor(() => expect(deleteSpy).toHaveBeenCalledOnce());
+    });
   });
 });

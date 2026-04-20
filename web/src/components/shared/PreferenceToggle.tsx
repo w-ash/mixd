@@ -3,10 +3,11 @@ import type { ReactNode } from "react";
 
 import { cn } from "#/lib/utils";
 
-type PreferenceState = "hmm" | "nah" | "yah" | "star" | null;
+export type PreferenceState = "hmm" | "nah" | "yah" | "star";
+type NullablePreferenceState = PreferenceState | null;
 
 const STATES: {
-  value: PreferenceState;
+  value: NullablePreferenceState;
   icon: ReactNode;
   label: string;
   activeClass: string;
@@ -38,8 +39,8 @@ const STATES: {
 ];
 
 interface PreferenceToggleProps {
-  value: PreferenceState;
-  onChange: (state: PreferenceState) => void;
+  value: NullablePreferenceState;
+  onChange: (state: NullablePreferenceState) => void;
   disabled?: boolean;
   size?: "sm" | "default";
 }
@@ -102,11 +103,7 @@ export function PreferenceToggle({
 }
 
 /** Compact read-only preference badge for table cells */
-export function PreferenceBadge({
-  state,
-}: {
-  state: "hmm" | "nah" | "yah" | "star";
-}) {
+export function PreferenceBadge({ state }: { state: PreferenceState }) {
   const config = STATES.find((s) => s.value === state);
   if (!config) return null;
   return (

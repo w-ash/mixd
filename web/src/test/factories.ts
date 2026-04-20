@@ -9,8 +9,30 @@ import type {
   PlaylistDetailSchema,
   PlaylistEntrySchema,
   PlaylistSummarySchema,
+  SpotifyPlaylistBrowseSchema,
   WorkflowSummarySchema,
 } from "#/api/generated/model";
+
+export function makeSpotifyPlaylistBrowse(
+  overrides: Partial<SpotifyPlaylistBrowseSchema> = {},
+): SpotifyPlaylistBrowseSchema {
+  const suffix = overrides.connector_playlist_identifier ?? "sp1";
+  return {
+    connector_playlist_identifier: suffix,
+    connector_playlist_db_id: `019da92c-0000-74aa-9a86-0000000000${suffix.replace(/\D/g, "").padStart(2, "0").slice(-2)}`,
+    name: "Test Playlist",
+    description: null,
+    owner: "me",
+    image_url: null,
+    track_count: 100,
+    snapshot_id: `snap-${suffix}`,
+    collaborative: false,
+    is_public: true,
+    import_status: "not_imported",
+    current_assignments: [],
+    ...overrides,
+  };
+}
 
 export function makePlaylistSummary(
   overrides: Partial<PlaylistSummarySchema> = {},
