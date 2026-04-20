@@ -10,10 +10,11 @@ metadata for tracks that dropped out of the playlist.
 Caller is responsible for refreshing the connector cache first.
 """
 
+from collections.abc import Sequence
 from datetime import UTC, datetime
 from uuid import UUID
 
-from attrs import define
+from attrs import define, field
 
 from src.config import get_logger
 from src.domain.entities.playlist import SPOTIFY_CONNECTOR
@@ -38,6 +39,9 @@ logger = get_logger(__name__)
 class ApplyPlaylistAssignmentsCommand:
     user_id: str
     connector_name: str = SPOTIFY_CONNECTOR
+    # When set, scope the apply to these assignment IDs only. None means
+    # "apply every assignment for the user" (the bulk CLI path).
+    assignment_ids: Sequence[UUID] | None = field(default=None)
 
 
 @define(frozen=True, slots=True)
@@ -76,6 +80,9 @@ class ApplyPlaylistAssignmentsUseCase:
             tag_repo = uow.get_tag_repository()
 
             assignments = await assignment_repo.list_for_user(user_id=command.user_id)
+            if command.assignment_ids is not None:
+                wanted = set(command.assignment_ids)
+                assignments = [a for a in assignments if a.id in wanted]
             if not assignments:
                 return ApplyPlaylistAssignmentsResult(0, 0, 0, 0, 0, 0)
 
@@ -307,12 +314,15 @@ class ApplyPlaylistAssignmentsUseCase:
 async def run_apply_playlist_assignments(
     user_id: str,
     connector_name: str = SPOTIFY_CONNECTOR,
+    assignment_ids: Sequence[UUID] | None = None,
 ) -> ApplyPlaylistAssignmentsResult:
     """Convenience wrapper for route and CLI handlers."""
     from src.application.runner import execute_use_case
 
     command = ApplyPlaylistAssignmentsCommand(
-        user_id=user_id, connector_name=connector_name
+        user_id=user_id,
+        connector_name=connector_name,
+        assignment_ids=assignment_ids,
     )
     return await execute_use_case(
         lambda uow: ApplyPlaylistAssignmentsUseCase().execute(command, uow),

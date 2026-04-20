@@ -306,6 +306,41 @@ class TestMembershipSnapshot:
         assert written_members[0].track_id == track.id
 
 
+class TestAssignmentIdsFilter:
+    async def test_filter_scopes_apply_to_one_assignment(self) -> None:
+        """`assignment_ids=[id]` only processes that assignment, not the user's full set."""
+        cp_id = uuid7()
+        track = make_track(id=uuid7())
+
+        target = _assignment(cp_id, "add_tag", "mood:chill")
+        other = _assignment(cp_id, "set_preference", "star")
+        cp = _cp_with_items(cp_id, ["sp_t"])
+
+        uow = make_mock_uow()
+        # list_for_user returns BOTH; the filter must drop `other`.
+        uow.get_playlist_assignment_repository().list_for_user.return_value = [
+            target,
+            other,
+        ]
+        uow.get_connector_playlist_repository().list_by_connector.return_value = [cp]
+        uow.get_connector_repository().find_tracks_by_connectors.return_value = {
+            ("spotify", "sp_t"): track,
+        }
+        uow.get_tag_repository().add_tags.side_effect = lambda tags, **kw: list(tags)
+
+        result = await ApplyPlaylistAssignmentsUseCase().execute(
+            ApplyPlaylistAssignmentsCommand(
+                user_id="default", assignment_ids=[target.id]
+            ),
+            uow,
+        )
+
+        # Only the target was processed — preference assignment skipped.
+        assert result.assignments_processed == 1
+        assert result.tags_applied == 1
+        uow.get_preference_repository().set_preferences.assert_not_called()
+
+
 class TestUnresolvedTracksSkipped:
     async def test_unresolved_tracks_do_not_receive_actions(self) -> None:
         """Spotify tracks not in local library are skipped silently."""
