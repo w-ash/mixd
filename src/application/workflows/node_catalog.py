@@ -17,12 +17,19 @@ from .node_config_fields import get_enricher_attributes
 from .node_factories import (
     build_external_enrichment_config,
     build_play_history_enrichment_config,
+    build_preferences_enrichment_config,
+    build_tags_enrichment_config,
     create_enricher_node,
     make_combiner_node,
     make_node,
 )
 from .node_registry import node
-from .source_nodes import playlist_source, source_liked_tracks, source_played_tracks
+from .source_nodes import (
+    playlist_source,
+    source_liked_tracks,
+    source_played_tracks,
+    source_preferred_tracks,
+)
 from .transform_definitions import COMBINER_REGISTRY, TRANSFORM_REGISTRY
 
 # === SOURCE NODES ===
@@ -43,6 +50,12 @@ _ = node(
     description="Retrieves tracks from play history for composition with filters/sorters",
     output_type="tracklist",
 )(source_played_tracks)
+
+_ = node(
+    "source.preferred_tracks",
+    description="Retrieves tracks by preference state (hmm/nah/yah/star)",
+    output_type="tracklist",
+)(source_preferred_tracks)
 
 # === ENRICHER NODES ===
 _ = node(
@@ -83,6 +96,24 @@ _ = node(
     input_type="tracklist",
     output_type="tracklist",
 )(create_enricher_node(build_play_history_enrichment_config))
+
+_ = node(
+    "enricher.preferences",
+    description="Enriches tracks with user preferences (hmm/nah/yah/star) from internal database",
+    input_type="tracklist",
+    output_type="tracklist",
+)(
+    create_enricher_node(
+        build_preferences_enrichment_config, enricher_label="preferences"
+    )
+)
+
+_ = node(
+    "enricher.tags",
+    description="Enriches tracks with user tags from internal database",
+    input_type="tracklist",
+    output_type="tracklist",
+)(create_enricher_node(build_tags_enrichment_config, enricher_label="tags"))
 
 _ = node(
     "enricher.spotify_liked_status",

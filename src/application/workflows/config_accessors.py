@@ -60,7 +60,15 @@ def cfg_bool(cfg: Mapping[str, JsonValue], key: str, default: bool = False) -> b
 
 
 def cfg_str_list(cfg: Mapping[str, JsonValue], key: str) -> list[str]:
+    """Read a list of strings from config.
+
+    Accepts both a JSON array (``["a", "b"]``) and a comma-separated string
+    (``"a, b"``) — the UI edits the latter while the raw workflow JSON uses
+    the former. Empty strings and surrounding whitespace are stripped.
+    """
     val = cfg.get(key)
-    if isinstance(val, Sequence) and not isinstance(val, str):
-        return [str(item) for item in val]
+    if isinstance(val, str):
+        return [item for piece in val.split(",") if (item := piece.strip())]
+    if isinstance(val, Sequence):
+        return [s for item in val if (s := str(item).strip())]
     return []

@@ -17,6 +17,12 @@ from src.application.use_cases.enrich_tracks import (
     EnrichTracksUseCase,
 )
 from src.domain.entities.track import Artist, Track, TrackList
+from tests.fixtures.factories import (
+    make_track_preference,
+    make_track_tag,
+    make_tracks,
+)
+from tests.fixtures.mocks import make_mock_uow
 
 
 class TestEnrichTracksUseCase:
@@ -252,6 +258,139 @@ class TestEnrichTracksUseCase:
         assert result.enriched_count == 0
         assert len(result.errors) == 1
         assert "Track enrichment failed:" in result.errors[0]
+
+    async def test_preferences_enrichment_success(self, use_case):
+        """Test preferences enrichment attaches preferences to tracklist metadata."""
+        tracks = make_tracks(count=3)
+        tracklist = TrackList(tracks=tracks)
+        preferences = {
+            tracks[0].id: make_track_preference(track_id=tracks[0].id, state="star"),
+            tracks[2].id: make_track_preference(track_id=tracks[2].id, state="nah"),
+        }
+
+        mock_pref_repo = AsyncMock()
+        mock_pref_repo.get_preferences.return_value = preferences
+        mock_uow = make_mock_uow(preference_repo=mock_pref_repo)
+
+        config = EnrichmentConfig(enrichment_type="preferences")
+        command = EnrichTracksCommand(
+            user_id="test-user", tracklist=tracklist, enrichment_config=config
+        )
+
+        result = await use_case.execute(command, mock_uow)
+
+        assert isinstance(result, EnrichTracksResult)
+        assert result.enriched_tracklist.metadata["preferences"] == preferences
+        assert len(result.errors) == 0
+
+        mock_pref_repo.get_preferences.assert_called_once()
+        call_kwargs = mock_pref_repo.get_preferences.call_args.kwargs
+        assert call_kwargs["user_id"] == "test-user"
+        call_args = mock_pref_repo.get_preferences.call_args.args
+        assert list(call_args[0]) == [t.id for t in tracks]
+
+    async def test_preferences_enrichment_empty_result(self, use_case):
+        """Empty preference table → metadata["preferences"] is empty dict (all unrated)."""
+        tracks = make_tracks(count=2)
+        tracklist = TrackList(tracks=tracks)
+
+        mock_pref_repo = AsyncMock()
+        mock_pref_repo.get_preferences.return_value = {}
+        mock_uow = make_mock_uow(preference_repo=mock_pref_repo)
+
+        config = EnrichmentConfig(enrichment_type="preferences")
+        command = EnrichTracksCommand(
+            user_id="test-user", tracklist=tracklist, enrichment_config=config
+        )
+
+        result = await use_case.execute(command, mock_uow)
+
+        assert result.enriched_tracklist.metadata["preferences"] == {}
+        assert len(result.errors) == 0
+
+    async def test_preferences_enrichment_single_batch_call(self, use_case):
+        """Repo batch method is called exactly once regardless of tracklist size."""
+        tracks = make_tracks(count=50)
+        tracklist = TrackList(tracks=tracks)
+
+        mock_pref_repo = AsyncMock()
+        mock_pref_repo.get_preferences.return_value = {}
+        mock_uow = make_mock_uow(preference_repo=mock_pref_repo)
+
+        config = EnrichmentConfig(enrichment_type="preferences")
+        command = EnrichTracksCommand(
+            user_id="test-user", tracklist=tracklist, enrichment_config=config
+        )
+
+        await use_case.execute(command, mock_uow)
+
+        assert mock_pref_repo.get_preferences.call_count == 1
+
+    async def test_tags_enrichment_success(self, use_case):
+        """Tags enrichment attaches tags to tracklist metadata, grouped by track_id."""
+        tracks = make_tracks(count=3)
+        tracklist = TrackList(tracks=tracks)
+        tags = {
+            tracks[0].id: [
+                make_track_tag(track_id=tracks[0].id, tag="mood:chill"),
+                make_track_tag(track_id=tracks[0].id, tag="energy:low"),
+            ],
+            tracks[1].id: [make_track_tag(track_id=tracks[1].id, tag="mood:upbeat")],
+        }
+
+        mock_tag_repo = AsyncMock()
+        mock_tag_repo.get_tags.return_value = tags
+        mock_uow = make_mock_uow(tag_repo=mock_tag_repo)
+
+        config = EnrichmentConfig(enrichment_type="tags")
+        command = EnrichTracksCommand(
+            user_id="test-user", tracklist=tracklist, enrichment_config=config
+        )
+
+        result = await use_case.execute(command, mock_uow)
+
+        assert result.enriched_tracklist.metadata["tags"] == tags
+        assert len(result.errors) == 0
+
+        mock_tag_repo.get_tags.assert_called_once()
+        assert mock_tag_repo.get_tags.call_args.kwargs["user_id"] == "test-user"
+
+    async def test_tags_enrichment_empty_result(self, use_case):
+        """Empty tag table → metadata["tags"] is empty dict (all untagged)."""
+        tracks = make_tracks(count=2)
+        tracklist = TrackList(tracks=tracks)
+
+        mock_tag_repo = AsyncMock()
+        mock_tag_repo.get_tags.return_value = {}
+        mock_uow = make_mock_uow(tag_repo=mock_tag_repo)
+
+        config = EnrichmentConfig(enrichment_type="tags")
+        command = EnrichTracksCommand(
+            user_id="test-user", tracklist=tracklist, enrichment_config=config
+        )
+
+        result = await use_case.execute(command, mock_uow)
+
+        assert result.enriched_tracklist.metadata["tags"] == {}
+        assert len(result.errors) == 0
+
+    async def test_tags_enrichment_single_batch_call(self, use_case):
+        """Repo batch method is called exactly once regardless of tracklist size."""
+        tracks = make_tracks(count=50)
+        tracklist = TrackList(tracks=tracks)
+
+        mock_tag_repo = AsyncMock()
+        mock_tag_repo.get_tags.return_value = {}
+        mock_uow = make_mock_uow(tag_repo=mock_tag_repo)
+
+        config = EnrichmentConfig(enrichment_type="tags")
+        command = EnrichTracksCommand(
+            user_id="test-user", tracklist=tracklist, enrichment_config=config
+        )
+
+        await use_case.execute(command, mock_uow)
+
+        assert mock_tag_repo.get_tags.call_count == 1
 
     async def test_invalid_enrichment_type(self, use_case, sample_tracklist, mock_uow):
         """Test handling of invalid enrichment type."""

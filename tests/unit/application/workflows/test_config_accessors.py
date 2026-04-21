@@ -117,8 +117,15 @@ class TestCfgStrList:
     def test_coerces_non_string_items(self):
         assert cfg_str_list({"key": [1, 2, 3]}, "key") == ["1", "2", "3"]
 
-    def test_returns_empty_for_plain_string(self):
-        assert cfg_str_list({"key": "not a list"}, "key") == []
+    def test_splits_comma_separated_string(self):
+        """UI writes comma-separated strings; raw JSON uses lists. Both supported."""
+        assert cfg_str_list({"key": "a, b, c"}, "key") == ["a", "b", "c"]
+
+    def test_returns_single_item_list_for_plain_string(self):
+        assert cfg_str_list({"key": "not a list"}, "key") == ["not a list"]
+
+    def test_strips_empty_pieces_from_csv(self):
+        assert cfg_str_list({"key": "a,, b, ,c,"}, "key") == ["a", "b", "c"]
 
     def test_returns_empty_for_non_sequence(self):
         assert cfg_str_list({"key": 42}, "key") == []

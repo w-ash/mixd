@@ -19,14 +19,26 @@ from .play_history import (
     filter_by_play_history,
     sort_by_play_history,
 )
+from .preference import (
+    filter_by_preference,
+    sort_by_preference,
+)
 from .shuffle import weighted_shuffle
+from .tag import (
+    filter_by_tag,
+    filter_by_tag_namespace,
+)
 
 __all__ = [
     "filter_by_explicit",
     "filter_by_metric_range",
     "filter_by_play_history",
+    "filter_by_preference",
+    "filter_by_tag",
+    "filter_by_tag_namespace",
     "sort_by_date",
     "sort_by_external_metrics",
     "sort_by_play_history",
+    "sort_by_preference",
     "weighted_shuffle",
 ]

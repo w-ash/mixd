@@ -8,12 +8,17 @@ numeric range consistency, and key uniqueness.
 
 import pytest
 
-import src.application.workflows.node_catalog  # noqa: F401 — triggers node registration
+import src.application.workflows.node_catalog as _node_catalog
 from src.application.workflows.node_config_fields import (
     ConfigFieldDef,
     get_node_config_fields,
 )
 from src.application.workflows.node_registry import list_nodes
+
+# Importing node_catalog above triggers @node() registration as a side effect.
+# This reference keeps F401 from flagging the import as unused under ruff
+# configurations that autofix noqa comments.
+_NODE_CATALOG_MODULE = _node_catalog.__name__
 
 VALID_FIELD_TYPES = {"string", "number", "boolean", "select"}
 
@@ -136,8 +141,14 @@ def test_enricher_metric_defs_covers_all_enrichers() -> None:
         for node_id, meta in list_nodes().items()
         if meta["category"] == "enricher"
     }
-    # enricher.spotify_liked_status doesn't provide filter/sort metrics
-    non_metric_enrichers = {"enricher.spotify_liked_status"}
+    # Enrichers that don't expose scalar metrics to the filter.by_metric /
+    # sorter.by_metric dropdown. They feed purpose-built consumer nodes
+    # (filter.by_preference, filter.by_tag, …) with fixed semantics.
+    non_metric_enrichers = {
+        "enricher.spotify_liked_status",
+        "enricher.preferences",
+        "enricher.tags",
+    }
     expected = registered_enrichers - non_metric_enrichers
 
     metric_enrichers = set(ENRICHER_METRIC_DEFS.keys())

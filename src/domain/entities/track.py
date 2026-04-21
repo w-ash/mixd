@@ -11,12 +11,14 @@ from uuid import UUID, uuid7
 import attrs
 from attrs import define, field, validators
 
+from .preference import TrackPreference
 from .shared import (
     JsonValue,
     MetricValue,
     empty_json_map,
     utc_now_factory,
 )
+from .tag import TrackTag
 
 
 @define(frozen=True, slots=True)
@@ -207,6 +209,8 @@ class TrackListMetadata(TypedDict, total=False):
     # Enrichment data (written by enrichers, read by transforms)
     metrics: dict[str, dict[UUID, MetricValue]]  # metric_name → track_id → value
     fresh_metric_ids: dict[str, list[UUID]]  # metric_name → freshly-fetched track IDs
+    preferences: dict[UUID, TrackPreference]  # track_id → preference (unrated omitted)
+    tags: dict[UUID, list[TrackTag]]  # track_id → tags (untagged omitted)
 
     # Source tracking (written by source nodes & combiners)
     track_sources: dict[
@@ -222,6 +226,8 @@ class TrackListMetadata(TypedDict, total=False):
 type MetadataKey = Literal[
     "metrics",
     "fresh_metric_ids",
+    "preferences",
+    "tags",
     "track_sources",
     "operation",
     "source_count",
@@ -255,6 +261,14 @@ class TrackList:
     @overload
     def with_metadata(
         self, key: Literal["fresh_metric_ids"], value: dict[str, list[UUID]]
+    ) -> Self: ...
+    @overload
+    def with_metadata(
+        self, key: Literal["preferences"], value: dict[UUID, TrackPreference]
+    ) -> Self: ...
+    @overload
+    def with_metadata(
+        self, key: Literal["tags"], value: dict[UUID, list[TrackTag]]
     ) -> Self: ...
     @overload
     def with_metadata(

@@ -3,11 +3,25 @@
 Validates enrich_spotify_liked_status: in-memory metadata update,
 DB persistence via save_track_likes_batch, and edge cases (no Spotify IDs,
 empty tracklist, all liked, API failure).
+
+Also covers enricher.preferences and enricher.tags registration + config
+builders — the execution path itself is covered at the use-case layer
+(test_enrich_tracks_use_case.py).
 """
 
 from unittest.mock import AsyncMock, MagicMock
 
+from src.application.use_cases.enrich_tracks import EnrichmentConfig
+
+# Importing node_catalog runs @node(...) decorators that register every
+# workflow node type — required for get_node() to resolve the new entries.
+from src.application.workflows import node_catalog
 from src.application.workflows.enricher_nodes import enrich_spotify_liked_status
+from src.application.workflows.node_factories import (
+    build_preferences_enrichment_config,
+    build_tags_enrichment_config,
+)
+from src.application.workflows.node_registry import get_node
 from src.domain.entities.track import TrackList
 from tests.fixtures import make_track
 
@@ -215,3 +229,46 @@ class TestEnrichSpotifyLikedStatusEdgeCases:
         # Track without Spotify ID should be unchanged
         assert tl.tracks[1].is_liked_on("spotify") is False  # default
         assert tl.tracks[2].is_liked_on("spotify") is False
+
+
+class TestPreferenceAndTagEnricherRegistration:
+    """Verify enricher.preferences and enricher.tags are registered and that
+    their config builders produce the right EnrichmentConfig. The full
+    execution path is covered by test_enrich_tracks_use_case.py.
+    """
+
+    def test_preferences_node_registered(self):
+        # Side-effect registration happens at import time; reference the module
+        # so the import isn't flagged as unused.
+        assert node_catalog.__name__.endswith("node_catalog")
+
+        fn, meta = get_node("enricher.preferences")
+        assert callable(fn)
+        assert meta["input_type"] == "tracklist"
+        assert meta["output_type"] == "tracklist"
+
+    def test_tags_node_registered(self):
+        fn, meta = get_node("enricher.tags")
+        assert callable(fn)
+        assert meta["input_type"] == "tracklist"
+        assert meta["output_type"] == "tracklist"
+
+    def test_preferences_config_builder_produces_correct_type(self):
+        ctx = MagicMock()
+        config = build_preferences_enrichment_config(ctx, {})
+        assert isinstance(config, EnrichmentConfig)
+        assert config.enrichment_type == "preferences"
+
+    def test_tags_config_builder_produces_correct_type(self):
+        ctx = MagicMock()
+        config = build_tags_enrichment_config(ctx, {})
+        assert isinstance(config, EnrichmentConfig)
+        assert config.enrichment_type == "tags"
+
+    def test_builders_ignore_user_config(self):
+        """Both builders take no user-facing config — any passed config is ignored."""
+        ctx = MagicMock()
+        pref_config = build_preferences_enrichment_config(ctx, {"anything": "ignored"})
+        tag_config = build_tags_enrichment_config(ctx, {"anything": "ignored"})
+        assert pref_config.enrichment_type == "preferences"
+        assert tag_config.enrichment_type == "tags"

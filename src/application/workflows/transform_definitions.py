@@ -10,7 +10,7 @@ To add a new transform:
 3. It auto-registers as a workflow node via node_catalog.py
 """
 
-from collections.abc import Callable, Mapping
+from collections.abc import Callable, Mapping, Sequence
 from operator import attrgetter
 from typing import NamedTuple, Protocol
 
@@ -18,11 +18,16 @@ from src.application.metadata_transforms import (
     filter_by_explicit,
     filter_by_metric_range,
     filter_by_play_history,
+    filter_by_preference,
+    filter_by_tag,
+    filter_by_tag_namespace,
     sort_by_date,
     sort_by_play_history,
+    sort_by_preference,
     weighted_shuffle,
 )
 from src.application.metadata_transforms.metric_routing import route_metric_sorting
+from src.domain.entities.preference import PreferenceState
 from src.domain.entities.shared import JsonValue
 from src.domain.entities.track import TrackList
 from src.domain.transforms import (
@@ -42,7 +47,14 @@ from src.domain.transforms import (
 )
 from src.domain.transforms.core import Transform
 
-from .config_accessors import cfg_bool, cfg_float, cfg_int, cfg_str, cfg_str_or_none
+from .config_accessors import (
+    cfg_bool,
+    cfg_float,
+    cfg_int,
+    cfg_str,
+    cfg_str_list,
+    cfg_str_or_none,
+)
 from .node_context import NodeContext
 
 # Transform factory: takes (context, config) and returns a TrackList→TrackList transform.
@@ -75,6 +87,23 @@ class CombinerEntry(NamedTuple):
 
     fn: CombinerFn
     description: str
+
+
+# Runtime-valid states accepted by filter.by_preference's include/exclude lists.
+# Unknown strings are silently dropped so a stale workflow with e.g. "liked"
+# instead of "yah" can't break execution — it just produces an empty filter.
+# Validation at workflow-definition time should catch typos upstream.
+_VALID_PREFERENCE_STATES: frozenset[PreferenceState] = frozenset({
+    "hmm",
+    "nah",
+    "yah",
+    "star",
+})
+
+
+def _coerce_preference_states(values: Sequence[str]) -> list[PreferenceState]:
+    """Narrow a raw str list into the PreferenceState Literal, dropping unknowns."""
+    return [v for v in values if v in _VALID_PREFERENCE_STATES]
 
 
 def _tf(factory: TransformFactory, description: str) -> TransformEntry:
@@ -157,6 +186,29 @@ TRANSFORM_REGISTRY: dict[str, dict[str, TransformEntry]] = {
             ),
             "Filters tracks by play count and/or listening date with flexible constraints",
         ),
+        "by_preference": _tf(
+            lambda _ctx, cfg: filter_by_preference(
+                include=_coerce_preference_states(cfg_str_list(cfg, "include")) or None,
+                exclude=_coerce_preference_states(cfg_str_list(cfg, "exclude")) or None,
+            ),
+            "Keeps (include=) or drops (exclude=) tracks by preference state",
+        ),
+        "by_tag": _tf(
+            lambda _ctx, cfg: filter_by_tag(
+                tags=cfg_str_list(cfg, "tags"),
+                match_mode="all"
+                if cfg_str(cfg, "match_mode", "any") == "all"
+                else "any",
+            ),
+            "Keeps tracks carrying any or all of the specified tags",
+        ),
+        "by_tag_namespace": _tf(
+            lambda _ctx, cfg: filter_by_tag_namespace(
+                namespace=cfg_str(cfg, "namespace"),
+                values=cfg_str_list(cfg, "values") or None,
+            ),
+            "Keeps tracks with a tag in the specified namespace (optionally restricted to values)",
+        ),
     },
     "sorter": {
         "by_metric": _tf(
@@ -180,6 +232,12 @@ TRANSFORM_REGISTRY: dict[str, dict[str, TransformEntry]] = {
                 reverse=cfg_bool(cfg, "reverse", True),
             ),
             "Sorts tracks by play frequency within optional time windows",
+        ),
+        "by_preference": _tf(
+            lambda _ctx, cfg: sort_by_preference(
+                reverse=cfg_bool(cfg, "reverse", True),
+            ),
+            "Sorts tracks by preference strength (star > yah > hmm > nah > unrated)",
         ),
         "by_added_at": _tf(
             lambda _ctx, cfg: sort_by_date(

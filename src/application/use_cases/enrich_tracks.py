@@ -30,7 +30,7 @@ from src.domain.repositories import UnitOfWorkProtocol
 logger = get_logger(__name__)
 
 # Type definitions for enrichment configuration
-EnrichmentType = Literal["external_metadata", "play_history"]
+EnrichmentType = Literal["external_metadata", "play_history", "preferences", "tags"]
 ConnectorType = Literal["spotify", "lastfm", "musicbrainz"]
 
 
@@ -193,6 +193,18 @@ class EnrichTracksUseCase:
                         result = await self._enrich_play_history(
                             command.tracklist,
                             command.enrichment_config,
+                            uow,
+                            user_id=command.user_id,
+                        )
+                    elif command.enrichment_config.enrichment_type == "preferences":
+                        result = await self._enrich_preferences(
+                            command.tracklist,
+                            uow,
+                            user_id=command.user_id,
+                        )
+                    elif command.enrichment_config.enrichment_type == "tags":
+                        result = await self._enrich_tags(
+                            command.tracklist,
                             uow,
                             user_id=command.user_id,
                         )
@@ -384,6 +396,60 @@ class EnrichTracksUseCase:
         enriched_tracklist = tracklist.with_metadata("metrics", combined_metrics)
 
         return enriched_tracklist, widened_play_metrics
+
+    async def _enrich_preferences(
+        self,
+        tracklist: TrackList,
+        uow: UnitOfWorkProtocol,
+        *,
+        user_id: str,
+    ) -> tuple[TrackList, dict[str, dict[UUID, MetricValue]]]:
+        """Enriches tracks with user preferences (hmm/nah/yah/star).
+
+        Batch-loads preferences for every track onto tracklist.metadata["preferences"]
+        so downstream filter.by_preference and sorter.by_preference nodes can operate
+        on the data. Unrated tracks are absent from the dict.
+
+        Returns an empty metrics dict — preferences don't fit the scalar MetricValue
+        shape and live at a dedicated metadata key.
+        """
+        track_ids = [t.id for t in tracklist.tracks]
+
+        preference_repo = uow.get_preference_repository()
+        preferences = await preference_repo.get_preferences(track_ids, user_id=user_id)
+
+        logger.info(
+            f"Loaded preferences for {len(preferences)}/{len(track_ids)} tracks"
+        )
+        enriched_tracklist = tracklist.with_metadata("preferences", preferences)
+
+        return enriched_tracklist, {}
+
+    async def _enrich_tags(
+        self,
+        tracklist: TrackList,
+        uow: UnitOfWorkProtocol,
+        *,
+        user_id: str,
+    ) -> tuple[TrackList, dict[str, dict[UUID, MetricValue]]]:
+        """Enriches tracks with user tags.
+
+        Batch-loads tags for every track onto tracklist.metadata["tags"] so
+        downstream filter.by_tag / filter.by_tag_namespace nodes can operate on
+        the data. Tracks with no tags are absent from the dict.
+
+        Returns an empty metrics dict — tag lists don't fit the scalar MetricValue
+        shape and live at a dedicated metadata key.
+        """
+        track_ids = [t.id for t in tracklist.tracks]
+
+        tag_repo = uow.get_tag_repository()
+        tags = await tag_repo.get_tags(track_ids, user_id=user_id)
+
+        logger.info(f"Loaded tags for {len(tags)}/{len(track_ids)} tracks")
+        enriched_tracklist = tracklist.with_metadata("tags", tags)
+
+        return enriched_tracklist, {}
 
     async def _ensure_track_identities(
         self,

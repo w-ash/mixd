@@ -136,6 +136,13 @@ class UseCaseProviderImpl:
 
         return GetPlayedTracksUseCase()
 
+    async def get_preferred_tracks_use_case(self):
+        from src.application.use_cases.get_preferred_tracks import (
+            GetPreferredTracksUseCase,
+        )
+
+        return GetPreferredTracksUseCase()
+
     async def get_update_canonical_playlist_use_case(self):
         from src.application.use_cases.update_canonical_playlist import (
             UpdateCanonicalPlaylistUseCase,

@@ -130,3 +130,94 @@ class TestValidateEnrichmentDependencies:
         ]
         warnings = _validate_enrichment_dependencies(_make_def(tasks))
         assert warnings == []
+
+
+class TestPreferenceAndTagConsumerValidation:
+    """Consumer nodes that directly require a named enricher (filter.by_preference,
+    filter.by_tag, filter.by_tag_namespace, sorter.by_preference) should warn
+    when the matching upstream enricher is missing, and stay quiet otherwise.
+    """
+
+    def test_warns_when_preference_filter_has_no_enricher(self):
+        tasks = [
+            WorkflowTaskDef(id="src", type="source.liked_tracks", config={}),
+            WorkflowTaskDef(
+                id="filter",
+                type="filter.by_preference",
+                config={"include": ["star"]},
+                upstream=["src"],
+            ),
+        ]
+        warnings = _validate_enrichment_dependencies(_make_def(tasks))
+        assert len(warnings) == 1
+        assert warnings[0]["task_id"] == "filter"
+        assert "enricher.preferences" in warnings[0]["message"]
+
+    def test_no_warning_when_preference_filter_has_matching_enricher(self):
+        tasks = [
+            WorkflowTaskDef(id="src", type="source.liked_tracks", config={}),
+            WorkflowTaskDef(
+                id="enrich",
+                type="enricher.preferences",
+                config={},
+                upstream=["src"],
+            ),
+            WorkflowTaskDef(
+                id="filter",
+                type="filter.by_preference",
+                config={"include": ["star"]},
+                upstream=["enrich"],
+            ),
+        ]
+        warnings = _validate_enrichment_dependencies(_make_def(tasks))
+        assert warnings == []
+
+    def test_warns_when_tag_filter_has_wrong_enricher(self):
+        """filter.by_tag with enricher.preferences upstream (wrong enricher) still warns."""
+        tasks = [
+            WorkflowTaskDef(id="src", type="source.liked_tracks", config={}),
+            WorkflowTaskDef(
+                id="enrich",
+                type="enricher.preferences",
+                config={},
+                upstream=["src"],
+            ),
+            WorkflowTaskDef(
+                id="filter",
+                type="filter.by_tag",
+                config={"tags": ["mood:chill"]},
+                upstream=["enrich"],
+            ),
+        ]
+        warnings = _validate_enrichment_dependencies(_make_def(tasks))
+        assert len(warnings) == 1
+        assert warnings[0]["task_id"] == "filter"
+        assert "enricher.tags" in warnings[0]["message"]
+
+    def test_tag_namespace_filter_also_requires_tags_enricher(self):
+        tasks = [
+            WorkflowTaskDef(id="src", type="source.liked_tracks", config={}),
+            WorkflowTaskDef(
+                id="filter",
+                type="filter.by_tag_namespace",
+                config={"namespace": "mood"},
+                upstream=["src"],
+            ),
+        ]
+        warnings = _validate_enrichment_dependencies(_make_def(tasks))
+        assert len(warnings) == 1
+        assert "enricher.tags" in warnings[0]["message"]
+
+    def test_sorter_by_preference_requires_preferences_enricher(self):
+        tasks = [
+            WorkflowTaskDef(id="src", type="source.liked_tracks", config={}),
+            WorkflowTaskDef(
+                id="sort",
+                type="sorter.by_preference",
+                config={},
+                upstream=["src"],
+            ),
+        ]
+        warnings = _validate_enrichment_dependencies(_make_def(tasks))
+        assert len(warnings) == 1
+        assert "enricher.preferences" in warnings[0]["message"]

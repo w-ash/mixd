@@ -109,6 +109,18 @@ SELECTION_METHOD_OPTIONS = (
     ConfigFieldOption("random", "Random", "Take randomly from the list"),
 )
 
+PREFERENCE_STATE_OPTIONS = (
+    ConfigFieldOption("star", "★ Starred", "Highly curated tracks"),
+    ConfigFieldOption("yah", "Yah", "Approved tracks"),
+    ConfigFieldOption("hmm", "Hmm", "Undecided — waiting for another listen"),
+    ConfigFieldOption("nah", "Nah", "Rejected tracks"),
+)
+
+TAG_MATCH_MODE_OPTIONS = (
+    ConfigFieldOption("any", "Any", "Keep tracks with at least one of the tags"),
+    ConfigFieldOption("all", "All", "Keep tracks with every one of the tags"),
+)
+
 EXPLICIT_FILTER_OPTIONS = (
     ConfigFieldOption("explicit", "Explicit Only", "Keep only tracks marked explicit"),
     ConfigFieldOption(
@@ -244,6 +256,25 @@ _NODE_CONFIG_FIELDS: dict[str, tuple[ConfigFieldDef, ...]] = {
             options=SORT_BY_LIKED_OPTIONS,
         ),
     ),
+    "source.preferred_tracks": (
+        ConfigFieldDef(
+            key="state",
+            label="Preference State",
+            field_type="select",
+            required=True,
+            description="Which preference bucket to draw from",
+            options=PREFERENCE_STATE_OPTIONS,
+        ),
+        ConfigFieldDef(
+            key="limit",
+            label="Max Tracks",
+            field_type="number",
+            description="Maximum number of tracks to retrieve",
+            placeholder="500",
+            min=1,
+            max=10000,
+        ),
+    ),
     "source.played_tracks": (
         ConfigFieldDef(
             key="limit",
@@ -282,6 +313,8 @@ _NODE_CONFIG_FIELDS: dict[str, tuple[ConfigFieldDef, ...]] = {
     "enricher.lastfm": (),
     "enricher.spotify": (),
     "enricher.play_history": (),
+    "enricher.preferences": (),
+    "enricher.tags": (),
     "enricher.spotify_liked_status": (),
     # === FILTERS ===
     "filter.deduplicate": (),
@@ -421,6 +454,66 @@ _NODE_CONFIG_FIELDS: dict[str, tuple[ConfigFieldDef, ...]] = {
         *_date_range_fields(),
         INCLUDE_MISSING_FIELD,
     ),
+    "filter.by_preference": (
+        ConfigFieldDef(
+            key="include",
+            label="Include States",
+            field_type="string",
+            description=(
+                "Comma-separated preference states to KEEP "
+                "(e.g. 'star' or 'yah,star'). Pass this OR exclude, not both."
+            ),
+            placeholder="star",
+        ),
+        ConfigFieldDef(
+            key="exclude",
+            label="Exclude States",
+            field_type="string",
+            description=(
+                "Comma-separated preference states to REMOVE (e.g. 'nah'). "
+                "Unrated tracks are always kept in exclude mode."
+            ),
+            placeholder="nah",
+        ),
+    ),
+    "filter.by_tag": (
+        ConfigFieldDef(
+            key="tags",
+            label="Tags",
+            field_type="string",
+            required=True,
+            description="Comma-separated tags to match (e.g. 'mood:chill,energy:low')",
+            placeholder="mood:chill",
+        ),
+        ConfigFieldDef(
+            key="match_mode",
+            label="Match Mode",
+            field_type="select",
+            description="Require any or all tags to be present",
+            default="any",
+            options=TAG_MATCH_MODE_OPTIONS,
+        ),
+    ),
+    "filter.by_tag_namespace": (
+        ConfigFieldDef(
+            key="namespace",
+            label="Namespace",
+            field_type="string",
+            required=True,
+            description="Namespace to match (e.g. 'mood', 'context')",
+            placeholder="mood",
+        ),
+        ConfigFieldDef(
+            key="values",
+            label="Values",
+            field_type="string",
+            description=(
+                "Optional comma-separated values within the namespace "
+                "(e.g. 'chill,melancholy'). Empty means any value."
+            ),
+            placeholder="chill,melancholy",
+        ),
+    ),
     # === SORTERS ===
     "sorter.by_metric": (
         ConfigFieldDef(
@@ -448,6 +541,16 @@ _NODE_CONFIG_FIELDS: dict[str, tuple[ConfigFieldDef, ...]] = {
             description="Direction of the sort",
             default="false",
             options=DATE_SORT_ORDER_OPTIONS,
+        ),
+    ),
+    "sorter.by_preference": (
+        ConfigFieldDef(
+            key="reverse",
+            label="Sort Order",
+            field_type="select",
+            description="Direction of the sort (default puts starred first)",
+            default="true",
+            options=SORT_ORDER_OPTIONS,
         ),
     ),
     "sorter.by_play_history": (

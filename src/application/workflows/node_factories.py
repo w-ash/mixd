@@ -265,6 +265,20 @@ def build_play_history_enrichment_config(
     )
 
 
+def build_preferences_enrichment_config(
+    _ctx: NodeContext, _config: Mapping[str, JsonValue]
+) -> EnrichmentConfig:
+    """Build config for preferences enrichment from internal database."""
+    return EnrichmentConfig(enrichment_type="preferences")
+
+
+def build_tags_enrichment_config(
+    _ctx: NodeContext, _config: Mapping[str, JsonValue]
+) -> EnrichmentConfig:
+    """Build config for tags enrichment from internal database."""
+    return EnrichmentConfig(enrichment_type="tags")
+
+
 def create_enricher_node(
     build_config: _EnrichmentConfigBuilder,
     enricher_label: str = "play_history",

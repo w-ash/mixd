@@ -201,14 +201,33 @@ def validate_connector_availability(
 # Derived from the canonical ENRICHER_METRIC_DEFS in node_config_fields.py.
 _ENRICHER_METRICS: dict[str, frozenset[str]] = get_enricher_metric_names()
 
-# Node types that reference metrics via config["metric_name"]
-_METRIC_CONSUMER_TYPES = {"filter.by_metric", "sorter.by_metric"}
+# Node types whose required enricher is derived from config["metric_name"]
+# via the ENRICHER_METRIC_DEFS lookup (scalar-metric consumers).
+_METRIC_CONSUMER_TYPES: frozenset[str] = frozenset({
+    "filter.by_metric",
+    "sorter.by_metric",
+})
+
+# Node types whose required enricher is fixed (not metric-name-derived).
+# The consumer needs this enricher upstream regardless of config.
+_ENRICHER_CONSUMER_MAP: dict[str, str] = {
+    "filter.by_preference": "enricher.preferences",
+    "sorter.by_preference": "enricher.preferences",
+    "filter.by_tag": "enricher.tags",
+    "filter.by_tag_namespace": "enricher.tags",
+}
 
 
 def _validate_enrichment_dependencies(
     workflow_def: WorkflowDef,
 ) -> list[dict[str, str]]:
-    """Walk the DAG and warn if filter/sorter nodes reference metrics without upstream enrichers.
+    """Walk the DAG and warn when filter/sorter nodes have no upstream enricher.
+
+    Covers two consumer families:
+    - Metric consumers (filter.by_metric, sorter.by_metric): required enricher
+      is derived from config["metric_name"] via ENRICHER_METRIC_DEFS.
+    - Enricher consumers (filter.by_preference, filter.by_tag, ...): required
+      enricher is fixed per consumer node type.
 
     Returns structured warnings (not errors) — the workflow can still run,
     but the sort/filter will produce meaningless results.
@@ -236,30 +255,42 @@ def _validate_enrichment_dependencies(
         return enricher_types
 
     for task_def in workflow_def.tasks:
-        if task_def.type not in _METRIC_CONSUMER_TYPES:
-            continue
+        if task_def.type in _METRIC_CONSUMER_TYPES:
+            metric_name = task_def.config.get("metric_name")
+            if not metric_name:
+                continue
 
-        metric_name = task_def.config.get("metric_name")
-        if not metric_name:
-            continue
+            upstream_enrichers = _collect_upstream_enricher_types(task_def.id)
+            available_metrics: set[str] = set()
+            for enricher_type in upstream_enrichers:
+                available_metrics |= _ENRICHER_METRICS.get(
+                    enricher_type, frozenset[str]()
+                )
 
-        # Collect metrics available from upstream enrichers
-        upstream_enrichers = _collect_upstream_enricher_types(task_def.id)
-        available_metrics: set[str] = set()
-        for enricher_type in upstream_enrichers:
-            available_metrics |= _ENRICHER_METRICS.get(enricher_type, frozenset[str]())
-
-        if metric_name not in available_metrics:
-            warnings.append({
-                "task_id": task_def.id,
-                "field": "config.metric_name",
-                "severity": "warning",
-                "message": (
-                    f"'{metric_name}' has no upstream enricher — "
-                    f"sort/filter will have no data. "
-                    f"Available metrics from upstream: {sorted(available_metrics) or 'none'}"
-                ),
-            })
+            if metric_name not in available_metrics:
+                warnings.append({
+                    "task_id": task_def.id,
+                    "field": "config.metric_name",
+                    "severity": "warning",
+                    "message": (
+                        f"'{metric_name}' has no upstream enricher — "
+                        f"sort/filter will have no data. "
+                        f"Available metrics from upstream: {sorted(available_metrics) or 'none'}"
+                    ),
+                })
+        elif required_enricher := _ENRICHER_CONSUMER_MAP.get(task_def.type):
+            upstream_enrichers = _collect_upstream_enricher_types(task_def.id)
+            if required_enricher not in upstream_enrichers:
+                warnings.append({
+                    "task_id": task_def.id,
+                    "field": "type",
+                    "severity": "warning",
+                    "message": (
+                        f"'{task_def.type}' requires upstream '{required_enricher}' — "
+                        f"sort/filter will have no data. "
+                        f"Upstream enrichers: {sorted(upstream_enrichers) or 'none'}"
+                    ),
+                })
 
     return warnings
 

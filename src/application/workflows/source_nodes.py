@@ -20,12 +20,14 @@ from src.application.use_cases.create_canonical_playlist import (
 )
 from src.application.use_cases.get_liked_tracks import GetLikedTracksCommand
 from src.application.use_cases.get_played_tracks import GetPlayedTracksCommand
+from src.application.use_cases.get_preferred_tracks import GetPreferredTracksCommand
 from src.application.use_cases.read_canonical_playlist import (
     ReadCanonicalPlaylistCommand,
 )
 from src.config import get_logger
 from src.config.constants import BusinessLimits
 from src.domain.entities.playlist import ConnectorPlaylist
+from src.domain.entities.preference import PreferenceState
 from src.domain.entities.shared import JsonValue
 from src.domain.entities.track import Track, TrackList
 from src.domain.repositories import UnitOfWorkProtocol
@@ -329,6 +331,58 @@ async def source_played_tracks(
         days_back=days_back,
         connector_filter=connector_filter,
         sort_by=sort_by_str,
+        execution_time_ms=result.execution_time_ms,
+    )
+    return {"tracklist": result.tracklist}
+
+
+async def source_preferred_tracks(
+    context: dict[str, object], config: Mapping[str, JsonValue]
+) -> NodeResult:
+    """Get tracks the user has assigned a given preference state.
+
+    Feeds workflows like "starred tracks unplayed 6 months" or "triage my hmms"
+    directly from the database — no pre-load + filter roundtrip needed.
+
+    Args:
+        context: Workflow execution context.
+        config: Required `state` ("hmm" | "nah" | "yah" | "star") and optional
+            `limit` (int, default: DEFAULT_LIBRARY_QUERY_LIMIT).
+    """
+    state = cfg_str(config, "state")
+    limit = cfg_int(config, "limit", BusinessLimits.DEFAULT_LIBRARY_QUERY_LIMIT)
+
+    ctx = NodeContext(context)
+    workflow_context = ctx.extract_workflow_context()
+
+    # Command validator rejects invalid states (hmm/nah/yah/star) — raises a
+    # clear ValueError before we hit the DB.
+    command = GetPreferredTracksCommand(
+        user_id=workflow_context.user_id,
+        state=cast(PreferenceState, state),
+        limit=limit,
+    )
+
+    await ctx.emit_phase_progress("query", "source", f"Querying {state} tracks")
+
+    result = await workflow_context.execute_use_case(
+        workflow_context.use_cases.get_preferred_tracks_use_case, command
+    )
+
+    returned = len(result.tracklist.tracks)
+    # Proxy truncation signal: when we filled the limit, there may be more.
+    # Avoids a separate COUNT query on every execution.
+    if returned >= limit:
+        logger.warning(
+            "Source limit possibly applied — increase 'limit' config to be sure",
+            returned=returned,
+            limit=limit,
+        )
+
+    logger.info(
+        "source_preferred_tracks complete",
+        track_count=returned,
+        state=state,
         execution_time_ms=result.execution_time_ms,
     )
     return {"tracklist": result.tracklist}

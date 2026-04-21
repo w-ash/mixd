@@ -25,6 +25,7 @@ from src.application.use_cases.create_connector_playlist import (
 from src.application.use_cases.enrich_tracks import EnrichTracksUseCase
 from src.application.use_cases.get_liked_tracks import GetLikedTracksUseCase
 from src.application.use_cases.get_played_tracks import GetPlayedTracksUseCase
+from src.application.use_cases.get_preferred_tracks import GetPreferredTracksUseCase
 from src.application.use_cases.read_canonical_playlist import (
     ReadCanonicalPlaylistUseCase,
 )
@@ -99,6 +100,10 @@ class UseCaseProvider(Protocol):
 
     async def get_played_tracks_use_case(self) -> GetPlayedTracksUseCase:
         """Get use case for retrieving user's listening history."""
+        ...
+
+    async def get_preferred_tracks_use_case(self) -> GetPreferredTracksUseCase:
+        """Get use case for retrieving tracks by preference state."""
         ...
 
     async def get_read_canonical_playlist_use_case(
