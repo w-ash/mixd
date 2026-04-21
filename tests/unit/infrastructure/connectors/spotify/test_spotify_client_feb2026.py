@@ -206,3 +206,31 @@ class TestNonOwnedPlaylistWarning:
         assert result is not None
         # Items should be empty (non-owned playlist)
         assert len(result.items) == 0
+
+
+class TestFeb2026NullableListCoercion:
+    """Feb 2026 API migration relaxed nullability on several list fields —
+    third-party libs (rspotify#550, psst#721) are patching the same pattern.
+
+    Model-level BeforeValidators must coerce `null` → `[]` at the boundary so
+    a single quirky track or page doesn't poison an entire response. Companion
+    regression test for `SpotifyPlaylist.images` lives in
+    test_user_playlists.py::TestNullableImagesCoercion.
+    """
+
+    def test_track_with_null_artists_parses(self) -> None:
+        from src.infrastructure.connectors.spotify.models import SpotifyTrack
+
+        track = SpotifyTrack.model_validate({"id": "abc", "name": "X", "artists": None})
+        assert track.artists == []
+
+    def test_paginated_items_with_null_items_parses(self) -> None:
+        payload = {
+            "href": "https://api.spotify.com/v1/playlists/x/items",
+            "limit": 50,
+            "offset": 0,
+            "total": 0,
+            "items": None,
+        }
+        parsed = SpotifyPaginatedPlaylistItems.model_validate(payload)
+        assert parsed.items == []

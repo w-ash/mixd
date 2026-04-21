@@ -77,7 +77,10 @@ class SpotifyTrack(SpotifyBaseModel):
 
     id: str
     name: str
-    artists: list[SpotifyArtist] = Field(default_factory=list)
+    artists: Annotated[
+        list[SpotifyArtist],
+        BeforeValidator(_none_to_empty_list),
+    ] = Field(default_factory=list)
     album: SpotifyAlbum | None = Field(default=None)
     duration_ms: int = Field(default=0)
     explicit: bool = Field(default=False)
@@ -119,7 +122,10 @@ class SpotifyPaginatedPlaylistItems(SpotifyBaseModel):
     offset: int = Field(default=0)
     previous: str | None = Field(default=None)
     total: int = Field(default=0)
-    items: list[SpotifyPlaylistItem] = Field(default_factory=list)
+    items: Annotated[
+        list[SpotifyPlaylistItem],
+        BeforeValidator(_none_to_empty_list),
+    ] = Field(default_factory=list)
 
 
 class SpotifyPlaylist(SpotifyBaseModel):
