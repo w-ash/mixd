@@ -11,6 +11,7 @@ from src.infrastructure.connectors.spotify.models import (
     SpotifyPaginatedPlaylistItems,
     SpotifyPlaylist,
     SpotifyPlaylistItem,
+    SpotifyTrack,
 )
 from tests.fixtures import make_spotify_track
 
@@ -210,17 +211,12 @@ class TestNonOwnedPlaylistWarning:
 
 class TestFeb2026NullableListCoercion:
     """Feb 2026 API migration relaxed nullability on several list fields —
-    third-party libs (rspotify#550, psst#721) are patching the same pattern.
-
-    Model-level BeforeValidators must coerce `null` → `[]` at the boundary so
-    a single quirky track or page doesn't poison an entire response. Companion
-    regression test for `SpotifyPlaylist.images` lives in
-    test_user_playlists.py::TestNullableImagesCoercion.
+    third-party libs (rspotify#550, psst#721) patched the same pattern.
+    Model-level BeforeValidators coerce `null` → `[]` so one quirky track
+    or page doesn't poison an entire response.
     """
 
     def test_track_with_null_artists_parses(self) -> None:
-        from src.infrastructure.connectors.spotify.models import SpotifyTrack
-
         track = SpotifyTrack.model_validate({"id": "abc", "name": "X", "artists": None})
         assert track.artists == []
 

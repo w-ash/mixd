@@ -39,6 +39,9 @@ def _none_to_empty_list(v: object) -> object:
     return [] if v is None else v
 
 
+type NullSafeList[T] = Annotated[list[T], BeforeValidator(_none_to_empty_list)]
+
+
 class SpotifyBaseModel(BaseModel):
     """Base model for all Spotify API response shapes.
 
@@ -77,10 +80,7 @@ class SpotifyTrack(SpotifyBaseModel):
 
     id: str
     name: str
-    artists: Annotated[
-        list[SpotifyArtist],
-        BeforeValidator(_none_to_empty_list),
-    ] = Field(default_factory=list)
+    artists: NullSafeList[SpotifyArtist] = Field(default_factory=list)
     album: SpotifyAlbum | None = Field(default=None)
     duration_ms: int = Field(default=0)
     explicit: bool = Field(default=False)
@@ -122,10 +122,7 @@ class SpotifyPaginatedPlaylistItems(SpotifyBaseModel):
     offset: int = Field(default=0)
     previous: str | None = Field(default=None)
     total: int = Field(default=0)
-    items: Annotated[
-        list[SpotifyPlaylistItem],
-        BeforeValidator(_none_to_empty_list),
-    ] = Field(default_factory=list)
+    items: NullSafeList[SpotifyPlaylistItem] = Field(default_factory=list)
 
 
 class SpotifyPlaylist(SpotifyBaseModel):
@@ -138,10 +135,7 @@ class SpotifyPlaylist(SpotifyBaseModel):
     public: bool | None = Field(default=None)  # nullable per API spec
     collaborative: bool = Field(default=False)
     snapshot_id: str | None = Field(default=None)
-    images: Annotated[
-        list[dict[str, str | int | None]],
-        BeforeValidator(_none_to_empty_list),
-    ] = Field(default_factory=list)
+    images: NullSafeList[dict[str, str | int | None]] = Field(default_factory=list)
     followers: SpotifyFollowers | None = Field(default=None)
     items: SpotifyPaginatedPlaylistItems = Field(
         default_factory=SpotifyPaginatedPlaylistItems
