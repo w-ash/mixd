@@ -159,3 +159,51 @@ class TestFetchAllUserPlaylists:
         ops = SpotifyOperations(client=client)
         with pytest.raises(SpotifyPaginationError):
             _ = await ops.fetch_all_user_playlists()
+
+
+class TestNullableImagesCoercion:
+    """Spotify's Feb 2026 API migration relaxed nullability — `images` can
+    arrive as `null` on SimplifiedPlaylistObject (notably collaborative or
+    no-art playlists). The response model must coerce this to `[]` rather
+    than fail validation. Regression test for a user-reported import crash
+    with `2 validation errors for SpotifyUserPlaylistsResponse`.
+    """
+
+    def test_playlist_with_null_images_parses(self) -> None:
+        from src.infrastructure.connectors.spotify.models import (
+            SpotifyUserPlaylistsResponse,
+        )
+
+        good = _playlist_item("a", "A")
+        null_images: dict = _playlist_item("b", "B")
+        null_images["images"] = None
+
+        response = SpotifyUserPlaylistsResponse.model_validate(
+            _page([good, null_images], total=2)
+        )
+
+        assert [p.id for p in response.items] == ["a", "b"]
+        assert response.items[0].images == []
+        assert response.items[1].images == []
+
+    def test_mixed_null_and_populated_images_parses(self) -> None:
+        """The failure mode from the bug report: a response mixing valid
+        image lists with `null` images. All items must parse."""
+        from src.infrastructure.connectors.spotify.models import (
+            SpotifyUserPlaylistsResponse,
+        )
+
+        with_art: dict = _playlist_item("a", "A")
+        with_art["images"] = [
+            {"url": "https://i.scdn.co/image/abc", "width": 300, "height": 300}
+        ]
+        no_art: dict = _playlist_item("b", "B")
+        no_art["images"] = None
+
+        response = SpotifyUserPlaylistsResponse.model_validate(
+            _page([with_art, no_art], total=2)
+        )
+
+        assert len(response.items) == 2
+        assert response.items[0].images[0]["url"] == "https://i.scdn.co/image/abc"
+        assert response.items[1].images == []

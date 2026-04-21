@@ -24,9 +24,19 @@ Endpoint coverage:
   all-defaults on SpotifyPaginatedPlaylistItems.)
 """
 
-from typing import ClassVar
+from typing import Annotated, ClassVar
 
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, BeforeValidator, ConfigDict, Field
+
+
+def _none_to_empty_list(v: object) -> object:
+    """Coerce Spotify's occasional `null` to `[]` on list fields.
+
+    Spotify's Feb 2026 API migration relaxed nullability on several fields
+    (see rspotify#550, psst#721). SimplifiedPlaylistObject.images in
+    particular can arrive as `null` despite the spec declaring it a list.
+    """
+    return [] if v is None else v
 
 
 class SpotifyBaseModel(BaseModel):
@@ -122,7 +132,10 @@ class SpotifyPlaylist(SpotifyBaseModel):
     public: bool | None = Field(default=None)  # nullable per API spec
     collaborative: bool = Field(default=False)
     snapshot_id: str | None = Field(default=None)
-    images: list[dict[str, str | int | None]] = Field(default_factory=list)
+    images: Annotated[
+        list[dict[str, str | int | None]],
+        BeforeValidator(_none_to_empty_list),
+    ] = Field(default_factory=list)
     followers: SpotifyFollowers | None = Field(default=None)
     items: SpotifyPaginatedPlaylistItems = Field(
         default_factory=SpotifyPaginatedPlaylistItems
