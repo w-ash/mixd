@@ -3,6 +3,10 @@
 Bounded-concurrent fetch + sequential upsert; never creates canonical
 Playlists or PlaylistLinks. Use this when a caller needs fresh cached
 playlist state but does not want to fork the playlist into Mixd.
+
+Delegates to ``ensure_connector_playlist_cache`` — the Command side of
+the CQS split. This use case's job is to expose that capability to the
+API / CLI boundary with Command/Result types.
 """
 
 from collections.abc import Sequence
@@ -10,9 +14,8 @@ from collections.abc import Sequence
 from attrs import define
 
 from src.application.services.connector_playlist_sync_service import (
-    RefreshedPlaylist,
     RefreshFailure,
-    batch_refresh_connector_playlists,
+    ensure_connector_playlist_cache,
 )
 from src.domain.repositories import UnitOfWorkProtocol
 
@@ -26,7 +29,10 @@ class RefreshConnectorPlaylistsCommand:
 
 @define(frozen=True, slots=True)
 class RefreshConnectorPlaylistsResult:
-    succeeded: Sequence[RefreshedPlaylist]
+    """Metric-only result — callers who want the playlist data should use
+    the Query path (``get_current_connector_playlists``) instead."""
+
+    succeeded: Sequence[str]
     skipped_unchanged: Sequence[str]
     failed: Sequence[RefreshFailure]
 
@@ -39,17 +45,17 @@ class RefreshConnectorPlaylistsUseCase:
         uow: UnitOfWorkProtocol,
     ) -> RefreshConnectorPlaylistsResult:
         async with uow:
-            succeeded, skipped, failed = await batch_refresh_connector_playlists(
+            outcome = await ensure_connector_playlist_cache(
                 command.connector_name,
                 command.connector_playlist_ids,
                 uow,
             )
-            if succeeded:
+            if outcome.fetched:
                 await uow.commit()
             return RefreshConnectorPlaylistsResult(
-                succeeded=succeeded,
-                skipped_unchanged=skipped,
-                failed=failed,
+                succeeded=outcome.fetched,
+                skipped_unchanged=outcome.cache_hit,
+                failed=outcome.failed,
             )
 
 

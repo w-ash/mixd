@@ -102,6 +102,44 @@ class TestSkipWhenLinked:
         assert len(result.succeeded) == 0
         uow.commit.assert_not_called()
 
+    async def test_fresh_cache_no_link_still_creates_canonical(self) -> None:
+        """Regression: fresh connector_playlists cache + no existing
+        PlaylistLinks must still produce canonical Playlists.
+
+        This was the prod v0.7.5 shape (483 cached connector_playlists,
+        0 playlist_mappings). The pre-CQS-split code routed every id
+        through a cache-skip branch and returned succeeded=[],
+        skipped_unchanged=[N] — the UI showed "N unchanged" and nothing
+        was persisted. The Query path makes that failure unrepresentable:
+        get_current_connector_playlists always returns the playlist data,
+        so the canonical-upsert loop runs for every resolved id.
+        """
+        uow, connector = make_mock_uow_with_connector()
+        uow.get_playlist_link_repository().list_by_user_connector.return_value = []
+        uow.get_connector_playlist_repository().list_by_connector.return_value = [
+            _cp("sp1", name="Chill", snapshot_id="cached-snap"),
+            _cp("sp2", name="Mellow", snapshot_id="cached-snap"),
+            _cp("sp3", name="Drive", snapshot_id="cached-snap"),
+        ]
+
+        with patch(_UPSERT_PATCH, new=AsyncMock(return_value=_create_result())):
+            result = await _use_case().execute(_cmd(["sp1", "sp2", "sp3"]), uow)
+
+        connector.get_playlist.assert_not_called()  # cache was fresh
+        assert len(result.succeeded) == 3
+        assert list(result.skipped_unchanged) == []
+        assert len(result.failed) == 0
+
+        link_repo = uow.get_playlist_link_repository()
+        link_repo.create_links_batch.assert_awaited_once()
+        created_links = link_repo.create_links_batch.call_args.args[0]
+        assert [link.connector_playlist_identifier for link in created_links] == [
+            "sp1",
+            "sp2",
+            "sp3",
+        ]
+        uow.commit.assert_awaited_once()
+
 
 class TestCreatePath:
     async def test_new_playlist_creates_canonical_and_link(self) -> None:

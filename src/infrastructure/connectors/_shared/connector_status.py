@@ -1,7 +1,11 @@
 """Connector status probing.
 
 Provider-specific probes that read credentials from ``TokenStorage`` and
-return a domain ``ConnectorStatus`` value object.
+return a domain ``ConnectorStatus`` value object. Each ``get_*_status``
+keeps its own flow rather than sharing a template — the auth semantics
+diverge enough (Spotify's silent OAuth refresh, Last.fm's api-key +
+session-key fallback, stubs that skip auth entirely) that a shared
+scaffold would hide the differences that matter for each provider.
 """
 
 import time

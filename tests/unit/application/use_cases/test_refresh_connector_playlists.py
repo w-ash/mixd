@@ -53,8 +53,7 @@ class TestSnapshotShortCircuit:
         result = await RefreshConnectorPlaylistsUseCase().execute(_cmd(["sp1"]), uow)
 
         connector.get_playlist.assert_awaited_once_with("sp1")
-        assert len(result.succeeded) == 1
-        assert result.succeeded[0].connector_playlist_identifier == "sp1"
+        assert list(result.succeeded) == ["sp1"]
         uow.commit.assert_awaited_once()
 
 
@@ -72,8 +71,7 @@ class TestFailureIsolation:
             _cmd(["good", "bad"]), uow
         )
 
-        assert len(result.succeeded) == 1
-        assert result.succeeded[0].connector_playlist_identifier == "good"
+        assert list(result.succeeded) == ["good"]
         assert len(result.failed) == 1
         assert result.failed[0].connector_playlist_identifier == "bad"
         assert "404" in result.failed[0].message

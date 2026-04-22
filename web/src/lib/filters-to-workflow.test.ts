@@ -86,7 +86,7 @@ describe("filtersToWorkflowDef", () => {
       type: "destination.create_playlist",
       upstream: ["limit"],
     });
-    expect((destination?.config ?? {}).connector).toBe("spotify");
+    expect(destination?.config?.connector).toBe("spotify");
   });
 
   it("no preference → source.liked_tracks with connector filter", () => {
@@ -157,7 +157,7 @@ describe("filtersToWorkflowDef", () => {
       { preference: "yah", limit: 25 },
       { name: "Top 25" },
     );
-    expect((tasksOf(wf)[0].config ?? {}).limit).toBe(25);
+    expect(tasksOf(wf)[0].config?.limit).toBe(25);
     expect(findTask(wf, "selector.limit_tracks").config).toMatchObject({
       count: 25,
     });

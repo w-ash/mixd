@@ -11,7 +11,7 @@ from uuid import UUID
 from attrs import define
 
 from src.application.services.connector_playlist_sync_service import (
-    batch_refresh_connector_playlists,
+    get_current_connector_playlists,
     has_fresh_cache,
 )
 from src.application.services.playlist_upsert import upsert_canonical_playlist
@@ -89,11 +89,11 @@ class ImportConnectorPlaylistsAsCanonicalUseCase:
                 else:
                     to_refresh.append(cid)
 
-            (
-                refreshed,
-                cache_skipped,
-                refresh_failed,
-            ) = await batch_refresh_connector_playlists(
+            # Query: resolve every id past the link-skip filter to its current
+            # ConnectorPlaylist — cache-hit or network-fetched, same contract.
+            # No "skipped without data" dimension exists in this return, so the
+            # canonical-upsert loop below runs for every resolved playlist.
+            resolved, resolve_failed = await get_current_connector_playlists(
                 command.connector_name,
                 to_refresh,
                 uow,
@@ -106,12 +106,10 @@ class ImportConnectorPlaylistsAsCanonicalUseCase:
                     connector_playlist_identifier=f.connector_playlist_identifier,
                     message=f.message,
                 )
-                for f in refresh_failed
+                for f in resolve_failed
             ]
             links_to_create: list[PlaylistLink] = []
-            for rp in refreshed:
-                cid = rp.connector_playlist_identifier
-                cp = rp.connector_playlist
+            for cid, cp in resolved.items():
                 try:
                     upsert_result = await upsert_canonical_playlist(
                         cp,
@@ -177,7 +175,7 @@ class ImportConnectorPlaylistsAsCanonicalUseCase:
 
             return ImportConnectorPlaylistsAsCanonicalResult(
                 succeeded=succeeded,
-                skipped_unchanged=link_skipped + cache_skipped,
+                skipped_unchanged=link_skipped,
                 failed=failed,
             )
 
