@@ -1,5 +1,5 @@
 {
-  "workflow_name": "Current Obsessions from Play History",
+  "name": "Current Obsessions from Play History",
   "description": "Ultra-DRY composition: Find tracks you've been playing obsessively in recent weeks",
   "tasks": [
     {

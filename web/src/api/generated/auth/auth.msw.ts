@@ -3,7 +3,7 @@
  * Do not edit manually.
  * Mixd
  * Personal music metadata hub
- * OpenAPI spec version: 0.7.4.post2
+ * OpenAPI spec version: 0.7.5
  */
 import {
   faker
@@ -18,39 +18,22 @@ import type {
 } from 'msw';
 
 import type {
-  GetLastfmAuthUrlApiV1ConnectorsLastfmAuthUrlGet200,
-  GetSpotifyAuthUrlApiV1ConnectorsSpotifyAuthUrlGet200
+  GetConnectorAuthUrlApiV1ConnectorsServiceAuthUrlGet200
 } from '../model';
 
 
-export const getGetSpotifyAuthUrlApiV1ConnectorsSpotifyAuthUrlGetResponseMock = (): GetSpotifyAuthUrlApiV1ConnectorsSpotifyAuthUrlGet200 => ({
-        [faker.string.alphanumeric(5)]: faker.string.alpha({length: {min: 10, max: 20}})
-      })
-
-export const getGetLastfmAuthUrlApiV1ConnectorsLastfmAuthUrlGetResponseMock = (): GetLastfmAuthUrlApiV1ConnectorsLastfmAuthUrlGet200 => ({
+export const getGetConnectorAuthUrlApiV1ConnectorsServiceAuthUrlGetResponseMock = (): GetConnectorAuthUrlApiV1ConnectorsServiceAuthUrlGet200 => ({
         [faker.string.alphanumeric(5)]: faker.string.alpha({length: {min: 10, max: 20}})
       })
 
 
-export const getGetSpotifyAuthUrlApiV1ConnectorsSpotifyAuthUrlGetMockHandler = (overrideResponse?: GetSpotifyAuthUrlApiV1ConnectorsSpotifyAuthUrlGet200 | ((info: Parameters<Parameters<typeof http.get>[1]>[0]) => Promise<GetSpotifyAuthUrlApiV1ConnectorsSpotifyAuthUrlGet200> | GetSpotifyAuthUrlApiV1ConnectorsSpotifyAuthUrlGet200), options?: RequestHandlerOptions) => {
-  return http.get('*/api/v1/connectors/spotify/auth-url', async (info: Parameters<Parameters<typeof http.get>[1]>[0]) => {
+export const getGetConnectorAuthUrlApiV1ConnectorsServiceAuthUrlGetMockHandler = (overrideResponse?: GetConnectorAuthUrlApiV1ConnectorsServiceAuthUrlGet200 | ((info: Parameters<Parameters<typeof http.get>[1]>[0]) => Promise<GetConnectorAuthUrlApiV1ConnectorsServiceAuthUrlGet200> | GetConnectorAuthUrlApiV1ConnectorsServiceAuthUrlGet200), options?: RequestHandlerOptions) => {
+  return http.get('*/api/v1/connectors/:service/auth-url', async (info: Parameters<Parameters<typeof http.get>[1]>[0]) => {
 
 
     return HttpResponse.json(overrideResponse !== undefined
     ? (typeof overrideResponse === "function" ? await overrideResponse(info) : overrideResponse)
-    : getGetSpotifyAuthUrlApiV1ConnectorsSpotifyAuthUrlGetResponseMock(),
-      { status: 200
-      })
-  }, options)
-}
-
-export const getGetLastfmAuthUrlApiV1ConnectorsLastfmAuthUrlGetMockHandler = (overrideResponse?: GetLastfmAuthUrlApiV1ConnectorsLastfmAuthUrlGet200 | ((info: Parameters<Parameters<typeof http.get>[1]>[0]) => Promise<GetLastfmAuthUrlApiV1ConnectorsLastfmAuthUrlGet200> | GetLastfmAuthUrlApiV1ConnectorsLastfmAuthUrlGet200), options?: RequestHandlerOptions) => {
-  return http.get('*/api/v1/connectors/lastfm/auth-url', async (info: Parameters<Parameters<typeof http.get>[1]>[0]) => {
-
-
-    return HttpResponse.json(overrideResponse !== undefined
-    ? (typeof overrideResponse === "function" ? await overrideResponse(info) : overrideResponse)
-    : getGetLastfmAuthUrlApiV1ConnectorsLastfmAuthUrlGetResponseMock(),
+    : getGetConnectorAuthUrlApiV1ConnectorsServiceAuthUrlGetResponseMock(),
       { status: 200
       })
   }, options)
@@ -76,8 +59,7 @@ export const getLastfmCallbackAuthLastfmCallbackGetMockHandler = (overrideRespon
   }, options)
 }
 export const getAuthMock = () => [
-  getGetSpotifyAuthUrlApiV1ConnectorsSpotifyAuthUrlGetMockHandler(),
-  getGetLastfmAuthUrlApiV1ConnectorsLastfmAuthUrlGetMockHandler(),
+  getGetConnectorAuthUrlApiV1ConnectorsServiceAuthUrlGetMockHandler(),
   getSpotifyCallbackAuthSpotifyCallbackGetMockHandler(),
   getLastfmCallbackAuthLastfmCallbackGetMockHandler()
 ]

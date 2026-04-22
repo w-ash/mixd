@@ -51,18 +51,18 @@ from src.application.use_cases.untag_track import (
 )
 from src.config.constants import BusinessLimits
 from src.interface.api.deps import get_current_user_id
-from src.interface.api.schemas.common import PaginatedResponse
 from src.interface.api.schemas.tracks import (
     AddTagRequest,
     AddTagResponse,
     BatchTagRequest,
     BatchTagResponse,
-    LibraryTrackSchema,
     MergeTrackRequest,
+    PaginatedLibraryTracksResponse,
     PlaylistBriefSchema,
     RelinkMappingRequest,
     SetPreferenceRequest,
     TrackDetailSchema,
+    TrackFacetsSchema,
     UnlinkMappingResponse,
     playlist_to_brief_schema,
     to_library_track,
@@ -109,7 +109,14 @@ async def list_tracks(
     cursor: str | None = Query(
         default=None, description="Opaque cursor for keyset pagination"
     ),
-) -> PaginatedResponse[LibraryTrackSchema]:
+    include_facets: bool = Query(
+        default=False,
+        description=(
+            "When true, return per-facet counts (preference, liked, connector) "
+            "scoped to the current filter set."
+        ),
+    ),
+) -> PaginatedLibraryTracksResponse:
     """List tracks with optional search, filters, sorting, and pagination.
 
     Supports both offset-based and cursor-based (keyset) pagination.
@@ -139,12 +146,13 @@ async def list_tracks(
         limit=limit,
         offset=offset,
         cursor=cursor,
+        include_facets=include_facets,
     )
     result = await execute_use_case(
         lambda uow: ListTracksUseCase().execute(command, uow),
         user_id=user_id,
     )
-    return PaginatedResponse(
+    return PaginatedLibraryTracksResponse(
         data=[
             to_library_track(
                 t,
@@ -158,6 +166,9 @@ async def list_tracks(
         limit=result.limit,
         offset=result.offset,
         next_cursor=result.next_cursor,
+        facets=TrackFacetsSchema.model_validate(result.facets)
+        if result.facets
+        else None,
     )
 
 

@@ -11,14 +11,12 @@ Flow:
 4. Callback exchanges code/token, stores credentials, redirects to /settings/integrations
 """
 
-import base64
 from datetime import UTC, datetime, timedelta
-import hashlib
 import secrets
 from typing import cast
 import urllib.parse
 
-from fastapi import APIRouter, Depends, Request
+from fastapi import APIRouter, Depends, HTTPException, Request
 from fastapi.responses import RedirectResponse
 from sqlalchemy import delete
 
@@ -30,11 +28,8 @@ from src.infrastructure.connectors._shared.token_storage import (
     StoredToken,
     get_token_storage,
 )
-from src.infrastructure.connectors.spotify.auth import (
-    SPOTIFY_AUTHORIZE_URL,
-    SPOTIFY_SCOPES,
-    SpotifyTokenManager,
-)
+from src.infrastructure.connectors.discovery import discover_connectors
+from src.infrastructure.connectors.spotify.auth import SpotifyTokenManager
 from src.interface.api.deps import get_current_user_id
 
 logger = get_logger(__name__)
@@ -46,13 +41,6 @@ router = APIRouter(tags=["auth"])
 # ---------------------------------------------------------------------------
 
 _CSRF_STATE_TTL = timedelta(minutes=5)
-
-
-def _create_pkce_challenge(code_verifier: str) -> str:
-    """Compute S256 PKCE code_challenge from a code_verifier (RFC 7636)."""
-
-    digest = hashlib.sha256(code_verifier.encode("ascii")).digest()
-    return base64.urlsafe_b64encode(digest).rstrip(b"=").decode("ascii")
 
 
 async def _create_state(
@@ -126,53 +114,32 @@ async def _validate_state(state: str) -> tuple[bool, str | None, str | None]:
 # ---------------------------------------------------------------------------
 
 
-@router.get("/api/v1/connectors/spotify/auth-url")
-async def get_spotify_auth_url(
-    user_id: str = Depends(get_current_user_id),
-) -> dict[str, str]:
-    """Generate Spotify OAuth authorization URL with CSRF state and PKCE."""
-    code_verifier = secrets.token_urlsafe(64)
-    code_challenge = _create_pkce_challenge(code_verifier)
-    state = await _create_state(user_id, "spotify", code_verifier=code_verifier)
-    params = {
-        "client_id": settings.credentials.spotify_client_id,
-        "response_type": "code",
-        "redirect_uri": settings.credentials.spotify_redirect_uri,
-        "scope": " ".join(SPOTIFY_SCOPES),
-        "state": state,
-        "show_dialog": "true",
-        "code_challenge_method": "S256",
-        "code_challenge": code_challenge,
-    }
-    auth_url = f"{SPOTIFY_AUTHORIZE_URL}?{urllib.parse.urlencode(params)}"
-    return {"auth_url": auth_url}
-
-
-@router.get("/api/v1/connectors/lastfm/auth-url")
-async def get_lastfm_auth_url(
+@router.get("/api/v1/connectors/{service}/auth-url")
+async def get_connector_auth_url(
+    service: str,
     request: Request,
     user_id: str = Depends(get_current_user_id),
 ) -> dict[str, str]:
-    """Generate Last.fm web auth URL.
+    """Generate the OAuth authorization URL for the named connector.
 
-    Derives the callback URL from the request's Host header so it works
-    for both localhost development and production deployment. Embeds a
-    ``_state`` query param in the callback URL since Last.fm has no native
-    state parameter.
+    Dispatches via the connector registry: each OAuth-capable connector
+    registers a ``build_auth_url`` callable (e.g. ``spotify/auth.py``,
+    ``lastfm/auth.py``) that assembles the provider-specific URL. The
+    CSRF + PKCE state factory is injected so security-sensitive DB state
+    creation stays centralized in this file.
+
+    Returns 404 for unknown services, 400 for non-OAuth connectors
+    (``auth_method`` in ``{"none", "coming_soon"}``).
     """
-    api_key = settings.credentials.lastfm_key
-    state = await _create_state(user_id, "lastfm")
-
-    # Derive callback URL from current request, including our state token
-    scheme = request.headers.get("x-forwarded-proto", request.url.scheme)
-    host = request.headers.get("x-forwarded-host", request.url.netloc)
-    callback_url = f"{scheme}://{host}/auth/lastfm/callback?_state={state}"
-
-    params = {
-        "api_key": api_key,
-        "cb": callback_url,
-    }
-    auth_url = f"https://www.last.fm/api/auth/?{urllib.parse.urlencode(params)}"
+    config = discover_connectors().get(service)
+    if config is None:
+        raise HTTPException(status_code=404, detail=f"Unknown connector: {service}")
+    build = config["build_auth_url"]
+    if config["auth_method"] != "oauth" or build is None:
+        raise HTTPException(
+            status_code=400, detail=f"{service} does not support OAuth authorization"
+        )
+    auth_url = await build(user_id, request, _create_state)
     return {"auth_url": auth_url}
 
 

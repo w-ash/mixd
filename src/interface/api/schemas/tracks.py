@@ -23,11 +23,38 @@ from src.domain.entities.playlist import DB_PSEUDO_CONNECTOR
 from src.domain.entities.preference import PreferenceState
 from src.domain.entities.tag import normalize_tag
 from src.domain.entities.track import Track
+from src.interface.api.schemas.common import PaginatedResponse
 from src.interface.api.schemas.playlists import ArtistSchema, to_artist_schema
 
 # Raw tag strings are validated + normalized at the Pydantic layer so
 # invalid input surfaces as a 422 BEFORE hitting the use case or DB.
 TagString = Annotated[str, AfterValidator(normalize_tag)]
+
+
+class TrackFacetsSchema(BaseModel):
+    """Per-facet counts scoped to the current filter set.
+
+    Populated only when `GET /tracks?include_facets=true`.
+    Keys within each dimension: preference ∈ star/yah/hmm/nah/unrated,
+    liked ∈ true/false, connector ∈ registered connector names.
+    """
+
+    model_config = ConfigDict(from_attributes=True)
+
+    preference: dict[str, int]
+    liked: dict[str, int]
+    connector: dict[str, int]
+
+
+class PaginatedLibraryTracksResponse(PaginatedResponse["LibraryTrackSchema"]):
+    """PaginatedResponse + optional facet counts for /tracks only.
+
+    Keeps the generic PaginatedResponse uncluttered for other list endpoints
+    (playlists, workflows) while surfacing `facets` where the contract
+    allows it.
+    """
+
+    facets: TrackFacetsSchema | None = None
 
 
 class LibraryTrackSchema(BaseModel):

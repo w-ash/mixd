@@ -1,10 +1,11 @@
 import { useQueryClient } from "@tanstack/react-query";
 import { useState } from "react";
 
-import { getListSpotifyPlaylistsApiV1ConnectorsSpotifyPlaylistsGetQueryKey } from "#/api/generated/connectors/connectors";
+import { getListConnectorPlaylistsApiV1ConnectorsServicePlaylistsGetQueryKey } from "#/api/generated/connectors/connectors";
 import type {
   ApplyResultSchema,
-  SpotifyPlaylistBrowseSchema,
+  ConnectorMetadataSchema,
+  ConnectorPlaylistBrowseSchema,
 } from "#/api/generated/model";
 import { useCreateAndApplyAssignmentApiV1PlaylistAssignmentsPost } from "#/api/generated/playlist-assignments/playlist-assignments";
 import { Button } from "#/components/ui/button";
@@ -28,8 +29,9 @@ interface AssignPlaylistDialogProps {
   open: boolean;
   onOpenChange: (open: boolean) => void;
   mode: AssignMode;
+  connector: ConnectorMetadataSchema;
   playlist: Pick<
-    SpotifyPlaylistBrowseSchema,
+    ConnectorPlaylistBrowseSchema,
     "connector_playlist_db_id" | "name" | "current_assignments"
   >;
 }
@@ -49,6 +51,7 @@ export function AssignPlaylistDialog({
   open,
   onOpenChange,
   mode,
+  connector,
   playlist,
 }: AssignPlaylistDialogProps) {
   const queryClient = useQueryClient();
@@ -59,8 +62,6 @@ export function AssignPlaylistDialog({
     (a) => a.action_type === "set_preference",
   )?.action_value as PreferenceState | undefined;
 
-  // Initialised once per mount — the picker conditionally renders this
-  // dialog (`{assignDialog && ...}`) so state resets naturally between opens.
   const [rating, setRating] = useState<PreferenceState | null>(
     existingRating ?? null,
   );
@@ -70,7 +71,9 @@ export function AssignPlaylistDialog({
       onSuccess: async (response) => {
         await queryClient.invalidateQueries({
           queryKey:
-            getListSpotifyPlaylistsApiV1ConnectorsSpotifyPlaylistsGetQueryKey(),
+            getListConnectorPlaylistsApiV1ConnectorsServicePlaylistsGetQueryKey(
+              connector.name,
+            ),
         });
         if (response.status === 201) {
           const value = response.data.assignment.action_value;
@@ -89,7 +92,7 @@ export function AssignPlaylistDialog({
     ? `Tag tracks in '${playlist.name}'`
     : `Rate tracks in '${playlist.name}'`;
   const description = isTag
-    ? "Every track in this playlist will gain the tag you pick. Removing a track from the playlist on Spotify will remove the tag here on the next re-apply."
+    ? `Every track in this playlist will gain the tag you pick. Removing a track from the playlist on ${connector.display_name} will remove the tag here on the next re-apply.`
     : "Every track in this playlist will get the rating you pick. Manual ratings you've set yourself are never overwritten.";
 
   const handleAddTag = (rawTag: string) => {

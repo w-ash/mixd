@@ -1,7 +1,4 @@
-import { X } from "lucide-react";
-
-import { Badge } from "#/components/ui/badge";
-import { cn } from "#/lib/utils";
+import { DismissibleChip } from "./DismissibleChip";
 
 interface TagChipProps {
   tag: string;
@@ -9,20 +6,18 @@ interface TagChipProps {
   className?: string;
 }
 
+/**
+ * User-authored tag pill. Thin wrapper over DismissibleChip with
+ * `fontVariant="mono"` — the tag string is a normalized identifier, so
+ * monospace distinguishes it from system-authored filter labels.
+ */
 export function TagChip({ tag, onRemove, className }: TagChipProps) {
   return (
-    <Badge variant="outline" className={cn("gap-1.5 font-mono", className)}>
-      <span>{tag}</span>
-      {onRemove && (
-        <button
-          type="button"
-          onClick={onRemove}
-          aria-label={`Remove ${tag}`}
-          className="-mr-1 rounded-sm text-text-muted transition-colors hover:text-foreground focus-visible:outline-none focus-visible:ring-[3px] focus-visible:ring-ring/50"
-        >
-          <X className="size-3" strokeWidth={2.5} />
-        </button>
-      )}
-    </Badge>
+    <DismissibleChip
+      label={tag}
+      fontVariant="mono"
+      onRemove={onRemove}
+      className={className}
+    />
   );
 }

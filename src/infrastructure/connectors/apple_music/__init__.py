@@ -15,10 +15,12 @@ Usage (future):
 """
 
 # Currently only error classifier is implemented
+from src.infrastructure.connectors.apple_music.connector import get_connector_config
 from src.infrastructure.connectors.apple_music.error_classifier import (
     AppleMusicErrorClassifier,
 )
 
 __all__ = [
     "AppleMusicErrorClassifier",
+    "get_connector_config",
 ]

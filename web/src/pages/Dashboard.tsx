@@ -11,6 +11,7 @@ import {
 } from "lucide-react";
 import type { ReactNode } from "react";
 import { Link } from "react-router";
+import { useGetConnectorsApiV1ConnectorsGet } from "#/api/generated/connectors/connectors";
 import type {
   DashboardStatsSchema,
   MatchMethodHealthSchema,
@@ -39,7 +40,7 @@ import {
   TableHeader,
   TableRow,
 } from "#/components/ui/table";
-import { formatCount } from "#/lib/format";
+import { formatCount, formatList } from "#/lib/format";
 import { pluralize } from "#/lib/pluralize";
 import { cn } from "#/lib/utils";
 
@@ -407,9 +408,19 @@ function StepCard({ step, title, description, to, done, icon }: StepCardProps) {
   );
 }
 
-function GettingStarted({ stats }: { stats: DashboardStatsSchema }) {
+function GettingStarted({
+  stats,
+  connectorLabels,
+}: {
+  stats: DashboardStatsSchema;
+  connectorLabels: string[];
+}) {
   const hasConnectors = Object.keys(stats.tracks_by_connector).length > 0;
   const hasData = stats.total_tracks > 0 || stats.total_plays > 0;
+  const connectDescription =
+    connectorLabels.length === 0
+      ? "Link your music services."
+      : `Link your ${formatList(connectorLabels)} ${connectorLabels.length === 1 ? "account" : "accounts"}.`;
 
   return (
     <div className="mx-auto max-w-lg space-y-4">
@@ -427,7 +438,7 @@ function GettingStarted({ stats }: { stats: DashboardStatsSchema }) {
           step={1}
           icon={<Link2 className="size-4" />}
           title="Connect services"
-          description="Link your Spotify and Last.fm accounts."
+          description={connectDescription}
           to="/settings/integrations"
           done={hasConnectors}
         />
@@ -463,9 +474,18 @@ export function Dashboard() {
     useGetMatchingHealthApiV1StatsMatchingGet(undefined, {
       query: { staleTime: STALE.STATIC },
     });
+  const { data: connectorsData } = useGetConnectorsApiV1ConnectorsGet({
+    query: { staleTime: STALE.STATIC },
+  });
 
   const stats = data?.status === 200 ? data.data : undefined;
   const health = matchingData?.status === 200 ? matchingData.data : undefined;
+  const connectorLabels =
+    connectorsData?.status === 200
+      ? connectorsData.data
+          .filter((c) => c.auth_method === "oauth")
+          .map((c) => c.display_name)
+      : [];
 
   return (
     <div className="space-y-8">
@@ -485,7 +505,7 @@ export function Dashboard() {
         !isError &&
         stats &&
         (stats.total_tracks === 0 ? (
-          <GettingStarted stats={stats} />
+          <GettingStarted stats={stats} connectorLabels={connectorLabels} />
         ) : (
           <StatsGrid stats={stats} />
         ))}

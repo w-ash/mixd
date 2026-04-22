@@ -1,6 +1,7 @@
 import { HttpResponse, http } from "msw";
 import { describe, expect, it, vi } from "vitest";
 
+import { makeConnectorMetadata } from "#/test/factories";
 import { server } from "#/test/setup";
 import {
   renderWithProviders,
@@ -11,6 +12,12 @@ import {
 
 import { ImportPlaylistsConfirmDialog } from "./ImportPlaylistsConfirmDialog";
 
+const SPOTIFY_CONNECTOR = makeConnectorMetadata({
+  name: "spotify",
+  connected: true,
+  status: "connected",
+});
+
 function setup(
   overrides: Partial<Parameters<typeof ImportPlaylistsConfirmDialog>[0]> = {},
 ) {
@@ -19,6 +26,7 @@ function setup(
   renderWithProviders(
     <ImportPlaylistsConfirmDialog
       open={true}
+      connector={SPOTIFY_CONNECTOR}
       onOpenChange={onOpenChange}
       playlists={[
         { id: "sp1", name: "Chill Vibes" },

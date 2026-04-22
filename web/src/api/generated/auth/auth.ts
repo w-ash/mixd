@@ -3,7 +3,7 @@
  * Do not edit manually.
  * Mixd
  * Personal music metadata hub
- * OpenAPI spec version: 0.7.4.post2
+ * OpenAPI spec version: 0.7.5
  */
 import {
   useQuery
@@ -21,8 +21,7 @@ import type {
 } from '@tanstack/react-query';
 
 import type {
-  GetLastfmAuthUrlApiV1ConnectorsLastfmAuthUrlGet200,
-  GetSpotifyAuthUrlApiV1ConnectorsSpotifyAuthUrlGet200,
+  GetConnectorAuthUrlApiV1ConnectorsServiceAuthUrlGet200,
   HTTPValidationError,
   LastfmCallbackAuthLastfmCallbackGetParams,
   SpotifyCallbackAuthSpotifyCallbackGetParams
@@ -36,32 +35,48 @@ type SecondParameter<T extends (...args: never) => unknown> = Parameters<T>[1];
 
 
 /**
- * Generate Spotify OAuth authorization URL with CSRF state and PKCE.
- * @summary Get Spotify Auth Url
+ * Generate the OAuth authorization URL for the named connector.
+
+Dispatches via the connector registry: each OAuth-capable connector
+registers a ``build_auth_url`` callable (e.g. ``spotify/auth.py``,
+``lastfm/auth.py``) that assembles the provider-specific URL. The
+CSRF + PKCE state factory is injected so security-sensitive DB state
+creation stays centralized in this file.
+
+Returns 404 for unknown services, 400 for non-OAuth connectors
+(``auth_method`` in ``{"none", "coming_soon"}``).
+ * @summary Get Connector Auth Url
  */
-export type getSpotifyAuthUrlApiV1ConnectorsSpotifyAuthUrlGetResponse200 = {
-  data: GetSpotifyAuthUrlApiV1ConnectorsSpotifyAuthUrlGet200
+export type getConnectorAuthUrlApiV1ConnectorsServiceAuthUrlGetResponse200 = {
+  data: GetConnectorAuthUrlApiV1ConnectorsServiceAuthUrlGet200
   status: 200
 }
 
-export type getSpotifyAuthUrlApiV1ConnectorsSpotifyAuthUrlGetResponseSuccess = (getSpotifyAuthUrlApiV1ConnectorsSpotifyAuthUrlGetResponse200) & {
-  headers: Headers;
-};
-;
-
-export type getSpotifyAuthUrlApiV1ConnectorsSpotifyAuthUrlGetResponse = (getSpotifyAuthUrlApiV1ConnectorsSpotifyAuthUrlGetResponseSuccess)
-
-export const getGetSpotifyAuthUrlApiV1ConnectorsSpotifyAuthUrlGetUrl = () => {
-
-
-
-
-  return `/api/v1/connectors/spotify/auth-url`
+export type getConnectorAuthUrlApiV1ConnectorsServiceAuthUrlGetResponse422 = {
+  data: HTTPValidationError
+  status: 422
 }
 
-export const getSpotifyAuthUrlApiV1ConnectorsSpotifyAuthUrlGet = async ( options?: RequestInit): Promise<getSpotifyAuthUrlApiV1ConnectorsSpotifyAuthUrlGetResponse> => {
+export type getConnectorAuthUrlApiV1ConnectorsServiceAuthUrlGetResponseSuccess = (getConnectorAuthUrlApiV1ConnectorsServiceAuthUrlGetResponse200) & {
+  headers: Headers;
+};
+export type getConnectorAuthUrlApiV1ConnectorsServiceAuthUrlGetResponseError = (getConnectorAuthUrlApiV1ConnectorsServiceAuthUrlGetResponse422) & {
+  headers: Headers;
+};
 
-  return customFetch<getSpotifyAuthUrlApiV1ConnectorsSpotifyAuthUrlGetResponse>(getGetSpotifyAuthUrlApiV1ConnectorsSpotifyAuthUrlGetUrl(),
+export type getConnectorAuthUrlApiV1ConnectorsServiceAuthUrlGetResponse = (getConnectorAuthUrlApiV1ConnectorsServiceAuthUrlGetResponseSuccess | getConnectorAuthUrlApiV1ConnectorsServiceAuthUrlGetResponseError)
+
+export const getGetConnectorAuthUrlApiV1ConnectorsServiceAuthUrlGetUrl = (service: string,) => {
+
+
+
+
+  return `/api/v1/connectors/${service}/auth-url`
+}
+
+export const getConnectorAuthUrlApiV1ConnectorsServiceAuthUrlGet = async (service: string, options?: RequestInit): Promise<getConnectorAuthUrlApiV1ConnectorsServiceAuthUrlGetResponse> => {
+
+  return customFetch<getConnectorAuthUrlApiV1ConnectorsServiceAuthUrlGetResponse>(getGetConnectorAuthUrlApiV1ConnectorsServiceAuthUrlGetUrl(service),
   {
     ...options,
     method: 'GET'
@@ -74,187 +89,69 @@ export const getSpotifyAuthUrlApiV1ConnectorsSpotifyAuthUrlGet = async ( options
 
 
 
-export const getGetSpotifyAuthUrlApiV1ConnectorsSpotifyAuthUrlGetQueryKey = () => {
+export const getGetConnectorAuthUrlApiV1ConnectorsServiceAuthUrlGetQueryKey = (service: string,) => {
     return [
-    `/api/v1/connectors/spotify/auth-url`
+    `/api/v1/connectors/${service}/auth-url`
     ] as const;
     }
 
 
-export const getGetSpotifyAuthUrlApiV1ConnectorsSpotifyAuthUrlGetQueryOptions = <TData = Awaited<ReturnType<typeof getSpotifyAuthUrlApiV1ConnectorsSpotifyAuthUrlGet>>, TError = unknown>( options?: { query?:Partial<UseQueryOptions<Awaited<ReturnType<typeof getSpotifyAuthUrlApiV1ConnectorsSpotifyAuthUrlGet>>, TError, TData>>, request?: SecondParameter<typeof customFetch>}
+export const getGetConnectorAuthUrlApiV1ConnectorsServiceAuthUrlGetQueryOptions = <TData = Awaited<ReturnType<typeof getConnectorAuthUrlApiV1ConnectorsServiceAuthUrlGet>>, TError = HTTPValidationError>(service: string, options?: { query?:Partial<UseQueryOptions<Awaited<ReturnType<typeof getConnectorAuthUrlApiV1ConnectorsServiceAuthUrlGet>>, TError, TData>>, request?: SecondParameter<typeof customFetch>}
 ) => {
 
 const {query: queryOptions, request: requestOptions} = options ?? {};
 
-  const queryKey =  queryOptions?.queryKey ?? getGetSpotifyAuthUrlApiV1ConnectorsSpotifyAuthUrlGetQueryKey();
+  const queryKey =  queryOptions?.queryKey ?? getGetConnectorAuthUrlApiV1ConnectorsServiceAuthUrlGetQueryKey(service);
 
 
 
-    const queryFn: QueryFunction<Awaited<ReturnType<typeof getSpotifyAuthUrlApiV1ConnectorsSpotifyAuthUrlGet>>> = ({ signal }) => getSpotifyAuthUrlApiV1ConnectorsSpotifyAuthUrlGet({ signal, ...requestOptions });
+    const queryFn: QueryFunction<Awaited<ReturnType<typeof getConnectorAuthUrlApiV1ConnectorsServiceAuthUrlGet>>> = ({ signal }) => getConnectorAuthUrlApiV1ConnectorsServiceAuthUrlGet(service, { signal, ...requestOptions });
 
 
 
 
 
-   return  { queryKey, queryFn, ...queryOptions} as UseQueryOptions<Awaited<ReturnType<typeof getSpotifyAuthUrlApiV1ConnectorsSpotifyAuthUrlGet>>, TError, TData> & { queryKey: DataTag<QueryKey, TData, TError> }
+   return  { queryKey, queryFn, enabled: !!(service), ...queryOptions} as UseQueryOptions<Awaited<ReturnType<typeof getConnectorAuthUrlApiV1ConnectorsServiceAuthUrlGet>>, TError, TData> & { queryKey: DataTag<QueryKey, TData, TError> }
 }
 
-export type GetSpotifyAuthUrlApiV1ConnectorsSpotifyAuthUrlGetQueryResult = NonNullable<Awaited<ReturnType<typeof getSpotifyAuthUrlApiV1ConnectorsSpotifyAuthUrlGet>>>
-export type GetSpotifyAuthUrlApiV1ConnectorsSpotifyAuthUrlGetQueryError = unknown
+export type GetConnectorAuthUrlApiV1ConnectorsServiceAuthUrlGetQueryResult = NonNullable<Awaited<ReturnType<typeof getConnectorAuthUrlApiV1ConnectorsServiceAuthUrlGet>>>
+export type GetConnectorAuthUrlApiV1ConnectorsServiceAuthUrlGetQueryError = HTTPValidationError
 
 
-export function useGetSpotifyAuthUrlApiV1ConnectorsSpotifyAuthUrlGet<TData = Awaited<ReturnType<typeof getSpotifyAuthUrlApiV1ConnectorsSpotifyAuthUrlGet>>, TError = unknown>(
-  options: { query:Partial<UseQueryOptions<Awaited<ReturnType<typeof getSpotifyAuthUrlApiV1ConnectorsSpotifyAuthUrlGet>>, TError, TData>> & Pick<
+export function useGetConnectorAuthUrlApiV1ConnectorsServiceAuthUrlGet<TData = Awaited<ReturnType<typeof getConnectorAuthUrlApiV1ConnectorsServiceAuthUrlGet>>, TError = HTTPValidationError>(
+ service: string, options: { query:Partial<UseQueryOptions<Awaited<ReturnType<typeof getConnectorAuthUrlApiV1ConnectorsServiceAuthUrlGet>>, TError, TData>> & Pick<
         DefinedInitialDataOptions<
-          Awaited<ReturnType<typeof getSpotifyAuthUrlApiV1ConnectorsSpotifyAuthUrlGet>>,
+          Awaited<ReturnType<typeof getConnectorAuthUrlApiV1ConnectorsServiceAuthUrlGet>>,
           TError,
-          Awaited<ReturnType<typeof getSpotifyAuthUrlApiV1ConnectorsSpotifyAuthUrlGet>>
+          Awaited<ReturnType<typeof getConnectorAuthUrlApiV1ConnectorsServiceAuthUrlGet>>
         > , 'initialData'
       >, request?: SecondParameter<typeof customFetch>}
  , queryClient?: QueryClient
   ):  DefinedUseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> }
-export function useGetSpotifyAuthUrlApiV1ConnectorsSpotifyAuthUrlGet<TData = Awaited<ReturnType<typeof getSpotifyAuthUrlApiV1ConnectorsSpotifyAuthUrlGet>>, TError = unknown>(
-  options?: { query?:Partial<UseQueryOptions<Awaited<ReturnType<typeof getSpotifyAuthUrlApiV1ConnectorsSpotifyAuthUrlGet>>, TError, TData>> & Pick<
+export function useGetConnectorAuthUrlApiV1ConnectorsServiceAuthUrlGet<TData = Awaited<ReturnType<typeof getConnectorAuthUrlApiV1ConnectorsServiceAuthUrlGet>>, TError = HTTPValidationError>(
+ service: string, options?: { query?:Partial<UseQueryOptions<Awaited<ReturnType<typeof getConnectorAuthUrlApiV1ConnectorsServiceAuthUrlGet>>, TError, TData>> & Pick<
         UndefinedInitialDataOptions<
-          Awaited<ReturnType<typeof getSpotifyAuthUrlApiV1ConnectorsSpotifyAuthUrlGet>>,
+          Awaited<ReturnType<typeof getConnectorAuthUrlApiV1ConnectorsServiceAuthUrlGet>>,
           TError,
-          Awaited<ReturnType<typeof getSpotifyAuthUrlApiV1ConnectorsSpotifyAuthUrlGet>>
+          Awaited<ReturnType<typeof getConnectorAuthUrlApiV1ConnectorsServiceAuthUrlGet>>
         > , 'initialData'
       >, request?: SecondParameter<typeof customFetch>}
  , queryClient?: QueryClient
   ):  UseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> }
-export function useGetSpotifyAuthUrlApiV1ConnectorsSpotifyAuthUrlGet<TData = Awaited<ReturnType<typeof getSpotifyAuthUrlApiV1ConnectorsSpotifyAuthUrlGet>>, TError = unknown>(
-  options?: { query?:Partial<UseQueryOptions<Awaited<ReturnType<typeof getSpotifyAuthUrlApiV1ConnectorsSpotifyAuthUrlGet>>, TError, TData>>, request?: SecondParameter<typeof customFetch>}
+export function useGetConnectorAuthUrlApiV1ConnectorsServiceAuthUrlGet<TData = Awaited<ReturnType<typeof getConnectorAuthUrlApiV1ConnectorsServiceAuthUrlGet>>, TError = HTTPValidationError>(
+ service: string, options?: { query?:Partial<UseQueryOptions<Awaited<ReturnType<typeof getConnectorAuthUrlApiV1ConnectorsServiceAuthUrlGet>>, TError, TData>>, request?: SecondParameter<typeof customFetch>}
  , queryClient?: QueryClient
   ):  UseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> }
 /**
- * @summary Get Spotify Auth Url
+ * @summary Get Connector Auth Url
  */
 
-export function useGetSpotifyAuthUrlApiV1ConnectorsSpotifyAuthUrlGet<TData = Awaited<ReturnType<typeof getSpotifyAuthUrlApiV1ConnectorsSpotifyAuthUrlGet>>, TError = unknown>(
-  options?: { query?:Partial<UseQueryOptions<Awaited<ReturnType<typeof getSpotifyAuthUrlApiV1ConnectorsSpotifyAuthUrlGet>>, TError, TData>>, request?: SecondParameter<typeof customFetch>}
+export function useGetConnectorAuthUrlApiV1ConnectorsServiceAuthUrlGet<TData = Awaited<ReturnType<typeof getConnectorAuthUrlApiV1ConnectorsServiceAuthUrlGet>>, TError = HTTPValidationError>(
+ service: string, options?: { query?:Partial<UseQueryOptions<Awaited<ReturnType<typeof getConnectorAuthUrlApiV1ConnectorsServiceAuthUrlGet>>, TError, TData>>, request?: SecondParameter<typeof customFetch>}
  , queryClient?: QueryClient
  ):  UseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> } {
 
-  const queryOptions = getGetSpotifyAuthUrlApiV1ConnectorsSpotifyAuthUrlGetQueryOptions(options)
-
-  const query = useQuery(queryOptions, queryClient) as  UseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> };
-
-  return { ...query, queryKey: queryOptions.queryKey };
-}
-
-
-
-
-
-
-/**
- * Generate Last.fm web auth URL.
-
-Derives the callback URL from the request's Host header so it works
-for both localhost development and production deployment. Embeds a
-``_state`` query param in the callback URL since Last.fm has no native
-state parameter.
- * @summary Get Lastfm Auth Url
- */
-export type getLastfmAuthUrlApiV1ConnectorsLastfmAuthUrlGetResponse200 = {
-  data: GetLastfmAuthUrlApiV1ConnectorsLastfmAuthUrlGet200
-  status: 200
-}
-
-export type getLastfmAuthUrlApiV1ConnectorsLastfmAuthUrlGetResponseSuccess = (getLastfmAuthUrlApiV1ConnectorsLastfmAuthUrlGetResponse200) & {
-  headers: Headers;
-};
-;
-
-export type getLastfmAuthUrlApiV1ConnectorsLastfmAuthUrlGetResponse = (getLastfmAuthUrlApiV1ConnectorsLastfmAuthUrlGetResponseSuccess)
-
-export const getGetLastfmAuthUrlApiV1ConnectorsLastfmAuthUrlGetUrl = () => {
-
-
-
-
-  return `/api/v1/connectors/lastfm/auth-url`
-}
-
-export const getLastfmAuthUrlApiV1ConnectorsLastfmAuthUrlGet = async ( options?: RequestInit): Promise<getLastfmAuthUrlApiV1ConnectorsLastfmAuthUrlGetResponse> => {
-
-  return customFetch<getLastfmAuthUrlApiV1ConnectorsLastfmAuthUrlGetResponse>(getGetLastfmAuthUrlApiV1ConnectorsLastfmAuthUrlGetUrl(),
-  {
-    ...options,
-    method: 'GET'
-
-
-  }
-);}
-
-
-
-
-
-export const getGetLastfmAuthUrlApiV1ConnectorsLastfmAuthUrlGetQueryKey = () => {
-    return [
-    `/api/v1/connectors/lastfm/auth-url`
-    ] as const;
-    }
-
-
-export const getGetLastfmAuthUrlApiV1ConnectorsLastfmAuthUrlGetQueryOptions = <TData = Awaited<ReturnType<typeof getLastfmAuthUrlApiV1ConnectorsLastfmAuthUrlGet>>, TError = unknown>( options?: { query?:Partial<UseQueryOptions<Awaited<ReturnType<typeof getLastfmAuthUrlApiV1ConnectorsLastfmAuthUrlGet>>, TError, TData>>, request?: SecondParameter<typeof customFetch>}
-) => {
-
-const {query: queryOptions, request: requestOptions} = options ?? {};
-
-  const queryKey =  queryOptions?.queryKey ?? getGetLastfmAuthUrlApiV1ConnectorsLastfmAuthUrlGetQueryKey();
-
-
-
-    const queryFn: QueryFunction<Awaited<ReturnType<typeof getLastfmAuthUrlApiV1ConnectorsLastfmAuthUrlGet>>> = ({ signal }) => getLastfmAuthUrlApiV1ConnectorsLastfmAuthUrlGet({ signal, ...requestOptions });
-
-
-
-
-
-   return  { queryKey, queryFn, ...queryOptions} as UseQueryOptions<Awaited<ReturnType<typeof getLastfmAuthUrlApiV1ConnectorsLastfmAuthUrlGet>>, TError, TData> & { queryKey: DataTag<QueryKey, TData, TError> }
-}
-
-export type GetLastfmAuthUrlApiV1ConnectorsLastfmAuthUrlGetQueryResult = NonNullable<Awaited<ReturnType<typeof getLastfmAuthUrlApiV1ConnectorsLastfmAuthUrlGet>>>
-export type GetLastfmAuthUrlApiV1ConnectorsLastfmAuthUrlGetQueryError = unknown
-
-
-export function useGetLastfmAuthUrlApiV1ConnectorsLastfmAuthUrlGet<TData = Awaited<ReturnType<typeof getLastfmAuthUrlApiV1ConnectorsLastfmAuthUrlGet>>, TError = unknown>(
-  options: { query:Partial<UseQueryOptions<Awaited<ReturnType<typeof getLastfmAuthUrlApiV1ConnectorsLastfmAuthUrlGet>>, TError, TData>> & Pick<
-        DefinedInitialDataOptions<
-          Awaited<ReturnType<typeof getLastfmAuthUrlApiV1ConnectorsLastfmAuthUrlGet>>,
-          TError,
-          Awaited<ReturnType<typeof getLastfmAuthUrlApiV1ConnectorsLastfmAuthUrlGet>>
-        > , 'initialData'
-      >, request?: SecondParameter<typeof customFetch>}
- , queryClient?: QueryClient
-  ):  DefinedUseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> }
-export function useGetLastfmAuthUrlApiV1ConnectorsLastfmAuthUrlGet<TData = Awaited<ReturnType<typeof getLastfmAuthUrlApiV1ConnectorsLastfmAuthUrlGet>>, TError = unknown>(
-  options?: { query?:Partial<UseQueryOptions<Awaited<ReturnType<typeof getLastfmAuthUrlApiV1ConnectorsLastfmAuthUrlGet>>, TError, TData>> & Pick<
-        UndefinedInitialDataOptions<
-          Awaited<ReturnType<typeof getLastfmAuthUrlApiV1ConnectorsLastfmAuthUrlGet>>,
-          TError,
-          Awaited<ReturnType<typeof getLastfmAuthUrlApiV1ConnectorsLastfmAuthUrlGet>>
-        > , 'initialData'
-      >, request?: SecondParameter<typeof customFetch>}
- , queryClient?: QueryClient
-  ):  UseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> }
-export function useGetLastfmAuthUrlApiV1ConnectorsLastfmAuthUrlGet<TData = Awaited<ReturnType<typeof getLastfmAuthUrlApiV1ConnectorsLastfmAuthUrlGet>>, TError = unknown>(
-  options?: { query?:Partial<UseQueryOptions<Awaited<ReturnType<typeof getLastfmAuthUrlApiV1ConnectorsLastfmAuthUrlGet>>, TError, TData>>, request?: SecondParameter<typeof customFetch>}
- , queryClient?: QueryClient
-  ):  UseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> }
-/**
- * @summary Get Lastfm Auth Url
- */
-
-export function useGetLastfmAuthUrlApiV1ConnectorsLastfmAuthUrlGet<TData = Awaited<ReturnType<typeof getLastfmAuthUrlApiV1ConnectorsLastfmAuthUrlGet>>, TError = unknown>(
-  options?: { query?:Partial<UseQueryOptions<Awaited<ReturnType<typeof getLastfmAuthUrlApiV1ConnectorsLastfmAuthUrlGet>>, TError, TData>>, request?: SecondParameter<typeof customFetch>}
- , queryClient?: QueryClient
- ):  UseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> } {
-
-  const queryOptions = getGetLastfmAuthUrlApiV1ConnectorsLastfmAuthUrlGetQueryOptions(options)
+  const queryOptions = getGetConnectorAuthUrlApiV1ConnectorsServiceAuthUrlGetQueryOptions(service,options)
 
   const query = useQuery(queryOptions, queryClient) as  UseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> };
 

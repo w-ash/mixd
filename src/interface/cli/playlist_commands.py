@@ -570,13 +570,18 @@ def browse_spotify(
         mixd playlist browse-spotify --search chill
         mixd playlist browse-spotify --refresh
     """
-    from src.application.use_cases.list_spotify_playlists import (
-        run_list_spotify_playlists,
+    from src.application.use_cases.list_connector_playlists import (
+        run_list_connector_playlists,
     )
+    from src.domain.entities.playlist import SPOTIFY_CONNECTOR
 
     try:
         result = run_async(
-            run_list_spotify_playlists(user_id=get_cli_user_id(), force_refresh=refresh)
+            run_list_connector_playlists(
+                user_id=get_cli_user_id(),
+                connector_name=SPOTIFY_CONNECTOR,
+                force_refresh=refresh,
+            )
         )
     except Exception as e:
         handle_cli_error(e, "Failed to list Spotify playlists")
@@ -698,13 +703,17 @@ def import_spotify(
     from src.application.use_cases.import_connector_playlist_as_canonical import (
         run_import_connector_playlists_as_canonical,
     )
-    from src.application.use_cases.list_spotify_playlists import (
-        run_list_spotify_playlists,
+    from src.application.use_cases.list_connector_playlists import (
+        run_list_connector_playlists,
     )
     from src.domain.entities.playlist import SPOTIFY_CONNECTOR
 
     try:
-        listing = run_async(run_list_spotify_playlists(user_id=get_cli_user_id()))
+        listing = run_async(
+            run_list_connector_playlists(
+                user_id=get_cli_user_id(), connector_name=SPOTIFY_CONNECTOR
+            )
+        )
     except Exception as e:
         handle_cli_error(e, "Failed to list Spotify playlists")
 
@@ -957,12 +966,17 @@ def apply_assignments() -> None:
 def _resolve_connector_playlist_id(ref: str):
     """Resolve a CLI ref (Spotify base62 ID or name fragment) to a
     ``DBConnectorPlaylist`` UUID via the cached browser listing."""
-    from src.application.use_cases.list_spotify_playlists import (
-        run_list_spotify_playlists,
+    from src.application.use_cases.list_connector_playlists import (
+        run_list_connector_playlists,
     )
+    from src.domain.entities.playlist import SPOTIFY_CONNECTOR
 
     try:
-        listing = run_async(run_list_spotify_playlists(user_id=get_cli_user_id()))
+        listing = run_async(
+            run_list_connector_playlists(
+                user_id=get_cli_user_id(), connector_name=SPOTIFY_CONNECTOR
+            )
+        )
     except Exception as e:
         handle_cli_error(e, "Failed to list cached Spotify playlists")
 

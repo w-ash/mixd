@@ -21,6 +21,7 @@ def _page(
     total=0,
     liked_track_ids=frozenset(),
     next_page_key=None,
+    facets=None,
 ) -> TrackListingPage:
     """Build a TrackListingPage dict for mock return values."""
     return TrackListingPage(
@@ -28,6 +29,7 @@ def _page(
         total=total,
         liked_track_ids=set(liked_track_ids),
         next_page_key=next_page_key,
+        facets=facets,
     )
 
 
@@ -80,6 +82,7 @@ class TestListTracksUseCase:
             after_value=None,
             after_id=None,
             include_total=True,
+            include_facets=False,
         )
 
     async def test_forwards_all_filters(self, mock_uow) -> None:
@@ -111,6 +114,7 @@ class TestListTracksUseCase:
             after_value=None,
             after_id=None,
             include_total=True,
+            include_facets=False,
         )
 
     async def test_empty_result(self, mock_uow) -> None:

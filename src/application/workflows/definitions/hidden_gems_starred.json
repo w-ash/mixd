@@ -1,0 +1,62 @@
+{
+  "id": "hidden_gems_starred",
+  "name": "Hidden Gems (Starred)",
+  "description": "Starred and yah tracks you've played before but haven't touched in 6+ months",
+  "version": "1.0",
+  "tasks": [
+    {
+      "id": "source_approved",
+      "type": "source.preferred_tracks",
+      "config": {
+        "state": "yah",
+        "limit": 2000
+      }
+    },
+    {
+      "id": "enrich_play_history",
+      "type": "enricher.play_history",
+      "upstream": ["source_approved"],
+      "config": {
+        "metrics": ["total_plays", "last_played_dates"],
+        "period_days": 365
+      }
+    },
+    {
+      "id": "filter_forgotten_gems",
+      "type": "filter.by_play_history",
+      "upstream": ["enrich_play_history"],
+      "config": {
+        "min_plays": 3,
+        "min_days_back": 180,
+        "include_missing": false
+      }
+    },
+    {
+      "id": "sort_by_total_plays",
+      "type": "sorter.by_play_history",
+      "upstream": ["filter_forgotten_gems"],
+      "config": {
+        "reverse": true
+      }
+    },
+    {
+      "id": "limit_selection",
+      "type": "selector.limit_tracks",
+      "upstream": ["sort_by_total_plays"],
+      "config": {
+        "count": 25,
+        "method": "first"
+      }
+    },
+    {
+      "id": "create_playlist",
+      "type": "destination.create_playlist",
+      "upstream": ["limit_selection"],
+      "config": {
+        "name": "Hidden Gems (Starred) {date}",
+        "description": "Yah'd tracks played 3+ times but not in the last 6 months ({track_count} tracks)",
+        "connector": "spotify"
+      }
+    }
+  ]
+}

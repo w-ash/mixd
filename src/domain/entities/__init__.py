@@ -1,5 +1,15 @@
 """Core domain entities representing music concepts."""
 
+from .connector import (
+    Capability,
+    ConnectorAuthError,
+    ConnectorAuthMethod,
+    ConnectorCategory,
+    ConnectorStatus,
+    ConnectorStatusState,
+    derive_status_state,
+)
+
 # Track-related entities
 # Operation-related entities
 # Integrity monitoring
@@ -74,9 +84,15 @@ __all__ = [
     "PREFERENCE_ORDER",
     "SOURCE_PRIORITY",
     "Artist",
+    "Capability",
     "CheckStatus",
+    "ConnectorAuthError",
+    "ConnectorAuthMethod",
+    "ConnectorCategory",
     "ConnectorPlaylist",
     "ConnectorPlaylistItem",
+    "ConnectorStatus",
+    "ConnectorStatusState",
     "ConnectorTrack",
     "ConnectorTrackMapping",
     "ConnectorTrackPlay",
@@ -112,6 +128,7 @@ __all__ = [
     "WorkflowDef",
     "WorkflowTaskDef",
     "create_lastfm_play_record",
+    "derive_status_state",
     "ensure_utc",
     "normalize_tag",
     "parse_tag",

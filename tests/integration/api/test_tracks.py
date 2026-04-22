@@ -227,3 +227,38 @@ class TestMergeTrackEndpoint:
         )
 
         assert response.status_code == 404
+
+
+class TestListTracksFacets:
+    """GET /api/v1/tracks?include_facets=true returns per-facet counts."""
+
+    async def test_facets_default_absent(self, client: httpx.AsyncClient) -> None:
+        """Without include_facets, facets field is absent/null."""
+        await _create_track(client, "Song")
+        response = await client.get("/api/v1/tracks")
+        body = response.json()
+        assert body.get("facets") is None
+
+    async def test_facets_empty_library(self, client: httpx.AsyncClient) -> None:
+        """Empty library returns zero-valued facets without errors."""
+        response = await client.get("/api/v1/tracks?include_facets=true")
+        assert response.status_code == 200
+        facets = response.json()["facets"]
+        assert facets is not None
+        # preference is empty dict when there are no tracks
+        assert facets["preference"] == {}
+        assert facets["liked"] == {"true": 0, "false": 0}
+        assert facets["connector"] == {}
+
+    async def test_unrated_count_populated_when_tracks_have_no_preference(
+        self, client: httpx.AsyncClient
+    ) -> None:
+        """Tracks without a preference row contribute to the 'unrated' bucket."""
+        await _create_track(client, "A")
+        await _create_track(client, "B")
+
+        response = await client.get("/api/v1/tracks?include_facets=true")
+
+        body = response.json()
+        assert body["total"] == 2
+        assert body["facets"]["preference"] == {"unrated": 2}

@@ -4,7 +4,7 @@ from unittest.mock import AsyncMock, patch
 
 from typer.testing import CliRunner
 
-from src.infrastructure.connectors._shared.connector_status import ConnectorStatus
+from src.domain.entities.connector import ConnectorStatus
 from src.interface.cli.app import app
 
 runner = CliRunner()
@@ -15,13 +15,21 @@ class TestConnectorsStatusCommand:
         statuses = [
             ConnectorStatus(
                 name="spotify",
+                auth_method="oauth",
                 connected=True,
                 account_name="testuser",
                 token_expires_at=1700000000,
             ),
-            ConnectorStatus(name="lastfm", connected=True, account_name="lfmuser"),
-            ConnectorStatus(name="musicbrainz", connected=True),
-            ConnectorStatus(name="apple", connected=False),
+            ConnectorStatus(
+                name="lastfm",
+                auth_method="oauth",
+                connected=True,
+                account_name="lfmuser",
+            ),
+            ConnectorStatus(name="musicbrainz", auth_method="none", connected=True),
+            ConnectorStatus(
+                name="apple_music", auth_method="coming_soon", connected=False
+            ),
         ]
 
         with patch(
@@ -40,7 +48,7 @@ class TestConnectorsStatusCommand:
 
     def test_shows_disconnected_status(self):
         statuses = [
-            ConnectorStatus(name="spotify", connected=False),
+            ConnectorStatus(name="spotify", auth_method="oauth", connected=False),
         ]
 
         with patch(

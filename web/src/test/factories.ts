@@ -6,16 +6,18 @@
  */
 
 import type {
+  ConnectorMetadataSchema,
+  ConnectorPlaylistBrowseSchema,
   PlaylistDetailSchema,
   PlaylistEntrySchema,
   PlaylistSummarySchema,
-  SpotifyPlaylistBrowseSchema,
   WorkflowSummarySchema,
 } from "#/api/generated/model";
+import { connectorBrand } from "#/lib/connector-brand";
 
-export function makeSpotifyPlaylistBrowse(
-  overrides: Partial<SpotifyPlaylistBrowseSchema> = {},
-): SpotifyPlaylistBrowseSchema {
+export function makeConnectorPlaylistBrowse(
+  overrides: Partial<ConnectorPlaylistBrowseSchema> = {},
+): ConnectorPlaylistBrowseSchema {
   const suffix = overrides.connector_playlist_identifier ?? "sp1";
   return {
     connector_playlist_identifier: suffix,
@@ -30,6 +32,74 @@ export function makeSpotifyPlaylistBrowse(
     is_public: true,
     import_status: "not_imported",
     current_assignments: [],
+    ...overrides,
+  };
+}
+
+/** Capability / category / auth-method defaults tuned per connector so tests
+ *  don't have to hand-code common shapes. ``display_name`` is sourced from
+ *  ``connectorBrand`` so tests share one source of truth with the UI. */
+const connectorDefaults: Record<
+  string,
+  Pick<ConnectorMetadataSchema, "category" | "auth_method" | "capabilities">
+> = {
+  spotify: {
+    category: "streaming",
+    auth_method: "oauth",
+    capabilities: [
+      "history_import_file",
+      "likes_import",
+      "playlist_import",
+      "playlist_sync",
+      "track_enrichment",
+    ],
+  },
+  lastfm: {
+    category: "history",
+    auth_method: "oauth",
+    capabilities: ["history_import_api", "love_tracks", "track_enrichment"],
+  },
+  musicbrainz: {
+    category: "enrichment",
+    auth_method: "none",
+    capabilities: ["track_enrichment"],
+  },
+  apple_music: {
+    category: "streaming",
+    auth_method: "coming_soon",
+    capabilities: [],
+  },
+};
+
+export function makeConnectorMetadata(
+  overrides: Partial<ConnectorMetadataSchema> & { name: string },
+): ConnectorMetadataSchema {
+  const d = connectorDefaults[overrides.name] ?? {
+    category: "enrichment" as const,
+    auth_method: "none" as const,
+    capabilities: [],
+  };
+  const display_name = connectorBrand[overrides.name]?.label ?? overrides.name;
+  const connected = overrides.connected ?? false;
+  // Mirrors derive_status_state() in the backend so tests that omit
+  // ``status`` still pass through the right RowAction branch. ``auth_error``
+  // wins over the static auth_method lookup (matching backend ordering).
+  const defaultStatus: ConnectorMetadataSchema["status"] = overrides.auth_error
+    ? "error"
+    : ({
+        coming_soon: "coming_soon",
+        none: "public_api",
+        oauth: connected ? "connected" : "disconnected",
+      }[d.auth_method] as ConnectorMetadataSchema["status"]);
+  return {
+    display_name,
+    category: d.category,
+    auth_method: d.auth_method,
+    capabilities: d.capabilities,
+    status: defaultStatus,
+    connected,
+    account_name: null,
+    token_expires_at: null,
     ...overrides,
   };
 }

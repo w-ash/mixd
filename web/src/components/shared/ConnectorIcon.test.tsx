@@ -22,7 +22,7 @@ describe("ConnectorIcon", () => {
   });
 
   it("renders Apple Music connector", () => {
-    renderWithProviders(<ConnectorIcon name="apple" />);
+    renderWithProviders(<ConnectorIcon name="apple_music" />);
 
     expect(screen.getByText("Apple Music")).toBeInTheDocument();
   });

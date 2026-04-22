@@ -1,6 +1,7 @@
 import { HttpResponse, http } from "msw";
 import { describe, expect, it } from "vitest";
 
+import { makeConnectorMetadata } from "#/test/factories";
 import { server } from "#/test/setup";
 import { renderWithProviders, screen, waitFor } from "#/test/test-utils";
 
@@ -54,6 +55,19 @@ describe("Library", () => {
 
   it("renders empty state when no tracks exist", async () => {
     overrideTracks([]);
+    // Empty-state copy is now derived from the backend's connector list
+    // (replacing the old hardcoded "Spotify or Last.fm" string).
+    server.use(
+      http.get("*/api/v1/connectors", () =>
+        HttpResponse.json(
+          [
+            makeConnectorMetadata({ name: "spotify" }),
+            makeConnectorMetadata({ name: "lastfm" }),
+          ],
+          { status: 200 },
+        ),
+      ),
+    );
 
     renderWithProviders(<Library />);
 

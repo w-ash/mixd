@@ -3,7 +3,7 @@
  * Do not edit manually.
  * Mixd
  * Personal music metadata hub
- * OpenAPI spec version: 0.7.4.post2
+ * OpenAPI spec version: 0.7.5
  */
 
 export type ListTracksApiV1TracksGetParams = {
@@ -54,4 +54,8 @@ offset?: number;
  * Opaque cursor for keyset pagination
  */
 cursor?: string | null;
+/**
+ * When true, return per-facet counts (preference, liked, connector) scoped to the current filter set.
+ */
+include_facets?: boolean;
 };

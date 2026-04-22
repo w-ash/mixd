@@ -3,54 +3,49 @@
   "info": {
     "title": "Mixd",
     "description": "Personal music metadata hub",
-    "version": "0.7.4.post2"
+    "version": "0.7.5"
   },
   "paths": {
-    "/api/v1/connectors/spotify/auth-url": {
+    "/api/v1/connectors/{service}/auth-url": {
       "get": {
         "tags": [
           "auth"
         ],
-        "summary": "Get Spotify Auth Url",
-        "description": "Generate Spotify OAuth authorization URL with CSRF state and PKCE.",
-        "operationId": "get_spotify_auth_url_api_v1_connectors_spotify_auth_url_get",
+        "summary": "Get Connector Auth Url",
+        "description": "Generate the OAuth authorization URL for the named connector.\n\nDispatches via the connector registry: each OAuth-capable connector\nregisters a ``build_auth_url`` callable (e.g. ``spotify/auth.py``,\n``lastfm/auth.py``) that assembles the provider-specific URL. The\nCSRF + PKCE state factory is injected so security-sensitive DB state\ncreation stays centralized in this file.\n\nReturns 404 for unknown services, 400 for non-OAuth connectors\n(``auth_method`` in ``{\"none\", \"coming_soon\"}``).",
+        "operationId": "get_connector_auth_url_api_v1_connectors__service__auth_url_get",
+        "parameters": [
+          {
+            "name": "service",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Service"
+            }
+          }
+        ],
         "responses": {
           "200": {
             "description": "Successful Response",
             "content": {
               "application/json": {
                 "schema": {
+                  "type": "object",
                   "additionalProperties": {
                     "type": "string"
                   },
-                  "type": "object",
-                  "title": "Response Get Spotify Auth Url Api V1 Connectors Spotify Auth Url Get"
+                  "title": "Response Get Connector Auth Url Api V1 Connectors  Service  Auth Url Get"
                 }
               }
             }
-          }
-        }
-      }
-    },
-    "/api/v1/connectors/lastfm/auth-url": {
-      "get": {
-        "tags": [
-          "auth"
-        ],
-        "summary": "Get Lastfm Auth Url",
-        "description": "Generate Last.fm web auth URL.\n\nDerives the callback URL from the request's Host header so it works\nfor both localhost development and production deployment. Embeds a\n``_state`` query param in the callback URL since Last.fm has no native\nstate parameter.",
-        "operationId": "get_lastfm_auth_url_api_v1_connectors_lastfm_auth_url_get",
-        "responses": {
-          "200": {
-            "description": "Successful Response",
+          },
+          "422": {
+            "description": "Validation Error",
             "content": {
               "application/json": {
                 "schema": {
-                  "additionalProperties": {
-                    "type": "string"
-                  },
-                  "type": "object",
-                  "title": "Response Get Lastfm Auth Url Api V1 Connectors Lastfm Auth Url Get"
+                  "$ref": "#/components/schemas/HTTPValidationError"
                 }
               }
             }
@@ -1255,6 +1250,18 @@
               "title": "Cursor"
             },
             "description": "Opaque cursor for keyset pagination"
+          },
+          {
+            "name": "include_facets",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "boolean",
+              "description": "When true, return per-facet counts (preference, liked, connector) scoped to the current filter set.",
+              "default": false,
+              "title": "Include Facets"
+            },
+            "description": "When true, return per-facet counts (preference, liked, connector) scoped to the current filter set."
           }
         ],
         "responses": {
@@ -1263,7 +1270,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/PaginatedResponse_LibraryTrackSchema_"
+                  "$ref": "#/components/schemas/PaginatedLibraryTracksResponse"
                 }
               }
             }
@@ -2614,7 +2621,7 @@
           "connectors"
         ],
         "summary": "Get Connectors",
-        "description": "Get authentication status of all configured connectors.",
+        "description": "Return rich metadata for every registered connector.\n\nMerges static registry data (display_name, category, capabilities,\nauth_method) with the live status probe (connected, account_name,\ntoken_expires_at, auth_error), freshness data from ``DBSyncCheckpoint``\n(last_synced_at), and derives the UI-facing ``status`` enum.",
         "operationId": "get_connectors_api_v1_connectors_get",
         "responses": {
           "200": {
@@ -2623,7 +2630,7 @@
               "application/json": {
                 "schema": {
                   "items": {
-                    "$ref": "#/components/schemas/ConnectorStatusSchema"
+                    "$ref": "#/components/schemas/ConnectorMetadataSchema"
                   },
                   "type": "array",
                   "title": "Response Get Connectors Api V1 Connectors Get"
@@ -2640,7 +2647,7 @@
           "connectors"
         ],
         "summary": "Delete Connector Token",
-        "description": "Remove stored OAuth token for a connector, disconnecting it.",
+        "description": "Remove stored OAuth token for a connector, disconnecting it.\n\nOnly connectors declaring ``auth_method=\"oauth\"`` in the registry can be\ndisconnected; anything else (public APIs, coming-soon stubs) returns 400.",
         "operationId": "delete_connector_token_api_v1_connectors__service__token_delete",
         "parameters": [
           {
@@ -2670,26 +2677,35 @@
         }
       }
     },
-    "/api/v1/connectors/spotify/playlists": {
+    "/api/v1/connectors/{service}/playlists": {
       "get": {
         "tags": [
           "connectors"
         ],
-        "summary": "List Spotify Playlists",
-        "description": "List the user's Spotify playlists for the browser dialog.\n\nCache-first: reads from ``connector_playlists`` unless ``force_refresh``\nis true. Per-playlist ``import_status`` reflects whether this user has\nalready linked the Spotify playlist into Mixd.",
-        "operationId": "list_spotify_playlists_api_v1_connectors_spotify_playlists_get",
+        "summary": "List Connector Playlists",
+        "description": "List the user's playlists on the given connector for the browser dialog.\n\nCache-first: reads from ``connector_playlists`` unless ``force_refresh``\nis true. Per-playlist ``import_status`` reflects whether this user has\nalready linked the connector playlist into Mixd. Connectors that don't\ndeclare ``playlist_import`` in their capabilities return 501.",
+        "operationId": "list_connector_playlists_api_v1_connectors__service__playlists_get",
         "parameters": [
+          {
+            "name": "service",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Service"
+            }
+          },
           {
             "name": "force_refresh",
             "in": "query",
             "required": false,
             "schema": {
               "type": "boolean",
-              "description": "Bypass the DBConnectorPlaylist cache and re-fetch from Spotify",
+              "description": "Bypass the DBConnectorPlaylist cache and re-fetch from the connector",
               "default": false,
               "title": "Force Refresh"
             },
-            "description": "Bypass the DBConnectorPlaylist cache and re-fetch from Spotify"
+            "description": "Bypass the DBConnectorPlaylist cache and re-fetch from the connector"
           }
         ],
         "responses": {
@@ -2698,7 +2714,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/SpotifyPlaylistBrowseResponse"
+                  "$ref": "#/components/schemas/ConnectorPlaylistBrowseResponse"
                 }
               }
             }
@@ -2716,23 +2732,34 @@
         }
       }
     },
-    "/api/v1/connectors/spotify/playlists/import": {
+    "/api/v1/connectors/{service}/playlists/import": {
       "post": {
         "tags": [
           "connectors"
         ],
-        "summary": "Import Spotify Playlists",
-        "description": "Import a batch of Spotify playlists with a chosen sync direction.\n\nNon-atomic: one failing playlist doesn't abort the others. Each\nsuccessful import creates a canonical ``Playlist`` + ``PlaylistLink``;\npreviously-imported playlists with a known snapshot are short-circuited\ninto ``skipped_unchanged``.",
-        "operationId": "import_spotify_playlists_api_v1_connectors_spotify_playlists_import_post",
+        "summary": "Import Connector Playlists",
+        "description": "Import a batch of connector playlists with a chosen sync direction.\n\nNon-atomic: one failing playlist doesn't abort the others. Each\nsuccessful import creates a canonical ``Playlist`` + ``PlaylistLink``;\npreviously-imported playlists with a known snapshot are short-circuited\ninto ``skipped_unchanged``.",
+        "operationId": "import_connector_playlists_api_v1_connectors__service__playlists_import_post",
+        "parameters": [
+          {
+            "name": "service",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Service"
+            }
+          }
+        ],
         "requestBody": {
+          "required": true,
           "content": {
             "application/json": {
               "schema": {
-                "$ref": "#/components/schemas/ImportSpotifyPlaylistsRequest"
+                "$ref": "#/components/schemas/ImportConnectorPlaylistsRequest"
               }
             }
-          },
-          "required": true
+          }
         },
         "responses": {
           "200": {
@@ -2740,7 +2767,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/ImportSpotifyPlaylistsResponse"
+                  "$ref": "#/components/schemas/ImportConnectorPlaylistsResponse"
                 }
               }
             }
@@ -3230,7 +3257,7 @@
           "action_value"
         ],
         "title": "ActiveAssignmentSchema",
-        "description": "One active assignment on a Spotify playlist row."
+        "description": "One active assignment on a connector playlist row."
       },
       "AddTagRequest": {
         "properties": {
@@ -3423,6 +3450,18 @@
         ],
         "title": "Body_import_spotify_history_api_v1_imports_spotify_history_post"
       },
+      "Capability": {
+        "type": "string",
+        "enum": [
+          "playlist_import",
+          "playlist_sync",
+          "likes_import",
+          "history_import_file",
+          "history_import_api",
+          "track_enrichment",
+          "love_tracks"
+        ]
+      },
       "CheckpointStatusSchema": {
         "properties": {
           "service": {
@@ -3606,6 +3645,26 @@
         ],
         "title": "ConfigFieldSchema"
       },
+      "ConnectorAuthError": {
+        "type": "string",
+        "const": "refresh_failed"
+      },
+      "ConnectorAuthMethod": {
+        "type": "string",
+        "enum": [
+          "oauth",
+          "none",
+          "coming_soon"
+        ]
+      },
+      "ConnectorCategory": {
+        "type": "string",
+        "enum": [
+          "streaming",
+          "enrichment",
+          "history"
+        ]
+      },
       "ConnectorLinkBriefSchema": {
         "properties": {
           "connector_name": {
@@ -3688,11 +3747,24 @@
         "title": "ConnectorMappingSchema",
         "description": "Connector mapping for track detail views with full provenance."
       },
-      "ConnectorStatusSchema": {
+      "ConnectorMetadataSchema": {
         "properties": {
           "name": {
             "type": "string",
             "title": "Name"
+          },
+          "display_name": {
+            "type": "string",
+            "title": "Display Name"
+          },
+          "category": {
+            "$ref": "#/components/schemas/ConnectorCategory"
+          },
+          "auth_method": {
+            "$ref": "#/components/schemas/ConnectorAuthMethod"
+          },
+          "status": {
+            "$ref": "#/components/schemas/ConnectorStatusState"
           },
           "connected": {
             "type": "boolean",
@@ -3719,15 +3791,193 @@
               }
             ],
             "title": "Token Expires At"
+          },
+          "capabilities": {
+            "items": {
+              "$ref": "#/components/schemas/Capability"
+            },
+            "type": "array",
+            "title": "Capabilities"
+          },
+          "auth_error": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/ConnectorAuthError"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "last_synced_at": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "date-time"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Last Synced At"
           }
         },
         "type": "object",
         "required": [
           "name",
-          "connected"
+          "display_name",
+          "category",
+          "auth_method",
+          "status",
+          "connected",
+          "capabilities"
         ],
-        "title": "ConnectorStatusSchema",
-        "description": "Current authentication status of a music service connector."
+        "title": "ConnectorMetadataSchema",
+        "description": "Descriptor for a registered music service connector.\n\nCarries identity, category, authentication method, runtime status, and\nthe capability set \u2014 everything the frontend needs to render a connector\ngenerically. The ``status`` field is backend-computed from ``connected``\n+ ``token_expires_at`` + ``auth_method`` so the frontend renders a single\nenum instead of recomputing the state client-side."
+      },
+      "ConnectorPlaylistBrowseResponse": {
+        "properties": {
+          "data": {
+            "items": {
+              "$ref": "#/components/schemas/ConnectorPlaylistBrowseSchema"
+            },
+            "type": "array",
+            "title": "Data"
+          },
+          "from_cache": {
+            "type": "boolean",
+            "title": "From Cache"
+          },
+          "fetched_at": {
+            "type": "string",
+            "format": "date-time",
+            "title": "Fetched At"
+          }
+        },
+        "type": "object",
+        "required": [
+          "data",
+          "from_cache",
+          "fetched_at"
+        ],
+        "title": "ConnectorPlaylistBrowseResponse",
+        "description": "Full payload for GET /connectors/{service}/playlists.\n\n``from_cache=True`` means the response was served from DBConnectorPlaylist\nwithout hitting the upstream connector; the refresh button in the UI\nsets ``force_refresh=true`` to force the cache miss."
+      },
+      "ConnectorPlaylistBrowseSchema": {
+        "properties": {
+          "connector_playlist_identifier": {
+            "type": "string",
+            "title": "Connector Playlist Identifier"
+          },
+          "connector_playlist_db_id": {
+            "type": "string",
+            "format": "uuid",
+            "title": "Connector Playlist Db Id"
+          },
+          "name": {
+            "type": "string",
+            "title": "Name"
+          },
+          "description": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Description"
+          },
+          "owner": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Owner"
+          },
+          "image_url": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Image Url"
+          },
+          "track_count": {
+            "type": "integer",
+            "title": "Track Count"
+          },
+          "snapshot_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Snapshot Id"
+          },
+          "collaborative": {
+            "type": "boolean",
+            "title": "Collaborative"
+          },
+          "is_public": {
+            "type": "boolean",
+            "title": "Is Public"
+          },
+          "import_status": {
+            "type": "string",
+            "enum": [
+              "not_imported",
+              "imported"
+            ],
+            "title": "Import Status"
+          },
+          "current_assignments": {
+            "items": {
+              "$ref": "#/components/schemas/ActiveAssignmentSchema"
+            },
+            "type": "array",
+            "title": "Current Assignments"
+          }
+        },
+        "type": "object",
+        "required": [
+          "connector_playlist_identifier",
+          "connector_playlist_db_id",
+          "name",
+          "description",
+          "owner",
+          "image_url",
+          "track_count",
+          "snapshot_id",
+          "collaborative",
+          "is_public",
+          "import_status",
+          "current_assignments"
+        ],
+        "title": "ConnectorPlaylistBrowseSchema",
+        "description": "One playlist row in the connector browser dialog.\n\nMirrors ``ConnectorPlaylistView`` from the use case layer \u2014 the UI reads\nthis shape directly; the API wraps the list in ``ConnectorPlaylistBrowseResponse``."
+      },
+      "ConnectorStatusState": {
+        "type": "string",
+        "enum": [
+          "connected",
+          "disconnected",
+          "expired",
+          "error",
+          "public_api",
+          "coming_soon"
+        ]
       },
       "CreateAssignmentRequest": {
         "properties": {
@@ -3951,6 +4201,65 @@
         "type": "object",
         "title": "HTTPValidationError"
       },
+      "ImportConnectorPlaylistsRequest": {
+        "properties": {
+          "connector_playlist_ids": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "title": "Connector Playlist Ids"
+          },
+          "sync_direction": {
+            "type": "string",
+            "enum": [
+              "pull",
+              "push"
+            ],
+            "title": "Sync Direction"
+          }
+        },
+        "type": "object",
+        "required": [
+          "connector_playlist_ids",
+          "sync_direction"
+        ],
+        "title": "ImportConnectorPlaylistsRequest",
+        "description": "Body for POST /connectors/{service}/playlists/import.\n\nEach ID is a provider-native playlist ID (not a Mixd UUID). The whole\nbatch shares one ``sync_direction`` \u2014 per-playlist direction overrides\ncan be added later if a workflow demands it."
+      },
+      "ImportConnectorPlaylistsResponse": {
+        "properties": {
+          "succeeded": {
+            "items": {
+              "$ref": "#/components/schemas/ImportOutcomeSchema"
+            },
+            "type": "array",
+            "title": "Succeeded"
+          },
+          "skipped_unchanged": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "title": "Skipped Unchanged"
+          },
+          "failed": {
+            "items": {
+              "$ref": "#/components/schemas/ImportFailureSchema"
+            },
+            "type": "array",
+            "title": "Failed"
+          }
+        },
+        "type": "object",
+        "required": [
+          "succeeded",
+          "skipped_unchanged",
+          "failed"
+        ],
+        "title": "ImportConnectorPlaylistsResponse",
+        "description": "Grouped per-playlist outcomes so the UI can render a clear summary."
+      },
       "ImportFailureSchema": {
         "properties": {
           "connector_playlist_identifier": {
@@ -4084,65 +4393,6 @@
         "type": "object",
         "title": "ImportSpotifyLikesRequest",
         "description": "Request body for triggering a Spotify likes import."
-      },
-      "ImportSpotifyPlaylistsRequest": {
-        "properties": {
-          "connector_playlist_ids": {
-            "items": {
-              "type": "string"
-            },
-            "type": "array",
-            "title": "Connector Playlist Ids"
-          },
-          "sync_direction": {
-            "type": "string",
-            "enum": [
-              "pull",
-              "push"
-            ],
-            "title": "Sync Direction"
-          }
-        },
-        "type": "object",
-        "required": [
-          "connector_playlist_ids",
-          "sync_direction"
-        ],
-        "title": "ImportSpotifyPlaylistsRequest",
-        "description": "Body for POST /connectors/spotify/playlists/import.\n\nEach ID is a Spotify-native playlist ID (not a Mixd UUID). The whole\nbatch shares one ``sync_direction`` \u2014 per-playlist direction overrides\ncan be added later if a workflow demands it."
-      },
-      "ImportSpotifyPlaylistsResponse": {
-        "properties": {
-          "succeeded": {
-            "items": {
-              "$ref": "#/components/schemas/ImportOutcomeSchema"
-            },
-            "type": "array",
-            "title": "Succeeded"
-          },
-          "skipped_unchanged": {
-            "items": {
-              "type": "string"
-            },
-            "type": "array",
-            "title": "Skipped Unchanged"
-          },
-          "failed": {
-            "items": {
-              "$ref": "#/components/schemas/ImportFailureSchema"
-            },
-            "type": "array",
-            "title": "Failed"
-          }
-        },
-        "type": "object",
-        "required": [
-          "succeeded",
-          "skipped_unchanged",
-          "failed"
-        ],
-        "title": "ImportSpotifyPlaylistsResponse",
-        "description": "Grouped per-playlist outcomes so the UI can render a clear summary."
       },
       "IntegrityCheckSchema": {
         "properties": {
@@ -4751,7 +5001,7 @@
         "title": "OperationStartedResponse",
         "description": "Returned immediately when a long-running operation is launched."
       },
-      "PaginatedResponse_LibraryTrackSchema_": {
+      "PaginatedLibraryTracksResponse": {
         "properties": {
           "data": {
             "items": {
@@ -4789,6 +5039,16 @@
               }
             ],
             "title": "Next Cursor"
+          },
+          "facets": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/TrackFacetsSchema"
+              },
+              {
+                "type": "null"
+              }
+            ]
           }
         },
         "type": "object",
@@ -4797,7 +5057,8 @@
           "limit",
           "offset"
         ],
-        "title": "PaginatedResponse[LibraryTrackSchema]"
+        "title": "PaginatedLibraryTracksResponse",
+        "description": "PaginatedResponse + optional facet counts for /tracks only.\n\nKeeps the generic PaginatedResponse uncluttered for other list endpoints\n(playlists, workflows) while surfacing `facets` where the contract\nallows it."
       },
       "PaginatedResponse_PlaylistEntrySchema_": {
         "properties": {
@@ -5387,139 +5648,6 @@
         "title": "SetPreferenceRequest",
         "description": "Request body for PUT /tracks/{id}/preference."
       },
-      "SpotifyPlaylistBrowseResponse": {
-        "properties": {
-          "data": {
-            "items": {
-              "$ref": "#/components/schemas/SpotifyPlaylistBrowseSchema"
-            },
-            "type": "array",
-            "title": "Data"
-          },
-          "from_cache": {
-            "type": "boolean",
-            "title": "From Cache"
-          },
-          "fetched_at": {
-            "type": "string",
-            "format": "date-time",
-            "title": "Fetched At"
-          }
-        },
-        "type": "object",
-        "required": [
-          "data",
-          "from_cache",
-          "fetched_at"
-        ],
-        "title": "SpotifyPlaylistBrowseResponse",
-        "description": "Full payload for GET /connectors/spotify/playlists.\n\n``from_cache=True`` means the response was served from DBConnectorPlaylist\nwithout hitting Spotify; the refresh button in the UI sets\n``force_refresh=true`` to force the cache miss."
-      },
-      "SpotifyPlaylistBrowseSchema": {
-        "properties": {
-          "connector_playlist_identifier": {
-            "type": "string",
-            "title": "Connector Playlist Identifier"
-          },
-          "connector_playlist_db_id": {
-            "type": "string",
-            "format": "uuid",
-            "title": "Connector Playlist Db Id"
-          },
-          "name": {
-            "type": "string",
-            "title": "Name"
-          },
-          "description": {
-            "anyOf": [
-              {
-                "type": "string"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Description"
-          },
-          "owner": {
-            "anyOf": [
-              {
-                "type": "string"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Owner"
-          },
-          "image_url": {
-            "anyOf": [
-              {
-                "type": "string"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Image Url"
-          },
-          "track_count": {
-            "type": "integer",
-            "title": "Track Count"
-          },
-          "snapshot_id": {
-            "anyOf": [
-              {
-                "type": "string"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Snapshot Id"
-          },
-          "collaborative": {
-            "type": "boolean",
-            "title": "Collaborative"
-          },
-          "is_public": {
-            "type": "boolean",
-            "title": "Is Public"
-          },
-          "import_status": {
-            "type": "string",
-            "enum": [
-              "not_imported",
-              "imported"
-            ],
-            "title": "Import Status"
-          },
-          "current_assignments": {
-            "items": {
-              "$ref": "#/components/schemas/ActiveAssignmentSchema"
-            },
-            "type": "array",
-            "title": "Current Assignments"
-          }
-        },
-        "type": "object",
-        "required": [
-          "connector_playlist_identifier",
-          "connector_playlist_db_id",
-          "name",
-          "description",
-          "owner",
-          "image_url",
-          "track_count",
-          "snapshot_id",
-          "collaborative",
-          "is_public",
-          "import_status",
-          "current_assignments"
-        ],
-        "title": "SpotifyPlaylistBrowseSchema",
-        "description": "One playlist row in the Spotify browser dialog.\n\nMirrors ``SpotifyPlaylistView`` from the use case layer \u2014 the UI reads\nthis shape directly; the API wraps the list in ``SpotifyPlaylistBrowseResponse``."
-      },
       "SyncLinkRequest": {
         "properties": {
           "direction_override": {
@@ -5753,6 +5881,39 @@
         ],
         "title": "TrackDetailSchema",
         "description": "Full track detail with assembled metadata from multiple repositories."
+      },
+      "TrackFacetsSchema": {
+        "properties": {
+          "preference": {
+            "additionalProperties": {
+              "type": "integer"
+            },
+            "type": "object",
+            "title": "Preference"
+          },
+          "liked": {
+            "additionalProperties": {
+              "type": "integer"
+            },
+            "type": "object",
+            "title": "Liked"
+          },
+          "connector": {
+            "additionalProperties": {
+              "type": "integer"
+            },
+            "type": "object",
+            "title": "Connector"
+          }
+        },
+        "type": "object",
+        "required": [
+          "preference",
+          "liked",
+          "connector"
+        ],
+        "title": "TrackFacetsSchema",
+        "description": "Per-facet counts scoped to the current filter set.\n\nPopulated only when `GET /tracks?include_facets=true`.\nKeys within each dimension: preference \u2208 star/yah/hmm/nah/unrated,\nliked \u2208 true/false, connector \u2208 registered connector names."
       },
       "TrackSummarySchema": {
         "properties": {

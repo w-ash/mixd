@@ -52,6 +52,19 @@ from src.domain.matching.types import (
 )
 
 
+class TrackFacets(TypedDict):
+    """Per-facet counts scoped to the currently-applied filters.
+
+    Counts are *contextual with self* — every active filter (including the
+    one being counted) is applied. Simpler and faster than peel-away-self
+    semantics; revisit if user feedback demands the Algolia shape.
+    """
+
+    preference: dict[str, int]  # "star"|"yah"|"hmm"|"nah"|"unrated" → count
+    liked: dict[str, int]  # "true"|"false" → count
+    connector: dict[str, int]  # connector name → count
+
+
 class TrackListingPage(TypedDict):
     """Result shape for paginated track listing queries."""
 
@@ -62,6 +75,8 @@ class TrackListingPage(TypedDict):
     # artists_text), int (duration_ms), or datetime (created_at). The
     # application layer's PageCursor encodes/decodes for the wire.
     next_page_key: tuple[str | int | datetime | None, UUID] | None
+    # Facet counts over the current filter set. None when not requested.
+    facets: TrackFacets | None
 
 
 class TrackRepositoryProtocol(Protocol):
@@ -163,6 +178,7 @@ class TrackRepositoryProtocol(Protocol):
         after_value: SortKey | None = None,
         after_id: UUID | None = None,
         include_total: bool = True,
+        include_facets: bool = False,
     ) -> Awaitable[TrackListingPage]:
         """List tracks with optional search, filters, sorting, and pagination.
 

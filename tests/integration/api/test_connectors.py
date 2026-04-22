@@ -25,7 +25,7 @@ class TestGetConnectors:
         connectors = response.json()
         assert isinstance(connectors, list)
         names = {c["name"] for c in connectors}
-        assert names == {"spotify", "lastfm", "musicbrainz", "apple"}
+        assert names == {"spotify", "lastfm", "musicbrainz", "apple_music"}
 
 
 def _mock_storage(
@@ -74,10 +74,11 @@ class TestSpotifyStatus:
         assert spotify["token_expires_at"] is not None
         assert spotify["account_name"] == "testuser"
 
-    async def test_connected_with_expired_token_but_refresh_token(
+    async def test_failed_silent_refresh_reports_auth_error(
         self, client: httpx.AsyncClient
     ) -> None:
-        """Expired access token is still 'connected' — SpotifyTokenManager auto-refreshes."""
+        """Expired access token + refresh attempt that returns None surfaces as an
+        auth error, not a false-positive 'connected' state."""
         stale_expires = int(time.time()) - 3600
         token = StoredToken(
             access_token="test_token",
@@ -86,7 +87,8 @@ class TestSpotifyStatus:
         )
         storage = _mock_storage(spotify_token=token)
 
-        # Mock try_silent_refresh at the class level to avoid hitting Spotify
+        # ``try_silent_refresh`` returning None simulates a revoked/invalid
+        # refresh_token — we must not claim the user is still connected.
         mock_refresh = AsyncMock(return_value=None)
 
         with (
@@ -99,8 +101,9 @@ class TestSpotifyStatus:
             response = await client.get("/api/v1/connectors")
 
         spotify = next(c for c in response.json() if c["name"] == "spotify")
-        assert spotify["connected"] is True
-        assert spotify["token_expires_at"] == stale_expires
+        assert spotify["connected"] is False
+        assert spotify["auth_error"] == "refresh_failed"
+        assert spotify["status"] == "error"
 
     async def test_disconnected_without_refresh_token(
         self, client: httpx.AsyncClient
@@ -202,7 +205,7 @@ class TestAppleMusicStatus:
     async def test_not_connected(self, client: httpx.AsyncClient) -> None:
         response = await client.get("/api/v1/connectors")
 
-        apple = next(c for c in response.json() if c["name"] == "apple")
+        apple = next(c for c in response.json() if c["name"] == "apple_music")
         assert apple["connected"] is False
         assert apple["account_name"] is None
 
@@ -219,9 +222,9 @@ class TestLastfmStatus:
         assert "account_name" in lastfm
 
 
-# NOTE: GET /api/v1/connectors/spotify/playlists route-level behavior is
+# NOTE: GET /api/v1/connectors/{service}/playlists route-level behavior is
 # covered by unit tests at tests/unit/application/use_cases/
-# test_list_spotify_playlists.py. Integration-test attempts here hit real
+# test_list_connector_playlists.py. Integration-test attempts here hit real
 # Spotify API because the fixture env carries OAuth tokens — not safe in
 # CI. Revisit once a reliable connector-mocking seam exists at the
 # integration-test level.

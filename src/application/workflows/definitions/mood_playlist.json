@@ -1,0 +1,58 @@
+{
+  "id": "mood_playlist",
+  "name": "Mood Playlist — Chill",
+  "description": "Approved (yah) tracks tagged mood:chill, shuffled for variety",
+  "version": "1.0",
+  "tasks": [
+    {
+      "id": "source_yah",
+      "type": "source.preferred_tracks",
+      "config": {
+        "state": "yah",
+        "limit": 1000
+      }
+    },
+    {
+      "id": "enrich_tags",
+      "type": "enricher.tags",
+      "upstream": ["source_yah"],
+      "config": {}
+    },
+    {
+      "id": "filter_chill",
+      "type": "filter.by_tag",
+      "upstream": ["enrich_tags"],
+      "config": {
+        "tags": ["mood:chill"],
+        "match_mode": "any"
+      }
+    },
+    {
+      "id": "shuffle",
+      "type": "sorter.weighted_shuffle",
+      "upstream": ["filter_chill"],
+      "config": {
+        "shuffle_strength": 0.8
+      }
+    },
+    {
+      "id": "limit_selection",
+      "type": "selector.limit_tracks",
+      "upstream": ["shuffle"],
+      "config": {
+        "count": 60,
+        "method": "first"
+      }
+    },
+    {
+      "id": "create_playlist",
+      "type": "destination.create_playlist",
+      "upstream": ["limit_selection"],
+      "config": {
+        "name": "Chill {date}",
+        "description": "Yah'd tracks tagged mood:chill ({track_count} tracks)",
+        "connector": "spotify"
+      }
+    }
+  ]
+}

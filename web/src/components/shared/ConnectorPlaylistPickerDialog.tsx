@@ -3,13 +3,14 @@ import { Loader2, MoreHorizontal, RefreshCw, Search } from "lucide-react";
 import { useMemo, useState } from "react";
 
 import {
-  getListSpotifyPlaylistsApiV1ConnectorsSpotifyPlaylistsGetQueryKey,
-  listSpotifyPlaylistsApiV1ConnectorsSpotifyPlaylistsGet,
-  useListSpotifyPlaylistsApiV1ConnectorsSpotifyPlaylistsGet,
+  getListConnectorPlaylistsApiV1ConnectorsServicePlaylistsGetQueryKey,
+  listConnectorPlaylistsApiV1ConnectorsServicePlaylistsGet,
+  useListConnectorPlaylistsApiV1ConnectorsServicePlaylistsGet,
 } from "#/api/generated/connectors/connectors";
 import type {
   ActiveAssignmentSchema,
-  SpotifyPlaylistBrowseSchema,
+  ConnectorMetadataSchema,
+  ConnectorPlaylistBrowseSchema,
 } from "#/api/generated/model";
 import {
   applyAssignmentApiV1PlaylistAssignmentsAssignmentIdApplyPost,
@@ -63,12 +64,14 @@ export interface PickedPlaylist {
   name: string;
 }
 
-interface SpotifyPlaylistPickerDialogProps {
+interface ConnectorPlaylistPickerDialogProps {
   open: boolean;
   onOpenChange: (open: boolean) => void;
+  /** The connector being browsed — drives the API call, title copy, + branding. */
+  connector: ConnectorMetadataSchema;
   /**
    * Receives the selected playlists as `{id, name}` pairs. The browser
-   * operates in external-ID space (Spotify identifiers), not internal
+   * operates in external-ID space (provider identifiers), not internal
    * UUIDs — names tag along so the confirm dialog avoids a re-query.
    */
   onConfirm?: (playlists: PickedPlaylist[]) => void;
@@ -113,11 +116,12 @@ function FilterChip({
   );
 }
 
-export function SpotifyPlaylistPickerDialog({
+export function ConnectorPlaylistPickerDialog({
   open,
   onOpenChange,
+  connector,
   onConfirm,
-}: SpotifyPlaylistPickerDialogProps) {
+}: ConnectorPlaylistPickerDialogProps) {
   const queryClient = useQueryClient();
   const { search, setSearch, deferredSearch, isSearching } = useTrackSearch();
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
@@ -126,34 +130,40 @@ export function SpotifyPlaylistPickerDialog({
     useState<AttributeFilter>("all");
   const [assignDialog, setAssignDialog] = useState<{
     mode: AssignMode;
-    playlist: SpotifyPlaylistBrowseSchema;
+    playlist: ConnectorPlaylistBrowseSchema;
   } | null>(null);
+
+  const connectorName = connector.name;
+  const connectorLabel = connector.display_name;
 
   const invalidatePlaylists = () =>
     queryClient.invalidateQueries({
       queryKey:
-        getListSpotifyPlaylistsApiV1ConnectorsSpotifyPlaylistsGetQueryKey(),
+        getListConnectorPlaylistsApiV1ConnectorsServicePlaylistsGetQueryKey(
+          connectorName,
+        ),
     });
 
   const { data, isLoading, isError, error } =
-    useListSpotifyPlaylistsApiV1ConnectorsSpotifyPlaylistsGet(
+    useListConnectorPlaylistsApiV1ConnectorsServicePlaylistsGet(
+      connectorName,
       { force_refresh: false },
       { query: { enabled: open } },
     );
 
   const refresh = useMutation({
     mutationFn: () =>
-      listSpotifyPlaylistsApiV1ConnectorsSpotifyPlaylistsGet({
+      listConnectorPlaylistsApiV1ConnectorsServicePlaylistsGet(connectorName, {
         force_refresh: true,
       }),
     onSuccess: async () => {
       await invalidatePlaylists();
     },
-    meta: { errorLabel: "Failed to refresh Spotify playlists" },
+    meta: { errorLabel: `Failed to refresh ${connectorLabel} playlists` },
   });
 
   const reApply = useMutation({
-    mutationFn: async (playlist: SpotifyPlaylistBrowseSchema) => {
+    mutationFn: async (playlist: ConnectorPlaylistBrowseSchema) => {
       const results = await Promise.all(
         playlist.current_assignments.map((a) =>
           applyAssignmentApiV1PlaylistAssignmentsAssignmentIdApplyPost(
@@ -197,7 +207,7 @@ export function SpotifyPlaylistPickerDialog({
       playlist,
       assignment,
     }: {
-      playlist: SpotifyPlaylistBrowseSchema;
+      playlist: ConnectorPlaylistBrowseSchema;
       assignment: ActiveAssignmentSchema;
     }) => {
       await deleteAssignmentApiV1PlaylistAssignmentsAssignmentIdDelete(
@@ -231,7 +241,7 @@ export function SpotifyPlaylistPickerDialog({
   });
 
   const response = data?.status === 200 ? data.data : undefined;
-  const playlists: SpotifyPlaylistBrowseSchema[] = response?.data ?? [];
+  const playlists: ConnectorPlaylistBrowseSchema[] = response?.data ?? [];
 
   const filtered = useMemo(() => {
     const needle = deferredSearch.trim().toLowerCase();
@@ -306,11 +316,11 @@ export function SpotifyPlaylistPickerDialog({
         <DialogHeader>
           <div className="flex items-start justify-between gap-3">
             <div>
-              <DialogTitle>Import from Spotify</DialogTitle>
+              <DialogTitle>Import from {connectorLabel}</DialogTitle>
               <p className="mt-1 text-sm text-text-muted">
                 {response?.from_cache
-                  ? "Showing cached playlists. Refresh to pull the latest from Spotify."
-                  : "Latest from Spotify."}
+                  ? `Showing cached playlists. Refresh to pull the latest from ${connectorLabel}.`
+                  : `Latest from ${connectorLabel}.`}
               </p>
             </div>
             <Button
@@ -318,7 +328,7 @@ export function SpotifyPlaylistPickerDialog({
               size="sm"
               onClick={() => refresh.mutate()}
               disabled={refresh.isPending}
-              aria-label="Refresh from Spotify"
+              aria-label={`Refresh from ${connectorLabel}`}
             >
               {refresh.isPending ? (
                 <Loader2 className="animate-spin" />
@@ -338,7 +348,7 @@ export function SpotifyPlaylistPickerDialog({
               onChange={(e) => setSearch(e.target.value)}
               placeholder="Search playlists…"
               className="pl-9"
-              aria-label="Search Spotify playlists"
+              aria-label={`Search ${connectorLabel} playlists`}
             />
           </div>
 
@@ -389,7 +399,7 @@ export function SpotifyPlaylistPickerDialog({
             <div className="p-4">
               <QueryErrorState
                 error={error}
-                heading="Couldn't load Spotify playlists"
+                heading={`Couldn't load ${connectorLabel} playlists`}
               />
             </div>
           ) : filtered.length === 0 ? (
@@ -401,7 +411,7 @@ export function SpotifyPlaylistPickerDialog({
               }
               description={
                 playlists.length === 0
-                  ? "Connect Spotify or create a playlist there to see it here."
+                  ? `Connect ${connectorLabel} or create a playlist there to see it here.`
                   : "Try removing a filter or clearing the search."
               }
             />
@@ -421,7 +431,7 @@ export function SpotifyPlaylistPickerDialog({
               {filtered.map((p) => {
                 const id = p.connector_playlist_identifier;
                 const checked = selectedIds.has(id);
-                const rowId = `spotify-pick-${id}`;
+                const rowId = `${connectorName}-pick-${id}`;
                 const tagAssignments = p.current_assignments.filter(
                   (a) => a.action_type === "add_tag",
                 );
@@ -587,6 +597,7 @@ export function SpotifyPlaylistPickerDialog({
             if (!next) setAssignDialog(null);
           }}
           mode={assignDialog.mode}
+          connector={connector}
           playlist={assignDialog.playlist}
         />
       )}

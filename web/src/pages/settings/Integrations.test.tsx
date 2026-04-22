@@ -1,36 +1,28 @@
 import { HttpResponse, http } from "msw";
 import { describe, expect, it } from "vitest";
 
+import { makeConnectorMetadata } from "#/test/factories";
 import { server } from "#/test/setup";
 import { renderWithProviders, screen, waitFor } from "#/test/test-utils";
 
 import { Integrations } from "./Integrations";
 
 const allConnectors = [
-  {
+  makeConnectorMetadata({
     name: "spotify",
     connected: true,
     account_name: "testuser",
     token_expires_at: Math.floor(Date.now() / 1000) + 3600,
-  },
-  {
+    status: "connected",
+  }),
+  makeConnectorMetadata({
     name: "lastfm",
     connected: true,
     account_name: "lfmuser",
-    token_expires_at: null,
-  },
-  {
-    name: "musicbrainz",
-    connected: true,
-    account_name: null,
-    token_expires_at: null,
-  },
-  {
-    name: "apple",
-    connected: false,
-    account_name: null,
-    token_expires_at: null,
-  },
+    status: "connected",
+  }),
+  makeConnectorMetadata({ name: "musicbrainz", connected: true }),
+  makeConnectorMetadata({ name: "apple_music" }),
 ];
 
 describe("Integrations", () => {
@@ -54,9 +46,10 @@ describe("Integrations", () => {
       expect(screen.getByText("Spotify")).toBeInTheDocument();
     });
 
-    // Section headings
+    // Section headings derived from the backend's `category` field
     expect(screen.getByText("Streaming")).toBeInTheDocument();
-    expect(screen.getByText("Data & Enrichment")).toBeInTheDocument();
+    expect(screen.getByText("Play history")).toBeInTheDocument();
+    expect(screen.getByText("Metadata & enrichment")).toBeInTheDocument();
 
     // Connector names
     expect(screen.getByText("Last.fm")).toBeInTheDocument();
@@ -100,30 +93,10 @@ describe("Integrations", () => {
       http.get("*/api/v1/connectors", () => {
         return HttpResponse.json(
           [
-            {
-              name: "spotify",
-              connected: false,
-              account_name: null,
-              token_expires_at: null,
-            },
-            {
-              name: "lastfm",
-              connected: false,
-              account_name: null,
-              token_expires_at: null,
-            },
-            {
-              name: "musicbrainz",
-              connected: true,
-              account_name: null,
-              token_expires_at: null,
-            },
-            {
-              name: "apple",
-              connected: false,
-              account_name: null,
-              token_expires_at: null,
-            },
+            makeConnectorMetadata({ name: "spotify" }),
+            makeConnectorMetadata({ name: "lastfm" }),
+            makeConnectorMetadata({ name: "musicbrainz", connected: true }),
+            makeConnectorMetadata({ name: "apple_music" }),
           ],
           { status: 200 },
         );

@@ -1,11 +1,15 @@
-"""List the authenticated user's Spotify playlists with import status.
+"""List the authenticated user's playlists from a given connector with import status.
 
-The Spotify browser calls this to populate its picker dialog. The use
+The frontend playlist picker calls this to populate its dialog. The use
 case is cache-first: it reads ``DBConnectorPlaylist`` unless the caller
-explicitly passes ``force_refresh=True`` (the dialog's "Refresh from
-Spotify" button). Import-status resolution is done here — UI doesn't
-compute it from two repos — by set-membership against the user's
-existing ``PlaylistLink`` rows.
+explicitly passes ``force_refresh=True`` (the dialog's "Refresh" button).
+Import-status resolution is done here — UI doesn't compute it from two
+repos — by set-membership against the user's existing ``PlaylistLink`` rows.
+
+Parameterized on ``connector_name`` so the same pipeline works for any
+connector that implements ``UserPlaylistsConnector``. Non-supporting
+connectors surface as a ``TypeError`` from the connector resolver, which
+the API route translates to 501.
 """
 
 from collections.abc import Sequence
@@ -18,7 +22,6 @@ from attrs import define, field
 from src.application.use_cases._shared import resolve_user_playlists_connector
 from src.config import get_logger
 from src.domain.entities import ConnectorPlaylist
-from src.domain.entities.playlist import SPOTIFY_CONNECTOR
 from src.domain.entities.playlist_assignment import AssignmentActionType
 from src.domain.entities.shared import json_int, json_str
 from src.domain.repositories import UnitOfWorkProtocol
@@ -30,7 +33,7 @@ ImportStatus = Literal["not_imported", "imported"]
 
 @define(frozen=True, slots=True)
 class ActiveAssignmentSummary:
-    """One active assignment on a Spotify playlist, projected for the UI.
+    """One active assignment on a connector playlist, projected for the UI.
 
     Lets the picker render status badges + drive the Update / Re-apply /
     Remove states in the AssignPlaylistDialog without a separate fetch.
@@ -42,8 +45,8 @@ class ActiveAssignmentSummary:
 
 
 @define(frozen=True, slots=True)
-class SpotifyPlaylistView:
-    """App-layer projection for the Spotify browser UI.
+class ConnectorPlaylistView:
+    """App-layer projection for the playlist browser UI.
 
     Derived from ``ConnectorPlaylist`` + per-user ``PlaylistLink`` set
     membership + per-CP assignment list. Keeps the UI payload narrow
@@ -67,14 +70,15 @@ class SpotifyPlaylistView:
 
 
 @define(frozen=True, slots=True)
-class ListSpotifyPlaylistsCommand:
+class ListConnectorPlaylistsCommand:
     user_id: str
+    connector_name: str
     force_refresh: bool = False
 
 
 @define(frozen=True, slots=True)
-class ListSpotifyPlaylistsResult:
-    playlists: Sequence[SpotifyPlaylistView]
+class ListConnectorPlaylistsResult:
+    playlists: Sequence[ConnectorPlaylistView]
     from_cache: bool
     fetched_at: datetime = field(factory=lambda: datetime.now(UTC))
 
@@ -101,21 +105,23 @@ def _track_count(cp: ConnectorPlaylist) -> int:
 
 
 @define(slots=True)
-class ListSpotifyPlaylistsUseCase:
+class ListConnectorPlaylistsUseCase:
     async def execute(
         self,
-        command: ListSpotifyPlaylistsCommand,
+        command: ListConnectorPlaylistsCommand,
         uow: UnitOfWorkProtocol,
-    ) -> ListSpotifyPlaylistsResult:
+    ) -> ListConnectorPlaylistsResult:
         async with uow:
             cp_repo = uow.get_connector_playlist_repository()
             link_repo = uow.get_playlist_link_repository()
             assignment_repo = uow.get_playlist_assignment_repository()
 
             if command.force_refresh or not (
-                cached := await cp_repo.list_by_connector(SPOTIFY_CONNECTOR)
+                cached := await cp_repo.list_by_connector(command.connector_name)
             ):
-                connector = resolve_user_playlists_connector(SPOTIFY_CONNECTOR, uow)
+                connector = resolve_user_playlists_connector(
+                    command.connector_name, uow
+                )
                 fetched = await connector.fetch_user_playlists()
                 playlists = await cp_repo.bulk_upsert_models(fetched)
                 await uow.commit()
@@ -125,7 +131,7 @@ class ListSpotifyPlaylistsUseCase:
                 from_cache = True
 
             imported_links = await link_repo.list_by_user_connector(
-                command.user_id, SPOTIFY_CONNECTOR
+                command.user_id, command.connector_name
             )
             imported_ids: set[str] = {
                 link.connector_playlist_identifier for link in imported_links
@@ -134,8 +140,8 @@ class ListSpotifyPlaylistsUseCase:
                 [cp.id for cp in playlists], user_id=command.user_id
             )
 
-            views: list[SpotifyPlaylistView] = [
-                SpotifyPlaylistView(
+            views: list[ConnectorPlaylistView] = [
+                ConnectorPlaylistView(
                     connector_playlist_identifier=cp.connector_playlist_identifier,
                     connector_playlist_db_id=cp.id,
                     name=cp.name,
@@ -163,20 +169,26 @@ class ListSpotifyPlaylistsUseCase:
                 for cp in playlists
             ]
 
-            return ListSpotifyPlaylistsResult(
+            return ListConnectorPlaylistsResult(
                 playlists=views,
                 from_cache=from_cache,
             )
 
 
-async def run_list_spotify_playlists(
-    user_id: str, force_refresh: bool = False
-) -> ListSpotifyPlaylistsResult:
-    """Convenience wrapper around execute_use_case for route handlers."""
+async def run_list_connector_playlists(
+    user_id: str,
+    connector_name: str,
+    force_refresh: bool = False,
+) -> ListConnectorPlaylistsResult:
+    """Convenience wrapper around execute_use_case for route and CLI callers."""
     from src.application.runner import execute_use_case
 
-    command = ListSpotifyPlaylistsCommand(user_id=user_id, force_refresh=force_refresh)
+    command = ListConnectorPlaylistsCommand(
+        user_id=user_id,
+        connector_name=connector_name,
+        force_refresh=force_refresh,
+    )
     return await execute_use_case(
-        lambda uow: ListSpotifyPlaylistsUseCase().execute(command, uow),
+        lambda uow: ListConnectorPlaylistsUseCase().execute(command, uow),
         user_id=user_id,
     )

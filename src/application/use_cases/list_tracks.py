@@ -24,7 +24,11 @@ from src.config import get_logger
 from src.config.constants import BusinessLimits
 from src.domain.entities import Track
 from src.domain.entities.preference import PreferenceState
-from src.domain.repositories.interfaces import TrackListingPage, UnitOfWorkProtocol
+from src.domain.repositories.interfaces import (
+    TrackFacets,
+    TrackListingPage,
+    UnitOfWorkProtocol,
+)
 
 logger = get_logger(__name__)
 
@@ -45,6 +49,7 @@ class ListTracksCommand:
     limit: int = field(default=BusinessLimits.DEFAULT_PAGE_SIZE)
     offset: int = 0
     cursor: str | None = None
+    include_facets: bool = False
 
 
 @define(frozen=True, slots=True)
@@ -59,6 +64,7 @@ class ListTracksResult:
     preference_map: dict[UUID, PreferenceState]
     tag_map: dict[UUID, list[str]] = field(factory=dict)
     next_cursor: str | None = None
+    facets: TrackFacets | None = None
 
 
 @define(slots=True)
@@ -113,6 +119,7 @@ class ListTracksUseCase:
                 after_value=after_value,
                 after_id=after_id,
                 include_total=not has_cursor,
+                include_facets=command.include_facets,
             )
 
             # Encode next-page cursor from repository's raw key
@@ -152,4 +159,5 @@ class ListTracksUseCase:
                 preference_map=preference_map,
                 tag_map=tag_map,
                 next_cursor=next_cursor,
+                facets=page["facets"],
             )

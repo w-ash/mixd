@@ -72,6 +72,14 @@ export function formatArtists(artists: Array<{ name: string }>): string {
   return artists.map((a) => a.name).join(", ");
 }
 
+/** Join a list into prose with a conjunction: ["a","b","c"] → "a, b, and c". */
+export function formatList(
+  items: string[],
+  type: "conjunction" | "disjunction" = "conjunction",
+): string {
+  return new Intl.ListFormat(undefined, { type, style: "long" }).format(items);
+}
+
 /** Format milliseconds as a human-readable total duration ("2 hr 15 min"). */
 export function formatTotalDuration(ms: number): string {
   if (ms <= 0) return "0 min";

@@ -3,7 +3,7 @@
  * Do not edit manually.
  * Mixd
  * Personal music metadata hub
- * OpenAPI spec version: 0.7.4.post2
+ * OpenAPI spec version: 0.7.5
  */
 import {
   useMutation,
@@ -25,12 +25,12 @@ import type {
 } from '@tanstack/react-query';
 
 import type {
-  ConnectorStatusSchema,
+  ConnectorMetadataSchema,
+  ConnectorPlaylistBrowseResponse,
   HTTPValidationError,
-  ImportSpotifyPlaylistsRequest,
-  ImportSpotifyPlaylistsResponse,
-  ListSpotifyPlaylistsApiV1ConnectorsSpotifyPlaylistsGetParams,
-  SpotifyPlaylistBrowseResponse
+  ImportConnectorPlaylistsRequest,
+  ImportConnectorPlaylistsResponse,
+  ListConnectorPlaylistsApiV1ConnectorsServicePlaylistsGetParams
 } from '../model';
 
 import { customFetch } from '../../client';
@@ -41,11 +41,16 @@ type SecondParameter<T extends (...args: never) => unknown> = Parameters<T>[1];
 
 
 /**
- * Get authentication status of all configured connectors.
+ * Return rich metadata for every registered connector.
+
+Merges static registry data (display_name, category, capabilities,
+auth_method) with the live status probe (connected, account_name,
+token_expires_at, auth_error), freshness data from ``DBSyncCheckpoint``
+(last_synced_at), and derives the UI-facing ``status`` enum.
  * @summary Get Connectors
  */
 export type getConnectorsApiV1ConnectorsGetResponse200 = {
-  data: ConnectorStatusSchema[]
+  data: ConnectorMetadataSchema[]
   status: 200
 }
 
@@ -155,6 +160,9 @@ export function useGetConnectorsApiV1ConnectorsGet<TData = Awaited<ReturnType<ty
 
 /**
  * Remove stored OAuth token for a connector, disconnecting it.
+
+Only connectors declaring ``auth_method="oauth"`` in the registry can be
+disconnected; anything else (public APIs, coming-soon stubs) returns 400.
  * @summary Delete Connector Token
  */
 export type deleteConnectorTokenApiV1ConnectorsServiceTokenDeleteResponse204 = {
@@ -243,33 +251,35 @@ export const useDeleteConnectorTokenApiV1ConnectorsServiceTokenDelete = <TError 
       return useMutation(getDeleteConnectorTokenApiV1ConnectorsServiceTokenDeleteMutationOptions(options), queryClient);
     }
     /**
- * List the user's Spotify playlists for the browser dialog.
+ * List the user's playlists on the given connector for the browser dialog.
 
 Cache-first: reads from ``connector_playlists`` unless ``force_refresh``
 is true. Per-playlist ``import_status`` reflects whether this user has
-already linked the Spotify playlist into Mixd.
- * @summary List Spotify Playlists
+already linked the connector playlist into Mixd. Connectors that don't
+declare ``playlist_import`` in their capabilities return 501.
+ * @summary List Connector Playlists
  */
-export type listSpotifyPlaylistsApiV1ConnectorsSpotifyPlaylistsGetResponse200 = {
-  data: SpotifyPlaylistBrowseResponse
+export type listConnectorPlaylistsApiV1ConnectorsServicePlaylistsGetResponse200 = {
+  data: ConnectorPlaylistBrowseResponse
   status: 200
 }
 
-export type listSpotifyPlaylistsApiV1ConnectorsSpotifyPlaylistsGetResponse422 = {
+export type listConnectorPlaylistsApiV1ConnectorsServicePlaylistsGetResponse422 = {
   data: HTTPValidationError
   status: 422
 }
 
-export type listSpotifyPlaylistsApiV1ConnectorsSpotifyPlaylistsGetResponseSuccess = (listSpotifyPlaylistsApiV1ConnectorsSpotifyPlaylistsGetResponse200) & {
+export type listConnectorPlaylistsApiV1ConnectorsServicePlaylistsGetResponseSuccess = (listConnectorPlaylistsApiV1ConnectorsServicePlaylistsGetResponse200) & {
   headers: Headers;
 };
-export type listSpotifyPlaylistsApiV1ConnectorsSpotifyPlaylistsGetResponseError = (listSpotifyPlaylistsApiV1ConnectorsSpotifyPlaylistsGetResponse422) & {
+export type listConnectorPlaylistsApiV1ConnectorsServicePlaylistsGetResponseError = (listConnectorPlaylistsApiV1ConnectorsServicePlaylistsGetResponse422) & {
   headers: Headers;
 };
 
-export type listSpotifyPlaylistsApiV1ConnectorsSpotifyPlaylistsGetResponse = (listSpotifyPlaylistsApiV1ConnectorsSpotifyPlaylistsGetResponseSuccess | listSpotifyPlaylistsApiV1ConnectorsSpotifyPlaylistsGetResponseError)
+export type listConnectorPlaylistsApiV1ConnectorsServicePlaylistsGetResponse = (listConnectorPlaylistsApiV1ConnectorsServicePlaylistsGetResponseSuccess | listConnectorPlaylistsApiV1ConnectorsServicePlaylistsGetResponseError)
 
-export const getListSpotifyPlaylistsApiV1ConnectorsSpotifyPlaylistsGetUrl = (params?: ListSpotifyPlaylistsApiV1ConnectorsSpotifyPlaylistsGetParams,) => {
+export const getListConnectorPlaylistsApiV1ConnectorsServicePlaylistsGetUrl = (service: string,
+    params?: ListConnectorPlaylistsApiV1ConnectorsServicePlaylistsGetParams,) => {
   const normalizedParams = new URLSearchParams();
 
   Object.entries(params || {}).forEach(([key, value]) => {
@@ -281,12 +291,13 @@ export const getListSpotifyPlaylistsApiV1ConnectorsSpotifyPlaylistsGetUrl = (par
 
   const stringifiedParams = normalizedParams.toString();
 
-  return stringifiedParams.length > 0 ? `/api/v1/connectors/spotify/playlists?${stringifiedParams}` : `/api/v1/connectors/spotify/playlists`
+  return stringifiedParams.length > 0 ? `/api/v1/connectors/${service}/playlists?${stringifiedParams}` : `/api/v1/connectors/${service}/playlists`
 }
 
-export const listSpotifyPlaylistsApiV1ConnectorsSpotifyPlaylistsGet = async (params?: ListSpotifyPlaylistsApiV1ConnectorsSpotifyPlaylistsGetParams, options?: RequestInit): Promise<listSpotifyPlaylistsApiV1ConnectorsSpotifyPlaylistsGetResponse> => {
+export const listConnectorPlaylistsApiV1ConnectorsServicePlaylistsGet = async (service: string,
+    params?: ListConnectorPlaylistsApiV1ConnectorsServicePlaylistsGetParams, options?: RequestInit): Promise<listConnectorPlaylistsApiV1ConnectorsServicePlaylistsGetResponse> => {
 
-  return customFetch<listSpotifyPlaylistsApiV1ConnectorsSpotifyPlaylistsGetResponse>(getListSpotifyPlaylistsApiV1ConnectorsSpotifyPlaylistsGetUrl(params),
+  return customFetch<listConnectorPlaylistsApiV1ConnectorsServicePlaylistsGetResponse>(getListConnectorPlaylistsApiV1ConnectorsServicePlaylistsGetUrl(service,params),
   {
     ...options,
     method: 'GET'
@@ -299,69 +310,75 @@ export const listSpotifyPlaylistsApiV1ConnectorsSpotifyPlaylistsGet = async (par
 
 
 
-export const getListSpotifyPlaylistsApiV1ConnectorsSpotifyPlaylistsGetQueryKey = (params?: ListSpotifyPlaylistsApiV1ConnectorsSpotifyPlaylistsGetParams,) => {
+export const getListConnectorPlaylistsApiV1ConnectorsServicePlaylistsGetQueryKey = (service: string,
+    params?: ListConnectorPlaylistsApiV1ConnectorsServicePlaylistsGetParams,) => {
     return [
-    `/api/v1/connectors/spotify/playlists`, ...(params ? [params] : [])
+    `/api/v1/connectors/${service}/playlists`, ...(params ? [params] : [])
     ] as const;
     }
 
 
-export const getListSpotifyPlaylistsApiV1ConnectorsSpotifyPlaylistsGetQueryOptions = <TData = Awaited<ReturnType<typeof listSpotifyPlaylistsApiV1ConnectorsSpotifyPlaylistsGet>>, TError = HTTPValidationError>(params?: ListSpotifyPlaylistsApiV1ConnectorsSpotifyPlaylistsGetParams, options?: { query?:Partial<UseQueryOptions<Awaited<ReturnType<typeof listSpotifyPlaylistsApiV1ConnectorsSpotifyPlaylistsGet>>, TError, TData>>, request?: SecondParameter<typeof customFetch>}
+export const getListConnectorPlaylistsApiV1ConnectorsServicePlaylistsGetQueryOptions = <TData = Awaited<ReturnType<typeof listConnectorPlaylistsApiV1ConnectorsServicePlaylistsGet>>, TError = HTTPValidationError>(service: string,
+    params?: ListConnectorPlaylistsApiV1ConnectorsServicePlaylistsGetParams, options?: { query?:Partial<UseQueryOptions<Awaited<ReturnType<typeof listConnectorPlaylistsApiV1ConnectorsServicePlaylistsGet>>, TError, TData>>, request?: SecondParameter<typeof customFetch>}
 ) => {
 
 const {query: queryOptions, request: requestOptions} = options ?? {};
 
-  const queryKey =  queryOptions?.queryKey ?? getListSpotifyPlaylistsApiV1ConnectorsSpotifyPlaylistsGetQueryKey(params);
+  const queryKey =  queryOptions?.queryKey ?? getListConnectorPlaylistsApiV1ConnectorsServicePlaylistsGetQueryKey(service,params);
 
 
 
-    const queryFn: QueryFunction<Awaited<ReturnType<typeof listSpotifyPlaylistsApiV1ConnectorsSpotifyPlaylistsGet>>> = ({ signal }) => listSpotifyPlaylistsApiV1ConnectorsSpotifyPlaylistsGet(params, { signal, ...requestOptions });
+    const queryFn: QueryFunction<Awaited<ReturnType<typeof listConnectorPlaylistsApiV1ConnectorsServicePlaylistsGet>>> = ({ signal }) => listConnectorPlaylistsApiV1ConnectorsServicePlaylistsGet(service,params, { signal, ...requestOptions });
 
 
 
 
 
-   return  { queryKey, queryFn, ...queryOptions} as UseQueryOptions<Awaited<ReturnType<typeof listSpotifyPlaylistsApiV1ConnectorsSpotifyPlaylistsGet>>, TError, TData> & { queryKey: DataTag<QueryKey, TData, TError> }
+   return  { queryKey, queryFn, enabled: !!(service), ...queryOptions} as UseQueryOptions<Awaited<ReturnType<typeof listConnectorPlaylistsApiV1ConnectorsServicePlaylistsGet>>, TError, TData> & { queryKey: DataTag<QueryKey, TData, TError> }
 }
 
-export type ListSpotifyPlaylistsApiV1ConnectorsSpotifyPlaylistsGetQueryResult = NonNullable<Awaited<ReturnType<typeof listSpotifyPlaylistsApiV1ConnectorsSpotifyPlaylistsGet>>>
-export type ListSpotifyPlaylistsApiV1ConnectorsSpotifyPlaylistsGetQueryError = HTTPValidationError
+export type ListConnectorPlaylistsApiV1ConnectorsServicePlaylistsGetQueryResult = NonNullable<Awaited<ReturnType<typeof listConnectorPlaylistsApiV1ConnectorsServicePlaylistsGet>>>
+export type ListConnectorPlaylistsApiV1ConnectorsServicePlaylistsGetQueryError = HTTPValidationError
 
 
-export function useListSpotifyPlaylistsApiV1ConnectorsSpotifyPlaylistsGet<TData = Awaited<ReturnType<typeof listSpotifyPlaylistsApiV1ConnectorsSpotifyPlaylistsGet>>, TError = HTTPValidationError>(
- params: undefined |  ListSpotifyPlaylistsApiV1ConnectorsSpotifyPlaylistsGetParams, options: { query:Partial<UseQueryOptions<Awaited<ReturnType<typeof listSpotifyPlaylistsApiV1ConnectorsSpotifyPlaylistsGet>>, TError, TData>> & Pick<
+export function useListConnectorPlaylistsApiV1ConnectorsServicePlaylistsGet<TData = Awaited<ReturnType<typeof listConnectorPlaylistsApiV1ConnectorsServicePlaylistsGet>>, TError = HTTPValidationError>(
+ service: string,
+    params: undefined |  ListConnectorPlaylistsApiV1ConnectorsServicePlaylistsGetParams, options: { query:Partial<UseQueryOptions<Awaited<ReturnType<typeof listConnectorPlaylistsApiV1ConnectorsServicePlaylistsGet>>, TError, TData>> & Pick<
         DefinedInitialDataOptions<
-          Awaited<ReturnType<typeof listSpotifyPlaylistsApiV1ConnectorsSpotifyPlaylistsGet>>,
+          Awaited<ReturnType<typeof listConnectorPlaylistsApiV1ConnectorsServicePlaylistsGet>>,
           TError,
-          Awaited<ReturnType<typeof listSpotifyPlaylistsApiV1ConnectorsSpotifyPlaylistsGet>>
+          Awaited<ReturnType<typeof listConnectorPlaylistsApiV1ConnectorsServicePlaylistsGet>>
         > , 'initialData'
       >, request?: SecondParameter<typeof customFetch>}
  , queryClient?: QueryClient
   ):  DefinedUseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> }
-export function useListSpotifyPlaylistsApiV1ConnectorsSpotifyPlaylistsGet<TData = Awaited<ReturnType<typeof listSpotifyPlaylistsApiV1ConnectorsSpotifyPlaylistsGet>>, TError = HTTPValidationError>(
- params?: ListSpotifyPlaylistsApiV1ConnectorsSpotifyPlaylistsGetParams, options?: { query?:Partial<UseQueryOptions<Awaited<ReturnType<typeof listSpotifyPlaylistsApiV1ConnectorsSpotifyPlaylistsGet>>, TError, TData>> & Pick<
+export function useListConnectorPlaylistsApiV1ConnectorsServicePlaylistsGet<TData = Awaited<ReturnType<typeof listConnectorPlaylistsApiV1ConnectorsServicePlaylistsGet>>, TError = HTTPValidationError>(
+ service: string,
+    params?: ListConnectorPlaylistsApiV1ConnectorsServicePlaylistsGetParams, options?: { query?:Partial<UseQueryOptions<Awaited<ReturnType<typeof listConnectorPlaylistsApiV1ConnectorsServicePlaylistsGet>>, TError, TData>> & Pick<
         UndefinedInitialDataOptions<
-          Awaited<ReturnType<typeof listSpotifyPlaylistsApiV1ConnectorsSpotifyPlaylistsGet>>,
+          Awaited<ReturnType<typeof listConnectorPlaylistsApiV1ConnectorsServicePlaylistsGet>>,
           TError,
-          Awaited<ReturnType<typeof listSpotifyPlaylistsApiV1ConnectorsSpotifyPlaylistsGet>>
+          Awaited<ReturnType<typeof listConnectorPlaylistsApiV1ConnectorsServicePlaylistsGet>>
         > , 'initialData'
       >, request?: SecondParameter<typeof customFetch>}
  , queryClient?: QueryClient
   ):  UseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> }
-export function useListSpotifyPlaylistsApiV1ConnectorsSpotifyPlaylistsGet<TData = Awaited<ReturnType<typeof listSpotifyPlaylistsApiV1ConnectorsSpotifyPlaylistsGet>>, TError = HTTPValidationError>(
- params?: ListSpotifyPlaylistsApiV1ConnectorsSpotifyPlaylistsGetParams, options?: { query?:Partial<UseQueryOptions<Awaited<ReturnType<typeof listSpotifyPlaylistsApiV1ConnectorsSpotifyPlaylistsGet>>, TError, TData>>, request?: SecondParameter<typeof customFetch>}
+export function useListConnectorPlaylistsApiV1ConnectorsServicePlaylistsGet<TData = Awaited<ReturnType<typeof listConnectorPlaylistsApiV1ConnectorsServicePlaylistsGet>>, TError = HTTPValidationError>(
+ service: string,
+    params?: ListConnectorPlaylistsApiV1ConnectorsServicePlaylistsGetParams, options?: { query?:Partial<UseQueryOptions<Awaited<ReturnType<typeof listConnectorPlaylistsApiV1ConnectorsServicePlaylistsGet>>, TError, TData>>, request?: SecondParameter<typeof customFetch>}
  , queryClient?: QueryClient
   ):  UseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> }
 /**
- * @summary List Spotify Playlists
+ * @summary List Connector Playlists
  */
 
-export function useListSpotifyPlaylistsApiV1ConnectorsSpotifyPlaylistsGet<TData = Awaited<ReturnType<typeof listSpotifyPlaylistsApiV1ConnectorsSpotifyPlaylistsGet>>, TError = HTTPValidationError>(
- params?: ListSpotifyPlaylistsApiV1ConnectorsSpotifyPlaylistsGetParams, options?: { query?:Partial<UseQueryOptions<Awaited<ReturnType<typeof listSpotifyPlaylistsApiV1ConnectorsSpotifyPlaylistsGet>>, TError, TData>>, request?: SecondParameter<typeof customFetch>}
+export function useListConnectorPlaylistsApiV1ConnectorsServicePlaylistsGet<TData = Awaited<ReturnType<typeof listConnectorPlaylistsApiV1ConnectorsServicePlaylistsGet>>, TError = HTTPValidationError>(
+ service: string,
+    params?: ListConnectorPlaylistsApiV1ConnectorsServicePlaylistsGetParams, options?: { query?:Partial<UseQueryOptions<Awaited<ReturnType<typeof listConnectorPlaylistsApiV1ConnectorsServicePlaylistsGet>>, TError, TData>>, request?: SecondParameter<typeof customFetch>}
  , queryClient?: QueryClient
  ):  UseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> } {
 
-  const queryOptions = getListSpotifyPlaylistsApiV1ConnectorsSpotifyPlaylistsGetQueryOptions(params,options)
+  const queryOptions = getListConnectorPlaylistsApiV1ConnectorsServicePlaylistsGetQueryOptions(service,params,options)
 
   const query = useQuery(queryOptions, queryClient) as  UseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> };
 
@@ -374,61 +391,62 @@ export function useListSpotifyPlaylistsApiV1ConnectorsSpotifyPlaylistsGet<TData 
 
 
 /**
- * Import a batch of Spotify playlists with a chosen sync direction.
+ * Import a batch of connector playlists with a chosen sync direction.
 
 Non-atomic: one failing playlist doesn't abort the others. Each
 successful import creates a canonical ``Playlist`` + ``PlaylistLink``;
 previously-imported playlists with a known snapshot are short-circuited
 into ``skipped_unchanged``.
- * @summary Import Spotify Playlists
+ * @summary Import Connector Playlists
  */
-export type importSpotifyPlaylistsApiV1ConnectorsSpotifyPlaylistsImportPostResponse200 = {
-  data: ImportSpotifyPlaylistsResponse
+export type importConnectorPlaylistsApiV1ConnectorsServicePlaylistsImportPostResponse200 = {
+  data: ImportConnectorPlaylistsResponse
   status: 200
 }
 
-export type importSpotifyPlaylistsApiV1ConnectorsSpotifyPlaylistsImportPostResponse422 = {
+export type importConnectorPlaylistsApiV1ConnectorsServicePlaylistsImportPostResponse422 = {
   data: HTTPValidationError
   status: 422
 }
 
-export type importSpotifyPlaylistsApiV1ConnectorsSpotifyPlaylistsImportPostResponseSuccess = (importSpotifyPlaylistsApiV1ConnectorsSpotifyPlaylistsImportPostResponse200) & {
+export type importConnectorPlaylistsApiV1ConnectorsServicePlaylistsImportPostResponseSuccess = (importConnectorPlaylistsApiV1ConnectorsServicePlaylistsImportPostResponse200) & {
   headers: Headers;
 };
-export type importSpotifyPlaylistsApiV1ConnectorsSpotifyPlaylistsImportPostResponseError = (importSpotifyPlaylistsApiV1ConnectorsSpotifyPlaylistsImportPostResponse422) & {
+export type importConnectorPlaylistsApiV1ConnectorsServicePlaylistsImportPostResponseError = (importConnectorPlaylistsApiV1ConnectorsServicePlaylistsImportPostResponse422) & {
   headers: Headers;
 };
 
-export type importSpotifyPlaylistsApiV1ConnectorsSpotifyPlaylistsImportPostResponse = (importSpotifyPlaylistsApiV1ConnectorsSpotifyPlaylistsImportPostResponseSuccess | importSpotifyPlaylistsApiV1ConnectorsSpotifyPlaylistsImportPostResponseError)
+export type importConnectorPlaylistsApiV1ConnectorsServicePlaylistsImportPostResponse = (importConnectorPlaylistsApiV1ConnectorsServicePlaylistsImportPostResponseSuccess | importConnectorPlaylistsApiV1ConnectorsServicePlaylistsImportPostResponseError)
 
-export const getImportSpotifyPlaylistsApiV1ConnectorsSpotifyPlaylistsImportPostUrl = () => {
-
-
+export const getImportConnectorPlaylistsApiV1ConnectorsServicePlaylistsImportPostUrl = (service: string,) => {
 
 
-  return `/api/v1/connectors/spotify/playlists/import`
+
+
+  return `/api/v1/connectors/${service}/playlists/import`
 }
 
-export const importSpotifyPlaylistsApiV1ConnectorsSpotifyPlaylistsImportPost = async (importSpotifyPlaylistsRequest: ImportSpotifyPlaylistsRequest, options?: RequestInit): Promise<importSpotifyPlaylistsApiV1ConnectorsSpotifyPlaylistsImportPostResponse> => {
+export const importConnectorPlaylistsApiV1ConnectorsServicePlaylistsImportPost = async (service: string,
+    importConnectorPlaylistsRequest: ImportConnectorPlaylistsRequest, options?: RequestInit): Promise<importConnectorPlaylistsApiV1ConnectorsServicePlaylistsImportPostResponse> => {
 
-  return customFetch<importSpotifyPlaylistsApiV1ConnectorsSpotifyPlaylistsImportPostResponse>(getImportSpotifyPlaylistsApiV1ConnectorsSpotifyPlaylistsImportPostUrl(),
+  return customFetch<importConnectorPlaylistsApiV1ConnectorsServicePlaylistsImportPostResponse>(getImportConnectorPlaylistsApiV1ConnectorsServicePlaylistsImportPostUrl(service),
   {
     ...options,
     method: 'POST',
     headers: { 'Content-Type': 'application/json', ...options?.headers },
     body: JSON.stringify(
-      importSpotifyPlaylistsRequest,)
+      importConnectorPlaylistsRequest,)
   }
 );}
 
 
 
 
-export const getImportSpotifyPlaylistsApiV1ConnectorsSpotifyPlaylistsImportPostMutationOptions = <TError = HTTPValidationError,
-    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof importSpotifyPlaylistsApiV1ConnectorsSpotifyPlaylistsImportPost>>, TError,{data: ImportSpotifyPlaylistsRequest}, TContext>, request?: SecondParameter<typeof customFetch>}
-): UseMutationOptions<Awaited<ReturnType<typeof importSpotifyPlaylistsApiV1ConnectorsSpotifyPlaylistsImportPost>>, TError,{data: ImportSpotifyPlaylistsRequest}, TContext> => {
+export const getImportConnectorPlaylistsApiV1ConnectorsServicePlaylistsImportPostMutationOptions = <TError = HTTPValidationError,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof importConnectorPlaylistsApiV1ConnectorsServicePlaylistsImportPost>>, TError,{service: string;data: ImportConnectorPlaylistsRequest}, TContext>, request?: SecondParameter<typeof customFetch>}
+): UseMutationOptions<Awaited<ReturnType<typeof importConnectorPlaylistsApiV1ConnectorsServicePlaylistsImportPost>>, TError,{service: string;data: ImportConnectorPlaylistsRequest}, TContext> => {
 
-const mutationKey = ['importSpotifyPlaylistsApiV1ConnectorsSpotifyPlaylistsImportPost'];
+const mutationKey = ['importConnectorPlaylistsApiV1ConnectorsServicePlaylistsImportPost'];
 const {mutation: mutationOptions, request: requestOptions} = options ?
       options.mutation && 'mutationKey' in options.mutation && options.mutation.mutationKey ?
       options
@@ -438,10 +456,10 @@ const {mutation: mutationOptions, request: requestOptions} = options ?
 
 
 
-      const mutationFn: MutationFunction<Awaited<ReturnType<typeof importSpotifyPlaylistsApiV1ConnectorsSpotifyPlaylistsImportPost>>, {data: ImportSpotifyPlaylistsRequest}> = (props) => {
-          const {data} = props ?? {};
+      const mutationFn: MutationFunction<Awaited<ReturnType<typeof importConnectorPlaylistsApiV1ConnectorsServicePlaylistsImportPost>>, {service: string;data: ImportConnectorPlaylistsRequest}> = (props) => {
+          const {service,data} = props ?? {};
 
-          return  importSpotifyPlaylistsApiV1ConnectorsSpotifyPlaylistsImportPost(data,requestOptions)
+          return  importConnectorPlaylistsApiV1ConnectorsServicePlaylistsImportPost(service,data,requestOptions)
         }
 
 
@@ -451,20 +469,20 @@ const {mutation: mutationOptions, request: requestOptions} = options ?
 
   return  { mutationFn, ...mutationOptions }}
 
-    export type ImportSpotifyPlaylistsApiV1ConnectorsSpotifyPlaylistsImportPostMutationResult = NonNullable<Awaited<ReturnType<typeof importSpotifyPlaylistsApiV1ConnectorsSpotifyPlaylistsImportPost>>>
-    export type ImportSpotifyPlaylistsApiV1ConnectorsSpotifyPlaylistsImportPostMutationBody = ImportSpotifyPlaylistsRequest
-    export type ImportSpotifyPlaylistsApiV1ConnectorsSpotifyPlaylistsImportPostMutationError = HTTPValidationError
+    export type ImportConnectorPlaylistsApiV1ConnectorsServicePlaylistsImportPostMutationResult = NonNullable<Awaited<ReturnType<typeof importConnectorPlaylistsApiV1ConnectorsServicePlaylistsImportPost>>>
+    export type ImportConnectorPlaylistsApiV1ConnectorsServicePlaylistsImportPostMutationBody = ImportConnectorPlaylistsRequest
+    export type ImportConnectorPlaylistsApiV1ConnectorsServicePlaylistsImportPostMutationError = HTTPValidationError
 
     /**
- * @summary Import Spotify Playlists
+ * @summary Import Connector Playlists
  */
-export const useImportSpotifyPlaylistsApiV1ConnectorsSpotifyPlaylistsImportPost = <TError = HTTPValidationError,
-    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof importSpotifyPlaylistsApiV1ConnectorsSpotifyPlaylistsImportPost>>, TError,{data: ImportSpotifyPlaylistsRequest}, TContext>, request?: SecondParameter<typeof customFetch>}
+export const useImportConnectorPlaylistsApiV1ConnectorsServicePlaylistsImportPost = <TError = HTTPValidationError,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof importConnectorPlaylistsApiV1ConnectorsServicePlaylistsImportPost>>, TError,{service: string;data: ImportConnectorPlaylistsRequest}, TContext>, request?: SecondParameter<typeof customFetch>}
  , queryClient?: QueryClient): UseMutationResult<
-        Awaited<ReturnType<typeof importSpotifyPlaylistsApiV1ConnectorsSpotifyPlaylistsImportPost>>,
+        Awaited<ReturnType<typeof importConnectorPlaylistsApiV1ConnectorsServicePlaylistsImportPost>>,
         TError,
-        {data: ImportSpotifyPlaylistsRequest},
+        {service: string;data: ImportConnectorPlaylistsRequest},
         TContext
       > => {
-      return useMutation(getImportSpotifyPlaylistsApiV1ConnectorsSpotifyPlaylistsImportPostMutationOptions(options), queryClient);
+      return useMutation(getImportConnectorPlaylistsApiV1ConnectorsServicePlaylistsImportPostMutationOptions(options), queryClient);
     }

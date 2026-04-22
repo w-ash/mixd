@@ -4,11 +4,9 @@ import { useState } from "react";
 import type { SyncPreviewResponse } from "#/api/generated/model";
 import { usePreviewPlaylistSyncApiV1PlaylistsPlaylistIdLinksLinkIdSyncPreviewGet } from "#/api/generated/playlists/playlists";
 import { ConfirmationDialog } from "#/components/shared/ConfirmationDialog";
-import {
-  ConnectorIcon,
-  getConnectorLabel,
-} from "#/components/shared/ConnectorIcon";
+import { ConnectorIcon } from "#/components/shared/ConnectorIcon";
 import { Button } from "#/components/ui/button";
+import { getConnectorLabel } from "#/lib/connector-brand";
 import { pluralize } from "#/lib/pluralize";
 
 interface SyncConfirmationDialogProps {

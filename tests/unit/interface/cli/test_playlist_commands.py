@@ -4,7 +4,7 @@ Focus on the CLI command contract — argument parsing, reference
 resolution, --source flag mapping, validation errors, and clean error
 output. Use-case behavior itself is covered by
 ``test_import_connector_playlist_as_canonical.py``,
-``test_apply_playlist_assignments.py``, and ``test_list_spotify_playlists.py``.
+``test_apply_playlist_assignments.py``, and ``test_list_connector_playlists.py``.
 """
 
 from collections.abc import Sequence
@@ -17,10 +17,10 @@ from src.application.use_cases.import_connector_playlist_as_canonical import (
     CanonicalImportOutcome,
     ImportConnectorPlaylistsAsCanonicalResult,
 )
-from src.application.use_cases.list_spotify_playlists import (
+from src.application.use_cases.list_connector_playlists import (
+    ConnectorPlaylistView,
     ImportStatus,
-    ListSpotifyPlaylistsResult,
-    SpotifyPlaylistView,
+    ListConnectorPlaylistsResult,
 )
 from src.domain.entities.playlist_link import SyncDirection
 from src.interface.cli.app import app
@@ -32,7 +32,7 @@ _IMPORT_PATCH = (
     "run_import_connector_playlists_as_canonical"
 )
 _LIST_PATCH = (
-    "src.application.use_cases.list_spotify_playlists.run_list_spotify_playlists"
+    "src.application.use_cases.list_connector_playlists.run_list_connector_playlists"
 )
 
 
@@ -42,8 +42,8 @@ def _view(
     *,
     status: ImportStatus = "not_imported",
     track_count: int = 10,
-) -> SpotifyPlaylistView:
-    return SpotifyPlaylistView(
+) -> ConnectorPlaylistView:
+    return ConnectorPlaylistView(
         connector_playlist_identifier=identifier,
         connector_playlist_db_id=uuid7(),
         name=name,
@@ -58,8 +58,8 @@ def _view(
     )
 
 
-def _listing(views: Sequence[SpotifyPlaylistView]) -> ListSpotifyPlaylistsResult:
-    return ListSpotifyPlaylistsResult(playlists=views, from_cache=True)
+def _listing(views: Sequence[ConnectorPlaylistView]) -> ListConnectorPlaylistsResult:
+    return ListConnectorPlaylistsResult(playlists=views, from_cache=True)
 
 
 def _empty_import_result() -> ImportConnectorPlaylistsAsCanonicalResult:
@@ -195,7 +195,7 @@ class TestImportSpotifySource:
 
     def test_invalid_source_raises_bad_parameter(self) -> None:
         result = runner.invoke(
-            app, ["playlist", "import-spotify", "sp1", "--source", "apple"]
+            app, ["playlist", "import-spotify", "sp1", "--source", "apple_music"]
         )
 
         assert result.exit_code == 2

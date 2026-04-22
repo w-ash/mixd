@@ -1,6 +1,7 @@
 import { HttpResponse, http } from "msw";
 import { describe, expect, it, vi } from "vitest";
 
+import { makeConnectorMetadata } from "#/test/factories";
 import { server } from "#/test/setup";
 import {
   renderWithProviders,
@@ -12,6 +13,11 @@ import {
 import { AssignPlaylistDialog } from "./AssignPlaylistDialog";
 
 const PLAYLIST_ID = "019da92c-0000-74aa-9a86-000000000001";
+const SPOTIFY_CONNECTOR = makeConnectorMetadata({
+  name: "spotify",
+  connected: true,
+  status: "connected",
+});
 
 function mockCreateOk() {
   const spy = vi.fn((request: Request) => {
@@ -63,6 +69,7 @@ describe("AssignPlaylistDialog", () => {
         open
         onOpenChange={onOpenChange}
         mode="tag"
+        connector={SPOTIFY_CONNECTOR}
         playlist={{
           connector_playlist_db_id: PLAYLIST_ID,
           name: "Chill Vibes",
@@ -89,6 +96,7 @@ describe("AssignPlaylistDialog", () => {
         open
         onOpenChange={onOpenChange}
         mode="rate"
+        connector={SPOTIFY_CONNECTOR}
         playlist={{
           connector_playlist_db_id: PLAYLIST_ID,
           name: "Chill Vibes",
@@ -114,6 +122,7 @@ describe("AssignPlaylistDialog", () => {
         open
         onOpenChange={vi.fn()}
         mode="rate"
+        connector={SPOTIFY_CONNECTOR}
         playlist={{
           connector_playlist_db_id: PLAYLIST_ID,
           name: "Chill Vibes",

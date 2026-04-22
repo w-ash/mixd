@@ -1,0 +1,48 @@
+{
+  "id": "no_nah_mix",
+  "name": "No Nah Mix",
+  "description": "Your liked tracks with the ones you've marked nah filtered out",
+  "version": "1.0",
+  "tasks": [
+    {
+      "id": "source_liked",
+      "type": "source.liked_tracks",
+      "config": {
+        "connector_filter": "spotify"
+      }
+    },
+    {
+      "id": "enrich_preferences",
+      "type": "enricher.preferences",
+      "upstream": ["source_liked"],
+      "config": {}
+    },
+    {
+      "id": "filter_out_nah",
+      "type": "filter.by_preference",
+      "upstream": ["enrich_preferences"],
+      "config": {
+        "exclude": ["nah"]
+      }
+    },
+    {
+      "id": "limit_selection",
+      "type": "selector.limit_tracks",
+      "upstream": ["filter_out_nah"],
+      "config": {
+        "count": 100,
+        "method": "first"
+      }
+    },
+    {
+      "id": "create_playlist",
+      "type": "destination.create_playlist",
+      "upstream": ["limit_selection"],
+      "config": {
+        "name": "No Nah Mix {date}",
+        "description": "Liked tracks minus nah'd ones ({track_count} tracks)",
+        "connector": "spotify"
+      }
+    }
+  ]
+}

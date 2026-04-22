@@ -212,10 +212,25 @@ class LastFmMetricResolver(BaseMetricResolver):
 
 def get_connector_config() -> ConnectorConfig:
     """Last.fm connector configuration."""
+    from src.infrastructure.connectors._shared.connector_status import (
+        get_lastfm_status,
+    )
+    from src.infrastructure.connectors.lastfm.auth import build_auth_url
+
     return {
         "dependencies": ["musicbrainz"],
         "factory": lambda _params: LastFMConnector(),
         "metrics": LastFmMetricResolver.FIELD_MAP,
+        "display_name": "Last.fm",
+        "category": "history",
+        "auth_method": "oauth",
+        "capabilities": frozenset({
+            "history_import_api",
+            "love_tracks",
+            "track_enrichment",
+        }),
+        "status_fn": get_lastfm_status,
+        "build_auth_url": build_auth_url,
     }
 
 

@@ -6,22 +6,48 @@ from uuid import UUID
 
 from pydantic import BaseModel, ConfigDict
 
+from src.domain.entities.connector import (
+    Capability,
+    ConnectorAuthError,
+    ConnectorAuthMethod,
+    ConnectorCategory,
+    ConnectorStatusState,
+)
 from src.domain.entities.playlist_assignment import AssignmentActionType
 
 
-class ConnectorStatusSchema(BaseModel):
-    """Current authentication status of a music service connector."""
+class ConnectorMetadataSchema(BaseModel):
+    """Descriptor for a registered music service connector.
+
+    Carries identity, category, authentication method, runtime status, and
+    the capability set — everything the frontend needs to render a connector
+    generically. The ``status`` field is backend-computed from ``connected``
+    + ``token_expires_at`` + ``auth_method`` so the frontend renders a single
+    enum instead of recomputing the state client-side.
+    """
 
     model_config = ConfigDict(from_attributes=True)
 
     name: str
+    display_name: str
+    category: ConnectorCategory
+    auth_method: ConnectorAuthMethod
+    status: ConnectorStatusState
     connected: bool
     account_name: str | None = None
     token_expires_at: int | None = None
+    capabilities: list[Capability]
+    # Server-observed auth failure code. Populated only when the probe
+    # detected an unusable credential; ``None`` otherwise.
+    auth_error: ConnectorAuthError | None = None
+    # Most recent successful per-service sync across all entity types, sourced
+    # from ``DBSyncCheckpoint``. Lets the UI render contextual status like
+    # "Synced 2h ago" instead of a bare connected indicator.
+    last_synced_at: datetime | None = None
 
 
 class ActiveAssignmentSchema(BaseModel):
-    """One active assignment on a Spotify playlist row."""
+    """One active assignment on a connector playlist row."""
 
     model_config = ConfigDict(from_attributes=True)
 
@@ -30,11 +56,11 @@ class ActiveAssignmentSchema(BaseModel):
     action_value: str
 
 
-class SpotifyPlaylistBrowseSchema(BaseModel):
-    """One playlist row in the Spotify browser dialog.
+class ConnectorPlaylistBrowseSchema(BaseModel):
+    """One playlist row in the connector browser dialog.
 
-    Mirrors ``SpotifyPlaylistView`` from the use case layer — the UI reads
-    this shape directly; the API wraps the list in ``SpotifyPlaylistBrowseResponse``.
+    Mirrors ``ConnectorPlaylistView`` from the use case layer — the UI reads
+    this shape directly; the API wraps the list in ``ConnectorPlaylistBrowseResponse``.
     """
 
     model_config = ConfigDict(from_attributes=True)
@@ -53,23 +79,23 @@ class SpotifyPlaylistBrowseSchema(BaseModel):
     current_assignments: list[ActiveAssignmentSchema]
 
 
-class SpotifyPlaylistBrowseResponse(BaseModel):
-    """Full payload for GET /connectors/spotify/playlists.
+class ConnectorPlaylistBrowseResponse(BaseModel):
+    """Full payload for GET /connectors/{service}/playlists.
 
     ``from_cache=True`` means the response was served from DBConnectorPlaylist
-    without hitting Spotify; the refresh button in the UI sets
-    ``force_refresh=true`` to force the cache miss.
+    without hitting the upstream connector; the refresh button in the UI
+    sets ``force_refresh=true`` to force the cache miss.
     """
 
-    data: list[SpotifyPlaylistBrowseSchema]
+    data: list[ConnectorPlaylistBrowseSchema]
     from_cache: bool
     fetched_at: datetime
 
 
-class ImportSpotifyPlaylistsRequest(BaseModel):
-    """Body for POST /connectors/spotify/playlists/import.
+class ImportConnectorPlaylistsRequest(BaseModel):
+    """Body for POST /connectors/{service}/playlists/import.
 
-    Each ID is a Spotify-native playlist ID (not a Mixd UUID). The whole
+    Each ID is a provider-native playlist ID (not a Mixd UUID). The whole
     batch shares one ``sync_direction`` — per-playlist direction overrides
     can be added later if a workflow demands it.
     """
@@ -98,7 +124,7 @@ class ImportFailureSchema(BaseModel):
     message: str
 
 
-class ImportSpotifyPlaylistsResponse(BaseModel):
+class ImportConnectorPlaylistsResponse(BaseModel):
     """Grouped per-playlist outcomes so the UI can render a clear summary."""
 
     succeeded: list[ImportOutcomeSchema]

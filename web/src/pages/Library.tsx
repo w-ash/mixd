@@ -1,9 +1,17 @@
-import { ArrowUp, Heart, Music, X } from "lucide-react";
-import { useCallback, useEffect, useRef, useState } from "react";
-import { Link, useSearchParams } from "react-router";
+import { ArrowUp, Bookmark, Heart, Music, X } from "lucide-react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { Link } from "react-router";
 import { useGetConnectorsApiV1ConnectorsGet } from "#/api/generated/connectors/connectors";
 import { useListTracksApiV1TracksGet } from "#/api/generated/tracks/tracks";
+import { STALE } from "#/api/query-client";
 import { PageHeader } from "#/components/layout/PageHeader";
+import { ActiveFilterChips } from "#/components/library/ActiveFilterChips";
+import {
+  countActiveFilters,
+  FilterPanelChevron,
+  LibraryFilterPanel,
+} from "#/components/library/LibraryFilterPanel";
+import { SaveFiltersAsWorkflowDialog } from "#/components/library/SaveFiltersAsWorkflowDialog";
 import { BulkTagDialog } from "#/components/shared/BulkTagDialog";
 import { ConnectorIcon } from "#/components/shared/ConnectorIcon";
 import { EmptyState } from "#/components/shared/EmptyState";
@@ -11,17 +19,10 @@ import { PreferenceBadge } from "#/components/shared/PreferenceToggle";
 import { QueryErrorState } from "#/components/shared/QueryErrorState";
 import { TablePagination } from "#/components/shared/TablePagination";
 import { TagChip } from "#/components/shared/TagChip";
-import { TagFilter } from "#/components/shared/TagFilter";
+import { Badge } from "#/components/ui/badge";
 import { Button } from "#/components/ui/button";
 import { Checkbox } from "#/components/ui/checkbox";
 import { Input } from "#/components/ui/input";
-import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from "#/components/ui/select";
 import { Skeleton } from "#/components/ui/skeleton";
 import {
   Table,
@@ -31,9 +32,11 @@ import {
   TableHeader,
   TableRow,
 } from "#/components/ui/table";
+import { useFilterState } from "#/hooks/useFilterState";
 import { usePagination } from "#/hooks/usePagination";
 import { useTrackSearch } from "#/hooks/useTrackSearch";
-import { formatArtists, formatDuration } from "#/lib/format";
+import { parsePreferenceParam } from "#/lib/filters-to-workflow";
+import { formatArtists, formatDuration, formatList } from "#/lib/format";
 import { pluralSuffix } from "#/lib/pluralize";
 import { cn } from "#/lib/utils";
 
@@ -147,7 +150,18 @@ function SortableHead({
 }
 
 export function Library() {
-  const [searchParams, setSearchParams] = useSearchParams();
+  const cursorMapRef = useRef<Map<number, string>>(new Map());
+  const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
+
+  // Shared URL-filter mutations — clears cursor cache + selection on every
+  // write so the user can't silently bulk-tag tracks they can no longer see.
+  const resetLocalState = useCallback(() => {
+    cursorMapRef.current.clear();
+    setSelectedIds(new Set());
+  }, []);
+  const { searchParams, setFilter, setMultiFilter, clearAll } = useFilterState({
+    onMutate: resetLocalState,
+  });
   const { search, setSearch, deferredSearch, isSearching } = useTrackSearch(
     searchParams.get("q") ?? "",
   );
@@ -155,7 +169,8 @@ export function Library() {
   // URL-driven filter state
   const likedParam = searchParams.get("liked");
   const connectorParam = searchParams.get("connector");
-  const preferenceParam = searchParams.get("preference");
+  // Validate preference param so ?preference=garbage doesn't flow downstream.
+  const preferenceParam = parsePreferenceParam(searchParams.get("preference"));
   const tagParams = searchParams.getAll("tag");
   const tagModeParam: "and" | "or" =
     searchParams.get("tag_mode") === "or" ? "or" : "and";
@@ -174,12 +189,31 @@ export function Library() {
 
   // Keyset pagination: cache cursors from API responses for sequential nav.
   // Map: page number → cursor for the *next* page after that page.
-  const cursorMapRef = useRef<Map<number, string>>(new Map());
+  // (cursorMapRef + selectedIds are declared at the top of the function so
+  //  useFilterState's onMutate callback can reset them.)
 
-  // Multi-track selection is local. The URL-change handlers below clear it
-  // so the user can't silently bulk-tag tracks they can no longer see.
-  const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
   const [bulkTagOpen, setBulkTagOpen] = useState(false);
+
+  // Filter panel + save-as-workflow UI state. Panel auto-opens whenever
+  // filters become active (via URL nav, chip dismiss, or panel interaction)
+  // and stays open once the user has engaged with it — we never auto-close
+  // it on filter clear, so the user can keep editing without losing their
+  // place. Manual toggle via the toolbar button still works.
+  const activeFilterCount = useMemo(
+    () =>
+      countActiveFilters({
+        preference: preferenceParam,
+        liked: likedParam,
+        connector: connectorParam,
+        tags: tagParams,
+      }),
+    [preferenceParam, likedParam, connectorParam, tagParams],
+  );
+  const [filterPanelOpen, setFilterPanelOpen] = useState(activeFilterCount > 0);
+  useEffect(() => {
+    if (activeFilterCount > 0) setFilterPanelOpen(true);
+  }, [activeFilterCount]);
+  const [saveWorkflowOpen, setSaveWorkflowOpen] = useState(false);
 
   // Use cursor if available from the previous page (sequential next-page)
   const cursorForPage = cursorMapRef.current.get(pageParam - 1);
@@ -196,6 +230,8 @@ export function Library() {
         sort: sortParam,
         limit: PAGE_SIZE,
         offset: queryOffset,
+        // Only pay for GROUP BYs when the user is looking at the filters.
+        include_facets: filterPanelOpen,
         ...(cursorForPage ? { cursor: cursorForPage } : {}),
       },
       { query: { staleTime: 30_000, placeholderData: (prev) => prev } },
@@ -204,6 +240,7 @@ export function Library() {
   const response = data?.status === 200 ? data.data : undefined;
   const tracks = response?.data ?? [];
   const total = response?.total ?? 0;
+  const facets = response?.facets ?? null;
 
   // Cache the next_cursor from the latest response
   const nextCursor = response?.next_cursor;
@@ -216,48 +253,14 @@ export function Library() {
   const { page, totalPages, setPage } = usePagination(total);
 
   // Connectors list for filter dropdown
-  const { data: connectorsData } = useGetConnectorsApiV1ConnectorsGet();
+  const { data: connectorsData } = useGetConnectorsApiV1ConnectorsGet({
+    query: { staleTime: STALE.STATIC },
+  });
   const connectors = connectorsData?.status === 200 ? connectorsData.data : [];
 
-  /** Update a URL search param, resetting page, cursor cache, and selection. */
-  const setFilter = useCallback(
-    (key: string, value: string | null) => {
-      cursorMapRef.current.clear();
-      setSelectedIds(new Set());
-      setSearchParams(
-        (prev) => {
-          const next = new URLSearchParams(prev);
-          if (value === null || value === "") {
-            next.delete(key);
-          } else {
-            next.set(key, value);
-          }
-          next.delete("page"); // reset pagination on filter change
-          return next;
-        },
-        { replace: true },
-      );
-    },
-    [setSearchParams],
-  );
-
-  /** Replace the full set of ?tag= params (repeated keys) and reset pagination. */
   const setTagFilters = useCallback(
-    (tags: string[]) => {
-      cursorMapRef.current.clear();
-      setSelectedIds(new Set());
-      setSearchParams(
-        (prev) => {
-          const next = new URLSearchParams(prev);
-          next.delete("tag");
-          for (const t of tags) next.append("tag", t);
-          next.delete("page");
-          return next;
-        },
-        { replace: true },
-      );
-    },
-    [setSearchParams],
+    (tags: string[]) => setMultiFilter("tag", tags),
+    [setMultiFilter],
   );
 
   const handleSort = useCallback(
@@ -270,22 +273,7 @@ export function Library() {
   const handleSearchChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     const value = e.target.value;
     setSearch(value);
-    cursorMapRef.current.clear();
-    setSelectedIds(new Set());
-    // Sync to URL for deep-linking (debounced via deferred value for API)
-    setSearchParams(
-      (prev) => {
-        const next = new URLSearchParams(prev);
-        if (value === "") {
-          next.delete("q");
-        } else {
-          next.set("q", value);
-        }
-        next.delete("page");
-        return next;
-      },
-      { replace: true },
-    );
+    setFilter("q", value);
   };
 
   const hasFilters =
@@ -306,15 +294,29 @@ export function Library() {
             : "Your complete track collection."
         }
       />
+      {/* Announces result-count changes to screen readers as filters are
+          applied or cleared. WCAG 2.2 "status messages" guidance. */}
+      <span className="sr-only" aria-live="polite">
+        {total > 0
+          ? `${total.toLocaleString()} track${pluralSuffix(total)} match${total === 1 ? "es" : ""} current filters.`
+          : "No tracks match current filters."}
+      </span>
 
-      {/* Search + Filters */}
-      <div className="mb-6 flex flex-wrap items-center gap-3">
+      {/* Compact toolbar: search + Filters toggle + Save as Workflow */}
+      <div className="mb-4 flex flex-wrap items-center gap-3">
         <div className="relative flex-1 min-w-48">
           <Input
             type="search"
             placeholder="Search tracks, artists, albums..."
             value={search}
             onChange={handleSearchChange}
+            onKeyDown={(e) => {
+              if (e.key === "Escape" && search !== "") {
+                e.preventDefault();
+                setSearch("");
+                setFilter("q", null);
+              }
+            }}
             aria-label="Search tracks"
             className={isSearching ? "opacity-70" : ""}
           />
@@ -328,68 +330,97 @@ export function Library() {
           )}
         </div>
 
-        <Select
-          value={likedParam ?? "all"}
-          onValueChange={(value) =>
-            setFilter("liked", value === "all" ? null : value)
-          }
+        <Button
+          type="button"
+          variant="outline"
+          onClick={() => setFilterPanelOpen((v) => !v)}
+          aria-expanded={filterPanelOpen}
+          aria-controls="library-filter-panel"
+          className="gap-2"
         >
-          <SelectTrigger aria-label="Filter by liked status">
-            <SelectValue />
-          </SelectTrigger>
-          <SelectContent>
-            <SelectItem value="all">All tracks</SelectItem>
-            <SelectItem value="true">Liked</SelectItem>
-            <SelectItem value="false">Not liked</SelectItem>
-          </SelectContent>
-        </Select>
+          <span>Filters</span>
+          {activeFilterCount > 0 && (
+            <Badge variant="default" className="min-w-5 px-1.5 py-0">
+              {activeFilterCount}
+              <span className="sr-only">
+                {" "}
+                active filter{pluralSuffix(activeFilterCount)}
+              </span>
+            </Badge>
+          )}
+          <FilterPanelChevron expanded={filterPanelOpen} />
+        </Button>
 
-        <Select
-          value={connectorParam ?? "all"}
-          onValueChange={(value) =>
-            setFilter("connector", value === "all" ? null : value)
+        <Button
+          type="button"
+          variant="outline"
+          disabled={activeFilterCount === 0}
+          onClick={() => setSaveWorkflowOpen(true)}
+          title={
+            activeFilterCount === 0
+              ? "Apply a filter first to save as workflow"
+              : "Save the current filters as a reusable workflow"
           }
+          className="gap-2"
         >
-          <SelectTrigger aria-label="Filter by connector">
-            <SelectValue />
-          </SelectTrigger>
-          <SelectContent>
-            <SelectItem value="all">All connectors</SelectItem>
-            {connectors.map((c) => (
-              <SelectItem key={c.name} value={c.name}>
-                {c.name.charAt(0).toUpperCase() + c.name.slice(1)}
-              </SelectItem>
-            ))}
-          </SelectContent>
-        </Select>
-
-        <Select
-          value={preferenceParam ?? "all"}
-          onValueChange={(value) =>
-            setFilter("preference", value === "all" ? null : value)
-          }
-        >
-          <SelectTrigger aria-label="Filter by preference">
-            <SelectValue />
-          </SelectTrigger>
-          <SelectContent>
-            <SelectItem value="all">All preferences</SelectItem>
-            <SelectItem value="star">Star</SelectItem>
-            <SelectItem value="yah">Yah</SelectItem>
-            <SelectItem value="hmm">Hmm</SelectItem>
-            <SelectItem value="nah">Nah</SelectItem>
-          </SelectContent>
-        </Select>
-
-        <TagFilter
-          tags={tagParams}
-          mode={tagModeParam}
-          onTagsChange={setTagFilters}
-          onModeChange={(mode) =>
-            setFilter("tag_mode", mode === "and" ? null : mode)
-          }
-        />
+          <Bookmark className="size-3.5" />
+          Save as Workflow
+        </Button>
       </div>
+
+      <LibraryFilterPanel
+        expanded={filterPanelOpen}
+        preference={preferenceParam}
+        liked={
+          likedParam === "true" || likedParam === "false" ? likedParam : null
+        }
+        connector={connectorParam}
+        tags={tagParams}
+        tagMode={tagModeParam}
+        connectors={connectors}
+        facets={facets}
+        onPreferenceChange={(value) => setFilter("preference", value)}
+        onLikedChange={(value) => setFilter("liked", value)}
+        onConnectorChange={(value) => setFilter("connector", value)}
+        onTagsChange={setTagFilters}
+        onTagModeChange={(mode) =>
+          setFilter("tag_mode", mode === "and" ? null : mode)
+        }
+      />
+
+      <ActiveFilterChips
+        search={querySearch ?? null}
+        liked={likedParam}
+        connector={connectorParam}
+        preference={preferenceParam}
+        tags={tagParams}
+        onClearFilter={(key) => {
+          if (key === "q") {
+            setSearch("");
+            setFilter("q", null);
+          } else {
+            setFilter(key, null);
+          }
+        }}
+        onRemoveTag={(tag) => setTagFilters(tagParams.filter((t) => t !== tag))}
+        onClearAll={() => {
+          setSearch("");
+          clearAll();
+        }}
+      />
+
+      <SaveFiltersAsWorkflowDialog
+        open={saveWorkflowOpen}
+        onOpenChange={setSaveWorkflowOpen}
+        filters={{
+          preference: preferenceParam,
+          tags: tagParams,
+          tagMode: tagModeParam,
+          liked: likedFilter ?? null,
+          connector: connectorParam,
+        }}
+        narrowsToLiked={!preferenceParam && likedFilter !== true}
+      />
 
       {/* Bulk-action toolbar — only visible while a selection exists. */}
       {selectedIds.size > 0 && (
@@ -428,11 +459,17 @@ export function Library() {
         <EmptyState
           icon={<Music className="size-10" />}
           heading={hasFilters ? "No matching tracks" : "No tracks yet"}
-          description={
-            hasFilters
-              ? "Try adjusting your search or filters."
-              : "Import your music from Spotify or Last.fm to see your library here."
-          }
+          description={(() => {
+            if (hasFilters) return "Try adjusting your search or filters.";
+            const oauthLabels = connectors
+              .filter((c) => c.auth_method === "oauth")
+              .map((c) => c.display_name);
+            const source =
+              oauthLabels.length > 0
+                ? formatList(oauthLabels, "disjunction")
+                : "a music service";
+            return `Import your music from ${source} to see your library here.`;
+          })()}
           action={
             !hasFilters ? (
               <Button size="sm" asChild>

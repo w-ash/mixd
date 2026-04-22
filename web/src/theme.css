@@ -23,7 +23,7 @@
   /* Connector identity colors */
   --color-spotify: oklch(0.72 0.2 145);
   --color-lastfm: oklch(0.55 0.22 25);
-  --color-apple: oklch(0.7 0.2 350);
+  --color-apple-music: oklch(0.7 0.2 350);
   --color-musicbrainz: oklch(0.65 0.18 55);
 
   /* Status badge colors */

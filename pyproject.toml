@@ -1,6 +1,6 @@
 [project]
 name = "mixd"
-version = "0.7.4.post2"
+version = "0.7.5"
 description = "Music metadata integration and playlist management platform"
 authors = [{name = "Ash Wright", email = "a@ashwright.net"}]
 readme = "README.md"
@@ -133,6 +133,9 @@ unfixable = []
 "__init__.py" = ["F401", "RUF067"]   # Allow unused imports and non-reexport code (version reading)
 "src/interface/api/**/*.py" = [
     "RUF029",   # FastAPI requires async handlers even without await (framework awaits them)
+]
+"src/infrastructure/connectors/_shared/connector_status.py" = [
+    "RUF029",   # status_fn Protocol requires async callables even for stateless probes
 ]
 "tests/**/*.py" = [
     "S101",     # Allow assert in tests

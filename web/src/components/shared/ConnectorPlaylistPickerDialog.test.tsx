@@ -1,8 +1,11 @@
 import { HttpResponse, http } from "msw";
 import { describe, expect, it, vi } from "vitest";
 
-import type { SpotifyPlaylistBrowseSchema } from "#/api/generated/model";
-import { makeSpotifyPlaylistBrowse } from "#/test/factories";
+import type { ConnectorPlaylistBrowseSchema } from "#/api/generated/model";
+import {
+  makeConnectorMetadata,
+  makeConnectorPlaylistBrowse,
+} from "#/test/factories";
 import { server } from "#/test/setup";
 import {
   renderWithProviders,
@@ -11,15 +14,15 @@ import {
   waitFor,
 } from "#/test/test-utils";
 
-import { SpotifyPlaylistPickerDialog } from "./SpotifyPlaylistPickerDialog";
+import { ConnectorPlaylistPickerDialog } from "./ConnectorPlaylistPickerDialog";
 
-const CHILL = makeSpotifyPlaylistBrowse({
+const CHILL = makeConnectorPlaylistBrowse({
   connector_playlist_identifier: "sp1",
   name: "Chill Vibes",
   track_count: 247,
 });
 
-const WORKOUT = makeSpotifyPlaylistBrowse({
+const WORKOUT = makeConnectorPlaylistBrowse({
   connector_playlist_identifier: "sp2",
   name: "Workout Mix",
   track_count: 156,
@@ -27,7 +30,7 @@ const WORKOUT = makeSpotifyPlaylistBrowse({
   import_status: "imported",
 });
 
-const LATE_NIGHT = makeSpotifyPlaylistBrowse({
+const LATE_NIGHT = makeConnectorPlaylistBrowse({
   connector_playlist_identifier: "sp3",
   name: "Late Night",
   track_count: 89,
@@ -35,7 +38,10 @@ const LATE_NIGHT = makeSpotifyPlaylistBrowse({
   is_public: false,
 });
 
-function mockList(playlists: SpotifyPlaylistBrowseSchema[], fromCache = true) {
+function mockList(
+  playlists: ConnectorPlaylistBrowseSchema[],
+  fromCache = true,
+) {
   server.use(
     http.get("*/api/v1/connectors/spotify/playlists", () =>
       HttpResponse.json({
@@ -47,14 +53,21 @@ function mockList(playlists: SpotifyPlaylistBrowseSchema[], fromCache = true) {
   );
 }
 
+const SPOTIFY_CONNECTOR = makeConnectorMetadata({
+  name: "spotify",
+  connected: true,
+  status: "connected",
+});
+
 function setup(
-  overrides: Partial<Parameters<typeof SpotifyPlaylistPickerDialog>[0]> = {},
+  overrides: Partial<Parameters<typeof ConnectorPlaylistPickerDialog>[0]> = {},
 ) {
   const onOpenChange = vi.fn();
   const onConfirm = vi.fn();
   renderWithProviders(
-    <SpotifyPlaylistPickerDialog
+    <ConnectorPlaylistPickerDialog
       open={true}
+      connector={SPOTIFY_CONNECTOR}
       onOpenChange={onOpenChange}
       onConfirm={onConfirm}
       {...overrides}
@@ -63,7 +76,7 @@ function setup(
   return { onOpenChange, onConfirm };
 }
 
-describe("SpotifyPlaylistPickerDialog", () => {
+describe("ConnectorPlaylistPickerDialog", () => {
   it("renders playlists and import status", async () => {
     mockList([CHILL, WORKOUT]);
     setup();
@@ -214,7 +227,7 @@ describe("SpotifyPlaylistPickerDialog", () => {
     const TAG_ASSIGN_ID = "aaaaaaaa-0000-0000-0000-000000000001";
     const RATING_ASSIGN_ID = "aaaaaaaa-0000-0000-0000-000000000002";
 
-    const TAGGED_PLAYLIST = makeSpotifyPlaylistBrowse({
+    const TAGGED_PLAYLIST = makeConnectorPlaylistBrowse({
       ...CHILL,
       current_assignments: [
         {
@@ -225,7 +238,7 @@ describe("SpotifyPlaylistPickerDialog", () => {
       ],
     });
 
-    const FULLY_ASSIGNED = makeSpotifyPlaylistBrowse({
+    const FULLY_ASSIGNED = makeConnectorPlaylistBrowse({
       ...CHILL,
       current_assignments: [
         {

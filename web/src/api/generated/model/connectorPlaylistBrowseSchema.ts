@@ -3,18 +3,18 @@
  * Do not edit manually.
  * Mixd
  * Personal music metadata hub
- * OpenAPI spec version: 0.7.4.post2
+ * OpenAPI spec version: 0.7.5
  */
 import type { ActiveAssignmentSchema } from './activeAssignmentSchema';
-import type { SpotifyPlaylistBrowseSchemaImportStatus } from './spotifyPlaylistBrowseSchemaImportStatus';
+import type { ConnectorPlaylistBrowseSchemaImportStatus } from './connectorPlaylistBrowseSchemaImportStatus';
 
 /**
- * One playlist row in the Spotify browser dialog.
+ * One playlist row in the connector browser dialog.
 
-Mirrors ``SpotifyPlaylistView`` from the use case layer — the UI reads
-this shape directly; the API wraps the list in ``SpotifyPlaylistBrowseResponse``.
+Mirrors ``ConnectorPlaylistView`` from the use case layer — the UI reads
+this shape directly; the API wraps the list in ``ConnectorPlaylistBrowseResponse``.
  */
-export interface SpotifyPlaylistBrowseSchema {
+export interface ConnectorPlaylistBrowseSchema {
   connector_playlist_identifier: string;
   connector_playlist_db_id: string;
   name: string;
@@ -25,6 +25,6 @@ export interface SpotifyPlaylistBrowseSchema {
   snapshot_id: string | null;
   collaborative: boolean;
   is_public: boolean;
-  import_status: SpotifyPlaylistBrowseSchemaImportStatus;
+  import_status: ConnectorPlaylistBrowseSchemaImportStatus;
   current_assignments: ActiveAssignmentSchema[];
 }

@@ -1,0 +1,61 @@
+{
+  "id": "starred_forgotten",
+  "name": "Starred & Forgotten",
+  "description": "Starred tracks you haven't played in 6+ months — rediscover your own top picks",
+  "version": "1.0",
+  "tasks": [
+    {
+      "id": "source_starred",
+      "type": "source.preferred_tracks",
+      "config": {
+        "state": "star",
+        "limit": 2000
+      }
+    },
+    {
+      "id": "enrich_play_history",
+      "type": "enricher.play_history",
+      "upstream": ["source_starred"],
+      "config": {
+        "metrics": ["total_plays", "last_played_dates"],
+        "period_days": 180
+      }
+    },
+    {
+      "id": "filter_forgotten",
+      "type": "filter.by_play_history",
+      "upstream": ["enrich_play_history"],
+      "config": {
+        "max_days_back": 180,
+        "include_missing": true
+      }
+    },
+    {
+      "id": "sort_by_last_played",
+      "type": "sorter.by_play_history",
+      "upstream": ["filter_forgotten"],
+      "config": {
+        "reverse": false
+      }
+    },
+    {
+      "id": "limit_selection",
+      "type": "selector.limit_tracks",
+      "upstream": ["sort_by_last_played"],
+      "config": {
+        "count": 40,
+        "method": "first"
+      }
+    },
+    {
+      "id": "create_playlist",
+      "type": "destination.create_playlist",
+      "upstream": ["limit_selection"],
+      "config": {
+        "name": "Starred & Forgotten {date}",
+        "description": "Starred tracks I haven't played in 6+ months ({track_count} tracks)",
+        "connector": "spotify"
+      }
+    }
+  ]
+}

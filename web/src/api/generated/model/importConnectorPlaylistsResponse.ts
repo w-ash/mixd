@@ -3,7 +3,7 @@
  * Do not edit manually.
  * Mixd
  * Personal music metadata hub
- * OpenAPI spec version: 0.7.4.post2
+ * OpenAPI spec version: 0.7.5
  */
 import type { ImportFailureSchema } from './importFailureSchema';
 import type { ImportOutcomeSchema } from './importOutcomeSchema';
@@ -11,7 +11,7 @@ import type { ImportOutcomeSchema } from './importOutcomeSchema';
 /**
  * Grouped per-playlist outcomes so the UI can render a clear summary.
  */
-export interface ImportSpotifyPlaylistsResponse {
+export interface ImportConnectorPlaylistsResponse {
   succeeded: ImportOutcomeSchema[];
   skipped_unchanged: string[];
   failed: ImportFailureSchema[];

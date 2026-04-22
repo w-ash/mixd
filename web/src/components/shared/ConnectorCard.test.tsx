@@ -1,7 +1,7 @@
 import { HttpResponse, http } from "msw";
 import { describe, expect, it } from "vitest";
 
-import type { ConnectorStatusSchema } from "#/api/generated/model";
+import { makeConnectorMetadata } from "#/test/factories";
 import { server } from "#/test/setup";
 import {
   renderWithProviders,
@@ -12,16 +12,7 @@ import {
 
 import { ConnectorCard } from "./ConnectorCard";
 
-function makeConnector(
-  overrides: Partial<ConnectorStatusSchema> & { name: string },
-): ConnectorStatusSchema {
-  return {
-    connected: false,
-    account_name: null,
-    token_expires_at: null,
-    ...overrides,
-  };
-}
+const makeConnector = makeConnectorMetadata;
 
 describe("ConnectorCard", () => {
   describe("disconnected state", () => {
@@ -63,6 +54,45 @@ describe("ConnectorCard", () => {
       expect(screen.getByText("Signed in as testuser")).toBeInTheDocument();
       expect(
         screen.getByText("Token refreshes automatically"),
+      ).toBeInTheDocument();
+    });
+
+    it("shows relative freshness when last_synced_at is present", () => {
+      const twoHoursAgo = new Date(
+        Date.now() - 2 * 60 * 60 * 1000,
+      ).toISOString();
+      renderWithProviders(
+        <ConnectorCard
+          connector={makeConnector({
+            name: "spotify",
+            connected: true,
+            account_name: "testuser",
+            token_expires_at: Math.floor(Date.now() / 1000) + 3600,
+            last_synced_at: twoHoursAgo,
+          })}
+        />,
+      );
+
+      expect(screen.getByText(/Synced 2h ago/)).toBeInTheDocument();
+      // Freshness supersedes the "Token refreshes automatically" fallback.
+      expect(
+        screen.queryByText("Token refreshes automatically"),
+      ).not.toBeInTheDocument();
+    });
+
+    it("surfaces backend auth_error in the error state", () => {
+      renderWithProviders(
+        <ConnectorCard
+          connector={makeConnector({
+            name: "spotify",
+            status: "error",
+            auth_error: "refresh_failed",
+          })}
+        />,
+      );
+
+      expect(
+        screen.getByText(/Session token could not be refreshed/),
       ).toBeInTheDocument();
     });
 
@@ -157,6 +187,7 @@ describe("ConnectorCard", () => {
             connected: true,
             account_name: "testuser",
             token_expires_at: Math.floor(Date.now() / 1000) - 3600,
+            status: "expired",
           })}
         />,
       );
@@ -196,7 +227,7 @@ describe("ConnectorCard", () => {
   describe("passive connectors", () => {
     it("renders Apple Music with Coming soon", () => {
       renderWithProviders(
-        <ConnectorCard connector={makeConnector({ name: "apple" })} />,
+        <ConnectorCard connector={makeConnector({ name: "apple_music" })} />,
       );
 
       expect(screen.getByText("Apple Music")).toBeInTheDocument();

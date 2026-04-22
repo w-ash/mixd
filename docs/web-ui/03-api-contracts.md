@@ -1002,7 +1002,7 @@ Defined in `src/interface/api/schemas/connectors.py`.
 ```
 
 Fields:
-- `name`: connector identifier (`"spotify"`, `"lastfm"`, `"musicbrainz"`, `"apple"`)
+- `name`: connector identifier (`"spotify"`, `"lastfm"`, `"musicbrainz"`, `"apple_music"`)
 - `connected`: whether valid credentials exist
 - `account_name`: display name if available (Spotify: fetched via `/me`, Last.fm: from settings, others: null)
 - `token_expires_at`: Unix timestamp (Spotify only, null for others)

@@ -101,8 +101,18 @@ class MusicBrainzConnector(BaseAPIConnector):
 
 def get_connector_config() -> ConnectorConfig:
     """MusicBrainz connector configuration."""
+    from src.infrastructure.connectors._shared.connector_status import (
+        get_musicbrainz_status,
+    )
+
     return {
         "dependencies": [],  # No dependencies on other connectors
         "factory": lambda _params: MusicBrainzConnector(),
         "metrics": {},  # No specific metrics
+        "display_name": "MusicBrainz",
+        "category": "enrichment",
+        "auth_method": "none",
+        "capabilities": frozenset({"track_enrichment"}),
+        "status_fn": get_musicbrainz_status,
+        "build_auth_url": None,
     }

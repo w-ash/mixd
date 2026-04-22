@@ -8,6 +8,7 @@ from uuid import UUID
 from sqlalchemy import (
     ColumnElement,
     String,
+    and_,
     cast as sa_cast,
     delete,
     func,
@@ -29,7 +30,7 @@ from src.domain.entities.preference import PREFERENCE_ORDER
 from src.domain.entities.sourced_metadata import SOURCE_PRIORITY
 from src.domain.exceptions import OptimisticLockError
 from src.domain.matching import normalize_for_comparison, strip_parentheticals
-from src.domain.repositories.interfaces import TrackListingPage
+from src.domain.repositories.interfaces import TrackFacets, TrackListingPage
 from src.infrastructure.persistence.database.db_models import (
     DBTrack,
     DBTrackLike,
@@ -42,6 +43,11 @@ from src.infrastructure.persistence.repositories.repo_decorator import db_operat
 from src.infrastructure.persistence.repositories.track.mapper import TrackMapper
 
 logger = get_logger(__name__)
+
+
+def _empty_facets() -> TrackFacets:
+    """Zero-valued facets for the total=0 early-exit path."""
+    return TrackFacets(preference={}, liked={"true": 0, "false": 0}, connector={})
 
 
 def _sql_case[K: str](values: Mapping[K, int], column: str) -> str:
@@ -412,6 +418,7 @@ class TrackRepository(BaseRepository[DBTrack, Track]):
         after_value: object = None,
         after_id: UUID | None = None,
         include_total: bool = True,
+        include_facets: bool = False,
     ) -> TrackListingPage:
         """List tracks with search, filters, sorting, and pagination.
 
@@ -511,7 +518,11 @@ class TrackRepository(BaseRepository[DBTrack, Track]):
 
             if total == 0:
                 return TrackListingPage(
-                    tracks=[], total=0, liked_track_ids=set(), next_page_key=None
+                    tracks=[],
+                    total=0,
+                    liked_track_ids=set(),
+                    next_page_key=None,
+                    facets=_empty_facets() if include_facets else None,
                 )
 
         # Resolve sort column from canonical mapping (sort_by validated upstream).
@@ -580,11 +591,101 @@ class TrackRepository(BaseRepository[DBTrack, Track]):
             liked_result = await self.session.execute(liked_stmt)
             liked_ids = set(liked_result.scalars().all())
 
+        facets = (
+            await self._compute_facets(conditions, user_id, total=total)
+            if include_facets
+            else None
+        )
+
         return TrackListingPage(
             tracks=tracks,
             total=total,
             liked_track_ids=liked_ids,
             next_page_key=next_page_key,
+            facets=facets,
+        )
+
+    async def _compute_facets(
+        self,
+        conditions: list[ColumnElement[bool]],
+        user_id: str,
+        *,
+        total: int | None,
+    ) -> TrackFacets:
+        """Aggregate per-facet counts against the current filter context.
+
+        Contextual-with-self semantics: each facet's count reflects the
+        filter set *including* the dimension being counted, so the number
+        is "what the user is seeing right now per bucket." Chosen over the
+        Algolia-style peel-away-self shape because it maps to a single
+        GROUP BY per dimension — no per-facet query rewrite. Cheap at mixd
+        scale thanks to existing indexes on track_preferences(user_id, state),
+        track_likes(user_id, is_liked), and track_mappings(user_id, connector_name).
+        """
+        # Preference facet — LEFT JOIN so unrated tracks count under "unrated".
+        pref_stmt = (
+            select(DBTrackPreference.state, func.count(DBTrack.id))
+            .select_from(DBTrack)
+            .outerjoin(
+                DBTrackPreference,
+                and_(
+                    DBTrackPreference.track_id == DBTrack.id,
+                    DBTrackPreference.user_id == user_id,
+                ),
+            )
+            .where(*conditions)
+            .group_by(DBTrackPreference.state)
+        )
+        pref_rows = cast(
+            "list[tuple[str | None, int]]",
+            (await self.session.execute(pref_stmt)).all(),
+        )
+        preference: dict[str, int] = {}
+        for state, count in pref_rows:
+            preference[state if state is not None else "unrated"] = count
+
+        # Liked facet — count distinct track_ids with a True like-row on
+        # the canonical 'mixd' service. Everything else counts as "false".
+        liked_true_stmt = (
+            select(func.count(func.distinct(DBTrack.id)))
+            .select_from(DBTrack)
+            .join(DBTrackLike, DBTrackLike.track_id == DBTrack.id)
+            .where(
+                *conditions,
+                DBTrackLike.is_liked.is_(True),
+                DBTrackLike.user_id == user_id,
+            )
+        )
+        liked_true_count = int(
+            (await self.session.execute(liked_true_stmt)).scalar_one()
+        )
+        filtered_total = total if total is not None else sum(preference.values())
+        liked: dict[str, int] = {
+            "true": liked_true_count,
+            "false": max(filtered_total - liked_true_count, 0),
+        }
+
+        # Connector facet — one row per connector the user has in the filtered set.
+        connector_stmt = (
+            select(
+                DBTrackMapping.connector_name,
+                func.count(func.distinct(DBTrack.id)),
+            )
+            .select_from(DBTrack)
+            .join(DBTrackMapping, DBTrackMapping.track_id == DBTrack.id)
+            .where(*conditions, DBTrackMapping.user_id == user_id)
+            .group_by(DBTrackMapping.connector_name)
+        )
+        connector_rows = cast(
+            "list[tuple[str, int]]",
+            (await self.session.execute(connector_stmt)).all(),
+        )
+        connector: dict[str, int] = dict(connector_rows)
+
+        return TrackFacets(
+            preference=preference,
+            liked=liked,
+            connector=connector,
         )
 
     # -------------------------------------------------------------------------

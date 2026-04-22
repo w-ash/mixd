@@ -1,22 +1,25 @@
 import { useQueryClient } from "@tanstack/react-query";
 import { useState } from "react";
 import {
-  getListSpotifyPlaylistsApiV1ConnectorsSpotifyPlaylistsGetQueryKey,
-  useImportSpotifyPlaylistsApiV1ConnectorsSpotifyPlaylistsImportPost,
+  getListConnectorPlaylistsApiV1ConnectorsServicePlaylistsGetQueryKey,
+  useImportConnectorPlaylistsApiV1ConnectorsServicePlaylistsImportPost,
 } from "#/api/generated/connectors/connectors";
+import type { ConnectorMetadataSchema } from "#/api/generated/model";
 import { getListPlaylistsApiV1PlaylistsGetQueryKey } from "#/api/generated/playlists/playlists";
 import { pluralize } from "#/lib/pluralize";
 import { toasts } from "#/lib/toasts";
 
 import { ConfirmationDialog } from "./ConfirmationDialog";
-import type { PickedPlaylist } from "./SpotifyPlaylistPickerDialog";
+import type { PickedPlaylist } from "./ConnectorPlaylistPickerDialog";
 
 type SyncDirection = "pull" | "push";
 
 interface ImportPlaylistsConfirmDialogProps {
   open: boolean;
   onOpenChange: (open: boolean) => void;
-  /** Spotify playlists selected in the picker. */
+  /** The connector the picker selected these playlists from. */
+  connector: ConnectorMetadataSchema;
+  /** Playlists selected in the picker. */
   playlists: PickedPlaylist[];
   /** Called after a successful import so the caller can close the picker. */
   onImported?: () => void;
@@ -34,21 +37,25 @@ interface ImportPlaylistsConfirmDialogProps {
 export function ImportPlaylistsConfirmDialog({
   open,
   onOpenChange,
+  connector,
   playlists,
   onImported,
 }: ImportPlaylistsConfirmDialogProps) {
   const [direction, setDirection] = useState<SyncDirection>("pull");
   const queryClient = useQueryClient();
+  const label = connector.display_name;
 
   const importMut =
-    useImportSpotifyPlaylistsApiV1ConnectorsSpotifyPlaylistsImportPost({
+    useImportConnectorPlaylistsApiV1ConnectorsServicePlaylistsImportPost({
       mutation: {
         onSuccess: async (response) => {
           if (response.status !== 200) return;
           const { succeeded, skipped_unchanged, failed } = response.data;
           await queryClient.invalidateQueries({
             queryKey:
-              getListSpotifyPlaylistsApiV1ConnectorsSpotifyPlaylistsGetQueryKey(),
+              getListConnectorPlaylistsApiV1ConnectorsServicePlaylistsGetQueryKey(
+                connector.name,
+              ),
           });
           await queryClient.invalidateQueries({
             queryKey: getListPlaylistsApiV1PlaylistsGetQueryKey(),
@@ -75,7 +82,7 @@ export function ImportPlaylistsConfirmDialog({
           onImported?.();
           onOpenChange(false);
         },
-        meta: { errorLabel: "Failed to import Spotify playlists" },
+        meta: { errorLabel: `Failed to import ${label} playlists` },
       },
     });
 
@@ -95,6 +102,7 @@ export function ImportPlaylistsConfirmDialog({
       onConfirm={() => {
         if (count === 0) return;
         importMut.mutate({
+          service: connector.name,
           data: {
             connector_playlist_ids: playlists.map((p) => p.id),
             sync_direction: direction,
@@ -118,11 +126,11 @@ export function ImportPlaylistsConfirmDialog({
             />
             <span>
               <span className="block font-medium text-text">
-                Spotify-managed
+                {label}-managed
               </span>
               <span className="block text-xs text-text-muted">
-                Mixd reads from Spotify. Good for reference or bootstrap
-                playlists you'll keep editing in Spotify.
+                Mixd reads from {label}. Good for reference or bootstrap
+                playlists you'll keep editing in {label}.
               </span>
             </span>
           </label>
@@ -138,7 +146,7 @@ export function ImportPlaylistsConfirmDialog({
             <span>
               <span className="block font-medium text-text">Mixd-managed</span>
               <span className="block text-xs text-text-muted">
-                Mixd owns the truth and pushes changes to Spotify. Good for
+                Mixd owns the truth and pushes changes to {label}. Good for
                 workflow output playlists.
               </span>
             </span>

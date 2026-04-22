@@ -1,35 +1,52 @@
 import { useQueryClient } from "@tanstack/react-query";
 import { HelpCircle } from "lucide-react";
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { useNavigate, useSearchParams } from "react-router";
 import {
   getGetConnectorsApiV1ConnectorsGetQueryKey,
   useGetConnectorsApiV1ConnectorsGet,
 } from "#/api/generated/connectors/connectors";
-import type { ConnectorStatusSchema } from "#/api/generated/model";
+import type { ConnectorMetadataSchema } from "#/api/generated/model";
 import { STALE } from "#/api/query-client";
 import { PageHeader } from "#/components/layout/PageHeader";
 import { ConnectorCard } from "#/components/shared/ConnectorCard";
-import { getConnectorLabel } from "#/components/shared/ConnectorIcon";
 import { EmptyState } from "#/components/shared/EmptyState";
 import { QueryErrorState } from "#/components/shared/QueryErrorState";
 import { SectionHeader } from "#/components/shared/SectionHeader";
 import { Skeleton } from "#/components/ui/skeleton";
+import { getConnectorLabel } from "#/lib/connector-brand";
 import { humanizeAuthError } from "#/lib/connectors";
 import { toasts } from "#/lib/toasts";
 
-const sections = [
-  {
+/** Display copy + ordering for connector categories.
+ *
+ * The backend declares each connector's ``category`` via its registry
+ * entry (``streaming`` / ``history`` / ``enrichment``). This map is
+ * pure frontend UX copy — translating the taxonomy into user-facing
+ * section titles. Adding a new category requires adding an entry here.
+ */
+type CategoryKey = ConnectorMetadataSchema["category"];
+
+const categoryDisplay: Record<
+  CategoryKey,
+  { title: string; description: string; order: number }
+> = {
+  streaming: {
     title: "Streaming",
     description: "Sources that own your playlists, likes, and library",
-    names: ["spotify", "apple"],
+    order: 0,
   },
-  {
-    title: "Data & Enrichment",
-    description: "Services that provide play history and metadata",
-    names: ["lastfm", "musicbrainz"],
+  history: {
+    title: "Play history",
+    description: "Services that provide listening history and scrobble data",
+    order: 1,
   },
-];
+  enrichment: {
+    title: "Metadata & enrichment",
+    description: "Services that identify tracks and enrich their metadata",
+    order: 2,
+  },
+};
 
 // ---------------------------------------------------------------------------
 // Auth callback result (persisted in component state for the card error state)
@@ -86,7 +103,7 @@ function ConnectorSection({
 }: {
   title: string;
   description: string;
-  connectors: ConnectorStatusSchema[];
+  connectors: ConnectorMetadataSchema[];
   authResult: AuthResult | null;
 }) {
   if (connectors.length === 0) return null;
@@ -131,6 +148,21 @@ export function Integrations() {
     });
 
   const connectors = data?.status === 200 ? data.data : [];
+
+  // Group connectors by their backend-declared category, preserving the
+  // display ordering above. New categories silently fall through as no-ops
+  // until the frontend adds an entry to `categoryDisplay`.
+  const grouped = useMemo(() => {
+    const bins = new Map<CategoryKey, ConnectorMetadataSchema[]>();
+    for (const c of connectors) {
+      const list = bins.get(c.category) ?? [];
+      list.push(c);
+      bins.set(c.category, list);
+    }
+    return [...bins.entries()]
+      .filter(([key]) => key in categoryDisplay)
+      .sort(([a], [b]) => categoryDisplay[a].order - categoryDisplay[b].order);
+  }, [connectors]);
 
   // Auth callback result — persisted so the card can show error state
   const [authResult, setAuthResult] = useState<AuthResult | null>(null);
@@ -184,14 +216,12 @@ export function Integrations() {
 
       {!isLoading && !isError && connectors.length > 0 && (
         <div className="space-y-8">
-          {sections.map((section) => (
+          {grouped.map(([category, sectionConnectors]) => (
             <ConnectorSection
-              key={section.title}
-              title={section.title}
-              description={section.description}
-              connectors={connectors.filter((c) =>
-                section.names.includes(c.name),
-              )}
+              key={category}
+              title={categoryDisplay[category].title}
+              description={categoryDisplay[category].description}
+              connectors={sectionConnectors}
               authResult={authResult}
             />
           ))}

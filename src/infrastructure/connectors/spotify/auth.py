@@ -17,10 +17,11 @@ multiple tasks call get_valid_token() simultaneously.
 import asyncio
 import base64
 import collections.abc
+import hashlib
 from http.server import BaseHTTPRequestHandler, HTTPServer
 import secrets
 import time
-from typing import TypedDict, cast, override
+from typing import TYPE_CHECKING, TypedDict, cast, override
 import urllib.parse
 import webbrowser
 
@@ -37,6 +38,11 @@ from src.infrastructure.connectors._shared.token_storage import (
     TokenStorage,
 )
 
+if TYPE_CHECKING:
+    from fastapi import Request
+
+    from src.infrastructure.connectors.protocols import CreateStateFn
+
 logger = get_logger(__name__).bind(service="spotify_auth")
 
 SPOTIFY_AUTHORIZE_URL = "https://accounts.spotify.com/authorize"
@@ -49,6 +55,41 @@ SPOTIFY_SCOPES = [
     "playlist-read-collaborative",
     "user-library-read",
 ]
+
+
+def _compute_pkce_challenge(code_verifier: str) -> str:
+    """Compute S256 PKCE code_challenge from a code_verifier (RFC 7636)."""
+    digest = hashlib.sha256(code_verifier.encode("ascii")).digest()
+    return base64.urlsafe_b64encode(digest).rstrip(b"=").decode("ascii")
+
+
+async def build_auth_url(
+    user_id: str,
+    request: Request,
+    create_state: CreateStateFn,
+) -> str:
+    """Assemble Spotify's OAuth authorization URL with CSRF state + PKCE.
+
+    Called from the generic ``/api/v1/connectors/{service}/auth-url`` route
+    handler via the connector registry. ``create_state`` is injected so the
+    server-side DB-backed state storage stays centralized — each connector
+    only owns its provider-specific URL assembly.
+    """
+    del request  # Spotify's auth URL doesn't depend on the incoming request
+    code_verifier = secrets.token_urlsafe(64)
+    code_challenge = _compute_pkce_challenge(code_verifier)
+    state = await create_state(user_id, "spotify", code_verifier=code_verifier)
+    params = {
+        "client_id": settings.credentials.spotify_client_id,
+        "response_type": "code",
+        "redirect_uri": settings.credentials.spotify_redirect_uri,
+        "scope": " ".join(SPOTIFY_SCOPES),
+        "state": state,
+        "show_dialog": "true",
+        "code_challenge_method": "S256",
+        "code_challenge": code_challenge,
+    }
+    return f"{SPOTIFY_AUTHORIZE_URL}?{urllib.parse.urlencode(params)}"
 
 
 class SpotifyTokenCache(TypedDict):

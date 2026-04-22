@@ -1,14 +1,10 @@
-/** Shared connector constants used across pages and components. */
-
-/** Services that support OAuth connect/disconnect flows. */
-export const CONNECTABLE_SERVICES = new Set(["spotify", "lastfm"]);
-
-/** Connector-colored button classes (static strings for Tailwind scanning). */
-export const connectButtonStyles: Record<string, string> = {
-  spotify:
-    "bg-spotify/15 text-spotify border border-spotify/30 hover:bg-spotify/25",
-  lastfm: "bg-lastfm/15 text-lastfm border border-lastfm/30 hover:bg-lastfm/25",
-};
+/** Shared connector copy (non-branding).
+ *
+ * Per-connector branding (logos, colors, button classes, UX descriptions)
+ * lives in ``lib/connector-brand.tsx``. This module only carries copy
+ * that's keyed on backend-emitted *auth error codes* rather than on
+ * connector names.
+ */
 
 /** Map auth callback reason codes to human-readable messages. */
 const authErrorMessages: Record<string, string> = {
@@ -19,6 +15,7 @@ const authErrorMessages: Record<string, string> = {
   not_configured: "API credentials not configured",
   no_session: "Failed to get session from Last.fm",
   no_session_key: "Failed to get session key from Last.fm",
+  refresh_failed: "Session token could not be refreshed — please reconnect",
 };
 
 /** Convert an auth error reason code to a human-readable string. */

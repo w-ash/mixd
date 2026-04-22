@@ -1,18 +1,16 @@
-"""Connector status checking service.
+"""Connector status probing.
 
-Encapsulates the infrastructure-coupled logic for determining whether
-music service connectors are authenticated and healthy. Uses TokenStorage
-for credential persistence (database-backed in production, file-backed
-in CLI development).
+Provider-specific probes that read credentials from ``TokenStorage`` and
+return a domain ``ConnectorStatus`` value object.
 """
 
 import time
 from typing import cast
 
-from attrs import define
 import httpx
 
 from src.config import get_logger, settings
+from src.domain.entities.connector import ConnectorAuthError, ConnectorStatus
 from src.infrastructure.connectors._shared.token_storage import (
     StoredToken,
     TokenStorage,
@@ -23,16 +21,6 @@ logger = get_logger(__name__).bind(service="connector_status")
 
 SPOTIFY_ME_URL = "https://api.spotify.com/v1/me"
 SPOTIFY_ME_TIMEOUT = 5.0
-
-
-@define(frozen=True, slots=True)
-class ConnectorStatus:
-    """Immutable data container for a connector's authentication status."""
-
-    name: str
-    connected: bool
-    account_name: str | None = None
-    token_expires_at: int | None = None
 
 
 async def fetch_spotify_display_name(access_token: str) -> str | None:
@@ -70,33 +58,34 @@ async def get_spotify_status(
     token_data = await storage.load_token("spotify", user_id)
 
     if token_data is None:
-        return ConnectorStatus(name="spotify", connected=False)
+        return ConnectorStatus(name="spotify", auth_method="oauth", connected=False)
 
     has_refresh = bool(token_data.get("refresh_token"))
     expires_at = token_data.get("expires_at", 0) or 0
     display_name = token_data.get("account_name")
+    auth_error: ConnectorAuthError | None = None
+    access_token = token_data.get("access_token")
 
-    # Silent refresh: if token is expired and we have a refresh_token,
-    # try to get a fresh access token so the frontend sees "Connected."
+    # Two mutually-exclusive paths: expired-needs-refresh vs valid-token-name-backfill.
     if has_refresh and expires_at < time.time():
         from src.infrastructure.connectors.spotify.auth import SpotifyTokenManager
 
         mgr = SpotifyTokenManager(storage=storage, user_id=user_id)
         refreshed = await mgr.try_silent_refresh()
-        if refreshed is not None:
+        if refreshed is None:
+            # Refresh failed — refresh_token likely revoked or invalid.
+            # Surface as an error rather than silently claiming "connected."
+            auth_error = "refresh_failed"
+        else:
             expires_at = refreshed.get("expires_at", 0)
             if not display_name:
                 display_name = await fetch_spotify_display_name(
                     refreshed["access_token"]
                 )
                 if display_name:
-                    # Cache display name back to storage
                     merged: StoredToken = {**refreshed, "account_name": display_name}
                     await storage.save_token("spotify", user_id, merged)
-
-    # First visit with valid token but no cached display_name: one-time fetch
-    access_token = token_data.get("access_token")
-    if (
+    elif (
         has_refresh
         and not display_name
         and isinstance(access_token, str)
@@ -109,9 +98,11 @@ async def get_spotify_status(
 
     return ConnectorStatus(
         name="spotify",
-        connected=has_refresh,
+        auth_method="oauth",
+        connected=has_refresh and auth_error is None,
         account_name=display_name,
         token_expires_at=int(expires_at) if expires_at else None,
+        auth_error=auth_error,
     )
 
 
@@ -148,34 +139,57 @@ async def get_lastfm_status(
 
     return ConnectorStatus(
         name="lastfm",
+        auth_method="oauth",
         connected=connected,
         account_name=account_name,
     )
 
 
-def get_musicbrainz_status() -> ConnectorStatus:
-    """MusicBrainz is a public API — always available, no auth required."""
-    return ConnectorStatus(name="musicbrainz", connected=True)
+async def get_musicbrainz_status(
+    user_id: str,
+    storage: TokenStorage | None,
+) -> ConnectorStatus:
+    """MusicBrainz is a public API — always available, no auth required.
+
+    Signature matches the uniform ``status_fn`` shape declared by
+    ``ConnectorConfig``; ``user_id`` and ``storage`` are unused.
+    """
+    del user_id, storage
+    return ConnectorStatus(name="musicbrainz", auth_method="none", connected=True)
 
 
-def get_apple_music_status() -> ConnectorStatus:
+async def get_apple_music_status(
+    user_id: str,
+    storage: TokenStorage | None,
+) -> ConnectorStatus:
     """Apple Music connector is under development — stub status."""
-    return ConnectorStatus(name="apple", connected=False)
+    del user_id, storage
+    return ConnectorStatus(
+        name="apple_music", auth_method="coming_soon", connected=False
+    )
 
 
 async def get_all_connector_statuses(user_id: str) -> list[ConnectorStatus]:
-    """Get authentication status of all configured connectors."""
+    """Probe every registered connector concurrently and return their statuses.
+
+    Iterates the discovery registry so adding a connector only requires
+    registering a new module — no edits here. Uses ``asyncio.TaskGroup`` for
+    structured cancellation: a single status-probe failure surfaces cleanly
+    instead of leaking orphaned tasks.
+    """
     import asyncio
 
+    # Lazy import avoids a circular dependency:
+    # protocols.py imports ConnectorStatus from this module.
+    from src.infrastructure.connectors.discovery import discover_connectors
+
+    registry = discover_connectors()
     storage = get_token_storage()
-    results: list[ConnectorStatus] = []
+
     async with asyncio.TaskGroup() as tg:
-        spotify_task = tg.create_task(get_spotify_status(user_id, storage))
-        lastfm_task = tg.create_task(get_lastfm_status(user_id, storage))
-    results = [
-        spotify_task.result(),
-        lastfm_task.result(),
-        get_musicbrainz_status(),
-        get_apple_music_status(),
-    ]
-    return results
+        tasks: dict[str, asyncio.Task[ConnectorStatus]] = {
+            name: tg.create_task(config["status_fn"](user_id, storage))
+            for name, config in registry.items()
+        }
+
+    return [tasks[name].result() for name in registry]

@@ -3,7 +3,7 @@
  * Do not edit manually.
  * Mixd
  * Personal music metadata hub
- * OpenAPI spec version: 0.7.4.post2
+ * OpenAPI spec version: 0.7.5
  */
 import {
   useMutation,
@@ -32,7 +32,7 @@ import type {
   HTTPValidationError,
   ListTracksApiV1TracksGetParams,
   MergeTrackRequest,
-  PaginatedResponseLibraryTrackSchema,
+  PaginatedLibraryTracksResponse,
   PlaylistBriefSchema,
   RelinkMappingRequest,
   SetPreferenceRequest,
@@ -56,7 +56,7 @@ O(1) page seeking regardless of depth.
  * @summary List Tracks
  */
 export type listTracksApiV1TracksGetResponse200 = {
-  data: PaginatedResponseLibraryTrackSchema
+  data: PaginatedLibraryTracksResponse
   status: 200
 }
 

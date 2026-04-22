@@ -3,7 +3,7 @@
  * Do not edit manually.
  * Mixd
  * Personal music metadata hub
- * OpenAPI spec version: 0.7.4.post2
+ * OpenAPI spec version: 0.7.5
  */
 import {
   faker
@@ -18,23 +18,27 @@ import type {
 } from 'msw';
 
 import {
-  AssignmentActionType
+  AssignmentActionType,
+  Capability,
+  ConnectorAuthMethod,
+  ConnectorCategory,
+  ConnectorStatusState
 } from '../model';
 import type {
-  ConnectorStatusSchema,
-  ImportSpotifyPlaylistsResponse,
-  SpotifyPlaylistBrowseResponse
+  ConnectorMetadataSchema,
+  ConnectorPlaylistBrowseResponse,
+  ImportConnectorPlaylistsResponse
 } from '../model';
 
 
-export const getGetConnectorsApiV1ConnectorsGetResponseMock = (): ConnectorStatusSchema[] => (Array.from({ length: faker.number.int({min: 1, max: 10}) }, (_, i) => i + 1).map(() => ({name: faker.string.alpha({length: {min: 10, max: 20}}), connected: faker.datatype.boolean(), account_name: faker.helpers.arrayElement([faker.helpers.arrayElement([faker.string.alpha({length: {min: 10, max: 20}}),null,]), undefined]), token_expires_at: faker.helpers.arrayElement([faker.helpers.arrayElement([faker.number.int(),null,]), undefined])})))
+export const getGetConnectorsApiV1ConnectorsGetResponseMock = (): ConnectorMetadataSchema[] => (Array.from({ length: faker.number.int({min: 1, max: 10}) }, (_, i) => i + 1).map(() => ({name: faker.string.alpha({length: {min: 10, max: 20}}), display_name: faker.string.alpha({length: {min: 10, max: 20}}), category: faker.helpers.arrayElement(Object.values(ConnectorCategory)), auth_method: faker.helpers.arrayElement(Object.values(ConnectorAuthMethod)), status: faker.helpers.arrayElement(Object.values(ConnectorStatusState)), connected: faker.datatype.boolean(), account_name: faker.helpers.arrayElement([faker.helpers.arrayElement([faker.string.alpha({length: {min: 10, max: 20}}),null,]), undefined]), token_expires_at: faker.helpers.arrayElement([faker.helpers.arrayElement([faker.number.int(),null,]), undefined]), capabilities: faker.helpers.arrayElements(Object.values(Capability)), auth_error: faker.helpers.arrayElement([faker.helpers.arrayElement(["refresh_failed",null,]), undefined]), last_synced_at: faker.helpers.arrayElement([faker.helpers.arrayElement([faker.date.past().toISOString().slice(0, 19) + 'Z',null,]), undefined])})))
 
-export const getListSpotifyPlaylistsApiV1ConnectorsSpotifyPlaylistsGetResponseMock = (overrideResponse: Partial<Extract<SpotifyPlaylistBrowseResponse, object>> = {}): SpotifyPlaylistBrowseResponse => ({data: Array.from({ length: faker.number.int({min: 1, max: 10}) }, (_, i) => i + 1).map(() => ({connector_playlist_identifier: faker.string.alpha({length: {min: 10, max: 20}}), connector_playlist_db_id: faker.string.uuid(), name: faker.string.alpha({length: {min: 10, max: 20}}), description: faker.helpers.arrayElement([faker.string.alpha({length: {min: 10, max: 20}}),null,]), owner: faker.helpers.arrayElement([faker.string.alpha({length: {min: 10, max: 20}}),null,]), image_url: faker.helpers.arrayElement([faker.string.alpha({length: {min: 10, max: 20}}),null,]), track_count: faker.number.int(), snapshot_id: faker.helpers.arrayElement([faker.string.alpha({length: {min: 10, max: 20}}),null,]), collaborative: faker.datatype.boolean(), is_public: faker.datatype.boolean(), import_status: faker.helpers.arrayElement(['not_imported','imported'] as const), current_assignments: Array.from({ length: faker.number.int({min: 1, max: 10}) }, (_, i) => i + 1).map(() => ({assignment_id: faker.string.uuid(), action_type: faker.helpers.arrayElement(Object.values(AssignmentActionType)), action_value: faker.string.alpha({length: {min: 10, max: 20}})}))})), from_cache: faker.datatype.boolean(), fetched_at: faker.date.past().toISOString().slice(0, 19) + 'Z', ...overrideResponse})
+export const getListConnectorPlaylistsApiV1ConnectorsServicePlaylistsGetResponseMock = (overrideResponse: Partial<Extract<ConnectorPlaylistBrowseResponse, object>> = {}): ConnectorPlaylistBrowseResponse => ({data: Array.from({ length: faker.number.int({min: 1, max: 10}) }, (_, i) => i + 1).map(() => ({connector_playlist_identifier: faker.string.alpha({length: {min: 10, max: 20}}), connector_playlist_db_id: faker.string.uuid(), name: faker.string.alpha({length: {min: 10, max: 20}}), description: faker.helpers.arrayElement([faker.string.alpha({length: {min: 10, max: 20}}),null,]), owner: faker.helpers.arrayElement([faker.string.alpha({length: {min: 10, max: 20}}),null,]), image_url: faker.helpers.arrayElement([faker.string.alpha({length: {min: 10, max: 20}}),null,]), track_count: faker.number.int(), snapshot_id: faker.helpers.arrayElement([faker.string.alpha({length: {min: 10, max: 20}}),null,]), collaborative: faker.datatype.boolean(), is_public: faker.datatype.boolean(), import_status: faker.helpers.arrayElement(['not_imported','imported'] as const), current_assignments: Array.from({ length: faker.number.int({min: 1, max: 10}) }, (_, i) => i + 1).map(() => ({assignment_id: faker.string.uuid(), action_type: faker.helpers.arrayElement(Object.values(AssignmentActionType)), action_value: faker.string.alpha({length: {min: 10, max: 20}})}))})), from_cache: faker.datatype.boolean(), fetched_at: faker.date.past().toISOString().slice(0, 19) + 'Z', ...overrideResponse})
 
-export const getImportSpotifyPlaylistsApiV1ConnectorsSpotifyPlaylistsImportPostResponseMock = (overrideResponse: Partial<Extract<ImportSpotifyPlaylistsResponse, object>> = {}): ImportSpotifyPlaylistsResponse => ({succeeded: Array.from({ length: faker.number.int({min: 1, max: 10}) }, (_, i) => i + 1).map(() => ({connector_playlist_identifier: faker.string.alpha({length: {min: 10, max: 20}}), canonical_playlist_id: faker.string.alpha({length: {min: 10, max: 20}}), resolved: faker.number.int(), unresolved: faker.number.int()})), skipped_unchanged: Array.from({ length: faker.number.int({min: 1, max: 10}) }, (_, i) => i + 1).map(() => (faker.string.alpha({length: {min: 10, max: 20}}))), failed: Array.from({ length: faker.number.int({min: 1, max: 10}) }, (_, i) => i + 1).map(() => ({connector_playlist_identifier: faker.string.alpha({length: {min: 10, max: 20}}), message: faker.string.alpha({length: {min: 10, max: 20}})})), ...overrideResponse})
+export const getImportConnectorPlaylistsApiV1ConnectorsServicePlaylistsImportPostResponseMock = (overrideResponse: Partial<Extract<ImportConnectorPlaylistsResponse, object>> = {}): ImportConnectorPlaylistsResponse => ({succeeded: Array.from({ length: faker.number.int({min: 1, max: 10}) }, (_, i) => i + 1).map(() => ({connector_playlist_identifier: faker.string.alpha({length: {min: 10, max: 20}}), canonical_playlist_id: faker.string.alpha({length: {min: 10, max: 20}}), resolved: faker.number.int(), unresolved: faker.number.int()})), skipped_unchanged: Array.from({ length: faker.number.int({min: 1, max: 10}) }, (_, i) => i + 1).map(() => (faker.string.alpha({length: {min: 10, max: 20}}))), failed: Array.from({ length: faker.number.int({min: 1, max: 10}) }, (_, i) => i + 1).map(() => ({connector_playlist_identifier: faker.string.alpha({length: {min: 10, max: 20}}), message: faker.string.alpha({length: {min: 10, max: 20}})})), ...overrideResponse})
 
 
-export const getGetConnectorsApiV1ConnectorsGetMockHandler = (overrideResponse?: ConnectorStatusSchema[] | ((info: Parameters<Parameters<typeof http.get>[1]>[0]) => Promise<ConnectorStatusSchema[]> | ConnectorStatusSchema[]), options?: RequestHandlerOptions) => {
+export const getGetConnectorsApiV1ConnectorsGetMockHandler = (overrideResponse?: ConnectorMetadataSchema[] | ((info: Parameters<Parameters<typeof http.get>[1]>[0]) => Promise<ConnectorMetadataSchema[]> | ConnectorMetadataSchema[]), options?: RequestHandlerOptions) => {
   return http.get('*/api/v1/connectors', async (info: Parameters<Parameters<typeof http.get>[1]>[0]) => {
 
 
@@ -56,25 +60,25 @@ export const getDeleteConnectorTokenApiV1ConnectorsServiceTokenDeleteMockHandler
   }, options)
 }
 
-export const getListSpotifyPlaylistsApiV1ConnectorsSpotifyPlaylistsGetMockHandler = (overrideResponse?: SpotifyPlaylistBrowseResponse | ((info: Parameters<Parameters<typeof http.get>[1]>[0]) => Promise<SpotifyPlaylistBrowseResponse> | SpotifyPlaylistBrowseResponse), options?: RequestHandlerOptions) => {
-  return http.get('*/api/v1/connectors/spotify/playlists', async (info: Parameters<Parameters<typeof http.get>[1]>[0]) => {
+export const getListConnectorPlaylistsApiV1ConnectorsServicePlaylistsGetMockHandler = (overrideResponse?: ConnectorPlaylistBrowseResponse | ((info: Parameters<Parameters<typeof http.get>[1]>[0]) => Promise<ConnectorPlaylistBrowseResponse> | ConnectorPlaylistBrowseResponse), options?: RequestHandlerOptions) => {
+  return http.get('*/api/v1/connectors/:service/playlists', async (info: Parameters<Parameters<typeof http.get>[1]>[0]) => {
 
 
     return HttpResponse.json(overrideResponse !== undefined
     ? (typeof overrideResponse === "function" ? await overrideResponse(info) : overrideResponse)
-    : getListSpotifyPlaylistsApiV1ConnectorsSpotifyPlaylistsGetResponseMock(),
+    : getListConnectorPlaylistsApiV1ConnectorsServicePlaylistsGetResponseMock(),
       { status: 200
       })
   }, options)
 }
 
-export const getImportSpotifyPlaylistsApiV1ConnectorsSpotifyPlaylistsImportPostMockHandler = (overrideResponse?: ImportSpotifyPlaylistsResponse | ((info: Parameters<Parameters<typeof http.post>[1]>[0]) => Promise<ImportSpotifyPlaylistsResponse> | ImportSpotifyPlaylistsResponse), options?: RequestHandlerOptions) => {
-  return http.post('*/api/v1/connectors/spotify/playlists/import', async (info: Parameters<Parameters<typeof http.post>[1]>[0]) => {
+export const getImportConnectorPlaylistsApiV1ConnectorsServicePlaylistsImportPostMockHandler = (overrideResponse?: ImportConnectorPlaylistsResponse | ((info: Parameters<Parameters<typeof http.post>[1]>[0]) => Promise<ImportConnectorPlaylistsResponse> | ImportConnectorPlaylistsResponse), options?: RequestHandlerOptions) => {
+  return http.post('*/api/v1/connectors/:service/playlists/import', async (info: Parameters<Parameters<typeof http.post>[1]>[0]) => {
 
 
     return HttpResponse.json(overrideResponse !== undefined
     ? (typeof overrideResponse === "function" ? await overrideResponse(info) : overrideResponse)
-    : getImportSpotifyPlaylistsApiV1ConnectorsSpotifyPlaylistsImportPostResponseMock(),
+    : getImportConnectorPlaylistsApiV1ConnectorsServicePlaylistsImportPostResponseMock(),
       { status: 200
       })
   }, options)
@@ -82,6 +86,6 @@ export const getImportSpotifyPlaylistsApiV1ConnectorsSpotifyPlaylistsImportPostM
 export const getConnectorsMock = () => [
   getGetConnectorsApiV1ConnectorsGetMockHandler(),
   getDeleteConnectorTokenApiV1ConnectorsServiceTokenDeleteMockHandler(),
-  getListSpotifyPlaylistsApiV1ConnectorsSpotifyPlaylistsGetMockHandler(),
-  getImportSpotifyPlaylistsApiV1ConnectorsSpotifyPlaylistsImportPostMockHandler()
+  getListConnectorPlaylistsApiV1ConnectorsServicePlaylistsGetMockHandler(),
+  getImportConnectorPlaylistsApiV1ConnectorsServicePlaylistsImportPostMockHandler()
 ]

@@ -11,6 +11,7 @@ import {
 } from "lucide-react";
 import { useEffect, useState } from "react";
 import { Link, useNavigate, useParams } from "react-router";
+import { useGetConnectorsApiV1ConnectorsGet } from "#/api/generated/connectors/connectors";
 import type {
   PlaylistLinkSchema,
   SyncStartedResponse,
@@ -34,10 +35,7 @@ import { STALE } from "#/api/query-client";
 import { PageHeader } from "#/components/layout/PageHeader";
 import { BackLink } from "#/components/shared/BackLink";
 import { ConfirmationDialog } from "#/components/shared/ConfirmationDialog";
-import {
-  ConnectorIcon,
-  getConnectorLabel,
-} from "#/components/shared/ConnectorIcon";
+import { ConnectorIcon } from "#/components/shared/ConnectorIcon";
 import { ConnectorListItem } from "#/components/shared/ConnectorListItem";
 import { EmptyState } from "#/components/shared/EmptyState";
 import { OperationProgress } from "#/components/shared/OperationProgress";
@@ -75,6 +73,7 @@ import {
   TableRow,
 } from "#/components/ui/table";
 import { useOperationProgress } from "#/hooks/useOperationProgress";
+import { getConnectorLabel } from "#/lib/connector-brand";
 import {
   decodeHtmlEntities,
   formatArtists,
@@ -317,10 +316,37 @@ function invalidateLinkQueries(
 
 function LinkPlaylistDialog({ playlistId }: { playlistId: string }) {
   const [open, setOpen] = useState(false);
-  const [connector, setConnector] = useState("spotify");
   const [playlistInput, setPlaylistInput] = useState("");
   const [direction, setDirection] = useState("push");
   const queryClient = useQueryClient();
+
+  const { data: connectorsData } = useGetConnectorsApiV1ConnectorsGet({
+    query: { staleTime: STALE.STATIC },
+  });
+
+  // Only connectors that advertise ``playlist_sync`` can accept a link —
+  // MusicBrainz and Apple Music (coming soon) are filtered out automatically.
+  const linkableConnectors =
+    connectorsData?.status === 200
+      ? connectorsData.data.filter((c) =>
+          c.capabilities.includes("playlist_sync"),
+        )
+      : [];
+
+  const defaultConnector = linkableConnectors[0]?.name ?? "";
+  const [connector, setConnector] = useState(defaultConnector);
+
+  // Ensure the state reflects the first real connector once the query lands.
+  useEffect(() => {
+    if (!connector && defaultConnector) setConnector(defaultConnector);
+  }, [connector, defaultConnector]);
+
+  const selectedConnector = linkableConnectors.find(
+    (c) => c.name === connector,
+  );
+  const placeholder = selectedConnector
+    ? `Paste ${selectedConnector.display_name} URL or playlist ID`
+    : "Paste playlist URL or ID";
 
   const createLink = useCreatePlaylistLinkApiV1PlaylistsPlaylistIdLinksPost({
     mutation: {
@@ -354,7 +380,7 @@ function LinkPlaylistDialog({ playlistId }: { playlistId: string }) {
         setOpen(isOpen);
         if (isOpen) {
           setPlaylistInput("");
-          setConnector("spotify");
+          setConnector(defaultConnector);
           setDirection("push");
         }
       }}
@@ -387,8 +413,11 @@ function LinkPlaylistDialog({ playlistId }: { playlistId: string }) {
                   <SelectValue />
                 </SelectTrigger>
                 <SelectContent>
-                  <SelectItem value="spotify">Spotify</SelectItem>
-                  <SelectItem value="apple_music">Apple Music</SelectItem>
+                  {linkableConnectors.map((c) => (
+                    <SelectItem key={c.name} value={c.name}>
+                      {c.display_name}
+                    </SelectItem>
+                  ))}
                 </SelectContent>
               </Select>
             </div>
@@ -403,7 +432,7 @@ function LinkPlaylistDialog({ playlistId }: { playlistId: string }) {
                 id="link-playlist-id"
                 value={playlistInput}
                 onChange={(e) => setPlaylistInput(e.target.value)}
-                placeholder="Paste Spotify URL or playlist ID"
+                placeholder={placeholder}
                 required
                 autoFocus
               />

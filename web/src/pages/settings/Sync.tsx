@@ -14,10 +14,7 @@ import type {
   OperationStartedResponse,
 } from "#/api/generated/model";
 import { PageHeader } from "#/components/layout/PageHeader";
-import {
-  ConnectorIcon,
-  type ConnectorName,
-} from "#/components/shared/ConnectorIcon";
+import { ConnectorIcon } from "#/components/shared/ConnectorIcon";
 import {
   DatabaseUnavailable,
   isDatabaseUnavailable,
@@ -62,7 +59,7 @@ function makeOperationCallbacks(
 // ─── Operation Card ──────────────────────────────────────────────
 
 interface OperationCardProps {
-  connector: ConnectorName;
+  connector: string;
   title: string;
   description: string;
   checkpoint: CheckpointStatusSchema | undefined;

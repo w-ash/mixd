@@ -3,12 +3,12 @@
  * Do not edit manually.
  * Mixd
  * Personal music metadata hub
- * OpenAPI spec version: 0.7.4.post2
+ * OpenAPI spec version: 0.7.5
  */
 import type { AssignmentActionType } from './assignmentActionType';
 
 /**
- * One active assignment on a Spotify playlist row.
+ * One active assignment on a connector playlist row.
  */
 export interface ActiveAssignmentSchema {
   assignment_id: string;

@@ -1,5 +1,5 @@
 {
-  "workflow_name": "Liked Tracks Hidden Gems",
+  "name": "Liked Tracks Hidden Gems",
   "description": "Ultra-DRY composition: Find tracks you've liked but haven't played recently - perfect for rediscovering forgotten favorites",
   "tasks": [
     {

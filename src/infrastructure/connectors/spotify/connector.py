@@ -258,10 +258,27 @@ class SpotifyMetricResolver(BaseMetricResolver):
 
 def get_connector_config() -> ConnectorConfig:
     """Spotify connector configuration."""
+    from src.infrastructure.connectors._shared.connector_status import (
+        get_spotify_status,
+    )
+    from src.infrastructure.connectors.spotify.auth import build_auth_url
+
     return {
         "dependencies": ["auth"],
         "factory": lambda _params: SpotifyConnector(),
         "metrics": SpotifyMetricResolver.FIELD_MAP,
+        "display_name": "Spotify",
+        "category": "streaming",
+        "auth_method": "oauth",
+        "capabilities": frozenset({
+            "playlist_import",
+            "playlist_sync",
+            "likes_import",
+            "history_import_file",
+            "track_enrichment",
+        }),
+        "status_fn": get_spotify_status,
+        "build_auth_url": build_auth_url,
     }
 
 

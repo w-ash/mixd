@@ -1,10 +1,12 @@
-"""Unit tests for ListSpotifyPlaylistsUseCase.
+"""Unit tests for ListConnectorPlaylistsUseCase.
 
 The load-bearing properties are:
 - cache-first: zero connector calls when cache is hot and force_refresh=False
 - force_refresh bypasses the cache and triggers a fetch + upsert
 - import_status resolves correctly for linked vs not-linked playlists
 - get_playlist_with_all_tracks is never touched during browse (metadata only)
+- the connector_name command field flows to both cp_repo.list_by_connector
+  and link_repo.list_by_user_connector (parameterisation sanity check)
 """
 
 from unittest.mock import AsyncMock
@@ -12,13 +14,25 @@ from uuid import uuid7
 
 import pytest
 
-from src.application.use_cases.list_spotify_playlists import (
-    ListSpotifyPlaylistsCommand,
-    ListSpotifyPlaylistsUseCase,
+from src.application.use_cases.list_connector_playlists import (
+    ListConnectorPlaylistsCommand,
+    ListConnectorPlaylistsUseCase,
 )
 from src.domain.entities.playlist_assignment import PlaylistAssignment
 from src.domain.entities.playlist_link import PlaylistLink, SyncDirection
 from tests.fixtures import make_connector_playlist, make_mock_uow
+
+
+def _cmd(
+    user_id: str = "default",
+    *,
+    force_refresh: bool = False,
+    connector_name: str = "spotify",
+):
+    """Helper — keeps tests readable while the extra connector_name field is mandatory."""
+    return ListConnectorPlaylistsCommand(
+        user_id=user_id, connector_name=connector_name, force_refresh=force_refresh
+    )
 
 
 def _cache_cp(name: str, identifier: str, *, snapshot: str | None = None):
@@ -61,9 +75,7 @@ class TestCacheBehavior:
         uow, connector = _uow_with_connector(fetch_result=[])
         uow.get_connector_playlist_repository().list_by_connector.return_value = cached
 
-        result = await ListSpotifyPlaylistsUseCase().execute(
-            ListSpotifyPlaylistsCommand(user_id="default"), uow
-        )
+        result = await ListConnectorPlaylistsUseCase().execute(_cmd(), uow)
 
         connector.fetch_user_playlists.assert_not_called()
         # Belt-and-suspenders: the full-tracks path must never fire during browse.
@@ -80,8 +92,8 @@ class TestCacheBehavior:
             _cache_cp("Stale", "s1")
         ]
 
-        result = await ListSpotifyPlaylistsUseCase().execute(
-            ListSpotifyPlaylistsCommand(user_id="default", force_refresh=True), uow
+        result = await ListConnectorPlaylistsUseCase().execute(
+            _cmd(force_refresh=True), uow
         )
 
         connector.fetch_user_playlists.assert_awaited_once()
@@ -95,9 +107,7 @@ class TestCacheBehavior:
         fetched = [_cache_cp("First Fetch", "s1")]
         uow, connector = _uow_with_connector(fetch_result=fetched)
 
-        result = await ListSpotifyPlaylistsUseCase().execute(
-            ListSpotifyPlaylistsCommand(user_id="default"), uow
-        )
+        result = await ListConnectorPlaylistsUseCase().execute(_cmd(), uow)
 
         connector.fetch_user_playlists.assert_awaited_once()
         assert result.from_cache is False
@@ -112,9 +122,7 @@ class TestImportStatus:
             _link("linked")
         ]
 
-        result = await ListSpotifyPlaylistsUseCase().execute(
-            ListSpotifyPlaylistsCommand(user_id="default"), uow
-        )
+        result = await ListConnectorPlaylistsUseCase().execute(_cmd(), uow)
 
         statuses = {
             p.connector_playlist_identifier: p.import_status for p in result.playlists
@@ -129,9 +137,7 @@ class TestImportStatus:
 
         # Repo was asked with OUR user_id — the mock returns what the caller
         # configured for THIS user. The link_repo default is [] already.
-        result = await ListSpotifyPlaylistsUseCase().execute(
-            ListSpotifyPlaylistsCommand(user_id="alice"), uow
-        )
+        result = await ListConnectorPlaylistsUseCase().execute(_cmd("alice"), uow)
 
         assert result.playlists[0].import_status == "not_imported"
         uow.get_playlist_link_repository().list_by_user_connector.assert_awaited_once_with(
@@ -145,9 +151,7 @@ class TestProjection:
         uow, _ = _uow_with_connector()
         uow.get_connector_playlist_repository().list_by_connector.return_value = cached
 
-        result = await ListSpotifyPlaylistsUseCase().execute(
-            ListSpotifyPlaylistsCommand(user_id="default"), uow
-        )
+        result = await ListConnectorPlaylistsUseCase().execute(_cmd(), uow)
 
         assert result.playlists[0].snapshot_id == "snap-abc"
 
@@ -161,9 +165,7 @@ class TestProjection:
         uow, _ = _uow_with_connector()
         uow.get_connector_playlist_repository().list_by_connector.return_value = [cp]
 
-        result = await ListSpotifyPlaylistsUseCase().execute(
-            ListSpotifyPlaylistsCommand(user_id="default"), uow
-        )
+        result = await ListConnectorPlaylistsUseCase().execute(_cmd(), uow)
 
         assert result.playlists[0].track_count == 247
 
@@ -178,9 +180,7 @@ class TestProjection:
         uow, _ = _uow_with_connector()
         uow.get_connector_playlist_repository().list_by_connector.return_value = [cp]
 
-        result = await ListSpotifyPlaylistsUseCase().execute(
-            ListSpotifyPlaylistsCommand(user_id="default"), uow
-        )
+        result = await ListConnectorPlaylistsUseCase().execute(_cmd(), uow)
 
         assert result.playlists[0].image_url == "https://i.example/1.jpg"
 
@@ -202,9 +202,7 @@ class TestProjection:
         uow, _ = _uow_with_connector()
         uow.get_connector_playlist_repository().list_by_connector.return_value = [cp]
 
-        result = await ListSpotifyPlaylistsUseCase().execute(
-            ListSpotifyPlaylistsCommand(user_id="default"), uow
-        )
+        result = await ListConnectorPlaylistsUseCase().execute(_cmd(), uow)
 
         assert result.playlists[0].image_url is None
 
@@ -231,11 +229,26 @@ class TestCurrentAssignments:
             }
         )
 
-        result = await ListSpotifyPlaylistsUseCase().execute(
-            ListSpotifyPlaylistsCommand(user_id="default"), uow
-        )
+        result = await ListConnectorPlaylistsUseCase().execute(_cmd(), uow)
 
         by_id = {p.connector_playlist_identifier: p for p in result.playlists}
         assert len(by_id["s1"].current_assignments) == 1
         assert by_id["s1"].current_assignments[0].action_value == "mood:chill"
         assert by_id["s2"].current_assignments == []
+
+
+class TestParameterisation:
+    """Sanity check: connector_name flows from command to repo calls."""
+
+    async def test_connector_name_threads_through_to_repos(self) -> None:
+        """Using a non-Spotify connector_name routes to that connector's repo queries."""
+        uow, _ = _uow_with_connector()
+        uow.get_connector_playlist_repository().list_by_connector.return_value = []
+
+        await ListConnectorPlaylistsUseCase().execute(
+            _cmd(connector_name="lastfm"), uow
+        )
+
+        uow.get_connector_playlist_repository().list_by_connector.assert_awaited_with(
+            "lastfm"
+        )

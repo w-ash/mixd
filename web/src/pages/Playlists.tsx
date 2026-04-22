@@ -1,19 +1,20 @@
 import { Download, Music } from "lucide-react";
-import { useState } from "react";
+import { useMemo, useState } from "react";
 import { Link } from "react-router";
 
+import { useGetConnectorsApiV1ConnectorsGet } from "#/api/generated/connectors/connectors";
 import { useListPlaylistsApiV1PlaylistsGet } from "#/api/generated/playlists/playlists";
 import { STALE } from "#/api/query-client";
 import { PageHeader } from "#/components/layout/PageHeader";
 import { ConnectorIcon } from "#/components/shared/ConnectorIcon";
+import {
+  ConnectorPlaylistPickerDialog,
+  type PickedPlaylist,
+} from "#/components/shared/ConnectorPlaylistPickerDialog";
 import { CreatePlaylistModal } from "#/components/shared/CreatePlaylistModal";
 import { EmptyState } from "#/components/shared/EmptyState";
 import { ImportPlaylistsConfirmDialog } from "#/components/shared/ImportPlaylistsConfirmDialog";
 import { QueryErrorState } from "#/components/shared/QueryErrorState";
-import {
-  type PickedPlaylist,
-  SpotifyPlaylistPickerDialog,
-} from "#/components/shared/SpotifyPlaylistPickerDialog";
 import { TablePagination } from "#/components/shared/TablePagination";
 import { Button } from "#/components/ui/button";
 import { Skeleton } from "#/components/ui/skeleton";
@@ -50,6 +51,16 @@ export function Playlists() {
   const [pickerOpen, setPickerOpen] = useState(false);
   const [pendingImport, setPendingImport] = useState<PickedPlaylist[]>([]);
 
+  const { data: connectorsData } = useGetConnectorsApiV1ConnectorsGet({
+    query: { staleTime: STALE.STATIC },
+  });
+
+  const importSource = useMemo(() => {
+    const connectors =
+      connectorsData?.status === 200 ? connectorsData.data : [];
+    return connectors.find((c) => c.capabilities.includes("playlist_import"));
+  }, [connectorsData]);
+
   const { data, isLoading, isError, error } = useListPlaylistsApiV1PlaylistsGet(
     { limit, offset },
     { query: { staleTime: STALE.MEDIUM, placeholderData: (prev) => prev } },
@@ -68,30 +79,38 @@ export function Playlists() {
         description="Your canonical playlists across all services."
         action={
           <div className="flex items-center gap-2">
-            <Button variant="outline" onClick={() => setPickerOpen(true)}>
-              <Download />
-              Import from Spotify
-            </Button>
+            {importSource && (
+              <Button variant="outline" onClick={() => setPickerOpen(true)}>
+                <Download />
+                Import from {importSource.display_name}
+              </Button>
+            )}
             <CreatePlaylistModal />
           </div>
         }
       />
-      <SpotifyPlaylistPickerDialog
-        open={pickerOpen}
-        onOpenChange={setPickerOpen}
-        onConfirm={(picked) => {
-          setPendingImport(picked);
-          setPickerOpen(false);
-        }}
-      />
-      <ImportPlaylistsConfirmDialog
-        open={pendingImport.length > 0}
-        onOpenChange={(open) => {
-          if (!open) setPendingImport([]);
-        }}
-        playlists={pendingImport}
-        onImported={() => setPendingImport([])}
-      />
+      {importSource && (
+        <ConnectorPlaylistPickerDialog
+          open={pickerOpen}
+          onOpenChange={setPickerOpen}
+          connector={importSource}
+          onConfirm={(picked) => {
+            setPendingImport(picked);
+            setPickerOpen(false);
+          }}
+        />
+      )}
+      {importSource && (
+        <ImportPlaylistsConfirmDialog
+          open={pendingImport.length > 0}
+          onOpenChange={(open) => {
+            if (!open) setPendingImport([]);
+          }}
+          connector={importSource}
+          playlists={pendingImport}
+          onImported={() => setPendingImport([])}
+        />
+      )}
 
       {isLoading && <PlaylistTableSkeleton />}
 
