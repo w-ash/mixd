@@ -3,7 +3,7 @@
  * Do not edit manually.
  * Mixd
  * Personal music metadata hub
- * OpenAPI spec version: 0.7.5.post1
+ * OpenAPI spec version: 0.7.5.post2
  */
 import {
   useMutation,
@@ -29,8 +29,8 @@ import type {
   ConnectorPlaylistBrowseResponse,
   HTTPValidationError,
   ImportConnectorPlaylistsRequest,
-  ImportConnectorPlaylistsResponse,
-  ListConnectorPlaylistsApiV1ConnectorsServicePlaylistsGetParams
+  ListConnectorPlaylistsApiV1ConnectorsServicePlaylistsGetParams,
+  OperationStartedResponse
 } from '../model';
 
 import { customFetch } from '../../client';
@@ -391,17 +391,19 @@ export function useListConnectorPlaylistsApiV1ConnectorsServicePlaylistsGet<TDat
 
 
 /**
- * Import a batch of connector playlists with a chosen sync direction.
+ * Kick off an async connector-playlist import tracked via SSE.
 
 Non-atomic: one failing playlist doesn't abort the others. Each
 successful import creates a canonical ``Playlist`` + ``PlaylistLink``;
 previously-imported playlists with a known snapshot are short-circuited
-into ``skipped_unchanged``.
+into ``skipped_unchanged``. Per-playlist progress (including intra-
+playlist track pagination for large playlists) streams as sub-operation
+events on ``GET /api/v1/operations/{operation_id}/progress``.
  * @summary Import Connector Playlists
  */
-export type importConnectorPlaylistsApiV1ConnectorsServicePlaylistsImportPostResponse200 = {
-  data: ImportConnectorPlaylistsResponse
-  status: 200
+export type importConnectorPlaylistsApiV1ConnectorsServicePlaylistsImportPostResponse202 = {
+  data: OperationStartedResponse
+  status: 202
 }
 
 export type importConnectorPlaylistsApiV1ConnectorsServicePlaylistsImportPostResponse422 = {
@@ -409,7 +411,7 @@ export type importConnectorPlaylistsApiV1ConnectorsServicePlaylistsImportPostRes
   status: 422
 }
 
-export type importConnectorPlaylistsApiV1ConnectorsServicePlaylistsImportPostResponseSuccess = (importConnectorPlaylistsApiV1ConnectorsServicePlaylistsImportPostResponse200) & {
+export type importConnectorPlaylistsApiV1ConnectorsServicePlaylistsImportPostResponseSuccess = (importConnectorPlaylistsApiV1ConnectorsServicePlaylistsImportPostResponse202) & {
   headers: Headers;
 };
 export type importConnectorPlaylistsApiV1ConnectorsServicePlaylistsImportPostResponseError = (importConnectorPlaylistsApiV1ConnectorsServicePlaylistsImportPostResponse422) & {

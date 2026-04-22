@@ -197,7 +197,12 @@ class BaseAPIConnector(ABC):
             return default
         return cast("object", getattr(connector_config, modern_key, default))
 
-    async def get_playlist(self, playlist_id: str) -> ConnectorPlaylist:
+    async def get_playlist(
+        self,
+        playlist_id: str,
+        *,
+        on_page: Callable[[int, int], Awaitable[None]] | None = None,
+    ) -> ConnectorPlaylist:
         """Fetch playlist from service by delegating to service-specific method.
 
         Automatically calls the appropriate method based on connector_name:
@@ -207,6 +212,10 @@ class BaseAPIConnector(ABC):
 
         Args:
             playlist_id: Service-specific playlist identifier
+            on_page: Optional per-page pagination progress callback
+                ``(fetched_so_far, total)``. Concrete subclasses decide
+                whether to forward it — services that paginate (Spotify)
+                should; services that return a single response may ignore.
 
         Returns:
             Playlist with tracks converted to standard format
@@ -218,10 +227,21 @@ class BaseAPIConnector(ABC):
         method_name = f"get_{self.connector_name}_playlist"
         if hasattr(self, method_name):
             method = cast(
-                "Callable[[str], Awaitable[ConnectorPlaylist]]",
+                "Callable[..., Awaitable[ConnectorPlaylist]]",
                 getattr(self, method_name),
             )
-            return await method(playlist_id)
+            # Only forward ``on_page`` when the caller opted in; otherwise
+            # call positionally so mock-based tests that assert the plain
+            # signature (and service-specific methods without on_page
+            # support) keep working.
+            if on_page is None:
+                return await method(playlist_id)
+            try:
+                return await method(playlist_id, on_page=on_page)
+            except TypeError as e:
+                if "on_page" not in str(e):
+                    raise
+                return await method(playlist_id)
 
         # Fallback: connector doesn't support playlists
         raise NotImplementedError(

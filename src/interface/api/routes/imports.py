@@ -5,16 +5,14 @@ launches the import as a background task, and immediately returns the
 operation_id so the client can subscribe to progress via SSE.
 """
 
-from collections.abc import Awaitable
 import os
 from pathlib import Path
 import tempfile
 
 from fastapi import APIRouter, Depends, HTTPException, UploadFile
 
-from src.application.services.progress_manager import get_progress_manager
 from src.config import get_logger
-from src.config.constants import BusinessLimits, SSEConstants
+from src.config.constants import BusinessLimits
 from src.interface.api.deps import get_current_user_id
 from src.interface.api.schemas.imports import (
     CheckpointStatusSchema,
@@ -23,88 +21,15 @@ from src.interface.api.schemas.imports import (
     ImportSpotifyLikesRequest,
     OperationStartedResponse,
 )
-from src.interface.api.services.background import (
-    finalize_sse_operation,
-    launch_background,
+from src.interface.api.services.background import launch_background
+from src.interface.api.services.sse_operations import (
+    prepare_sse_operation_with_emitter,
+    run_sse_operation,
 )
-from src.interface.api.services.progress import (
-    SSE_SENTINEL,
-    OperationBoundEmitter,
-    get_operation_registry,
-)
-from src.interface.api.services.sse_operations import prepare_sse_operation
 
 logger = get_logger(__name__).bind(service="imports_api")
 
 router = APIRouter(prefix="/imports", tags=["imports"])
-
-# Tracks logically active operations (cleared before SSE grace period).
-# Used for the 429 concurrency limit so finished-but-draining tasks don't
-# block new imports.
-_active_operations: set[str] = set()
-
-
-# ---------------------------------------------------------------------------
-# Shared helpers
-# ---------------------------------------------------------------------------
-
-
-def _make_emitter(operation_id: str) -> OperationBoundEmitter:
-    return OperationBoundEmitter(
-        delegate=get_progress_manager(), operation_id=operation_id
-    )
-
-
-async def _run_operation(
-    operation_id: str,
-    coro: Awaitable[object],
-) -> None:
-    """Wrapper that runs a use-case coroutine and cleans up the SSE queue."""
-    registry = get_operation_registry()
-    _active_operations.add(operation_id)
-    try:
-        await coro
-    except Exception:
-        logger.error(
-            "Import operation failed", operation_id=operation_id, exc_info=True
-        )
-        # If the use case failed before emitting any terminal event, push a
-        # fallback error event + sentinel so the SSE generator closes cleanly
-        # instead of hanging indefinitely on queue.get().
-        queue = await registry.get_queue(operation_id)
-        if queue is not None and queue.empty():
-            await queue.put({
-                "event": "error",
-                "data": {
-                    "operation_id": operation_id,
-                    "final_status": "failed",
-                    "message": "Operation failed unexpectedly",
-                },
-            })
-            await queue.put(SSE_SENTINEL)
-    finally:
-        # Mark operation as no longer active before the grace period so new
-        # imports aren't blocked by the 429 limit during SSE drain.
-        _active_operations.discard(operation_id)
-        # Shared cleanup: sentinel + grace period + unregister
-        await finalize_sse_operation(operation_id)
-
-
-async def _prepare_operation() -> tuple[str, OperationBoundEmitter]:
-    """Pre-generate operation_id, register SSE queue, build emitter.
-
-    Raises HTTPException(429) if the concurrent operation limit is reached,
-    checked *before* allocating any resources.
-    """
-    if len(_active_operations) >= SSEConstants.MAX_CONCURRENT_OPERATIONS:
-        raise HTTPException(
-            status_code=429,
-            detail="Too many concurrent operations. Please wait for a running import to finish.",
-            headers={"Retry-After": str(SSEConstants.GRACE_PERIOD_SECONDS)},
-        )
-    operation_id, _ = await prepare_sse_operation()
-    emitter = _make_emitter(operation_id)
-    return operation_id, emitter
 
 
 # ---------------------------------------------------------------------------
@@ -118,7 +43,7 @@ async def import_lastfm_history(
     user_id: str = Depends(get_current_user_id),
 ) -> OperationStartedResponse:
     """Trigger a Last.fm listening history import."""
-    operation_id, emitter = await _prepare_operation()
+    operation_id, emitter = await prepare_sse_operation_with_emitter()
 
     async def _import() -> None:
         from src.application.use_cases.import_play_history import run_import
@@ -134,7 +59,7 @@ async def import_lastfm_history(
         )
 
     launch_background(
-        f"import_{operation_id}", lambda: _run_operation(operation_id, _import())
+        f"import_{operation_id}", lambda: run_sse_operation(operation_id, _import())
     )
     return OperationStartedResponse(operation_id=operation_id)
 
@@ -145,7 +70,7 @@ async def import_spotify_likes(
     user_id: str = Depends(get_current_user_id),
 ) -> OperationStartedResponse:
     """Trigger a Spotify liked tracks import."""
-    operation_id, emitter = await _prepare_operation()
+    operation_id, emitter = await prepare_sse_operation_with_emitter()
 
     async def _import() -> None:
         from src.application.use_cases.sync_likes import run_spotify_likes_import
@@ -159,7 +84,7 @@ async def import_spotify_likes(
         )
 
     launch_background(
-        f"import_{operation_id}", lambda: _run_operation(operation_id, _import())
+        f"import_{operation_id}", lambda: run_sse_operation(operation_id, _import())
     )
     return OperationStartedResponse(operation_id=operation_id)
 
@@ -170,7 +95,7 @@ async def export_lastfm_likes(
     user_id: str = Depends(get_current_user_id),
 ) -> OperationStartedResponse:
     """Trigger a Last.fm likes export (love tracks on Last.fm)."""
-    operation_id, emitter = await _prepare_operation()
+    operation_id, emitter = await prepare_sse_operation_with_emitter()
 
     async def _import() -> None:
         from src.application.use_cases.sync_likes import run_lastfm_likes_export
@@ -183,7 +108,7 @@ async def export_lastfm_likes(
         )
 
     launch_background(
-        f"import_{operation_id}", lambda: _run_operation(operation_id, _import())
+        f"import_{operation_id}", lambda: run_sse_operation(operation_id, _import())
     )
     return OperationStartedResponse(operation_id=operation_id)
 
@@ -229,7 +154,7 @@ async def import_spotify_history(
         )
 
     temp_path = Path(temp_name)
-    operation_id, emitter = await _prepare_operation()
+    operation_id, emitter = await prepare_sse_operation_with_emitter()
 
     async def _import() -> None:
         from src.application.use_cases.import_play_history import run_import
@@ -246,7 +171,7 @@ async def import_spotify_history(
             os.unlink(temp_name)  # noqa: PTH108 — os.unlink is async-safe, pathlib is not (ASYNC240)
 
     launch_background(
-        f"import_{operation_id}", lambda: _run_operation(operation_id, _import())
+        f"import_{operation_id}", lambda: run_sse_operation(operation_id, _import())
     )
     return OperationStartedResponse(operation_id=operation_id)
 

@@ -3,7 +3,7 @@
  * Do not edit manually.
  * Mixd
  * Personal music metadata hub
- * OpenAPI spec version: 0.7.5.post1
+ * OpenAPI spec version: 0.7.5.post2
  */
 import {
   faker
@@ -27,7 +27,7 @@ import {
 import type {
   ConnectorMetadataSchema,
   ConnectorPlaylistBrowseResponse,
-  ImportConnectorPlaylistsResponse
+  OperationStartedResponse
 } from '../model';
 
 
@@ -35,7 +35,7 @@ export const getGetConnectorsApiV1ConnectorsGetResponseMock = (): ConnectorMetad
 
 export const getListConnectorPlaylistsApiV1ConnectorsServicePlaylistsGetResponseMock = (overrideResponse: Partial<Extract<ConnectorPlaylistBrowseResponse, object>> = {}): ConnectorPlaylistBrowseResponse => ({data: Array.from({ length: faker.number.int({min: 1, max: 10}) }, (_, i) => i + 1).map(() => ({connector_playlist_identifier: faker.string.alpha({length: {min: 10, max: 20}}), connector_playlist_db_id: faker.string.uuid(), name: faker.string.alpha({length: {min: 10, max: 20}}), description: faker.helpers.arrayElement([faker.string.alpha({length: {min: 10, max: 20}}),null,]), owner: faker.helpers.arrayElement([faker.string.alpha({length: {min: 10, max: 20}}),null,]), image_url: faker.helpers.arrayElement([faker.string.alpha({length: {min: 10, max: 20}}),null,]), track_count: faker.number.int(), snapshot_id: faker.helpers.arrayElement([faker.string.alpha({length: {min: 10, max: 20}}),null,]), collaborative: faker.datatype.boolean(), is_public: faker.datatype.boolean(), import_status: faker.helpers.arrayElement(['not_imported','imported'] as const), current_assignments: Array.from({ length: faker.number.int({min: 1, max: 10}) }, (_, i) => i + 1).map(() => ({assignment_id: faker.string.uuid(), action_type: faker.helpers.arrayElement(Object.values(AssignmentActionType)), action_value: faker.string.alpha({length: {min: 10, max: 20}})}))})), from_cache: faker.datatype.boolean(), fetched_at: faker.date.past().toISOString().slice(0, 19) + 'Z', ...overrideResponse})
 
-export const getImportConnectorPlaylistsApiV1ConnectorsServicePlaylistsImportPostResponseMock = (overrideResponse: Partial<Extract<ImportConnectorPlaylistsResponse, object>> = {}): ImportConnectorPlaylistsResponse => ({succeeded: Array.from({ length: faker.number.int({min: 1, max: 10}) }, (_, i) => i + 1).map(() => ({connector_playlist_identifier: faker.string.alpha({length: {min: 10, max: 20}}), canonical_playlist_id: faker.string.alpha({length: {min: 10, max: 20}}), resolved: faker.number.int(), unresolved: faker.number.int()})), skipped_unchanged: Array.from({ length: faker.number.int({min: 1, max: 10}) }, (_, i) => i + 1).map(() => (faker.string.alpha({length: {min: 10, max: 20}}))), failed: Array.from({ length: faker.number.int({min: 1, max: 10}) }, (_, i) => i + 1).map(() => ({connector_playlist_identifier: faker.string.alpha({length: {min: 10, max: 20}}), message: faker.string.alpha({length: {min: 10, max: 20}})})), ...overrideResponse})
+export const getImportConnectorPlaylistsApiV1ConnectorsServicePlaylistsImportPostResponseMock = (overrideResponse: Partial<Extract<OperationStartedResponse, object>> = {}): OperationStartedResponse => ({operation_id: faker.string.alpha({length: {min: 10, max: 20}}), ...overrideResponse})
 
 
 export const getGetConnectorsApiV1ConnectorsGetMockHandler = (overrideResponse?: ConnectorMetadataSchema[] | ((info: Parameters<Parameters<typeof http.get>[1]>[0]) => Promise<ConnectorMetadataSchema[]> | ConnectorMetadataSchema[]), options?: RequestHandlerOptions) => {
@@ -72,14 +72,14 @@ export const getListConnectorPlaylistsApiV1ConnectorsServicePlaylistsGetMockHand
   }, options)
 }
 
-export const getImportConnectorPlaylistsApiV1ConnectorsServicePlaylistsImportPostMockHandler = (overrideResponse?: ImportConnectorPlaylistsResponse | ((info: Parameters<Parameters<typeof http.post>[1]>[0]) => Promise<ImportConnectorPlaylistsResponse> | ImportConnectorPlaylistsResponse), options?: RequestHandlerOptions) => {
+export const getImportConnectorPlaylistsApiV1ConnectorsServicePlaylistsImportPostMockHandler = (overrideResponse?: OperationStartedResponse | ((info: Parameters<Parameters<typeof http.post>[1]>[0]) => Promise<OperationStartedResponse> | OperationStartedResponse), options?: RequestHandlerOptions) => {
   return http.post('*/api/v1/connectors/:service/playlists/import', async (info: Parameters<Parameters<typeof http.post>[1]>[0]) => {
 
 
     return HttpResponse.json(overrideResponse !== undefined
     ? (typeof overrideResponse === "function" ? await overrideResponse(info) : overrideResponse)
     : getImportConnectorPlaylistsApiV1ConnectorsServicePlaylistsImportPostResponseMock(),
-      { status: 200
+      { status: 202
       })
   }, options)
 }

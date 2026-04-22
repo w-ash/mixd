@@ -3,7 +3,7 @@
  * Do not edit manually.
  * Mixd
  * Personal music metadata hub
- * OpenAPI spec version: 0.7.5.post1
+ * OpenAPI spec version: 0.7.5.post2
  */
 
 export * from './activeAssignmentSchema';
@@ -49,11 +49,8 @@ export * from './getPlaylistTracksApiV1PlaylistsPlaylistIdTracksGetParams';
 export * from './hTTPValidationError';
 export * from './importConnectorPlaylistsRequest';
 export * from './importConnectorPlaylistsRequestSyncDirection';
-export * from './importConnectorPlaylistsResponse';
-export * from './importFailureSchema';
 export * from './importLastfmHistoryRequest';
 export * from './importLastfmHistoryRequestMode';
-export * from './importOutcomeSchema';
 export * from './importSpotifyLikesRequest';
 export * from './integrityCheckSchema';
 export * from './integrityCheckSchemaDetailsItem';

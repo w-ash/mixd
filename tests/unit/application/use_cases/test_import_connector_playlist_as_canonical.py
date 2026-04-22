@@ -265,3 +265,132 @@ class TestNoWork:
         upsert_mock.assert_not_called()
         assert len(result.succeeded) == 0
         uow.commit.assert_not_called()
+
+
+class TestProgressEmission:
+    """Emitter-contract tests for the SSE migration.
+
+    Zero emission when no emitter/manager is passed (preserves every existing
+    CLI + unit-test path). When both are passed, the use case emits one
+    top-level operation and one sub-operation per playlist with outcome
+    metadata (phase, outcome, resolved/unresolved for successes, error_message
+    for failures) — enough signal for the UI to render a per-playlist result
+    list without inspecting the HTTP response.
+    """
+
+    async def test_no_emitter_no_events(self) -> None:
+        """Default code path — zero events fire. Preserves CLI + test behavior."""
+        from src.domain.entities.progress import NullProgressEmitter
+
+        cp = _cp("sp1")
+        uow, _ = make_mock_uow_with_connector(get_playlist_return=cp)
+        emitter = NullProgressEmitter()
+        # Wrap to observe any accidental emission.
+        emitter.start_operation = AsyncMock(wraps=emitter.start_operation)  # type: ignore[method-assign]
+        emitter.complete_operation = AsyncMock(wraps=emitter.complete_operation)  # type: ignore[method-assign]
+
+        with patch(_UPSERT_PATCH, new=AsyncMock(return_value=_create_result())):
+            _ = await _use_case().execute(
+                _cmd(["sp1"]),
+                uow,
+                progress_emitter=None,
+                progress_manager=None,
+            )
+
+        emitter.start_operation.assert_not_called()
+        emitter.complete_operation.assert_not_called()
+
+    async def test_emits_top_level_and_per_playlist_sub_ops(self) -> None:
+        """With a real emitter + manager, top-level op starts once and each
+        playlist gets its own sub-op with outcome metadata on completion."""
+        cp1 = _cp("sp1", name="Chill")
+        cp2 = _cp("sp2", name="Mellow")
+
+        async def fake_get_playlist(pid: str, **_kwargs):
+            return cp1 if pid == "sp1" else cp2
+
+        uow, connector = make_mock_uow_with_connector()
+        connector.get_playlist.side_effect = fake_get_playlist
+
+        emitter = AsyncMock()
+        emitter.start_operation = AsyncMock(return_value="top-op-id")
+        emitter.complete_operation = AsyncMock()
+        emitter.emit_progress = AsyncMock()
+
+        manager = AsyncMock()
+        manager.start_operation = AsyncMock(side_effect=[f"sub-{i}" for i in range(10)])
+        manager.complete_operation = AsyncMock()
+        manager.emit_progress = AsyncMock()
+
+        with patch(_UPSERT_PATCH, new=AsyncMock(return_value=_create_result())):
+            _ = await _use_case().execute(
+                _cmd(["sp1", "sp2"]),
+                uow,
+                progress_emitter=emitter,
+                progress_manager=manager,
+            )
+
+        # Exactly one top-level operation, batch-sized total.
+        emitter.start_operation.assert_awaited_once()
+        op_arg = emitter.start_operation.await_args.args[0]
+        assert op_arg.total_items == 2
+        assert "2 playlists" in op_arg.description.lower()
+
+        # Two sub-operations started (one per playlist).
+        assert manager.start_operation.await_count == 2
+        # Each sub-op carries parent + identifier metadata for SSE routing.
+        first_sub_op = manager.start_operation.await_args_list[0].args[0]
+        assert first_sub_op.metadata["parent_operation_id"] == "top-op-id"
+        assert first_sub_op.metadata["connector_playlist_identifier"] in {
+            "sp1",
+            "sp2",
+        }
+
+        # Each sub-op completes — triggering the SSE sub_operation_completed.
+        assert manager.complete_operation.await_count == 2
+
+        # Top-level ends COMPLETED (all succeeded → not FAILED).
+        emitter.complete_operation.assert_awaited_once()
+        final_status = emitter.complete_operation.await_args.args[1]
+        assert final_status.value == "completed"
+
+    async def test_emits_failure_outcome_metadata_on_fetch_error(self) -> None:
+        """A fetch-phase 404 emits a sub_progress with outcome=failed and the
+        error message in metadata before completing the sub-op FAILED."""
+        from src.domain.entities.progress import ProgressStatus
+
+        async def fake_get_playlist(pid: str, **_kwargs):
+            if pid == "bad":
+                raise RuntimeError("404 on bad")
+            return _cp(pid)
+
+        uow, connector = make_mock_uow_with_connector()
+        connector.get_playlist.side_effect = fake_get_playlist
+
+        emitter = AsyncMock()
+        emitter.start_operation = AsyncMock(return_value="top-op-id")
+
+        manager = AsyncMock()
+        manager.start_operation = AsyncMock(side_effect=[f"sub-{i}" for i in range(10)])
+
+        with patch(_UPSERT_PATCH, new=AsyncMock(return_value=_create_result())):
+            _ = await _use_case().execute(
+                _cmd(["good", "bad"]),
+                uow,
+                progress_emitter=emitter,
+                progress_manager=manager,
+            )
+
+        # One of the emitted sub_progress events must carry the failure
+        # outcome + error_message for the "bad" playlist.
+        failure_events = [
+            call.args[0]
+            for call in manager.emit_progress.await_args_list
+            if call.args[0].metadata.get("outcome") == "failed"
+        ]
+        assert len(failure_events) == 1
+        failure = failure_events[0]
+        assert failure.metadata["connector_playlist_identifier"] == "bad"
+        assert failure.metadata["error_message"] == "404 on bad"
+        assert failure.metadata["phase"] == "fetch"
+        assert failure.status == ProgressStatus.FAILED

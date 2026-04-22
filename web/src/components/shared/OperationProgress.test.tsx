@@ -18,6 +18,7 @@ function makeProgress(
     itemsPerSecond: null,
     etaSeconds: null,
     subOperation: null,
+    subOperationHistory: {},
     ...overrides,
   };
 }
@@ -123,6 +124,8 @@ describe("OperationProgress", () => {
             message: "Processed 25/50",
             phase: "enrich",
             completionPercentage: 50,
+            connectorPlaylistIdentifier: null,
+            playlistName: null,
           },
         })}
       />,
@@ -144,6 +147,8 @@ describe("OperationProgress", () => {
             message: "Fetching playlist from Spotify",
             phase: "fetch",
             completionPercentage: null,
+            connectorPlaylistIdentifier: null,
+            playlistName: null,
           },
         })}
       />,

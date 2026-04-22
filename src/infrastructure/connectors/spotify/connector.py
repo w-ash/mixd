@@ -212,14 +212,22 @@ class SpotifyConnector(BaseAPIConnector):
         return await self._operations.get_playlist_details(playlist_id)
 
     @override
-    async def get_playlist(self, playlist_id: str) -> ConnectorPlaylist:
+    async def get_playlist(
+        self,
+        playlist_id: str,
+        *,
+        on_page: Callable[[int, int], Awaitable[None]] | None = None,
+    ) -> ConnectorPlaylist:
         """Fetch one playlist with all items (paginated until exhausted).
 
         Overrides the base-class ``hasattr(get_{connector}_playlist)`` dispatch
         with an explicit delegation — cleaner to read and keeps the typed
-        ``PlaylistConnector`` protocol satisfied.
+        ``PlaylistConnector`` protocol satisfied. Forwards ``on_page`` to the
+        pagination loop so long fetches surface per-page progress.
         """
-        return await self._operations.get_playlist_with_all_tracks(playlist_id)
+        return await self._operations.get_playlist_with_all_tracks(
+            playlist_id, on_page=on_page
+        )
 
     async def fetch_user_playlists(self) -> list[ConnectorPlaylist]:
         """List every playlist the authenticated user owns or follows.

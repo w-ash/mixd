@@ -147,6 +147,10 @@ class SSEProgressSubscriber:
                     "total": operation.total_items,
                     "phase": operation.metadata.get("phase"),
                     "node_type": operation.metadata.get("node_type"),
+                    "connector_playlist_identifier": operation.metadata.get(
+                        "connector_playlist_identifier"
+                    ),
+                    "playlist_name": operation.metadata.get("playlist_name"),
                     "status": operation.status.value,
                 },
             })
@@ -181,6 +185,7 @@ class SSEProgressSubscriber:
                 queue = await self._registry.get_queue(parent_id)
                 if queue is not None:
                     event_id = self._next_event_id(parent_id)
+                    sub_metadata = event.metadata or {}
                     await queue.put({
                         "id": event_id,
                         "event": "sub_progress",
@@ -192,6 +197,18 @@ class SSEProgressSubscriber:
                             "message": event.message,
                             "status": event.status.value,
                             "completion_percentage": event.completion_percentage,
+                            "phase": sub_metadata.get("phase"),
+                            "outcome": sub_metadata.get("outcome"),
+                            "resolved": sub_metadata.get("resolved"),
+                            "unresolved": sub_metadata.get("unresolved"),
+                            "canonical_playlist_id": sub_metadata.get(
+                                "canonical_playlist_id"
+                            ),
+                            "connector_playlist_identifier": sub_metadata.get(
+                                "connector_playlist_identifier"
+                            ),
+                            "playlist_name": sub_metadata.get("playlist_name"),
+                            "error_message": sub_metadata.get("error_message"),
                         },
                     })
             return

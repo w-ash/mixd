@@ -100,11 +100,32 @@ class UserPlaylistsConnector(Protocol):
         ...
 
 
+PlaylistFetchProgress = Callable[[int, int], Awaitable[None]]
+"""Narrow pagination-progress callback: ``(fetched_so_far, total)``.
+
+Passed into ``PlaylistConnector.get_playlist`` when the caller wants
+per-page progress signals during track pagination. The connector invokes
+it once per page (not per track). Designed so infrastructure takes no
+dependency on the application's ``ProgressEmitter`` — the caller wraps
+the emitter in a closure and passes it here.
+"""
+
+
 class PlaylistConnector(Protocol):
     """Connector that supports playlist fetch and CRUD operations."""
 
-    async def get_playlist(self, playlist_id: str) -> ConnectorPlaylist:
-        """Fetch complete playlist data from the external service."""
+    async def get_playlist(
+        self,
+        playlist_id: str,
+        *,
+        on_page: PlaylistFetchProgress | None = None,
+    ) -> ConnectorPlaylist:
+        """Fetch complete playlist data from the external service.
+
+        When ``on_page`` is provided, the connector invokes it once per
+        paginated page of tracks with ``(fetched_so_far, total)`` so the
+        caller can emit progress events for long fetches.
+        """
         ...
 
     async def get_playlist_details(self, playlist_id: str) -> dict[str, JsonValue]: ...

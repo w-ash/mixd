@@ -98,35 +98,12 @@ class ImportConnectorPlaylistsRequest(BaseModel):
     Each ID is a provider-native playlist ID (not a Mixd UUID). The whole
     batch shares one ``sync_direction`` — per-playlist direction overrides
     can be added later if a workflow demands it.
+
+    The endpoint returns ``OperationStartedResponse``; per-playlist outcomes
+    (succeeded / skipped_unchanged / failed with track counts and failure
+    messages) stream as SSE sub-operation events on
+    ``GET /api/v1/operations/{operation_id}/progress``.
     """
 
     connector_playlist_ids: list[str]
     sync_direction: Literal["pull", "push"]
-
-
-class ImportOutcomeSchema(BaseModel):
-    """One successfully-imported playlist in the import response."""
-
-    model_config = ConfigDict(from_attributes=True)
-
-    connector_playlist_identifier: str
-    canonical_playlist_id: str
-    resolved: int
-    unresolved: int
-
-
-class ImportFailureSchema(BaseModel):
-    """One playlist that errored during import."""
-
-    model_config = ConfigDict(from_attributes=True)
-
-    connector_playlist_identifier: str
-    message: str
-
-
-class ImportConnectorPlaylistsResponse(BaseModel):
-    """Grouped per-playlist outcomes so the UI can render a clear summary."""
-
-    succeeded: list[ImportOutcomeSchema]
-    skipped_unchanged: list[str]
-    failed: list[ImportFailureSchema]

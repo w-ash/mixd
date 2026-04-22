@@ -3,7 +3,7 @@
  * Do not edit manually.
  * Mixd
  * Personal music metadata hub
- * OpenAPI spec version: 0.7.5.post1
+ * OpenAPI spec version: 0.7.5.post2
  */
 import type { ImportConnectorPlaylistsRequestSyncDirection } from './importConnectorPlaylistsRequestSyncDirection';
 
@@ -13,6 +13,11 @@ import type { ImportConnectorPlaylistsRequestSyncDirection } from './importConne
 Each ID is a provider-native playlist ID (not a Mixd UUID). The whole
 batch shares one ``sync_direction`` — per-playlist direction overrides
 can be added later if a workflow demands it.
+
+The endpoint returns ``OperationStartedResponse``; per-playlist outcomes
+(succeeded / skipped_unchanged / failed with track counts and failure
+messages) stream as SSE sub-operation events on
+``GET /api/v1/operations/{operation_id}/progress``.
  */
 export interface ImportConnectorPlaylistsRequest {
   connector_playlist_ids: string[];

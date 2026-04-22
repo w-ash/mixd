@@ -17,7 +17,7 @@ providing reusable business logic while maintaining clean separation of concerns
 """
 
 import asyncio
-from collections.abc import Mapping
+from collections.abc import Awaitable, Callable, Mapping
 from datetime import UTC, datetime
 from typing import Never, TypedDict
 from uuid import UUID
@@ -175,8 +175,19 @@ class SpotifyOperations:
             offset += page_size
         return all_playlists
 
-    async def get_playlist_with_all_tracks(self, playlist_id: str) -> ConnectorPlaylist:
-        """Fetch a Spotify playlist with all tracks using pagination."""
+    async def get_playlist_with_all_tracks(
+        self,
+        playlist_id: str,
+        *,
+        on_page: Callable[[int, int], Awaitable[None]] | None = None,
+    ) -> ConnectorPlaylist:
+        """Fetch a Spotify playlist with all tracks using pagination.
+
+        When ``on_page`` is provided, it is invoked once after the initial
+        fetch and once per subsequent page with ``(fetched_so_far, total)``
+        so callers can stream per-page progress. Callback exceptions are
+        swallowed — progress emission must not break the import.
+        """
         # Get initial playlist data (returns validated SpotifyPlaylist)
         playlist = await self.client.get_playlist(playlist_id)
         if playlist is None:
@@ -196,6 +207,20 @@ class SpotifyOperations:
         # Handle pagination to get all items
         items_page = playlist.items
         all_items = list(items_page.items)
+        total_tracks = items_page.total
+
+        async def _emit_page() -> None:
+            if on_page is None:
+                return
+            try:
+                await on_page(len(all_items), total_tracks)
+            except Exception:
+                logger.debug(
+                    "Progress callback raised; continuing fetch",
+                    exc_info=True,
+                )
+
+        await _emit_page()
 
         # Paginate until we get all items
         while items_page and items_page.next:
@@ -203,6 +228,7 @@ class SpotifyOperations:
             if next_page is not None:
                 all_items.extend(next_page.items)
                 items_page = next_page
+                await _emit_page()
             else:
                 logger.warning("Received invalid items data during pagination")
                 break

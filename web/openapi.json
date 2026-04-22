@@ -3,7 +3,7 @@
   "info": {
     "title": "Mixd",
     "description": "Personal music metadata hub",
-    "version": "0.7.5.post1"
+    "version": "0.7.5.post2"
   },
   "paths": {
     "/api/v1/connectors/{service}/auth-url": {
@@ -2738,7 +2738,7 @@
           "connectors"
         ],
         "summary": "Import Connector Playlists",
-        "description": "Import a batch of connector playlists with a chosen sync direction.\n\nNon-atomic: one failing playlist doesn't abort the others. Each\nsuccessful import creates a canonical ``Playlist`` + ``PlaylistLink``;\npreviously-imported playlists with a known snapshot are short-circuited\ninto ``skipped_unchanged``.",
+        "description": "Kick off an async connector-playlist import tracked via SSE.\n\nNon-atomic: one failing playlist doesn't abort the others. Each\nsuccessful import creates a canonical ``Playlist`` + ``PlaylistLink``;\npreviously-imported playlists with a known snapshot are short-circuited\ninto ``skipped_unchanged``. Per-playlist progress (including intra-\nplaylist track pagination for large playlists) streams as sub-operation\nevents on ``GET /api/v1/operations/{operation_id}/progress``.",
         "operationId": "import_connector_playlists_api_v1_connectors__service__playlists_import_post",
         "parameters": [
           {
@@ -2762,12 +2762,12 @@
           }
         },
         "responses": {
-          "200": {
+          "202": {
             "description": "Successful Response",
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/ImportConnectorPlaylistsResponse"
+                  "$ref": "#/components/schemas/OperationStartedResponse"
                 }
               }
             }
@@ -4225,59 +4225,7 @@
           "sync_direction"
         ],
         "title": "ImportConnectorPlaylistsRequest",
-        "description": "Body for POST /connectors/{service}/playlists/import.\n\nEach ID is a provider-native playlist ID (not a Mixd UUID). The whole\nbatch shares one ``sync_direction`` \u2014 per-playlist direction overrides\ncan be added later if a workflow demands it."
-      },
-      "ImportConnectorPlaylistsResponse": {
-        "properties": {
-          "succeeded": {
-            "items": {
-              "$ref": "#/components/schemas/ImportOutcomeSchema"
-            },
-            "type": "array",
-            "title": "Succeeded"
-          },
-          "skipped_unchanged": {
-            "items": {
-              "type": "string"
-            },
-            "type": "array",
-            "title": "Skipped Unchanged"
-          },
-          "failed": {
-            "items": {
-              "$ref": "#/components/schemas/ImportFailureSchema"
-            },
-            "type": "array",
-            "title": "Failed"
-          }
-        },
-        "type": "object",
-        "required": [
-          "succeeded",
-          "skipped_unchanged",
-          "failed"
-        ],
-        "title": "ImportConnectorPlaylistsResponse",
-        "description": "Grouped per-playlist outcomes so the UI can render a clear summary."
-      },
-      "ImportFailureSchema": {
-        "properties": {
-          "connector_playlist_identifier": {
-            "type": "string",
-            "title": "Connector Playlist Identifier"
-          },
-          "message": {
-            "type": "string",
-            "title": "Message"
-          }
-        },
-        "type": "object",
-        "required": [
-          "connector_playlist_identifier",
-          "message"
-        ],
-        "title": "ImportFailureSchema",
-        "description": "One playlist that errored during import."
+        "description": "Body for POST /connectors/{service}/playlists/import.\n\nEach ID is a provider-native playlist ID (not a Mixd UUID). The whole\nbatch shares one ``sync_direction`` \u2014 per-playlist direction overrides\ncan be added later if a workflow demands it.\n\nThe endpoint returns ``OperationStartedResponse``; per-playlist outcomes\n(succeeded / skipped_unchanged / failed with track counts and failure\nmessages) stream as SSE sub-operation events on\n``GET /api/v1/operations/{operation_id}/progress``."
       },
       "ImportLastfmHistoryRequest": {
         "properties": {
@@ -4330,35 +4278,6 @@
         "type": "object",
         "title": "ImportLastfmHistoryRequest",
         "description": "Request body for triggering a Last.fm history import."
-      },
-      "ImportOutcomeSchema": {
-        "properties": {
-          "connector_playlist_identifier": {
-            "type": "string",
-            "title": "Connector Playlist Identifier"
-          },
-          "canonical_playlist_id": {
-            "type": "string",
-            "title": "Canonical Playlist Id"
-          },
-          "resolved": {
-            "type": "integer",
-            "title": "Resolved"
-          },
-          "unresolved": {
-            "type": "integer",
-            "title": "Unresolved"
-          }
-        },
-        "type": "object",
-        "required": [
-          "connector_playlist_identifier",
-          "canonical_playlist_id",
-          "resolved",
-          "unresolved"
-        ],
-        "title": "ImportOutcomeSchema",
-        "description": "One successfully-imported playlist in the import response."
       },
       "ImportSpotifyLikesRequest": {
         "properties": {

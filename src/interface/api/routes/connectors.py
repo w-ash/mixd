@@ -10,6 +10,7 @@ from datetime import datetime
 from fastapi import APIRouter, Depends, HTTPException, Query
 
 from src.application.runner import execute_use_case
+from src.application.services.progress_manager import get_progress_manager
 from src.application.use_cases.import_connector_playlist_as_canonical import (
     run_import_connector_playlists_as_canonical,
 )
@@ -32,9 +33,12 @@ from src.interface.api.schemas.connectors import (
     ConnectorPlaylistBrowseResponse,
     ConnectorPlaylistBrowseSchema,
     ImportConnectorPlaylistsRequest,
-    ImportConnectorPlaylistsResponse,
-    ImportFailureSchema,
-    ImportOutcomeSchema,
+)
+from src.interface.api.schemas.imports import OperationStartedResponse
+from src.interface.api.services.background import launch_background
+from src.interface.api.services.sse_operations import (
+    prepare_sse_operation_with_emitter,
+    run_sse_operation,
 )
 
 router = APIRouter(prefix="/connectors", tags=["connectors"])
@@ -166,42 +170,37 @@ async def list_connector_playlists(
     )
 
 
-@router.post("/{service}/playlists/import")
+@router.post("/{service}/playlists/import", status_code=202)
 async def import_connector_playlists(
     service: str,
     body: ImportConnectorPlaylistsRequest,
     user_id: str = Depends(get_current_user_id),
-) -> ImportConnectorPlaylistsResponse:
-    """Import a batch of connector playlists with a chosen sync direction.
+) -> OperationStartedResponse:
+    """Kick off an async connector-playlist import tracked via SSE.
 
     Non-atomic: one failing playlist doesn't abort the others. Each
     successful import creates a canonical ``Playlist`` + ``PlaylistLink``;
     previously-imported playlists with a known snapshot are short-circuited
-    into ``skipped_unchanged``.
+    into ``skipped_unchanged``. Per-playlist progress (including intra-
+    playlist track pagination for large playlists) streams as sub-operation
+    events on ``GET /api/v1/operations/{operation_id}/progress``.
     """
     _require_connector(service, capability="playlist_import")
-    result = await run_import_connector_playlists_as_canonical(
-        user_id=user_id,
-        connector_name=service,
-        connector_playlist_ids=body.connector_playlist_ids,
-        sync_direction=SyncDirection(body.sync_direction),
+    operation_id, emitter = await prepare_sse_operation_with_emitter()
+    progress_manager = get_progress_manager()
+
+    async def _import() -> None:
+        await run_import_connector_playlists_as_canonical(
+            user_id=user_id,
+            connector_name=service,
+            connector_playlist_ids=body.connector_playlist_ids,
+            sync_direction=SyncDirection(body.sync_direction),
+            progress_emitter=emitter,
+            progress_manager=progress_manager,
+        )
+
+    launch_background(
+        f"import_{operation_id}",
+        lambda: run_sse_operation(operation_id, _import()),
     )
-    return ImportConnectorPlaylistsResponse(
-        succeeded=[
-            ImportOutcomeSchema(
-                connector_playlist_identifier=o.connector_playlist_identifier,
-                canonical_playlist_id=str(o.canonical_playlist_id),
-                resolved=o.resolved,
-                unresolved=o.unresolved,
-            )
-            for o in result.succeeded
-        ],
-        skipped_unchanged=list(result.skipped_unchanged),
-        failed=[
-            ImportFailureSchema(
-                connector_playlist_identifier=f.connector_playlist_identifier,
-                message=f.message,
-            )
-            for f in result.failed
-        ],
-    )
+    return OperationStartedResponse(operation_id=operation_id)

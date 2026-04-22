@@ -10,6 +10,8 @@ export type OperationStatus =
   | "failed"
   | "cancelled";
 
+export type SubOperationOutcome = "succeeded" | "skipped_unchanged" | "failed";
+
 export interface SubOperationProgress {
   operationId: string;
   description: string;
@@ -18,6 +20,22 @@ export interface SubOperationProgress {
   message: string;
   phase: string | null;
   completionPercentage: number | null;
+  /** Provider-native id (e.g. Spotify playlist id). Stable across events. */
+  connectorPlaylistIdentifier: string | null;
+  /** Real playlist name (fills in from first sub_progress once known). */
+  playlistName: string | null;
+}
+
+export interface SubOperationRecord {
+  operationId: string;
+  connectorPlaylistIdentifier: string | null;
+  playlistName: string | null;
+  outcome: SubOperationOutcome | null;
+  resolved: number | null;
+  unresolved: number | null;
+  errorMessage: string | null;
+  phase: string | null;
+  canonicalPlaylistId: string | null;
 }
 
 export interface OperationProgress {
@@ -29,7 +47,12 @@ export interface OperationProgress {
   completionPercentage: number | null;
   itemsPerSecond: number | null;
   etaSeconds: number | null;
+  /** The currently-active sub-operation (if any). Cleared on completion. */
   subOperation: SubOperationProgress | null;
+  /** Every completed sub-op keyed by connector_playlist_identifier (or
+   * operation_id when no identifier was provided). Accumulates across the
+   * run so the UI can render a per-playlist results list. */
+  subOperationHistory: Record<string, SubOperationRecord>;
 }
 
 export interface UseOperationProgressOptions {
@@ -45,8 +68,13 @@ interface UseOperationProgressResult {
   error: Error | null;
 }
 
-/** Shared zero-state for fields that don't vary across event handlers. */
-const DEFAULT_PROGRESS: Omit<OperationProgress, "status" | "message"> = {
+/** Shared zero-state for fields that don't vary across event handlers.
+ * ``subOperationHistory`` is intentionally omitted — its accumulator must
+ * survive the reducer-style spreads that rebuild the rest of the state. */
+const DEFAULT_PROGRESS: Omit<
+  OperationProgress,
+  "status" | "message" | "subOperationHistory"
+> = {
   current: 0,
   total: null,
   description: null,
@@ -56,13 +84,44 @@ const DEFAULT_PROGRESS: Omit<OperationProgress, "status" | "message"> = {
   subOperation: null,
 };
 
+/** Key a sub-op by connector_playlist_identifier when present (stable across
+ * the fetch → resolve → done phases), falling back to operation_id when the
+ * event carries no identifier. */
+function subOpKey(
+  connectorPlaylistIdentifier: string | null,
+  operationId: string,
+): string {
+  return connectorPlaylistIdentifier ?? operationId;
+}
+
 /** Transition to failed only if the operation is still active (pending/running).
  *  Guards against clobbering a terminal state (completed, failed, cancelled). */
 function failIfActive(message: string) {
   return (prev: OperationProgress | null): OperationProgress | null =>
     prev && (prev.status === "pending" || prev.status === "running")
-      ? { ...DEFAULT_PROGRESS, ...prev, status: "failed" as const, message }
+      ? {
+          ...DEFAULT_PROGRESS,
+          ...prev,
+          subOperationHistory: prev.subOperationHistory,
+          status: "failed" as const,
+          message,
+        }
       : prev;
+}
+
+/** Build a fresh zero-state keyed progress object. */
+function initialProgress(
+  status: OperationStatus,
+  message: string,
+  overrides: Partial<OperationProgress> = {},
+): OperationProgress {
+  return {
+    ...DEFAULT_PROGRESS,
+    status,
+    message,
+    subOperationHistory: {},
+    ...overrides,
+  };
 }
 
 /**
@@ -102,32 +161,37 @@ export function useOperationProgress(
 
       switch (eventType) {
         case "started":
-          setProgress({
-            ...DEFAULT_PROGRESS,
-            status: "running",
-            total: (d.total as number) ?? null,
-            message: (d.description as string) ?? "Starting...",
-            description: (d.description as string) ?? null,
-          });
+          setProgress(
+            initialProgress(
+              "running",
+              (d.description as string) ?? "Starting...",
+              {
+                total: (d.total as number) ?? null,
+                description: (d.description as string) ?? null,
+              },
+            ),
+          );
           break;
 
         case "progress":
-          setProgress({
+          setProgress((prev) => ({
             ...DEFAULT_PROGRESS,
-            status: "running",
+            subOperationHistory: prev?.subOperationHistory ?? {},
+            status: "running" as const,
             current: (d.current as number) ?? 0,
             total: (d.total as number) ?? null,
             message: (d.message as string) ?? "Processing...",
             completionPercentage: (d.completion_percentage as number) ?? null,
             itemsPerSecond: (d.items_per_second as number) ?? null,
             etaSeconds: (d.eta_seconds as number) ?? null,
-          });
+          }));
           break;
 
         case "complete":
           setProgress((prev) => ({
             ...DEFAULT_PROGRESS,
             ...prev,
+            subOperationHistory: prev?.subOperationHistory ?? {},
             status: "completed" as const,
             message: "Complete",
           }));
@@ -139,6 +203,7 @@ export function useOperationProgress(
           setProgress((prev) => ({
             ...DEFAULT_PROGRESS,
             ...prev,
+            subOperationHistory: prev?.subOperationHistory ?? {},
             status: "failed" as const,
             message: (d.message as string) ?? "Operation failed",
             subOperation: null,
@@ -147,42 +212,106 @@ export function useOperationProgress(
           disconnect();
           break;
 
-        case "sub_operation_started":
-          setProgress((prev) =>
-            prev
-              ? {
-                  ...prev,
-                  subOperation: {
-                    operationId: (d.operation_id as string) ?? "",
-                    description: (d.description as string) ?? "",
-                    current: 0,
-                    total: (d.total as number) ?? null,
-                    message: (d.description as string) ?? "",
-                    phase: (d.phase as string) ?? null,
-                    completionPercentage: null,
-                  },
-                }
-              : prev,
-          );
+        case "sub_operation_started": {
+          const cid = (d.connector_playlist_identifier as string) ?? null;
+          const opId = (d.operation_id as string) ?? "";
+          const name = (d.playlist_name as string) ?? null;
+          setProgress((prev) => {
+            if (!prev) return prev;
+            const key = subOpKey(cid, opId);
+            return {
+              ...prev,
+              subOperation: {
+                operationId: opId,
+                description: (d.description as string) ?? "",
+                current: 0,
+                total: (d.total as number) ?? null,
+                message: (d.description as string) ?? "",
+                phase: (d.phase as string) ?? null,
+                completionPercentage: null,
+                connectorPlaylistIdentifier: cid,
+                playlistName: name,
+              },
+              subOperationHistory: {
+                ...prev.subOperationHistory,
+                [key]: {
+                  operationId: opId,
+                  connectorPlaylistIdentifier: cid,
+                  playlistName: name,
+                  outcome: null,
+                  resolved: null,
+                  unresolved: null,
+                  errorMessage: null,
+                  phase: (d.phase as string) ?? null,
+                  canonicalPlaylistId: null,
+                },
+              },
+            };
+          });
           break;
+        }
 
-        case "sub_progress":
-          setProgress((prev) =>
-            prev?.subOperation
-              ? {
-                  ...prev,
-                  subOperation: {
-                    ...prev.subOperation,
-                    current: (d.current as number) ?? prev.subOperation.current,
-                    total: (d.total as number) ?? prev.subOperation.total,
-                    message: (d.message as string) ?? prev.subOperation.message,
+        case "sub_progress": {
+          const cid = (d.connector_playlist_identifier as string) ?? null;
+          const opId = (d.operation_id as string) ?? "";
+          const name = (d.playlist_name as string) ?? null;
+          const outcome = (d.outcome as SubOperationOutcome | null) ?? null;
+          setProgress((prev) => {
+            if (!prev) return prev;
+            const key = subOpKey(cid, opId);
+            const existingRecord = prev.subOperationHistory[key];
+            // Update live sub-op display if this event is for the active one.
+            const sub = prev.subOperation;
+            const updatedSub =
+              sub &&
+              (sub.operationId === opId ||
+                (cid !== null && sub.connectorPlaylistIdentifier === cid))
+                ? {
+                    ...sub,
+                    current: (d.current as number) ?? sub.current,
+                    total: (d.total as number) ?? sub.total,
+                    message: (d.message as string) ?? sub.message,
                     completionPercentage:
                       (d.completion_percentage as number) ?? null,
-                  },
-                }
-              : prev,
-          );
+                    phase: (d.phase as string) ?? sub.phase,
+                    playlistName: name ?? sub.playlistName,
+                  }
+                : sub;
+            return {
+              ...prev,
+              subOperation: updatedSub,
+              subOperationHistory: {
+                ...prev.subOperationHistory,
+                [key]: {
+                  operationId: opId,
+                  connectorPlaylistIdentifier:
+                    cid ?? existingRecord?.connectorPlaylistIdentifier ?? null,
+                  playlistName: name ?? existingRecord?.playlistName ?? null,
+                  outcome: outcome ?? existingRecord?.outcome ?? null,
+                  resolved:
+                    (d.resolved as number | null) ??
+                    existingRecord?.resolved ??
+                    null,
+                  unresolved:
+                    (d.unresolved as number | null) ??
+                    existingRecord?.unresolved ??
+                    null,
+                  errorMessage:
+                    (d.error_message as string | null) ??
+                    existingRecord?.errorMessage ??
+                    null,
+                  phase:
+                    (d.phase as string | null) ?? existingRecord?.phase ?? null,
+                  canonicalPlaylistId:
+                    (d.canonical_playlist_id as string | null) ??
+                    existingRecord?.canonicalPlaylistId ??
+                    null,
+                },
+              },
+            };
+          });
           break;
+        }
 
         case "sub_operation_completed":
           setProgress((prev) =>
@@ -196,11 +325,7 @@ export function useOperationProgress(
   // Domain-specific init: set pending state when operationId arrives, clear on null
   useEffect(() => {
     if (operationId) {
-      setProgress({
-        ...DEFAULT_PROGRESS,
-        status: "pending",
-        message: "Connecting...",
-      });
+      setProgress(initialProgress("pending", "Connecting..."));
     } else {
       setProgress(null);
     }

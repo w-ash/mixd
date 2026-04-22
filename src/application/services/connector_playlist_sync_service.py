@@ -18,10 +18,11 @@ application) inside the same UoW.
 """
 
 import asyncio
-from collections.abc import Sequence
+from collections.abc import Callable, Sequence
 
 from attrs import define
 
+from src.application.connector_protocols import PlaylistFetchProgress
 from src.application.use_cases._shared import resolve_playlist_connector
 from src.config import get_logger
 from src.config.settings import settings
@@ -29,6 +30,13 @@ from src.domain.entities.playlist import ConnectorPlaylist
 from src.domain.repositories import UnitOfWorkProtocol
 
 logger = get_logger(__name__)
+
+OnPageFactory = Callable[[str], PlaylistFetchProgress | None]
+"""Factory mapping a connector_playlist_identifier to its per-page callback.
+
+Returning ``None`` opts that specific playlist out of progress emission,
+e.g. for cache-only reads where pagination doesn't happen. The callback
+type itself lives on ``PlaylistConnector`` in connector_protocols."""
 
 
 @define(frozen=True, slots=True)
@@ -96,6 +104,7 @@ async def get_current_connector_playlists(
     uow: UnitOfWorkProtocol,
     *,
     cached_by_id: dict[str, ConnectorPlaylist] | None = None,
+    on_page_factory: OnPageFactory | None = None,
 ) -> tuple[dict[str, ConnectorPlaylist], list[RefreshFailure]]:
     """Return the current ConnectorPlaylist for each requested id.
 
@@ -106,7 +115,9 @@ async def get_current_connector_playlists(
     dimension exists because the caller can't act on one; they need data.
 
     Pass a pre-loaded ``cached_by_id`` when the caller already has it
-    (saves a redundant ``list_by_connector`` query).
+    (saves a redundant ``list_by_connector`` query). Pass ``on_page_factory``
+    to emit per-page progress during network fetches — cache hits never
+    invoke it.
 
     Does NOT commit — caller owns the transaction boundary.
     """
@@ -128,7 +139,7 @@ async def get_current_connector_playlists(
             to_fetch.append(cid)
 
     fetched_by_id, failures = await _fetch_and_upsert_batch(
-        connector_name, to_fetch, uow
+        connector_name, to_fetch, uow, on_page_factory=on_page_factory
     )
     by_id.update(fetched_by_id)
 
@@ -185,13 +196,17 @@ async def _fetch_and_upsert_batch(
     connector_name: str,
     ids_to_fetch: Sequence[str],
     uow: UnitOfWorkProtocol,
+    *,
+    on_page_factory: OnPageFactory | None = None,
 ) -> tuple[dict[str, ConnectorPlaylist], list[RefreshFailure]]:
     """Bounded-concurrent fetch + sequential DB upsert.
 
     TaskGroup gives us structured cancellation; Semaphore bounds the
     concurrency against the connector's rate limits. DB upserts run
     sequentially because SQLAlchemy async sessions aren't
-    concurrency-safe.
+    concurrency-safe. ``on_page_factory`` is invoked lazily per id to
+    build a per-playlist pagination callback (returns ``None`` if the
+    caller doesn't want progress for that id).
     """
     if not ids_to_fetch:
         return {}, []
@@ -204,7 +219,13 @@ async def _fetch_and_upsert_batch(
     ) -> tuple[ConnectorPlaylist | None, str | None]:
         async with semaphore:
             try:
-                return await connector.get_playlist(cid), None
+                on_page = on_page_factory(cid) if on_page_factory else None
+                # Preserve call signature for mock assertions: only pass
+                # ``on_page`` when the caller opted into progress emission.
+                if on_page is None:
+                    cp = await connector.get_playlist(cid)
+                else:
+                    cp = await connector.get_playlist(cid, on_page=on_page)
             except Exception as exc:
                 logger.warning(
                     "Failed to fetch connector playlist",
@@ -213,6 +234,8 @@ async def _fetch_and_upsert_batch(
                     exc_info=True,
                 )
                 return None, str(exc)
+            else:
+                return cp, None
 
     async with asyncio.TaskGroup() as tg:
         tasks = [(cid, tg.create_task(_fetch_one(cid))) for cid in ids_to_fetch]
