@@ -68,6 +68,22 @@ For the planning overview, see [README.md](README.md).
 - **Deezer Connector** (L) - Deezer integration via free public API (OAuth 2.0). Library, playlists, catalog (73M+ tracks). No API key costs. [Developer portal](https://developers.deezer.com/).
 - **SoundCloud Connector** (M) - SoundCloud integration via public API (OAuth 2.0). More creator-oriented than library-focused, but supports playlists and liked tracks. Lower priority — less aligned with Mixd's library management use case. [Developer docs](https://developers.soundcloud.com/docs).
 
+## Import Flow Polish
+
+- **Pre-Import Library Overlap Preview** (M) - Before confirming a playlist import, show per-playlist "N already in library, M new" counts so the curator knows how much an import grows their library. Cache-only read via `connector_repo.find_tracks_by_connectors` against the cached `DBConnectorPlaylist.items` — no Spotify API call. Uncached playlists fall back to "Counts on import." Perf mitigation: use `connector_track_id = ANY(:ids::text[])` (single-connector shape) instead of tuple-IN to stay fast even at 10k-track playlists. Deferred from v0.7.6 because v0.7.7's Operation Run Log makes the post-import "what actually happened" signal more useful to the curator than the pre-import library-growth forecast. Revisit if users ask for library-growth forecasting, or if a batch-import workflow needs per-playlist triage before committing.
+
+## Bulk Playlist Operations
+
+Deferred from v0.7.6 to keep that sub-version focused on single-playlist preference/tag flows. Each item below is genuinely useful but only earns its keep once bulk-flow demand is observable.
+
+- **Per-Playlist Sync-Direction Override in Batch Import** (S) - Per-row Pull/Push toggle in the multi-select playlist import confirm dialog. Default stays batch-wide; per-row override is progressive disclosure. Backend widens `ImportSpotifyPlaylistsRequest` to accept `overrides: list[{connector_playlist_id, sync_direction}] | None`. Revisit when users routinely do mixed-direction multi-playlist imports in one go.
+- **`bulk_insert_returning_inserted` Extraction** (XS) - Extract the `pg_insert(...).on_conflict_do_nothing(...).returning(id)` + filter-by-inserted-id pattern from `track/tags.py:add_tags` and `playlist/links.py:create_links_batch` into `BaseRepository`. Pattern is stable; rule of 3 not yet met. Revisit when a third caller hand-rolls the same shape.
+- **Generic `_model_to_values()` via SQLAlchemy `inspect()`** (S) - `BaseModelMapper.default_values_dict(db_model)` using `inspect(type(db_model)).mapper.column_attrs` to iterate columns; mappers with custom serialization (like `ConnectorPlaylist.items`) override. Revisit when a third mapper needs bulk upsert.
+- **CTE-Based `create_links_batch`** (S) - Fold the current SELECT-then-INSERT round-trip in `PlaylistLinkRepository.create_links_batch` into one CTE-based statement. The two-query version's explicit pre-insert `missing` `ValueError` is currently worth the RTT. Revisit if a `--all` playlist import shows >500ms latency attributable to the two-query pattern.
+- **SSE Progress for Metadata Import** (M) - Live per-mapping progress bar for "Import All" on the playlist-mapping list. Engine emits `progress` + `conflict` events; CLI gets the same via `progress_coordination_context`. Use case accepts an optional `ProgressEmitter`. Revisit when "Import All" is used on 50+ mappings and feels unresponsive.
+- **UI-Surfaced Conflict Warnings for Cross-Mapping Conflicts** (M) - When two mappings contradict each other (e.g., a track in Star + Nah), surface the conflict in the UI: pre-import dry-run banner + post-import detail from streamed `conflict` events. New `dry_run: bool = False` mode on `ImportPlaylistMetadataUseCase`; `POST /api/v1/playlist-mappings/import/preview` route. Revisit when users have ≥3 active mappings and report stale-feeling auto-resolves.
+- **Per-Mapping `last_applied_at` for Conflict Tiebreak** (S) - Add `last_applied_at: datetime` to `PlaylistAssignment` so same-state contradictions resolve "most-recently-imported wins" instead of iteration-order luck. Migration adds nullable column + backfills. Depends on UI-Surfaced Conflict Warnings for visibility; revisit together.
+
 ## Playlist Link Enhancements
 
 - ~~**Browse/Search User's Playlists from Connector**~~ → Scheduled as [v0.8.1: Editor Polish, Templates & Playlist Browse](v0.8.x.md#v081-editor-polish-templates--playlist-browse)
@@ -77,6 +93,10 @@ For the planning overview, see [README.md](README.md).
 - ~~**Playlist Sync Safety Guards**~~ → Scheduled as [v0.5.8: Playlist Sync Safety Guards](v0.5.x.md#v058-playlist-sync-safety-guards)
 - **External Change Detection** (S) - Compare Spotify `snapshot_id` (or equivalent) to detect external changes since last sync. Enables "out of sync" notifications.
 - **PAUSED Sync State** (S) - Allow users to pause sync on a link without unlinking. Requires scheduled sync infrastructure.
+
+## Tag System Polish
+
+- **Cold-Start Suggested Tags Panel** (S) - First-time taggers see an empty input on Track Detail with no guidance about the `mood:`/`energy:`/`context:`/`genre:` namespace convention. Proposed: a panel that renders when `ListTagsResult` is empty, showing four namespace chips; clicking prefills the input with `namespace:` (cursor after the colon). Hidden once any tag exists. Deferred from v0.7.6 as onboarding bloat — revisit if new-user drop-off at the tag step becomes observable.
 
 ## Social & Infrastructure
 
