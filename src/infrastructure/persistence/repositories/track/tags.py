@@ -7,8 +7,8 @@ change. Same shape on ``remove_tags``.
 """
 
 from collections.abc import Sequence
-from datetime import datetime
-from uuid import UUID
+from datetime import UTC, datetime
+from uuid import UUID, uuid7
 
 from sqlalchemy import delete, func, select, tuple_
 from sqlalchemy.dialects.postgresql import insert as pg_insert
@@ -16,7 +16,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.config import get_logger
 from src.domain.entities.sourced_metadata import MetadataSource
-from src.domain.entities.tag import TagEvent, TrackTag
+from src.domain.entities.tag import TagEvent, TrackTag, normalize_tag, parse_tag
 from src.infrastructure.persistence.database.db_models import (
     DBTrackTag,
     DBTrackTagEvent,
@@ -160,10 +160,11 @@ class TrackTagRepository(BaseRepository[DBTrackTag, TrackTag]):
         user_id: str,
         query: str | None = None,
         limit: int = 100,
-    ) -> list[tuple[str, int]]:
-        """List ``(tag, count)`` sorted by count desc, filtered by trigram ILIKE."""
+    ) -> list[tuple[str, int, datetime]]:
+        """List ``(tag, count, last_used_at)`` sorted by count desc, filtered by trigram ILIKE."""
         count_col = func.count(self.model_class.id)
-        stmt = select(self.model_class.tag, count_col).where(
+        last_used_col = func.max(self.model_class.tagged_at)
+        stmt = select(self.model_class.tag, count_col, last_used_col).where(
             self.model_class.user_id == user_id
         )
         if query:
@@ -172,7 +173,7 @@ class TrackTagRepository(BaseRepository[DBTrackTag, TrackTag]):
             stmt.group_by(self.model_class.tag).order_by(count_col.desc()).limit(limit)
         )
         result = await self.session.execute(stmt)
-        return [(row[0], row[1]) for row in result.all()]
+        return [(row[0], row[1], row[2]) for row in result.all()]
 
     @db_operation("count_by_tag")
     async def count_by_tag(self, *, user_id: str) -> dict[str, int]:
@@ -204,3 +205,130 @@ class TrackTagRepository(BaseRepository[DBTrackTag, TrackTag]):
             order_by=("tagged_at", False),
             limit=limit,
         )
+
+    @db_operation("rename_tag")
+    async def rename_tag(self, *, user_id: str, source: str, target: str) -> int:
+        """Rename ``source`` → ``target`` for one user; idempotent on existing target.
+
+        Three-step atomic operation: (1) read source rows so provenance can
+        carry to the new rows, (2) bulk-INSERT target rows with ON CONFLICT
+        DO NOTHING (preserves the existing target where it was already
+        present), (3) DELETE source rows. Wraps in a savepoint so any DB
+        error rolls back the whole operation.
+
+        Writes ``remove(source)`` events for every affected track plus
+        ``add(target)`` events only for tracks that didn't already carry
+        ``target`` — the audit log reflects real state changes.
+        """
+        normalized_source = normalize_tag(source)
+        normalized_target = normalize_tag(target)
+        if normalized_source == normalized_target:
+            return 0
+
+        src_stmt = select(self.model_class).where(
+            self.model_class.user_id == user_id,
+            self.model_class.tag == normalized_source,
+        )
+        src_rows = (await self.session.scalars(src_stmt)).all()
+        if not src_rows:
+            return 0
+
+        target_namespace, target_value = parse_tag(normalized_target)
+        target_entities: list[dict[str, object]] = [
+            {
+                "id": uuid7(),
+                "user_id": user_id,
+                "track_id": row.track_id,
+                "tag": normalized_target,
+                "namespace": target_namespace,
+                "value": target_value,
+                "source": row.source,
+                "tagged_at": row.tagged_at,
+            }
+            for row in src_rows
+        ]
+        self._add_timestamps(target_entities)
+
+        async with self.session.begin_nested():
+            insert_result = await self.session.execute(
+                pg_insert(self.model_class)
+                .values(target_entities)
+                .on_conflict_do_nothing(
+                    index_elements=[
+                        self.model_class.user_id,
+                        self.model_class.track_id,
+                        self.model_class.tag,
+                    ],
+                )
+                .returning(self.model_class.track_id)
+            )
+            newly_added_track_ids = {row[0] for row in insert_result.all()}
+
+            del_stmt = delete(self.model_class).where(
+                self.model_class.user_id == user_id,
+                self.model_class.tag == normalized_source,
+            )
+            del_result = await self.session.execute(del_stmt)
+            affected = del_result.rowcount or 0
+
+        now = datetime.now(UTC)
+        events: list[TagEvent] = []
+        for row in src_rows:
+            events.append(
+                TagEvent(
+                    user_id=user_id,
+                    track_id=row.track_id,
+                    tag=normalized_source,
+                    action="remove",
+                    source="manual",
+                    tagged_at=now,
+                )
+            )
+            if row.track_id in newly_added_track_ids:
+                events.append(
+                    TagEvent(
+                        user_id=user_id,
+                        track_id=row.track_id,
+                        tag=normalized_target,
+                        action="add",
+                        source="manual",
+                        tagged_at=now,
+                    )
+                )
+        await self.add_events(events, user_id=user_id)
+
+        return affected
+
+    @db_operation("merge_tags")
+    async def merge_tags(self, *, user_id: str, source: str, target: str) -> int:
+        """Merge ``source`` into ``target`` — alias for :meth:`rename_tag`.
+
+        Same operation; separate name lets the API expose distinct
+        rename / merge endpoints when the UX intent differs.
+        """
+        return await self.rename_tag(user_id=user_id, source=source, target=target)
+
+    @db_operation("delete_tag")
+    async def delete_tag(self, *, user_id: str, tag: str) -> int:
+        """Bulk-delete ``tag`` from a user; cascades to the event log.
+
+        Per the v0.7.6 product decision: tag-event rows for the deleted
+        tag are also removed because the audit trail's subject no longer
+        exists. No remove events are written. Returns the number of
+        ``track_tags`` rows deleted.
+        """
+        normalized = normalize_tag(tag)
+        async with self.session.begin_nested():
+            await self.session.execute(
+                delete(DBTrackTagEvent).where(
+                    DBTrackTagEvent.user_id == user_id,
+                    DBTrackTagEvent.tag == normalized,
+                )
+            )
+            del_result = await self.session.execute(
+                delete(self.model_class).where(
+                    self.model_class.user_id == user_id,
+                    self.model_class.tag == normalized,
+                )
+            )
+        return del_result.rowcount or 0

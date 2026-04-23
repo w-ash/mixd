@@ -20,6 +20,7 @@ messages) stream as SSE sub-operation events on
 ``GET /api/v1/operations/{operation_id}/progress``.
  */
 export interface ImportConnectorPlaylistsRequest {
+  /** @minItems 1 */
   connector_playlist_ids: string[];
   sync_direction: ImportConnectorPlaylistsRequestSyncDirection;
 }

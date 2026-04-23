@@ -9,6 +9,7 @@ import {
   Plug,
   RefreshCw,
   Settings,
+  Tag,
 } from "lucide-react";
 import { NavLink, useLocation } from "react-router";
 
@@ -44,6 +45,7 @@ const navItems: NavItem[] = [
     children: [
       { to: "/settings/integrations", label: "Integrations", Icon: Plug },
       { to: "/settings/sync", label: "Sync", Icon: RefreshCw },
+      { to: "/settings/tags", label: "Tags", Icon: Tag },
       ...(authEnabled
         ? [{ to: "/settings/account", label: "Account", Icon: CircleUser }]
         : []),

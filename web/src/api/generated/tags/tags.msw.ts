@@ -18,14 +18,21 @@ import type {
 } from 'msw';
 
 import type {
-  TagCountSchema
+  TagOperationResult,
+  TagSummarySchema
 } from '../model';
 
 
-export const getListTagsApiV1TagsGetResponseMock = (): TagCountSchema[] => (Array.from({ length: faker.number.int({min: 1, max: 10}) }, (_, i) => i + 1).map(() => ({tag: faker.string.alpha({length: {min: 10, max: 20}}), count: faker.number.int()})))
+export const getListTagsApiV1TagsGetResponseMock = (): TagSummarySchema[] => (Array.from({ length: faker.number.int({min: 1, max: 10}) }, (_, i) => i + 1).map(() => ({tag: faker.string.alpha({length: {min: 10, max: 20}}), namespace: faker.helpers.arrayElement([faker.string.alpha({length: {min: 10, max: 20}}),null,]), value: faker.string.alpha({length: {min: 10, max: 20}}), track_count: faker.number.int(), last_used_at: faker.date.past().toISOString().slice(0, 19) + 'Z'})))
+
+export const getRenameTagApiV1TagsTagPatchResponseMock = (overrideResponse: Partial<Extract<TagOperationResult, object>> = {}): TagOperationResult => ({affected_count: faker.number.int(), ...overrideResponse})
+
+export const getDeleteTagApiV1TagsTagDeleteResponseMock = (overrideResponse: Partial<Extract<TagOperationResult, object>> = {}): TagOperationResult => ({affected_count: faker.number.int(), ...overrideResponse})
+
+export const getMergeTagsApiV1TagsMergePostResponseMock = (overrideResponse: Partial<Extract<TagOperationResult, object>> = {}): TagOperationResult => ({affected_count: faker.number.int(), ...overrideResponse})
 
 
-export const getListTagsApiV1TagsGetMockHandler = (overrideResponse?: TagCountSchema[] | ((info: Parameters<Parameters<typeof http.get>[1]>[0]) => Promise<TagCountSchema[]> | TagCountSchema[]), options?: RequestHandlerOptions) => {
+export const getListTagsApiV1TagsGetMockHandler = (overrideResponse?: TagSummarySchema[] | ((info: Parameters<Parameters<typeof http.get>[1]>[0]) => Promise<TagSummarySchema[]> | TagSummarySchema[]), options?: RequestHandlerOptions) => {
   return http.get('*/api/v1/tags', async (info: Parameters<Parameters<typeof http.get>[1]>[0]) => {
 
 
@@ -36,6 +43,45 @@ export const getListTagsApiV1TagsGetMockHandler = (overrideResponse?: TagCountSc
       })
   }, options)
 }
+
+export const getRenameTagApiV1TagsTagPatchMockHandler = (overrideResponse?: TagOperationResult | ((info: Parameters<Parameters<typeof http.patch>[1]>[0]) => Promise<TagOperationResult> | TagOperationResult), options?: RequestHandlerOptions) => {
+  return http.patch('*/api/v1/tags/:tag', async (info: Parameters<Parameters<typeof http.patch>[1]>[0]) => {
+
+
+    return HttpResponse.json(overrideResponse !== undefined
+    ? (typeof overrideResponse === "function" ? await overrideResponse(info) : overrideResponse)
+    : getRenameTagApiV1TagsTagPatchResponseMock(),
+      { status: 200
+      })
+  }, options)
+}
+
+export const getDeleteTagApiV1TagsTagDeleteMockHandler = (overrideResponse?: TagOperationResult | ((info: Parameters<Parameters<typeof http.delete>[1]>[0]) => Promise<TagOperationResult> | TagOperationResult), options?: RequestHandlerOptions) => {
+  return http.delete('*/api/v1/tags/:tag', async (info: Parameters<Parameters<typeof http.delete>[1]>[0]) => {
+
+
+    return HttpResponse.json(overrideResponse !== undefined
+    ? (typeof overrideResponse === "function" ? await overrideResponse(info) : overrideResponse)
+    : getDeleteTagApiV1TagsTagDeleteResponseMock(),
+      { status: 200
+      })
+  }, options)
+}
+
+export const getMergeTagsApiV1TagsMergePostMockHandler = (overrideResponse?: TagOperationResult | ((info: Parameters<Parameters<typeof http.post>[1]>[0]) => Promise<TagOperationResult> | TagOperationResult), options?: RequestHandlerOptions) => {
+  return http.post('*/api/v1/tags/merge', async (info: Parameters<Parameters<typeof http.post>[1]>[0]) => {
+
+
+    return HttpResponse.json(overrideResponse !== undefined
+    ? (typeof overrideResponse === "function" ? await overrideResponse(info) : overrideResponse)
+    : getMergeTagsApiV1TagsMergePostResponseMock(),
+      { status: 200
+      })
+  }, options)
+}
 export const getTagsMock = () => [
-  getListTagsApiV1TagsGetMockHandler()
+  getListTagsApiV1TagsGetMockHandler(),
+  getRenameTagApiV1TagsTagPatchMockHandler(),
+  getDeleteTagApiV1TagsTagDeleteMockHandler(),
+  getMergeTagsApiV1TagsMergePostMockHandler()
 ]

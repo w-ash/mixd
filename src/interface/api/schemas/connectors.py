@@ -4,7 +4,7 @@ from datetime import datetime
 from typing import Literal
 from uuid import UUID
 
-from pydantic import BaseModel, ConfigDict
+from pydantic import BaseModel, ConfigDict, Field
 
 from src.domain.entities.connector import (
     Capability,
@@ -105,5 +105,5 @@ class ImportConnectorPlaylistsRequest(BaseModel):
     ``GET /api/v1/operations/{operation_id}/progress``.
     """
 
-    connector_playlist_ids: list[str]
+    connector_playlist_ids: list[str] = Field(min_length=1)
     sync_direction: Literal["pull", "push"]

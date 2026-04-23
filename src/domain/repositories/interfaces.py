@@ -1507,11 +1507,13 @@ class TagRepositoryProtocol(Protocol):
         user_id: str,
         query: str | None = None,
         limit: int = 100,
-    ) -> Awaitable[list[tuple[str, int]]]:
-        """List tags with track counts, sorted by count desc.
+    ) -> Awaitable[list[tuple[str, int, datetime]]]:
+        """List tags with track counts and last-used timestamp, sorted by count desc.
 
         When ``query`` is set, results are filtered via the trigram index
-        (GIN on ``tag``) for autocomplete. Returns ``[(tag, count)]``.
+        (GIN on ``tag``) for autocomplete. Returns
+        ``[(tag, track_count, last_used_at)]`` where ``last_used_at`` is the
+        most recent ``tagged_at`` across all rows for that tag.
         Track-side filtering by tag (for the Library page) flows through
         ``TrackRepositoryProtocol.list_tracks`` so pagination, sort, and
         hydration happen in one query.
@@ -1531,6 +1533,42 @@ class TagRepositoryProtocol(Protocol):
         limit: int = 50,
     ) -> Awaitable[list[TrackTag]]:
         """List tags within a date range, ordered by tagged_at desc."""
+        ...
+
+    def rename_tag(self, *, user_id: str, source: str, target: str) -> Awaitable[int]:
+        """Rename ``source`` tag to ``target`` across all of one user's tracks.
+
+        Idempotent on tracks that already carry ``target`` — those just
+        lose the ``source`` row (no duplicate target inserted). Tracks
+        without the conflict get a new ``target`` row that preserves the
+        source row's ``tagged_at`` and ``source`` so provenance is
+        retained.
+
+        Writes per-track ``remove(source)`` events for every affected
+        track, plus ``add(target)`` events only for tracks that didn't
+        already carry ``target`` — keeping the audit log accurate about
+        actual state changes.
+
+        Returns the number of tracks that previously carried ``source``
+        (i.e., the affected-track count).
+        """
+        ...
+
+    def delete_tag(self, *, user_id: str, tag: str) -> Awaitable[int]:
+        """Bulk-delete ``tag`` from all of one user's tracks.
+
+        Cascades to the event log: rows in ``track_tag_events`` for the
+        deleted tag are also removed (the audit trail's subject no longer
+        exists). No remove events are written. Returns the number of
+        ``track_tags`` rows deleted.
+        """
+        ...
+
+    def merge_tags(self, *, user_id: str, source: str, target: str) -> Awaitable[int]:
+        """Merge ``source`` into ``target``. Same operation as ``rename_tag`` —
+        exposed under a different name for API expressiveness when
+        ``target`` is known to already exist on some tracks.
+        """
         ...
 
 

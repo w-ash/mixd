@@ -118,8 +118,9 @@ def list_tags(
     table = Table(title="Tags")
     table.add_column("Tag", style="cyan")
     table.add_column("Count", justify="right", style="dim")
-    for tag, count in result.tags:
-        table.add_row(tag, str(count))
+    table.add_column("Last used", style="dim")
+    for tag, count, last_used_at in result.tags:
+        table.add_row(tag, str(count), last_used_at.strftime("%Y-%m-%d"))
     console.print(table)
     console.print(f"[dim]{len(result.tags)} tag(s)[/dim]")
 

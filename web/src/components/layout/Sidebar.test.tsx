@@ -29,6 +29,7 @@ describe("Sidebar", () => {
 
     expect(screen.getByText("Integrations")).toBeInTheDocument();
     expect(screen.getByText("Sync")).toBeInTheDocument();
+    expect(screen.getByText("Tags")).toBeInTheDocument();
   });
 
   it("has accessible navigation landmark", () => {

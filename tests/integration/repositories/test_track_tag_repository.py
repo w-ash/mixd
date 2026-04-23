@@ -10,10 +10,15 @@ PostgreSQL.
 from datetime import UTC, datetime, timedelta
 from uuid import uuid7
 
+from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.domain.entities.tag import TagEvent
-from src.infrastructure.persistence.database.db_models import DBTrack
+from src.infrastructure.persistence.database.db_models import (
+    DBTrack,
+    DBTrackTag,
+    DBTrackTagEvent,
+)
 from src.infrastructure.persistence.repositories.track.tags import TrackTagRepository
 from tests.fixtures import make_track_tag
 
@@ -276,9 +281,11 @@ class TestQueries:
         )
 
         result = await repo.list_tags(user_id="default")
+        result_by_tag = {tag: (count, last) for tag, count, last in result}
 
-        assert result[0] == ("mood:chill", 3)
-        assert ("banger", 1) in result
+        assert result[0][0] == "mood:chill"
+        assert result_by_tag["mood:chill"][0] == 3
+        assert result_by_tag["banger"][0] == 1
 
     async def test_list_tags_filters_by_query(self, db_session: AsyncSession) -> None:
         track = await _seed_track(db_session)
@@ -295,6 +302,28 @@ class TestQueries:
         result = await repo.list_tags(user_id="default", query="mood")
 
         assert [r[0] for r in result] == ["mood:chill"]
+
+    async def test_list_tags_returns_last_used_at(
+        self, db_session: AsyncSession
+    ) -> None:
+        """``last_used_at`` is the max ``tagged_at`` across rows for that tag."""
+        repo = TrackTagRepository(db_session)
+        old = datetime(2025, 1, 1, tzinfo=UTC)
+        recent = datetime(2026, 4, 1, tzinfo=UTC)
+
+        track_a = await _seed_track(db_session)
+        track_b = await _seed_track(db_session)
+        await repo.add_tags(
+            [
+                make_track_tag(track_id=track_a.id, tag="mood:chill", tagged_at=old),
+                make_track_tag(track_id=track_b.id, tag="mood:chill", tagged_at=recent),
+            ],
+            user_id="default",
+        )
+
+        result = await repo.list_tags(user_id="default")
+        last_used = {tag: last for tag, _, last in result}
+        assert last_used["mood:chill"] == recent
 
     async def test_count_by_tag(self, db_session: AsyncSession) -> None:
         tracks = [await _seed_track(db_session) for _ in range(3)]
@@ -342,3 +371,287 @@ class TestQueries:
             "context:day-3",
             "context:day-4",
         }
+
+
+class TestRenameTag:
+    """Bulk rename across all of a user's tracks; idempotent on existing target."""
+
+    async def test_rename_moves_all_rows(self, db_session: AsyncSession) -> None:
+        tracks = [await _seed_track(db_session) for _ in range(3)]
+        repo = TrackTagRepository(db_session)
+        await repo.add_tags(
+            [make_track_tag(track_id=t.id, tag="mood:chill") for t in tracks],
+            user_id="default",
+        )
+
+        affected = await repo.rename_tag(
+            user_id="default", source="mood:chill", target="mood:ambient"
+        )
+
+        assert affected == 3
+        # Verify: 3 rows on the new tag, 0 on the old.
+        new_rows = await db_session.scalars(
+            select(DBTrackTag).where(DBTrackTag.tag == "mood:ambient")
+        )
+        old_rows = await db_session.scalars(
+            select(DBTrackTag).where(DBTrackTag.tag == "mood:chill")
+        )
+        assert len(new_rows.all()) == 3
+        assert len(old_rows.all()) == 0
+
+    async def test_rename_normalizes_inputs(self, db_session: AsyncSession) -> None:
+        track = await _seed_track(db_session)
+        repo = TrackTagRepository(db_session)
+        await repo.add_tags(
+            [make_track_tag(track_id=track.id, tag="mood:chill")],
+            user_id="default",
+        )
+
+        affected = await repo.rename_tag(
+            user_id="default", source="Mood:Chill", target="Mood:Ambient"
+        )
+
+        assert affected == 1
+        rows = await db_session.scalars(
+            select(DBTrackTag).where(DBTrackTag.user_id == "default")
+        )
+        rows_list = rows.all()
+        assert len(rows_list) == 1
+        assert rows_list[0].tag == "mood:ambient"
+
+    async def test_rename_idempotent_when_target_exists(
+        self, db_session: AsyncSession
+    ) -> None:
+        """Tracks already carrying the target lose the source row without duplication."""
+        tracks = [await _seed_track(db_session) for _ in range(3)]
+        repo = TrackTagRepository(db_session)
+        # All 3 tracks have source; track[0] also has target already.
+        await repo.add_tags(
+            [make_track_tag(track_id=t.id, tag="mood:chill") for t in tracks],
+            user_id="default",
+        )
+        await repo.add_tags(
+            [make_track_tag(track_id=tracks[0].id, tag="mood:ambient")],
+            user_id="default",
+        )
+
+        affected = await repo.rename_tag(
+            user_id="default", source="mood:chill", target="mood:ambient"
+        )
+
+        assert affected == 3
+        # Final state: each track has exactly one mood:ambient, no mood:chill.
+        rows_per_track = await repo.get_tags([t.id for t in tracks], user_id="default")
+        for t in tracks:
+            tag_set = {r.tag for r in rows_per_track[t.id]}
+            assert tag_set == {"mood:ambient"}
+
+    async def test_rename_writes_remove_and_add_events(
+        self, db_session: AsyncSession
+    ) -> None:
+        tracks = [await _seed_track(db_session) for _ in range(2)]
+        repo = TrackTagRepository(db_session)
+        await repo.add_tags(
+            [make_track_tag(track_id=t.id, tag="mood:chill") for t in tracks],
+            user_id="default",
+        )
+
+        await repo.rename_tag(
+            user_id="default", source="mood:chill", target="mood:ambient"
+        )
+
+        events = (
+            await db_session.scalars(
+                select(DBTrackTagEvent).where(DBTrackTagEvent.user_id == "default")
+            )
+        ).all()
+        # 2 tracks × (1 remove for source + 1 add for target) = 4 events.
+        actions_by_tag = [(e.action, e.tag) for e in events]
+        assert actions_by_tag.count(("remove", "mood:chill")) == 2
+        assert actions_by_tag.count(("add", "mood:ambient")) == 2
+
+    async def test_rename_skips_add_event_when_target_already_present(
+        self, db_session: AsyncSession
+    ) -> None:
+        """If a track already had target, rename writes only the `remove` event for it."""
+        track = await _seed_track(db_session)
+        repo = TrackTagRepository(db_session)
+        await repo.add_tags(
+            [
+                make_track_tag(track_id=track.id, tag="mood:chill"),
+                make_track_tag(track_id=track.id, tag="mood:ambient"),
+            ],
+            user_id="default",
+        )
+
+        await repo.rename_tag(
+            user_id="default", source="mood:chill", target="mood:ambient"
+        )
+
+        events = (
+            await db_session.scalars(
+                select(DBTrackTagEvent).where(DBTrackTagEvent.user_id == "default")
+            )
+        ).all()
+        actions_by_tag = [(e.action, e.tag) for e in events]
+        assert ("remove", "mood:chill") in actions_by_tag
+        assert ("add", "mood:ambient") not in actions_by_tag
+
+    async def test_rename_no_op_on_missing_source(
+        self, db_session: AsyncSession
+    ) -> None:
+        repo = TrackTagRepository(db_session)
+        affected = await repo.rename_tag(
+            user_id="default", source="never:tagged", target="anywhere"
+        )
+        assert affected == 0
+
+    async def test_rename_no_op_when_source_equals_target(
+        self, db_session: AsyncSession
+    ) -> None:
+        track = await _seed_track(db_session)
+        repo = TrackTagRepository(db_session)
+        await repo.add_tags(
+            [make_track_tag(track_id=track.id, tag="mood:chill")],
+            user_id="default",
+        )
+
+        affected = await repo.rename_tag(
+            user_id="default", source="mood:chill", target="mood:chill"
+        )
+
+        assert affected == 0
+
+    async def test_rename_isolated_per_user(self, db_session: AsyncSession) -> None:
+        track = await _seed_track(db_session, user_id="alice")
+        repo = TrackTagRepository(db_session)
+        await repo.add_tags(
+            [make_track_tag(track_id=track.id, tag="mood:chill", user_id="alice")],
+            user_id="alice",
+        )
+        await repo.add_tags(
+            [make_track_tag(track_id=track.id, tag="mood:chill", user_id="bob")],
+            user_id="bob",
+        )
+
+        affected = await repo.rename_tag(
+            user_id="alice", source="mood:chill", target="mood:ambient"
+        )
+
+        assert affected == 1
+        bob_tags = await repo.get_tags([track.id], user_id="bob")
+        assert {t.tag for t in bob_tags[track.id]} == {"mood:chill"}
+
+
+class TestMergeTags:
+    """Same primitive as rename — a thin alias verified once for parity."""
+
+    async def test_merge_collapses_into_existing_target(
+        self, db_session: AsyncSession
+    ) -> None:
+        tracks = [await _seed_track(db_session) for _ in range(3)]
+        repo = TrackTagRepository(db_session)
+        await repo.add_tags(
+            [make_track_tag(track_id=t.id, tag="context:gym") for t in tracks],
+            user_id="default",
+        )
+        await repo.add_tags(
+            [make_track_tag(track_id=tracks[0].id, tag="context:workout")],
+            user_id="default",
+        )
+
+        affected = await repo.merge_tags(
+            user_id="default", source="context:gym", target="context:workout"
+        )
+
+        assert affected == 3
+        for t in tracks:
+            tags = await repo.get_tags([t.id], user_id="default")
+            assert {tag.tag for tag in tags[t.id]} == {"context:workout"}
+
+
+class TestDeleteTag:
+    """Bulk delete + cascade to event log."""
+
+    async def test_delete_removes_all_rows_for_tag(
+        self, db_session: AsyncSession
+    ) -> None:
+        tracks = [await _seed_track(db_session) for _ in range(3)]
+        repo = TrackTagRepository(db_session)
+        await repo.add_tags(
+            [make_track_tag(track_id=t.id, tag="TODO:check") for t in tracks],
+            user_id="default",
+        )
+        # Add a different tag to confirm it survives.
+        await repo.add_tags(
+            [make_track_tag(track_id=tracks[0].id, tag="mood:chill")],
+            user_id="default",
+        )
+
+        affected = await repo.delete_tag(user_id="default", tag="TODO:check")
+
+        assert affected == 3
+        remaining = (
+            await db_session.scalars(
+                select(DBTrackTag).where(DBTrackTag.user_id == "default")
+            )
+        ).all()
+        assert {r.tag for r in remaining} == {"mood:chill"}
+
+    async def test_delete_cascades_to_event_log(self, db_session: AsyncSession) -> None:
+        track = await _seed_track(db_session)
+        repo = TrackTagRepository(db_session)
+        await repo.add_tags(
+            [make_track_tag(track_id=track.id, tag="mood:chill")],
+            user_id="default",
+        )
+        # Seed an event row for this tag (typically written by add_tags callers).
+        await repo.add_events(
+            [
+                TagEvent(
+                    user_id="default",
+                    track_id=track.id,
+                    tag="mood:chill",
+                    action="add",
+                    source="manual",
+                    tagged_at=datetime.now(UTC),
+                )
+            ],
+            user_id="default",
+        )
+
+        await repo.delete_tag(user_id="default", tag="mood:chill")
+
+        # Both the tag rows AND the event rows should be gone.
+        remaining_events = (
+            await db_session.scalars(
+                select(DBTrackTagEvent).where(
+                    DBTrackTagEvent.user_id == "default",
+                    DBTrackTagEvent.tag == "mood:chill",
+                )
+            )
+        ).all()
+        assert remaining_events == []
+
+    async def test_delete_no_op_on_missing_tag(self, db_session: AsyncSession) -> None:
+        repo = TrackTagRepository(db_session)
+        affected = await repo.delete_tag(user_id="default", tag="never:tagged")
+        assert affected == 0
+
+    async def test_delete_isolated_per_user(self, db_session: AsyncSession) -> None:
+        track = await _seed_track(db_session, user_id="alice")
+        repo = TrackTagRepository(db_session)
+        await repo.add_tags(
+            [make_track_tag(track_id=track.id, tag="mood:chill", user_id="alice")],
+            user_id="alice",
+        )
+        await repo.add_tags(
+            [make_track_tag(track_id=track.id, tag="mood:chill", user_id="bob")],
+            user_id="bob",
+        )
+
+        affected = await repo.delete_tag(user_id="alice", tag="mood:chill")
+
+        assert affected == 1
+        bob_tags = await repo.get_tags([track.id], user_id="bob")
+        assert {t.tag for t in bob_tags[track.id]} == {"mood:chill"}

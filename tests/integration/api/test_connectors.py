@@ -1,15 +1,19 @@
-"""Integration tests for connector status endpoints.
+"""Integration tests for connector status and Spotify-playlist endpoints.
 
-Tests connector status detection using mocked TokenStorage.
-The status logic lives in connector_status.py — patches target that module.
+Tests connector status detection using mocked TokenStorage, and the
+Spotify-playlist browse + import routes using the ``mock_connector_provider``
+fixture so no live API calls leak from the integration env's real OAuth tokens.
 """
 
+from datetime import UTC, datetime
 import time
 from unittest.mock import AsyncMock, patch
 
 import httpx
 
 from src.infrastructure.connectors._shared.token_storage import StoredToken
+from src.infrastructure.persistence.database.db_connection import get_session
+from src.infrastructure.persistence.database.db_models import DBConnectorPlaylist
 
 # Patch target prefix — logic lives in infrastructure alongside connectors
 _SVC = "src.infrastructure.connectors._shared.connector_status"
@@ -222,9 +226,127 @@ class TestLastfmStatus:
         assert "account_name" in lastfm
 
 
-# NOTE: GET /api/v1/connectors/{service}/playlists route-level behavior is
-# covered by unit tests at tests/unit/application/use_cases/
-# test_list_connector_playlists.py. Integration-test attempts here hit real
-# Spotify API because the fixture env carries OAuth tokens — not safe in
-# CI. Revisit once a reliable connector-mocking seam exists at the
-# integration-test level.
+class TestSpotifyPlaylistBrowse:
+    """GET /api/v1/connectors/spotify/playlists — route-level behavior."""
+
+    async def test_cache_hit_returns_seeded_playlists(
+        self, client: httpx.AsyncClient
+    ) -> None:
+        """Default (force_refresh=false) reads from DBConnectorPlaylist.
+
+        No connector touched on the cache-hit path — proves the route's
+        cache-first contract holds without the fixture having to stub a
+        connector.
+        """
+        async with get_session() as session:
+            session.add(
+                DBConnectorPlaylist(
+                    connector_name="spotify",
+                    connector_playlist_identifier="sp_test_1",
+                    name="Cached Playlist",
+                    description=None,
+                    owner="alice",
+                    owner_id="alice_id",
+                    is_public=True,
+                    collaborative=False,
+                    follower_count=0,
+                    items=[],
+                    raw_metadata={"total_tracks": 42},
+                    last_updated=datetime.now(UTC),
+                )
+            )
+            await session.commit()
+
+        response = await client.get("/api/v1/connectors/spotify/playlists")
+
+        assert response.status_code == 200
+        body = response.json()
+        assert body["from_cache"] is True
+        assert len(body["data"]) == 1
+        row = body["data"][0]
+        assert row["name"] == "Cached Playlist"
+        assert row["track_count"] == 42
+        assert row["import_status"] == "not_imported"
+
+    async def test_force_refresh_with_failing_connector_returns_error_envelope(
+        self,
+        client: httpx.AsyncClient,
+        mock_connector_provider: dict[str, object],
+    ) -> None:
+        """force_refresh=true with a stubbed-failing connector returns the error envelope.
+
+        Proves the test seam blocks live API calls — the stub's
+        ``fetch_user_playlists`` raises before any HTTP request would happen.
+        Uses ``ValueError`` because it has a registered exception handler that
+        produces the standard ``{error: {code, message}}`` envelope; arbitrary
+        ``Exception`` subclasses don't surface cleanly through httpx's
+        ASGITransport in test mode.
+        """
+        spotify = AsyncMock()
+        spotify.fetch_user_playlists = AsyncMock(
+            side_effect=ValueError("connector temporarily unavailable")
+        )
+        mock_connector_provider["spotify"] = spotify
+
+        response = await client.get(
+            "/api/v1/connectors/spotify/playlists?force_refresh=true"
+        )
+
+        assert response.status_code == 400
+        body = response.json()
+        assert body["error"]["code"] == "VALIDATION_ERROR"
+        spotify.fetch_user_playlists.assert_called_once()
+
+
+class TestSpotifyPlaylistImport:
+    """POST /api/v1/connectors/spotify/playlists/import — route-level behavior."""
+
+    async def test_single_playlist_returns_202_with_operation_id(
+        self, client: httpx.AsyncClient
+    ) -> None:
+        """One-element ids list returns the 202 OperationStartedResponse shape.
+
+        Background work is stubbed by ``_noop_launch`` in conftest, so the
+        route's contract (202 + operation_id) is exercised without spawning
+        the real import task.
+        """
+        response = await client.post(
+            "/api/v1/connectors/spotify/playlists/import",
+            json={
+                "connector_playlist_ids": ["sp_single"],
+                "sync_direction": "pull",
+            },
+        )
+
+        assert response.status_code == 202
+        body = response.json()
+        assert isinstance(body.get("operation_id"), str)
+        assert body["operation_id"]  # non-empty
+
+    async def test_empty_ids_returns_422_before_use_case(
+        self, client: httpx.AsyncClient
+    ) -> None:
+        """Empty connector_playlist_ids fails Pydantic validation (min_length=1)."""
+        response = await client.post(
+            "/api/v1/connectors/spotify/playlists/import",
+            json={
+                "connector_playlist_ids": [],
+                "sync_direction": "pull",
+            },
+        )
+
+        assert response.status_code == 422
+
+    async def test_invalid_sync_direction_returns_422(
+        self, client: httpx.AsyncClient
+    ) -> None:
+        """sync_direction must be 'pull' or 'push' — anything else fails validation."""
+        response = await client.post(
+            "/api/v1/connectors/spotify/playlists/import",
+            json={
+                "connector_playlist_ids": ["sp_x"],
+                "sync_direction": "mirror",
+            },
+        )
+
+        assert response.status_code == 422

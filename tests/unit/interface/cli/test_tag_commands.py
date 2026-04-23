@@ -176,7 +176,13 @@ class TestListTags:
         assert "No tags matching 'chi'" in result.output
 
     def test_renders_tags_with_counts(self) -> None:
-        tags = [("mood:chill", 12), ("banger", 5)]
+        from datetime import UTC, datetime
+
+        last_used = datetime(2026, 4, 1, tzinfo=UTC)
+        tags = [
+            ("mood:chill", 12, last_used),
+            ("banger", 5, last_used),
+        ]
         with patch(
             "src.application.use_cases.list_tags.run_list_tags",
             return_value=ListTagsResult(tags=tags),
@@ -187,6 +193,7 @@ class TestListTags:
         assert "mood:chill" in result.output
         assert "banger" in result.output
         assert "12" in result.output
+        assert "2026-04-01" in result.output
         assert "5" in result.output
         kwargs = run_list.call_args.kwargs
         assert kwargs["limit"] == 10

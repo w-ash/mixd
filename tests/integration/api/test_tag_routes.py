@@ -202,8 +202,29 @@ class TestListTags:
         response = await client.get("/api/v1/tags")
 
         body = response.json()
-        tags_by_name = {t["tag"]: t["count"] for t in body}
+        tags_by_name = {t["tag"]: t["track_count"] for t in body}
         assert tags_by_name == {"mood:chill": 3, "banger": 1}
+
+    async def test_response_includes_namespace_value_and_last_used_at(
+        self, client: httpx.AsyncClient
+    ) -> None:
+        """Tag Management page consumes the full enriched shape."""
+        track_id = await _create_track(client, "Song")
+        await client.post(f"/api/v1/tracks/{track_id}/tags", json={"tag": "mood:chill"})
+        await client.post(f"/api/v1/tracks/{track_id}/tags", json={"tag": "banger"})
+
+        body = (await client.get("/api/v1/tags")).json()
+        rows = {row["tag"]: row for row in body}
+
+        chill = rows["mood:chill"]
+        assert chill["namespace"] == "mood"
+        assert chill["value"] == "chill"
+        assert chill["track_count"] == 1
+        assert chill["last_used_at"]  # ISO string, non-empty
+
+        banger = rows["banger"]
+        assert banger["namespace"] is None
+        assert banger["value"] == "banger"
 
     async def test_query_filters_results(self, client: httpx.AsyncClient) -> None:
         track_id = await _create_track(client, "Song")
@@ -256,3 +277,143 @@ class TestTrackListingTagFilter:
         response = await client.get(f"/api/v1/tracks/{track_id}")
 
         assert set(response.json()["tags"]) == {"mood:chill", "banger"}
+
+
+class TestRenameTagRoute:
+    """PATCH /api/v1/tags/{tag} — bulk rename across user's tracks."""
+
+    async def test_rename_updates_all_tracks(self, client: httpx.AsyncClient) -> None:
+        ids = [await _create_track(client, f"Song-{i}") for i in range(3)]
+        for tid in ids:
+            await client.post(f"/api/v1/tracks/{tid}/tags", json={"tag": "mood:chill"})
+
+        response = await client.patch(
+            "/api/v1/tags/mood:chill", json={"new_tag": "mood:ambient"}
+        )
+
+        assert response.status_code == 200
+        assert response.json() == {"affected_count": 3}
+        # Verify per-track state
+        for tid in ids:
+            detail = await client.get(f"/api/v1/tracks/{tid}")
+            assert "mood:ambient" in detail.json()["tags"]
+            assert "mood:chill" not in detail.json()["tags"]
+
+    async def test_rename_normalizes_path_param(
+        self, client: httpx.AsyncClient
+    ) -> None:
+        """Path tag is normalized via TagString validator."""
+        track_id = await _create_track(client, "Song")
+        await client.post(f"/api/v1/tracks/{track_id}/tags", json={"tag": "mood:chill"})
+
+        response = await client.patch(
+            "/api/v1/tags/Mood%3AChill", json={"new_tag": "MOOD:Ambient"}
+        )
+
+        assert response.status_code == 200
+        detail = await client.get(f"/api/v1/tracks/{track_id}")
+        assert detail.json()["tags"] == ["mood:ambient"]
+
+    async def test_rename_missing_source_returns_zero(
+        self, client: httpx.AsyncClient
+    ) -> None:
+        """Idempotent — renaming a tag the user never used returns affected=0."""
+        response = await client.patch(
+            "/api/v1/tags/mood:chill", json={"new_tag": "mood:ambient"}
+        )
+        assert response.status_code == 200
+        assert response.json() == {"affected_count": 0}
+
+    async def test_rename_invalid_new_tag_returns_422(
+        self, client: httpx.AsyncClient
+    ) -> None:
+        response = await client.patch(
+            "/api/v1/tags/mood:chill", json={"new_tag": "cafe!"}
+        )
+        assert response.status_code == 422
+
+
+class TestDeleteTagRoute:
+    """DELETE /api/v1/tags/{tag} — bulk delete across user's tracks."""
+
+    async def test_delete_removes_tag_from_all_tracks(
+        self, client: httpx.AsyncClient
+    ) -> None:
+        ids = [await _create_track(client, f"Song-{i}") for i in range(2)]
+        for tid in ids:
+            await client.post(f"/api/v1/tracks/{tid}/tags", json={"tag": "TODO:check"})
+
+        response = await client.delete("/api/v1/tags/TODO:check")
+
+        assert response.status_code == 200
+        assert response.json() == {"affected_count": 2}
+        for tid in ids:
+            detail = await client.get(f"/api/v1/tracks/{tid}")
+            assert detail.json()["tags"] == []
+
+    async def test_delete_missing_tag_returns_zero(
+        self, client: httpx.AsyncClient
+    ) -> None:
+        response = await client.delete("/api/v1/tags/never:tagged")
+        assert response.status_code == 200
+        assert response.json() == {"affected_count": 0}
+
+    async def test_delete_leaves_other_tags_intact(
+        self, client: httpx.AsyncClient
+    ) -> None:
+        track_id = await _create_track(client, "Song")
+        for t in ("mood:chill", "banger"):
+            await client.post(f"/api/v1/tracks/{track_id}/tags", json={"tag": t})
+
+        await client.delete("/api/v1/tags/mood:chill")
+
+        detail = await client.get(f"/api/v1/tracks/{track_id}")
+        assert detail.json()["tags"] == ["banger"]
+
+
+class TestMergeTagsRoute:
+    """POST /api/v1/tags/merge — collapse source into target."""
+
+    async def test_merge_collapses_into_existing_target(
+        self, client: httpx.AsyncClient
+    ) -> None:
+        ids = [await _create_track(client, f"Song-{i}") for i in range(3)]
+        for tid in ids:
+            await client.post(f"/api/v1/tracks/{tid}/tags", json={"tag": "context:gym"})
+        await client.post(
+            f"/api/v1/tracks/{ids[0]}/tags", json={"tag": "context:workout"}
+        )
+
+        response = await client.post(
+            "/api/v1/tags/merge",
+            json={"source": "context:gym", "target": "context:workout"},
+        )
+
+        assert response.status_code == 200
+        assert response.json() == {"affected_count": 3}
+        for tid in ids:
+            detail = await client.get(f"/api/v1/tracks/{tid}")
+            assert detail.json()["tags"] == ["context:workout"]
+
+    async def test_merge_normalizes_inputs(self, client: httpx.AsyncClient) -> None:
+        track_id = await _create_track(client, "Song")
+        await client.post(
+            f"/api/v1/tracks/{track_id}/tags", json={"tag": "context:gym"}
+        )
+
+        response = await client.post(
+            "/api/v1/tags/merge",
+            json={"source": "Context:Gym", "target": "Context:Workout"},
+        )
+
+        assert response.status_code == 200
+        assert response.json() == {"affected_count": 1}
+
+    async def test_merge_invalid_tag_returns_422(
+        self, client: httpx.AsyncClient
+    ) -> None:
+        response = await client.post(
+            "/api/v1/tags/merge",
+            json={"source": "context:gym", "target": "cafe!"},
+        )
+        assert response.status_code == 422

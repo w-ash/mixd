@@ -4,9 +4,12 @@ Provides an httpx.AsyncClient wired to the FastAPI app via ASGITransport,
 with an isolated PostgreSQL test database for full request → response testing.
 """
 
-from collections.abc import AsyncGenerator, Generator
+from collections.abc import AsyncGenerator, Generator, Iterator
 import contextlib
 import os
+from types import SimpleNamespace
+from typing import Any
+from unittest.mock import patch
 
 import httpx
 import pytest
@@ -14,7 +17,9 @@ import pytest
 from src.infrastructure.persistence.database.db_connection import (
     reset_engine_cache,
 )
+from src.infrastructure.persistence.unit_of_work import DatabaseUnitOfWork
 from src.interface.api.app import create_app
+import src.interface.api.routes.connectors as _connectors_mod
 import src.interface.api.routes.imports as _imports_mod
 import src.interface.api.routes.playlists as _playlists_mod
 import src.interface.api.routes.workflows as _workflows_mod
@@ -22,6 +27,26 @@ import src.interface.api.routes.workflows as _workflows_mod
 
 def _noop_launch(_name: str, _coro_factory: object, **_kwargs: object) -> None:
     """No-op stub — never invokes the factory, so no coroutines are created."""
+
+
+@contextlib.contextmanager
+def _stub_launch_background(*modules: Any) -> Generator[None]:
+    """Replace ``launch_background`` on each route module with a no-op for the duration.
+
+    Each route module imports ``launch_background`` by-value via
+    ``from ... import launch_background`` — so stubbing must target the
+    module's own binding at every usage site, not the source module.
+    Adding a new route that needs background-task stubbing is one extra
+    argument here, no other changes.
+    """
+    originals = [(m, m.launch_background) for m in modules]
+    for m, _ in originals:
+        m.launch_background = _noop_launch
+    try:
+        yield
+    finally:
+        for m, original in originals:
+            m.launch_background = original
 
 
 @contextlib.contextmanager
@@ -108,22 +133,57 @@ async def client(
     with _test_db_env(postgres_url):
         await _truncate_all_tables()
 
-        # Stub out background task launcher at usage sites — both route modules
-        # hold their own binding via `from ... import launch_background`.
-        original_imports = _imports_mod.launch_background
-        original_playlists = _playlists_mod.launch_background
-        original_workflows = _workflows_mod.launch_background
-        _imports_mod.launch_background = _noop_launch  # type: ignore[assignment]
-        _playlists_mod.launch_background = _noop_launch  # type: ignore[assignment]
-        _workflows_mod.launch_background = _noop_launch  # type: ignore[assignment]
+        with _stub_launch_background(
+            _imports_mod, _playlists_mod, _workflows_mod, _connectors_mod
+        ):
+            app = create_app()
+            transport = httpx.ASGITransport(app=app)
+            async with httpx.AsyncClient(
+                transport=transport, base_url="http://test"
+            ) as c:
+                yield c
 
-        app = create_app()
-        transport = httpx.ASGITransport(app=app)
-        async with httpx.AsyncClient(transport=transport, base_url="http://test") as c:
-            yield c
-
-        # Cleanup: restore stubs + truncate so data doesn't leak to repo tests
-        _imports_mod.launch_background = original_imports
-        _playlists_mod.launch_background = original_playlists
-        _workflows_mod.launch_background = original_workflows
         await _truncate_all_tables()
+
+
+@pytest.fixture
+def mock_connector_provider() -> Iterator[dict[str, object]]:
+    """Override ``DatabaseUnitOfWork.get_service_connector_provider`` for a single test.
+
+    Yields a mutable dict; tests assign per-service stubs::
+
+        async def test_x(client, mock_connector_provider):
+            spotify = AsyncMock()
+            spotify.fetch_user_playlists = AsyncMock(return_value=[])
+            mock_connector_provider["spotify"] = spotify
+            ...
+
+    Calling ``provider.get_connector(service)`` inside any use case during the
+    test returns the assigned stub. If the test forgot to register a stub for a
+    service the use case asks for, the override raises ``KeyError`` immediately
+    — loud failure beats silent fall-through to a real connector that could
+    hit live APIs with the test environment's OAuth tokens.
+
+    Reusable by every connector-adjacent integration test (Apple Music, Tidal,
+    Deezer once those connectors land).
+    """
+    stubs: dict[str, object] = {}
+
+    def _get_connector(service_name: str) -> object:
+        if service_name not in stubs:
+            raise KeyError(
+                f"Test attempted to resolve connector {service_name!r} but no "
+                f"stub was configured. Set "
+                f"mock_connector_provider[{service_name!r}] before making the "
+                f"request that triggers the use case."
+            )
+        return stubs[service_name]
+
+    stub_provider = SimpleNamespace(get_connector=_get_connector)
+
+    with patch.object(
+        DatabaseUnitOfWork,
+        "get_service_connector_provider",
+        lambda _self: stub_provider,
+    ):
+        yield stubs

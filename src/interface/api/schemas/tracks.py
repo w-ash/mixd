@@ -98,11 +98,45 @@ class BatchTagRequest(BaseModel):
     tag: TagString
 
 
-class TagCountSchema(BaseModel):
-    """Tag with its usage count, for autocomplete and tag browsers."""
+class TagSummarySchema(BaseModel):
+    """Tag with usage count, namespace/value split, and last-used timestamp.
+
+    Used by the autocomplete dropdown and the Tag Management page.
+    ``namespace`` is the prefix before the first colon (``mood``,
+    ``energy``, ``context``); ``value`` is everything after. Tags
+    without a colon have ``namespace=None`` and ``value=tag``.
+    """
 
     tag: str
-    count: int
+    namespace: str | None
+    value: str
+    track_count: int
+    last_used_at: datetime
+
+
+class RenameTagRequest(BaseModel):
+    """Body for PATCH /api/v1/tags/{tag}. ``new_tag`` is normalized client-side."""
+
+    new_tag: TagString
+
+
+class MergeTagsRequest(BaseModel):
+    """Body for POST /api/v1/tags/merge. Both fields are normalized client-side."""
+
+    source: TagString
+    target: TagString
+
+
+class TagOperationResult(BaseModel):
+    """Generic response for rename / delete / merge — affected track count.
+
+    ``affected_count`` reflects how many ``track_tags`` rows were
+    touched (renamed, merged, or deleted), not the number of distinct
+    tracks if a user could somehow have multiple rows for the same
+    track-tag pair (the UNIQUE constraint prevents this).
+    """
+
+    affected_count: int
 
 
 class AddTagResponse(BaseModel):

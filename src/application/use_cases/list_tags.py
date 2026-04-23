@@ -1,9 +1,11 @@
-"""List a user's tags with usage counts.
+"""List a user's tags with usage counts and last-used timestamps.
 
 Powers both the autocomplete input (query-filtered) and the full tag
-browser (query=None). Trigram-aware — when ``query`` is set, matches
-use the GIN index on ``tag`` for sub-millisecond lookups.
+browser / management page (query=None). Trigram-aware — when ``query``
+is set, matches use the GIN index on ``tag`` for sub-millisecond lookups.
 """
+
+from datetime import datetime
 
 from attrs import define
 
@@ -22,7 +24,8 @@ class ListTagsCommand:
 
 @define(frozen=True, slots=True)
 class ListTagsResult:
-    tags: list[tuple[str, int]]  # (tag, count) ordered by count desc
+    # (tag, track_count, last_used_at) ordered by count desc
+    tags: list[tuple[str, int, datetime]]
 
 
 @define(slots=True)

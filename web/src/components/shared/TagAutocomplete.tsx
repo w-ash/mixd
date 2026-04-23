@@ -107,7 +107,7 @@ export function TagAutocomplete({
           >
             <span className="truncate font-mono text-text">{s.tag}</span>
             <span className="shrink-0 font-mono text-xs text-text-muted">
-              {s.count}
+              {s.track_count}
             </span>
           </Command.Item>
         ))}

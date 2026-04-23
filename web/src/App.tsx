@@ -53,6 +53,9 @@ const Sync = lazy(() =>
 const Account = lazy(() =>
   import("./pages/settings/Account").then((m) => ({ default: m.Account })),
 );
+const Tags = lazy(() =>
+  import("./pages/settings/Tags").then((m) => ({ default: m.Tags })),
+);
 const Library = lazy(() =>
   import("./pages/Library").then((m) => ({ default: m.Library })),
 );
@@ -243,6 +246,14 @@ export function App() {
                   element={
                     <Suspense fallback={<PageSkeleton />}>
                       <Sync />
+                    </Suspense>
+                  }
+                />
+                <Route
+                  path="settings/tags"
+                  element={
+                    <Suspense fallback={<PageSkeleton />}>
+                      <Tags />
                     </Suspense>
                   }
                 />

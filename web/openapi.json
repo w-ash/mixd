@@ -1841,7 +1841,7 @@
           "tags"
         ],
         "summary": "List Tags",
-        "description": "List a user's tags with usage counts, sorted by count desc.\n\nWhen ``q`` is set, results filter via the GIN trigram index on ``tag``\nfor sub-millisecond lookups \u2014 powers the tag autocomplete in the UI.",
+        "description": "List a user's tags with usage counts and last-used timestamps.\n\nWhen ``q`` is set, results filter via the GIN trigram index on ``tag``\nfor sub-millisecond lookups \u2014 powers the tag autocomplete in the UI.\nWithout ``q``, returns every tag the user has used (capped at\n``limit``) sorted by ``track_count`` descending \u2014 this is the data\nbacking the Tag Management page.",
         "operationId": "list_tags_api_v1_tags_get",
         "parameters": [
           {
@@ -1884,9 +1884,145 @@
                 "schema": {
                   "type": "array",
                   "items": {
-                    "$ref": "#/components/schemas/TagCountSchema"
+                    "$ref": "#/components/schemas/TagSummarySchema"
                   },
                   "title": "Response List Tags Api V1 Tags Get"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/tags/{tag}": {
+      "patch": {
+        "tags": [
+          "tags"
+        ],
+        "summary": "Rename Tag",
+        "description": "Rename ``tag`` to ``body.new_tag`` across every track for the user.\n\nIdempotent on tracks that already carry the new tag \u2014 those just\nlose the old tag without creating a duplicate. Returns the number\nof tracks affected.",
+        "operationId": "rename_tag_api_v1_tags__tag__patch",
+        "parameters": [
+          {
+            "name": "tag",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Tag"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/RenameTagRequest"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/TagOperationResult"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      },
+      "delete": {
+        "tags": [
+          "tags"
+        ],
+        "summary": "Delete Tag",
+        "description": "Bulk-delete ``tag`` from every track for the user.\n\nCascades to the tag-event log: events for the deleted tag are also\nremoved (the audit trail's subject no longer exists). Returns the\nnumber of tracks affected.",
+        "operationId": "delete_tag_api_v1_tags__tag__delete",
+        "parameters": [
+          {
+            "name": "tag",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Tag"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/TagOperationResult"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/tags/merge": {
+      "post": {
+        "tags": [
+          "tags"
+        ],
+        "summary": "Merge Tags",
+        "description": "Merge ``source`` tag into ``target`` tag across every track.\n\nSame semantics as rename \u2014 exposed under a separate endpoint so the\nUI can present rename / merge as distinct flows. Tracks already\ncarrying ``target`` just lose ``source``. Returns the number of\ntracks affected.",
+        "operationId": "merge_tags_api_v1_tags_merge_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/MergeTagsRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/TagOperationResult"
                 }
               }
             }
@@ -4208,6 +4344,7 @@
               "type": "string"
             },
             "type": "array",
+            "minItems": 1,
             "title": "Connector Playlist Ids"
           },
           "sync_direction": {
@@ -4789,6 +4926,25 @@
         ],
         "title": "MatchReviewSchema",
         "description": "Single match review item for API responses."
+      },
+      "MergeTagsRequest": {
+        "properties": {
+          "source": {
+            "type": "string",
+            "title": "Source"
+          },
+          "target": {
+            "type": "string",
+            "title": "Target"
+          }
+        },
+        "type": "object",
+        "required": [
+          "source",
+          "target"
+        ],
+        "title": "MergeTagsRequest",
+        "description": "Body for POST /api/v1/tags/merge. Both fields are normalized client-side."
       },
       "MergeTrackRequest": {
         "properties": {
@@ -5518,6 +5674,20 @@
         "title": "RelinkMappingRequest",
         "description": "Request body for relinking a mapping to a different track."
       },
+      "RenameTagRequest": {
+        "properties": {
+          "new_tag": {
+            "type": "string",
+            "title": "New Tag"
+          }
+        },
+        "type": "object",
+        "required": [
+          "new_tag"
+        ],
+        "title": "RenameTagRequest",
+        "description": "Body for PATCH /api/v1/tags/{tag}. ``new_tag`` is normalized client-side."
+      },
       "ResolveReviewRequest": {
         "properties": {
           "action": {
@@ -5664,24 +5834,61 @@
         "title": "SyncStartedResponse",
         "description": "Response for sync operations that run in the background."
       },
-      "TagCountSchema": {
+      "TagOperationResult": {
+        "properties": {
+          "affected_count": {
+            "type": "integer",
+            "title": "Affected Count"
+          }
+        },
+        "type": "object",
+        "required": [
+          "affected_count"
+        ],
+        "title": "TagOperationResult",
+        "description": "Generic response for rename / delete / merge \u2014 affected track count.\n\n``affected_count`` reflects how many ``track_tags`` rows were\ntouched (renamed, merged, or deleted), not the number of distinct\ntracks if a user could somehow have multiple rows for the same\ntrack-tag pair (the UNIQUE constraint prevents this)."
+      },
+      "TagSummarySchema": {
         "properties": {
           "tag": {
             "type": "string",
             "title": "Tag"
           },
-          "count": {
+          "namespace": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Namespace"
+          },
+          "value": {
+            "type": "string",
+            "title": "Value"
+          },
+          "track_count": {
             "type": "integer",
-            "title": "Count"
+            "title": "Track Count"
+          },
+          "last_used_at": {
+            "type": "string",
+            "format": "date-time",
+            "title": "Last Used At"
           }
         },
         "type": "object",
         "required": [
           "tag",
-          "count"
+          "namespace",
+          "value",
+          "track_count",
+          "last_used_at"
         ],
-        "title": "TagCountSchema",
-        "description": "Tag with its usage count, for autocomplete and tag browsers."
+        "title": "TagSummarySchema",
+        "description": "Tag with usage count, namespace/value split, and last-used timestamp.\n\nUsed by the autocomplete dropdown and the Tag Management page.\n``namespace`` is the prefix before the first colon (``mood``,\n``energy``, ``context``); ``value`` is everything after. Tags\nwithout a colon have ``namespace=None`` and ``value=tag``."
       },
       "TrackDetailSchema": {
         "properties": {
