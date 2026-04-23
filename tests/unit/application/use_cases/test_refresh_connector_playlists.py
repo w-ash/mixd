@@ -21,11 +21,12 @@ def _cp(
     )
 
 
-def _cmd(ids, connector_name="spotify", user="default"):
+def _cmd(ids, connector_name="spotify", user="default", *, force=False):
     return RefreshConnectorPlaylistsCommand(
         user_id=user,
         connector_name=connector_name,
         connector_playlist_ids=ids,
+        force=force,
     )
 
 
@@ -111,3 +112,38 @@ class TestNoWork:
 
         connector.get_playlist.assert_awaited_once()
         assert len(result.succeeded) == 1
+
+
+class TestForce:
+    """``force=True`` bypasses the snapshot-fresh short-circuit."""
+
+    async def test_force_refetches_cached_snapshot(self) -> None:
+        """A normally-skipped fresh-cache id IS fetched when force=True."""
+        cp = _cp("sp1", snapshot_id="snap-fresh")
+        uow, connector = make_mock_uow_with_connector(get_playlist_return=cp)
+        uow.get_connector_playlist_repository().list_by_connector.return_value = [
+            _cp("sp1", snapshot_id="snap-existing")
+        ]
+
+        result = await RefreshConnectorPlaylistsUseCase().execute(
+            _cmd(["sp1"], force=True), uow
+        )
+
+        connector.get_playlist.assert_awaited_once_with("sp1")
+        assert list(result.succeeded) == ["sp1"]
+        assert list(result.skipped_unchanged) == []
+        uow.commit.assert_awaited_once()
+
+    async def test_force_false_preserves_short_circuit(self) -> None:
+        """Default force=False preserves the existing skip behavior."""
+        uow, connector = make_mock_uow_with_connector()
+        uow.get_connector_playlist_repository().list_by_connector.return_value = [
+            _cp("sp1", snapshot_id="snap-existing")
+        ]
+
+        result = await RefreshConnectorPlaylistsUseCase().execute(
+            _cmd(["sp1"], force=False), uow
+        )
+
+        connector.get_playlist.assert_not_called()
+        assert list(result.skipped_unchanged) == ["sp1"]

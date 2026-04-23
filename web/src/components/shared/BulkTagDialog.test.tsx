@@ -9,6 +9,24 @@ import {
   waitFor,
 } from "#/test/test-utils";
 
+const mockToastPromise = vi.fn();
+vi.mock("#/lib/toasts", async () => {
+  const actual =
+    await vi.importActual<typeof import("#/lib/toasts")>("#/lib/toasts");
+  return {
+    ...actual,
+    toasts: {
+      ...actual.toasts,
+      promise: (...args: unknown[]) => {
+        mockToastPromise(...args);
+        // Drive the underlying promise so onSuccess still fires.
+        const promise = args[0] as Promise<unknown>;
+        return promise;
+      },
+    },
+  };
+});
+
 import { BulkTagDialog } from "./BulkTagDialog";
 
 const trackIds = [
@@ -78,5 +96,37 @@ describe("BulkTagDialog", () => {
     const { onOpenChange } = setup();
     await userEvent.click(screen.getByRole("button", { name: "Cancel" }));
     expect(onOpenChange).toHaveBeenCalledWith(false);
+  });
+
+  it("wraps the mutation in toasts.promise with a loading message", async () => {
+    mockToastPromise.mockClear();
+    server.use(
+      http.get("*/api/v1/tags", () => HttpResponse.json([])),
+      http.post("*/api/v1/tracks/tags/batch", () =>
+        HttpResponse.json({ tag: "mood:chill", requested: 2, tagged: 2 }),
+      ),
+    );
+
+    setup();
+    const input = screen.getByPlaceholderText("Pick or add a tag…");
+    await userEvent.type(input, "mood:chill");
+    await userEvent.click(await screen.findByText("mood:chill"));
+    await userEvent.click(screen.getByRole("button", { name: "Tag 2 tracks" }));
+
+    await waitFor(() => expect(mockToastPromise).toHaveBeenCalledOnce());
+    const messages = mockToastPromise.mock.calls[0][1] as {
+      loading: string;
+      success: (resp: unknown) => string;
+      error: string;
+    };
+    expect(messages.loading).toBe("Tagging 2 tracks…");
+    expect(messages.error).toBe("Failed to tag tracks");
+    // Success template renders the affected count + tag name.
+    expect(
+      messages.success({
+        status: 200,
+        data: { tag: "mood:chill", requested: 2, tagged: 2 },
+      }),
+    ).toBe("Tagged 2 tracks with mood:chill");
   });
 });

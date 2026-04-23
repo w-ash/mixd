@@ -9,6 +9,7 @@ import type {
   OperationStartedResponse,
 } from "#/api/generated/model";
 import { getListPlaylistsApiV1PlaylistsGetQueryKey } from "#/api/generated/playlists/playlists";
+import { Switch } from "#/components/ui/switch";
 import { useOperationProgress } from "#/hooks/useOperationProgress";
 import { pluralize } from "#/lib/pluralize";
 import { toasts } from "#/lib/toasts";
@@ -54,6 +55,7 @@ export function ImportPlaylistsConfirmDialog({
   onImported,
 }: ImportPlaylistsConfirmDialogProps) {
   const [direction, setDirection] = useState<SyncDirection>("pull");
+  const [forceRefetch, setForceRefetch] = useState(false);
   const [operationId, setOperationId] = useState<string | null>(null);
   const queryClient = useQueryClient();
   const label = connector.display_name;
@@ -186,6 +188,7 @@ export function ImportPlaylistsConfirmDialog({
           data: {
             connector_playlist_ids: playlists.map((p) => p.id),
             sync_direction: direction,
+            force: forceRefetch,
           },
         });
       }}
@@ -236,6 +239,26 @@ export function ImportPlaylistsConfirmDialog({
               </span>
             </label>
           </fieldset>
+
+          <div className="flex items-start justify-between gap-3 rounded-md border p-3 hover:bg-accent/30">
+            <label htmlFor="import-force-refetch" className="cursor-pointer">
+              <span className="block font-medium text-text">
+                Force re-fetch
+              </span>
+              <span className="block text-xs text-text-muted">
+                Bypass the snapshot-fresh short-circuit and re-fetch from{" "}
+                {label}. Use when you know the {label} playlist changed and the
+                cached snapshot is stale.
+              </span>
+            </label>
+            <Switch
+              id="import-force-refetch"
+              checked={forceRefetch}
+              onCheckedChange={setForceRefetch}
+              aria-label="Force re-fetch from connector"
+              className="mt-1"
+            />
+          </div>
 
           {displayedNames.length > 0 && (
             <div>

@@ -69,6 +69,12 @@ class ImportConnectorPlaylistsAsCanonicalCommand:
     connector_name: str
     connector_playlist_ids: Sequence[str]
     sync_direction: SyncDirection = SyncDirection.PULL
+    # When True, bypass the snapshot-fresh + already-linked short-circuit
+    # and re-fetch every requested id. Backs the
+    # ``import-spotify --refresh`` CLI flag and the web "Force re-fetch"
+    # toggle so a known-stale playlist can be re-imported in one step
+    # without the user dropping into the link-based ``sync`` mental model.
+    force: bool = False
 
 
 @define(frozen=True, slots=True)
@@ -114,7 +120,11 @@ class ImportConnectorPlaylistsAsCanonicalUseCase:
             link_skipped: list[str] = []
             to_refresh: list[str] = []
             for cid in unique_ids:
-                if cid in existing_by_id and has_fresh_cache(cached_by_id, cid):
+                if (
+                    not command.force
+                    and cid in existing_by_id
+                    and has_fresh_cache(cached_by_id, cid)
+                ):
                     link_skipped.append(cid)
                 else:
                     to_refresh.append(cid)
@@ -215,6 +225,7 @@ class ImportConnectorPlaylistsAsCanonicalUseCase:
                 uow,
                 cached_by_id=cached_by_id,
                 on_page_factory=on_page_factory,
+                force=command.force,
             )
 
             succeeded: list[CanonicalImportOutcome] = []
@@ -488,6 +499,8 @@ async def run_import_connector_playlists_as_canonical(
     connector_name: str,
     connector_playlist_ids: Sequence[str],
     sync_direction: SyncDirection = SyncDirection.PULL,
+    *,
+    force: bool = False,
     progress_emitter: ProgressEmitter | None = None,
     progress_manager: AsyncProgressManager | None = None,
 ) -> ImportConnectorPlaylistsAsCanonicalResult:
@@ -510,6 +523,7 @@ async def run_import_connector_playlists_as_canonical(
         connector_name=connector_name,
         connector_playlist_ids=connector_playlist_ids,
         sync_direction=sync_direction,
+        force=force,
     )
     use_case = ImportConnectorPlaylistsAsCanonicalUseCase(
         metric_config=MetricConfigProviderImpl()

@@ -22,6 +22,9 @@ from src.application.use_cases.list_connector_playlists import (
     ImportStatus,
     ListConnectorPlaylistsResult,
 )
+from src.application.use_cases.refresh_connector_playlists import (
+    RefreshConnectorPlaylistsResult,
+)
 from src.domain.entities.playlist_link import SyncDirection
 from src.interface.cli.app import app
 
@@ -33,6 +36,10 @@ _IMPORT_PATCH = (
 )
 _LIST_PATCH = (
     "src.application.use_cases.list_connector_playlists.run_list_connector_playlists"
+)
+_REFRESH_PATCH = (
+    "src.application.use_cases.refresh_connector_playlists."
+    "run_refresh_connector_playlists"
 )
 
 
@@ -316,4 +323,102 @@ class TestAssignmentValidation:
             ],
         )
         assert result.exit_code == 2
+        assert "Traceback" not in result.output
+
+
+class TestImportSpotifyRefresh:
+    """``--refresh`` forwards force=True to the import use case."""
+
+    def test_refresh_flag_sets_force_true(self) -> None:
+        views = [_view("sp1", "Chill Vibes")]
+        import_mock = AsyncMock(return_value=_empty_import_result())
+
+        with (
+            patch(_LIST_PATCH, AsyncMock(return_value=_listing(views))),
+            patch(_IMPORT_PATCH, import_mock),
+        ):
+            result = runner.invoke(
+                app,
+                ["playlist", "import-spotify", "Chill Vibes", "--refresh"],
+            )
+
+        assert result.exit_code == 0, result.output
+        assert import_mock.await_args.kwargs["force"] is True
+
+    def test_no_refresh_flag_sets_force_false(self) -> None:
+        views = [_view("sp1", "Chill Vibes")]
+        import_mock = AsyncMock(return_value=_empty_import_result())
+
+        with (
+            patch(_LIST_PATCH, AsyncMock(return_value=_listing(views))),
+            patch(_IMPORT_PATCH, import_mock),
+        ):
+            result = runner.invoke(app, ["playlist", "import-spotify", "Chill Vibes"])
+
+        assert result.exit_code == 0, result.output
+        assert import_mock.await_args.kwargs["force"] is False
+
+
+class TestRefreshSpotify:
+    """``refresh-spotify`` resolves a single ref and calls UC1 only."""
+
+    def test_resolves_single_name_and_calls_refresh_uc(self) -> None:
+        views = [_view("sp1", "Chill Vibes"), _view("sp2", "Workout")]
+        refresh_mock = AsyncMock(
+            return_value=RefreshConnectorPlaylistsResult(
+                succeeded=["sp1"], skipped_unchanged=[], failed=[]
+            )
+        )
+
+        with (
+            patch(_LIST_PATCH, AsyncMock(return_value=_listing(views))),
+            patch(_REFRESH_PATCH, refresh_mock),
+        ):
+            result = runner.invoke(app, ["playlist", "refresh-spotify", "Chill Vibes"])
+
+        assert result.exit_code == 0, result.output
+        call_kwargs = refresh_mock.await_args.kwargs
+        assert list(call_kwargs["connector_playlist_ids"]) == ["sp1"]
+        assert call_kwargs["force"] is False
+        assert "Traceback" not in result.output
+
+    def test_refresh_flag_sets_force_true_on_uc(self) -> None:
+        views = [_view("sp1", "Chill Vibes")]
+        refresh_mock = AsyncMock(
+            return_value=RefreshConnectorPlaylistsResult(
+                succeeded=["sp1"], skipped_unchanged=[], failed=[]
+            )
+        )
+
+        with (
+            patch(_LIST_PATCH, AsyncMock(return_value=_listing(views))),
+            patch(_REFRESH_PATCH, refresh_mock),
+        ):
+            result = runner.invoke(
+                app,
+                ["playlist", "refresh-spotify", "Chill Vibes", "--refresh"],
+            )
+
+        assert result.exit_code == 0, result.output
+        assert refresh_mock.await_args.kwargs["force"] is True
+
+    def test_unknown_ref_exits_with_error(self) -> None:
+        views = [_view("sp1", "Chill Vibes")]
+
+        with (
+            patch(_LIST_PATCH, AsyncMock(return_value=_listing(views))),
+            patch(_REFRESH_PATCH, AsyncMock()) as refresh_mock,
+        ):
+            result = runner.invoke(
+                app, ["playlist", "refresh-spotify", "Nonexistent Playlist"]
+            )
+
+        assert result.exit_code == 1
+        assert "No Spotify playlist matching" in result.output
+        refresh_mock.assert_not_called()
+        assert "Traceback" not in result.output
+
+    def test_missing_arg_errors_via_typer(self) -> None:
+        result = runner.invoke(app, ["playlist", "refresh-spotify"])
+        assert result.exit_code == 2  # Typer missing-arg exit
         assert "Traceback" not in result.output

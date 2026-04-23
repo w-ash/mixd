@@ -3,7 +3,7 @@
   "info": {
     "title": "Mixd",
     "description": "Personal music metadata hub",
-    "version": "0.7.5.post2"
+    "version": "0.7.6"
   },
   "paths": {
     "/api/v1/connectors/{service}/auth-url": {
@@ -4354,6 +4354,11 @@
               "push"
             ],
             "title": "Sync Direction"
+          },
+          "force": {
+            "type": "boolean",
+            "title": "Force",
+            "default": false
           }
         },
         "type": "object",
@@ -4362,7 +4367,7 @@
           "sync_direction"
         ],
         "title": "ImportConnectorPlaylistsRequest",
-        "description": "Body for POST /connectors/{service}/playlists/import.\n\nEach ID is a provider-native playlist ID (not a Mixd UUID). The whole\nbatch shares one ``sync_direction`` \u2014 per-playlist direction overrides\ncan be added later if a workflow demands it.\n\nThe endpoint returns ``OperationStartedResponse``; per-playlist outcomes\n(succeeded / skipped_unchanged / failed with track counts and failure\nmessages) stream as SSE sub-operation events on\n``GET /api/v1/operations/{operation_id}/progress``."
+        "description": "Body for POST /connectors/{service}/playlists/import.\n\nEach ID is a provider-native playlist ID (not a Mixd UUID). The whole\nbatch shares one ``sync_direction`` \u2014 per-playlist direction overrides\ncan be added later if a workflow demands it.\n\nThe endpoint returns ``OperationStartedResponse``; per-playlist outcomes\n(succeeded / skipped_unchanged / failed with track counts and failure\nmessages) stream as SSE sub-operation events on\n``GET /api/v1/operations/{operation_id}/progress``.\n\nWhen ``force`` is true the import bypasses the \"already linked + cache\nfresh\" short-circuit and re-fetches every requested playlist. Defaults\nto false to preserve API quota on routine re-runs; the web UI exposes\nthis via the per-row \"Force re-fetch\" toggle."
       },
       "ImportLastfmHistoryRequest": {
         "properties": {

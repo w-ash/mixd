@@ -105,6 +105,7 @@ async def get_current_connector_playlists(
     *,
     cached_by_id: dict[str, ConnectorPlaylist] | None = None,
     on_page_factory: OnPageFactory | None = None,
+    force: bool = False,
 ) -> tuple[dict[str, ConnectorPlaylist], list[RefreshFailure]]:
     """Return the current ConnectorPlaylist for each requested id.
 
@@ -118,6 +119,10 @@ async def get_current_connector_playlists(
     (saves a redundant ``list_by_connector`` query). Pass ``on_page_factory``
     to emit per-page progress during network fetches — cache hits never
     invoke it.
+
+    When ``force`` is True every id is fetched fresh regardless of cache
+    state — used by the user-driven "Re-fetch" / ``--refresh`` paths so
+    a known-stale cache can be repopulated without manual intervention.
 
     Does NOT commit — caller owns the transaction boundary.
     """
@@ -133,7 +138,7 @@ async def get_current_connector_playlists(
     by_id: dict[str, ConnectorPlaylist] = {}
     to_fetch: list[str] = []
     for cid in unique_ids:
-        if has_fresh_cache(cached_by_id, cid):
+        if not force and has_fresh_cache(cached_by_id, cid):
             by_id[cid] = cached_by_id[cid]
         else:
             to_fetch.append(cid)
@@ -152,6 +157,7 @@ async def ensure_connector_playlist_cache(
     uow: UnitOfWorkProtocol,
     *,
     cached_by_id: dict[str, ConnectorPlaylist] | None = None,
+    force: bool = False,
 ) -> EnsureCacheOutcome:
     """Ensure each id has a fresh-cached ConnectorPlaylist; return metrics.
 
@@ -161,6 +167,9 @@ async def ensure_connector_playlist_cache(
     should call ``get_current_connector_playlists`` instead. Forcing that
     split makes it impossible to accidentally discard cache-hit data at
     the API boundary (the bug class this function used to have).
+
+    When ``force`` is True every id is fetched fresh regardless of cache
+    state — backs the user-driven ``--refresh`` / "Re-fetch" affordances.
 
     Does NOT commit — caller owns the transaction boundary.
     """
@@ -176,7 +185,7 @@ async def ensure_connector_playlist_cache(
     cache_hit: list[str] = []
     to_fetch: list[str] = []
     for cid in unique_ids:
-        if has_fresh_cache(cached_by_id, cid):
+        if not force and has_fresh_cache(cached_by_id, cid):
             cache_hit.append(cid)
         else:
             to_fetch.append(cid)

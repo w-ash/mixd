@@ -195,6 +195,7 @@ async def import_connector_playlists(
             connector_name=service,
             connector_playlist_ids=body.connector_playlist_ids,
             sync_direction=SyncDirection(body.sync_direction),
+            force=body.force,
             progress_emitter=emitter,
             progress_manager=progress_manager,
         )

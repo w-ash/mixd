@@ -350,3 +350,24 @@ class TestSpotifyPlaylistImport:
         )
 
         assert response.status_code == 422
+
+    async def test_force_flag_accepted_in_request_body(
+        self, client: httpx.AsyncClient
+    ) -> None:
+        """``force: true`` is accepted alongside the other fields and returns 202.
+
+        End-to-end behavior (force actually re-fetches a cached playlist)
+        is exercised at the use-case unit level; here we just verify the
+        route schema accepts the field.
+        """
+        response = await client.post(
+            "/api/v1/connectors/spotify/playlists/import",
+            json={
+                "connector_playlist_ids": ["sp_x"],
+                "sync_direction": "pull",
+                "force": True,
+            },
+        )
+
+        assert response.status_code == 202
+        assert isinstance(response.json().get("operation_id"), str)

@@ -175,6 +175,67 @@ describe("ImportPlaylistsConfirmDialog", () => {
       await userEvent.click(screen.getByRole("button", { name: "Cancel" }));
       expect(onOpenChange).toHaveBeenCalledWith(false);
     });
+
+    it("renders the Force re-fetch toggle off by default", async () => {
+      setup();
+      const toggle = await screen.findByRole("switch", {
+        name: "Force re-fetch from connector",
+      });
+      expect(toggle).toHaveAttribute("aria-checked", "false");
+    });
+
+    it("forwards force=true in the import request when toggle is on", async () => {
+      const importBody = vi.fn();
+      server.use(
+        http.post(
+          "*/api/v1/connectors/spotify/playlists/import",
+          async ({ request }) => {
+            importBody(await request.json());
+            return HttpResponse.json(
+              { operation_id: "op-force" },
+              { status: 202 },
+            );
+          },
+        ),
+      );
+
+      setup();
+      await userEvent.click(
+        await screen.findByRole("switch", {
+          name: "Force re-fetch from connector",
+        }),
+      );
+      await userEvent.click(
+        screen.getByRole("button", { name: "Import 2 playlists" }),
+      );
+
+      await waitFor(() => expect(importBody).toHaveBeenCalled());
+      expect(importBody.mock.calls[0][0]).toMatchObject({ force: true });
+    });
+
+    it("defaults to force=false when the toggle is left off", async () => {
+      const importBody = vi.fn();
+      server.use(
+        http.post(
+          "*/api/v1/connectors/spotify/playlists/import",
+          async ({ request }) => {
+            importBody(await request.json());
+            return HttpResponse.json(
+              { operation_id: "op-default" },
+              { status: 202 },
+            );
+          },
+        ),
+      );
+
+      setup();
+      await userEvent.click(
+        await screen.findByRole("button", { name: "Import 2 playlists" }),
+      );
+
+      await waitFor(() => expect(importBody).toHaveBeenCalled());
+      expect(importBody.mock.calls[0][0]).toMatchObject({ force: false });
+    });
   });
 
   describe("terminal toast — outcome matrix", () => {

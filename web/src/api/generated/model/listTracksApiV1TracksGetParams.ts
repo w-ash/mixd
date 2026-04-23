@@ -3,7 +3,7 @@
  * Do not edit manually.
  * Mixd
  * Personal music metadata hub
- * OpenAPI spec version: 0.7.5.post2
+ * OpenAPI spec version: 0.7.6
  */
 
 export type ListTracksApiV1TracksGetParams = {

@@ -684,6 +684,13 @@ def import_spotify(
             help="Restrict --all to playlists not yet imported into Mixd",
         ),
     ] = False,
+    refresh: Annotated[
+        bool,
+        typer.Option(
+            "--refresh",
+            help="Bypass the snapshot-fresh short-circuit and re-fetch from Spotify",
+        ),
+    ] = False,
 ) -> None:
     """Import one or more Spotify playlists into Mixd.
 
@@ -692,6 +699,7 @@ def import_spotify(
         mixd playlist import-spotify "Chill Vibes"
         mixd playlist import-spotify "Chill" "Workout" --source spotify
         mixd playlist import-spotify --all --not-imported
+        mixd playlist import-spotify "Chill Vibes" --refresh
     """
     sync_direction = validate_sync_source(source)
 
@@ -711,7 +719,12 @@ def import_spotify(
     try:
         listing = run_async(
             run_list_connector_playlists(
-                user_id=get_cli_user_id(), connector_name=SPOTIFY_CONNECTOR
+                user_id=get_cli_user_id(),
+                connector_name=SPOTIFY_CONNECTOR,
+                # When the user wants fresh data via --refresh, the name→id
+                # lookup must also refresh — otherwise a brand-new playlist
+                # the curator just created on Spotify won't be matchable.
+                force_refresh=refresh,
             )
         )
     except Exception as e:
@@ -749,6 +762,7 @@ def import_spotify(
                 connector_name=SPOTIFY_CONNECTOR,
                 connector_playlist_ids=resolved_ids,
                 sync_direction=sync_direction,
+                force=refresh,
             )
         )
     except Exception as e:
@@ -768,6 +782,89 @@ def import_spotify(
         ],
     )
     console.print(render_batch_summary(summary, title="Spotify Import"))
+
+
+@app.command(name="refresh-spotify")
+def refresh_spotify(
+    ref: Annotated[
+        str,
+        typer.Argument(
+            help="Spotify playlist ID or name (single playlist; bulk variant unscheduled)"
+        ),
+    ],
+    refresh: Annotated[
+        bool,
+        typer.Option(
+            "--refresh",
+            help="Force re-fetch even when the cached snapshot is fresh",
+        ),
+    ] = False,
+) -> None:
+    """Refresh ONE Spotify playlist's cache without forking into Mixd.
+
+    Lighter-weight than ``import-spotify`` — only updates the cached
+    ``DBConnectorPlaylist`` row; never creates a canonical Playlist or
+    PlaylistLink. Useful for keeping the picker / preview state up to
+    date before a downstream mapping flow.
+
+    Examples:
+        mixd playlist refresh-spotify "Chill Vibes"
+        mixd playlist refresh-spotify 37i9dQZF1DX0XUsuxWHRQd --refresh
+    """
+    from src.application.use_cases.list_connector_playlists import (
+        run_list_connector_playlists,
+    )
+    from src.application.use_cases.refresh_connector_playlists import (
+        run_refresh_connector_playlists,
+    )
+    from src.domain.entities.playlist import SPOTIFY_CONNECTOR
+
+    try:
+        listing = run_async(
+            run_list_connector_playlists(
+                user_id=get_cli_user_id(),
+                connector_name=SPOTIFY_CONNECTOR,
+                # --refresh implies "I know upstream changed" — refresh the
+                # cached listing too so a newly-created playlist resolves.
+                force_refresh=refresh,
+            )
+        )
+    except Exception as e:
+        handle_cli_error(e, "Failed to list Spotify playlists")
+
+    names_by_id = {v.connector_playlist_identifier: v.name for v in listing.playlists}
+    resolved_ids, errors = _resolve_spotify_playlist_refs([ref], names_by_id)
+    for err in errors:
+        err_console.print(f"[red]{err}[/red]")
+    if not resolved_ids:
+        raise typer.Exit(1)
+
+    try:
+        result = run_async(
+            run_refresh_connector_playlists(
+                user_id=get_cli_user_id(),
+                connector_name=SPOTIFY_CONNECTOR,
+                connector_playlist_ids=resolved_ids,
+                force=refresh,
+            )
+        )
+    except Exception as e:
+        handle_cli_error(e, "Refresh failed")
+
+    for failure in result.failed:
+        err_console.print(
+            f"[red]Failed:[/red] {failure.connector_playlist_identifier} — "
+            f"{failure.message}"
+        )
+
+    summary = BatchOperationResult(
+        succeeded=len(result.succeeded),
+        skipped=len(result.skipped_unchanged),
+        failed=[
+            f"{f.connector_playlist_identifier}: {f.message}" for f in result.failed
+        ],
+    )
+    console.print(render_batch_summary(summary, title="Spotify Refresh"))
 
 
 # ---------------------------------------------------------------------------

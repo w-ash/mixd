@@ -25,6 +25,10 @@ class RefreshConnectorPlaylistsCommand:
     user_id: str
     connector_name: str
     connector_playlist_ids: Sequence[str]
+    # When True, bypass the snapshot-fresh short-circuit and always
+    # re-fetch from the connector. Backs the ``--refresh`` flag and the
+    # web "Force re-fetch" toggle.
+    force: bool = False
 
 
 @define(frozen=True, slots=True)
@@ -49,6 +53,7 @@ class RefreshConnectorPlaylistsUseCase:
                 command.connector_name,
                 command.connector_playlist_ids,
                 uow,
+                force=command.force,
             )
             if outcome.fetched:
                 await uow.commit()
@@ -63,6 +68,8 @@ async def run_refresh_connector_playlists(
     user_id: str,
     connector_name: str,
     connector_playlist_ids: Sequence[str],
+    *,
+    force: bool = False,
 ) -> RefreshConnectorPlaylistsResult:
     """Convenience wrapper for route and CLI handlers."""
     from src.application.runner import execute_use_case
@@ -71,6 +78,7 @@ async def run_refresh_connector_playlists(
         user_id=user_id,
         connector_name=connector_name,
         connector_playlist_ids=connector_playlist_ids,
+        force=force,
     )
     return await execute_use_case(
         lambda uow: RefreshConnectorPlaylistsUseCase().execute(command, uow),

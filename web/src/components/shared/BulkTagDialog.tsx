@@ -34,23 +34,19 @@ export function BulkTagDialog({
     mutation: {
       onSuccess: (response) => {
         if (response.status !== 200) return;
-        const { tag, requested, tagged } = response.data;
         queryClient.invalidateQueries({
           queryKey: getListTracksApiV1TracksGetQueryKey(),
         });
         queryClient.invalidateQueries({
           queryKey: getListTagsApiV1TagsGetQueryKey(),
         });
-        toasts.success(
-          tagged === requested
-            ? `Tagged ${pluralize(tagged, "track")} with ${tag}`
-            : `Tagged ${tagged} of ${requested} (others already had ${tag})`,
-        );
         onTagged?.();
         onOpenChange(false);
         setDraftTag(null);
       },
-      meta: { errorLabel: "Failed to tag tracks" },
+      // toasts.promise (called inline below) emits its own error toast; the
+      // global mutation error handler would double-toast otherwise.
+      meta: { suppressErrorToast: true },
     },
   });
 
@@ -72,7 +68,24 @@ export function BulkTagDialog({
       isPending={batchTag.isPending}
       onConfirm={() => {
         if (!draftTag) return;
-        batchTag.mutate({ data: { track_ids: trackIds, tag: draftTag } });
+        toasts.promise(
+          batchTag.mutateAsync({
+            data: { track_ids: trackIds, tag: draftTag },
+          }),
+          {
+            loading: `Tagging ${countLabel}…`,
+            success: (resp) => {
+              // customFetch throws on non-2xx; the status check exists only
+              // to narrow the discriminated-union response type.
+              if (resp.status !== 200) return "Tagged";
+              const { tag, requested, tagged } = resp.data;
+              return tagged === requested
+                ? `Tagged ${pluralize(tagged, "track")} with ${tag}`
+                : `Tagged ${tagged} of ${requested} (others already had ${tag})`;
+            },
+            error: "Failed to tag tracks",
+          },
+        );
       }}
     >
       {draftTag ? (

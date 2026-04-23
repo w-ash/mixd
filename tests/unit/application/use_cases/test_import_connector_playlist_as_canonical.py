@@ -45,12 +45,13 @@ def _link(identifier: str) -> PlaylistLink:
     )
 
 
-def _cmd(ids, user="default"):
+def _cmd(ids, user="default", *, force=False):
     return ImportConnectorPlaylistsAsCanonicalCommand(
         user_id=user,
         connector_name="spotify",
         connector_playlist_ids=ids,
         sync_direction=SyncDirection.PULL,
+        force=force,
     )
 
 
@@ -139,6 +140,45 @@ class TestSkipWhenLinked:
             "sp3",
         ]
         uow.commit.assert_awaited_once()
+
+
+class TestForce:
+    """``force=True`` re-fetches even when the link + cache would normally skip."""
+
+    async def test_force_bypasses_link_and_snapshot_short_circuit(self) -> None:
+        """Pre-existing link + fresh cache: force=True should still re-fetch."""
+        cp = _cp("sp1", snapshot_id="fresh")
+        uow, connector = make_mock_uow_with_connector(get_playlist_return=cp)
+        uow.get_playlist_link_repository().list_by_user_connector.return_value = [
+            _link("sp1")
+        ]
+        uow.get_connector_playlist_repository().list_by_connector.return_value = [
+            _cp("sp1", snapshot_id="cached-snap")
+        ]
+
+        with patch(_UPSERT_PATCH, new=AsyncMock(return_value=_create_result("Chill"))):
+            result = await _use_case().execute(_cmd(["sp1"], force=True), uow)
+
+        connector.get_playlist.assert_awaited_once_with("sp1")
+        assert len(result.succeeded) == 1
+        assert list(result.skipped_unchanged) == []
+
+    async def test_force_false_preserves_existing_skip_behavior(self) -> None:
+        """Default force=False keeps the v0.7.5 skip semantics intact."""
+        uow, connector = make_mock_uow_with_connector()
+        uow.get_playlist_link_repository().list_by_user_connector.return_value = [
+            _link("sp1")
+        ]
+        uow.get_connector_playlist_repository().list_by_connector.return_value = [
+            _cp("sp1", snapshot_id="cached-snap")
+        ]
+
+        with patch(_UPSERT_PATCH, new=AsyncMock()) as upsert_mock:
+            result = await _use_case().execute(_cmd(["sp1"], force=False), uow)
+
+        connector.get_playlist.assert_not_called()
+        upsert_mock.assert_not_called()
+        assert list(result.skipped_unchanged) == ["sp1"]
 
 
 class TestCreatePath:
