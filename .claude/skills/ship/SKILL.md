@@ -13,16 +13,37 @@ Post-implementation release workflow for a completed backlog version.
 Recent commit conventions:
 !`git log --oneline -5`
 
+## Versioning scheme
+
+Mixd uses `major.minor.feature.revision` — see the `version-management` rule. Summary for this skill:
+
+- First ship of a new feature (e.g., `0.7.6`) → bump **feature**, no revision segment.
+- Any ship after that on the same feature, while it's still `🚀 Shipped` in the roadmap (post-deploy fixes, additions discovered during prod testing) → bump **revision** (`0.7.6.1`, `0.7.6.2`, ...).
+- The README row transitions `🔜 Not Started` → `🔨 In Progress` → `🚀 Shipped` via `/ship`. **Promotion to `✅ Completed` is always user-driven**, never something `/ship` decides on its own.
+
 ## Step 0: Pre-flight checks
 
 - Run `git status` to see the current state. If there are unexpected untracked or modified files beyond implementation work, warn the user before proceeding.
-- Read `docs/backlog/README.md` to identify the current version and next target (first `🔨 In Progress` or `🔜 Not Started` row).
+- Read `docs/backlog/README.md` to identify the current feature row and what comes next.
 - Read `pyproject.toml` to check the current version.
-- If **all** stories in the target version are already checked `[x]` AND the README matrix already shows `✅ Completed`, stop and report: "This version is already shipped."
+
+Classify the ship into one of three shapes before proceeding:
+
+| Shape | Detection | Version action | Backlog-row action |
+|---|---|---|---|
+| **First ship of a new feature** | The first `🔨 In Progress` or `🔜 Not Started` row matches the work in `git status` | Bump **feature** (e.g., `0.7.5` → `0.7.6`) | `🔜 Not Started` / `🔨 In Progress` → `🚀 Shipped` |
+| **Revision of the `🚀 Shipped` feature** | The current row is `🚀 Shipped` and the working-tree changes are fixes/additions on that feature | Bump **revision** (e.g., `0.7.6` → `0.7.6.1`, or `0.7.6.1` → `0.7.6.2`) | No row change; stays `🚀 Shipped` |
+| **Already shipped this exact feature + revision** | Matching version is already tagged and the row is `🚀 Shipped` or `✅ Completed` with no new changes | Stop — "This version is already shipped." | none |
+
+If the shape is ambiguous (e.g., `git status` shows work that straddles both the current `🚀 Shipped` feature and an unstarted one), stop and ask the user which to ship.
 
 ## Step 1: Reconcile implementation against backlog
 
-- From the README version matrix, find the version being shipped (first `🔨 In Progress` row, or first `🔜 Not Started` if none are in progress).
+Behavior depends on the shape classified in Step 0.
+
+### First ship of a new feature
+
+- From the README version matrix, find the feature row being shipped.
 - Read the corresponding `docs/backlog/v0.X.x.md` file.
 - Review `git log` since the last shipped version and `git status` to understand what was actually implemented.
 - Compare the actual changes against each unchecked `- [ ]` story in the backlog:
@@ -30,33 +51,54 @@ Recent commit conventions:
   - **Partially done or done differently**: Update the story's Notes field to describe what was actually delivered and how it differs from the plan. Check it off only if the intent was met, even if the approach changed.
   - **Not touched**: Leave unchecked.
 - If implementation substantially deviates from the plan (new scope, skipped stories, different architecture), stop and report the discrepancies to the user before making any backlog changes. Wait for instructions.
+- Leave the **Post-Deploy Revisions** epic alone — it belongs to the `🚀 Shipped` phase, not to the first ship.
+
+### Revision of the `🚀 Shipped` feature
+
+- A revision doesn't necessarily correspond to a pre-planned backlog story. It often ships work discovered during prod testing.
+- Append an entry to the feature's **Post-Deploy Revisions** epic in `docs/backlog/v0.X.x.md`. One bullet per revision, ordered by revision number:
+  - `- [x] **v0.7.6.1** (YYYY-MM-DD) — one-line description of what shipped and why` + a short Notes sentence on what triggered it.
+- If the revision closes a pre-existing unchecked story in the backlog (rare but possible), check it off per the "first ship" rules.
+- Never promote the feature row to `✅ Completed` from this step; revisions never close the feature out.
 
 ## Step 2: Update backlog stories
 
-In `docs/backlog/v0.X.x.md`, for each story confirmed as done:
+In `docs/backlog/v0.X.x.md`, for each story confirmed as done (first-ship shape only; revisions use the Post-Deploy Revisions epic instead — see Step 1):
 - Check the box: `- [ ]` → `- [x]`
 - Set `Status: Completed (YYYY-MM-DD)` with today's date
 - Update Notes if the implementation differed from the original plan — the backlog should reflect what actually shipped, not just what was planned
 
-## Step 3: Update the roadmap
+## Step 3: Update the roadmap (transition to 🚀 Shipped, never ✅ Completed)
 
 In `docs/backlog/README.md`:
-- Only update the version matrix row to `✅ Completed` if **all** stories in that version are now checked `[x]`. If unchecked stories remain, leave the row as `🔨 In Progress`.
-- If the version is fully complete:
-  - Update the `**Current Version**:` header line to the newly completed version number
-  - Update the `**Next**:` header line to the next `🔜 Not Started` version from the matrix
+
+**First-ship shape:**
+- Transition the feature row from `🔜 Not Started` / `🔨 In Progress` → `🚀 Shipped`.
+- Update the `**Current Version**:` header to the newly shipped version number.
+- Update the `**Next**:` header to the next `🔜 Not Started` feature from the matrix.
+- **Do not** write `✅ Completed`. That transition is user-driven and happens later, separately, when the user confirms the feature is stable in prod.
+
+**Revision shape:**
+- No row-status change. The feature stays `🚀 Shipped`.
+- Update the `**Current Version**:` header to the new revision (e.g., `0.7.6.1`).
+- The `**Next**:` header is unchanged.
 
 ## Step 3b: Archive completed version file
 
-If **all** stories in the entire `v0.X.x.md` file (across all sub-versions) are now checked `[x]`:
-- Move the file from `docs/backlog/` to `docs/backlog/completed/` using `git mv`
-- This only applies when the whole minor series is done (e.g., all of v0.6.0–v0.6.5), not just one sub-version
+File archival happens **only when the user explicitly closes out the last feature in a minor series** (see Step 10) — never inside `/ship`'s automatic flow. Skip this step.
 
 ## Step 4: Bump the version
 
-Compare the completed version number against the current `version` in `pyproject.toml`:
-- If the completed version is **higher** than pyproject.toml's version → bump pyproject.toml to match
-- If the completed version is **equal to or lower** than pyproject.toml's version → skip the bump (already at or past this version)
+Bump according to the shape classified in Step 0:
+
+- **First ship of a new feature**: bump the **feature** segment (e.g., `0.7.5` → `0.7.6`). No revision segment.
+- **Revision of the `🚀 Shipped` feature**:
+  - If the current version has no revision segment (e.g., `0.7.6`), bump to `0.7.6.1`.
+  - If the current version already has a revision segment (e.g., `0.7.6.2`), increment it (`0.7.6.3`).
+  - If the current version is a historical `.postN` form (e.g., `0.7.5.post2`), the next revision starts the new scheme — continue the count: `0.7.5.post2` → `0.7.5.3` (continues from the `.post2` count). Don't reset or re-tag history.
+- Never use `.postN`; it's reserved for metadata-only fixes and mixd doesn't ship those.
+
+Write the new version into `pyproject.toml`.
 
 ## Step 5: Sync toolchain
 
@@ -140,7 +182,14 @@ Run `pre-commit run` (on staged files only, not `--all-files`) to catch any rema
 
 ## Step 8: Commit
 
-Create a git commit following the conventions from the git log above. The message should be a concise summary with the version tag. Include the Co-Authored-By trailer.
+Create a git commit following the conventions from the git log above. The first line should carry the full version in the form `<type>: v<version> — <summary>`, e.g.:
+
+- First feature ship: `feat: v0.7.6 — Spotify flow polish`
+- Revision (fix): `fix: v0.7.6.1 — tag rename atomicity`
+- Revision (new work found in prod): `feat: v0.7.6.2 — preview cache warmup`
+- Revision (internal cleanup): `refactor: v0.7.6.3 — extract resolve helper`
+
+The conventional-commit prefix (`fix:` / `feat:` / `refactor:` / `chore:`) carries the nature of the work; the version number just counts. Do **not** append a `Co-Authored-By` trailer.
 
 If the commit fails (it shouldn't after Step 7c, but just in case):
 - Read the hook output to understand what failed
@@ -168,3 +217,15 @@ After the commit succeeds:
 4. Polls for the exact workflow run matching the pushed commit (up to 60s), then streams it via `gh run watch`
 5. Fly.io runs `alembic upgrade head` as the release command (before switching traffic)
 6. Health check at `/api/v1/health` gates the traffic cutover
+
+## Step 10: Close out (user-driven, separate from /ship)
+
+`/ship` never promotes a feature from `🚀 Shipped` to `✅ Completed`. That happens only when the user explicitly confirms the feature is stable in prod after testing.
+
+When the user says something like *"v0.7.6 is good, move on"* or *"close out v0.7.6"*:
+
+1. In `docs/backlog/README.md`, transition that feature row from `🚀 Shipped` → `✅ Completed`.
+2. If all feature rows within a minor series (e.g., all of `v0.7.0` through `v0.7.N`) are now `✅ Completed`, `git mv docs/backlog/v0.7.x.md docs/backlog/completed/` — only at the level of the whole minor series, never a single feature.
+3. No version bump, no commit required on its own — the closeout typically rides along with the next feature's first ship.
+
+Do not initiate closeout inside `/ship`; leave it as an explicit request the user makes when they're ready.
