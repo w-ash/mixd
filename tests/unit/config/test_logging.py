@@ -295,4 +295,3 @@ class TestLoggingConfigDefaults:
         assert config.rotation == "10 MB"
         assert config.retention == "1 week"
         assert config.prefect_log_level == "DEBUG"
-        assert config.prefect_logger_level == "DEBUG"

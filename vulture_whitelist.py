@@ -162,10 +162,3 @@ RUN_STATUS_CANCELLED  # WorkflowConstants — part of status lifecycle
 # Dashboard / audit-log consumer lands and becomes the caller.
 list_by_tagged_at  # contract: v0.7.2 tag spec — temporal companion to add_tags
 list_by_preferred_at  # contract: v0.7.0 preference spec — temporal companion to set_preferences
-
-# --- Phase 2 architectural audit candidates ---
-# Tests exist but no production caller. Remove from this section as the method is
-# consolidated with a sibling (DRY), deleted (contract trim), or promoted to a
-# production call site. Suffix each entry with a # phase-2: rationale.
-prefect_logger_level  # phase-2: second LoggingConfig knob, consumer not wired
-FileTokenStorage  # phase-2: tested class with no production consumer

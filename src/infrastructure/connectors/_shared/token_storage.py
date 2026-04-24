@@ -1,21 +1,13 @@
-"""Token storage protocol and file-backed implementation.
+"""Token storage protocol.
 
-Abstracts credential persistence so connectors work with either file-based
-storage (CLI development) or database-backed storage (hosted deployment).
+Abstracts credential persistence so connectors work with database-backed
+storage (the only in-tree implementation — see ``DatabaseTokenStorage``).
 
 The protocol is intentionally in infrastructure (_shared/), not domain —
 token storage is a pure infrastructure concern with no business logic.
 """
 
-import json
-from pathlib import Path
-from typing import Protocol, TypedDict, cast
-
-from attrs import define, field
-
-from src.config import get_logger
-
-logger = get_logger(__name__)
+from typing import Protocol, TypedDict
 
 
 class StoredToken(TypedDict, total=False):
@@ -61,63 +53,8 @@ class TokenStorage(Protocol):
         ...
 
 
-# ---------------------------------------------------------------------------
-# FILE-BACKED IMPLEMENTATION (CLI / local development)
-# ---------------------------------------------------------------------------
-
-
-@define(slots=True)
-class FileTokenStorage:
-    """File-backed token storage for CLI development.
-
-    Reads/writes JSON files per service. For Spotify, uses the existing
-    .spotify_cache format for backward compatibility with spotipy.
-    """
-
-    cache_dir: Path = field(factory=Path)
-
-    def _path_for(self, service: str) -> Path:
-        if service == "spotify":
-            return self.cache_dir / ".spotify_cache"
-        return self.cache_dir / f".{service}_cache"
-
-    async def load_token(self, service: str, _user_id: str) -> StoredToken | None:
-        try:
-            return cast(StoredToken, json.loads(self._path_for(service).read_text()))
-        except FileNotFoundError:
-            return None
-        except (json.JSONDecodeError, OSError) as e:
-            logger.warning(f"Failed to read {service} token cache: {e}")
-            return None
-
-    async def save_token(
-        self, service: str, _user_id: str, token_data: StoredToken
-    ) -> None:
-        try:
-            self._path_for(service).write_text(json.dumps(token_data))
-        except OSError as e:
-            logger.warning(f"Failed to write {service} token cache: {e}")
-
-    async def delete_token(self, service: str, _user_id: str) -> None:
-        try:
-            self._path_for(service).unlink()
-        except FileNotFoundError:
-            pass
-        except OSError as e:
-            logger.warning(f"Failed to delete {service} token cache: {e}")
-
-
-# ---------------------------------------------------------------------------
-# FACTORY
-# ---------------------------------------------------------------------------
-
-
 def get_token_storage() -> TokenStorage:
-    """Return the appropriate TokenStorage implementation.
-
-    Always returns DatabaseTokenStorage since mixd is PostgreSQL-only (v0.5.1+).
-    FileTokenStorage is available for explicit use in CLI or testing.
-    """
+    """Return the DatabaseTokenStorage implementation."""
     from src.infrastructure.persistence.repositories.token_storage import (
         DatabaseTokenStorage,
     )

@@ -85,10 +85,6 @@ class LoggingConfig(BaseModel):
         default="DEBUG",
         description="Minimum level for Prefect framework logs (stdlib integration — no bridge needed).",
     )
-    prefect_logger_level: StdlibLogLevel = Field(
-        default="DEBUG",
-        description="Minimum level applied to individual Prefect logger instances.",
-    )
 
 
 class CredentialsConfig(BaseModel):

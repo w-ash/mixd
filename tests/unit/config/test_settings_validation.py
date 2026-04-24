@@ -266,14 +266,9 @@ class TestLogLevelValidation:
         with pytest.raises(ValidationError):
             LoggingConfig(prefect_log_level="TRACE")
 
-    def test_success_rejected_for_prefect_logger(self):
-        """SUCCESS is not a valid stdlib level."""
-        with pytest.raises(ValidationError):
-            LoggingConfig(prefect_logger_level="SUCCESS")
-
     def test_valid_stdlib_levels_for_prefect(self):
         for level in ("DEBUG", "INFO", "WARNING", "ERROR", "CRITICAL"):
-            config = LoggingConfig(prefect_log_level=level, prefect_logger_level=level)
+            config = LoggingConfig(prefect_log_level=level)
             assert config.prefect_log_level == level
 
 
