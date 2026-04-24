@@ -59,7 +59,7 @@ jobs:
       - name: Type check
         run: uv run basedpyright src/
 
-      - name: Dead code
+      - name: Dead code (Python)
         run: uv run vulture
 
       - name: Test with coverage
@@ -108,7 +108,7 @@ jobs:
       - name: Lint and type check
         run: pnpm check
 
-      - name: Dead code (non-blocking baseline)
+      - name: Dead code (web, non-blocking baseline)
         run: pnpm lint:dead
         continue-on-error: true
 

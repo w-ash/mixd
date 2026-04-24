@@ -9,10 +9,12 @@
 # down_revision, branch_labels, depends_on, upgrade, downgrade,
 # do_GET, log_message.
 
-# --- SQLAlchemy event listener callback signature ---
+# --- SQLAlchemy (event callbacks, declarative conventions, ORM columns) ---
 connection_record  # required param in event.listen("connect", callback) — only dbapi_connection is used
+type_annotation_map  # DeclarativeBase class attribute, read by SQLAlchemy internals
+last_sync_started_at  # DB model column on DBPlaylistLink
 
-# --- Pydantic model fields (serialization, not direct attribute access) ---
+# --- Pydantic / TypedDict model fields (serialization, not direct attribute access) ---
 severity  # Pydantic field on WorkflowValidationErrorSchema
 required_config  # Pydantic field on NodeTypeInfoSchema
 optional_config  # Pydantic field on NodeTypeInfoSchema
@@ -26,6 +28,14 @@ ean  # Pydantic field on SpotifyExternalIds
 upc  # Pydantic field on SpotifyExternalIds
 previous  # Pydantic field on SpotifyPaginatedResponse
 SPOTIFY_TOKEN_URL  # URL constant, triggers S105 false positive
+database  # MixdSettings nested model field
+last_synced_at  # Pydantic ConnectorMetadataSchema field
+theme_mode  # UserSettingsResponse / UserSettingsPatch Pydantic fields
+iat  # JWTClaims TypedDict
+iss  # JWTClaims TypedDict
+aud  # JWTClaims TypedDict
+capabilities  # ConnectorConfig TypedDict + ConnectorMetadataSchema
+status_fn  # ConnectorConfig TypedDict — registry lookup by key
 
 # --- Rich renderable protocol ---
 render  # Rich __rich_console__ / render protocol
@@ -73,6 +83,11 @@ registrant_code  # attrs field on ISRCValidationResult
 year  # attrs field on ISRCValidationResult
 designation_code  # attrs field on ISRCValidationResult
 attribute_name  # attrs field on probabilistic matcher
+batch_result  # attrs field on ImportMetadata
+fallback_resolved  # attrs field on ImportResult
+redirect_resolved  # attrs field on ImportResult
+image_url  # attrs field on ConnectorPlaylistInfo + Pydantic ConnectorPlaylistSchema
+current_assignments  # attrs field + Pydantic ConnectorPlaylistSchema
 
 # --- MatchingConfig / MatchingSettings fields (attrs + Pydantic, accessed via config object) ---
 base_confidence_isrc  # MatchingConfig field
@@ -142,34 +157,10 @@ _show_rate  # Rich progress column config
 MAX_PAGE_SIZE  # BusinessLimits — counterpart to DEFAULT_PAGE_SIZE
 RUN_STATUS_CANCELLED  # WorkflowConstants — part of status lifecycle
 
-# --- Settings fields (used by Pydantic model construction) ---
-database  # MixdSettings nested model field
-last_sync_started_at  # DB model column on DBPlaylistLink
-
-# --- JWT TypedDict claims (decoded payload, read by string key by PyJWT) ---
-iat  # JWTClaims TypedDict
-iss  # JWTClaims TypedDict
-aud  # JWTClaims TypedDict
-
-# --- attrs / Pydantic DTO fields (serialization, not direct attribute access) ---
-batch_result  # attrs field on ImportMetadata
-image_url  # attrs field on ConnectorPlaylistInfo + Pydantic ConnectorPlaylistSchema
-current_assignments  # attrs field + Pydantic ConnectorPlaylistSchema
-fallback_resolved  # attrs field on ImportResult
-redirect_resolved  # attrs field on ImportResult
-last_synced_at  # Pydantic ConnectorMetadataSchema field
-theme_mode  # UserSettingsResponse / UserSettingsPatch Pydantic fields
-capabilities  # ConnectorConfig TypedDict + ConnectorMetadataSchema
-status_fn  # ConnectorConfig TypedDict — registry lookup by key
-
-# --- SQLAlchemy declarative convention ---
-type_annotation_map  # DeclarativeBase class attribute, read by SQLAlchemy internals
-
 # --- Phase 2 architectural audit candidates ---
-# Tests exist but no production caller. Each entry is staged for triage (see
-# ~/.claude/plans/let-s-make-a-plan-pure-cocke.md) — remove from whitelist as
-# the method is consolidated (DRY with a sibling), deleted (contract trim),
-# or promoted to a call site in a real use case.
+# Tests exist but no production caller. Remove from this section as the method is
+# consolidated with a sibling (DRY), deleted (contract trim), or promoted to a
+# production call site. Suffix each entry with a # phase-2: rationale.
 prefect_logger_level  # phase-2: second LoggingConfig knob, consumer not wired
 save_playlists_batch  # phase-2: PlaylistRepositoryProtocol + impl
 list_by_preferred_at  # phase-2: TrackPreferenceRepositoryProtocol + impl
