@@ -115,17 +115,16 @@ async def upsert_canonical_playlist(
             tracks_removed=result.tracks_removed,
         )
         return result
-    else:
-        command = build_create_playlist_command(
-            connector_playlist, connector_name, playlist_id, user_id=user_id
-        )
-        result = await CreateCanonicalPlaylistUseCase(
-            metric_config=metric_config
-        ).execute(command, uow)
-        logger.info(
-            "Created new playlist",
-            playlist_id=result.playlist.id,
-            name=result.playlist.name,
-            tracks_created=result.tracks_created,
-        )
-        return result
+    command = build_create_playlist_command(
+        connector_playlist, connector_name, playlist_id, user_id=user_id
+    )
+    result = await CreateCanonicalPlaylistUseCase(metric_config=metric_config).execute(
+        command, uow
+    )
+    logger.info(
+        "Created new playlist",
+        playlist_id=result.playlist.id,
+        name=result.playlist.name,
+        tracks_created=result.tracks_created,
+    )
+    return result

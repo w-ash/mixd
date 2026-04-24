@@ -204,8 +204,7 @@ async def check_orphaned_track_plays() -> list[dict]:
                 logger.warning(f"   ... and {len(orphans) - 5} more in sample")
 
             return orphans
-        else:
-            return []
+        return []
 
 
 async def check_orphaned_playlist_tracks() -> list[dict]:
@@ -271,8 +270,7 @@ async def check_orphaned_playlist_tracks() -> list[dict]:
                 logger.warning(f"   ... and {len(orphans) - 5} more in sample")
 
             return orphans
-        else:
-            return []
+        return []
 
 
 async def check_orphaned_connector_tracks() -> list[dict]:

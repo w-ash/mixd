@@ -91,14 +91,13 @@ def route_metric_sorting(cfg: Mapping[str, object]) -> Transform | TrackList:
             metric_name=metric_name,
         )
 
-    elif category == "play_history":
+    if category == "play_history":
         return sort_by_play_history(reverse=reverse)
 
-    else:
-        # External or unrecognized metrics route to external metric sorting.
-        # If no upstream enricher populated the metric, sort is a graceful no-op
-        # (tracks without metrics sort to end).
-        return sort_by_external_metrics(
-            metric_name=metric_name,
-            reverse=reverse,
-        )
+    # External or unrecognized metrics route to external metric sorting.
+    # If no upstream enricher populated the metric, sort is a graceful no-op
+    # (tracks without metrics sort to end).
+    return sort_by_external_metrics(
+        metric_name=metric_name,
+        reverse=reverse,
+    )

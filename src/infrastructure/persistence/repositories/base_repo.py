@@ -256,10 +256,9 @@ class SimpleMapperFactory:
                             kwargs[field_name] = getattr(db_model, field_name)
 
                     return domain_class(**kwargs)
-                else:
-                    raise NotImplementedError(
-                        f"Domain class {domain_class} must use attrs.define"
-                    )
+                raise NotImplementedError(
+                    f"Domain class {domain_class} must use attrs.define"
+                )
 
             @override
             @staticmethod
@@ -279,10 +278,9 @@ class SimpleMapperFactory:
                     }
 
                     return db_class(**db_kwargs)
-                else:
-                    raise NotImplementedError(
-                        f"Domain model {type(domain_model)} must use attrs.define"
-                    )
+                raise NotImplementedError(
+                    f"Domain model {type(domain_model)} must use attrs.define"
+                )
 
         return GeneratedMapper
 
@@ -654,8 +652,7 @@ class BaseRepository[TDBModel: DatabaseModel, TDomainModel]:
 
             if has_session_support(self.mapper):
                 return await self.mapper.to_domain_with_session(db_entity, self.session)
-            else:
-                return await self.mapper.to_domain(db_entity)
+            return await self.mapper.to_domain(db_entity)
 
         # For other conditions, use a query
         stmt = select(self.model_class)
@@ -689,8 +686,7 @@ class BaseRepository[TDBModel: DatabaseModel, TDomainModel]:
 
         if has_session_support(self.mapper):
             return await self.mapper.to_domain_with_session(db_entity, self.session)
-        else:
-            return await self.mapper.to_domain(db_entity)
+        return await self.mapper.to_domain(db_entity)
 
     @db_operation("update")
     async def update(
@@ -746,8 +742,7 @@ class BaseRepository[TDBModel: DatabaseModel, TDomainModel]:
             return await self.mapper.to_domain_with_session(
                 updated_entity, self.session
             )
-        else:
-            return await self.mapper.to_domain(updated_entity)
+        return await self.mapper.to_domain(updated_entity)
 
     @db_operation("delete")
     async def delete(self, id_: UUID) -> int:
@@ -930,38 +925,33 @@ class BaseRepository[TDBModel: DatabaseModel, TDomainModel]:
                     return await self.mapper.to_domain_with_session(
                         db_entity, self.session
                     )
-                else:
-                    return await self.mapper.to_domain(db_entity)
-            else:
-                # Phase 2: Entity doesn't exist, create it
-                # Use simple insert instead of complex on_conflict_do_update
-                stmt = (
-                    insert(self.model_class)
-                    .values(**insert_values)
-                    .returning(self.model_class.id)
-                )
-                result = await self.session.execute(stmt)
-                new_id = result.scalar_one()
+                return await self.mapper.to_domain(db_entity)
+            # Phase 2: Entity doesn't exist, create it
+            # Use simple insert instead of complex on_conflict_do_update
+            stmt = (
+                insert(self.model_class)
+                .values(**insert_values)
+                .returning(self.model_class.id)
+            )
+            result = await self.session.execute(stmt)
+            new_id = result.scalar_one()
 
-                # Fetch newly created entity with basic eager loading of direct relationships only
-                options = self._build_relationship_options(
-                    self.mapper.get_default_relationships()
-                )
+            # Fetch newly created entity with basic eager loading of direct relationships only
+            options = self._build_relationship_options(
+                self.mapper.get_default_relationships()
+            )
 
-                # Use session.get with eager loading for all needed relationships
-                db_entity = await self.session.get(
-                    self.model_class, new_id, options=options
-                )
+            # Use session.get with eager loading for all needed relationships
+            db_entity = await self.session.get(
+                self.model_class, new_id, options=options
+            )
 
-                # Convert to domain model
-                if db_entity is None:
-                    _raise_create_retrieval_error()
-                if has_session_support(self.mapper):
-                    return await self.mapper.to_domain_with_session(
-                        db_entity, self.session
-                    )
-                else:
-                    return await self.mapper.to_domain(db_entity)
+            # Convert to domain model
+            if db_entity is None:
+                _raise_create_retrieval_error()
+            if has_session_support(self.mapper):
+                return await self.mapper.to_domain_with_session(db_entity, self.session)
+            return await self.mapper.to_domain(db_entity)
 
         except Exception as e:
             logger.error(f"Upsert error: {e}")
@@ -1131,8 +1121,7 @@ class BaseRepository[TDBModel: DatabaseModel, TDomainModel]:
                     await self._load_relationships_via_identity_map(db_entities)
 
                     return await self.mapper.map_collection(db_entities)
-                else:
-                    return len(entities)
+                return len(entities)
 
         except Exception as e:
             logger.warning(

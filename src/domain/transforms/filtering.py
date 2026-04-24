@@ -160,9 +160,8 @@ def exclude_artists(
             return not any(
                 artist.name.lower() in exclude_artists_set for artist in track.artists
             )
-        else:
-            # Check only the primary artist
-            return track.artists[0].name.lower() not in exclude_artists_set
+        # Check only the primary artist
+        return track.artists[0].name.lower() not in exclude_artists_set
 
     return dual_mode(
         cast(Transform, filter_by_predicate(not_artist_in_reference)), tracklist

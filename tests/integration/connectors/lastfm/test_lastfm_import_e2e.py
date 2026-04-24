@@ -72,8 +72,8 @@ class TestLastfmImportE2E:
                             service_metadata={"test": "metadata"},
                         )
                     ]
-                else:  # Other days - return empty to avoid confusion
-                    return []
+                # Other days - return empty to avoid confusion
+                return []
 
             mock_connector.get_recent_tracks = mock_get_recent_tracks
 
@@ -227,9 +227,8 @@ class TestLastfmImportE2E:
                             service_metadata={},
                         )
                     ]
-                else:
-                    # Second call should find no new data (checkpoint is recent)
-                    return []
+                # Second call should find no new data (checkpoint is recent)
+                return []
 
             mock_connector.get_recent_tracks = mock_get_recent_tracks_checkpoint
             mock_connector_class.return_value = mock_connector

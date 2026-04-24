@@ -143,74 +143,73 @@ async def playlist_source(
         )
         return {"tracklist": tracklist_with_source}
 
-    else:
-        # Connector-based playlist: sync + upsert in a single atomic transaction
-        logger.info(f"Fetching {connector} playlist: {playlist_id}")
+    # Connector-based playlist: sync + upsert in a single atomic transaction
+    logger.info(f"Fetching {connector} playlist: {playlist_id}")
 
-        await ctx.emit_phase_progress(
-            "fetch",
-            "source",
-            f"Fetching playlist from {connector}",
+    await ctx.emit_phase_progress(
+        "fetch",
+        "source",
+        f"Fetching playlist from {connector}",
+    )
+
+    connector_ = connector  # capture narrowed str for closure
+
+    async def _sync_and_upsert(uow: UnitOfWorkProtocol):
+        connector_playlist: ConnectorPlaylist = await sync_connector_playlist(
+            connector_, playlist_id, uow
         )
+        if not connector_playlist.items:
+            return None
 
-        connector_ = connector  # capture narrowed str for closure
-
-        async def _sync_and_upsert(uow: UnitOfWorkProtocol):
-            connector_playlist: ConnectorPlaylist = await sync_connector_playlist(
-                connector_, playlist_id, uow
-            )
-            if not connector_playlist.items:
-                return None
-
-            result = await upsert_canonical_playlist(
-                connector_playlist,
-                connector_,
-                playlist_id,
-                uow,
-                metric_config=workflow_context.metric_config,
-                user_id=workflow_context.user_id,
-            )
-            action = (
-                "created"
-                if isinstance(result, CreateCanonicalPlaylistResult)
-                else "updated"
-            )
-            return result, action
-
-        try:
-            outcome = await workflow_context.execute_service(_sync_and_upsert)
-        except Exception as e:
-            logger.error(
-                f"Source node failed: cannot fetch {connector} playlist {playlist_id} — stopping workflow",
-                connector=connector,
-                playlist_id=playlist_id,
-                error_type=type(e).__name__,
-                exc_info=True,
-            )
-            raise
-
-        if outcome is None:
-            logger.warning(f"Playlist empty or not found: {playlist_id}")
-            return {"tracklist": TrackList()}
-
-        result, action = outcome
-        playlist = result.playlist
-        tracklist_with_source = _build_source_tracklist(
-            playlist.tracks,
-            playlist.name,
+        result = await upsert_canonical_playlist(
+            connector_playlist,
             connector_,
             playlist_id,
+            uow,
+            metric_config=workflow_context.metric_config,
+            user_id=workflow_context.user_id,
         )
+        action = (
+            "created"
+            if isinstance(result, CreateCanonicalPlaylistResult)
+            else "updated"
+        )
+        return result, action
 
-        logger.info(
-            "playlist_source complete",
-            action=action,
-            source=connector,
-            playlist_id=playlist.id,
-            playlist_name=playlist.name,
-            track_count=len(playlist.tracks),
+    try:
+        outcome = await workflow_context.execute_service(_sync_and_upsert)
+    except Exception as e:
+        logger.error(
+            f"Source node failed: cannot fetch {connector} playlist {playlist_id} — stopping workflow",
+            connector=connector,
+            playlist_id=playlist_id,
+            error_type=type(e).__name__,
+            exc_info=True,
         )
-        return {"tracklist": tracklist_with_source}
+        raise
+
+    if outcome is None:
+        logger.warning(f"Playlist empty or not found: {playlist_id}")
+        return {"tracklist": TrackList()}
+
+    result, action = outcome
+    playlist = result.playlist
+    tracklist_with_source = _build_source_tracklist(
+        playlist.tracks,
+        playlist.name,
+        connector_,
+        playlist_id,
+    )
+
+    logger.info(
+        "playlist_source complete",
+        action=action,
+        source=connector,
+        playlist_id=playlist.id,
+        playlist_name=playlist.name,
+        track_count=len(playlist.tracks),
+    )
+    return {"tracklist": tracklist_with_source}
 
 
 # === User Music Library Access ===

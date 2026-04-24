@@ -345,7 +345,7 @@ class TrackPlayRepository(BaseRepository[DBTrackPlay, TrackPlay]):
                 query_result = await self.session.execute(stmt)
                 return await self._rows_to_domain(query_result.fetchall())
 
-            elif sort_by == "last_played_desc":
+            if sort_by == "last_played_desc":
                 # Get most recent play per track, ordered by played_at desc
                 subquery = (
                     select(
@@ -370,7 +370,7 @@ class TrackPlayRepository(BaseRepository[DBTrackPlay, TrackPlay]):
                 query_result = await self.session.execute(stmt)
                 return await self._rows_to_domain(query_result.fetchall())
 
-            elif sort_by == "title_asc":
+            if sort_by == "title_asc":
                 # Join with tracks table for title sorting
                 stmt = (
                     select(self.model_class)
@@ -384,7 +384,7 @@ class TrackPlayRepository(BaseRepository[DBTrackPlay, TrackPlay]):
                 db_models = query_result.scalars().all()
                 return [await self.mapper.to_domain(model) for model in db_models]
 
-            elif sort_by == "random":
+            if sort_by == "random":
                 stmt = (
                     select(self.model_class)
                     .where(user_filter)

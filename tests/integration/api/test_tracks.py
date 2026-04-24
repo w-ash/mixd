@@ -24,8 +24,7 @@ async def _create_track(
     from src.domain.entities.track import Artist, Track
 
     track = Track(id=None, title=title, artists=[Artist(name=artist)])
-    result = await execute_use_case(lambda uow: _save_track(uow, track))
-    return result
+    return await execute_use_case(lambda uow: _save_track(uow, track))
 
 
 async def _save_track(uow, track) -> UUID:

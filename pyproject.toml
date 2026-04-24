@@ -101,6 +101,7 @@ select = [
     "TRY",   # Exception handling best practices
     "PL",    # Pylint (additional logic checks)
     "PTH",   # Use pathlib for path operations
+    "RET",   # flake8-return — simplify return patterns
 ]
 
 ignore = [

@@ -75,7 +75,7 @@ class TestDegradedNodeHandling:
         async def mock_get_session():
             yield AsyncMock()
 
-        patches = (
+        return (
             patch(
                 "src.infrastructure.persistence.database.db_connection.get_session",
                 mock_get_session,
@@ -85,7 +85,6 @@ class TestDegradedNodeHandling:
                 return_value=mock_wf_ctx,
             ),
         )
-        return patches
 
     @pytest.mark.usefixtures("_load_catalog")
     async def test_enricher_failure_produces_degraded_record(self, sample_tracklist):
@@ -121,9 +120,9 @@ class TestDegradedNodeHandling:
             call_count += 1
             if node_type == "source.playlist":
                 return source_result
-            elif node_type == "enricher.lastfm":
+            if node_type == "enricher.lastfm":
                 raise ConnectionError("Last.fm API is down")
-            elif node_type.startswith("destination."):
+            if node_type.startswith("destination."):
                 return {"tracklist": context.get("enrich", source_result)["tracklist"]}
             raise ValueError(f"Unexpected node type: {node_type}")
 

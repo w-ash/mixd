@@ -689,12 +689,11 @@ class ExportLastFmLikesUseCase:
                     status=BatchItemStatus.EXPORTED,
                     track_id=track.id,
                 )
-            else:
-                return BatchItemResult(
-                    status=BatchItemStatus.SKIPPED,
-                    track_id=track.id,
-                    metadata={"reason": "API returned False"},
-                )
+            return BatchItemResult(
+                status=BatchItemStatus.SKIPPED,
+                track_id=track.id,
+                metadata={"reason": "API returned False"},
+            )
         except Exception as e:
             return BatchItemResult(
                 status=BatchItemStatus.ERROR,

@@ -145,25 +145,24 @@ async def create_playlist(
             track_count=len(tracklist.tracks),
         )
         return {"tracklist": tracklist}
-    else:
-        # Create canonical only
-        command = CreateCanonicalPlaylistCommand(
-            user_id=workflow_context.user_id,
-            name=playlist_name,
-            tracklist=tracklist,
-            description=cfg_str(config, "description", "Created by Mixd"),
-        )
-        result = await workflow_context.execute_use_case(
-            workflow_context.use_cases.get_create_canonical_playlist_use_case, command
-        )
+    # Create canonical only
+    command = CreateCanonicalPlaylistCommand(
+        user_id=workflow_context.user_id,
+        name=playlist_name,
+        tracklist=tracklist,
+        description=cfg_str(config, "description", "Created by Mixd"),
+    )
+    result = await workflow_context.execute_use_case(
+        workflow_context.use_cases.get_create_canonical_playlist_use_case, command
+    )
 
-        logger.info(
-            "create_playlist complete",
-            playlist_id=result.playlist.id,
-            playlist_name=result.playlist.name,
-            track_count=len(tracklist.tracks),
-        )
-        return {"tracklist": tracklist}
+    logger.info(
+        "create_playlist complete",
+        playlist_id=result.playlist.id,
+        playlist_name=result.playlist.name,
+        track_count=len(tracklist.tracks),
+    )
+    return {"tracklist": tracklist}
 
 
 async def update_playlist(

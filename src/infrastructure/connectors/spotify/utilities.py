@@ -63,15 +63,13 @@ def create_track_from_spotify_data(
     isrc = spotify_track.external_ids.isrc
 
     # Create Track object with Spotify connector ID
-    track = Track(
+    return Track(
         title=spotify_track.name,
         artists=artists,
         album=album,
         duration_ms=duration_ms,
         isrc=isrc,
     ).with_connector_track_id("spotify", spotify_id)
-
-    return track
 
 
 async def search_and_evaluate_match(

@@ -355,7 +355,7 @@ class TrackRepository(BaseRepository[DBTrack, Track]):
         uid = track.user_id
         if track.isrc:
             return await self.upsert({"user_id": uid, "isrc": track.isrc}, values)
-        elif "musicbrainz" in track.connector_track_identifiers:
+        if "musicbrainz" in track.connector_track_identifiers:
             return await self.upsert(
                 {
                     "user_id": uid,
@@ -363,7 +363,7 @@ class TrackRepository(BaseRepository[DBTrack, Track]):
                 },
                 values,
             )
-        elif "spotify" in track.connector_track_identifiers:
+        if "spotify" in track.connector_track_identifiers:
             return await self.upsert(
                 {
                     "user_id": uid,

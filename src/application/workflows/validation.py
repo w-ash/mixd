@@ -194,8 +194,7 @@ def validate_connector_availability(
 ) -> list[str]:
     """Return sorted list of missing connectors (empty = all available)."""
     available_set = set(available)
-    missing = sorted(required - available_set)
-    return missing
+    return sorted(required - available_set)
 
 
 # Derived from the canonical ENRICHER_METRIC_DEFS in node_config_fields.py.

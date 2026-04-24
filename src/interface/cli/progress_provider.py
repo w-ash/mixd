@@ -58,8 +58,7 @@ class ETAColumn(ProgressColumn):
                 minutes, seconds = divmod(int(eta_seconds), 60)
                 if minutes > 0:
                     return f"{minutes}m {seconds}s remaining"
-                else:
-                    return f"{seconds}s remaining"
+                return f"{seconds}s remaining"
         return ""
 
 

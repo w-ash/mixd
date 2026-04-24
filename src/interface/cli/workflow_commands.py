@@ -598,7 +598,7 @@ def list_runs(
             err_console.print("[red]Error: --workflow-id is required.[/red]")
             raise typer.Exit(1)
         wf_id: UUID = resolved_wf_id
-        result = await execute_use_case(
+        return await execute_use_case(
             lambda uow: ListWorkflowRunsUseCase().execute(
                 ListWorkflowRunsCommand(
                     user_id=user_id,
@@ -609,7 +609,6 @@ def list_runs(
             ),
             user_id=user_id,
         )
-        return result
 
     try:
         result = run_async(_list_runs())
@@ -706,7 +705,7 @@ def list_versions(
         )
 
         user_id = get_cli_user_id()
-        result = await execute_use_case(
+        return await execute_use_case(
             lambda uow: ListWorkflowVersionsUseCase().execute(
                 ListWorkflowVersionsCommand(
                     user_id=user_id,
@@ -716,7 +715,6 @@ def list_versions(
             ),
             user_id=user_id,
         )
-        return result
 
     try:
         result = run_async(_list_versions())

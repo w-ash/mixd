@@ -259,9 +259,7 @@ class SpotifyOperations:
         # Add items to the playlist
         from attrs import evolve
 
-        connector_playlist = evolve(connector_playlist, items=playlist_items)
-
-        return connector_playlist
+        return evolve(connector_playlist, items=playlist_items)
 
     async def create_playlist_with_tracks(
         self,

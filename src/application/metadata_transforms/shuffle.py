@@ -70,7 +70,7 @@ def weighted_shuffle(
                 track_count=len(t.tracks),
             )
             return t
-        elif shuffle_strength >= 1.0:
+        if shuffle_strength >= 1.0:
             # Full shuffle - use random.shuffle for efficiency
             shuffled_tracks = t.tracks.copy()
             random.shuffle(shuffled_tracks)

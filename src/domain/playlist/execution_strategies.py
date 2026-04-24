@@ -113,13 +113,12 @@ class CanonicalExecutionStrategy:
                 execution_metadata=execution_metadata,
                 use_atomic_reorder=True,
             )
-        else:
-            logger.debug("Using individual operations for canonical playlist update")
-            return ExecutionPlan(
-                operations=diff.operations,
-                execution_metadata=execution_metadata,
-                use_atomic_reorder=False,
-            )
+        logger.debug("Using individual operations for canonical playlist update")
+        return ExecutionPlan(
+            operations=diff.operations,
+            execution_metadata=execution_metadata,
+            use_atomic_reorder=False,
+        )
 
     def can_optimize_to_reorder(self, _diff: PlaylistDiff) -> bool:
         """Check if we can optimize to atomic reordering.
@@ -418,10 +417,9 @@ def get_execution_strategy(target_type: str) -> ExecutionStrategy:
     """
     if target_type == "canonical":
         return CanonicalExecutionStrategy()
-    elif target_type == "api":
+    if target_type == "api":
         return APIExecutionStrategy()
-    else:
-        raise ValueError(f"Unsupported target type: {target_type}")
+    raise ValueError(f"Unsupported target type: {target_type}")
 
 
 def execute_with_strategy(

@@ -25,7 +25,7 @@ def _get_track_uri(track: Track) -> str | None:
     """Get infrastructure-agnostic track URI for playlist operations."""
     if track.id:
         return f"canonical:{track.id}"
-    elif track.title and track.artists:
+    if track.title and track.artists:
         return f"content:{track.title}:{track.artists_display}"
     return None
 
