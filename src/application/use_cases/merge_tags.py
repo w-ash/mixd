@@ -8,11 +8,7 @@ fix a typo, merge = consolidate two existing tag families).
 
 from attrs import define
 
-from src.application.runner import execute_use_case
-from src.config import get_logger
 from src.domain.repositories import UnitOfWorkProtocol
-
-logger = get_logger(__name__)
 
 
 @define(frozen=True, slots=True)
@@ -43,12 +39,3 @@ class MergeTagsUseCase:
             )
             await uow.commit()
             return MergeTagsResult(affected_count=affected)
-
-
-async def run_merge_tags(user_id: str, source: str, target: str) -> MergeTagsResult:
-    """Merge tags via execute_use_case."""
-    command = MergeTagsCommand(user_id=user_id, source=source, target=target)
-    return await execute_use_case(
-        lambda uow: MergeTagsUseCase().execute(command, uow),
-        user_id=user_id,
-    )

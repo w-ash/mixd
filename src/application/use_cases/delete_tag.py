@@ -7,11 +7,7 @@ event rows are deleted too. No remove events are written.
 
 from attrs import define
 
-from src.application.runner import execute_use_case
-from src.config import get_logger
 from src.domain.repositories import UnitOfWorkProtocol
-
-logger = get_logger(__name__)
 
 
 @define(frozen=True, slots=True)
@@ -39,12 +35,3 @@ class DeleteTagUseCase:
             )
             await uow.commit()
             return DeleteTagResult(affected_count=affected)
-
-
-async def run_delete_tag(user_id: str, tag: str) -> DeleteTagResult:
-    """Delete a tag via execute_use_case."""
-    command = DeleteTagCommand(user_id=user_id, tag=tag)
-    return await execute_use_case(
-        lambda uow: DeleteTagUseCase().execute(command, uow),
-        user_id=user_id,
-    )

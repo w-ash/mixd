@@ -1,0 +1,11 @@
+{
+  "$schema": "https://unpkg.com/knip@6/schema.json",
+  "project": ["src/**/*.{ts,tsx}"],
+  "ignore": ["src/api/generated/**"],
+  "ignoreDependencies": [
+    "shadcn",
+    "tw-animate-css",
+    "tailwindcss"
+  ],
+  "ignoreBinaries": ["uv"]
+}

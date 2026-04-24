@@ -145,3 +145,35 @@ RUN_STATUS_CANCELLED  # WorkflowConstants — part of status lifecycle
 # --- Settings fields (used by Pydantic model construction) ---
 database  # MixdSettings nested model field
 last_sync_started_at  # DB model column on DBPlaylistLink
+
+# --- JWT TypedDict claims (decoded payload, read by string key by PyJWT) ---
+iat  # JWTClaims TypedDict
+iss  # JWTClaims TypedDict
+aud  # JWTClaims TypedDict
+
+# --- attrs / Pydantic DTO fields (serialization, not direct attribute access) ---
+batch_result  # attrs field on ImportMetadata
+image_url  # attrs field on ConnectorPlaylistInfo + Pydantic ConnectorPlaylistSchema
+current_assignments  # attrs field + Pydantic ConnectorPlaylistSchema
+fallback_resolved  # attrs field on ImportResult
+redirect_resolved  # attrs field on ImportResult
+last_synced_at  # Pydantic ConnectorMetadataSchema field
+theme_mode  # UserSettingsResponse / UserSettingsPatch Pydantic fields
+capabilities  # ConnectorConfig TypedDict + ConnectorMetadataSchema
+status_fn  # ConnectorConfig TypedDict — registry lookup by key
+
+# --- SQLAlchemy declarative convention ---
+type_annotation_map  # DeclarativeBase class attribute, read by SQLAlchemy internals
+
+# --- Phase 2 architectural audit candidates ---
+# Tests exist but no production caller. Each entry is staged for triage (see
+# ~/.claude/plans/let-s-make-a-plan-pure-cocke.md) — remove from whitelist as
+# the method is consolidated (DRY with a sibling), deleted (contract trim),
+# or promoted to a call site in a real use case.
+prefect_logger_level  # phase-2: second LoggingConfig knob, consumer not wired
+save_playlists_batch  # phase-2: PlaylistRepositoryProtocol + impl
+list_by_preferred_at  # phase-2: TrackPreferenceRepositoryProtocol + impl
+count_by_tag  # phase-2: TrackTagRepositoryProtocol + impl
+list_by_tagged_at  # phase-2: TrackTagRepositoryProtocol + impl
+replace_members  # phase-2: PlaylistAssignmentRepositoryProtocol + impl
+FileTokenStorage  # phase-2: tested class with no production consumer

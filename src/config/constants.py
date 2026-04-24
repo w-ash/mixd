@@ -65,9 +65,6 @@ class BusinessLimits:
     # Matching
     FULL_CONFIDENCE_SCORE: Final = 100
 
-    # Database
-    BATCH_WARNING_THRESHOLD: Final = 100
-
     # Debug
     DEBUG_LOG_TRUNCATION_LIMIT: Final = 10
 

@@ -11,11 +11,7 @@ the primitive that ``MergeTagsUseCase`` also wraps.
 
 from attrs import define
 
-from src.application.runner import execute_use_case
-from src.config import get_logger
 from src.domain.repositories import UnitOfWorkProtocol
-
-logger = get_logger(__name__)
 
 
 @define(frozen=True, slots=True)
@@ -46,12 +42,3 @@ class RenameTagUseCase:
             )
             await uow.commit()
             return RenameTagResult(affected_count=affected)
-
-
-async def run_rename_tag(user_id: str, source: str, target: str) -> RenameTagResult:
-    """Rename a tag via execute_use_case."""
-    command = RenameTagCommand(user_id=user_id, source=source, target=target)
-    return await execute_use_case(
-        lambda uow: RenameTagUseCase().execute(command, uow),
-        user_id=user_id,
-    )

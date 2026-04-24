@@ -59,6 +59,9 @@ jobs:
       - name: Type check
         run: uv run basedpyright src/
 
+      - name: Dead code
+        run: uv run vulture
+
       - name: Test with coverage
         run: uv run pytest -m "" --cov --cov-report=term-missing --cov-fail-under=80
 
@@ -104,6 +107,10 @@ jobs:
 
       - name: Lint and type check
         run: pnpm check
+
+      - name: Dead code (non-blocking baseline)
+        run: pnpm lint:dead
+        continue-on-error: true
 
       - name: Test
         run: pnpm test
