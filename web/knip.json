@@ -7,5 +7,6 @@
     "tw-animate-css",
     "tailwindcss"
   ],
-  "ignoreBinaries": ["uv"]
+  "ignoreBinaries": ["uv"],
+  "ignoreExportsUsedInFile": true
 }

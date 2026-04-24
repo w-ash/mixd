@@ -64,5 +64,5 @@ export function renderWithProviders(
 }
 
 // Re-export everything from testing-library so tests import from one place
-export { act, screen, waitFor, within } from "@testing-library/react";
+export { screen, waitFor } from "@testing-library/react";
 export { default as userEvent } from "@testing-library/user-event";

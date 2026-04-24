@@ -9,13 +9,6 @@ import type { WorkflowTaskDefSchemaInput } from "#/api/generated/model";
 
 export type DiffStatus = "added" | "removed" | "modified" | "unchanged";
 
-export interface TaskDiff {
-  taskId: string;
-  status: DiffStatus;
-  oldTask?: WorkflowTaskDefSchemaInput;
-  newTask?: WorkflowTaskDefSchemaInput;
-}
-
 export interface WorkflowDiff {
   added: WorkflowTaskDefSchemaInput[];
   removed: WorkflowTaskDefSchemaInput[];

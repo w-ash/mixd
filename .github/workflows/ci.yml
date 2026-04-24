@@ -108,9 +108,8 @@ jobs:
       - name: Lint and type check
         run: pnpm check
 
-      - name: Dead code (web, non-blocking baseline)
+      - name: Dead code (web)
         run: pnpm lint:dead
-        continue-on-error: true
 
       - name: Test
         run: pnpm test
