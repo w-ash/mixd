@@ -44,7 +44,6 @@ def make_mock_playlist_repo(**overrides) -> AsyncMock:
         "get_playlist_by_connector", None
     )
     repo.save_playlist.side_effect = overrides.pop("save_playlist", lambda p: p)
-    repo.save_playlists_batch.side_effect = overrides.pop("save_playlists_batch", list)
     repo.delete_playlist.return_value = overrides.pop("delete_playlist", True)
     for k, v in overrides.items():
         setattr(repo, k, v)
@@ -215,7 +214,6 @@ def make_mock_tag_repo(**overrides) -> AsyncMock:
         "add_events", lambda events, **kw: list(events)
     )
     repo.list_tags.return_value = overrides.pop("list_tags", [])
-    repo.count_by_tag.return_value = overrides.pop("count_by_tag", {})
     repo.list_by_tagged_at.return_value = overrides.pop("list_by_tagged_at", [])
     for k, v in overrides.items():
         setattr(repo, k, v)
@@ -260,9 +258,6 @@ def make_mock_playlist_assignment_repo(**overrides) -> AsyncMock:
     repo.delete_assignment.return_value = overrides.pop("delete_assignment", True)
     repo.get_members_for_assignments.return_value = overrides.pop(
         "get_members_for_assignments", {}
-    )
-    repo.replace_members.side_effect = overrides.pop(
-        "replace_members", lambda aid, members, **kw: list(members)
     )
     repo.replace_members_for_assignments.side_effect = overrides.pop(
         "replace_members_for_assignments",

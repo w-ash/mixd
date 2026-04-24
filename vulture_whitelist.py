@@ -157,14 +157,15 @@ _show_rate  # Rich progress column config
 MAX_PAGE_SIZE  # BusinessLimits — counterpart to DEFAULT_PAGE_SIZE
 RUN_STATUS_CANCELLED  # WorkflowConstants — part of status lifecycle
 
+# --- Kept as documented contract (spec'd but not yet surfaced in a use case) ---
+# Thin date-range primitives retained on purpose; re-promote by deleting when the
+# Dashboard / audit-log consumer lands and becomes the caller.
+list_by_tagged_at  # contract: v0.7.2 tag spec — temporal companion to add_tags
+list_by_preferred_at  # contract: v0.7.0 preference spec — temporal companion to set_preferences
+
 # --- Phase 2 architectural audit candidates ---
 # Tests exist but no production caller. Remove from this section as the method is
 # consolidated with a sibling (DRY), deleted (contract trim), or promoted to a
 # production call site. Suffix each entry with a # phase-2: rationale.
 prefect_logger_level  # phase-2: second LoggingConfig knob, consumer not wired
-save_playlists_batch  # phase-2: PlaylistRepositoryProtocol + impl
-list_by_preferred_at  # phase-2: TrackPreferenceRepositoryProtocol + impl
-count_by_tag  # phase-2: TrackTagRepositoryProtocol + impl
-list_by_tagged_at  # phase-2: TrackTagRepositoryProtocol + impl
-replace_members  # phase-2: PlaylistAssignmentRepositoryProtocol + impl
 FileTokenStorage  # phase-2: tested class with no production consumer

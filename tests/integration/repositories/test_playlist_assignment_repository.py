@@ -12,7 +12,6 @@ from uuid import UUID, uuid4
 
 from src.domain.entities.playlist_assignment import (
     PlaylistAssignment,
-    PlaylistAssignmentMember,
 )
 from src.infrastructure.persistence.database.db_models import (
     DBConnectorPlaylist,
@@ -163,117 +162,6 @@ class TestCascadeDelete:
             repo = uow.get_playlist_assignment_repository()
             remaining = await repo.list_for_user(user_id="default")
         assert all(a.connector_playlist_id != cp_id for a in remaining)
-
-
-class TestReplaceMembers:
-    async def test_replace_swaps_full_set(self, db_session):
-        cp_id = await _setup_connector_playlist(db_session)
-        track1 = await _create_track(db_session)
-        track2 = await _create_track(db_session)
-        track3 = await _create_track(db_session)
-
-        assignment = PlaylistAssignment.create(
-            user_id="default",
-            connector_playlist_id=cp_id,
-            action_type="add_tag",
-            raw_action_value="mood:chill",
-        )
-        uow = get_unit_of_work(db_session)
-        async with uow:
-            repo = uow.get_playlist_assignment_repository()
-            await repo.create_assignments([assignment], user_id="default")
-            await uow.commit()
-
-        # First snapshot: tracks 1 + 2.
-        async with uow:
-            repo = uow.get_playlist_assignment_repository()
-            await repo.replace_members(
-                assignment.id,
-                [
-                    PlaylistAssignmentMember(
-                        user_id="default",
-                        assignment_id=assignment.id,
-                        track_id=track1,
-                    ),
-                    PlaylistAssignmentMember(
-                        user_id="default",
-                        assignment_id=assignment.id,
-                        track_id=track2,
-                    ),
-                ],
-                user_id="default",
-            )
-            await uow.commit()
-
-        # Replace with tracks 2 + 3 (track1 should be removed).
-        async with uow:
-            repo = uow.get_playlist_assignment_repository()
-            await repo.replace_members(
-                assignment.id,
-                [
-                    PlaylistAssignmentMember(
-                        user_id="default",
-                        assignment_id=assignment.id,
-                        track_id=track2,
-                    ),
-                    PlaylistAssignmentMember(
-                        user_id="default",
-                        assignment_id=assignment.id,
-                        track_id=track3,
-                    ),
-                ],
-                user_id="default",
-            )
-            await uow.commit()
-
-        async with uow:
-            repo = uow.get_playlist_assignment_repository()
-            grouped = await repo.get_members_for_assignments(
-                [assignment.id], user_id="default"
-            )
-            members = grouped.get(assignment.id, [])
-
-        track_ids = {m.track_id for m in members}
-        assert track_ids == {track2, track3}
-
-    async def test_empty_replacement_clears_members(self, db_session):
-        cp_id = await _setup_connector_playlist(db_session)
-        track = await _create_track(db_session)
-
-        assignment = PlaylistAssignment.create(
-            user_id="default",
-            connector_playlist_id=cp_id,
-            action_type="add_tag",
-            raw_action_value="mood:chill",
-        )
-        uow = get_unit_of_work(db_session)
-        async with uow:
-            repo = uow.get_playlist_assignment_repository()
-            await repo.create_assignments([assignment], user_id="default")
-            await repo.replace_members(
-                assignment.id,
-                [
-                    PlaylistAssignmentMember(
-                        user_id="default",
-                        assignment_id=assignment.id,
-                        track_id=track,
-                    )
-                ],
-                user_id="default",
-            )
-            await uow.commit()
-
-        async with uow:
-            repo = uow.get_playlist_assignment_repository()
-            await repo.replace_members(assignment.id, [], user_id="default")
-            await uow.commit()
-
-        async with uow:
-            repo = uow.get_playlist_assignment_repository()
-            grouped = await repo.get_members_for_assignments(
-                [assignment.id], user_id="default"
-            )
-        assert grouped.get(assignment.id, []) == []
 
 
 class TestDeleteAssignment:

@@ -163,45 +163,6 @@ class PlaylistAssignmentRepository(
             grouped.setdefault(member.assignment_id, []).append(member)
         return grouped
 
-    @db_operation("replace_members")
-    async def replace_members(
-        self,
-        assignment_id: UUID,
-        members: Sequence[PlaylistAssignmentMember],
-        *,
-        user_id: str,
-    ) -> list[PlaylistAssignmentMember]:
-        """DELETE all existing members for this assignment, INSERT the new set."""
-        await self.session.execute(
-            delete(DBPlaylistAssignmentMember).where(
-                DBPlaylistAssignmentMember.assignment_id == assignment_id,
-                DBPlaylistAssignmentMember.user_id == user_id,
-            )
-        )
-
-        if not members:
-            return []
-
-        entities: list[dict[str, object]] = [
-            {
-                "id": m.id,
-                "user_id": user_id,
-                "assignment_id": m.assignment_id,
-                "track_id": m.track_id,
-                "synced_at": m.synced_at,
-            }
-            for m in members
-        ]
-        entities = self._deduplicate_batch(
-            entities, ["assignment_id", "track_id"], label="replace_members"
-        )
-        self._add_timestamps(entities)
-        await self.session.execute(
-            pg_insert(DBPlaylistAssignmentMember).values(entities)
-        )
-
-        return list(members)
-
     @db_operation("replace_members_for_assignments")
     async def replace_members_for_assignments(
         self,

@@ -263,7 +263,7 @@ class TestEventsAndCascade:
 
 
 class TestQueries:
-    """Aggregate and date-range read paths: list_tags / count_by_tag / list_by_tagged_at."""
+    """Aggregate and date-range read paths: list_tags / list_by_tagged_at."""
 
     async def test_list_tags_sorted_by_count_desc(
         self, db_session: AsyncSession
@@ -324,23 +324,6 @@ class TestQueries:
         result = await repo.list_tags(user_id="default")
         last_used = {tag: last for tag, _, last in result}
         assert last_used["mood:chill"] == recent
-
-    async def test_count_by_tag(self, db_session: AsyncSession) -> None:
-        tracks = [await _seed_track(db_session) for _ in range(3)]
-        repo = TrackTagRepository(db_session)
-        await repo.add_tags(
-            [make_track_tag(track_id=t.id, tag="mood:chill") for t in tracks],
-            user_id="default",
-        )
-        await repo.add_tags(
-            [make_track_tag(track_id=tracks[0].id, tag="banger")],
-            user_id="default",
-        )
-
-        counts = await repo.count_by_tag(user_id="default")
-
-        assert counts["mood:chill"] == 3
-        assert counts["banger"] == 1
 
     async def test_list_by_tagged_at_ordering_and_boundaries(
         self, db_session: AsyncSession

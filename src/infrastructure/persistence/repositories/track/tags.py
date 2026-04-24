@@ -176,16 +176,6 @@ class TrackTagRepository(BaseRepository[DBTrackTag, TrackTag]):
         result = await self.session.execute(stmt)
         return [(row[0], row[1], row[2]) for row in result.all()]
 
-    @db_operation("count_by_tag")
-    async def count_by_tag(self, *, user_id: str) -> dict[str, int]:
-        stmt = (
-            select(self.model_class.tag, func.count(self.model_class.id))
-            .where(self.model_class.user_id == user_id)
-            .group_by(self.model_class.tag)
-        )
-        result = await self.session.execute(stmt)
-        return {row[0]: row[1] for row in result.all()}
-
     @db_operation("list_by_tagged_at")
     async def list_by_tagged_at(
         self,

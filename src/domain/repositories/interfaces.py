@@ -274,17 +274,6 @@ class PlaylistRepositoryProtocol(Protocol):
         """Save playlist."""
         ...
 
-    def save_playlists_batch(
-        self, playlists: Sequence[Playlist]
-    ) -> Awaitable[list[Playlist]]:
-        """Bulk-create N canonical playlists with entries in one round-trip.
-
-        Requires every ``entry.track.id`` to be populated — raises
-        ``ValueError`` otherwise. Connector mappings are NOT written here;
-        pair with ``PlaylistLinkRepositoryProtocol.create_links_batch``.
-        """
-        ...
-
     def get_playlist_by_connector(
         self,
         connector: str,
@@ -1520,10 +1509,6 @@ class TagRepositoryProtocol(Protocol):
         """
         ...
 
-    def count_by_tag(self, *, user_id: str) -> Awaitable[dict[str, int]]:
-        """Count tag usage across all of a user's tracks."""
-        ...
-
     def list_by_tagged_at(
         self,
         *,
@@ -1623,16 +1608,6 @@ class PlaylistAssignmentRepositoryProtocol(Protocol):
         self, assignment_ids: Sequence[UUID], *, user_id: str
     ) -> Awaitable[dict[UUID, list[PlaylistAssignmentMember]]]:
         """Batch member load for many assignments in one query."""
-        ...
-
-    def replace_members(
-        self,
-        assignment_id: UUID,
-        members: Sequence[PlaylistAssignmentMember],
-        *,
-        user_id: str,
-    ) -> Awaitable[list[PlaylistAssignmentMember]]:
-        """DELETE all members for this assignment, INSERT the new set."""
         ...
 
     def replace_members_for_assignments(
