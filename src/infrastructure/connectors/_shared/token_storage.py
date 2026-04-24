@@ -32,9 +32,6 @@ class StoredToken(TypedDict, total=False):
 class TokenStorage(Protocol):
     """Protocol for reading/writing OAuth tokens and session keys.
 
-    Implementations handle file-based storage (CLI development) or
-    database-backed storage (hosted deployment).
-
     All methods require ``user_id`` to scope tokens per-user (v0.6.3).
     """
 
