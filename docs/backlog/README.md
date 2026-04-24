@@ -1,6 +1,6 @@
 # Project Mixd — Planning
 
-**Current Version**: 0.7.6
+**Current Version**: 0.7.6.1
 **Next**: v0.7.7 Operation Run Log
 
 → [Completed milestones](completed/) | [Unscheduled ideas](unscheduled.md)

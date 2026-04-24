@@ -3,7 +3,7 @@
  * Do not edit manually.
  * Mixd
  * Personal music metadata hub
- * OpenAPI spec version: 0.7.6
+ * OpenAPI spec version: 0.7.6.1
  */
 
 export interface BodyImportSpotifyHistoryApiV1ImportsSpotifyHistoryPost {
