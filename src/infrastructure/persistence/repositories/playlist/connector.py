@@ -95,13 +95,10 @@ class ConnectorPlaylistRepository(
             ]
         }
 
-        # Perform the upsert operation
         return await self.upsert(
             lookup_attrs=lookup_attrs,
             create_attrs=create_attrs,
         )
-
-        # Return the domain model with ID
 
     @db_operation("list_by_connector")
     async def list_by_connector(self, connector: str) -> list[ConnectorPlaylist]:

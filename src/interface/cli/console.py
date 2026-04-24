@@ -106,7 +106,7 @@ class SimpleConsoleContext:
         self.console = console
 
     def get_progress_manager(self) -> None:
-        """Return None since no progress tracking is needed."""
+        """No-op: this context doesn't manage progress tracking."""
         return
 
 

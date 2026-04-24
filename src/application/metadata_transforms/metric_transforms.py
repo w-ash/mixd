@@ -145,8 +145,6 @@ def sort_by_external_metrics(
         sorted_tracks = sorted(t.tracks, key=external_metrics_key, reverse=reverse)
         return t.with_tracks(sorted_tracks)
 
-        # The metrics are already in metadata, no need to duplicate them
-
     return dual_mode(transform, tracklist)
 
 
