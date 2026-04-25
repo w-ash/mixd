@@ -60,7 +60,6 @@ def make_track(
     if id is None:
         id = uuid7()
     kwargs.setdefault("artists", [Artist(name=artist)])
-    kwargs.setdefault("version", 1)
     return Track(id=id, title=title, user_id=user_id, **kwargs)
 
 
@@ -70,6 +69,17 @@ def make_tracks(count: int = 3, user_id: str = "default", **kwargs) -> list[Trac
         make_track(title=f"Track {i}", artist=f"Artist {i}", user_id=user_id, **kwargs)
         for i in range(1, count + 1)
     ]
+
+
+def make_persisted_track(**kwargs) -> Track:
+    """Build a Track as if already persisted (version=1).
+
+    Use for domain/workflow tests that pass tracks through ``require_database_tracks``
+    or other invariants expecting persisted entities. Integration tests exercising
+    ``save_track`` should use ``make_track`` (version=0) instead.
+    """
+    kwargs.setdefault("version", 1)
+    return make_track(**kwargs)
 
 
 def make_track_like(

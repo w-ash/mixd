@@ -96,7 +96,6 @@ class TestEnsureConnectorTracks:
         connector_repo = TrackConnectorRepository(db_session)
         review_repo = MatchReviewRepository(db_session)
 
-        # Create connector_tracks via ensure_connector_tracks
         ct_map = await connector_repo.ensure_connector_tracks(
             "spotify",
             [

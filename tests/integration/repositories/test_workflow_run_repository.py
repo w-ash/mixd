@@ -212,7 +212,6 @@ class TestWorkflowRunPagination:
         workflow = await _create_workflow(db_session)
         repo = WorkflowRunRepository(db_session)
 
-        # Create 3 runs
         for _ in range(3):
             await repo.create_run(_make_run(workflow.id))
 
@@ -282,11 +281,9 @@ class TestLatestRunQueries:
             Workflow(user_id="default", definition=_make_def("wf2", "WF2"))
         )
 
-        # Create runs for wf1 (keep last)
         await repo.create_run(_make_run(wf1.id))
         wf1_latest = await repo.create_run(_make_run(wf1.id))
 
-        # Create one run for wf2
         wf2_latest = await repo.create_run(_make_run(wf2.id))
 
         result = await repo.get_latest_runs_for_workflows([wf1.id, wf2.id])
@@ -319,7 +316,6 @@ class TestCascadeDelete:
         )
         run = await run_repo.create_run(_make_run(workflow.id))
 
-        # Delete workflow
         await wf_repo.delete_workflow(workflow.id, user_id="default")
         await db_session.flush()
 

@@ -30,7 +30,6 @@ async def _create_track_with_mapping(
     """Create a track with a connector mapping. Returns (track_id, mapping_id)."""
     uow = get_unit_of_work(db_session)
 
-    # Create track via ingest (creates both connector track + mapping)
     connector_track = ConnectorTrack(
         connector_name=connector,
         connector_track_identifier=connector_id,
@@ -62,7 +61,6 @@ async def _create_track_with_mapping(
         )
         await db_session.flush()
 
-    # Get the mapping ID
     result = await db_session.execute(
         select(DBTrackMapping.id).where(DBTrackMapping.track_id == track_id)
     )
@@ -75,7 +73,7 @@ class TestIngestSkipsManualOverride:
     """ingest_external_tracks_bulk should not update confidence on manual_override mappings."""
 
     async def test_manual_override_confidence_not_updated(
-        self, db_session: AsyncSession, test_data_tracker
+        self, db_session: AsyncSession
     ):
         track_id, mapping_id = await _create_track_with_mapping(
             db_session,
@@ -83,7 +81,6 @@ class TestIngestSkipsManualOverride:
             origin=MappingOrigin.MANUAL_OVERRIDE,
             confidence=50,
         )
-        test_data_tracker.add_track(track_id)
 
         # Re-ingest the same connector track
         uow = get_unit_of_work(db_session)
@@ -100,7 +97,6 @@ class TestIngestSkipsManualOverride:
             "spotify", [ct], user_id="default"
         )
 
-        # Verify confidence was NOT updated (still 50, not 100)
         result = await db_session.execute(
             select(DBTrackMapping.confidence, DBTrackMapping.origin).where(
                 DBTrackMapping.id == mapping_id
@@ -110,16 +106,13 @@ class TestIngestSkipsManualOverride:
         assert row.confidence == 50
         assert row.origin == MappingOrigin.MANUAL_OVERRIDE
 
-    async def test_automatic_confidence_is_updated(
-        self, db_session: AsyncSession, test_data_tracker
-    ):
+    async def test_automatic_confidence_is_updated(self, db_session: AsyncSession):
         track_id, mapping_id = await _create_track_with_mapping(
             db_session,
             connector_id="sp_auto_001",
             origin=MappingOrigin.AUTOMATIC,
             confidence=50,
         )
-        test_data_tracker.add_track(track_id)
 
         # Re-ingest the same connector track
         uow = get_unit_of_work(db_session)
@@ -136,7 +129,6 @@ class TestIngestSkipsManualOverride:
             "spotify", [ct], user_id="default"
         )
 
-        # Verify confidence WAS updated to 100
         result = await db_session.execute(
             select(DBTrackMapping.confidence).where(DBTrackMapping.id == mapping_id)
         )
@@ -147,7 +139,7 @@ class TestMapTracksSkipsManualOverride:
     """map_tracks_to_connectors should not overwrite manual_override mappings."""
 
     async def test_manual_override_not_overwritten_by_bulk_map(
-        self, db_session: AsyncSession, test_data_tracker
+        self, db_session: AsyncSession
     ):
         track_id, mapping_id = await _create_track_with_mapping(
             db_session,
@@ -155,7 +147,6 @@ class TestMapTracksSkipsManualOverride:
             origin=MappingOrigin.MANUAL_OVERRIDE,
             confidence=80,
         )
-        test_data_tracker.add_track(track_id)
 
         # Try to map the same track to the same connector track with different confidence
         uow = get_unit_of_work(db_session)
@@ -165,7 +156,6 @@ class TestMapTracksSkipsManualOverride:
             (track, "spotify", "sp_map_001", "search_fallback", 95, None, None)
         ])
 
-        # Verify original mapping is preserved
         result = await db_session.execute(
             select(DBTrackMapping.confidence, DBTrackMapping.origin).where(
                 DBTrackMapping.id == mapping_id
@@ -180,32 +170,27 @@ class TestMergeSetsManualOverride:
     """merge_mappings_to_track should set origin='manual_override' on moved mappings."""
 
     async def test_non_conflicting_mappings_get_manual_override(
-        self, db_session: AsyncSession, test_data_tracker
+        self, db_session: AsyncSession
     ):
-        # Create winner track (spotify mapping)
         winner_id, _ = await _create_track_with_mapping(
             db_session,
             title="Winner",
             connector="spotify",
             connector_id="sp_winner_001",
         )
-        test_data_tracker.add_track(winner_id)
 
-        # Create loser track (lastfm mapping — different connector, no conflict)
         loser_id, loser_mapping_id = await _create_track_with_mapping(
             db_session,
             title="Loser",
             connector="lastfm",
             connector_id="lf_loser_001",
         )
-        test_data_tracker.add_track(loser_id)
 
         # Merge loser into winner
         uow = get_unit_of_work(db_session)
         track_repo = uow.get_track_repository()
         await track_repo.merge_mappings_to_track(loser_id, winner_id)
 
-        # Verify the moved mapping has manual_override origin
         result = await db_session.execute(
             select(DBTrackMapping.track_id, DBTrackMapping.origin).where(
                 DBTrackMapping.id == loser_mapping_id

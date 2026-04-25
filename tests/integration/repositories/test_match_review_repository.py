@@ -130,7 +130,6 @@ class TestListPendingReviews:
         track_id2, ct_id2 = await _seed_track_and_connector_track(db_session)
         repo = MatchReviewRepository(db_session)
 
-        # Create one pending and one accepted
         await repo.create_review(
             MatchReview(
                 track_id=track_id,
@@ -161,7 +160,6 @@ class TestListPendingReviews:
     async def test_pagination(self, db_session: AsyncSession):
         repo = MatchReviewRepository(db_session)
 
-        # Create 3 reviews
         for _ in range(3):
             track_id, ct_id = await _seed_track_and_connector_track(db_session)
             await repo.create_review(

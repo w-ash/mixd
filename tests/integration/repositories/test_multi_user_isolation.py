@@ -11,16 +11,14 @@ because testcontainers connects as a superuser.
 from datetime import UTC, datetime
 from uuid import uuid7
 
-import attrs
 import pytest
 
 from src.domain.entities.operations import SyncCheckpoint, TrackPlay
-from src.domain.entities.playlist import Playlist
 from src.domain.entities.track import Artist, Track
 from src.domain.entities.workflow import Workflow
 from src.domain.exceptions import NotFoundError
 from src.infrastructure.persistence.repositories.factories import get_unit_of_work
-from tests.fixtures.factories import make_workflow_def
+from tests.fixtures.factories import make_playlist, make_workflow_def
 
 USER_A = "isolation-user-a"
 USER_B = "isolation-user-b"
@@ -197,8 +195,7 @@ class TestPlaylistIsolation:
         track_repo = uow.get_track_repository()
         track = await track_repo.save_track(_new_track(user_id))
 
-        playlist = Playlist.from_tracklist(name=name, tracklist=[track])
-        playlist = attrs.evolve(playlist, user_id=user_id)
+        playlist = make_playlist(name=name, tracks=[track], user_id=user_id)
         return await uow.get_playlist_repository().save_playlist(playlist)
 
     async def test_list_playlists_scoped(self, db_session):

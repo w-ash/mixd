@@ -40,7 +40,7 @@ class TestSnapshotIdRoundTrip:
 
         uid = uuid4().hex[:8]
         await repo.upsert_model(_cp(f"A {uid}", f"sp_{uid}", snapshot_id="snap-abc"))
-        await db_session.commit()
+        await db_session.flush()
 
         back = await repo.get_by_connector_id("spotify", f"sp_{uid}")
         assert back is not None
@@ -53,10 +53,10 @@ class TestSnapshotIdRoundTrip:
 
         uid = uuid4().hex[:8]
         await repo.upsert_model(_cp(f"A {uid}", f"sp_{uid}", snapshot_id="snap-v1"))
-        await db_session.commit()
+        await db_session.flush()
 
         await repo.upsert_model(_cp(f"A {uid}", f"sp_{uid}", snapshot_id="snap-v2"))
-        await db_session.commit()
+        await db_session.flush()
 
         back = await repo.get_by_connector_id("spotify", f"sp_{uid}")
         assert back is not None
@@ -69,7 +69,7 @@ class TestSnapshotIdRoundTrip:
 
         uid = uuid4().hex[:8]
         await repo.upsert_model(_cp(f"A {uid}", f"sp_{uid}", snapshot_id=None))
-        await db_session.commit()
+        await db_session.flush()
 
         back = await repo.get_by_connector_id("spotify", f"sp_{uid}")
         assert back is not None
@@ -86,7 +86,7 @@ class TestListByConnector:
         uid = uuid4().hex[:8]
         await repo.upsert_model(_cp(f"Alpha {uid}", f"sp_a_{uid}"))
         await repo.upsert_model(_cp(f"Beta {uid}", f"sp_b_{uid}"))
-        await db_session.commit()
+        await db_session.flush()
 
         rows = await repo.list_by_connector("spotify")
         identifiers = {r.connector_playlist_identifier for r in rows}
@@ -119,7 +119,7 @@ class TestListByConnector:
                 last_updated=datetime.now(UTC),
             )
         )
-        await db_session.commit()
+        await db_session.flush()
 
         spotify_rows = await repo.list_by_connector("spotify")
         connectors = {r.connector_name for r in spotify_rows}
@@ -142,7 +142,7 @@ class TestBulkUpsertModels:
         ]
 
         saved = await repo.bulk_upsert_models(batch)
-        await db_session.commit()
+        await db_session.flush()
 
         assert len(saved) == 3
         identifiers = {cp.connector_playlist_identifier for cp in saved}
@@ -165,10 +165,10 @@ class TestBulkUpsertModels:
 
         uid = uuid4().hex[:8]
         await repo.bulk_upsert_models([_cp(f"A {uid}", f"sp_{uid}", snapshot_id="v1")])
-        await db_session.commit()
+        await db_session.flush()
 
         await repo.bulk_upsert_models([_cp(f"A {uid}", f"sp_{uid}", snapshot_id="v2")])
-        await db_session.commit()
+        await db_session.flush()
 
         back = await repo.get_by_connector_id("spotify", f"sp_{uid}")
         assert back is not None

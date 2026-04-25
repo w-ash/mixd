@@ -96,7 +96,6 @@ class TestMatchMethodStatsAggregation:
     """Verify correct grouping and counting by match_method + connector_name."""
 
     async def test_groups_by_method_and_connector(self, db_session):
-        # Insert 2 direct_import/spotify + 1 artist_title/lastfm
         t1, t2, t3 = _make_db_track(), _make_db_track(), _make_db_track()
         ct1 = _make_connector_track("spotify")
         ct2 = _make_connector_track("spotify")

@@ -96,6 +96,61 @@ class TestNormalizeForComparison:
         assert result == "motorhead featuring bjork and friends"
 
 
+class TestNormalizeNonLatinScripts:
+    """Regression tests pinning current behavior on non-Latin inputs.
+
+    These tests document what ``normalize_for_comparison`` does today for
+    Japanese, Chinese, Arabic, Cyrillic, Greek, and Hebrew titles. They are
+    *baseline tests, not correctness tests* — the goal is to catch any
+    accidental change to non-Latin handling, not to assert the current
+    behavior is semantically right for every script. Some pinned behaviors
+    (e.g. dakuten stripping in Japanese kana) are pre-existing artifacts of
+    NFD + category-Mn filtering and would benefit from a separate product
+    review of search semantics for non-Latin scripts.
+    """
+
+    @pytest.mark.parametrize(
+        ("input_text", "expected"),
+        [
+            # Japanese: kana with dakuten/handakuten lose the marks via NFD+Mn-strip.
+            # が (ga) → か (ka), ガ (Ga) → カ (Ka), ボ (bo) → ホ (ho).
+            ("がガ", "かカ"),
+            ("ロボット", "ロホット"),
+            # Kanji and unmarked kana pass through unchanged.
+            ("夜に駆ける", "夜に駆ける"),
+            # Chinese: Simplified and Traditional CJK pass through unchanged
+            # (no Mn-category combining marks).
+            ("爱情转移", "爱情转移"),
+            ("愛情轉移", "愛情轉移"),
+            # Arabic and Hebrew: pass through unchanged in this corpus.
+            ("البيتلز", "البيتلز"),
+            ("שלום", "שלום"),
+            # Cyrillic: lowercased; combining breve on й is stripped (й → и).
+            ("Раммштайн", "раммштаин"),
+            # Greek: lowercased and diacritic stripped.
+            ("Ωραίο", "ωραιο"),
+            # Pinyin with diacritics: lowercased and stripped to plain Latin.
+            ("Wǒ Ài Nǐ", "wo ai ni"),
+            # Mixed Latin + CJK preserves the CJK as-is, normalizes the Latin.
+            ("YOASOBI - 夜に駆ける", "yoasobi 夜に駆ける"),
+            ("Beyond - 海闊天空", "beyond 海闊天空"),
+        ],
+    )
+    def test_pinned_behavior(self, input_text: str, expected: str):
+        assert normalize_for_comparison(input_text) == expected
+
+    def test_strip_parentheticals_preserves_cjk(self):
+        """Parenthetical-stripping then normalizing preserves the CJK head."""
+        assert (
+            normalize_for_comparison(strip_parentheticals("夜に駆ける (Remix)"))
+            == "夜に駆ける"
+        )
+        assert (
+            normalize_for_comparison(strip_parentheticals("光辉岁月 (Glory Days)"))
+            == "光辉岁月"
+        )
+
+
 class TestPhoneticKey:
     """Test Metaphone phonetic key generation."""
 

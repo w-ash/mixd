@@ -7,7 +7,7 @@ correctly now that all tracks have UUIDs from birth.
 import pytest
 
 from src.domain.entities.track import TrackList
-from tests.fixtures import make_track
+from tests.fixtures import make_persisted_track
 
 
 class TestMakeNodeInvariant:
@@ -16,14 +16,15 @@ class TestMakeNodeInvariant:
     @pytest.fixture
     def _load_catalog(self):
         """Import node_catalog to register all nodes."""
-        import src.application.workflows.node_catalog  # noqa: F401
 
     @pytest.mark.usefixtures("_load_catalog")
     async def test_passes_with_valid_tracks(self):
         from src.application.workflows.node_factories import make_node
 
         node_fn = make_node("filter", "deduplicate")
-        good_tracklist = TrackList(tracks=[make_track(), make_track()])
+        good_tracklist = TrackList(
+            tracks=[make_persisted_track(), make_persisted_track()]
+        )
         context = {"upstream_task_id": "src", "src": {"tracklist": good_tracklist}}
 
         result = await node_fn(context, {})
@@ -35,15 +36,15 @@ class TestMakeCombinerNodeInvariant:
 
     @pytest.fixture
     def _load_catalog(self):
-        import src.application.workflows.node_catalog  # noqa: F401
+        pass
 
     @pytest.mark.usefixtures("_load_catalog")
     async def test_passes_with_valid_upstream(self):
         from src.application.workflows.node_factories import make_combiner_node
 
         node_fn = make_combiner_node("merge_playlists")
-        tl1 = TrackList(tracks=[make_track()])
-        tl2 = TrackList(tracks=[make_track()])
+        tl1 = TrackList(tracks=[make_persisted_track()])
+        tl2 = TrackList(tracks=[make_persisted_track()])
         context = {
             "upstream_task_ids": ["a", "b"],
             "a": {"tracklist": tl1},

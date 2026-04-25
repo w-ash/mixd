@@ -152,7 +152,6 @@ class TestCascadeDelete:
             await repo.create_assignments([assignment], user_id="default")
             await uow.commit()
 
-        # Delete the ConnectorPlaylist; assignment should cascade.
         async with uow:
             cp = await db_session.get(DBConnectorPlaylist, cp_id)
             await db_session.delete(cp)

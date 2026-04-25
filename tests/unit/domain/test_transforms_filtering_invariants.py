@@ -7,7 +7,7 @@ from uuid import uuid7
 
 from src.domain.entities.track import TrackList
 from src.domain.transforms.filtering import filter_duplicates
-from tests.fixtures import make_track
+from tests.fixtures import make_persisted_track
 
 
 class TestFilterDuplicatesInvariant:
@@ -15,7 +15,11 @@ class TestFilterDuplicatesInvariant:
 
     def test_deduplicates_by_id(self):
         shared_id = uuid7()
-        tracks = [make_track(id=shared_id), make_track(), make_track(id=shared_id)]
+        tracks = [
+            make_persisted_track(id=shared_id),
+            make_persisted_track(),
+            make_persisted_track(id=shared_id),
+        ]
         tracklist = TrackList(tracks=tracks)
         result = filter_duplicates(tracklist=tracklist)
         assert len(result.tracks) == 2
@@ -26,7 +30,7 @@ class TestFilterDuplicatesInvariant:
         assert result.tracks == []
 
     def test_no_duplicates(self):
-        tracks = [make_track() for _ in range(3)]
+        tracks = [make_persisted_track() for _ in range(3)]
         tracklist = TrackList(tracks=tracks)
         result = filter_duplicates(tracklist=tracklist)
         assert len(result.tracks) == 3

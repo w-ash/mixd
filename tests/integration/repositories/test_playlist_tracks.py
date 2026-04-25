@@ -25,7 +25,6 @@ async def _setup_track_in_playlists(
     """
     now = datetime.now(UTC)
 
-    # Create track
     track = DBTrack(
         title="Shared Track",
         artists={"names": ["Test Artist"]},
@@ -36,7 +35,6 @@ async def _setup_track_in_playlists(
     await session.flush()
     await session.refresh(track)
 
-    # Create playlists
     playlist_ids = []
     for name in ["Playlist A", "Playlist B", "Playlist C"]:
         p = DBPlaylist(
@@ -50,7 +48,6 @@ async def _setup_track_in_playlists(
         await session.refresh(p)
         playlist_ids.append(p.id)
 
-    # Add track to first two playlists only
     for pid in playlist_ids[:2]:
         pt = DBPlaylistTrack(
             playlist_id=pid,

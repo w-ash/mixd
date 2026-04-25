@@ -5,10 +5,16 @@ Import from here for convenience::
     from tests.fixtures import make_track, make_mock_uow
 """
 
+from tests.fixtures.db_seeds import (
+    seed_db_connector_playlist,
+    seed_db_connector_track,
+    seed_db_track,
+)
 from tests.fixtures.factories import (
     make_connector_playlist,
     make_connector_playlist_item,
     make_connector_track,
+    make_persisted_track,
     make_playlist,
     make_playlist_with_entries,
     make_preference_event,
@@ -65,6 +71,7 @@ __all__ = [
     "make_mock_uow_with_connector",
     "make_mock_workflow_repo",
     "make_mock_workflow_run_repo",
+    "make_persisted_track",
     "make_playlist",
     "make_playlist_with_entries",
     "make_preference_event",
@@ -79,4 +86,7 @@ __all__ = [
     "make_workflow",
     "make_workflow_def",
     "nonexistent_id",
+    "seed_db_connector_playlist",
+    "seed_db_connector_track",
+    "seed_db_track",
 ]

@@ -64,7 +64,7 @@ async def _setup_playlist_with_link(
     )
     db_session.add(db_mapping)
     await db_session.flush()
-    await db_session.commit()
+    await db_session.flush()
 
     return db_playlist.id, db_cp.id, db_mapping.id
 
@@ -153,7 +153,7 @@ class TestCreateLink:
         )
         db_session.add(db_cp)
         await db_session.flush()
-        await db_session.commit()
+        await db_session.flush()
 
         uow = get_unit_of_work(db_session)
         link_repo = uow.get_playlist_link_repository()
@@ -165,7 +165,7 @@ class TestCreateLink:
             sync_direction=SyncDirection.PULL,
         )
         created = await link_repo.create_link(new_link)
-        await db_session.commit()
+        await db_session.flush()
 
         assert created.id is not None
         assert created.playlist_id == db_playlist.id
@@ -196,7 +196,7 @@ class TestUpdateSyncStatus:
         link_repo = uow.get_playlist_link_repository()
 
         await link_repo.update_sync_status(mapping_id, SyncStatus.SYNCING)
-        await db_session.commit()
+        await db_session.flush()
 
         updated = await link_repo.get_link(mapping_id)
         assert updated is not None
@@ -211,7 +211,7 @@ class TestUpdateSyncStatus:
         await link_repo.update_sync_status(
             mapping_id, SyncStatus.ERROR, error="Connection timeout"
         )
-        await db_session.commit()
+        await db_session.flush()
 
         updated = await link_repo.get_link(mapping_id)
         assert updated is not None
@@ -227,7 +227,7 @@ class TestUpdateSyncStatus:
         await link_repo.update_sync_status(
             mapping_id, SyncStatus.SYNCED, tracks_added=5, tracks_removed=2
         )
-        await db_session.commit()
+        await db_session.flush()
 
         updated = await link_repo.get_link(mapping_id)
         assert updated is not None
@@ -247,11 +247,10 @@ class TestDeleteLink:
         link_repo = uow.get_playlist_link_repository()
 
         result = await link_repo.delete_link(mapping_id)
-        await db_session.commit()
+        await db_session.flush()
 
         assert result is True
 
-        # Verify deleted
         link = await link_repo.get_link(mapping_id)
         assert link is None
 
@@ -313,22 +312,21 @@ class TestListByUserConnector:
 
 async def _seed_playlists_and_cps(db_session, *, count: int) -> list[tuple[UUID, str]]:
     """Seed N DBPlaylist + N DBConnectorPlaylist rows; return [(playlist_id, cp_identifier)]."""
-    pairs: list[tuple[UUID, str]] = []
     uid = uuid4().hex[:8]
-    for i in range(count):
-        db_playlist = DBPlaylist(
-            name=f"Batch {uid} {i}",
-            description=None,
-            track_count=0,
-        )
-        db_playlist.playlist_tracks = []
-        db_session.add(db_playlist)
-        await db_session.flush()
+    playlists = [
+        DBPlaylist(name=f"Batch {uid} {i}", description=None, track_count=0)
+        for i in range(count)
+    ]
+    for pl in playlists:
+        pl.playlist_tracks = []
+    db_session.add_all(playlists)
+    await db_session.flush()
 
-        cp_identifier = f"sp_batch_{uid}_{i}"
-        db_cp = DBConnectorPlaylist(
+    identifiers = [f"sp_batch_{uid}_{i}" for i in range(count)]
+    db_session.add_all(
+        DBConnectorPlaylist(
             connector_name="spotify",
-            connector_playlist_identifier=cp_identifier,
+            connector_playlist_identifier=identifiers[i],
             name=f"Ext {uid} {i}",
             description=None,
             owner=None,
@@ -340,11 +338,10 @@ async def _seed_playlists_and_cps(db_session, *, count: int) -> list[tuple[UUID,
             raw_metadata={},
             last_updated=datetime.now(UTC),
         )
-        db_session.add(db_cp)
-        await db_session.flush()
-        pairs.append((db_playlist.id, cp_identifier))
-    await db_session.commit()
-    return pairs
+        for i in range(count)
+    )
+    await db_session.flush()
+    return [(playlists[i].id, identifiers[i]) for i in range(count)]
 
 
 class TestCreateLinksBatch:
@@ -367,7 +364,7 @@ class TestCreateLinksBatch:
             for pid, ident in pairs
         ]
         inserted = await link_repo.create_links_batch(links)
-        await db_session.commit()
+        await db_session.flush()
 
         assert len(inserted) == 3
         # Each canonical playlist now has exactly one link.
@@ -392,12 +389,12 @@ class TestCreateLinksBatch:
             for pid, ident in pairs
         ]
         first = await link_repo.create_links_batch(links)
-        await db_session.commit()
+        await db_session.flush()
         assert len(first) == 2
 
         # Replay — both exist now, ON CONFLICT DO NOTHING skips them.
         second = await link_repo.create_links_batch(links)
-        await db_session.commit()
+        await db_session.flush()
         assert second == []
 
     async def test_missing_connector_playlist_raises(self, db_session):

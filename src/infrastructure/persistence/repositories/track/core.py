@@ -307,18 +307,8 @@ class TrackRepository(BaseRepository[DBTrack, Track]):
             "release_date": track.release_date,
             "isrc": track.isrc,
             "user_id": track.user_id,
+            **TrackMapper.normalized_columns(track),
         }
-
-        # Pre-compute normalized text for fuzzy matching index
-        values["title_normalized"] = normalize_for_comparison(track.title)
-        values["artist_normalized"] = (
-            normalize_for_comparison(track.artists[0].name) if track.artists else None
-        )
-        values["title_stripped"] = normalize_for_comparison(
-            strip_parentheticals(track.title)
-        )
-        # Denormalized artist text for search and sorting
-        values["artists_text"] = track.artists_display or None
 
         # Add denormalized connector IDs (fast-path lookup columns)
         for connector, column in DenormalizedTrackColumns.COLUMN_MAP.items():

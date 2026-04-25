@@ -7,7 +7,7 @@ ensure_primary_for_connector, get_connector_track_by_id.
 """
 
 from datetime import UTC, datetime
-from uuid import UUID, uuid7
+from uuid import UUID, uuid4, uuid7
 
 import pytest
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -39,9 +39,8 @@ async def _setup_track_with_mapping(
     origin: str = "automatic",
 ) -> tuple[UUID, UUID, UUID]:
     """Create a track, connector track, and mapping. Returns (track_id, ct_id, mapping_id)."""
-    import uuid
 
-    uid = str(uuid.uuid4())[:8]
+    uid = str(uuid4())[:8]
 
     db_track = DBTrack(
         title=f"Track {uid}",
@@ -109,7 +108,6 @@ class TestDeleteMapping:
         result = await connector_repo.delete_mapping(mapping_id, user_id="default")
 
         assert result.id == mapping_id
-        # Verify it's actually deleted
         lookup = await connector_repo.get_mapping_by_id(mapping_id, user_id="default")
         assert lookup is None
 
@@ -128,7 +126,6 @@ class TestUpdateMappingTrack:
     ) -> None:
         track_id, _, mapping_id = await _setup_track_with_mapping(db_session)
 
-        # Create target track
         target = DBTrack(title="Target", artists={"names": ["Target Artist"]})
         db_session.add(target)
         await db_session.flush()
@@ -175,11 +172,9 @@ class TestGetRemainingMappings:
     async def test_returns_ordered_by_confidence(
         self, db_session: AsyncSession, connector_repo
     ) -> None:
-        import uuid
 
-        uid = str(uuid.uuid4())[:8]
+        uid = str(uuid4())[:8]
 
-        # Create track with two mappings at different confidences
         db_track = DBTrack(title=f"Multi {uid}", artists={"names": ["Multi Artist"]})
         db_session.add(db_track)
         await db_session.flush()
@@ -222,9 +217,8 @@ class TestEnsurePrimaryForConnector:
     async def test_promotes_highest_confidence_when_no_primary(
         self, db_session: AsyncSession, connector_repo
     ) -> None:
-        import uuid
 
-        uid = str(uuid.uuid4())[:8]
+        uid = str(uuid4())[:8]
 
         db_track = DBTrack(title=f"NoPri {uid}", artists={"names": ["A"]})
         db_session.add(db_track)

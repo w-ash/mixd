@@ -12,6 +12,7 @@ from src.config import get_logger
 from src.domain.entities import Artist, Track, ensure_utc
 from src.domain.entities.playlist import DB_PSEUDO_CONNECTOR
 from src.domain.entities.shared import JsonDict, JsonValue
+from src.domain.matching import normalize_for_comparison, strip_parentheticals
 from src.infrastructure.persistence.database.db_models import (
     DBConnectorTrack,
     DBTrack,
@@ -302,7 +303,6 @@ class TrackMapper(BaseModelMapper[DBTrack, Track]):
     @staticmethod
     def to_db(domain_model: Track) -> DBTrack:
         """Convert domain track to database model."""
-        # Create the main track entity
         return DBTrack(
             user_id=domain_model.user_id,
             title=domain_model.title,
@@ -313,7 +313,27 @@ class TrackMapper(BaseModelMapper[DBTrack, Track]):
             isrc=domain_model.isrc,
             spotify_id=domain_model.connector_track_identifiers.get("spotify"),
             mbid=domain_model.connector_track_identifiers.get("musicbrainz"),
+            **TrackMapper.normalized_columns(domain_model),
         )
+
+    @staticmethod
+    def normalized_columns(track: Track) -> dict[str, str | None]:
+        """Pre-computed text columns that back the pg_trgm fuzzy-search indexes.
+
+        Both ``save_track`` and ``to_db`` MUST go through this helper — bypassing
+        it leaves the row invisible to library search.
+        """
+        first_artist = track.artists[0].name if track.artists else None
+        return {
+            "title_normalized": normalize_for_comparison(track.title),
+            "artist_normalized": (
+                normalize_for_comparison(first_artist) if first_artist else None
+            ),
+            "title_stripped": normalize_for_comparison(
+                strip_parentheticals(track.title)
+            ),
+            "artists_text": track.artists_display or None,
+        }
 
     @staticmethod
     def extract_artist_names(

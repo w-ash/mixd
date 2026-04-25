@@ -84,7 +84,7 @@ class TestMultiplePrimaryViolations:
         result = await repo.find_multiple_primary_violations()
         assert result == []
 
-    async def test_detects_two_primaries_across_connectors(
+    async def test_no_violation_when_primaries_on_different_connectors(
         self, db_session: AsyncSession
     ):
         """A track with primary mappings on two different connectors is normal.

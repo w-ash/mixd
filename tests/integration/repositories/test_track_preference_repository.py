@@ -10,37 +10,23 @@ from uuid import uuid7
 
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from src.domain.entities.preference import PreferenceEvent, TrackPreference
-from src.infrastructure.persistence.database.db_models import DBTrack
+from src.domain.entities.preference import PreferenceEvent
 from src.infrastructure.persistence.repositories.track.preferences import (
     TrackPreferenceRepository,
 )
-
-
-async def _seed_track(session: AsyncSession, user_id: str = "default") -> DBTrack:
-    """Insert a track and return it."""
-    track = DBTrack(
-        title=f"Track {uuid7().hex[:8]}",
-        artists=[{"name": "Test Artist"}],
-        user_id=user_id,
-    )
-    session.add(track)
-    await session.flush()
-    return track
+from tests.fixtures import make_track_preference, seed_db_track
 
 
 class TestSetPreferences:
     """Batch upsert semantics."""
 
     async def test_create_single_preference(self, db_session: AsyncSession) -> None:
-        track = await _seed_track(db_session)
+        track = await seed_db_track(db_session)
         repo = TrackPreferenceRepository(db_session)
 
-        pref = TrackPreference(
-            user_id="default",
+        pref = make_track_preference(
             track_id=track.id,
             state="star",
-            source="manual",
             preferred_at=datetime.now(UTC),
         )
         result = await repo.set_preferences([pref], user_id="default")
@@ -50,16 +36,14 @@ class TestSetPreferences:
         assert result[0].source == "manual"
 
     async def test_batch_create(self, db_session: AsyncSession) -> None:
-        tracks = [await _seed_track(db_session) for _ in range(3)]
+        tracks = [await seed_db_track(db_session) for _ in range(3)]
         repo = TrackPreferenceRepository(db_session)
         now = datetime.now(UTC)
 
         prefs = [
-            TrackPreference(
-                user_id="default",
+            make_track_preference(
                 track_id=t.id,
                 state=state,
-                source="manual",
                 preferred_at=now,
             )
             for t, state in zip(tracks, ["star", "yah", "nah"], strict=True)
@@ -77,15 +61,13 @@ class TestSetPreferences:
 
     async def test_upsert_idempotency(self, db_session: AsyncSession) -> None:
         """Same preference twice produces no duplicate row."""
-        track = await _seed_track(db_session)
+        track = await seed_db_track(db_session)
         repo = TrackPreferenceRepository(db_session)
         now = datetime.now(UTC)
 
-        pref = TrackPreference(
-            user_id="default",
+        pref = make_track_preference(
             track_id=track.id,
             state="yah",
-            source="manual",
             preferred_at=now,
         )
         await repo.set_preferences([pref], user_id="default")
@@ -96,24 +78,20 @@ class TestSetPreferences:
         assert fetched[track.id].state == "yah"
 
     async def test_upsert_updates_state(self, db_session: AsyncSession) -> None:
-        track = await _seed_track(db_session)
+        track = await seed_db_track(db_session)
         repo = TrackPreferenceRepository(db_session)
         now = datetime.now(UTC)
 
-        pref1 = TrackPreference(
-            user_id="default",
+        pref1 = make_track_preference(
             track_id=track.id,
             state="hmm",
-            source="manual",
             preferred_at=now,
         )
         await repo.set_preferences([pref1], user_id="default")
 
-        pref2 = TrackPreference(
-            user_id="default",
+        pref2 = make_track_preference(
             track_id=track.id,
             state="star",
-            source="manual",
             preferred_at=now,
         )
         await repo.set_preferences([pref2], user_id="default")
@@ -126,17 +104,16 @@ class TestMultiUser:
     """Multi-user isolation for preferences."""
 
     async def test_different_users_same_track(self, db_session: AsyncSession) -> None:
-        track = await _seed_track(db_session)
+        track = await seed_db_track(db_session)
         repo = TrackPreferenceRepository(db_session)
         now = datetime.now(UTC)
 
         await repo.set_preferences(
             [
-                TrackPreference(
+                make_track_preference(
                     user_id="alice",
                     track_id=track.id,
                     state="star",
-                    source="manual",
                     preferred_at=now,
                 )
             ],
@@ -144,11 +121,10 @@ class TestMultiUser:
         )
         await repo.set_preferences(
             [
-                TrackPreference(
+                make_track_preference(
                     user_id="bob",
                     track_id=track.id,
                     state="nah",
-                    source="manual",
                     preferred_at=now,
                 )
             ],
@@ -166,16 +142,14 @@ class TestRemovePreferences:
     """Batch removal."""
 
     async def test_remove_existing(self, db_session: AsyncSession) -> None:
-        track = await _seed_track(db_session)
+        track = await seed_db_track(db_session)
         repo = TrackPreferenceRepository(db_session)
 
         await repo.set_preferences(
             [
-                TrackPreference(
-                    user_id="default",
+                make_track_preference(
                     track_id=track.id,
                     state="yah",
-                    source="manual",
                     preferred_at=datetime.now(UTC),
                 )
             ],
@@ -204,17 +178,15 @@ class TestCascadeDelete:
     async def test_cascade_removes_preference_and_events(
         self, db_session: AsyncSession
     ) -> None:
-        track = await _seed_track(db_session)
+        track = await seed_db_track(db_session)
         repo = TrackPreferenceRepository(db_session)
         now = datetime.now(UTC)
 
         await repo.set_preferences(
             [
-                TrackPreference(
-                    user_id="default",
+                make_track_preference(
                     track_id=track.id,
                     state="star",
-                    source="manual",
                     preferred_at=now,
                 )
             ],
@@ -249,13 +221,11 @@ class TestCountByState:
         prefs = []
         for state, count in [("star", 3), ("yah", 2), ("nah", 1)]:
             for _ in range(count):
-                track = await _seed_track(db_session)
+                track = await seed_db_track(db_session)
                 prefs.append(
-                    TrackPreference(
-                        user_id="default",
+                    make_track_preference(
                         track_id=track.id,
                         state=state,
-                        source="manual",
                         preferred_at=now,
                     )
                 )
@@ -274,13 +244,11 @@ class TestListByPreferredAt:
 
         prefs = []
         for i in range(5):
-            track = await _seed_track(db_session)
+            track = await seed_db_track(db_session)
             prefs.append(
-                TrackPreference(
-                    user_id="default",
+                make_track_preference(
                     track_id=track.id,
                     state="yah",
-                    source="manual",
                     preferred_at=base + timedelta(days=i),
                 )
             )
@@ -302,7 +270,7 @@ class TestAddEvents:
     async def test_event_preserves_source_timestamp(
         self, db_session: AsyncSession
     ) -> None:
-        track = await _seed_track(db_session)
+        track = await seed_db_track(db_session)
         repo = TrackPreferenceRepository(db_session)
         source_time = datetime(2024, 3, 15, tzinfo=UTC)
 
@@ -326,7 +294,7 @@ class TestAddEvents:
     async def test_nullable_new_state_for_removal(
         self, db_session: AsyncSession
     ) -> None:
-        track = await _seed_track(db_session)
+        track = await seed_db_track(db_session)
         repo = TrackPreferenceRepository(db_session)
 
         result = await repo.add_events(
@@ -346,7 +314,7 @@ class TestAddEvents:
         assert result[0].new_state is None
 
     async def test_batch_insert(self, db_session: AsyncSession) -> None:
-        track = await _seed_track(db_session)
+        track = await seed_db_track(db_session)
         repo = TrackPreferenceRepository(db_session)
         now = datetime.now(UTC)
 
@@ -370,13 +338,11 @@ class TestGetPreferences:
         repo = TrackPreferenceRepository(db_session)
         now = datetime.now(UTC)
 
-        tracks = [await _seed_track(db_session) for _ in range(3)]
+        tracks = [await seed_db_track(db_session) for _ in range(3)]
         prefs = [
-            TrackPreference(
-                user_id="default",
+            make_track_preference(
                 track_id=t.id,
                 state=state,
-                source="manual",
                 preferred_at=now,
             )
             for t, state in zip(tracks, ["hmm", "yah", "star"], strict=True)
@@ -401,13 +367,11 @@ class TestListByState:
 
         prefs = []
         for state in ["star", "star", "nah"]:
-            track = await _seed_track(db_session)
+            track = await seed_db_track(db_session)
             prefs.append(
-                TrackPreference(
-                    user_id="default",
+                make_track_preference(
                     track_id=track.id,
                     state=state,
-                    source="manual",
                     preferred_at=now,
                 )
             )

@@ -7,6 +7,7 @@ Each test gets a fresh DB via the db_session fixture.
 from datetime import UTC, datetime
 from uuid import uuid4
 
+import pytest
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.infrastructure.persistence.database.db_models import (
@@ -180,7 +181,6 @@ class TestListTracksFilters:
         id1 = await _insert_track(db_session, "Spotify Track")
         await _insert_track(db_session, "No Connector")
 
-        # Create connector track and mapping
         ct = DBConnectorTrack(
             connector_name="spotify",
             connector_track_identifier=f"sp_{uuid4().hex[:8]}",
@@ -220,38 +220,41 @@ class TestListTracksFilters:
 class TestListTracksSorting:
     """Sort order verification."""
 
-    async def test_sort_title_asc(self, db_session: AsyncSession) -> None:
-        await _insert_track(db_session, "Zebra")
-        await _insert_track(db_session, "Alpha")
-        await _insert_track(db_session, "Mango")
+    @pytest.mark.parametrize(
+        ("tracks", "sort_by", "expected_order"),
+        [
+            (
+                [("Zebra", None), ("Alpha", None), ("Mango", None)],
+                "title_asc",
+                ["Alpha", "Mango", "Zebra"],
+            ),
+            (
+                [("Zebra", None), ("Alpha", None), ("Mango", None)],
+                "title_desc",
+                ["Zebra", "Mango", "Alpha"],
+            ),
+            (
+                [("Long", 300000), ("Short", 120000), ("Medium", 200000)],
+                "duration_asc",
+                ["Short", "Medium", "Long"],
+            ),
+        ],
+    )
+    async def test_sort_order(
+        self,
+        db_session: AsyncSession,
+        tracks: list[tuple[str, int | None]],
+        sort_by: str,
+        expected_order: list[str],
+    ) -> None:
+        for title, duration in tracks:
+            await _insert_track(db_session, title, duration_ms=duration)
 
         uow = get_unit_of_work(db_session)
         track_repo = uow.get_track_repository()
-        page = await track_repo.list_tracks(user_id="default", sort_by="title_asc")
+        page = await track_repo.list_tracks(user_id="default", sort_by=sort_by)
 
-        assert [t.title for t in page["tracks"]] == ["Alpha", "Mango", "Zebra"]
-
-    async def test_sort_title_desc(self, db_session: AsyncSession) -> None:
-        await _insert_track(db_session, "Zebra")
-        await _insert_track(db_session, "Alpha")
-        await _insert_track(db_session, "Mango")
-
-        uow = get_unit_of_work(db_session)
-        track_repo = uow.get_track_repository()
-        page = await track_repo.list_tracks(user_id="default", sort_by="title_desc")
-
-        assert [t.title for t in page["tracks"]] == ["Zebra", "Mango", "Alpha"]
-
-    async def test_sort_duration(self, db_session: AsyncSession) -> None:
-        await _insert_track(db_session, "Long", duration_ms=300000)
-        await _insert_track(db_session, "Short", duration_ms=120000)
-        await _insert_track(db_session, "Medium", duration_ms=200000)
-
-        uow = get_unit_of_work(db_session)
-        track_repo = uow.get_track_repository()
-        page = await track_repo.list_tracks(user_id="default", sort_by="duration_asc")
-
-        assert [t.title for t in page["tracks"]] == ["Short", "Medium", "Long"]
+        assert [t.title for t in page["tracks"]] == expected_order
 
 
 class TestListTracksPaginationBoundary:
@@ -475,7 +478,6 @@ class TestListTracksKeysetPagination:
         uow = get_unit_of_work(db_session)
         track_repo = uow.get_track_repository()
 
-        # Get first page to extract cursor
         p1 = await track_repo.list_tracks(
             user_id="default", sort_by="title_asc", limit=1
         )
