@@ -18,6 +18,7 @@ from src.domain.repositories.interfaces import (
     LikeRepositoryProtocol,
     MatchReviewRepositoryProtocol,
     MetricsRepositoryProtocol,
+    OperationRunRepositoryProtocol,
     PlaylistAssignmentRepositoryProtocol,
     PlaylistLinkRepositoryProtocol,
     PlaylistRepositoryProtocol,
@@ -269,6 +270,14 @@ class DatabaseUnitOfWork:
         from src.infrastructure.persistence.repositories.stats import StatsRepository
 
         return StatsRepository(self._session)
+
+    def get_operation_run_repository(self) -> OperationRunRepositoryProtocol:
+        """Get operation_run repository for SSE-operation audit log."""
+        from src.infrastructure.persistence.repositories.operation_run import (
+            OperationRunRepository,
+        )
+
+        return OperationRunRepository(self._session)
 
     def get_track_merge_service(self) -> TrackMergeServiceProtocol:
         """Get track merge service using this unit of work's transaction."""

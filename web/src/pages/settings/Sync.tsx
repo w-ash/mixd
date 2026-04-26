@@ -1,5 +1,7 @@
 import { AlertTriangle } from "lucide-react";
-import { useState } from "react";
+import type React from "react";
+import { useEffect, useRef, useState } from "react";
+import { useNavigate } from "react-router";
 import {
   getGetCheckpointsApiV1ImportsCheckpointsGetQueryKey,
   useExportLastfmLikesApiV1ImportsLastfmLikesPost,
@@ -27,7 +29,7 @@ import { Switch } from "#/components/ui/switch";
 import { useOperationProgress } from "#/hooks/useOperationProgress";
 import { formatDateTime } from "#/lib/format";
 import { pluralSuffix } from "#/lib/pluralize";
-import { toasts } from "#/lib/toasts";
+import { type RunOperationType, toasts } from "#/lib/toasts";
 import { cn } from "#/lib/utils";
 
 /** Query keys to invalidate when an import operation completes. */
@@ -39,11 +41,14 @@ const CHECKPOINT_KEYS = [
 function makeOperationCallbacks(
   label: string,
   setOperationId: (id: string) => void,
+  setRunId: (id: string | null) => void,
 ) {
   return {
     onSuccess: (res: { status: number; data: unknown }) => {
       if (res.status === 200) {
-        setOperationId((res.data as OperationStartedResponse).operation_id);
+        const data = res.data as OperationStartedResponse;
+        setOperationId(data.operation_id);
+        setRunId(data.run_id ?? null);
       } else {
         toasts.message(`Failed to start ${label}`, {
           description: `Unexpected response (${res.status})`,
@@ -64,6 +69,8 @@ interface OperationCardProps {
   description: string;
   checkpoint: CheckpointStatusSchema | undefined;
   operationId: string | null;
+  runId: string | null;
+  operationType: RunOperationType;
   isPending: boolean;
   onTrigger: () => void;
   triggerLabel?: string;
@@ -77,6 +84,8 @@ function OperationCard({
   description,
   checkpoint,
   operationId,
+  runId,
+  operationType,
   isPending,
   onTrigger,
   triggerLabel = "Import",
@@ -86,6 +95,28 @@ function OperationCard({
   const { progress, isActive } = useOperationProgress(operationId, {
     invalidateKeys: CHECKPOINT_KEYS,
   });
+  const navigate = useNavigate();
+  const toastedForOpIdRef = useRef<string | null>(null);
+
+  useEffect(() => {
+    if (operationId === null || progress === null) return;
+    const isTerminal =
+      progress.status === "completed" ||
+      progress.status === "failed" ||
+      progress.status === "cancelled";
+    if (!isTerminal) return;
+    if (toastedForOpIdRef.current === operationId) return;
+    toastedForOpIdRef.current = operationId;
+
+    toasts.runCompleted({
+      operationType,
+      counts: {},
+      issueCount: 0,
+      runId,
+      failed: progress.status !== "completed",
+      onNavigate: navigate,
+    });
+  }, [operationId, progress, runId, operationType, navigate]);
 
   return (
     <div className="rounded-xl border border-border bg-surface-elevated shadow-elevated p-5">
@@ -157,13 +188,18 @@ function LastfmHistoryImport({
   checkpoints: CheckpointStatusSchema[];
 }) {
   const [operationId, setOperationId] = useState<string | null>(null);
+  const [runId, setRunId] = useState<string | null>(null);
   const [mode, setMode] = useState<ImportLastfmHistoryRequestMode>("recent");
   const mutation = useImportLastfmHistoryApiV1ImportsLastfmHistoryPost();
 
   const trigger = () => {
     mutation.mutate(
       { data: { mode } },
-      makeOperationCallbacks("Last.fm history import", setOperationId),
+      makeOperationCallbacks(
+        "Last.fm history import",
+        setOperationId,
+        setRunId,
+      ),
     );
   };
 
@@ -174,6 +210,8 @@ function LastfmHistoryImport({
       description="Pull listening history from your Last.fm account."
       checkpoint={findCheckpoint(checkpoints, "lastfm", "plays")}
       operationId={operationId}
+      runId={runId}
+      operationType="import_lastfm_history"
       isPending={mutation.isPending}
       onTrigger={trigger}
     >
@@ -228,6 +266,7 @@ function SpotifyLikesImport({
   checkpoints: CheckpointStatusSchema[];
 }) {
   const [operationId, setOperationId] = useState<string | null>(null);
+  const [runId, setRunId] = useState<string | null>(null);
   const [reimportAll, setReimportAll] = useState(false);
   const mutation = useImportSpotifyLikesApiV1ImportsSpotifyLikesPost();
   const checkpoint = findCheckpoint(checkpoints, "spotify", "likes");
@@ -241,6 +280,7 @@ function SpotifyLikesImport({
     const callbacks = makeOperationCallbacks(
       "Spotify likes import",
       setOperationId,
+      setRunId,
     );
     mutation.mutate(
       { data: { force: reimportAll } },
@@ -261,6 +301,8 @@ function SpotifyLikesImport({
       description="Backup your Spotify liked tracks to the local database."
       checkpoint={checkpoint}
       operationId={operationId}
+      runId={runId}
+      operationType="import_spotify_likes"
       isPending={mutation.isPending}
       onTrigger={trigger}
     >
@@ -297,12 +339,13 @@ function LastfmLikesExport({
   checkpoints: CheckpointStatusSchema[];
 }) {
   const [operationId, setOperationId] = useState<string | null>(null);
+  const [runId, setRunId] = useState<string | null>(null);
   const mutation = useExportLastfmLikesApiV1ImportsLastfmLikesPost();
 
   const trigger = () => {
     mutation.mutate(
       { data: {} },
-      makeOperationCallbacks("Last.fm likes export", setOperationId),
+      makeOperationCallbacks("Last.fm likes export", setOperationId, setRunId),
     );
   };
 
@@ -313,6 +356,8 @@ function LastfmLikesExport({
       description="Love your liked tracks on Last.fm."
       checkpoint={findCheckpoint(checkpoints, "lastfm", "likes")}
       operationId={operationId}
+      runId={runId}
+      operationType="export_lastfm_likes"
       isPending={mutation.isPending}
       triggerLabel="Export"
       onTrigger={trigger}
@@ -326,6 +371,7 @@ function SpotifyHistoryImport({
   checkpoints: CheckpointStatusSchema[];
 }) {
   const [operationId, setOperationId] = useState<string | null>(null);
+  const [runId, setRunId] = useState<string | null>(null);
   const [selectedFile, setSelectedFile] = useState<File | null>(null);
   const mutation = useImportSpotifyHistoryApiV1ImportsSpotifyHistoryPost();
 
@@ -333,7 +379,11 @@ function SpotifyHistoryImport({
     if (!selectedFile) return;
     mutation.mutate(
       { data: { file: selectedFile } },
-      makeOperationCallbacks("Spotify history import", setOperationId),
+      makeOperationCallbacks(
+        "Spotify history import",
+        setOperationId,
+        setRunId,
+      ),
     );
   };
 
@@ -344,6 +394,8 @@ function SpotifyHistoryImport({
       description="Upload the streaming history JSON from your Spotify privacy data download."
       checkpoint={findCheckpoint(checkpoints, "spotify", "plays")}
       operationId={operationId}
+      runId={runId}
+      operationType="import_spotify_history"
       isPending={mutation.isPending}
       onTrigger={trigger}
       triggerDisabled={!selectedFile}

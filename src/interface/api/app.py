@@ -175,6 +175,9 @@ def create_app() -> FastAPI:
     from src.interface.api.routes.auth import router as auth_router
     from src.interface.api.routes.connectors import router as connectors_router
     from src.interface.api.routes.imports import router as imports_router
+    from src.interface.api.routes.operation_runs import (
+        router as operation_runs_router,
+    )
     from src.interface.api.routes.operations import router as operations_router
     from src.interface.api.routes.playlist_assignments import (
         router as playlist_assignments_router,
@@ -206,6 +209,7 @@ def create_app() -> FastAPI:
     app.include_router(connectors_router, prefix="/api/v1")
     app.include_router(imports_router, prefix="/api/v1")
     app.include_router(operations_router, prefix="/api/v1")
+    app.include_router(operation_runs_router, prefix="/api/v1")
     app.include_router(reviews_router, prefix="/api/v1")
     app.include_router(settings_router, prefix="/api/v1")
 

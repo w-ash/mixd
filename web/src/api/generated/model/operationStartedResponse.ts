@@ -3,12 +3,18 @@
  * Do not edit manually.
  * Mixd
  * Personal music metadata hub
- * OpenAPI spec version: 0.7.6.2
+ * OpenAPI spec version: 0.7.7
  */
 
 /**
  * Returned immediately when a long-running operation is launched.
+
+``run_id`` is the persistent ``OperationRun`` audit-log row id, present
+when the route writes one via the seam-level recorder. The frontend
+caches it alongside ``operation_id`` so the post-run toast can deep-
+link to ``/settings/imports?run=<run_id>`` without a second round trip.
  */
 export interface OperationStartedResponse {
   operation_id: string;
+  run_id?: string | null;
 }

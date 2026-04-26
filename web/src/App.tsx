@@ -56,6 +56,11 @@ const Account = lazy(() =>
 const Tags = lazy(() =>
   import("./pages/settings/Tags").then((m) => ({ default: m.Tags })),
 );
+const ImportHistoryPage = lazy(() =>
+  import("./pages/settings/ImportHistoryPage").then((m) => ({
+    default: m.ImportHistoryPage,
+  })),
+);
 const Library = lazy(() =>
   import("./pages/Library").then((m) => ({ default: m.Library })),
 );
@@ -254,6 +259,14 @@ export function App() {
                   element={
                     <Suspense fallback={<PageSkeleton />}>
                       <Tags />
+                    </Suspense>
+                  }
+                />
+                <Route
+                  path="settings/imports"
+                  element={
+                    <Suspense fallback={<PageSkeleton />}>
+                      <ImportHistoryPage />
                     </Suspense>
                   }
                 />

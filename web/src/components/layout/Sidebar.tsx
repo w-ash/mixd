@@ -3,6 +3,7 @@ import {
   ChevronRight,
   CircleUser,
   GitBranch,
+  History,
   LayoutDashboard,
   Library,
   ListMusic,
@@ -46,6 +47,7 @@ const navItems: NavItem[] = [
       { to: "/settings/integrations", label: "Integrations", Icon: Plug },
       { to: "/settings/sync", label: "Sync", Icon: RefreshCw },
       { to: "/settings/tags", label: "Tags", Icon: Tag },
+      { to: "/settings/imports", label: "Import History", Icon: History },
       ...(authEnabled
         ? [{ to: "/settings/account", label: "Account", Icon: CircleUser }]
         : []),

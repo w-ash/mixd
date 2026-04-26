@@ -3,7 +3,7 @@
  * Do not edit manually.
  * Mixd
  * Personal music metadata hub
- * OpenAPI spec version: 0.7.6.2
+ * OpenAPI spec version: 0.7.7
  */
 
 export type DashboardStatsSchemaPlaysByConnector = {[key: string]: number};

@@ -3,7 +3,7 @@
  * Do not edit manually.
  * Mixd
  * Personal music metadata hub
- * OpenAPI spec version: 0.7.6.2
+ * OpenAPI spec version: 0.7.7
  */
 import {
   faker
@@ -35,7 +35,7 @@ export const getGetConnectorsApiV1ConnectorsGetResponseMock = (): ConnectorMetad
 
 export const getListConnectorPlaylistsApiV1ConnectorsServicePlaylistsGetResponseMock = (overrideResponse: Partial<Extract<ConnectorPlaylistBrowseResponse, object>> = {}): ConnectorPlaylistBrowseResponse => ({data: Array.from({ length: faker.number.int({min: 1, max: 10}) }, (_, i) => i + 1).map(() => ({connector_playlist_identifier: faker.string.alpha({length: {min: 10, max: 20}}), connector_playlist_db_id: faker.string.uuid(), name: faker.string.alpha({length: {min: 10, max: 20}}), description: faker.helpers.arrayElement([faker.string.alpha({length: {min: 10, max: 20}}),null,]), owner: faker.helpers.arrayElement([faker.string.alpha({length: {min: 10, max: 20}}),null,]), image_url: faker.helpers.arrayElement([faker.string.alpha({length: {min: 10, max: 20}}),null,]), track_count: faker.number.int(), snapshot_id: faker.helpers.arrayElement([faker.string.alpha({length: {min: 10, max: 20}}),null,]), collaborative: faker.datatype.boolean(), is_public: faker.datatype.boolean(), import_status: faker.helpers.arrayElement(['not_imported','imported'] as const), current_assignments: Array.from({ length: faker.number.int({min: 1, max: 10}) }, (_, i) => i + 1).map(() => ({assignment_id: faker.string.uuid(), action_type: faker.helpers.arrayElement(Object.values(AssignmentActionType)), action_value: faker.string.alpha({length: {min: 10, max: 20}})}))})), from_cache: faker.datatype.boolean(), fetched_at: faker.date.past().toISOString().slice(0, 19) + 'Z', ...overrideResponse})
 
-export const getImportConnectorPlaylistsApiV1ConnectorsServicePlaylistsImportPostResponseMock = (overrideResponse: Partial<Extract<OperationStartedResponse, object>> = {}): OperationStartedResponse => ({operation_id: faker.string.alpha({length: {min: 10, max: 20}}), ...overrideResponse})
+export const getImportConnectorPlaylistsApiV1ConnectorsServicePlaylistsImportPostResponseMock = (overrideResponse: Partial<Extract<OperationStartedResponse, object>> = {}): OperationStartedResponse => ({operation_id: faker.string.alpha({length: {min: 10, max: 20}}), run_id: faker.helpers.arrayElement([faker.helpers.arrayElement([faker.string.alpha({length: {min: 10, max: 20}}),null,]), undefined]), ...overrideResponse})
 
 
 export const getGetConnectorsApiV1ConnectorsGetMockHandler = (overrideResponse?: ConnectorMetadataSchema[] | ((info: Parameters<Parameters<typeof http.get>[1]>[0]) => Promise<ConnectorMetadataSchema[]> | ConnectorMetadataSchema[]), options?: RequestHandlerOptions) => {

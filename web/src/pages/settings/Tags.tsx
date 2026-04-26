@@ -1,5 +1,11 @@
 import { useQueryClient } from "@tanstack/react-query";
-import { GitMerge, Pencil, Tag as TagIcon, Trash2 } from "lucide-react";
+import {
+  GitMerge,
+  Pencil,
+  Sparkles,
+  Tag as TagIcon,
+  Trash2,
+} from "lucide-react";
 import { useDeferredValue, useState } from "react";
 import type {
   HTTPValidationError,
@@ -14,6 +20,7 @@ import {
   useRenameTagApiV1TagsTagPatch,
 } from "#/api/generated/tags/tags";
 import { PageHeader } from "#/components/layout/PageHeader";
+import { BulkApplyAssignmentsDialog } from "#/components/shared/BulkApplyAssignmentsDialog";
 import { ConfirmationDialog } from "#/components/shared/ConfirmationDialog";
 import { EmptyState } from "#/components/shared/EmptyState";
 import { Button } from "#/components/ui/button";
@@ -53,6 +60,7 @@ export function Tags() {
   const [search, setSearch] = useState("");
   const [activeDialog, setActiveDialog] = useState<ActiveDialog | null>(null);
   const [targetInput, setTargetInput] = useState("");
+  const [bulkApplyOpen, setBulkApplyOpen] = useState(false);
 
   const queryClient = useQueryClient();
   const deferredSearch = useDeferredValue(search);
@@ -156,6 +164,21 @@ export function Tags() {
       <PageHeader
         title="Tags"
         description="Maintain your tag taxonomy. Rename, merge, or delete tags across every track that carries them."
+        action={
+          <Button
+            variant="outline"
+            size="sm"
+            onClick={() => setBulkApplyOpen(true)}
+          >
+            <Sparkles className="size-3.5" aria-hidden />
+            Apply all assignments
+          </Button>
+        }
+      />
+
+      <BulkApplyAssignmentsDialog
+        open={bulkApplyOpen}
+        onOpenChange={setBulkApplyOpen}
       />
 
       <div className="mb-6">

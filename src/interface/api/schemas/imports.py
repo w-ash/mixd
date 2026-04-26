@@ -31,11 +31,18 @@ class ExportLastfmLikesRequest(BaseModel):
 
 
 class OperationStartedResponse(BaseModel):
-    """Returned immediately when a long-running operation is launched."""
+    """Returned immediately when a long-running operation is launched.
+
+    ``run_id`` is the persistent ``OperationRun`` audit-log row id, present
+    when the route writes one via the seam-level recorder. The frontend
+    caches it alongside ``operation_id`` so the post-run toast can deep-
+    link to ``/settings/imports?run=<run_id>`` without a second round trip.
+    """
 
     model_config = ConfigDict(from_attributes=True)
 
     operation_id: str
+    run_id: str | None = None
 
 
 class CheckpointStatusSchema(BaseModel):

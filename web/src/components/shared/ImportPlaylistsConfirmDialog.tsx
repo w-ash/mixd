@@ -1,5 +1,6 @@
 import { useQueryClient } from "@tanstack/react-query";
 import { useEffect, useMemo, useRef, useState } from "react";
+import { useNavigate } from "react-router";
 import {
   getListConnectorPlaylistsApiV1ConnectorsServicePlaylistsGetQueryKey,
   useImportConnectorPlaylistsApiV1ConnectorsServicePlaylistsImportPost,
@@ -57,7 +58,9 @@ export function ImportPlaylistsConfirmDialog({
   const [direction, setDirection] = useState<SyncDirection>("pull");
   const [forceRefetch, setForceRefetch] = useState(false);
   const [operationId, setOperationId] = useState<string | null>(null);
+  const [runId, setRunId] = useState<string | null>(null);
   const queryClient = useQueryClient();
+  const navigate = useNavigate();
   const label = connector.display_name;
 
   const importMut =
@@ -65,9 +68,9 @@ export function ImportPlaylistsConfirmDialog({
       mutation: {
         onSuccess: (response) => {
           if (response.status !== 202) return;
-          setOperationId(
-            (response.data as OperationStartedResponse).operation_id,
-          );
+          const data = response.data as OperationStartedResponse;
+          setOperationId(data.operation_id);
+          setRunId(data.run_id ?? null);
         },
         meta: { errorLabel: `Failed to import ${label} playlists` },
       },
@@ -113,6 +116,15 @@ export function ImportPlaylistsConfirmDialog({
 
     const { succeeded, skippedUnchanged, failed } = summary;
     const history = progress.subOperationHistory;
+    // Add "View log" deep-link when an audit run was persisted AND
+    // there's something worth investigating (failure or partial outcome).
+    const logAction =
+      runId !== null && (failed > 0 || succeeded > 0)
+        ? {
+            label: "View log",
+            onClick: () => navigate(`/settings/imports?run=${runId}`),
+          }
+        : undefined;
     if (failed > 0) {
       const firstFailures = Object.values(history)
         .filter((r) => r.outcome === "failed")
@@ -121,19 +133,20 @@ export function ImportPlaylistsConfirmDialog({
         .join("\n");
       toasts.message("Import had errors", {
         description: firstFailures || undefined,
+        action: logAction,
       });
     } else if (succeeded > 0) {
       const parts = [`Imported ${pluralize(succeeded, "playlist")}`];
       if (skippedUnchanged > 0)
         parts.push(`${skippedUnchanged} already up to date`);
-      toasts.success(parts.join(" · "));
+      toasts.success(parts.join(" · "), { action: logAction });
     } else if (skippedUnchanged > 0) {
       toasts.info(
         `${pluralize(skippedUnchanged, "playlist")} already up to date`,
       );
     }
     onImported?.();
-  }, [isTerminal, operationId, progress, summary, onImported]);
+  }, [isTerminal, operationId, progress, summary, onImported, runId, navigate]);
 
   const count = playlists.length;
   const countLabel = pluralize(count, "playlist");
@@ -144,6 +157,7 @@ export function ImportPlaylistsConfirmDialog({
     onOpenChange(nextOpen);
     if (!nextOpen) {
       setOperationId(null);
+      setRunId(null);
       // Invalidate so the picker reflects the new link state on reopen.
       queryClient.invalidateQueries({
         queryKey:

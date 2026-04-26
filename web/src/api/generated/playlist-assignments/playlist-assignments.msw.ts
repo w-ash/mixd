@@ -3,7 +3,7 @@
  * Do not edit manually.
  * Mixd
  * Personal music metadata hub
- * OpenAPI spec version: 0.7.6.2
+ * OpenAPI spec version: 0.7.7
  */
 import {
   faker
@@ -22,13 +22,16 @@ import {
 } from '../model';
 import type {
   ApplyResultSchema,
-  CreateAssignmentResponse
+  CreateAssignmentResponse,
+  OperationStartedResponse
 } from '../model';
 
 
 export const getCreateAndApplyAssignmentApiV1PlaylistAssignmentsPostResponseMock = (overrideResponse: Partial<Extract<CreateAssignmentResponse, object>> = {}): CreateAssignmentResponse => ({assignment: {id: faker.string.uuid(), connector_playlist_id: faker.string.uuid(), action_type: faker.helpers.arrayElement(Object.values(AssignmentActionType)), action_value: faker.string.alpha({length: {min: 10, max: 20}})}, result: {preferences_applied: faker.number.int(), preferences_cleared: faker.number.int(), tags_applied: faker.number.int(), tags_cleared: faker.number.int(), conflicts_logged: faker.number.int(), assignments_processed: faker.number.int()}, ...overrideResponse})
 
 export const getApplyAssignmentApiV1PlaylistAssignmentsAssignmentIdApplyPostResponseMock = (overrideResponse: Partial<Extract<ApplyResultSchema, object>> = {}): ApplyResultSchema => ({preferences_applied: faker.number.int(), preferences_cleared: faker.number.int(), tags_applied: faker.number.int(), tags_cleared: faker.number.int(), conflicts_logged: faker.number.int(), assignments_processed: faker.number.int(), ...overrideResponse})
+
+export const getApplyBulkAssignmentsApiV1PlaylistAssignmentsApplyBulkPostResponseMock = (overrideResponse: Partial<Extract<OperationStartedResponse, object>> = {}): OperationStartedResponse => ({operation_id: faker.string.alpha({length: {min: 10, max: 20}}), run_id: faker.helpers.arrayElement([faker.helpers.arrayElement([faker.string.alpha({length: {min: 10, max: 20}}),null,]), undefined]), ...overrideResponse})
 
 
 export const getCreateAndApplyAssignmentApiV1PlaylistAssignmentsPostMockHandler = (overrideResponse?: CreateAssignmentResponse | ((info: Parameters<Parameters<typeof http.post>[1]>[0]) => Promise<CreateAssignmentResponse> | CreateAssignmentResponse), options?: RequestHandlerOptions) => {
@@ -55,6 +58,18 @@ export const getApplyAssignmentApiV1PlaylistAssignmentsAssignmentIdApplyPostMock
   }, options)
 }
 
+export const getApplyBulkAssignmentsApiV1PlaylistAssignmentsApplyBulkPostMockHandler = (overrideResponse?: OperationStartedResponse | ((info: Parameters<Parameters<typeof http.post>[1]>[0]) => Promise<OperationStartedResponse> | OperationStartedResponse), options?: RequestHandlerOptions) => {
+  return http.post('*/api/v1/playlist-assignments/apply-bulk', async (info: Parameters<Parameters<typeof http.post>[1]>[0]) => {
+
+
+    return HttpResponse.json(overrideResponse !== undefined
+    ? (typeof overrideResponse === "function" ? await overrideResponse(info) : overrideResponse)
+    : getApplyBulkAssignmentsApiV1PlaylistAssignmentsApplyBulkPostResponseMock(),
+      { status: 202
+      })
+  }, options)
+}
+
 export const getDeleteAssignmentApiV1PlaylistAssignmentsAssignmentIdDeleteMockHandler = (overrideResponse?: void | ((info: Parameters<Parameters<typeof http.delete>[1]>[0]) => Promise<void> | void), options?: RequestHandlerOptions) => {
   return http.delete('*/api/v1/playlist-assignments/:assignmentId', async (info: Parameters<Parameters<typeof http.delete>[1]>[0]) => {
   if (typeof overrideResponse === 'function') {await overrideResponse(info); }
@@ -67,5 +82,6 @@ export const getDeleteAssignmentApiV1PlaylistAssignmentsAssignmentIdDeleteMockHa
 export const getPlaylistAssignmentsMock = () => [
   getCreateAndApplyAssignmentApiV1PlaylistAssignmentsPostMockHandler(),
   getApplyAssignmentApiV1PlaylistAssignmentsAssignmentIdApplyPostMockHandler(),
+  getApplyBulkAssignmentsApiV1PlaylistAssignmentsApplyBulkPostMockHandler(),
   getDeleteAssignmentApiV1PlaylistAssignmentsAssignmentIdDeleteMockHandler()
 ]

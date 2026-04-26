@@ -1,7 +1,10 @@
 """Playlist assignment endpoints.
 
-All three routes are single-assignment. Bulk apply lives only in the CLI
-(``mixd playlist apply-assignments``).
+Single-assignment ops (create, apply-one, delete) run synchronously and
+return their result inline. Bulk apply runs in the background via SSE
+because applying every assignment for a user can walk thousands of
+tracks across multiple Spotify playlists; clients poll progress via the
+shared ``GET /operations/{operation_id}/progress`` SSE endpoint.
 """
 
 from uuid import UUID
@@ -24,12 +27,15 @@ from src.application.use_cases.delete_playlist_assignment import (
 )
 from src.domain.repositories import UnitOfWorkProtocol
 from src.interface.api.deps import get_current_user_id
+from src.interface.api.schemas.imports import OperationStartedResponse
 from src.interface.api.schemas.playlist_assignments import (
     ApplyResultSchema,
     AssignmentSchema,
     CreateAssignmentRequest,
     CreateAssignmentResponse,
 )
+from src.interface.api.services.progress import OperationBoundEmitter
+from src.interface.api.services.sse_operations import launch_sse_operation
 
 router = APIRouter(prefix="/playlist-assignments", tags=["playlist-assignments"])
 
@@ -81,6 +87,30 @@ async def apply_assignment(
         assignment_ids=[assignment_id],
     )
     return ApplyResultSchema.model_validate(apply_result)
+
+
+@router.post("/apply-bulk", status_code=202)
+async def apply_bulk_assignments(
+    user_id: str = Depends(get_current_user_id),
+) -> OperationStartedResponse:
+    """Apply every active assignment for the user in the background.
+
+    Returns immediately with an ``operation_id``. Progress streams via the
+    shared ``GET /operations/{operation_id}/progress`` SSE endpoint. The
+    seam-level recorder writes one ``OperationRun`` row of type
+    ``apply_assignments_bulk`` so the result is auditable from the
+    Import History page after the run completes.
+    """
+
+    async def _apply(emitter: OperationBoundEmitter) -> None:
+        await run_apply_playlist_assignments(user_id=user_id, progress_emitter=emitter)
+
+    return await launch_sse_operation(
+        user_id=user_id,
+        operation_type="apply_assignments_bulk",
+        coro_factory=_apply,
+        name_prefix="apply_bulk",
+    )
 
 
 @router.delete("/{assignment_id}", status_code=204)

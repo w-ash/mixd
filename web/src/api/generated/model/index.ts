@@ -3,7 +3,7 @@
  * Do not edit manually.
  * Mixd
  * Personal music metadata hub
- * OpenAPI spec version: 0.7.6.2
+ * OpenAPI spec version: 0.7.7
  */
 
 export * from './activeAssignmentSchema';
@@ -55,6 +55,7 @@ export * from './importSpotifyLikesRequest';
 export * from './integrityCheckSchema';
 export * from './integrityCheckSchemaDetailsItem';
 export * from './integrityReportSchema';
+export * from './jsonDict';
 export * from './jsonValueInput';
 export * from './jsonValueOutput';
 export * from './lastfmCallbackAuthLastfmCallbackGetParams';
@@ -64,6 +65,7 @@ export * from './libraryTrackSchema';
 export * from './likeStatusSchema';
 export * from './listActiveOperationsApiV1OperationsGet200';
 export * from './listConnectorPlaylistsApiV1ConnectorsServicePlaylistsGetParams';
+export * from './listOperationRunsApiV1OperationRunsGetParams';
 export * from './listPlaylistsApiV1PlaylistsGetParams';
 export * from './listReviewsApiV1ReviewsGetParams';
 export * from './listTagsApiV1TagsGetParams';
@@ -78,6 +80,11 @@ export * from './mergeTagsRequest';
 export * from './mergeTrackRequest';
 export * from './methodHealthStatSchema';
 export * from './nodeTypeInfoSchema';
+export * from './operationRunDetailSchema';
+export * from './operationRunDetailSchemaStatus';
+export * from './operationRunListResponse';
+export * from './operationRunSummarySchema';
+export * from './operationRunSummarySchemaStatus';
 export * from './operationStartedResponse';
 export * from './paginatedLibraryTracksResponse';
 export * from './paginatedResponsePlaylistEntrySchema';

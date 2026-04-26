@@ -38,6 +38,8 @@ describe("getStatusConfig", () => {
   });
 
   it("returns pending config for unknown status", () => {
-    expect(getStatusConfig("cancelled")).toEqual(getStatusConfig("pending"));
+    expect(getStatusConfig("not_a_real_status")).toEqual(
+      getStatusConfig("pending"),
+    );
   });
 });

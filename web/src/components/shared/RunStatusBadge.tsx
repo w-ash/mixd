@@ -1,4 +1,4 @@
-import { Check, Clock, Play, X } from "lucide-react";
+import { Ban, Check, Clock, Play, X } from "lucide-react";
 
 import { cn } from "#/lib/utils";
 
@@ -16,6 +16,7 @@ const STATUS_CONFIG: Record<
     className: "bg-primary/15 text-primary",
     icon: <Play className="size-2.5 fill-current" />,
   },
+  // Workflow-run vocabulary: completed/failed.
   completed: {
     label: "Completed",
     className: "bg-status-connected/15 text-status-connected",
@@ -25,6 +26,22 @@ const STATUS_CONFIG: Record<
     label: "Failed",
     className: "bg-destructive/15 text-destructive",
     icon: <X className="size-2.5" />,
+  },
+  // OperationRun vocabulary: complete/error/cancelled.
+  complete: {
+    label: "Complete",
+    className: "bg-status-connected/15 text-status-connected",
+    icon: <Check className="size-2.5" />,
+  },
+  error: {
+    label: "Error",
+    className: "bg-destructive/15 text-destructive",
+    icon: <X className="size-2.5" />,
+  },
+  cancelled: {
+    label: "Cancelled",
+    className: "bg-text-faint/15 text-text-muted",
+    icon: <Ban className="size-2.5" />,
   },
 };
 

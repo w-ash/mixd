@@ -1,7 +1,7 @@
 # Project Mixd — Planning
 
-**Current Version**: 0.7.6.2
-**Next**: v0.7.7 Operation Run Log
+**Current Version**: 0.7.7
+**Next**: v0.8.0 Workflow & sync scheduling
 
 → [Completed milestones](completed/) | [Unscheduled ideas](unscheduled.md)
 
@@ -62,7 +62,7 @@ Each milestone delivers a **vertical slice** — backend API + frontend page tog
 | **v0.7.4** | Tag & preference bootstrap — bulk-map playlists to tags/preferences | ✅ Completed | [details](completed/v0.7.4-5.md#v074-tag--preference-bootstrap) |
 | **v0.7.5** | Workflow integration & quick filters | ✅ Completed | [details](completed/v0.7.4-5.md#v075-workflow-integration--quick-filters) |
 | **v0.7.6** | Tag maintenance & single-playlist Spotify polish — tag mgmt page, force-refresh, route integration tests | 🚀 Shipped | [details](v0.7.6.md#v076-tag-maintenance--single-playlist-polish) |
-| **v0.7.7** | Operation Run Log — persisted import history + post-run toast | 🔜 Not Started | [details](v0.7.7.md#v077-operation-run-log) |
+| **v0.7.7** | Operation Run Log — persisted import history + post-run toast | 🚀 Shipped | [details](v0.7.7.md#v077-operation-run-log) |
 | **v0.8.0** | Workflow & sync scheduling | 🔜 Not Started | [details](v0.8.x.md#v080-workflow--sync-scheduling) |
 | **v0.8.1** | Editor polish, templates & playlist browse | 🔜 Not Started | [details](v0.8.x.md#v081-editor-polish-templates--playlist-browse) |
 | **v0.9.0** | LLM-assisted workflow creation | 🔜 Not Started | [details](v0.9.x.md#v090-llm-assisted-workflow-creation) |

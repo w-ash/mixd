@@ -21,11 +21,8 @@ from src.interface.api.schemas.imports import (
     ImportSpotifyLikesRequest,
     OperationStartedResponse,
 )
-from src.interface.api.services.background import launch_background
-from src.interface.api.services.sse_operations import (
-    prepare_sse_operation_with_emitter,
-    run_sse_operation,
-)
+from src.interface.api.services.progress import OperationBoundEmitter
+from src.interface.api.services.sse_operations import launch_sse_operation
 
 logger = get_logger(__name__).bind(service="imports_api")
 
@@ -43,9 +40,8 @@ async def import_lastfm_history(
     user_id: str = Depends(get_current_user_id),
 ) -> OperationStartedResponse:
     """Trigger a Last.fm listening history import."""
-    operation_id, emitter = await prepare_sse_operation_with_emitter()
 
-    async def _import() -> None:
+    async def _import(emitter: OperationBoundEmitter) -> None:
         from src.application.use_cases.import_play_history import run_import
 
         await run_import(
@@ -58,10 +54,11 @@ async def import_lastfm_history(
             progress_emitter=emitter,
         )
 
-    launch_background(
-        f"import_{operation_id}", lambda: run_sse_operation(operation_id, _import())
+    return await launch_sse_operation(
+        user_id=user_id,
+        operation_type="import_lastfm_history",
+        coro_factory=_import,
     )
-    return OperationStartedResponse(operation_id=operation_id)
 
 
 @router.post("/spotify/likes")
@@ -70,9 +67,8 @@ async def import_spotify_likes(
     user_id: str = Depends(get_current_user_id),
 ) -> OperationStartedResponse:
     """Trigger a Spotify liked tracks import."""
-    operation_id, emitter = await prepare_sse_operation_with_emitter()
 
-    async def _import() -> None:
+    async def _import(emitter: OperationBoundEmitter) -> None:
         from src.application.use_cases.sync_likes import run_spotify_likes_import
 
         await run_spotify_likes_import(
@@ -83,10 +79,11 @@ async def import_spotify_likes(
             progress_emitter=emitter,
         )
 
-    launch_background(
-        f"import_{operation_id}", lambda: run_sse_operation(operation_id, _import())
+    return await launch_sse_operation(
+        user_id=user_id,
+        operation_type="import_spotify_likes",
+        coro_factory=_import,
     )
-    return OperationStartedResponse(operation_id=operation_id)
 
 
 @router.post("/lastfm/likes")
@@ -95,9 +92,8 @@ async def export_lastfm_likes(
     user_id: str = Depends(get_current_user_id),
 ) -> OperationStartedResponse:
     """Trigger a Last.fm likes export (love tracks on Last.fm)."""
-    operation_id, emitter = await prepare_sse_operation_with_emitter()
 
-    async def _import() -> None:
+    async def _export(emitter: OperationBoundEmitter) -> None:
         from src.application.use_cases.sync_likes import run_lastfm_likes_export
 
         await run_lastfm_likes_export(
@@ -107,10 +103,11 @@ async def export_lastfm_likes(
             progress_emitter=emitter,
         )
 
-    launch_background(
-        f"import_{operation_id}", lambda: run_sse_operation(operation_id, _import())
+    return await launch_sse_operation(
+        user_id=user_id,
+        operation_type="export_lastfm_likes",
+        coro_factory=_export,
     )
-    return OperationStartedResponse(operation_id=operation_id)
 
 
 @router.post("/spotify/history")
@@ -154,9 +151,8 @@ async def import_spotify_history(
         )
 
     temp_path = Path(temp_name)
-    operation_id, emitter = await prepare_sse_operation_with_emitter()
 
-    async def _import() -> None:
+    async def _import(emitter: OperationBoundEmitter) -> None:
         from src.application.use_cases.import_play_history import run_import
 
         try:
@@ -170,10 +166,11 @@ async def import_spotify_history(
         finally:
             os.unlink(temp_name)  # noqa: PTH108 — os.unlink is async-safe, pathlib is not (ASYNC240)
 
-    launch_background(
-        f"import_{operation_id}", lambda: run_sse_operation(operation_id, _import())
+    return await launch_sse_operation(
+        user_id=user_id,
+        operation_type="import_spotify_history",
+        coro_factory=_import,
     )
-    return OperationStartedResponse(operation_id=operation_id)
 
 
 # ---------------------------------------------------------------------------

@@ -19,10 +19,9 @@ from src.infrastructure.persistence.database.db_connection import (
 )
 from src.infrastructure.persistence.unit_of_work import DatabaseUnitOfWork
 from src.interface.api.app import create_app
-import src.interface.api.routes.connectors as _connectors_mod
-import src.interface.api.routes.imports as _imports_mod
 import src.interface.api.routes.playlists as _playlists_mod
 import src.interface.api.routes.workflows as _workflows_mod
+import src.interface.api.services.sse_operations as _sse_operations_mod
 
 
 def _noop_launch(_name: str, _coro_factory: object, **_kwargs: object) -> None:
@@ -33,11 +32,14 @@ def _noop_launch(_name: str, _coro_factory: object, **_kwargs: object) -> None:
 def _stub_launch_background(*modules: Any) -> Generator[None]:
     """Replace ``launch_background`` on each route module with a no-op for the duration.
 
-    Each route module imports ``launch_background`` by-value via
+    Each module imports ``launch_background`` by-value via
     ``from ... import launch_background`` — so stubbing must target the
     module's own binding at every usage site, not the source module.
-    Adding a new route that needs background-task stubbing is one extra
-    argument here, no other changes.
+
+    The seam-level helper ``launch_sse_operation`` in ``sse_operations``
+    fronts the imports / connectors / playlist-assignments routes, so
+    stubbing there covers all six SSE-emitter routes at once. Direct
+    callers (``playlists``, ``workflows``) still need their own stub.
     """
     originals = [(m, m.launch_background) for m in modules]
     for m, _ in originals:
@@ -69,7 +71,7 @@ _TRUNCATE_ALL = (
     " playlist_assignment_members, playlist_assignments,"
     " connector_playlists, playlists, connector_plays, track_plays,"
     " track_likes, track_metrics, match_reviews, track_mappings,"
-    " connector_tracks, tracks CASCADE"
+    " connector_tracks, tracks, operation_runs CASCADE"
 )
 
 
@@ -134,7 +136,7 @@ async def client(
         await _truncate_all_tables()
 
         with _stub_launch_background(
-            _imports_mod, _playlists_mod, _workflows_mod, _connectors_mod
+            _sse_operations_mod, _playlists_mod, _workflows_mod
         ):
             app = create_app()
             transport = httpx.ASGITransport(app=app)

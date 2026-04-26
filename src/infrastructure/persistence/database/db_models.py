@@ -1186,3 +1186,37 @@ class DBPlaylistAssignmentMember(BaseEntity):
         back_populates="members",
         passive_deletes=True,
     )
+
+
+class DBOperationRun(BaseEntity):
+    """Audit row for a long-running SSE operation.
+
+    Written at kickoff with ``status="running"`` by the seam-level
+    ``OperationRunRecorder``; updated on terminal events with the final
+    status, merged ``counts``, and accumulated ``issues``. ``counts`` and
+    ``issues`` are JSONB because each operation type defines its own
+    payload shape.
+    """
+
+    __tablename__: str = "operation_runs"
+    __table_args__: tuple[SchemaItem, ...] = (
+        Index("ix_operation_runs_user_id_started_at", "user_id", "started_at"),
+    )
+
+    user_id: Mapped[str] = mapped_column(
+        String(), nullable=False, default="default", server_default="default"
+    )
+    operation_type: Mapped[str] = mapped_column(String(64), nullable=False)
+    started_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False
+    )
+    ended_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True), nullable=True
+    )
+    status: Mapped[str] = mapped_column(String(16), nullable=False)
+    counts: Mapped[JsonDict] = mapped_column(
+        PgJsonb, nullable=False, server_default=text("'{}'::jsonb"), default=dict
+    )
+    issues: Mapped[list[JsonDict]] = mapped_column(
+        PgJsonb, nullable=False, server_default=text("'[]'::jsonb"), default=list
+    )

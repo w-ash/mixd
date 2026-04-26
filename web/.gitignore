@@ -22,3 +22,6 @@ dist-ssr
 *.njsproj
 *.sln
 *.sw?
+
+# MSW — auto-generated, version-pinned to installed msw; regenerate with `pnpm exec msw init public/`
+public/mockServiceWorker.js

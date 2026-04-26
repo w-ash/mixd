@@ -3,7 +3,7 @@
  * Do not edit manually.
  * Mixd
  * Personal music metadata hub
- * OpenAPI spec version: 0.7.6.2
+ * OpenAPI spec version: 0.7.7
  */
 import {
   useMutation
@@ -19,7 +19,8 @@ import type {
   ApplyResultSchema,
   CreateAssignmentRequest,
   CreateAssignmentResponse,
-  HTTPValidationError
+  HTTPValidationError,
+  OperationStartedResponse
 } from '../model';
 
 import { customFetch } from '../../client';
@@ -211,6 +212,94 @@ export const useApplyAssignmentApiV1PlaylistAssignmentsAssignmentIdApplyPost = <
         TContext
       > => {
       return useMutation(getApplyAssignmentApiV1PlaylistAssignmentsAssignmentIdApplyPostMutationOptions(options), queryClient);
+    }
+    /**
+ * Apply every active assignment for the user in the background.
+
+Returns immediately with an ``operation_id``. Progress streams via the
+shared ``GET /operations/{operation_id}/progress`` SSE endpoint. The
+seam-level recorder writes one ``OperationRun`` row of type
+``apply_assignments_bulk`` so the result is auditable from the
+Import History page after the run completes.
+ * @summary Apply Bulk Assignments
+ */
+export type applyBulkAssignmentsApiV1PlaylistAssignmentsApplyBulkPostResponse202 = {
+  data: OperationStartedResponse
+  status: 202
+}
+
+export type applyBulkAssignmentsApiV1PlaylistAssignmentsApplyBulkPostResponseSuccess = (applyBulkAssignmentsApiV1PlaylistAssignmentsApplyBulkPostResponse202) & {
+  headers: Headers;
+};
+;
+
+export type applyBulkAssignmentsApiV1PlaylistAssignmentsApplyBulkPostResponse = (applyBulkAssignmentsApiV1PlaylistAssignmentsApplyBulkPostResponseSuccess)
+
+export const getApplyBulkAssignmentsApiV1PlaylistAssignmentsApplyBulkPostUrl = () => {
+
+
+
+
+  return `/api/v1/playlist-assignments/apply-bulk`
+}
+
+export const applyBulkAssignmentsApiV1PlaylistAssignmentsApplyBulkPost = async ( options?: RequestInit): Promise<applyBulkAssignmentsApiV1PlaylistAssignmentsApplyBulkPostResponse> => {
+
+  return customFetch<applyBulkAssignmentsApiV1PlaylistAssignmentsApplyBulkPostResponse>(getApplyBulkAssignmentsApiV1PlaylistAssignmentsApplyBulkPostUrl(),
+  {
+    ...options,
+    method: 'POST'
+
+
+  }
+);}
+
+
+
+
+export const getApplyBulkAssignmentsApiV1PlaylistAssignmentsApplyBulkPostMutationOptions = <TError = unknown,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof applyBulkAssignmentsApiV1PlaylistAssignmentsApplyBulkPost>>, TError,void, TContext>, request?: SecondParameter<typeof customFetch>}
+): UseMutationOptions<Awaited<ReturnType<typeof applyBulkAssignmentsApiV1PlaylistAssignmentsApplyBulkPost>>, TError,void, TContext> => {
+
+const mutationKey = ['applyBulkAssignmentsApiV1PlaylistAssignmentsApplyBulkPost'];
+const {mutation: mutationOptions, request: requestOptions} = options ?
+      options.mutation && 'mutationKey' in options.mutation && options.mutation.mutationKey ?
+      options
+      : {...options, mutation: {...options.mutation, mutationKey}}
+      : {mutation: { mutationKey, }, request: undefined};
+
+
+
+
+      const mutationFn: MutationFunction<Awaited<ReturnType<typeof applyBulkAssignmentsApiV1PlaylistAssignmentsApplyBulkPost>>, void> = () => {
+
+
+          return  applyBulkAssignmentsApiV1PlaylistAssignmentsApplyBulkPost(requestOptions)
+        }
+
+
+
+
+
+
+  return  { mutationFn, ...mutationOptions }}
+
+    export type ApplyBulkAssignmentsApiV1PlaylistAssignmentsApplyBulkPostMutationResult = NonNullable<Awaited<ReturnType<typeof applyBulkAssignmentsApiV1PlaylistAssignmentsApplyBulkPost>>>
+
+    export type ApplyBulkAssignmentsApiV1PlaylistAssignmentsApplyBulkPostMutationError = unknown
+
+    /**
+ * @summary Apply Bulk Assignments
+ */
+export const useApplyBulkAssignmentsApiV1PlaylistAssignmentsApplyBulkPost = <TError = unknown,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof applyBulkAssignmentsApiV1PlaylistAssignmentsApplyBulkPost>>, TError,void, TContext>, request?: SecondParameter<typeof customFetch>}
+ , queryClient?: QueryClient): UseMutationResult<
+        Awaited<ReturnType<typeof applyBulkAssignmentsApiV1PlaylistAssignmentsApplyBulkPost>>,
+        TError,
+        void,
+        TContext
+      > => {
+      return useMutation(getApplyBulkAssignmentsApiV1PlaylistAssignmentsApplyBulkPostMutationOptions(options), queryClient);
     }
     /**
  * Remove an assignment. Already-applied tags/preferences are preserved.

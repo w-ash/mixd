@@ -35,11 +35,8 @@ from src.interface.api.schemas.connectors import (
     ImportConnectorPlaylistsRequest,
 )
 from src.interface.api.schemas.imports import OperationStartedResponse
-from src.interface.api.services.background import launch_background
-from src.interface.api.services.sse_operations import (
-    prepare_sse_operation_with_emitter,
-    run_sse_operation,
-)
+from src.interface.api.services.progress import OperationBoundEmitter
+from src.interface.api.services.sse_operations import launch_sse_operation
 
 router = APIRouter(prefix="/connectors", tags=["connectors"])
 
@@ -186,10 +183,8 @@ async def import_connector_playlists(
     events on ``GET /api/v1/operations/{operation_id}/progress``.
     """
     _require_connector(service, capability="playlist_import")
-    operation_id, emitter = await prepare_sse_operation_with_emitter()
-    progress_manager = get_progress_manager()
 
-    async def _import() -> None:
+    async def _import(emitter: OperationBoundEmitter) -> None:
         await run_import_connector_playlists_as_canonical(
             user_id=user_id,
             connector_name=service,
@@ -197,11 +192,11 @@ async def import_connector_playlists(
             sync_direction=SyncDirection(body.sync_direction),
             force=body.force,
             progress_emitter=emitter,
-            progress_manager=progress_manager,
+            progress_manager=get_progress_manager(),
         )
 
-    launch_background(
-        f"import_{operation_id}",
-        lambda: run_sse_operation(operation_id, _import()),
+    return await launch_sse_operation(
+        user_id=user_id,
+        operation_type="import_connector_playlists",
+        coro_factory=_import,
     )
-    return OperationStartedResponse(operation_id=operation_id)

@@ -352,3 +352,37 @@ def make_tag_event(
         tagged_at=tagged_at or datetime.now(UTC),
         **kwargs,
     )
+
+
+# ---------------------------------------------------------------------------
+# OperationRun factories (v0.7.7)
+# ---------------------------------------------------------------------------
+
+
+def make_operation_run(
+    user_id: str = "default",
+    operation_type: str = "import_spotify_playlists",
+    status: str = "running",
+    started_at: datetime | None = None,
+    ended_at: datetime | None = None,
+    counts: dict | None = None,
+    issues: list | None = None,
+    **kwargs,
+):
+    """Build an :class:`OperationRun` with sensible defaults.
+
+    Imports lazily so the factory module doesn't pull in the entity at
+    import time (matches the convention used by other v0.7.x factories).
+    """
+    from src.domain.entities.operation_run import OperationRun
+
+    return OperationRun(
+        user_id=user_id,
+        operation_type=operation_type,
+        status=status,  # type: ignore[arg-type]
+        started_at=started_at or datetime.now(UTC),
+        ended_at=ended_at,
+        counts=counts if counts is not None else {},
+        issues=issues if issues is not None else [],
+        **kwargs,
+    )

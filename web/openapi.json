@@ -3,7 +3,7 @@
   "info": {
     "title": "Mixd",
     "description": "Personal music metadata hub",
-    "version": "0.7.6.2"
+    "version": "0.7.7"
   },
   "paths": {
     "/api/v1/connectors/{service}/auth-url": {
@@ -1019,6 +1019,28 @@
               "application/json": {
                 "schema": {
                   "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/playlist-assignments/apply-bulk": {
+      "post": {
+        "tags": [
+          "playlist-assignments"
+        ],
+        "summary": "Apply Bulk Assignments",
+        "description": "Apply every active assignment for the user in the background.\n\nReturns immediately with an ``operation_id``. Progress streams via the\nshared ``GET /operations/{operation_id}/progress`` SSE endpoint. The\nseam-level recorder writes one ``OperationRun`` row of type\n``apply_assignments_bulk`` so the result is auditable from the\nImport History page after the run completes.",
+        "operationId": "apply_bulk_assignments_api_v1_playlist_assignments_apply_bulk_post",
+        "responses": {
+          "202": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/OperationStartedResponse"
                 }
               }
             }
@@ -3185,6 +3207,122 @@
         }
       }
     },
+    "/api/v1/operation-runs": {
+      "get": {
+        "tags": [
+          "operation-runs"
+        ],
+        "summary": "List Operation Runs",
+        "description": "List the user's audit-log rows newest-first, keyset-paginated.\n\n``type=imports`` (default) restricts to import/sync/apply runs that\nsurface in the Import History UI. ``type=all`` returns every row.",
+        "operationId": "list_operation_runs_api_v1_operation_runs_get",
+        "parameters": [
+          {
+            "name": "limit",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "maximum": 100,
+              "minimum": 1,
+              "default": 20,
+              "title": "Limit"
+            }
+          },
+          {
+            "name": "cursor",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Cursor"
+            }
+          },
+          {
+            "name": "type",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string",
+              "default": "imports",
+              "title": "Type"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/OperationRunListResponse"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/operation-runs/{run_id}": {
+      "get": {
+        "tags": [
+          "operation-runs"
+        ],
+        "summary": "Get Operation Run",
+        "description": "Get one run with the full issues payload.\n\nReturns 404 for both not-found AND not-owner \u2014 deliberately uniform\nso the response can't be used to infer the existence of another\nuser's run.",
+        "operationId": "get_operation_run_api_v1_operation_runs__run_id__get",
+        "parameters": [
+          {
+            "name": "run_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid",
+              "title": "Run Id"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/OperationRunDetailSchema"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/api/v1/reviews": {
       "get": {
         "tags": [
@@ -4515,6 +4653,12 @@
         "title": "IntegrityReportSchema",
         "description": "Full integrity report response."
       },
+      "JsonDict": {
+        "additionalProperties": {
+          "$ref": "#/components/schemas/JsonValue-Output"
+        },
+        "type": "object"
+      },
       "JsonValue-Input": {
         "anyOf": [
           {
@@ -5067,11 +5211,177 @@
         ],
         "title": "NodeTypeInfoSchema"
       },
+      "OperationRunDetailSchema": {
+        "properties": {
+          "id": {
+            "type": "string",
+            "format": "uuid",
+            "title": "Id"
+          },
+          "operation_type": {
+            "type": "string",
+            "title": "Operation Type"
+          },
+          "started_at": {
+            "type": "string",
+            "format": "date-time",
+            "title": "Started At"
+          },
+          "ended_at": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "date-time"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Ended At"
+          },
+          "status": {
+            "type": "string",
+            "enum": [
+              "running",
+              "complete",
+              "error",
+              "cancelled"
+            ],
+            "title": "Status"
+          },
+          "counts": {
+            "$ref": "#/components/schemas/JsonDict"
+          },
+          "issues": {
+            "items": {
+              "$ref": "#/components/schemas/JsonDict"
+            },
+            "type": "array",
+            "title": "Issues"
+          }
+        },
+        "type": "object",
+        "required": [
+          "id",
+          "operation_type",
+          "started_at",
+          "ended_at",
+          "status",
+          "counts",
+          "issues"
+        ],
+        "title": "OperationRunDetailSchema",
+        "description": "Full audit-log row including the issues array."
+      },
+      "OperationRunListResponse": {
+        "properties": {
+          "data": {
+            "items": {
+              "$ref": "#/components/schemas/OperationRunSummarySchema"
+            },
+            "type": "array",
+            "title": "Data"
+          },
+          "limit": {
+            "type": "integer",
+            "title": "Limit"
+          },
+          "next_cursor": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Next Cursor"
+          }
+        },
+        "type": "object",
+        "required": [
+          "data",
+          "limit",
+          "next_cursor"
+        ],
+        "title": "OperationRunListResponse",
+        "description": "List shape: data array plus opaque next-page cursor."
+      },
+      "OperationRunSummarySchema": {
+        "properties": {
+          "id": {
+            "type": "string",
+            "format": "uuid",
+            "title": "Id"
+          },
+          "operation_type": {
+            "type": "string",
+            "title": "Operation Type"
+          },
+          "started_at": {
+            "type": "string",
+            "format": "date-time",
+            "title": "Started At"
+          },
+          "ended_at": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "date-time"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Ended At"
+          },
+          "status": {
+            "type": "string",
+            "enum": [
+              "running",
+              "complete",
+              "error",
+              "cancelled"
+            ],
+            "title": "Status"
+          },
+          "counts": {
+            "$ref": "#/components/schemas/JsonDict"
+          },
+          "issue_count": {
+            "type": "integer",
+            "title": "Issue Count"
+          }
+        },
+        "type": "object",
+        "required": [
+          "id",
+          "operation_type",
+          "started_at",
+          "ended_at",
+          "status",
+          "counts",
+          "issue_count"
+        ],
+        "title": "OperationRunSummarySchema",
+        "description": "Lightweight row for the list view (no full ``issues`` payload).\n\nThe list endpoint returns this shape; full ``issues`` come back from\nthe per-run detail endpoint so a 100-issue run doesn't bloat the\nlist response."
+      },
       "OperationStartedResponse": {
         "properties": {
           "operation_id": {
             "type": "string",
             "title": "Operation Id"
+          },
+          "run_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Run Id"
           }
         },
         "type": "object",
@@ -5079,7 +5389,7 @@
           "operation_id"
         ],
         "title": "OperationStartedResponse",
-        "description": "Returned immediately when a long-running operation is launched."
+        "description": "Returned immediately when a long-running operation is launched.\n\n``run_id`` is the persistent ``OperationRun`` audit-log row id, present\nwhen the route writes one via the seam-level recorder. The frontend\ncaches it alongside ``operation_id`` so the post-run toast can deep-\nlink to ``/settings/imports?run=<run_id>`` without a second round trip."
       },
       "PaginatedLibraryTracksResponse": {
         "properties": {
