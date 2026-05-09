@@ -35,8 +35,11 @@ ARG BUILD_HASH="dev"
 ENV VITE_NEON_AUTH_URL=$VITE_NEON_AUTH_URL \
     BUILD_HASH=$BUILD_HASH
 
-# Install pnpm globally (simpler than corepack for build stages)
-RUN npm install -g pnpm@10
+# Install pnpm globally — pin to the version declared in web/package.json's
+# `packageManager` field. Drift here caused the v0.7.8 deploy to fail with
+# `settings.onlyBuiltDependencies.push is not a function` against a workspace
+# config that pnpm v11 tolerates and pnpm v10 doesn't.
+RUN npm install -g pnpm@11.0.8
 
 # Install dependencies first (layer cache)
 COPY web/package.json web/pnpm-lock.yaml web/pnpm-workspace.yaml ./
