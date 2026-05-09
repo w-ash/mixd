@@ -22,12 +22,11 @@ paths:
 - `customFetch()` in `api/client.ts` wraps responses into `{data, status, headers}` envelope. `ApiError` class with `status`, `code`, `message`, `details`.
 - `createQueryClient()` in `api/query-client.ts` — retries only `status >= 500`
 
-## Key Shared Components
-- **`ConfirmationDialog`** — title, description, children slot, action buttons. Props: `confirmLabel`, `destructive`, `isPending`. Default focus on Cancel.
-- **`SyncConfirmationDialog`** — fetches preview (add/remove counts), direction toggle. Dynamic confirm: "Sync 12 tracks to Spotify". Error fallback if preview fails.
-- **`StatusIndicator`** — variants: `success`/`warning`/`error`/`info`/`neutral`. Helpers: `syncStatusVariant(status)`, `confidenceVariant(score)` (≥80 success, 50-79 warning, <50 error). `formatSyncResults()` in `lib/sync-status.ts`.
-- **`ConnectorListItem`** — `[ConnectorIcon] [children] [actions]` layout for playlist links and track mappings.
-- **`ConnectorCard`** — connector status on Integrations page with CLI auth command.
+## Shared Components
+- See `web-design-system.md` for the canonical component catalog and the "same action/status = same component" rule.
+- Before introducing a new shared component, search `web/src/components/shared/` and `web/src/components/ui/` — most patterns already exist.
+- **Modal dialogs use `ResponsiveDialog`** (`web/src/components/ui/responsive-dialog.tsx`) which renders as a centered modal on desktop and a bottom sheet on mobile. Don't reach for `Dialog` directly.
+- **Mobile vs desktop branching** uses `useIsMobile()` from `web/src/hooks/useIsMobile.ts` — single `lg:` breakpoint (1024px), iPad portrait counts as mobile.
 
 ## Error Boundaries
 - `react-error-boundary` wraps `<Outlet />` in PageLayout; sidebar stays outside so nav always works
