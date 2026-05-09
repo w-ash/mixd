@@ -65,14 +65,25 @@ def _test_db_env(postgres_url: str) -> Generator[None]:
             os.environ["DATABASE_URL"] = original_db_url
 
 
-_TRUNCATE_ALL = (
-    "TRUNCATE TABLE workflow_run_nodes, workflow_runs, workflow_versions,"
-    " workflows, sync_checkpoints, playlist_tracks, playlist_mappings,"
-    " playlist_assignment_members, playlist_assignments,"
-    " connector_playlists, playlists, connector_plays, track_plays,"
-    " track_likes, track_metrics, match_reviews, track_mappings,"
-    " connector_tracks, tracks, operation_runs CASCADE"
-)
+# Auth/identity tables are preserved across tests so the "default" user
+# context (and any cached OAuth state) survives. Every other table is
+# derived from SQLAlchemy metadata, so a new domain table is picked up
+# automatically — v0.7.7's ``operation_runs`` was originally missed from
+# a hand-maintained list and silently leaked rows across tests.
+_PRESERVED_TABLES: frozenset[str] = frozenset({
+    "oauth_tokens",
+    "oauth_states",
+    "user_settings",
+})
+
+
+def _build_truncate_all() -> str:
+    from src.infrastructure.persistence.database.db_models import metadata
+
+    targets = [
+        t.name for t in metadata.tables.values() if t.name not in _PRESERVED_TABLES
+    ]
+    return f"TRUNCATE TABLE {', '.join(targets)} CASCADE"
 
 
 async def _truncate_all_tables() -> None:
@@ -87,7 +98,7 @@ async def _truncate_all_tables() -> None:
     from src.infrastructure.persistence.database.db_connection import get_engine
 
     async with get_engine().begin() as conn:
-        await conn.execute(text(_TRUNCATE_ALL))
+        await conn.execute(text(_build_truncate_all()))
 
 
 def valid_workflow_definition() -> dict:

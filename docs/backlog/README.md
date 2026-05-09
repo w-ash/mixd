@@ -1,6 +1,6 @@
 # Project Mixd — Planning
 
-**Current Version**: 0.7.7
+**Current Version**: 0.7.7.1
 **Next**: v0.8.0 Workflow & sync scheduling
 
 → [Completed milestones](completed/) | [Unscheduled ideas](unscheduled.md)
@@ -65,7 +65,7 @@ Each milestone delivers a **vertical slice** — backend API + frontend page tog
 | **v0.7.7** | Operation Run Log — persisted import history + post-run toast | 🚀 Shipped | [details](v0.7.7.md#v077-operation-run-log) |
 | **v0.8.0** | Workflow & sync scheduling | 🔜 Not Started | [details](v0.8.x.md#v080-workflow--sync-scheduling) |
 | **v0.8.1** | Editor polish, templates & playlist browse | 🔜 Not Started | [details](v0.8.x.md#v081-editor-polish-templates--playlist-browse) |
-| **v0.9.0** | LLM-assisted workflow creation | 🔜 Not Started | [details](v0.9.x.md#v090-llm-assisted-workflow-creation) |
+| **v0.9.0** | Workflow assistant — right-panel chat ported from couplefins | 🔜 Not Started | [details](v0.9.x.md#v090-workflow-assistant-right-panel-chat) |
 | **v0.10.0** | First-class artists | 🔜 Not Started | [details](v0.10.x.md#v0100-first-class-artists) |
 | **v0.10.1** | First-class albums | 🔜 Not Started | [details](v0.10.x.md#v0101-first-class-albums) |
 | **v0.10.2** | Physical media & Discogs | 🔜 Not Started | [details](v0.10.x.md#v0102-physical-media--discogs) |
@@ -73,10 +73,13 @@ Each milestone delivers a **vertical slice** — backend API + frontend page tog
 | **v1.0.0** | Data quality tools | 🔜 Not Started | [details](v1.0.x.md#v100-data-quality) |
 | **v1.0.1** | Apple Music connector | 🔜 Not Started | [details](v1.0.x.md#v101-apple-music-connector) |
 | **v1.0.2** | Rekordbox connector + audio quality enrichment | 🔜 Not Started | [details](v1.0.x.md#v102-rekordbox-connector) |
+| **v1.0.3** | Cross-user track identity (foundation for sharing & social) | 🔜 Not Started | [details](v1.0.x.md#v103-cross-user-track-identity) |
 | **v1.1.0** | Privacy controls & public profiles | 🔜 Not Started | [details](v1.1.x.md#v110-privacy-controls--public-profiles) |
 | **v1.1.1** | Social graph & follows | 🔜 Not Started | [details](v1.1.x.md#v111-social-graph--follows) |
 | **v1.1.2** | Activity feed & social context | 🔜 Not Started | [details](v1.1.x.md#v112-activity-feed--social-context) |
 | **v1.1.3** | Sharing & growth | 🔜 Not Started | [details](v1.1.x.md#v113-sharing--growth) |
+| **v1.2.0** | Public track share links + service picker | 🔜 Not Started | [details](v1.2.x.md#v120-public-track-share-links) |
+| **v1.2.1** | Saved service preference (cookie + account) | 🔜 Not Started | [details](v1.2.x.md#v121-saved-service-preference) |
 
 ---
 
@@ -97,8 +100,9 @@ See [docs/personas.md](../personas.md) for full persona definitions.
 | v0.8.x | Scheduling + templates | Automates the weekly ritual | Templates as onboarding entry point | Scheduling means playlists stay fresh without effort |
 | v0.9.0 | LLM-assisted creation | Power use — complex intent in natural language | Interesting tech to explore | THE adoption enabler — changes who can use mixd |
 | v0.10.x | Artists, albums, physical | Deeper library modeling, Discogs integration | Rich data model to explore | Browsing by artist/album is intuitive |
-| v1.0.x | Data quality + connectors | Fixes mappings, finds gaps, adds Rekordbox | Apple Music broadens self-host appeal | More services = less lock-in friction |
+| v1.0.x | Data quality + connectors + cross-user identity | Fixes mappings, finds gaps, adds Rekordbox; v1.0.3 makes shared playlists trustworthy | Apple Music broadens self-host appeal; v1.0.3's audit ledger is full data-sovereignty | More services = less lock-in; v1.0.3 makes friend-shared links resolve correctly without trust |
 | v1.1.x | Social layer | Share curated playlists, discover curators | Public API surface, federation potential | Shareable links, follows — the growth mechanism |
+| v1.2.x | Track share links | Shares individual track finds with friends; service preference syncs across devices | Public track URL surface, opt-in cookie/DB preference layering | Friend's track link is the entry point — picker page is first contact with mixd |
 
 ---
 
