@@ -93,6 +93,9 @@ web/test-results/
 ###################
 .playwright-mcp/
 *.png
+# Visual regression baselines are committed; the blanket *.png rule above
+# is meant for ad-hoc screenshots and tool artifacts.
+!web/e2e/__screenshots__/**/*.png
 
 ###################
 # Project-specific #

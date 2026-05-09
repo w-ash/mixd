@@ -3,16 +3,10 @@ import { expect, type Page, test } from "@playwright/test";
 /**
  * Visual-regression baselines for primary routes.
  *
- * **Bootstrap state**: until initial baselines are generated and committed,
- * this suite is `describe.skip`. To bring online:
- *   1. Generate baselines inside the Playwright Docker image (see
- *      `web/e2e/README.md` for the exact command).
- *   2. Commit the PNGs under `web/e2e/__screenshots__/visual.spec.ts/`.
- *   3. Remove the `.skip` from the describe block below.
- *
- * Baselines are platform-locked to Linux (CI Docker) — local macOS PNGs
- * will not match. The suite is wired into CI via the `web-e2e` job; once
- * unskipped, layout drift fails the build.
+ * Baselines under `web/e2e/__screenshots__/visual.spec.ts/` are
+ * Linux-only — generated in the Playwright Docker image used by CI.
+ * Local macOS PNGs won't match; regenerate via the Docker procedure
+ * documented in `web/e2e/README.md`.
  */
 
 const ROUTES = [
@@ -30,7 +24,7 @@ async function settleForScreenshot(page: Page) {
   ]);
 }
 
-test.describe.skip("Visual Regression", () => {
+test.describe("Visual Regression", () => {
   for (const theme of THEMES) {
     for (const route of ROUTES) {
       test(`${route.slug} (${theme})`, async ({ page }) => {
