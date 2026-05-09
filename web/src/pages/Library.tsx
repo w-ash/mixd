@@ -2,6 +2,7 @@ import { ArrowUp, Bookmark, Heart, Music, X } from "lucide-react";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Link } from "react-router";
 import { useGetConnectorsApiV1ConnectorsGet } from "#/api/generated/connectors/connectors";
+import type { LibraryTrackSchema } from "#/api/generated/model";
 import { useListTracksApiV1TracksGet } from "#/api/generated/tracks/tracks";
 import { STALE } from "#/api/query-client";
 import { PageHeader } from "#/components/layout/PageHeader";
@@ -17,6 +18,7 @@ import { ConnectorIcon } from "#/components/shared/ConnectorIcon";
 import { EmptyState } from "#/components/shared/EmptyState";
 import { PreferenceBadge } from "#/components/shared/PreferenceToggle";
 import { QueryErrorState } from "#/components/shared/QueryErrorState";
+import { ResponsiveTable } from "#/components/shared/ResponsiveTable";
 import { TablePagination } from "#/components/shared/TablePagination";
 import { TagChip } from "#/components/shared/TagChip";
 import { Badge } from "#/components/ui/badge";
@@ -57,6 +59,67 @@ function TagRowChips({ tags }: { tags: string[] }) {
         <span className="font-mono text-xs text-text-muted">+{overflow}</span>
       )}
     </div>
+  );
+}
+
+interface TrackCardProps {
+  track: LibraryTrackSchema;
+  selected: boolean;
+  onSelectedChange: (next: boolean) => void;
+}
+
+/**
+ * Card representation of a Library row — used by ResponsiveTable below the
+ * @2xl container threshold (typically iPhone / iPad portrait widths).
+ */
+function TrackCard({ track, selected, onSelectedChange }: TrackCardProps) {
+  return (
+    <article className="flex items-start gap-3 rounded-md border border-border bg-surface px-3 py-3">
+      <Checkbox
+        aria-label={`Select ${track.title}`}
+        checked={selected}
+        onCheckedChange={(checked) => onSelectedChange(checked === true)}
+        className="mt-1 shrink-0"
+      />
+      <div className="min-w-0 flex-1">
+        <div className="flex items-baseline justify-between gap-2">
+          <Link
+            to={`/library/${track.id}`}
+            className="truncate font-display text-sm font-medium text-text transition-colors hover:text-primary"
+          >
+            {track.title}
+          </Link>
+          {track.is_liked && (
+            <Heart
+              className="size-3.5 shrink-0 text-status-liked"
+              aria-label="Liked"
+            />
+          )}
+        </div>
+        <p className="truncate text-sm text-text-muted">
+          {formatArtists(track.artists)}
+        </p>
+        <div className="mt-1.5 flex items-center gap-3 text-xs text-text-muted">
+          {track.album && <span className="truncate">{track.album}</span>}
+          <span className="shrink-0 tabular-nums">
+            {formatDuration(track.duration_ms)}
+          </span>
+          {track.preference && <PreferenceBadge state={track.preference} />}
+        </div>
+        {track.tags && track.tags.length > 0 && (
+          <div className="mt-2">
+            <TagRowChips tags={track.tags} />
+          </div>
+        )}
+        {track.connector_names.length > 0 && (
+          <div className="mt-2 flex gap-1">
+            {track.connector_names.map((name) => (
+              <ConnectorIcon key={name} name={name} labelHidden />
+            ))}
+          </div>
+        )}
+      </div>
+    </article>
   );
 }
 
@@ -480,7 +543,7 @@ export function Library() {
         />
       )}
 
-      {/* Track table */}
+      {/* Track results — table on wide containers, cards on narrow */}
       {!isLoading && !isError && tracks.length > 0 && (
         <div
           className={cn(
@@ -488,148 +551,171 @@ export function Library() {
             isPlaceholderData && "opacity-70 blur-[0.5px]",
           )}
         >
-          <Table>
-            <TableHeader>
-              <TableRow>
-                <TableHead className="w-8">
-                  <Checkbox
-                    aria-label="Select all rows on this page"
-                    checked={
-                      tracks.length === 0
-                        ? false
-                        : tracks.every((t) => selectedIds.has(t.id))
-                          ? true
-                          : tracks.some((t) => selectedIds.has(t.id))
-                            ? "indeterminate"
-                            : false
-                    }
-                    onCheckedChange={(checked) => {
-                      if (checked) {
-                        setSelectedIds(new Set(tracks.map((t) => t.id)));
-                      } else {
-                        setSelectedIds(new Set());
-                      }
+          <ResponsiveTable
+            cards={
+              <div className="flex flex-col gap-2">
+                {tracks.map((track) => (
+                  <TrackCard
+                    key={track.id}
+                    track={track}
+                    selected={selectedIds.has(track.id)}
+                    onSelectedChange={(checked) => {
+                      setSelectedIds((prev) => {
+                        const next = new Set(prev);
+                        if (checked) next.add(track.id);
+                        else next.delete(track.id);
+                        return next;
+                      });
                     }}
                   />
-                </TableHead>
-                <TableHead className="w-8">
-                  <span className="sr-only">Liked</span>
-                </TableHead>
-                <SortableHead
-                  field="title"
-                  currentField={sortField}
-                  currentDir={sortDir}
-                  onSort={handleSort}
-                >
-                  Title
-                </SortableHead>
-                <SortableHead
-                  field="artist"
-                  currentField={sortField}
-                  currentDir={sortDir}
-                  onSort={handleSort}
-                >
-                  Artist
-                </SortableHead>
-                <TableHead className="w-48">Album</TableHead>
-                <SortableHead
-                  field="duration"
-                  currentField={sortField}
-                  currentDir={sortDir}
-                  onSort={handleSort}
-                  className="w-20 text-right"
-                >
-                  Duration
-                </SortableHead>
-                <TableHead className="w-10 text-center">Pref</TableHead>
-                <TableHead className="w-48">Tags</TableHead>
-                <TableHead className="w-24 text-center">Sources</TableHead>
-              </TableRow>
-            </TableHeader>
-            <TableBody>
-              {tracks.map((track, index) => (
-                <TableRow
-                  key={track.id}
-                  className="group relative"
-                  style={
-                    index < STAGGER_CAP
-                      ? {
-                          animation: `fade-in-row 300ms ease-out ${index * 20}ms both`,
+                ))}
+              </div>
+            }
+            table={
+              <Table>
+                <TableHeader>
+                  <TableRow>
+                    <TableHead className="w-8">
+                      <Checkbox
+                        aria-label="Select all rows on this page"
+                        checked={
+                          tracks.length === 0
+                            ? false
+                            : tracks.every((t) => selectedIds.has(t.id))
+                              ? true
+                              : tracks.some((t) => selectedIds.has(t.id))
+                                ? "indeterminate"
+                                : false
                         }
-                      : undefined
-                  }
-                >
-                  {/* Select */}
-                  <TableCell className="w-8 text-center">
-                    <Checkbox
-                      aria-label={`Select ${track.title}`}
-                      checked={selectedIds.has(track.id)}
-                      onCheckedChange={(checked) => {
-                        setSelectedIds((prev) => {
-                          const next = new Set(prev);
-                          if (checked) next.add(track.id);
-                          else next.delete(track.id);
-                          return next;
-                        });
-                      }}
-                    />
-                  </TableCell>
-                  {/* Liked */}
-                  <TableCell className="relative w-8 text-center">
-                    {/* Gold hover accent bar */}
-                    <span className="absolute left-0 top-1 bottom-1 w-0.5 rounded-full bg-primary opacity-0 group-hover:opacity-100 transition-opacity" />
-                    {track.is_liked && (
-                      <Heart
-                        className="mx-auto size-3.5 text-status-liked -translate-y-px"
-                        aria-label="Liked"
+                        onCheckedChange={(checked) => {
+                          if (checked) {
+                            setSelectedIds(new Set(tracks.map((t) => t.id)));
+                          } else {
+                            setSelectedIds(new Set());
+                          }
+                        }}
                       />
-                    )}
-                  </TableCell>
-                  {/* Title */}
-                  <TableCell>
-                    <Link
-                      to={`/library/${track.id}`}
-                      className="font-medium text-text hover:text-primary transition-colors"
+                    </TableHead>
+                    <TableHead className="w-8">
+                      <span className="sr-only">Liked</span>
+                    </TableHead>
+                    <SortableHead
+                      field="title"
+                      currentField={sortField}
+                      currentDir={sortDir}
+                      onSort={handleSort}
                     >
-                      {track.title}
-                    </Link>
-                  </TableCell>
-                  {/* Artist */}
-                  <TableCell className="text-text-muted text-sm truncate max-w-48">
-                    {formatArtists(track.artists)}
-                  </TableCell>
-                  {/* Album */}
-                  <TableCell className="text-text-muted text-sm truncate max-w-48">
-                    {track.album ?? "\u2014"}
-                  </TableCell>
-                  {/* Duration */}
-                  <TableCell className="text-right tabular-nums text-text-muted text-sm">
-                    {formatDuration(track.duration_ms)}
-                  </TableCell>
-                  {/* Preference */}
-                  <TableCell className="w-10 text-center">
-                    {track.preference && (
-                      <PreferenceBadge state={track.preference} />
-                    )}
-                  </TableCell>
-                  {/* Tags */}
-                  <TableCell className="w-48">
-                    {track.tags && track.tags.length > 0 && (
-                      <TagRowChips tags={track.tags} />
-                    )}
-                  </TableCell>
-                  {/* Sources */}
-                  <TableCell className="w-24">
-                    <span className="flex justify-center gap-1">
-                      {track.connector_names.map((name) => (
-                        <ConnectorIcon key={name} name={name} labelHidden />
-                      ))}
-                    </span>
-                  </TableCell>
-                </TableRow>
-              ))}
-            </TableBody>
-          </Table>
+                      Title
+                    </SortableHead>
+                    <SortableHead
+                      field="artist"
+                      currentField={sortField}
+                      currentDir={sortDir}
+                      onSort={handleSort}
+                    >
+                      Artist
+                    </SortableHead>
+                    <TableHead className="w-48">Album</TableHead>
+                    <SortableHead
+                      field="duration"
+                      currentField={sortField}
+                      currentDir={sortDir}
+                      onSort={handleSort}
+                      className="w-20 text-right"
+                    >
+                      Duration
+                    </SortableHead>
+                    <TableHead className="w-10 text-center">Pref</TableHead>
+                    <TableHead className="w-48">Tags</TableHead>
+                    <TableHead className="w-24 text-center">Sources</TableHead>
+                  </TableRow>
+                </TableHeader>
+                <TableBody>
+                  {tracks.map((track, index) => (
+                    <TableRow
+                      key={track.id}
+                      className="group relative"
+                      style={
+                        index < STAGGER_CAP
+                          ? {
+                              animation: `fade-in-row 300ms ease-out ${index * 20}ms both`,
+                            }
+                          : undefined
+                      }
+                    >
+                      {/* Select */}
+                      <TableCell className="w-8 text-center">
+                        <Checkbox
+                          aria-label={`Select ${track.title}`}
+                          checked={selectedIds.has(track.id)}
+                          onCheckedChange={(checked) => {
+                            setSelectedIds((prev) => {
+                              const next = new Set(prev);
+                              if (checked) next.add(track.id);
+                              else next.delete(track.id);
+                              return next;
+                            });
+                          }}
+                        />
+                      </TableCell>
+                      {/* Liked */}
+                      <TableCell className="relative w-8 text-center">
+                        {/* Gold hover accent bar */}
+                        <span className="absolute left-0 top-1 bottom-1 w-0.5 rounded-full bg-primary opacity-0 group-hover:opacity-100 transition-opacity" />
+                        {track.is_liked && (
+                          <Heart
+                            className="mx-auto size-3.5 text-status-liked -translate-y-px"
+                            aria-label="Liked"
+                          />
+                        )}
+                      </TableCell>
+                      {/* Title */}
+                      <TableCell>
+                        <Link
+                          to={`/library/${track.id}`}
+                          className="font-medium text-text hover:text-primary transition-colors"
+                        >
+                          {track.title}
+                        </Link>
+                      </TableCell>
+                      {/* Artist */}
+                      <TableCell className="text-text-muted text-sm truncate max-w-48">
+                        {formatArtists(track.artists)}
+                      </TableCell>
+                      {/* Album */}
+                      <TableCell className="text-text-muted text-sm truncate max-w-48">
+                        {track.album ?? "\u2014"}
+                      </TableCell>
+                      {/* Duration */}
+                      <TableCell className="text-right tabular-nums text-text-muted text-sm">
+                        {formatDuration(track.duration_ms)}
+                      </TableCell>
+                      {/* Preference */}
+                      <TableCell className="w-10 text-center">
+                        {track.preference && (
+                          <PreferenceBadge state={track.preference} />
+                        )}
+                      </TableCell>
+                      {/* Tags */}
+                      <TableCell className="w-48">
+                        {track.tags && track.tags.length > 0 && (
+                          <TagRowChips tags={track.tags} />
+                        )}
+                      </TableCell>
+                      {/* Sources */}
+                      <TableCell className="w-24">
+                        <span className="flex justify-center gap-1">
+                          {track.connector_names.map((name) => (
+                            <ConnectorIcon key={name} name={name} labelHidden />
+                          ))}
+                        </span>
+                      </TableCell>
+                    </TableRow>
+                  ))}
+                </TableBody>
+              </Table>
+            }
+          />
 
           <TablePagination
             page={page}

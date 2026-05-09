@@ -44,13 +44,13 @@ describe("Library", () => {
     renderWithProviders(<Library />);
 
     await waitFor(() => {
-      expect(screen.getByText("Track 1")).toBeInTheDocument();
+      expect(screen.getAllByText("Track 1").length).toBeGreaterThan(0);
     });
 
-    expect(screen.getByText("Track 2")).toBeInTheDocument();
-    expect(screen.getByText("Track 3")).toBeInTheDocument();
-    expect(screen.getByText("Artist 1")).toBeInTheDocument();
-    expect(screen.getByText("Album 1")).toBeInTheDocument();
+    expect(screen.getAllByText("Track 2").length).toBeGreaterThan(0);
+    expect(screen.getAllByText("Track 3").length).toBeGreaterThan(0);
+    expect(screen.getAllByText("Artist 1").length).toBeGreaterThan(0);
+    expect(screen.getAllByText("Album 1").length).toBeGreaterThan(0);
   });
 
   it("renders empty state when no tracks exist", async () => {
@@ -103,10 +103,10 @@ describe("Library", () => {
     renderWithProviders(<Library />);
 
     await waitFor(() => {
-      expect(screen.getByText("Track 1")).toBeInTheDocument();
+      expect(screen.getAllByText("Track 1").length).toBeGreaterThan(0);
     });
 
-    expect(screen.getByText(/1–50 of 120/)).toBeInTheDocument();
+    expect(screen.getByText(/1[–-]50 of 120/)).toBeInTheDocument();
     expect(screen.getByLabelText("Go to next page")).toBeInTheDocument();
   });
 
@@ -116,7 +116,7 @@ describe("Library", () => {
     renderWithProviders(<Library />);
 
     await waitFor(() => {
-      expect(screen.getByText("Track 1")).toBeInTheDocument();
+      expect(screen.getAllByText("Track 1").length).toBeGreaterThan(0);
     });
 
     expect(screen.queryByLabelText("Go to next page")).not.toBeInTheDocument();
@@ -139,10 +139,10 @@ describe("Library", () => {
     renderWithProviders(<Library />);
 
     await waitFor(() => {
-      expect(screen.getByText("Duration Test")).toBeInTheDocument();
+      expect(screen.getAllByText("Duration Test").length).toBeGreaterThan(0);
     });
 
-    expect(screen.getByText("3:15")).toBeInTheDocument();
+    expect(screen.getAllByText("3:15").length).toBeGreaterThan(0);
   });
 
   it("shows liked heart icon for liked tracks", async () => {
@@ -162,10 +162,10 @@ describe("Library", () => {
     renderWithProviders(<Library />);
 
     await waitFor(() => {
-      expect(screen.getByText("Liked Track")).toBeInTheDocument();
+      expect(screen.getAllByText("Liked Track").length).toBeGreaterThan(0);
     });
 
-    expect(screen.getByLabelText("Liked")).toBeInTheDocument();
+    expect(screen.getAllByLabelText("Liked").length).toBeGreaterThan(0);
   });
 
   it("renders search input", async () => {
@@ -204,7 +204,7 @@ describe("Library", () => {
     renderWithProviders(<Library />);
 
     await waitFor(() => {
-      expect(screen.getByText("Track 1")).toBeInTheDocument();
+      expect(screen.getAllByText("Track 1").length).toBeGreaterThan(0);
     });
 
     expect(
