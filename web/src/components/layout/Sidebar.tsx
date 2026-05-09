@@ -93,6 +93,7 @@ export function Sidebar() {
               {/* Parent — clickable, navigates to default sub-page */}
               <NavLink
                 to={item.children[0].to}
+                viewTransition
                 className={cn(
                   linkClass,
                   pathname.startsWith(item.to) ? activeClass : inactiveClass,
@@ -126,6 +127,7 @@ export function Sidebar() {
                     <li key={child.to}>
                       <NavLink
                         to={child.to}
+                        viewTransition
                         className={({ isActive }) =>
                           cn(
                             linkClass,
@@ -151,6 +153,7 @@ export function Sidebar() {
               <NavLink
                 to={item.to}
                 end={item.end}
+                viewTransition
                 className={({ isActive }) =>
                   cn(linkClass, isActive ? activeClass : inactiveClass)
                 }

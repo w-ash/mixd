@@ -229,11 +229,10 @@ describe("Matching Health Section", () => {
     expect(screen.getByText("Identity Resolution")).toBeInTheDocument();
     expect(screen.getByText("Error Recovery")).toBeInTheDocument();
 
-    // Method names
-    expect(screen.getByText("direct_import")).toBeInTheDocument();
-    expect(screen.getByText("artist_title")).toBeInTheDocument();
-    expect(screen.getByText("canonical_reuse")).toBeInTheDocument();
-    expect(screen.getByText("search_fallback")).toBeInTheDocument();
+    expect(screen.getAllByText("direct_import").length).toBeGreaterThan(0);
+    expect(screen.getAllByText("artist_title").length).toBeGreaterThan(0);
+    expect(screen.getAllByText("canonical_reuse").length).toBeGreaterThan(0);
+    expect(screen.getAllByText("search_fallback").length).toBeGreaterThan(0);
 
     // Total mappings summary
     expect(screen.getByText(/1,616 total mappings/)).toBeInTheDocument();

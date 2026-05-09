@@ -26,8 +26,10 @@ const buttonVariants = cva(
         sm: "h-8 gap-1.5 rounded-md px-3 has-[>svg]:px-2.5",
         lg: "h-10 rounded-md px-6 has-[>svg]:px-4",
         icon: "size-9",
-        "icon-xs": "size-6 rounded-md [&_svg:not([class*='size-'])]:size-3",
-        "icon-sm": "size-8",
+        // `mobile-tap-area` exposes a 44×44 invisible hit target — WCAG 2.5.5 AAA.
+        "icon-xs":
+          "size-6 rounded-md mobile-tap-area [&_svg:not([class*='size-'])]:size-3",
+        "icon-sm": "size-8 mobile-tap-area",
         "icon-lg": "size-10",
       },
     },

@@ -1,6 +1,8 @@
 import { render, screen } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
-import { describe, expect, it, vi } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
+
+import { mockMatchMedia } from "#/test/test-utils";
 
 import { countActiveFilters, LibraryFilterPanel } from "./LibraryFilterPanel";
 
@@ -65,6 +67,32 @@ describe("LibraryFilterPanel", () => {
     expect(
       screen.getByRole("combobox", { name: "Filter by connector" }),
     ).toBeInTheDocument();
+  });
+});
+
+describe("LibraryFilterPanel — mobile branch", () => {
+  afterEach(() => {
+    mockMatchMedia(1280);
+  });
+
+  it("renders as a Sheet (native <dialog>) below lg: when expanded", () => {
+    mockMatchMedia(390);
+    render(<LibraryFilterPanel {...baseProps()} expanded onClose={vi.fn()} />);
+    const sheet = screen.getByRole("dialog", { name: "Library filters" });
+    expect(sheet).toBeInTheDocument();
+    expect(sheet).toHaveAttribute("open");
+    // Mobile branch must not also mount the desktop disclosure markup.
+    expect(document.querySelector("#library-filter-panel")).toBeNull();
+  });
+
+  it("clicking the close button calls onClose", async () => {
+    mockMatchMedia(390);
+    const onClose = vi.fn();
+    render(<LibraryFilterPanel {...baseProps()} expanded onClose={onClose} />);
+    await userEvent.click(
+      screen.getByRole("button", { name: "Close filters" }),
+    );
+    expect(onClose).toHaveBeenCalled();
   });
 });
 

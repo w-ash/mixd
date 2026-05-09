@@ -283,8 +283,8 @@ describe("WorkflowRunDetail", () => {
       expect(screen.getByText("Output Tracks")).toBeInTheDocument();
     });
 
-    expect(screen.getByText("Midnight City")).toBeInTheDocument();
-    expect(screen.getByText("M83")).toBeInTheDocument();
+    expect(screen.getAllByText("Midnight City").length).toBeGreaterThan(0);
+    expect(screen.getAllByText("M83").length).toBeGreaterThan(0);
   });
 
   it("renders error state for nonexistent run", async () => {

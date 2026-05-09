@@ -120,8 +120,8 @@ function OperationCard({
 
   return (
     <div className="rounded-xl border border-border bg-surface-elevated shadow-elevated p-5">
-      <div className="flex items-start justify-between gap-3">
-        <div>
+      <div className="flex flex-col gap-3 lg:flex-row lg:items-start lg:justify-between">
+        <div className="min-w-0">
           <div className="flex items-center gap-2">
             <ConnectorIcon name={connector} />
             <h3 className="font-display text-base font-semibold">{title}</h3>
@@ -132,6 +132,7 @@ function OperationCard({
           size="sm"
           disabled={isPending || isActive || triggerDisabled}
           onClick={onTrigger}
+          className="self-start lg:self-auto"
         >
           {isPending ? "Starting..." : isActive ? "Running..." : triggerLabel}
         </Button>

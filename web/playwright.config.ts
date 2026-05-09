@@ -8,7 +8,8 @@ export default defineConfig({
   retries: process.env.CI ? 2 : 0,
   workers: process.env.CI ? 1 : undefined,
   reporter: "html",
-  snapshotPathTemplate: "{testDir}/__screenshots__/{testFileName}/{arg}{ext}",
+  snapshotPathTemplate:
+    "{testDir}/__screenshots__/{testFileName}/{projectName}/{arg}{ext}",
   use: {
     baseURL: "http://localhost:5173",
     trace: "on-first-retry",
@@ -26,6 +27,13 @@ export default defineConfig({
       use: {
         ...devices["Desktop Chrome"],
         viewport: { width: 1280, height: 800 },
+      },
+    },
+    {
+      name: "iphone-15-pro",
+      // Real iPhone 15 Pro: 393×852 CSS, devicePixelRatio 3, mobile UA.
+      use: {
+        ...devices["iPhone 15 Pro"],
       },
     },
   ],

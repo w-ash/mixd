@@ -1,4 +1,7 @@
-import { describe, expect, it, vi } from "vitest";
+import { Route, Routes } from "react-router";
+import { afterEach, describe, expect, it, vi } from "vitest";
+
+import { mockMatchMedia } from "#/test/test-utils";
 
 // Mock problematic dependencies
 vi.mock("@jalez/react-flow-smart-edge", () => ({
@@ -58,5 +61,38 @@ describe("WorkflowEditor", () => {
 
     // Node palette has search input
     expect(screen.getByPlaceholderText("Search nodes...")).toBeInTheDocument();
+  });
+});
+
+describe("WorkflowEditor mobile gate", () => {
+  afterEach(() => {
+    mockMatchMedia(1280);
+  });
+
+  function renderEditAtMobile(path: string) {
+    return renderWithProviders(
+      <Routes>
+        <Route path="workflows/:id/edit" element={<WorkflowEditor />} />
+      </Routes>,
+      { routerProps: { initialEntries: [path] } },
+    );
+  }
+
+  it("renders the placeholder below lg: instead of mounting React Flow", () => {
+    mockMatchMedia(390);
+    renderEditAtMobile("/workflows/abc/edit");
+
+    expect(
+      screen.getByText("Workflow editing needs a larger screen"),
+    ).toBeInTheDocument();
+    expect(screen.queryByTestId("react-flow")).not.toBeInTheDocument();
+  });
+
+  it("placeholder's primary CTA links to the workflow's runs view", () => {
+    mockMatchMedia(390);
+    renderEditAtMobile("/workflows/abc/edit");
+
+    const cta = screen.getByRole("link", { name: /View runs/ });
+    expect(cta).toHaveAttribute("href", "/workflows/abc");
   });
 });

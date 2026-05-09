@@ -445,6 +445,15 @@ body::after {
     transition-duration: 0.01ms !important;
     scroll-behavior: auto !important;
   }
+
+  /* View Transition API pseudo-elements live on a separate tree under :root
+   * and aren't reached by the `*` selector above, so override them explicitly.
+   * Falls back to instant page swaps for users who prefer reduced motion. */
+  ::view-transition-group(*),
+  ::view-transition-old(*),
+  ::view-transition-new(*) {
+    animation: none !important;
+  }
 }
 
 /* ── Utility: hidden scrollbar ───────────────────── */

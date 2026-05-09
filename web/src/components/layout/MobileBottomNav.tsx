@@ -45,6 +45,7 @@ export function MobileBottomNav() {
               key={to}
               to={to}
               end={end}
+              viewTransition
               className={({ isActive }) =>
                 cn(tabClass, isActive ? activeClass : inactiveClass)
               }

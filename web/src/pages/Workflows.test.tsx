@@ -67,13 +67,15 @@ describe("Workflows", () => {
     renderWithProviders(<Workflows />);
 
     await waitFor(() => {
-      expect(screen.getByText("Current Obsessions")).toBeInTheDocument();
+      expect(screen.getAllByText("Current Obsessions").length).toBeGreaterThan(
+        0,
+      );
     });
 
-    expect(screen.getByText("My Custom Flow")).toBeInTheDocument();
+    expect(screen.getAllByText("My Custom Flow").length).toBeGreaterThan(0);
     expect(screen.getByText("4")).toBeInTheDocument();
     expect(screen.getByText("2")).toBeInTheDocument();
-    expect(screen.getByText("Template")).toBeInTheDocument();
+    expect(screen.getAllByText("Template").length).toBeGreaterThan(0);
   });
 
   it("shows last run status in the table", async () => {
@@ -110,7 +112,7 @@ describe("Workflows", () => {
     renderWithProviders(<Workflows />);
 
     await waitFor(() => {
-      expect(screen.getByText("Completed")).toBeInTheDocument();
+      expect(screen.getAllByText("Completed").length).toBeGreaterThan(0);
     });
   });
 
@@ -143,10 +145,10 @@ describe("Workflows", () => {
     renderWithProviders(<Workflows />);
 
     await waitFor(() => {
-      expect(screen.getByText("Flow A")).toBeInTheDocument();
+      expect(screen.getAllByText("Flow A").length).toBeGreaterThan(0);
     });
 
-    expect(screen.getByTitle("Run workflow")).toBeInTheDocument();
+    expect(screen.getAllByTitle("Run workflow").length).toBeGreaterThan(0);
   });
 
   it("renders empty state when API returns no workflows", async () => {

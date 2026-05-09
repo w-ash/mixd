@@ -23,10 +23,12 @@ import { PageHeader } from "#/components/layout/PageHeader";
 import { BulkApplyAssignmentsDialog } from "#/components/shared/BulkApplyAssignmentsDialog";
 import { ConfirmationDialog } from "#/components/shared/ConfirmationDialog";
 import { EmptyState } from "#/components/shared/EmptyState";
+import { ResponsiveTable } from "#/components/shared/ResponsiveTable";
 import { Button } from "#/components/ui/button";
 import { Input } from "#/components/ui/input";
 import { Skeleton } from "#/components/ui/skeleton";
 import { formatDate } from "#/lib/format";
+import { pluralSuffix } from "#/lib/pluralize";
 import { toasts } from "#/lib/toasts";
 
 type DialogMode = "rename" | "merge" | "delete";
@@ -56,6 +58,76 @@ function TagsSkeleton() {
   );
 }
 
+interface TagRowActionsProps {
+  tag: TagSummarySchema;
+  onRename: (tag: TagSummarySchema) => void;
+  onMerge: (tag: TagSummarySchema) => void;
+  onDelete: (tag: TagSummarySchema) => void;
+}
+
+function TagRowActions({
+  tag,
+  onRename,
+  onMerge,
+  onDelete,
+}: TagRowActionsProps) {
+  return (
+    <div className="flex items-center gap-1">
+      <Button
+        variant="ghost"
+        size="sm"
+        aria-label={`Rename ${tag.tag}`}
+        onClick={() => onRename(tag)}
+      >
+        <Pencil className="size-3.5" aria-hidden />
+      </Button>
+      <Button
+        variant="ghost"
+        size="sm"
+        aria-label={`Merge ${tag.tag} into another tag`}
+        onClick={() => onMerge(tag)}
+      >
+        <GitMerge className="size-3.5" aria-hidden />
+      </Button>
+      <Button
+        variant="ghost"
+        size="sm"
+        aria-label={`Delete ${tag.tag}`}
+        onClick={() => onDelete(tag)}
+      >
+        <Trash2 className="size-3.5" aria-hidden />
+      </Button>
+    </div>
+  );
+}
+
+function TagCard({ tag, onRename, onMerge, onDelete }: TagRowActionsProps) {
+  return (
+    <article className="flex items-start gap-3 rounded-md border border-border bg-surface px-3 py-3">
+      <div className="min-w-0 flex-1">
+        <p className="truncate font-mono text-sm text-text">{tag.tag}</p>
+        <div className="mt-1 flex flex-wrap items-center gap-x-3 gap-y-1 font-mono text-xs text-text-muted">
+          {tag.namespace && <span>ns: {tag.namespace}</span>}
+          <span className="tabular-nums">
+            {tag.track_count} track{pluralSuffix(tag.track_count)}
+          </span>
+          {tag.last_used_at && (
+            <span>Last used {formatDate(tag.last_used_at)}</span>
+          )}
+        </div>
+      </div>
+      <div className="shrink-0">
+        <TagRowActions
+          tag={tag}
+          onRename={onRename}
+          onMerge={onMerge}
+          onDelete={onDelete}
+        />
+      </div>
+    </article>
+  );
+}
+
 export function Tags() {
   const [search, setSearch] = useState("");
   const [activeDialog, setActiveDialog] = useState<ActiveDialog | null>(null);
@@ -80,6 +152,12 @@ export function Tags() {
   const closeDialog = () => {
     setActiveDialog(null);
     setTargetInput("");
+  };
+
+  const openDialog = (mode: DialogMode, tag: TagSummarySchema) => {
+    if (mode === "rename") setTargetInput(tag.tag);
+    else if (mode === "merge") setTargetInput("");
+    setActiveDialog({ mode, tag });
   };
 
   const renameMutation = useRenameTagApiV1TagsTagPatch();
@@ -219,81 +297,74 @@ export function Tags() {
       )}
 
       {!isPending && !isError && tags.length > 0 && (
-        <div className="overflow-hidden rounded-lg border border-border bg-surface-elevated shadow-elevated">
-          <table className="w-full">
-            <thead>
-              <tr className="border-b border-border bg-surface-sunken text-left">
-                <th className="px-4 py-2.5 font-display text-xs font-medium uppercase tracking-wider text-text-muted">
-                  Tag
-                </th>
-                <th className="px-4 py-2.5 font-display text-xs font-medium uppercase tracking-wider text-text-muted">
-                  Namespace
-                </th>
-                <th className="px-4 py-2.5 text-right font-display text-xs font-medium uppercase tracking-wider text-text-muted">
-                  Tracks
-                </th>
-                <th className="px-4 py-2.5 font-display text-xs font-medium uppercase tracking-wider text-text-muted">
-                  Last used
-                </th>
-                <th className="px-4 py-2.5 text-right font-display text-xs font-medium uppercase tracking-wider text-text-muted">
-                  Actions
-                </th>
-              </tr>
-            </thead>
-            <tbody className="divide-y divide-border">
+        <ResponsiveTable
+          cards={
+            <div className="flex flex-col gap-2">
               {tags.map((tag) => (
-                <tr key={tag.tag} className="hover:bg-surface-sunken">
-                  <td className="px-4 py-3 font-mono text-sm text-text">
-                    {tag.tag}
-                  </td>
-                  <td className="px-4 py-3 font-mono text-xs text-text-muted">
-                    {tag.namespace ?? "—"}
-                  </td>
-                  <td className="px-4 py-3 text-right font-mono text-sm text-text">
-                    {tag.track_count}
-                  </td>
-                  <td className="px-4 py-3 font-mono text-xs text-text-muted">
-                    {formatDate(tag.last_used_at)}
-                  </td>
-                  <td className="px-4 py-3 text-right">
-                    <div className="flex justify-end gap-1">
-                      <Button
-                        variant="ghost"
-                        size="sm"
-                        aria-label={`Rename ${tag.tag}`}
-                        onClick={() => {
-                          setTargetInput(tag.tag);
-                          setActiveDialog({ mode: "rename", tag });
-                        }}
-                      >
-                        <Pencil className="size-3.5" aria-hidden />
-                      </Button>
-                      <Button
-                        variant="ghost"
-                        size="sm"
-                        aria-label={`Merge ${tag.tag} into another tag`}
-                        onClick={() => {
-                          setTargetInput("");
-                          setActiveDialog({ mode: "merge", tag });
-                        }}
-                      >
-                        <GitMerge className="size-3.5" aria-hidden />
-                      </Button>
-                      <Button
-                        variant="ghost"
-                        size="sm"
-                        aria-label={`Delete ${tag.tag}`}
-                        onClick={() => setActiveDialog({ mode: "delete", tag })}
-                      >
-                        <Trash2 className="size-3.5" aria-hidden />
-                      </Button>
-                    </div>
-                  </td>
-                </tr>
+                <TagCard
+                  key={tag.tag}
+                  tag={tag}
+                  onRename={(t) => openDialog("rename", t)}
+                  onMerge={(t) => openDialog("merge", t)}
+                  onDelete={(t) => openDialog("delete", t)}
+                />
               ))}
-            </tbody>
-          </table>
-        </div>
+            </div>
+          }
+          table={
+            <div className="overflow-hidden rounded-lg border border-border bg-surface-elevated shadow-elevated">
+              <table className="w-full">
+                <thead>
+                  <tr className="border-b border-border bg-surface-sunken text-left">
+                    <th className="px-4 py-2.5 font-display text-xs font-medium uppercase tracking-wider text-text-muted">
+                      Tag
+                    </th>
+                    <th className="px-4 py-2.5 font-display text-xs font-medium uppercase tracking-wider text-text-muted">
+                      Namespace
+                    </th>
+                    <th className="px-4 py-2.5 text-right font-display text-xs font-medium uppercase tracking-wider text-text-muted">
+                      Tracks
+                    </th>
+                    <th className="px-4 py-2.5 font-display text-xs font-medium uppercase tracking-wider text-text-muted">
+                      Last used
+                    </th>
+                    <th className="px-4 py-2.5 text-right font-display text-xs font-medium uppercase tracking-wider text-text-muted">
+                      Actions
+                    </th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-border">
+                  {tags.map((tag) => (
+                    <tr key={tag.tag} className="hover:bg-surface-sunken">
+                      <td className="px-4 py-3 font-mono text-sm text-text">
+                        {tag.tag}
+                      </td>
+                      <td className="px-4 py-3 font-mono text-xs text-text-muted">
+                        {tag.namespace ?? "—"}
+                      </td>
+                      <td className="px-4 py-3 text-right font-mono text-sm text-text">
+                        {tag.track_count}
+                      </td>
+                      <td className="px-4 py-3 font-mono text-xs text-text-muted">
+                        {formatDate(tag.last_used_at)}
+                      </td>
+                      <td className="px-4 py-3 text-right">
+                        <div className="flex justify-end">
+                          <TagRowActions
+                            tag={tag}
+                            onRename={(t) => openDialog("rename", t)}
+                            onMerge={(t) => openDialog("merge", t)}
+                            onDelete={(t) => openDialog("delete", t)}
+                          />
+                        </div>
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          }
+        />
       )}
 
       {/* Rename dialog */}

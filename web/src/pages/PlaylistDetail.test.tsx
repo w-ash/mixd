@@ -117,13 +117,11 @@ describe("PlaylistDetail", () => {
     renderPlaylistDetail();
 
     await waitFor(() => {
-      expect(screen.getByText("Midnight City")).toBeInTheDocument();
+      expect(screen.getAllByText("Midnight City").length).toBeGreaterThan(0);
     });
 
-    // Table header
     expect(screen.getByText("Added")).toBeInTheDocument();
-    // Formatted date in cell
-    expect(screen.getByText("Feb 20, 2026")).toBeInTheDocument();
+    expect(screen.getAllByText(/Feb 20, 2026/).length).toBeGreaterThan(0);
   });
 
   it("shows em-dash for null added_at values", async () => {
@@ -140,7 +138,7 @@ describe("PlaylistDetail", () => {
     renderPlaylistDetail();
 
     await waitFor(() => {
-      expect(screen.getByText("Old Import")).toBeInTheDocument();
+      expect(screen.getAllByText("Old Import").length).toBeGreaterThan(0);
     });
 
     // The "Added" column should contain an em-dash for null added_at
@@ -204,14 +202,17 @@ describe("PlaylistDetail", () => {
     renderPlaylistDetail();
 
     await waitFor(() => {
-      expect(screen.getByText("Midnight City")).toBeInTheDocument();
+      expect(screen.getAllByText("Midnight City").length).toBeGreaterThan(0);
     });
 
-    const trackLink = screen.getByRole("link", { name: "Midnight City" });
-    expect(trackLink).toHaveAttribute(
-      "href",
-      expect.stringContaining("/library/"),
-    );
+    const trackLinks = screen.getAllByRole("link", { name: "Midnight City" });
+    expect(trackLinks.length).toBeGreaterThan(0);
+    for (const link of trackLinks) {
+      expect(link).toHaveAttribute(
+        "href",
+        expect.stringContaining("/library/"),
+      );
+    }
   });
 
   it("renders empty state when playlist has no tracks", async () => {

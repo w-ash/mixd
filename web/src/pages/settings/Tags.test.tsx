@@ -44,10 +44,10 @@ describe("Tags settings page", () => {
     setupListMock();
     renderWithProviders(<Tags />);
 
-    expect(await screen.findByText("mood:chill")).toBeInTheDocument();
-    expect(screen.getByText("banger")).toBeInTheDocument();
+    await screen.findAllByText("mood:chill");
+    expect(screen.getAllByText("mood:chill").length).toBeGreaterThan(0);
+    expect(screen.getAllByText("banger").length).toBeGreaterThan(0);
     expect(screen.getByText("mood")).toBeInTheDocument();
-    // Banger has no namespace.
     expect(screen.getByText("—")).toBeInTheDocument();
     expect(screen.getByText("12")).toBeInTheDocument();
     expect(screen.getByText("3")).toBeInTheDocument();
@@ -73,7 +73,7 @@ describe("Tags settings page", () => {
     );
     renderWithProviders(<Tags />);
 
-    await screen.findByText("mood:chill");
+    await screen.findAllByText("mood:chill");
     const search = screen.getByLabelText("Filter tags");
     await userEvent.type(search, "nonexistent");
 
@@ -86,8 +86,9 @@ describe("Tags settings page", () => {
     setupListMock();
     renderWithProviders(<Tags />);
 
-    await screen.findByText("mood:chill");
-    await userEvent.click(screen.getByLabelText("Rename mood:chill"));
+    await screen.findAllByText("mood:chill");
+    // Action buttons render in both card and table; click either one.
+    await userEvent.click(screen.getAllByLabelText("Rename mood:chill")[0]);
 
     expect(await screen.findByText("Rename tag")).toBeInTheDocument();
     expect(screen.getByText(/appears on 12 tracks/)).toBeInTheDocument();
@@ -109,8 +110,8 @@ describe("Tags settings page", () => {
     );
     renderWithProviders(<Tags />);
 
-    await screen.findByText("mood:chill");
-    await userEvent.click(screen.getByLabelText("Rename mood:chill"));
+    await screen.findAllByText("mood:chill");
+    await userEvent.click(screen.getAllByLabelText("Rename mood:chill")[0]);
     const input = await screen.findByLabelText("New tag name");
     await userEvent.clear(input);
     await userEvent.type(input, "mood:ambient");
@@ -125,8 +126,8 @@ describe("Tags settings page", () => {
     setupListMock();
     renderWithProviders(<Tags />);
 
-    await screen.findByText("mood:chill");
-    await userEvent.click(screen.getByLabelText("Delete mood:chill"));
+    await screen.findAllByText("mood:chill");
+    await userEvent.click(screen.getAllByLabelText("Delete mood:chill")[0]);
 
     expect(await screen.findByText("Delete tag")).toBeInTheDocument();
     expect(
@@ -150,9 +151,9 @@ describe("Tags settings page", () => {
     );
     renderWithProviders(<Tags />);
 
-    await screen.findByText("mood:chill");
+    await screen.findAllByText("mood:chill");
     await userEvent.click(
-      screen.getByLabelText("Merge mood:chill into another tag"),
+      screen.getAllByLabelText("Merge mood:chill into another tag")[0],
     );
     const input = await screen.findByLabelText("Target tag");
     await userEvent.type(input, "mood:ambient");

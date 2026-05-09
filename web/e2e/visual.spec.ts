@@ -9,10 +9,20 @@ import { expect, type Page, test } from "@playwright/test";
  * documented in `web/e2e/README.md`.
  */
 
+// Routes that render without authentication or seeded data. Detail pages
+// (`/library/:id`, `/playlists/:id`, `/workflows/:id`, run details) need
+// fixture data and are deferred to a follow-up that adds a deterministic
+// seed fixture under `web/e2e/fixtures/`.
 const ROUTES = [
   { path: "/", slug: "dashboard" },
+  { path: "/library", slug: "library" },
   { path: "/playlists", slug: "playlists" },
   { path: "/workflows", slug: "workflows" },
+  { path: "/settings/integrations", slug: "settings-integrations" },
+  { path: "/settings/sync", slug: "settings-sync" },
+  { path: "/settings/tags", slug: "settings-tags" },
+  { path: "/settings/imports", slug: "settings-imports" },
+  { path: "/settings/account", slug: "settings-account" },
 ] as const;
 
 const THEMES = ["light", "dark"] as const;

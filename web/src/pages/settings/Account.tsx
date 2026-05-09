@@ -110,19 +110,24 @@ export function Account() {
           <div className="space-y-3">
             <SectionHeader title="Profile" />
             <div className="rounded-xl border border-border bg-surface-elevated shadow-elevated p-5">
-              <div className="flex items-center justify-between gap-4">
-                <div className="flex items-center gap-4">
+              <div className="flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
+                <div className="flex min-w-0 items-center gap-4">
                   <UserAvatar name={user.name} image={user.image} />
-                  <div>
-                    <p className="font-display text-sm font-semibold">
+                  <div className="min-w-0">
+                    <p className="truncate font-display text-sm font-semibold">
                       {user.name}
                     </p>
-                    <p className="font-mono text-sm text-text-muted">
+                    <p className="truncate font-mono text-sm text-text-muted">
                       {user.email}
                     </p>
                   </div>
                 </div>
-                <Button variant="outline" size="sm" onClick={handleSignOut}>
+                <Button
+                  variant="outline"
+                  size="sm"
+                  onClick={handleSignOut}
+                  className="self-start lg:self-auto"
+                >
                   <LogOut className="mr-1.5 size-3.5" />
                   Sign out
                 </Button>
@@ -137,8 +142,8 @@ export function Account() {
               description="Irreversible actions that affect your account."
             />
             <div className="rounded-xl border border-border border-l-2 border-l-destructive/40 bg-surface-elevated shadow-elevated p-5">
-              <div className="flex items-start justify-between gap-3">
-                <div>
+              <div className="flex flex-col gap-3 lg:flex-row lg:items-start lg:justify-between">
+                <div className="min-w-0">
                   <h3 className="font-display text-sm font-semibold text-destructive">
                     Delete account
                   </h3>
@@ -151,6 +156,7 @@ export function Account() {
                   variant="destructive"
                   size="sm"
                   onClick={() => setDeleteOpen(true)}
+                  className="self-start lg:self-auto"
                 >
                   <Trash2 className="mr-1.5 size-3.5" />
                   Delete account

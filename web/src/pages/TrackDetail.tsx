@@ -416,7 +416,7 @@ export function TrackDetail() {
       />
 
       {/* Core metadata */}
-      <dl className="mb-6 flex flex-wrap gap-x-6 gap-y-2">
+      <dl className="mb-6 flex flex-wrap gap-x-4 gap-y-2 lg:gap-x-6">
         {track.album && <Field label="Album">{track.album}</Field>}
         <Field label="Duration">{formatDuration(track.duration_ms)}</Field>
         {track.release_date && (

@@ -8,6 +8,7 @@ import { STALE } from "#/api/query-client";
 import { PageHeader } from "#/components/layout/PageHeader";
 import { EmptyState } from "#/components/shared/EmptyState";
 import { QueryErrorState } from "#/components/shared/QueryErrorState";
+import { ResponsiveTable } from "#/components/shared/ResponsiveTable";
 import { getStatusConfig } from "#/components/shared/RunStatusBadge";
 import { TablePagination } from "#/components/shared/TablePagination";
 import { Badge } from "#/components/ui/badge";
@@ -73,6 +74,111 @@ function WorkflowRunButton({
   );
 }
 
+/** Edit/use-template + run buttons. Reused in the table row and the card. */
+function WorkflowRowActions({
+  wf,
+  runningWorkflowId,
+}: {
+  wf: WorkflowSummarySchema;
+  runningWorkflowId: string | null;
+}) {
+  return (
+    <div className="flex items-center gap-1">
+      {wf.is_template ? (
+        <Button
+          size="icon"
+          variant="ghost"
+          className="size-7"
+          title="Use template"
+          asChild
+        >
+          <Link to={`/workflows/new?from=${wf.id}`}>
+            <Copy className="size-3.5 text-text-muted" />
+          </Link>
+        </Button>
+      ) : (
+        <Button
+          size="icon"
+          variant="ghost"
+          className="size-7"
+          title="Edit workflow"
+          asChild
+        >
+          <Link to={`/workflows/${wf.id}/edit`}>
+            <Pencil className="size-3.5 text-text-muted" />
+          </Link>
+        </Button>
+      )}
+      <WorkflowRunButton
+        workflowId={wf.id}
+        disabled={runningWorkflowId !== null && runningWorkflowId !== wf.id}
+      />
+    </div>
+  );
+}
+
+/**
+ * Card representation of a workflow row — used by ResponsiveTable below the
+ * @2xl container threshold (typically iPhone / iPad portrait widths).
+ */
+function WorkflowCard({
+  wf,
+  runningWorkflowId,
+}: {
+  wf: WorkflowSummarySchema;
+  runningWorkflowId: string | null;
+}) {
+  const lastRun = wf.last_run;
+  const runConf = lastRun ? getStatusConfig(lastRun.status) : null;
+
+  return (
+    <article className="flex items-start gap-3 rounded-md border border-border bg-surface px-3 py-3">
+      <div className="min-w-0 flex-1">
+        <div className="flex flex-wrap items-baseline gap-x-2 gap-y-1">
+          <Link
+            to={`/workflows/${wf.id}`}
+            viewTransition
+            className="block truncate font-display text-sm font-medium text-text transition-colors hover:text-primary"
+          >
+            {wf.name}
+          </Link>
+          {wf.is_template && (
+            <Badge variant="outline" className="gap-1 text-[10px]">
+              <Lock className="size-2.5" aria-hidden="true" />
+              Template
+            </Badge>
+          )}
+        </div>
+        {wf.description && (
+          <p className="mt-0.5 line-clamp-1 text-xs text-text-muted">
+            {wf.description}
+          </p>
+        )}
+        <div className="mt-1.5 flex flex-wrap items-center gap-x-3 gap-y-1 text-xs text-text-muted">
+          <span className="tabular-nums">
+            {wf.task_count} task{wf.task_count === 1 ? "" : "s"}
+          </span>
+          {runConf && (
+            <span
+              className={cn(
+                "inline-flex items-center gap-1 font-display",
+                runConf.className,
+              )}
+            >
+              {runConf.icon}
+              {runConf.label}
+            </span>
+          )}
+          <span>Updated {formatDate(wf.updated_at)}</span>
+        </div>
+      </div>
+      <div className="shrink-0">
+        <WorkflowRowActions wf={wf} runningWorkflowId={runningWorkflowId} />
+      </div>
+    </article>
+  );
+}
+
 const WorkflowRow = memo(function WorkflowRow({
   wf,
   runningWorkflowId,
@@ -89,6 +195,7 @@ const WorkflowRow = memo(function WorkflowRow({
         <div className="flex items-center gap-2">
           <Link
             to={`/workflows/${wf.id}`}
+            viewTransition
             className="font-medium text-text hover:text-primary transition-colors"
           >
             {wf.name}
@@ -126,36 +233,8 @@ const WorkflowRow = memo(function WorkflowRow({
         {formatDate(wf.updated_at)}
       </TableCell>
       <TableCell className="text-right">
-        <div className="flex items-center justify-end gap-1">
-          {wf.is_template ? (
-            <Button
-              size="icon"
-              variant="ghost"
-              className="size-7"
-              title="Use template"
-              asChild
-            >
-              <Link to={`/workflows/new?from=${wf.id}`}>
-                <Copy className="size-3.5 text-text-muted" />
-              </Link>
-            </Button>
-          ) : (
-            <Button
-              size="icon"
-              variant="ghost"
-              className="size-7"
-              title="Edit workflow"
-              asChild
-            >
-              <Link to={`/workflows/${wf.id}/edit`}>
-                <Pencil className="size-3.5 text-text-muted" />
-              </Link>
-            </Button>
-          )}
-          <WorkflowRunButton
-            workflowId={wf.id}
-            disabled={runningWorkflowId !== null && runningWorkflowId !== wf.id}
-          />
+        <div className="flex justify-end">
+          <WorkflowRowActions wf={wf} runningWorkflowId={runningWorkflowId} />
         </div>
       </TableCell>
     </TableRow>
@@ -217,26 +296,41 @@ export function Workflows() {
 
       {!isLoading && !isError && workflows.length > 0 && (
         <>
-          <Table>
-            <TableHeader>
-              <TableRow>
-                <TableHead>Name</TableHead>
-                <TableHead className="w-20 text-right">Tasks</TableHead>
-                <TableHead className="w-28">Last Run</TableHead>
-                <TableHead className="w-36 text-right">Updated</TableHead>
-                <TableHead className="w-12" />
-              </TableRow>
-            </TableHeader>
-            <TableBody>
-              {workflows.map((wf) => (
-                <WorkflowRow
-                  key={wf.id}
-                  wf={wf}
-                  runningWorkflowId={runningWorkflowId}
-                />
-              ))}
-            </TableBody>
-          </Table>
+          <ResponsiveTable
+            cards={
+              <div className="flex flex-col gap-2">
+                {workflows.map((wf) => (
+                  <WorkflowCard
+                    key={wf.id}
+                    wf={wf}
+                    runningWorkflowId={runningWorkflowId}
+                  />
+                ))}
+              </div>
+            }
+            table={
+              <Table>
+                <TableHeader>
+                  <TableRow>
+                    <TableHead>Name</TableHead>
+                    <TableHead className="w-20 text-right">Tasks</TableHead>
+                    <TableHead className="w-28">Last Run</TableHead>
+                    <TableHead className="w-36 text-right">Updated</TableHead>
+                    <TableHead className="w-12" />
+                  </TableRow>
+                </TableHeader>
+                <TableBody>
+                  {workflows.map((wf) => (
+                    <WorkflowRow
+                      key={wf.id}
+                      wf={wf}
+                      runningWorkflowId={runningWorkflowId}
+                    />
+                  ))}
+                </TableBody>
+              </Table>
+            }
+          />
 
           <TablePagination
             page={Math.min(page, totalPages)}

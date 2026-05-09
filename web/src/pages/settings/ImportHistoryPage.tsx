@@ -192,7 +192,7 @@ export function ImportHistoryPage() {
                 <li key={run.id}>
                   <button
                     type="button"
-                    className="flex w-full items-center gap-4 px-4 py-3 text-left transition-colors hover:bg-surface-sunken"
+                    className="flex w-full items-center gap-3 px-4 py-3 text-left transition-colors hover:bg-surface-sunken lg:gap-4"
                     onClick={() => toggleExpand(run.id)}
                     aria-expanded={expanded}
                   >
@@ -204,13 +204,13 @@ export function ImportHistoryPage() {
                       aria-hidden
                     />
                     <div className="min-w-0 flex-1">
-                      <div className="flex items-center gap-2">
+                      <div className="flex flex-wrap items-center gap-x-2 gap-y-1">
                         <span className="font-display font-medium text-text">
                           {operationLabel(run.operation_type)}
                         </span>
                         <RunStatusBadge status={run.status} />
                       </div>
-                      <div className="font-mono text-xs text-text-muted">
+                      <div className="truncate font-mono text-xs text-text-muted">
                         Started {formatDateTime(run.started_at)}
                         {run.ended_at &&
                           ` · ended ${formatDateTime(run.ended_at)}`}

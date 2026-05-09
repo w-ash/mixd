@@ -13,6 +13,7 @@ import { useEffect, useState } from "react";
 import { Link, useNavigate, useParams } from "react-router";
 import { useGetConnectorsApiV1ConnectorsGet } from "#/api/generated/connectors/connectors";
 import type {
+  PlaylistEntrySchema,
   PlaylistLinkSchema,
   SyncStartedResponse,
 } from "#/api/generated/model";
@@ -39,6 +40,7 @@ import { ConnectorIcon } from "#/components/shared/ConnectorIcon";
 import { ConnectorListItem } from "#/components/shared/ConnectorListItem";
 import { EmptyState } from "#/components/shared/EmptyState";
 import { OperationProgress } from "#/components/shared/OperationProgress";
+import { ResponsiveTable } from "#/components/shared/ResponsiveTable";
 import { SectionHeader } from "#/components/shared/SectionHeader";
 import {
   StatusIndicator,
@@ -104,6 +106,42 @@ function DetailSkeleton() {
         ))}
       </div>
     </div>
+  );
+}
+
+/**
+ * Card representation of a playlist track row — used by ResponsiveTable below
+ * the @2xl container threshold (typically iPhone / iPad portrait widths).
+ */
+function PlaylistTrackCard({ entry }: { entry: PlaylistEntrySchema }) {
+  return (
+    <article className="flex items-start gap-3 rounded-md border border-border bg-surface px-3 py-3">
+      <span className="mt-0.5 shrink-0 font-mono text-xs tabular-nums text-text-muted">
+        {entry.position}
+      </span>
+      <div className="min-w-0 flex-1">
+        <Link
+          to={`/library/${entry.track.id}`}
+          className="block truncate font-display text-sm font-medium text-text transition-colors hover:text-primary"
+        >
+          {entry.track.title}
+        </Link>
+        <p className="truncate text-sm text-text-muted">
+          {formatArtists(entry.track.artists)}
+        </p>
+        <div className="mt-1.5 flex flex-wrap items-center gap-x-3 gap-y-1 text-xs text-text-muted">
+          {entry.track.album && (
+            <span className="truncate">{entry.track.album}</span>
+          )}
+          <span className="shrink-0 tabular-nums">
+            {formatDuration(entry.track.duration_ms)}
+          </span>
+          {entry.added_at && (
+            <span className="shrink-0">Added {formatDate(entry.added_at)}</span>
+          )}
+        </div>
+      </div>
+    </article>
   );
 }
 
@@ -790,7 +828,7 @@ export function PlaylistDetail() {
         }
       />
 
-      <div className="mb-6 flex items-center gap-3 text-sm text-text-muted">
+      <div className="mb-6 flex flex-wrap items-center gap-x-3 gap-y-1 text-sm text-text-muted">
         <span>{pluralize(playlist.track_count, "track")}</span>
         {entries.length > 0 && (
           <>
@@ -850,47 +888,58 @@ export function PlaylistDetail() {
       )}
 
       {!tracksLoading && entries.length > 0 && (
-        <Table>
-          <TableHeader>
-            <TableRow>
-              <TableHead className="w-12 text-right">#</TableHead>
-              <TableHead>Title</TableHead>
-              <TableHead>Artists</TableHead>
-              <TableHead>Album</TableHead>
-              <TableHead className="w-20 text-right">Duration</TableHead>
-              <TableHead className="w-32 text-right">Added</TableHead>
-            </TableRow>
-          </TableHeader>
-          <TableBody>
-            {entries.map((entry) => (
-              <TableRow key={entry.position}>
-                <TableCell className="text-right tabular-nums text-text-muted">
-                  {entry.position}
-                </TableCell>
-                <TableCell>
-                  <Link
-                    to={`/library/${entry.track.id}`}
-                    className="font-medium text-text hover:text-primary transition-colors"
-                  >
-                    {entry.track.title}
-                  </Link>
-                </TableCell>
-                <TableCell className="text-text-muted">
-                  {formatArtists(entry.track.artists)}
-                </TableCell>
-                <TableCell className="text-text-muted">
-                  {entry.track.album ?? "\u2014"}
-                </TableCell>
-                <TableCell className="text-right tabular-nums text-text-muted">
-                  {formatDuration(entry.track.duration_ms)}
-                </TableCell>
-                <TableCell className="text-right text-sm text-text-muted">
-                  {formatDate(entry.added_at)}
-                </TableCell>
-              </TableRow>
-            ))}
-          </TableBody>
-        </Table>
+        <ResponsiveTable
+          cards={
+            <div className="flex flex-col gap-2">
+              {entries.map((entry) => (
+                <PlaylistTrackCard key={entry.position} entry={entry} />
+              ))}
+            </div>
+          }
+          table={
+            <Table>
+              <TableHeader>
+                <TableRow>
+                  <TableHead className="w-12 text-right">#</TableHead>
+                  <TableHead>Title</TableHead>
+                  <TableHead>Artists</TableHead>
+                  <TableHead>Album</TableHead>
+                  <TableHead className="w-20 text-right">Duration</TableHead>
+                  <TableHead className="w-32 text-right">Added</TableHead>
+                </TableRow>
+              </TableHeader>
+              <TableBody>
+                {entries.map((entry) => (
+                  <TableRow key={entry.position}>
+                    <TableCell className="text-right tabular-nums text-text-muted">
+                      {entry.position}
+                    </TableCell>
+                    <TableCell>
+                      <Link
+                        to={`/library/${entry.track.id}`}
+                        className="font-medium text-text hover:text-primary transition-colors"
+                      >
+                        {entry.track.title}
+                      </Link>
+                    </TableCell>
+                    <TableCell className="text-text-muted">
+                      {formatArtists(entry.track.artists)}
+                    </TableCell>
+                    <TableCell className="text-text-muted">
+                      {entry.track.album ?? "\u2014"}
+                    </TableCell>
+                    <TableCell className="text-right tabular-nums text-text-muted">
+                      {formatDuration(entry.track.duration_ms)}
+                    </TableCell>
+                    <TableCell className="text-right text-sm text-text-muted">
+                      {formatDate(entry.added_at)}
+                    </TableCell>
+                  </TableRow>
+                ))}
+              </TableBody>
+            </Table>
+          }
+        />
       )}
     </div>
   );

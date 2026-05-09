@@ -8,13 +8,17 @@ import { EditorToolbar } from "#/components/workflow/EditorToolbar";
 import { NodeConfigPanel } from "#/components/workflow/NodeConfigPanel";
 import { NodePalette } from "#/components/workflow/NodePalette";
 import { PreviewPanel } from "#/components/workflow/PreviewPanel";
+import { useIsMobile } from "#/hooks/useIsMobile";
 import { useEditorStore } from "#/stores/editor-store";
+
+import { WorkflowEditorMobilePlaceholder } from "./WorkflowEditorMobilePlaceholder";
 
 export default function WorkflowEditor() {
   const { id } = useParams<{ id: string }>();
   const [searchParams] = useSearchParams();
   const workflowId = id ?? null;
   const templateSourceId = searchParams.get("from");
+  const isMobile = useIsMobile();
   const loadWorkflow = useEditorStore((s) => s.loadWorkflow);
   const setName = useEditorStore((s) => s.setName);
   const isDirty = useEditorStore((s) => s.isDirty);
@@ -76,6 +80,13 @@ export default function WorkflowEditor() {
     window.addEventListener("keydown", handler);
     return () => window.removeEventListener("keydown", handler);
   }, []);
+
+  // Below the desktop breakpoint the React Flow canvas is unusable; render a
+  // placeholder pointing the user at the runs view instead. The gate runs
+  // after all hooks so the order stays stable across viewport changes.
+  if (isMobile) {
+    return <WorkflowEditorMobilePlaceholder workflowId={workflowId} />;
+  }
 
   return (
     <ReactFlowProvider>

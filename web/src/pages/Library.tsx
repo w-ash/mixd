@@ -85,6 +85,7 @@ function TrackCard({ track, selected, onSelectedChange }: TrackCardProps) {
         <div className="flex items-baseline justify-between gap-2">
           <Link
             to={`/library/${track.id}`}
+            viewTransition
             className="truncate font-display text-sm font-medium text-text transition-colors hover:text-primary"
           >
             {track.title}
@@ -433,6 +434,7 @@ export function Library() {
 
       <LibraryFilterPanel
         expanded={filterPanelOpen}
+        onClose={() => setFilterPanelOpen(false)}
         preference={preferenceParam}
         liked={
           likedParam === "true" || likedParam === "false" ? likedParam : null
@@ -673,6 +675,7 @@ export function Library() {
                       <TableCell>
                         <Link
                           to={`/library/${track.id}`}
+                          viewTransition
                           className="font-medium text-text hover:text-primary transition-colors"
                         >
                           {track.title}

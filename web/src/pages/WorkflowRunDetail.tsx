@@ -16,6 +16,7 @@ import {
 import { PageHeader } from "#/components/layout/PageHeader";
 import { BackLink } from "#/components/shared/BackLink";
 import { EmptyState } from "#/components/shared/EmptyState";
+import { ResponsiveTable } from "#/components/shared/ResponsiveTable";
 import {
   getStatusConfig,
   RunStatusBadge,
@@ -164,17 +165,17 @@ function NodeExecutionRow({ node }: { node: WorkflowRunNodeSchema }) {
 
   return (
     <div className={containerClass} {...interactiveProps}>
-      <div className="flex items-center gap-4">
-        <span className="font-mono text-xs text-text-faint w-6">
+      <div className="flex flex-wrap items-center gap-x-4 gap-y-2">
+        <span className="w-6 shrink-0 font-mono text-xs text-text-faint">
           {node.execution_order}
         </span>
         <div className="min-w-0 flex-1">
-          <div className="flex items-center gap-2">
+          <div className="flex flex-wrap items-center gap-2">
             <span className="font-display text-sm font-medium text-text">
               {node.node_id}
             </span>
             <span
-              className="rounded-full px-1.5 py-0.5 text-[10px] font-display"
+              className="rounded-full px-1.5 py-0.5 font-display text-[10px]"
               style={{
                 backgroundColor: `color-mix(in oklch, ${categoryConfig.accentColor} 20%, transparent)`,
                 color: categoryConfig.accentColor,
@@ -184,32 +185,81 @@ function NodeExecutionRow({ node }: { node: WorkflowRunNodeSchema }) {
             </span>
           </div>
           {node.error_message && (
-            <p className="mt-0.5 text-xs text-destructive truncate">
+            <p className="mt-0.5 truncate text-xs text-destructive">
               {node.error_message}
             </p>
           )}
         </div>
-        <RunStatusBadge status={node.status} />
-        <span className="font-mono text-xs tabular-nums text-text-muted w-16 text-right">
-          {formatDuration(node.duration_ms || undefined)}
-        </span>
-        {node.input_track_count != null && node.output_track_count != null && (
-          <span className="font-mono text-xs tabular-nums text-text-muted">
-            {node.input_track_count} &rarr; {node.output_track_count}
+        <div className="flex flex-wrap items-center gap-x-3 gap-y-1">
+          <RunStatusBadge status={node.status} />
+          <span className="w-16 text-right font-mono text-xs tabular-nums text-text-muted">
+            {formatDuration(node.duration_ms || undefined)}
           </span>
-        )}
-        {hasDetails && (
-          <span className="text-text-faint">
-            {expanded ? (
-              <ChevronDown className="size-3.5" />
-            ) : (
-              <ChevronRight className="size-3.5" />
+          {node.input_track_count != null &&
+            node.output_track_count != null && (
+              <span className="font-mono text-xs tabular-nums text-text-muted">
+                {node.input_track_count} &rarr; {node.output_track_count}
+              </span>
             )}
-          </span>
-        )}
+          {hasDetails && (
+            <span className="text-text-faint">
+              {expanded ? (
+                <ChevronDown className="size-3.5" />
+              ) : (
+                <ChevronRight className="size-3.5" />
+              )}
+            </span>
+          )}
+        </div>
       </div>
       {expanded && <PlaylistChangesPanel node={node} />}
     </div>
+  );
+}
+
+/**
+ * Card representation of an output track — used by ResponsiveTable below the
+ * @2xl container threshold (typically iPhone / iPad portrait widths).
+ */
+function OutputTrackCard({
+  track,
+  rank,
+  metricColumns,
+}: {
+  track: Record<string, unknown>;
+  rank: number;
+  metricColumns: string[];
+}) {
+  return (
+    <article className="flex items-start gap-3 rounded-md border border-border bg-surface px-3 py-3">
+      <span className="mt-0.5 shrink-0 font-mono text-xs tabular-nums text-text-faint">
+        {rank}
+      </span>
+      <div className="min-w-0 flex-1">
+        <p className="truncate font-display text-sm font-medium text-text">
+          {String(track.title ?? "")}
+        </p>
+        <p className="truncate text-sm text-text-muted">
+          {String(track.artists ?? "")}
+        </p>
+        {metricColumns.length > 0 && (
+          <div className="mt-1.5 flex flex-wrap gap-x-3 gap-y-1 text-xs">
+            {metricColumns.map((col) => (
+              <span key={col} className="inline-flex items-baseline gap-1">
+                <span className="text-text-faint">
+                  {formatMetricHeader(col)}
+                </span>
+                <span className="font-mono tabular-nums text-text-muted">
+                  {formatMetricValue(
+                    (track.metrics as Record<string, unknown>)?.[col],
+                  )}
+                </span>
+              </span>
+            ))}
+          </div>
+        )}
+      </div>
+    </article>
   );
 }
 
@@ -226,45 +276,61 @@ function OutputTracksTable({
   return (
     <section className="mt-8 space-y-3">
       <SectionHeader title="Output Tracks" />
-      <Table>
-        <TableHeader>
-          <TableRow>
-            <TableHead className="w-12 text-right">#</TableHead>
-            <TableHead>Title</TableHead>
-            <TableHead>Artist</TableHead>
-            {metricColumns.map((col) => (
-              <TableHead key={col} className="text-right">
-                {formatMetricHeader(col)}
-              </TableHead>
+      <ResponsiveTable
+        cards={
+          <div className="flex flex-col gap-2">
+            {tracks.map((track, i) => (
+              <OutputTrackCard
+                key={String(track.track_id ?? i)}
+                track={track}
+                rank={(track.rank as number) ?? i + 1}
+                metricColumns={metricColumns}
+              />
             ))}
-          </TableRow>
-        </TableHeader>
-        <TableBody>
-          {tracks.map((track, i) => (
-            <TableRow key={String(track.track_id ?? i)}>
-              <TableCell className="text-right font-mono text-xs tabular-nums text-text-faint">
-                {(track.rank as number) ?? i + 1}
-              </TableCell>
-              <TableCell className="font-medium text-text">
-                {String(track.title ?? "")}
-              </TableCell>
-              <TableCell className="text-text-muted">
-                {String(track.artists ?? "")}
-              </TableCell>
-              {metricColumns.map((col) => (
-                <TableCell
-                  key={col}
-                  className="text-right font-mono text-xs tabular-nums text-text-muted"
-                >
-                  {formatMetricValue(
-                    (track.metrics as Record<string, unknown>)?.[col],
-                  )}
-                </TableCell>
+          </div>
+        }
+        table={
+          <Table>
+            <TableHeader>
+              <TableRow>
+                <TableHead className="w-12 text-right">#</TableHead>
+                <TableHead>Title</TableHead>
+                <TableHead>Artist</TableHead>
+                {metricColumns.map((col) => (
+                  <TableHead key={col} className="text-right">
+                    {formatMetricHeader(col)}
+                  </TableHead>
+                ))}
+              </TableRow>
+            </TableHeader>
+            <TableBody>
+              {tracks.map((track, i) => (
+                <TableRow key={String(track.track_id ?? i)}>
+                  <TableCell className="text-right font-mono text-xs tabular-nums text-text-faint">
+                    {(track.rank as number) ?? i + 1}
+                  </TableCell>
+                  <TableCell className="font-medium text-text">
+                    {String(track.title ?? "")}
+                  </TableCell>
+                  <TableCell className="text-text-muted">
+                    {String(track.artists ?? "")}
+                  </TableCell>
+                  {metricColumns.map((col) => (
+                    <TableCell
+                      key={col}
+                      className="text-right font-mono text-xs tabular-nums text-text-muted"
+                    >
+                      {formatMetricValue(
+                        (track.metrics as Record<string, unknown>)?.[col],
+                      )}
+                    </TableCell>
+                  ))}
+                </TableRow>
               ))}
-            </TableRow>
-          ))}
-        </TableBody>
-      </Table>
+            </TableBody>
+          </Table>
+        }
+      />
     </section>
   );
 }

@@ -56,13 +56,13 @@ describe("Playlists", () => {
     renderWithProviders(<Playlists />);
 
     await waitFor(() => {
-      expect(screen.getByText("Chill Vibes")).toBeInTheDocument();
+      expect(screen.getAllByText("Chill Vibes").length).toBeGreaterThan(0);
     });
 
-    expect(screen.getByText("Workout Mix")).toBeInTheDocument();
+    expect(screen.getAllByText("Workout Mix").length).toBeGreaterThan(0);
     expect(screen.getByText("42")).toBeInTheDocument();
     expect(screen.getByText("18")).toBeInTheDocument();
-    expect(screen.getByText("Relaxing tracks")).toBeInTheDocument();
+    expect(screen.getAllByText("Relaxing tracks").length).toBeGreaterThan(0);
   });
 
   it("renders empty state when API returns no playlists", async () => {
@@ -119,11 +119,11 @@ describe("Playlists", () => {
     renderWithProviders(<Playlists />);
 
     await waitFor(() => {
-      expect(screen.getByText("Playlist 1")).toBeInTheDocument();
+      expect(screen.getAllByText("Playlist 1").length).toBeGreaterThan(0);
     });
 
     // Pagination controls should appear
-    expect(screen.getByText(/1–50 of 120/)).toBeInTheDocument();
+    expect(screen.getByText(/1[–-]50 of 120/)).toBeInTheDocument();
     expect(screen.getByLabelText("Go to next page")).toBeInTheDocument();
     expect(screen.getByText("3")).toBeInTheDocument(); // page 3 link
   });
@@ -154,7 +154,7 @@ describe("Playlists", () => {
     renderWithProviders(<Playlists />);
 
     await waitFor(() => {
-      expect(screen.getByText("Only Playlist")).toBeInTheDocument();
+      expect(screen.getAllByText("Only Playlist").length).toBeGreaterThan(0);
     });
 
     // No pagination controls

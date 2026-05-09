@@ -26,6 +26,7 @@ import { PageHeader } from "#/components/layout/PageHeader";
 import { ConnectorIcon } from "#/components/shared/ConnectorIcon";
 import { PreferenceBadge } from "#/components/shared/PreferenceToggle";
 import { QueryErrorState } from "#/components/shared/QueryErrorState";
+import { ResponsiveTable } from "#/components/shared/ResponsiveTable";
 import { SectionHeader } from "#/components/shared/SectionHeader";
 import {
   confidenceVariant,
@@ -302,59 +303,103 @@ function MatchingHealth({ health }: { health: MatchMethodHealthSchema }) {
                 </span>
               </div>
 
-              <Table>
-                <TableHeader>
-                  <TableRow className="hover:bg-transparent">
-                    <TableHead>Method</TableHead>
-                    <TableHead>Service</TableHead>
-                    <TableHead className="text-right">Total</TableHead>
-                    <TableHead className="text-right">
-                      {health.recent_days}d
-                    </TableHead>
-                    <TableHead className="text-right">Confidence</TableHead>
-                  </TableRow>
-                </TableHeader>
-                <TableBody>
-                  {methods.map((method) => {
-                    const variant = confidenceVariant(method.avg_confidence);
-
-                    return (
-                      <TableRow
-                        key={`${method.match_method}-${method.connector_name}`}
-                      >
-                        <TableCell
-                          className="font-mono text-xs text-text"
-                          title={method.description}
+              <ResponsiveTable
+                cards={
+                  <div className="flex flex-col gap-2 p-3">
+                    {methods.map((method) => {
+                      const variant = confidenceVariant(method.avg_confidence);
+                      return (
+                        <article
+                          key={`${method.match_method}-${method.connector_name}-card`}
+                          className="flex items-start gap-3 rounded-md border border-border bg-surface px-3 py-2"
                         >
-                          {method.match_method}
-                        </TableCell>
-                        <TableCell>
                           <ConnectorIcon
                             name={method.connector_name}
                             labelHidden
                           />
-                        </TableCell>
-                        <TableCell className="text-right font-mono text-xs text-text-muted">
-                          {formatCount(method.total_count)}
-                        </TableCell>
-                        <TableCell className="text-right font-mono text-xs text-text-muted">
-                          {formatCount(method.recent_count)}
-                        </TableCell>
-                        <TableCell className="text-right">
-                          <span
-                            className={cn(
-                              "font-mono text-xs",
-                              variantColorClass[variant],
-                            )}
-                          >
-                            {method.avg_confidence.toFixed(1)}
-                          </span>
-                        </TableCell>
+                          <div className="min-w-0 flex-1">
+                            <p
+                              className="truncate font-mono text-xs text-text"
+                              title={method.description}
+                            >
+                              {method.match_method}
+                            </p>
+                            <div className="mt-1 flex flex-wrap items-baseline gap-x-3 gap-y-0.5 font-mono text-[11px] text-text-muted">
+                              <span>
+                                Total {formatCount(method.total_count)}
+                              </span>
+                              <span>
+                                {health.recent_days}d{" "}
+                                {formatCount(method.recent_count)}
+                              </span>
+                              <span className={cn(variantColorClass[variant])}>
+                                Conf {method.avg_confidence.toFixed(1)}
+                              </span>
+                            </div>
+                          </div>
+                        </article>
+                      );
+                    })}
+                  </div>
+                }
+                table={
+                  <Table>
+                    <TableHeader>
+                      <TableRow className="hover:bg-transparent">
+                        <TableHead>Method</TableHead>
+                        <TableHead>Service</TableHead>
+                        <TableHead className="text-right">Total</TableHead>
+                        <TableHead className="text-right">
+                          {health.recent_days}d
+                        </TableHead>
+                        <TableHead className="text-right">Confidence</TableHead>
                       </TableRow>
-                    );
-                  })}
-                </TableBody>
-              </Table>
+                    </TableHeader>
+                    <TableBody>
+                      {methods.map((method) => {
+                        const variant = confidenceVariant(
+                          method.avg_confidence,
+                        );
+
+                        return (
+                          <TableRow
+                            key={`${method.match_method}-${method.connector_name}`}
+                          >
+                            <TableCell
+                              className="font-mono text-xs text-text"
+                              title={method.description}
+                            >
+                              {method.match_method}
+                            </TableCell>
+                            <TableCell>
+                              <ConnectorIcon
+                                name={method.connector_name}
+                                labelHidden
+                              />
+                            </TableCell>
+                            <TableCell className="text-right font-mono text-xs text-text-muted">
+                              {formatCount(method.total_count)}
+                            </TableCell>
+                            <TableCell className="text-right font-mono text-xs text-text-muted">
+                              {formatCount(method.recent_count)}
+                            </TableCell>
+                            <TableCell className="text-right">
+                              <span
+                                className={cn(
+                                  "font-mono text-xs",
+                                  variantColorClass[variant],
+                                )}
+                              >
+                                {method.avg_confidence.toFixed(1)}
+                              </span>
+                            </TableCell>
+                          </TableRow>
+                        );
+                      })}
+                    </TableBody>
+                  </Table>
+                }
+              />
             </article>
           );
         })}
