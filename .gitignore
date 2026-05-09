@@ -97,6 +97,11 @@ web/test-results/
 # is meant for ad-hoc screenshots and tool artifacts.
 !web/e2e/__screenshots__/**/*.png
 
+# Playwright MCP config — environment-specific browser executable path
+# is local-only. Each contributor configures their own.
+.mcp.json
+.playwright-mcp-config.json
+
 ###################
 # Project-specific #
 ###################
