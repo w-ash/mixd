@@ -8,15 +8,13 @@ import {
 } from "#/api/generated/playlists/playlists";
 import { Button } from "#/components/ui/button";
 import {
-  Dialog,
-  DialogContent,
   DialogDescription,
   DialogFooter,
   DialogHeader,
   DialogTitle,
-  DialogTrigger,
 } from "#/components/ui/dialog";
 import { Input } from "#/components/ui/input";
+import { ResponsiveDialog } from "#/components/ui/responsive-dialog";
 
 export function CreatePlaylistModal() {
   const [open, setOpen] = useState(false);
@@ -50,74 +48,75 @@ export function CreatePlaylistModal() {
   }
 
   return (
-    <Dialog open={open} onOpenChange={setOpen}>
-      <DialogTrigger asChild>
+    <ResponsiveDialog
+      open={open}
+      onOpenChange={setOpen}
+      trigger={
         <Button size="sm">
           <Plus className="size-3.5" />
           New Playlist
         </Button>
-      </DialogTrigger>
-      <DialogContent>
-        <form onSubmit={handleSubmit}>
-          <DialogHeader>
-            <DialogTitle>Create Playlist</DialogTitle>
-            <DialogDescription>
-              Create a new canonical playlist. You can link it to streaming
-              services later.
-            </DialogDescription>
-          </DialogHeader>
+      }
+    >
+      <form onSubmit={handleSubmit}>
+        <DialogHeader>
+          <DialogTitle>Create Playlist</DialogTitle>
+          <DialogDescription>
+            Create a new canonical playlist. You can link it to streaming
+            services later.
+          </DialogDescription>
+        </DialogHeader>
 
-          <div className="mt-4 space-y-4">
-            <div className="space-y-2">
-              <label
-                htmlFor="playlist-name"
-                className="text-sm font-medium text-text"
-              >
-                Name
-              </label>
-              <Input
-                id="playlist-name"
-                value={name}
-                onChange={(e) => setName(e.target.value)}
-                placeholder="My Playlist"
-                required
-                autoFocus
-              />
-            </div>
-
-            <div className="space-y-2">
-              <label
-                htmlFor="playlist-description"
-                className="text-sm font-medium text-text"
-              >
-                Description
-              </label>
-              <Input
-                id="playlist-description"
-                value={description}
-                onChange={(e) => setDescription(e.target.value)}
-                placeholder="Optional description"
-              />
-            </div>
+        <div className="mt-4 space-y-4">
+          <div className="space-y-2">
+            <label
+              htmlFor="playlist-name"
+              className="text-sm font-medium text-text"
+            >
+              Name
+            </label>
+            <Input
+              id="playlist-name"
+              value={name}
+              onChange={(e) => setName(e.target.value)}
+              placeholder="My Playlist"
+              required
+              autoFocus
+            />
           </div>
 
-          <DialogFooter className="mt-6">
-            <Button
-              type="button"
-              variant="outline"
-              onClick={() => setOpen(false)}
+          <div className="space-y-2">
+            <label
+              htmlFor="playlist-description"
+              className="text-sm font-medium text-text"
             >
-              Cancel
-            </Button>
-            <Button
-              type="submit"
-              disabled={!name.trim() || createPlaylist.isPending}
-            >
-              {createPlaylist.isPending ? "Creating..." : "Create"}
-            </Button>
-          </DialogFooter>
-        </form>
-      </DialogContent>
-    </Dialog>
+              Description
+            </label>
+            <Input
+              id="playlist-description"
+              value={description}
+              onChange={(e) => setDescription(e.target.value)}
+              placeholder="Optional description"
+            />
+          </div>
+        </div>
+
+        <DialogFooter className="mt-6">
+          <Button
+            type="button"
+            variant="outline"
+            onClick={() => setOpen(false)}
+          >
+            Cancel
+          </Button>
+          <Button
+            type="submit"
+            disabled={!name.trim() || createPlaylist.isPending}
+          >
+            {createPlaylist.isPending ? "Creating..." : "Create"}
+          </Button>
+        </DialogFooter>
+      </form>
+    </ResponsiveDialog>
   );
 }

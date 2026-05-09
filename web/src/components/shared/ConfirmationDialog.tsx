@@ -3,13 +3,12 @@ import type { ReactNode } from "react";
 
 import { Button } from "#/components/ui/button";
 import {
-  Dialog,
-  DialogContent,
   DialogDescription,
   DialogFooter,
   DialogHeader,
   DialogTitle,
 } from "#/components/ui/dialog";
+import { ResponsiveDialog } from "#/components/ui/responsive-dialog";
 
 interface ConfirmationDialogProps {
   open: boolean;
@@ -45,33 +44,27 @@ export function ConfirmationDialog({
   onConfirm,
 }: ConfirmationDialogProps) {
   return (
-    <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent>
-        <DialogHeader>
-          <DialogTitle>{title}</DialogTitle>
-          {description && <DialogDescription>{description}</DialogDescription>}
-        </DialogHeader>
+    <ResponsiveDialog open={open} onOpenChange={onOpenChange}>
+      <DialogHeader>
+        <DialogTitle>{title}</DialogTitle>
+        {description && <DialogDescription>{description}</DialogDescription>}
+      </DialogHeader>
 
-        {children && <div className="py-2">{children}</div>}
+      {children && <div className="py-2">{children}</div>}
 
-        <DialogFooter>
-          <Button
-            variant="outline"
-            onClick={() => onOpenChange(false)}
-            autoFocus
-          >
-            {cancelLabel}
-          </Button>
-          <Button
-            variant={destructive ? "destructive" : "default"}
-            disabled={isPending || disabled}
-            onClick={onConfirm}
-          >
-            {isPending && <Loader2 className="mr-1.5 size-3.5 animate-spin" />}
-            {confirmLabel}
-          </Button>
-        </DialogFooter>
-      </DialogContent>
-    </Dialog>
+      <DialogFooter>
+        <Button variant="outline" onClick={() => onOpenChange(false)} autoFocus>
+          {cancelLabel}
+        </Button>
+        <Button
+          variant={destructive ? "destructive" : "default"}
+          disabled={isPending || disabled}
+          onClick={onConfirm}
+        >
+          {isPending && <Loader2 className="mr-1.5 size-3.5 animate-spin" />}
+          {confirmLabel}
+        </Button>
+      </DialogFooter>
+    </ResponsiveDialog>
   );
 }

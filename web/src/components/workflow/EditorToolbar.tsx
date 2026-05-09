@@ -26,13 +26,8 @@ import {
   useUpdateWorkflowApiV1WorkflowsWorkflowIdPatch,
 } from "#/api/generated/workflows/workflows";
 import { Button } from "#/components/ui/button";
-import {
-  Dialog,
-  DialogContent,
-  DialogHeader,
-  DialogTitle,
-  DialogTrigger,
-} from "#/components/ui/dialog";
+import { DialogHeader, DialogTitle } from "#/components/ui/dialog";
+import { ResponsiveDialog } from "#/components/ui/responsive-dialog";
 import { VersionHistory } from "#/components/workflow/VersionHistory";
 import { toasts } from "#/lib/toasts";
 import { layoutWorkflow } from "#/lib/workflow-layout";
@@ -209,8 +204,9 @@ export function EditorToolbar() {
 
       {/* Version History — only for saved workflows */}
       {workflowId !== null && (
-        <Dialog>
-          <DialogTrigger asChild>
+        <ResponsiveDialog
+          className="max-w-md"
+          trigger={
             <Button
               variant="ghost"
               size="sm"
@@ -220,16 +216,15 @@ export function EditorToolbar() {
               <Clock className="size-3.5" />
               <span className="text-xs">History</span>
             </Button>
-          </DialogTrigger>
-          <DialogContent className="max-w-md">
-            <DialogHeader>
-              <DialogTitle>Version History</DialogTitle>
-            </DialogHeader>
-            <div className="max-h-96 overflow-y-auto">
-              <VersionHistory workflowId={workflowId} />
-            </div>
-          </DialogContent>
-        </Dialog>
+          }
+        >
+          <DialogHeader>
+            <DialogTitle>Version History</DialogTitle>
+          </DialogHeader>
+          <div className="max-h-96 overflow-y-auto">
+            <VersionHistory workflowId={workflowId} />
+          </div>
+        </ResponsiveDialog>
       )}
 
       <div className="flex-1" />

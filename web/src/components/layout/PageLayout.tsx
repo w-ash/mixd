@@ -1,30 +1,23 @@
-import { ErrorBoundary } from "react-error-boundary";
-import { Outlet, useLocation } from "react-router";
+import { useIsMobile } from "#/hooks/useIsMobile";
 
-import { PageErrorFallback } from "./PageErrorFallback";
+import { MobileShell } from "./MobileShell";
+import { RouteOutlet } from "./RouteOutlet";
 import { Sidebar } from "./Sidebar";
+import { SkipToMainContent } from "./SkipToMainContent";
 
 export function PageLayout() {
-  const { pathname } = useLocation();
+  const isMobile = useIsMobile();
+
+  if (isMobile) {
+    return <MobileShell />;
+  }
 
   return (
     <div className="flex min-h-screen">
-      <a
-        href="#main-content"
-        className="sr-only focus:not-sr-only focus:fixed focus:left-4 focus:top-4 focus:z-50 focus:rounded-md focus:bg-primary focus:px-4 focus:py-2 focus:text-surface focus:outline-none"
-      >
-        Skip to content
-      </a>
+      <SkipToMainContent />
       <Sidebar />
       <main id="main-content" className="flex-1 overflow-y-auto px-page py-8">
-        <ErrorBoundary
-          FallbackComponent={PageErrorFallback}
-          resetKeys={[pathname]}
-        >
-          <div key={pathname} className="animate-fade-up">
-            <Outlet />
-          </div>
-        </ErrorBoundary>
+        <RouteOutlet />
       </main>
     </div>
   );

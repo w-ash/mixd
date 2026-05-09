@@ -11,6 +11,22 @@ globalThis.ResizeObserver = class {
   disconnect() {}
 };
 Element.prototype.scrollIntoView = () => {};
+// HTMLDialogElement imperative API polyfill for jsdom.
+if (typeof HTMLDialogElement !== "undefined") {
+  if (!HTMLDialogElement.prototype.showModal) {
+    HTMLDialogElement.prototype.showModal = function () {
+      this.setAttribute("open", "");
+    };
+  }
+  if (!HTMLDialogElement.prototype.close) {
+    HTMLDialogElement.prototype.close = function () {
+      this.removeAttribute("open");
+    };
+  }
+}
+// matchMedia stub — defaults to "no media query matches" so components default
+// to their non-mobile behavior. Per-test overrides via `mockMatchMedia(width)`
+// in `#/test/test-utils` for components that branch on viewport.
 Object.defineProperty(window, "matchMedia", {
   writable: true,
   value: (query: string) => ({

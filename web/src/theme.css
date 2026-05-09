@@ -455,3 +455,43 @@ body::after {
 .scrollbar-hide::-webkit-scrollbar {
   display: none;
 }
+
+/* ── Safe-area insets (iPhone notch / home indicator) ──
+ * Pair with `viewport-fit=cover` in index.html so iOS Safari exposes the
+ * insets. Apply to bottom-nav, sticky-bottom surfaces, and any element
+ * that would otherwise sit under the home indicator.
+ */
+@utility pb-safe {
+  padding-bottom: env(safe-area-inset-bottom);
+}
+@utility pt-safe {
+  padding-top: env(safe-area-inset-top);
+}
+@utility pl-safe {
+  padding-left: env(safe-area-inset-left);
+}
+@utility pr-safe {
+  padding-right: env(safe-area-inset-right);
+}
+@utility px-safe {
+  padding-left: env(safe-area-inset-left);
+  padding-right: env(safe-area-inset-right);
+}
+
+/* ── Mobile tap-area enlargement (WCAG 2.5.5) ──
+ * Apply to icon buttons or visually-small interactive elements on mobile
+ * to extend the hit-area to ≥44×44px without changing the visual size.
+ * Uses negative margin + invisible padding so adjacent layout doesn't shift.
+ */
+@utility mobile-tap-area {
+  position: relative;
+  &::after {
+    content: "";
+    position: absolute;
+    inset: 50% 50% 50% 50%;
+    min-width: 44px;
+    min-height: 44px;
+    transform: translate(-50%, -50%);
+    pointer-events: auto;
+  }
+}

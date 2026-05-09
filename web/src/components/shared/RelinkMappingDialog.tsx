@@ -13,12 +13,11 @@ import { MappingInfoCard } from "#/components/shared/MappingInfoCard";
 import { TrackSearchCombobox } from "#/components/shared/TrackSearchCombobox";
 import { Button } from "#/components/ui/button";
 import {
-  Dialog,
-  DialogContent,
   DialogDescription,
   DialogHeader,
   DialogTitle,
 } from "#/components/ui/dialog";
+import { ResponsiveDialog } from "#/components/ui/responsive-dialog";
 import { formatArtists } from "#/lib/format";
 import { toasts } from "#/lib/toasts";
 
@@ -77,67 +76,67 @@ export function RelinkMappingDialog({
   };
 
   return (
-    <Dialog open={open} onOpenChange={handleOpenChange}>
-      <DialogContent className="sm:max-w-lg">
-        <DialogHeader>
-          <DialogTitle>Relink Mapping</DialogTitle>
-          <DialogDescription>
-            Move this {mapping.connector_name} mapping to a different canonical
-            track. The mapping will be marked as a manual override.
-          </DialogDescription>
-        </DialogHeader>
+    <ResponsiveDialog
+      open={open}
+      onOpenChange={handleOpenChange}
+      className="sm:max-w-lg"
+    >
+      <DialogHeader>
+        <DialogTitle>Relink Mapping</DialogTitle>
+        <DialogDescription>
+          Move this {mapping.connector_name} mapping to a different canonical
+          track. The mapping will be marked as a manual override.
+        </DialogDescription>
+      </DialogHeader>
 
-        <MappingInfoCard mapping={mapping} />
+      <MappingInfoCard mapping={mapping} />
 
-        {!selectedTarget ? (
-          <TrackSearchCombobox
-            onSelect={setSelectedTarget}
-            excludeTrackId={trackId}
-            placeholder="Search for the target track..."
-          />
-        ) : (
-          <div className="space-y-4">
-            <div className="rounded-lg border border-primary/40 bg-primary/5 p-4">
-              <p className="mb-1 text-xs font-medium uppercase tracking-wider text-text-faint">
-                Move to
-              </p>
-              <p className="font-medium text-text">{selectedTarget.title}</p>
-              <p className="text-sm text-text-muted">
-                {formatArtists(selectedTarget.artists)}
-              </p>
-              {selectedTarget.album && (
-                <p className="text-xs text-text-faint">
-                  {selectedTarget.album}
-                </p>
-              )}
-              <div className="mt-2 flex gap-1">
-                {selectedTarget.connector_names.map((name) => (
-                  <ConnectorIcon key={name} name={name} />
-                ))}
-              </div>
-            </div>
-
-            <div className="flex gap-2">
-              <Button
-                variant="outline"
-                size="sm"
-                className="flex-1"
-                onClick={() => setSelectedTarget(null)}
-              >
-                Back to search
-              </Button>
-              <Button
-                size="sm"
-                className="flex-1"
-                onClick={handleConfirm}
-                disabled={relinkMutation.isPending}
-              >
-                {relinkMutation.isPending ? "Relinking..." : "Relink"}
-              </Button>
+      {!selectedTarget ? (
+        <TrackSearchCombobox
+          onSelect={setSelectedTarget}
+          excludeTrackId={trackId}
+          placeholder="Search for the target track..."
+        />
+      ) : (
+        <div className="space-y-4">
+          <div className="rounded-lg border border-primary/40 bg-primary/5 p-4">
+            <p className="mb-1 text-xs font-medium uppercase tracking-wider text-text-faint">
+              Move to
+            </p>
+            <p className="font-medium text-text">{selectedTarget.title}</p>
+            <p className="text-sm text-text-muted">
+              {formatArtists(selectedTarget.artists)}
+            </p>
+            {selectedTarget.album && (
+              <p className="text-xs text-text-faint">{selectedTarget.album}</p>
+            )}
+            <div className="mt-2 flex gap-1">
+              {selectedTarget.connector_names.map((name) => (
+                <ConnectorIcon key={name} name={name} />
+              ))}
             </div>
           </div>
-        )}
-      </DialogContent>
-    </Dialog>
+
+          <div className="flex gap-2">
+            <Button
+              variant="outline"
+              size="sm"
+              className="flex-1"
+              onClick={() => setSelectedTarget(null)}
+            >
+              Back to search
+            </Button>
+            <Button
+              size="sm"
+              className="flex-1"
+              onClick={handleConfirm}
+              disabled={relinkMutation.isPending}
+            >
+              {relinkMutation.isPending ? "Relinking..." : "Relink"}
+            </Button>
+          </div>
+        </div>
+      )}
+    </ResponsiveDialog>
   );
 }

@@ -10,13 +10,12 @@ import type {
 import { useCreateAndApplyAssignmentApiV1PlaylistAssignmentsPost } from "#/api/generated/playlist-assignments/playlist-assignments";
 import { Button } from "#/components/ui/button";
 import {
-  Dialog,
-  DialogContent,
   DialogDescription,
   DialogFooter,
   DialogHeader,
   DialogTitle,
 } from "#/components/ui/dialog";
+import { ResponsiveDialog } from "#/components/ui/responsive-dialog";
 import { pluralize } from "#/lib/pluralize";
 import { toasts } from "#/lib/toasts";
 
@@ -117,46 +116,48 @@ export function AssignPlaylistDialog({
   };
 
   return (
-    <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="sm:max-w-md">
-        <DialogHeader>
-          <DialogTitle>{title}</DialogTitle>
-          <DialogDescription>{description}</DialogDescription>
-        </DialogHeader>
+    <ResponsiveDialog
+      open={open}
+      onOpenChange={onOpenChange}
+      className="sm:max-w-md"
+    >
+      <DialogHeader>
+        <DialogTitle>{title}</DialogTitle>
+        <DialogDescription>{description}</DialogDescription>
+      </DialogHeader>
 
-        {isTag ? (
-          <TagAutocomplete
-            autoFocus
-            exclude={existingTagValues}
-            onAdd={handleAddTag}
-            placeholder="Type a tag (e.g. mood:chill)"
-          />
-        ) : (
-          <div className="flex items-center justify-center py-2">
-            <PreferenceToggle value={rating} onChange={setRating} />
-          </div>
-        )}
+      {isTag ? (
+        <TagAutocomplete
+          autoFocus
+          exclude={existingTagValues}
+          onAdd={handleAddTag}
+          placeholder="Type a tag (e.g. mood:chill)"
+        />
+      ) : (
+        <div className="flex items-center justify-center py-2">
+          <PreferenceToggle value={rating} onChange={setRating} />
+        </div>
+      )}
 
-        <DialogFooter>
+      <DialogFooter>
+        <Button
+          variant="ghost"
+          onClick={() => onOpenChange(false)}
+          disabled={create.isPending}
+        >
+          Cancel
+        </Button>
+        {!isTag && (
           <Button
-            variant="ghost"
-            onClick={() => onOpenChange(false)}
-            disabled={create.isPending}
+            onClick={handleConfirmRating}
+            disabled={
+              create.isPending || rating === null || rating === existingRating
+            }
           >
-            Cancel
+            {existingRating ? "Update rating" : "Rate tracks"}
           </Button>
-          {!isTag && (
-            <Button
-              onClick={handleConfirmRating}
-              disabled={
-                create.isPending || rating === null || rating === existingRating
-              }
-            >
-              {existingRating ? "Update rating" : "Rate tracks"}
-            </Button>
-          )}
-        </DialogFooter>
-      </DialogContent>
-    </Dialog>
+        )}
+      </DialogFooter>
+    </ResponsiveDialog>
   );
 }

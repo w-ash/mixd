@@ -5,14 +5,13 @@ import { useNavigate } from "react-router";
 import { useCreateWorkflowApiV1WorkflowsPost } from "#/api/generated/workflows/workflows";
 import { Button } from "#/components/ui/button";
 import {
-  Dialog,
-  DialogContent,
   DialogDescription,
   DialogFooter,
   DialogHeader,
   DialogTitle,
 } from "#/components/ui/dialog";
 import { Input } from "#/components/ui/input";
+import { ResponsiveDialog } from "#/components/ui/responsive-dialog";
 import type { LibraryFilterState } from "#/lib/filters-to-workflow";
 import {
   filtersToWorkflowDef,
@@ -85,82 +84,80 @@ export function SaveFiltersAsWorkflowDialog({
   const filterSummary = summarizeFilters(filters);
 
   return (
-    <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent>
-        <DialogHeader>
-          <DialogTitle>Save as Workflow</DialogTitle>
-          <DialogDescription>
-            Turn your current Library filters into a reusable workflow you can
-            schedule or re-run from the workflow editor.
-          </DialogDescription>
-        </DialogHeader>
+    <ResponsiveDialog open={open} onOpenChange={onOpenChange}>
+      <DialogHeader>
+        <DialogTitle>Save as Workflow</DialogTitle>
+        <DialogDescription>
+          Turn your current Library filters into a reusable workflow you can
+          schedule or re-run from the workflow editor.
+        </DialogDescription>
+      </DialogHeader>
 
-        <div className="space-y-4 py-2">
-          <div className="space-y-1.5">
-            <label
-              htmlFor="save-workflow-name"
-              className="block font-display text-xs uppercase tracking-wider text-text-muted"
-            >
-              Name
-            </label>
-            <Input
-              id="save-workflow-name"
-              value={name}
-              onChange={(e) => setName(e.target.value)}
-              placeholder="My Starred Chill"
-              autoFocus
-            />
-          </div>
-
-          <div className="space-y-1.5">
-            <label
-              htmlFor="save-workflow-description"
-              className="block font-display text-xs uppercase tracking-wider text-text-muted"
-            >
-              Description (optional)
-            </label>
-            <Input
-              id="save-workflow-description"
-              value={description}
-              onChange={(e) => setDescription(e.target.value)}
-              placeholder={filterSummary}
-            />
-          </div>
-
-          <p className="text-xs text-text-muted">
-            {filterSummary}.{" "}
-            {narrowsToLiked
-              ? "The saved workflow will start from your liked tracks. Edit in the workflow editor to broaden the source."
-              : "Edit the graph in the workflow editor after saving to add a schedule, change the output destination, or adjust nodes."}
-          </p>
-
-          {mutation.isError && (
-            <p
-              role="alert"
-              className="text-xs text-destructive"
-              aria-live="polite"
-            >
-              Couldn't save workflow. Please try again.
-            </p>
-          )}
+      <div className="space-y-4 py-2">
+        <div className="space-y-1.5">
+          <label
+            htmlFor="save-workflow-name"
+            className="block font-display text-xs uppercase tracking-wider text-text-muted"
+          >
+            Name
+          </label>
+          <Input
+            id="save-workflow-name"
+            value={name}
+            onChange={(e) => setName(e.target.value)}
+            placeholder="My Starred Chill"
+            autoFocus
+          />
         </div>
 
-        <DialogFooter>
-          <Button
-            variant="outline"
-            onClick={() => onOpenChange(false)}
-            disabled={mutation.isPending}
+        <div className="space-y-1.5">
+          <label
+            htmlFor="save-workflow-description"
+            className="block font-display text-xs uppercase tracking-wider text-text-muted"
           >
-            Cancel
-          </Button>
-          <Button onClick={handleSave} disabled={!canSave}>
-            {mutation.isPending && (
-              <Loader2 className="mr-1.5 size-3.5 animate-spin" />
-            )}
-            Save & open editor
-          </Button>
-        </DialogFooter>
-      </DialogContent>
-    </Dialog>
+            Description (optional)
+          </label>
+          <Input
+            id="save-workflow-description"
+            value={description}
+            onChange={(e) => setDescription(e.target.value)}
+            placeholder={filterSummary}
+          />
+        </div>
+
+        <p className="text-xs text-text-muted">
+          {filterSummary}.{" "}
+          {narrowsToLiked
+            ? "The saved workflow will start from your liked tracks. Edit in the workflow editor to broaden the source."
+            : "Edit the graph in the workflow editor after saving to add a schedule, change the output destination, or adjust nodes."}
+        </p>
+
+        {mutation.isError && (
+          <p
+            role="alert"
+            className="text-xs text-destructive"
+            aria-live="polite"
+          >
+            Couldn't save workflow. Please try again.
+          </p>
+        )}
+      </div>
+
+      <DialogFooter>
+        <Button
+          variant="outline"
+          onClick={() => onOpenChange(false)}
+          disabled={mutation.isPending}
+        >
+          Cancel
+        </Button>
+        <Button onClick={handleSave} disabled={!canSave}>
+          {mutation.isPending && (
+            <Loader2 className="mr-1.5 size-3.5 animate-spin" />
+          )}
+          Save & open editor
+        </Button>
+      </DialogFooter>
+    </ResponsiveDialog>
   );
 }

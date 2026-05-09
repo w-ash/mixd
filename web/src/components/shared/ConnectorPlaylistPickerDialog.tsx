@@ -20,8 +20,6 @@ import {
 import { Button } from "#/components/ui/button";
 import { Checkbox } from "#/components/ui/checkbox";
 import {
-  Dialog,
-  DialogContent,
   DialogFooter,
   DialogHeader,
   DialogTitle,
@@ -34,6 +32,7 @@ import {
   DropdownMenuTrigger,
 } from "#/components/ui/dropdown-menu";
 import { Input } from "#/components/ui/input";
+import { ResponsiveDialog } from "#/components/ui/responsive-dialog";
 import { Skeleton } from "#/components/ui/skeleton";
 import { useTrackSearch } from "#/hooks/useTrackSearch";
 import { pluralize } from "#/lib/pluralize";
@@ -311,8 +310,12 @@ export function ConnectorPlaylistPickerDialog({
   const selectedCount = selectedIds.size;
 
   return (
-    <Dialog open={open} onOpenChange={handleOpenChange}>
-      <DialogContent className="sm:max-w-2xl">
+    <>
+      <ResponsiveDialog
+        open={open}
+        onOpenChange={handleOpenChange}
+        className="sm:max-w-2xl"
+      >
         <DialogHeader>
           <div className="flex items-start justify-between gap-3">
             <div>
@@ -589,7 +592,7 @@ export function ConnectorPlaylistPickerDialog({
             Import {pluralize(selectedCount, "playlist")}
           </Button>
         </DialogFooter>
-      </DialogContent>
+      </ResponsiveDialog>
       {assignDialog && (
         <AssignPlaylistDialog
           open
@@ -601,6 +604,6 @@ export function ConnectorPlaylistPickerDialog({
           playlist={assignDialog.playlist}
         />
       )}
-    </Dialog>
+    </>
   );
 }

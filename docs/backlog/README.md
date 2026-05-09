@@ -1,7 +1,7 @@
 # Project Mixd — Planning
 
 **Current Version**: 0.7.7.1
-**Next**: v0.8.0 Workflow & sync scheduling
+**Next**: v0.7.8 Mobile responsiveness
 
 → [Completed milestones](completed/) | [Unscheduled ideas](unscheduled.md)
 
@@ -63,6 +63,7 @@ Each milestone delivers a **vertical slice** — backend API + frontend page tog
 | **v0.7.5** | Workflow integration & quick filters | ✅ Completed | [details](completed/v0.7.4-5.md#v075-workflow-integration--quick-filters) |
 | **v0.7.6** | Tag maintenance & single-playlist Spotify polish — tag mgmt page, force-refresh, route integration tests | 🚀 Shipped | [details](v0.7.6.md#v076-tag-maintenance--single-playlist-polish) |
 | **v0.7.7** | Operation Run Log — persisted import history + post-run toast | 🚀 Shipped | [details](v0.7.7.md#v077-operation-run-log) |
+| **v0.7.8** | Mobile responsiveness + visual regression baseline (Playwright `toHaveScreenshot`) | 🔜 Not Started | [details](v0.7.8.md#v078-mobile-responsiveness) |
 | **v0.8.0** | Workflow & sync scheduling | 🔜 Not Started | [details](v0.8.x.md#v080-workflow--sync-scheduling) |
 | **v0.8.1** | Editor polish, templates & playlist browse | 🔜 Not Started | [details](v0.8.x.md#v081-editor-polish-templates--playlist-browse) |
 | **v0.9.0** | Workflow assistant — right-panel chat ported from couplefins | 🔜 Not Started | [details](v0.9.x.md#v090-workflow-assistant-right-panel-chat) |
@@ -97,6 +98,7 @@ See [docs/personas.md](../personas.md) for full persona definitions.
 | v0.5.5 | Performance | Faster workflow execution, snappier pages | Appreciates efficient infrastructure | Expects modern web app responsiveness |
 | v0.6.x | Multi-user data isolation + first-class CLI | Per-user data isolation, CLI for power curation | Security hardening, CLI as primary interface | Account creation on hosted instance |
 | v0.7.x | Preferences + tags + playlist bootstrap | Replaces 4 Spotify playlists with hmm/nah/yah/star, bulk-imports hundreds of themed playlists as tags | Explores tag system, builds taxonomies, workflow nodes for preferences/tags | Likes/dislikes via simple toggle, quick filters for "what should I listen to?" |
+| v0.7.8 | Mobile responsiveness | Phone for status checks ("did the overnight sync work?"), laptop for deep curation and workflow editing | Self-host UX feels polished on any viewport; workflow editor stays desktop-only by design | Phone is the primary device — full feature parity except editor; bottom nav, sheet dialogs, no horizontal scroll |
 | v0.8.x | Scheduling + templates | Automates the weekly ritual | Templates as onboarding entry point | Scheduling means playlists stay fresh without effort |
 | v0.9.0 | LLM-assisted creation | Power use — complex intent in natural language | Interesting tech to explore | THE adoption enabler — changes who can use mixd |
 | v0.10.x | Artists, albums, physical | Deeper library modeling, Discogs integration | Rich data model to explore | Browsing by artist/album is intuitive |

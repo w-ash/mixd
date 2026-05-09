@@ -116,3 +116,38 @@ jobs:
 
       - name: Build
         run: pnpm build
+
+  web-e2e:
+    name: Web E2E (visual regression)
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    container:
+      image: mcr.microsoft.com/playwright:v1.59.1-noble
+
+    defaults:
+      run:
+        working-directory: web
+
+    steps:
+      - uses: actions/checkout@v6
+
+      - name: Enable corepack
+        run: |
+          corepack enable
+          corepack prepare pnpm@11.0.8 --activate
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Run E2E suite (visual + navigation + playlist-browse)
+        run: pnpm test:e2e
+
+      - name: Upload diff artifacts on failure
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: playwright-diffs
+          path: |
+            web/test-results/
+            web/playwright-report/
+          retention-days: 14

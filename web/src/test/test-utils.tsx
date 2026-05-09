@@ -63,5 +63,39 @@ export function renderWithProviders(
   });
 }
 
+function matchesQuery(query: string, width: number): boolean {
+  const max = /\(\s*max-width\s*:\s*(\d+)px\s*\)/.exec(query);
+  if (max) return width <= Number(max[1]);
+  const min = /\(\s*min-width\s*:\s*(\d+)px\s*\)/.exec(query);
+  if (min) return width >= Number(min[1]);
+  return false;
+}
+
+/**
+ * Per-test viewport mock for components that branch on `useIsMobile()` or
+ * other `matchMedia` consumers. The default stub in `setup.ts` returns
+ * `matches: false` for every query — call this in a test or `beforeEach`
+ * to simulate a specific viewport width.
+ *
+ * Parses `(max-width: Npx)` and `(min-width: Npx)`; other media features
+ * fall back to `false`.
+ */
+export function mockMatchMedia(width: number) {
+  Object.defineProperty(window, "matchMedia", {
+    writable: true,
+    configurable: true,
+    value: (query: string) => ({
+      matches: matchesQuery(query, width),
+      media: query,
+      onchange: null,
+      addListener: () => {},
+      removeListener: () => {},
+      addEventListener: () => {},
+      removeEventListener: () => {},
+      dispatchEvent: () => false,
+    }),
+  });
+}
+
 export { screen, waitFor } from "@testing-library/react";
 export { default as userEvent } from "@testing-library/user-event";

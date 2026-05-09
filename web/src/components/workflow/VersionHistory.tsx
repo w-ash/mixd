@@ -18,13 +18,8 @@ import {
   useRevertWorkflowVersionApiV1WorkflowsWorkflowIdVersionsVersionRevertPost,
 } from "#/api/generated/workflows/workflows";
 import { Button } from "#/components/ui/button";
-import {
-  Dialog,
-  DialogContent,
-  DialogHeader,
-  DialogTitle,
-  DialogTrigger,
-} from "#/components/ui/dialog";
+import { DialogHeader, DialogTitle } from "#/components/ui/dialog";
+import { ResponsiveDialog } from "#/components/ui/responsive-dialog";
 import { WorkflowDiff } from "#/components/workflow/WorkflowDiff";
 import { formatDateTime } from "#/lib/format";
 import { toasts } from "#/lib/toasts";
@@ -97,22 +92,21 @@ export function VersionHistory({ workflowId }: { workflowId: string }) {
             )}
           </div>
           <div className="flex items-center gap-1 pl-2">
-            <Dialog
+            <ResponsiveDialog
               open={diffVersion === v.version}
               onOpenChange={(open) => setDiffVersion(open ? v.version : null)}
-            >
-              <DialogTrigger asChild>
+              className="max-w-5xl"
+              trigger={
                 <Button variant="ghost" size="icon-xs" title="View diff">
                   <Eye className="size-3" />
                 </Button>
-              </DialogTrigger>
-              <DialogContent className="max-w-5xl">
-                <DialogHeader>
-                  <DialogTitle>Version {v.version} vs Current</DialogTitle>
-                </DialogHeader>
-                <WorkflowDiff workflowId={workflowId} version={v.version} />
-              </DialogContent>
-            </Dialog>
+              }
+            >
+              <DialogHeader>
+                <DialogTitle>Version {v.version} vs Current</DialogTitle>
+              </DialogHeader>
+              <WorkflowDiff workflowId={workflowId} version={v.version} />
+            </ResponsiveDialog>
             <Button
               variant="ghost"
               size="icon-xs"

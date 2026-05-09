@@ -14,14 +14,12 @@ import { TrackSearchCombobox } from "#/components/shared/TrackSearchCombobox";
 import { Badge } from "#/components/ui/badge";
 import { Button } from "#/components/ui/button";
 import {
-  Dialog,
-  DialogContent,
   DialogDescription,
   DialogFooter,
   DialogHeader,
   DialogTitle,
-  DialogTrigger,
 } from "#/components/ui/dialog";
+import { ResponsiveDialog } from "#/components/ui/responsive-dialog";
 import { formatArtists } from "#/lib/format";
 import { toasts } from "#/lib/toasts";
 
@@ -104,83 +102,85 @@ export function MergeTrackDialog({ winner }: MergeTrackDialogProps) {
   const uniqueConnectors = [...new Set(winnerConnectors)];
 
   return (
-    <Dialog open={open} onOpenChange={handleOpenChange}>
-      <DialogTrigger asChild>
+    <ResponsiveDialog
+      open={open}
+      onOpenChange={handleOpenChange}
+      className="sm:max-w-lg"
+      trigger={
         <Button variant="outline" size="sm">
           <GitMerge className="mr-1.5 size-3.5" />
           Merge with...
         </Button>
-      </DialogTrigger>
-      <DialogContent className="sm:max-w-lg">
-        <DialogHeader>
-          <DialogTitle>Merge Duplicate Track</DialogTitle>
-          <DialogDescription>
-            Find the duplicate and merge it into this track. Play counts,
-            service connections, and playlist entries will be combined.
-          </DialogDescription>
-        </DialogHeader>
+      }
+    >
+      <DialogHeader>
+        <DialogTitle>Merge Duplicate Track</DialogTitle>
+        <DialogDescription>
+          Find the duplicate and merge it into this track. Play counts, service
+          connections, and playlist entries will be combined.
+        </DialogDescription>
+      </DialogHeader>
 
-        {!selectedLoser ? (
-          <TrackSearchCombobox
-            onSelect={setSelectedLoser}
-            excludeTrackId={winner.id}
-            placeholder="Search for the duplicate..."
-          />
-        ) : (
-          <div className="space-y-4">
-            <div className="grid grid-cols-1 gap-3">
-              <TrackCard
-                title={winner.title}
-                artists={winnerArtists}
-                album={winner.album}
-                connectors={uniqueConnectors}
-                variant="winner"
-              />
-              <TrackCard
-                title={selectedLoser.title}
-                artists={formatArtists(selectedLoser.artists)}
-                album={selectedLoser.album}
-                connectors={selectedLoser.connector_names}
-                variant="loser"
-              />
-            </div>
-
-            <div className="rounded-md bg-status-error/10 p-3 text-sm text-text-muted">
-              <strong className="text-text">This cannot be undone.</strong>{" "}
-              &ldquo;{selectedLoser.title}&rdquo; will be permanently merged
-              into &ldquo;{winner.title}&rdquo;.
-            </div>
-
-            <div className="flex gap-2">
-              <Button
-                variant="outline"
-                size="sm"
-                className="flex-1"
-                onClick={() => setSelectedLoser(null)}
-              >
-                Back to search
-              </Button>
-              <Button
-                variant="destructive"
-                size="sm"
-                className="flex-1"
-                onClick={handleConfirm}
-                disabled={mergeMutation.isPending}
-              >
-                {mergeMutation.isPending ? "Merging..." : "Confirm Merge"}
-              </Button>
-            </div>
+      {!selectedLoser ? (
+        <TrackSearchCombobox
+          onSelect={setSelectedLoser}
+          excludeTrackId={winner.id}
+          placeholder="Search for the duplicate..."
+        />
+      ) : (
+        <div className="space-y-4">
+          <div className="grid grid-cols-1 gap-3">
+            <TrackCard
+              title={winner.title}
+              artists={winnerArtists}
+              album={winner.album}
+              connectors={uniqueConnectors}
+              variant="winner"
+            />
+            <TrackCard
+              title={selectedLoser.title}
+              artists={formatArtists(selectedLoser.artists)}
+              album={selectedLoser.album}
+              connectors={selectedLoser.connector_names}
+              variant="loser"
+            />
           </div>
-        )}
 
-        {!selectedLoser && (
-          <DialogFooter>
-            <Badge variant="outline" className="text-text-faint text-xs">
-              Tip: Search by title to find the duplicate
-            </Badge>
-          </DialogFooter>
-        )}
-      </DialogContent>
-    </Dialog>
+          <div className="rounded-md bg-status-error/10 p-3 text-sm text-text-muted">
+            <strong className="text-text">This cannot be undone.</strong>{" "}
+            &ldquo;{selectedLoser.title}&rdquo; will be permanently merged into
+            &ldquo;{winner.title}&rdquo;.
+          </div>
+
+          <div className="flex gap-2">
+            <Button
+              variant="outline"
+              size="sm"
+              className="flex-1"
+              onClick={() => setSelectedLoser(null)}
+            >
+              Back to search
+            </Button>
+            <Button
+              variant="destructive"
+              size="sm"
+              className="flex-1"
+              onClick={handleConfirm}
+              disabled={mergeMutation.isPending}
+            >
+              {mergeMutation.isPending ? "Merging..." : "Confirm Merge"}
+            </Button>
+          </div>
+        </div>
+      )}
+
+      {!selectedLoser && (
+        <DialogFooter>
+          <Badge variant="outline" className="text-text-faint text-xs">
+            Tip: Search by title to find the duplicate
+          </Badge>
+        </DialogFooter>
+      )}
+    </ResponsiveDialog>
   );
 }

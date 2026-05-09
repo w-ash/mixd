@@ -47,15 +47,13 @@ import {
 import { SyncConfirmationDialog } from "#/components/shared/SyncConfirmationDialog";
 import { Button } from "#/components/ui/button";
 import {
-  Dialog,
-  DialogContent,
   DialogDescription,
   DialogFooter,
   DialogHeader,
   DialogTitle,
-  DialogTrigger,
 } from "#/components/ui/dialog";
 import { Input } from "#/components/ui/input";
+import { ResponsiveDialog } from "#/components/ui/responsive-dialog";
 import {
   Select,
   SelectContent,
@@ -217,7 +215,7 @@ function EditPlaylistDialog({
   }
 
   return (
-    <Dialog
+    <ResponsiveDialog
       open={open}
       onOpenChange={(isOpen) => {
         setOpen(isOpen);
@@ -226,71 +224,69 @@ function EditPlaylistDialog({
           setDescription(currentDescription ?? "");
         }
       }}
-    >
-      <DialogTrigger asChild>
+      trigger={
         <Button variant="outline" size="sm">
           Edit
         </Button>
-      </DialogTrigger>
-      <DialogContent>
-        <form onSubmit={handleSubmit}>
-          <DialogHeader>
-            <DialogTitle>Edit Playlist</DialogTitle>
-            <DialogDescription>
-              Update the playlist name or description.
-            </DialogDescription>
-          </DialogHeader>
+      }
+    >
+      <form onSubmit={handleSubmit}>
+        <DialogHeader>
+          <DialogTitle>Edit Playlist</DialogTitle>
+          <DialogDescription>
+            Update the playlist name or description.
+          </DialogDescription>
+        </DialogHeader>
 
-          <div className="mt-4 space-y-4">
-            <div className="space-y-2">
-              <label
-                htmlFor="edit-name"
-                className="text-sm font-medium text-text"
-              >
-                Name
-              </label>
-              <Input
-                id="edit-name"
-                value={name}
-                onChange={(e) => setName(e.target.value)}
-                required
-                autoFocus
-              />
-            </div>
-            <div className="space-y-2">
-              <label
-                htmlFor="edit-description"
-                className="text-sm font-medium text-text"
-              >
-                Description
-              </label>
-              <Input
-                id="edit-description"
-                value={description}
-                onChange={(e) => setDescription(e.target.value)}
-                placeholder="Optional description"
-              />
-            </div>
+        <div className="mt-4 space-y-4">
+          <div className="space-y-2">
+            <label
+              htmlFor="edit-name"
+              className="text-sm font-medium text-text"
+            >
+              Name
+            </label>
+            <Input
+              id="edit-name"
+              value={name}
+              onChange={(e) => setName(e.target.value)}
+              required
+              autoFocus
+            />
           </div>
+          <div className="space-y-2">
+            <label
+              htmlFor="edit-description"
+              className="text-sm font-medium text-text"
+            >
+              Description
+            </label>
+            <Input
+              id="edit-description"
+              value={description}
+              onChange={(e) => setDescription(e.target.value)}
+              placeholder="Optional description"
+            />
+          </div>
+        </div>
 
-          <DialogFooter className="mt-6">
-            <Button
-              type="button"
-              variant="outline"
-              onClick={() => setOpen(false)}
-            >
-              Cancel
-            </Button>
-            <Button
-              type="submit"
-              disabled={!name.trim() || updateMutation.isPending}
-            >
-              {updateMutation.isPending ? "Saving..." : "Save"}
-            </Button>
-          </DialogFooter>
-        </form>
-      </DialogContent>
-    </Dialog>
+        <DialogFooter className="mt-6">
+          <Button
+            type="button"
+            variant="outline"
+            onClick={() => setOpen(false)}
+          >
+            Cancel
+          </Button>
+          <Button
+            type="submit"
+            disabled={!name.trim() || updateMutation.isPending}
+          >
+            {updateMutation.isPending ? "Saving..." : "Save"}
+          </Button>
+        </DialogFooter>
+      </form>
+    </ResponsiveDialog>
   );
 }
 
@@ -374,7 +370,7 @@ function LinkPlaylistDialog({ playlistId }: { playlistId: string }) {
   }
 
   return (
-    <Dialog
+    <ResponsiveDialog
       open={open}
       onOpenChange={(isOpen) => {
         setOpen(isOpen);
@@ -384,118 +380,114 @@ function LinkPlaylistDialog({ playlistId }: { playlistId: string }) {
           setDirection("push");
         }
       }}
-    >
-      <DialogTrigger asChild>
+      trigger={
         <Button variant="outline" size="sm">
           <Link2 className="mr-1.5 size-3.5" />
           Link Playlist
         </Button>
-      </DialogTrigger>
-      <DialogContent>
-        <form onSubmit={handleSubmit}>
-          <DialogHeader>
-            <DialogTitle>Link External Playlist</DialogTitle>
-            <DialogDescription>
-              Connect this playlist to an external service for syncing.
-            </DialogDescription>
-          </DialogHeader>
+      }
+    >
+      <form onSubmit={handleSubmit}>
+        <DialogHeader>
+          <DialogTitle>Link External Playlist</DialogTitle>
+          <DialogDescription>
+            Connect this playlist to an external service for syncing.
+          </DialogDescription>
+        </DialogHeader>
 
-          <div className="mt-4 space-y-4">
-            <div className="space-y-2">
-              <label
-                htmlFor="link-connector"
-                className="text-sm font-medium text-text"
-              >
-                Service
-              </label>
-              <Select value={connector} onValueChange={setConnector}>
-                <SelectTrigger id="link-connector">
-                  <SelectValue />
-                </SelectTrigger>
-                <SelectContent>
-                  {linkableConnectors.map((c) => (
-                    <SelectItem key={c.name} value={c.name}>
-                      {c.display_name}
-                    </SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
-            </div>
-            <div className="space-y-2">
-              <label
-                htmlFor="link-playlist-id"
-                className="text-sm font-medium text-text"
-              >
-                Playlist ID or URL
-              </label>
-              <Input
-                id="link-playlist-id"
-                value={playlistInput}
-                onChange={(e) => setPlaylistInput(e.target.value)}
-                placeholder={placeholder}
-                required
-                autoFocus
-              />
-              <p className="text-xs text-text-muted font-body">
-                Accepts a playlist URL, URI, or raw ID. The playlist will be
-                validated immediately.
-              </p>
-            </div>
-            <div className="space-y-2">
-              <label
-                htmlFor="link-direction"
-                className="text-sm font-medium text-text"
-              >
-                Sync Direction
-              </label>
-              <Select value={direction} onValueChange={setDirection}>
-                <SelectTrigger id="link-direction">
-                  <SelectValue />
-                </SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="push">
-                    Push — Mixd controls, syncs to{" "}
-                    {getConnectorLabel(connector)}
+        <div className="mt-4 space-y-4">
+          <div className="space-y-2">
+            <label
+              htmlFor="link-connector"
+              className="text-sm font-medium text-text"
+            >
+              Service
+            </label>
+            <Select value={connector} onValueChange={setConnector}>
+              <SelectTrigger id="link-connector">
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                {linkableConnectors.map((c) => (
+                  <SelectItem key={c.name} value={c.name}>
+                    {c.display_name}
                   </SelectItem>
-                  <SelectItem value="pull">
-                    Pull — {getConnectorLabel(connector)} controls, syncs to
-                    Mixd
-                  </SelectItem>
-                </SelectContent>
-              </Select>
-              <p className="text-xs text-text-faint font-body">
-                {direction === "push"
-                  ? "Your local playlist is the source of truth. Changes here push to the external service."
-                  : "The external playlist is the source of truth. Changes there pull into your library."}
-              </p>
-            </div>
+                ))}
+              </SelectContent>
+            </Select>
           </div>
+          <div className="space-y-2">
+            <label
+              htmlFor="link-playlist-id"
+              className="text-sm font-medium text-text"
+            >
+              Playlist ID or URL
+            </label>
+            <Input
+              id="link-playlist-id"
+              value={playlistInput}
+              onChange={(e) => setPlaylistInput(e.target.value)}
+              placeholder={placeholder}
+              required
+              autoFocus
+            />
+            <p className="text-xs text-text-muted font-body">
+              Accepts a playlist URL, URI, or raw ID. The playlist will be
+              validated immediately.
+            </p>
+          </div>
+          <div className="space-y-2">
+            <label
+              htmlFor="link-direction"
+              className="text-sm font-medium text-text"
+            >
+              Sync Direction
+            </label>
+            <Select value={direction} onValueChange={setDirection}>
+              <SelectTrigger id="link-direction">
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="push">
+                  Push — Mixd controls, syncs to {getConnectorLabel(connector)}
+                </SelectItem>
+                <SelectItem value="pull">
+                  Pull — {getConnectorLabel(connector)} controls, syncs to Mixd
+                </SelectItem>
+              </SelectContent>
+            </Select>
+            <p className="text-xs text-text-faint font-body">
+              {direction === "push"
+                ? "Your local playlist is the source of truth. Changes here push to the external service."
+                : "The external playlist is the source of truth. Changes there pull into your library."}
+            </p>
+          </div>
+        </div>
 
-          <DialogFooter className="mt-6">
-            <Button
-              type="button"
-              variant="outline"
-              onClick={() => setOpen(false)}
-            >
-              Cancel
-            </Button>
-            <Button
-              type="submit"
-              disabled={!playlistInput.trim() || createLink.isPending}
-            >
-              {createLink.isPending ? (
-                <>
-                  <Loader2 className="mr-1.5 size-3.5 animate-spin" />
-                  Validating...
-                </>
-              ) : (
-                "Link"
-              )}
-            </Button>
-          </DialogFooter>
-        </form>
-      </DialogContent>
-    </Dialog>
+        <DialogFooter className="mt-6">
+          <Button
+            type="button"
+            variant="outline"
+            onClick={() => setOpen(false)}
+          >
+            Cancel
+          </Button>
+          <Button
+            type="submit"
+            disabled={!playlistInput.trim() || createLink.isPending}
+          >
+            {createLink.isPending ? (
+              <>
+                <Loader2 className="mr-1.5 size-3.5 animate-spin" />
+                Validating...
+              </>
+            ) : (
+              "Link"
+            )}
+          </Button>
+        </DialogFooter>
+      </form>
+    </ResponsiveDialog>
   );
 }
 
