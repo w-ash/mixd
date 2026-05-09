@@ -37,3 +37,6 @@ paths:
 - `renderWithProviders()` from `#/test/test-utils` — wraps QueryClient (`retry: false`, `gcTime: 0`) + MemoryRouter. Use for any component with hooks/routing/queries. Plain `render()` for pure presentational.
 - MSW handlers auto-generated in `api/generated/**/*.msw.ts`, pre-loaded in `setup.ts`. Per-test overrides: `server.use(http.get(...))`, reset automatically.
 - `#/` alias → `web/src/`
+
+## Design iteration
+For dev-time visual feedback (padding, alignment, responsive layout) use the Playwright MCP server — see `web-design-review.md` for the snapshot-first loop, viewport matrix, and anti-patterns.
