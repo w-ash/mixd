@@ -76,25 +76,6 @@ async def _prune_expired_oauth_states() -> None:
         logger.warning("Failed to prune expired OAuth states", error=str(e))
 
 
-async def _prewarm_prefect() -> None:
-    """Force Prefect's ephemeral server to bootstrap during lifespan.
-
-    On constrained Fly machines the in-process FastAPI + SQLite startup
-    that Prefect runs the first time a ``@flow`` is invoked is heavy
-    enough to block the event loop and fail Fly health checks. Doing the
-    bootstrap here amortizes the cost into the deploy window instead of
-    the user's first run.
-    """
-    try:
-        from prefect.client.orchestration import get_client
-
-        async with get_client() as client:
-            await client.hello()
-        logger.info("Prefect ephemeral server pre-warmed")
-    except Exception as e:
-        logger.warning("Prefect pre-warm failed", error=str(e))
-
-
 @asynccontextmanager
 async def lifespan(_app: FastAPI) -> AsyncGenerator[None]:
     """Wire SSE progress subscriber to the global progress manager."""
@@ -124,7 +105,6 @@ async def lifespan(_app: FastAPI) -> AsyncGenerator[None]:
     startup_tasks = [
         asyncio.create_task(_seed_templates()),
         asyncio.create_task(_prune_expired_oauth_states()),
-        asyncio.create_task(_prewarm_prefect()),
     ]
 
     # Long-lived sweeper that marks stalled workflow_runs rows as failed.

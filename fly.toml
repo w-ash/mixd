@@ -37,9 +37,7 @@ primary_region = 'sjc'
   [[http_service.checks]]
     interval = '30s'
     timeout = '10s'
-    # 120s gives Prefect's ephemeral server bootstrap room during lifespan
-    # (~20s typical, but slow Neon cold-starts compound it).
-    grace_period = '120s'
+    grace_period = '60s'
     method = 'GET'
     path = '/api/v1/health'
 

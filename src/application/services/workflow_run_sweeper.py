@@ -44,6 +44,10 @@ def _classify_stall(run: WorkflowRun) -> str:
     return _COLD_START_MESSAGE if run.heartbeat_at is None else _WATCHDOG_MESSAGE
 
 
+def _iso(dt: datetime | None) -> str | None:
+    return dt.isoformat() if dt else None
+
+
 async def sweep_stalled_runs(
     uow: UnitOfWorkProtocol,
     *,
@@ -68,6 +72,7 @@ async def sweep_stalled_runs(
             duration_ms: int | None = None
             if run.started_at is not None:
                 duration_ms = int((now - run.started_at).total_seconds() * 1000)
+            reason = _classify_stall(run)
 
             try:
                 await repo.update_run_status(
@@ -75,18 +80,16 @@ async def sweep_stalled_runs(
                     WorkflowConstants.RUN_STATUS_FAILED,
                     completed_at=now,
                     duration_ms=duration_ms,
-                    error_message=_classify_stall(run),
+                    error_message=reason,
                 )
                 failed_count += 1
                 logger.warning(
                     "Marked stalled run as failed",
                     run_id=str(run.id),
                     workflow_id=str(run.workflow_id),
-                    reason=_classify_stall(run),
-                    started_at=run.started_at.isoformat() if run.started_at else None,
-                    heartbeat_at=run.heartbeat_at.isoformat()
-                    if run.heartbeat_at
-                    else None,
+                    reason=reason,
+                    started_at=_iso(run.started_at),
+                    heartbeat_at=_iso(run.heartbeat_at),
                 )
             except Exception:
                 logger.warning(
@@ -94,6 +97,14 @@ async def sweep_stalled_runs(
                     run_id=str(run.id),
                     exc_info=True,
                 )
+
+    if stalled and failed_count == 0:
+        # All sweep writes failed — likely a connectivity or auth problem the
+        # operator needs to see, since the per-tick logger only fires on success.
+        logger.error(
+            "Sweeper tick wrote no rows despite finding stalled runs",
+            stalled_count=len(stalled),
+        )
 
     return failed_count
 

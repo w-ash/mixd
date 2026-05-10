@@ -11,6 +11,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
 from src.config import get_logger
+from src.config.constants import WorkflowConstants
 from src.domain.entities.workflow import RunStatus, WorkflowRun, WorkflowRunNode
 from src.domain.exceptions import NotFoundError
 from src.infrastructure.persistence.database.db_models import (
@@ -80,7 +81,7 @@ class WorkflowRunRepository:
         stmt = (
             select(DBWorkflowRun)
             .where(
-                DBWorkflowRun.status == "running",
+                DBWorkflowRun.status == WorkflowConstants.RUN_STATUS_RUNNING,
                 DBWorkflowRun.started_at < threshold,
                 or_(
                     DBWorkflowRun.heartbeat_at.is_(None),
