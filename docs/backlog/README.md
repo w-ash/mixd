@@ -1,6 +1,6 @@
 # Project Mixd — Planning
 
-**Current Version**: 0.7.8.8
+**Current Version**: 0.7.8.9
 **Next**: v0.8.0 Workflow & sync scheduling
 
 → [Completed milestones](completed/) | [Unscheduled ideas](unscheduled.md)

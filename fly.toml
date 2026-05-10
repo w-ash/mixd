@@ -16,26 +16,34 @@ primary_region = 'sjc'
   release_command = 'alembic upgrade head'
 
 [env]
-  # Disable Prefect's ephemeral SQLite-backed FastAPI server. We don't use
-  # Prefect's flow-run history/UI (we have our own workflow_runs table);
-  # @flow and @task decorators still execute in-process. Cuts ~80-120MB RSS
-  # and removes the cold-start OOM that prevented v0.7.8.x workflow runs.
-  PREFECT_SERVER_ALLOW_EPHEMERAL_MODE = 'false'
-  # Tuning knobs that complement the above (May 2026 Prefect settings ref).
+  # Allow Prefect to spin up its embedded SQLite-backed ASGI server when a
+  # flow runs. Prefect 3's flow engine REQUIRES a working PrefectClient —
+  # `flow_engine.py` calls `update_flow_run`, `set_flow_run_name`, etc.
+  # against it for state tracking. There's no offline mode. v0.7.8.5
+  # disabled this to save ~80-120MB RSS, but the actual cold-start OOM
+  # that motivated v0.7.8.5 came from eager Prefect imports at uvicorn
+  # boot (fixed independently by extracting run_guard.py); the ephemeral
+  # server now only starts at first-flow-run, not boot, so it doesn't
+  # touch the boot-time RSS budget. v0.7.8.8 set PREFECT_API_KEY to a
+  # sentinel to silence the events-worker raise; with ephemeral_mode=true
+  # the orchestration-client raise at `client/orchestration:259` also
+  # goes away. Keep the API_KEY sentinel below so the events worker
+  # stays no-op (we don't use Prefect's event UI anyway).
+  PREFECT_SERVER_ALLOW_EPHEMERAL_MODE = 'true'
+  # Tuning knobs that cut memory inside the ephemeral server (May 2026
+  # Prefect settings ref).
   PREFECT_LOGGING_TO_API_ENABLED = 'false'      # no in-process log-shipping queue
   PREFECT_LOGGING_LEVEL = 'WARNING'             # cut log-record allocations
   PREFECT_RESULTS_PERSIST_BY_DEFAULT = 'false'  # we don't need Prefect to store outputs
   PREFECT_SERVER_ANALYTICS_ENABLED = 'false'    # telemetry off
   PREFECT_API_ENABLE_METRICS = 'false'          # metrics off
-  # Sentinel — Prefect 3.7's events worker has an asymmetric gate:
-  # `events/clients.py:get_events_client` honors EPHEMERAL_MODE above, but
-  # `events/worker.py:should_emit_events_to_ephemeral_server` only checks
-  # whether PREFECT_API_KEY is unset. With it unset, the worker bypasses
-  # the ephemeral-mode gate, calls get_events_client(), and raises
-  # "No Prefect API URL provided" mid-flow. Setting any non-empty key
-  # here makes should_emit_events() return False, and emit_event()
-  # short-circuits at the top — no events are queued, no client is built,
-  # no network calls. The value is never sent anywhere.
+  # Sentinel — keeps Prefect 3.7's events worker disabled. The events
+  # worker has an asymmetric gate: `events/worker.py:60
+  # should_emit_events_to_ephemeral_server` only checks whether
+  # PREFECT_API_KEY is unset. Setting any non-empty key here makes
+  # should_emit_events() return False and emit_event() short-circuits at
+  # the top — no events queued, no second ephemeral server attempted.
+  # The value is never sent anywhere.
   PREFECT_API_KEY = 'disabled-no-server'
   PYTHONUNBUFFERED = '1'
   NEON_AUTH_URL = 'https://ep-super-glade-ak6se863.neonauth.c-3.us-west-2.aws.neon.tech/neondb/auth'
