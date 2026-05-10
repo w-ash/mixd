@@ -111,6 +111,7 @@ class WorkflowConstants:
     MAX_OUTPUT_METRIC_COLUMNS: Final = 5
 
     # SSE event type names
+    SSE_EVENT_RUN_ACCEPTED: Final = "run_accepted"
     SSE_EVENT_NODE_STATUS: Final = "node_status"
     SSE_EVENT_COMPLETE: Final = "complete"
     SSE_EVENT_ERROR: Final = "error"

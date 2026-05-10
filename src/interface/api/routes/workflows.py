@@ -7,7 +7,7 @@ All business logic lives in the use cases.
 import asyncio
 from asyncio import CancelledError
 import contextlib
-from datetime import datetime
+from datetime import UTC, datetime
 from typing import Unpack
 from uuid import UUID
 
@@ -314,7 +314,23 @@ async def run_workflow_endpoint(
     # 2. Register SSE queue
     operation_id, sse_queue = await prepare_sse_operation()
 
-    # 3. Launch background execution
+    # 3. Push run_accepted before launching the bg task. The queue buffers,
+    # so even if Prefect cold-starts for 20+ s the SSE consumer sees activity
+    # within ~50 ms of the POST. evt_accept is a string id so it bypasses the
+    # numeric Last-Event-ID resume regex (one-shot signaling event).
+    await sse_queue.put({
+        "id": "evt_accept",
+        "event": WorkflowConstants.SSE_EVENT_RUN_ACCEPTED,
+        "data": {
+            "operation_id": operation_id,
+            "run_id": str(run_id),
+            "workflow_id": str(workflow.definition.id),
+            "task_count": len(workflow.definition.tasks),
+            "accepted_at": datetime.now(UTC).isoformat(),
+        },
+    })
+
+    # 4. Launch background execution
     launch_background(
         f"workflow_run_{operation_id}",
         lambda: _execute_workflow_background(

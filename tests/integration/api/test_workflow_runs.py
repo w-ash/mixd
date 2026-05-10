@@ -4,10 +4,13 @@ Tests POST /run (202, 409, 404), GET /runs (pagination),
 and GET /runs/{run_id} (200, 404, with nodes).
 """
 
+import asyncio
+
 import httpx
 import pytest
 
 import src.interface.api.routes.workflows as _workflows_mod
+from src.interface.api.services.progress import get_operation_registry
 from tests.fixtures.factories import nonexistent_id
 from tests.integration.api.conftest import create_workflow as _create_workflow
 
@@ -35,6 +38,42 @@ class TestRunWorkflowEndpoint:
         assert "operation_id" in body
         assert "run_id" in body
         assert isinstance(body["run_id"], str)
+
+    async def test_run_pushes_run_accepted_to_sse_queue(
+        self, client: httpx.AsyncClient
+    ) -> None:
+        """run_accepted lands on the SSE queue before launch_background runs.
+
+        The bg task is stubbed by the autouse fixture, so any event in the
+        queue must have been pushed synchronously by the route handler. This
+        guards the cold-start UX promise: SSE consumers see activity within
+        ~50 ms of the POST even when Prefect is warming up.
+        """
+        wf_id = await _create_workflow(client)
+
+        response = await client.post(f"/api/v1/workflows/{wf_id}/run")
+        assert response.status_code == 202
+        body = response.json()
+        operation_id = body["operation_id"]
+        run_id = body["run_id"]
+
+        queue = await get_operation_registry().get_queue(operation_id)
+        assert queue is not None, "registry should have a queue for the operation"
+
+        event = await asyncio.wait_for(queue.get(), timeout=1.0)
+        assert isinstance(event, dict)
+        assert event["id"] == "evt_accept"
+        assert event["event"] == "run_accepted"
+        data = event["data"]
+        assert isinstance(data, dict)
+        assert data["operation_id"] == operation_id
+        assert data["run_id"] == run_id
+        # workflow_id is the resolved UUID, not the slug used in the URL.
+        assert isinstance(data["workflow_id"], str)
+        assert len(data["workflow_id"]) > 0
+        assert isinstance(data["task_count"], int)
+        assert data["task_count"] >= 0
+        assert isinstance(data["accepted_at"], str)
 
     async def test_run_nonexistent_workflow_404(
         self, client: httpx.AsyncClient
