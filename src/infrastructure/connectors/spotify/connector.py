@@ -100,12 +100,15 @@ class SpotifyConnector(BaseAPIConnector):
     async def get_external_track_data(
         self,
         tracks: list[Track],
-        _progress_callback: Callable[[int, int, str], Awaitable[None]] | None = None,
+        progress_callback: Callable[[int, int, str], Awaitable[None]] | None = None,
     ) -> dict[UUID, Mapping[str, JsonValue]]:
         """Unified interface for retrieving complete Spotify track data (TrackMetadataConnector protocol).
 
         Extracts Spotify IDs from Track objects and returns complete Spotify track objects
         keyed by track.id. This standardizes the interface across all connectors.
+
+        Forwards progress_callback to ``_operations.get_tracks_by_ids`` so
+        per-track progress fires as concurrent Spotify requests resolve.
         """
         # Extract Spotify IDs from tracks that have them
         spotify_mapped = [
@@ -119,7 +122,9 @@ class SpotifyConnector(BaseAPIConnector):
 
         # Get spotify IDs and call existing bulk method
         spotify_ids = [sid for _, sid in spotify_mapped if sid is not None]
-        raw_metadata = await self._operations.get_tracks_by_ids(spotify_ids)
+        raw_metadata = await self._operations.get_tracks_by_ids(
+            spotify_ids, progress_callback=progress_callback
+        )
 
         # Map back to track.id format expected by the protocol
         return {

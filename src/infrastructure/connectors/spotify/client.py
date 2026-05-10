@@ -11,6 +11,7 @@ Key components:
 """
 
 import asyncio
+from collections.abc import Awaitable, Callable
 from typing import ClassVar, cast, override
 
 from attrs import define, field
@@ -125,7 +126,9 @@ class SpotifyAPIClient(BaseAPIClient):
         return parse_json_response(response)
 
     async def get_tracks_concurrent(
-        self, track_ids: list[str]
+        self,
+        track_ids: list[str],
+        progress_callback: Callable[[int, int, str], Awaitable[None]] | None = None,
     ) -> dict[str, SpotifyTrack]:
         """Fetch multiple tracks concurrently with structured concurrency.
 
@@ -135,14 +138,22 @@ class SpotifyAPIClient(BaseAPIClient):
         Returns a dict keyed by REQUESTED ID, not the returned track's .id field.
         This distinction matters when Spotify redirects old IDs to new ones —
         the caller needs to find the result using the ID they asked about.
+
+        If progress_callback is provided, it is awaited after each track
+        request completes (success or failure) with (completed, total,
+        message). Single-event-loop concurrency means the callback's
+        closure state is safe under concurrent invocations.
         """
         if not track_ids:
             return {}
 
         semaphore = asyncio.Semaphore(settings.api.spotify.concurrency)
         results: dict[str, SpotifyTrack] = {}
+        total = len(track_ids)
+        completed = 0
 
         async def _fetch_one(tid: str) -> None:
+            nonlocal completed
             async with semaphore:
                 try:
                     track = await self.get_track(tid)
@@ -152,6 +163,13 @@ class SpotifyAPIClient(BaseAPIClient):
                         logger.warning(f"Failed to fetch track {tid}")
                 except Exception as e:
                     logger.warning(f"Failed to fetch track {tid}: {e}")
+            completed += 1
+            if progress_callback is not None:
+                await progress_callback(
+                    completed,
+                    total,
+                    f"Fetched {completed}/{total} from Spotify",
+                )
 
         async with asyncio.TaskGroup() as tg:
             for tid in track_ids:

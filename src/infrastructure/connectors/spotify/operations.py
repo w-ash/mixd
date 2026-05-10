@@ -106,19 +106,28 @@ class SpotifyOperations:
 
     # Bulk Track Operations
 
-    async def get_tracks_by_ids(self, track_ids: list[str]) -> dict[str, SpotifyTrack]:
+    async def get_tracks_by_ids(
+        self,
+        track_ids: list[str],
+        progress_callback: Callable[[int, int, str], Awaitable[None]] | None = None,
+    ) -> dict[str, SpotifyTrack]:
         """Fetch multiple tracks from Spotify using concurrent individual fetches.
 
         Returns dict keyed by REQUESTED ID. When Spotify redirects an old ID
         to a new one (track.id != requested_id), the result is still keyed by
         the requested ID so callers can find their results.
+
+        progress_callback is forwarded to ``client.get_tracks_concurrent``
+        and invoked once per completed request.
         """
         if early_return := validate_non_empty(track_ids, {}):
             return early_return
 
         logger.info(f"Fetching {len(track_ids)} tracks concurrently")
 
-        results = await self.client.get_tracks_concurrent(track_ids)
+        results = await self.client.get_tracks_concurrent(
+            track_ids, progress_callback=progress_callback
+        )
 
         logger.info(f"Retrieved {len(results)}/{len(track_ids)} tracks")
         return results

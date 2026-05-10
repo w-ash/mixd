@@ -108,6 +108,61 @@ class TestGetTracksConcurrent:
         assert len(result) == 1
         assert "aaa" in result
 
+    async def test_progress_callback_fires_per_request(self):
+        """progress_callback is awaited once per completed request with rising counts."""
+        from src.infrastructure.connectors.spotify.client import SpotifyAPIClient
+
+        track_a = make_spotify_track("aaa", "Song A")
+        track_b = make_spotify_track("bbb", "Song B")
+        mock_get_track = AsyncMock(side_effect=[track_a, track_b])
+
+        progress_calls: list[tuple[int, int, str]] = []
+
+        async def cb(current: int, total: int, message: str) -> None:
+            progress_calls.append((current, total, message))
+
+        with patch.object(SpotifyAPIClient, "__attrs_post_init__"):
+            with patch.object(SpotifyAPIClient, "get_track", mock_get_track):
+                client = SpotifyAPIClient()
+                with patch(
+                    "src.infrastructure.connectors.spotify.client.settings"
+                ) as mock_settings:
+                    mock_settings.api.spotify.concurrency = 5
+                    await client.get_tracks_concurrent(
+                        ["aaa", "bbb"], progress_callback=cb
+                    )
+
+        # One callback invocation per requested track (success or failure).
+        # Order is non-deterministic under TaskGroup; counts must be 1, 2.
+        assert len(progress_calls) == 2
+        currents = sorted(c for c, _, _ in progress_calls)
+        assert currents == [1, 2]
+        assert all(t == 2 for _, t, _ in progress_calls)
+        assert all("Spotify" in msg for _, _, msg in progress_calls)
+
+    async def test_progress_callback_fires_for_failures_too(self):
+        """A failed fetch still increments the completed counter."""
+        from src.infrastructure.connectors.spotify.client import SpotifyAPIClient
+
+        mock_get_track = AsyncMock(side_effect=[None, None])
+        progress_calls: list[tuple[int, int, str]] = []
+
+        async def cb(current: int, total: int, message: str) -> None:
+            progress_calls.append((current, total, message))
+
+        with patch.object(SpotifyAPIClient, "__attrs_post_init__"):
+            with patch.object(SpotifyAPIClient, "get_track", mock_get_track):
+                client = SpotifyAPIClient()
+                with patch(
+                    "src.infrastructure.connectors.spotify.client.settings"
+                ) as mock_settings:
+                    mock_settings.api.spotify.concurrency = 5
+                    await client.get_tracks_concurrent(
+                        ["aaa", "bbb"], progress_callback=cb
+                    )
+
+        assert len(progress_calls) == 2
+
     async def test_get_tracks_concurrent_keys_by_requested_id(self):
         """When Spotify returns a track with different .id, dict keys by REQUESTED id."""
         from src.infrastructure.connectors.spotify.client import SpotifyAPIClient
