@@ -247,3 +247,40 @@ class TestWorkflowExport:
 
             assert result.exit_code == 0
             assert (nested / "my_mix.json").exists()
+
+
+class TestWorkflowSeedPersonal:
+    """Tests for the seed-personal CLI command."""
+
+    def test_seed_personal_table_output(self):
+        with patch(
+            "src.interface.cli.workflow_commands.run_async",
+            return_value=3,
+        ):
+            result = runner.invoke(app, ["workflow", "seed-personal"])
+
+            assert result.exit_code == 0
+            assert "Seeded" in result.output
+            assert "3" in result.output
+
+    def test_seed_personal_json_output(self):
+        with patch(
+            "src.interface.cli.workflow_commands.run_async",
+            return_value=2,
+        ):
+            result = runner.invoke(
+                app, ["workflow", "seed-personal", "--format", "json"]
+            )
+
+            assert result.exit_code == 0
+            assert '"seeded": 2' in result.output
+
+    def test_seed_personal_zero_count(self):
+        with patch(
+            "src.interface.cli.workflow_commands.run_async",
+            return_value=0,
+        ):
+            result = runner.invoke(app, ["workflow", "seed-personal"])
+
+            assert result.exit_code == 0
+            assert "0" in result.output

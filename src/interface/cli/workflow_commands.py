@@ -394,6 +394,50 @@ def delete(
     )
 
 
+@app.command(name="seed-personal")
+def seed_personal(
+    output_format: Annotated[
+        Literal["table", "json"], typer.Option("--format", "-f")
+    ] = "table",
+) -> None:
+    """Re-seed personal workflows from `definitions/personal/`.
+
+    Imports the bundled personal workflow JSONs as user-owned, runnable
+    (non-template) workflows for the current CLI user. Idempotent — re-running
+    after a database reset restores the same set without duplicating rows.
+    """
+
+    user_id = get_cli_user_id()
+
+    async def _seed() -> int:
+        from src.application.runner import execute_use_case
+        from src.application.services.personal_workflow_seeder import (
+            seed_personal_workflows,
+        )
+        from src.interface.cli.db_bootstrap import ensure_cli_db_ready
+
+        await ensure_cli_db_ready()
+        return await execute_use_case(
+            lambda uow: seed_personal_workflows(uow, user_id),
+            user_id=user_id,
+        )
+
+    try:
+        count = run_async(_seed())
+    except Exception as e:
+        handle_cli_error(e, "Failed to seed personal workflows")
+
+    if output_format == "json":
+        import json
+
+        print(json.dumps({"seeded": count}, indent=2))
+    else:
+        console.print(
+            f"[green]Seeded[/green] [bold]{count}[/bold] personal workflow(s) "
+            f"for user [cyan]{user_id}[/cyan]"
+        )
+
+
 @app.command()
 def export(
     all_workflows: Annotated[
