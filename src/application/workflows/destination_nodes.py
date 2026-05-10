@@ -118,9 +118,13 @@ async def create_playlist(
         }
         return await update_playlist(context, update_config)
 
+    track_count = len(tracklist.tracks)
+
     if connector := cfg_str_or_none(config, "connector"):
         await ctx.emit_phase_progress(
-            "sync", "destination", f"Creating playlist on {connector}"
+            "sync",
+            "destination",
+            f"Creating playlist on {connector} with {track_count} tracks",
         )
 
         # Create on both canonical and connector
@@ -136,16 +140,28 @@ async def create_playlist(
             workflow_context.use_cases.get_create_connector_playlist_use_case, command
         )
 
+        await ctx.emit_phase_progress(
+            "sync",
+            "destination",
+            f"Saved playlist '{result.playlist.name}' to {connector}",
+        )
+
         logger.info(
             "create_playlist complete",
             connector=connector,
             playlist_id=result.playlist.id,
             playlist_name=result.playlist.name,
             external_playlist_id=result.external_playlist_id,
-            track_count=len(tracklist.tracks),
+            track_count=track_count,
         )
         return {"tracklist": tracklist}
-    # Create canonical only
+
+    # Canonical-only path — no connector roundtrip, just a DB insert.
+    await ctx.emit_phase_progress(
+        "sync",
+        "destination",
+        f"Creating canonical playlist with {track_count} tracks",
+    )
     command = CreateCanonicalPlaylistCommand(
         user_id=workflow_context.user_id,
         name=playlist_name,
