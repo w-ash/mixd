@@ -17,6 +17,7 @@ restart also resolves runs orphaned by prior process kills.
 
 import asyncio
 from datetime import UTC, datetime
+import pathlib
 from typing import Final
 
 from src.application.runner import execute_use_case
@@ -24,6 +25,23 @@ from src.config.constants import WorkflowConstants
 from src.config.logging import get_logger
 from src.domain.entities.workflow import WorkflowRun
 from src.domain.repositories.interfaces import UnitOfWorkProtocol
+
+
+def _read_rss_kb() -> int | None:
+    """Read process RSS in KB from ``/proc/self/status``. Linux-only; returns
+    ``None`` on macOS/dev. Used to attach a memory snapshot when the sweeper
+    classifies a run as stalled, so we can correlate stalls with RSS pressure
+    on the Fly machine.
+    """
+    try:
+        with pathlib.Path("/proc/self/status").open(encoding="utf-8") as f:
+            for line in f:
+                if line.startswith("VmRSS:"):
+                    return int(line.split()[1])
+    except OSError, ValueError:
+        return None
+    return None
+
 
 logger = get_logger(__name__).bind(service="workflow_run_sweeper")
 
@@ -74,6 +92,12 @@ async def sweep_stalled_runs(
                 duration_ms = int((now - run.started_at).total_seconds() * 1000)
             reason = _classify_stall(run)
 
+            # Snapshot live asyncio tasks + process RSS at the moment of the
+            # kill — these answer "what was stuck?" and "was memory tight?"
+            # for the next post-mortem.
+            live_tasks = sorted(t.get_name() for t in asyncio.all_tasks())
+            rss_kb = _read_rss_kb()
+
             try:
                 await repo.update_run_status(
                     run.id,
@@ -90,6 +114,8 @@ async def sweep_stalled_runs(
                     reason=reason,
                     started_at=_iso(run.started_at),
                     heartbeat_at=_iso(run.heartbeat_at),
+                    live_tasks=live_tasks,
+                    rss_kb=rss_kb,
                 )
             except Exception:
                 logger.warning(

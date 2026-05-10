@@ -320,12 +320,14 @@ class ExecuteWorkflowRunUseCase:
                     update_node_status=self.update_node_status,
                     sse_queue=sse_queue,
                 )
+                logger.info("Calling run_workflow @flow", run_id=str(run_id))
                 result = await run_workflow(
                     workflow_def,
                     progress_manager=progress_manager,
                     observer=observer,
                     user_id=user_id,
                 )
+                logger.info("run_workflow @flow returned", run_id=str(run_id))
 
                 # 3. Check for observer degradation (DB persistence failures)
                 if observer.persist_failure_count > 0:

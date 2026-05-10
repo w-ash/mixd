@@ -487,6 +487,7 @@ async def _bump_heartbeat(run_id: UUID) -> None:
     """
     try:
         async with _run_repo_session() as repo:
+            logger.info("Heartbeat session opened", run_id=str(run_id))
             await repo.bump_heartbeat(run_id)
     except Exception:
         logger.warning("Heartbeat bump failed", run_id=str(run_id), exc_info=True)
@@ -500,6 +501,7 @@ async def _heartbeat_loop(run_id: UUID, *, interval_seconds: int = 5) -> None:
     the next bump catches up — the sweeper threshold (60s) is comfortably
     larger than the interval.
     """
+    logger.info("Heartbeat first bump attempt", run_id=str(run_id))
     # Bump immediately so cold-start hangs are detectable as fast as
     # the ticker is alive at all (vs. waiting `interval_seconds` first).
     await _bump_heartbeat(run_id)
@@ -550,9 +552,16 @@ async def _execute_workflow_background(
     to ``ExecuteWorkflowRunUseCase`` in the application layer. This function
     only handles SSE event emission and cleanup.
     """
+    logger.info(
+        "BG task entered",
+        run_id=str(run_id),
+        operation_id=operation_id,
+        workflow_id=workflow_def.id,
+    )
     heartbeat_task = asyncio.create_task(
         _heartbeat_loop(run_id), name=f"workflow_heartbeat_{run_id}"
     )
+    logger.info("Heartbeat task scheduled", run_id=str(run_id))
     try:
         use_case = ExecuteWorkflowRunUseCase(
             update_run_status=_update_run_status,

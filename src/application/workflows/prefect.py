@@ -592,6 +592,12 @@ async def run_workflow(
         Structured operation result with final tracks and aggregated metrics.
     """
 
+    logger.info(
+        "run_workflow entered",
+        workflow_id=workflow_def.id,
+        workflow_name=workflow_def.name,
+    )
+
     global _registry_validated
     if not _registry_validated:
         from .registry_validation import validate_registry
