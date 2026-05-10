@@ -322,3 +322,109 @@ class TestCascadeDelete:
         # Run should be gone
         with pytest.raises(NotFoundError):
             await run_repo.get_run_by_id(run.id)
+
+
+class TestHeartbeatAndStaleSweep:
+    """Heartbeat bumps and stalled-run discovery for the sweeper."""
+
+    async def test_bump_heartbeat_sets_timestamp(self, db_session) -> None:
+        from datetime import timedelta
+
+        workflow = await _create_workflow(db_session)
+        repo = WorkflowRunRepository(db_session)
+
+        before = await repo.create_run(_make_run(workflow.id, status="running"))
+        assert before.heartbeat_at is None
+
+        await repo.bump_heartbeat(before.id)
+        await db_session.flush()
+        after = await repo.get_run_by_id(before.id)
+
+        assert after.heartbeat_at is not None
+        assert after.heartbeat_at > datetime.now(UTC) - timedelta(seconds=5)
+
+    async def test_list_stalled_runs_excludes_recent_heartbeat(
+        self, db_session
+    ) -> None:
+        from datetime import timedelta
+
+        workflow = await _create_workflow(db_session)
+        repo = WorkflowRunRepository(db_session)
+
+        # Create one run, set started_at well in the past, bump heartbeat to now
+        run = await repo.create_run(_make_run(workflow.id, status="running"))
+        await repo.update_run_status(
+            run.id,
+            "running",
+            started_at=datetime.now(UTC) - timedelta(seconds=600),
+        )
+        await repo.bump_heartbeat(run.id)
+        await db_session.flush()
+
+        stalled = await repo.list_stalled_runs(stale_threshold_seconds=60)
+        assert run.id not in [r.id for r in stalled]
+
+    async def test_list_stalled_runs_finds_cold_start_and_silent_runs(
+        self, db_session
+    ) -> None:
+        from datetime import timedelta
+
+        workflow = await _create_workflow(db_session)
+        repo = WorkflowRunRepository(db_session)
+
+        # Cold-start: started 5min ago, heartbeat NEVER set
+        cold = await repo.create_run(_make_run(workflow.id, status="running"))
+        await repo.update_run_status(
+            cold.id,
+            "running",
+            started_at=datetime.now(UTC) - timedelta(seconds=300),
+        )
+
+        # Silent: started 10min ago, heartbeat is also stale
+        silent = await repo.create_run(_make_run(workflow.id, status="running"))
+        await repo.update_run_status(
+            silent.id,
+            "running",
+            started_at=datetime.now(UTC) - timedelta(seconds=600),
+        )
+        await repo.bump_heartbeat(silent.id)
+        # Force the heartbeat back in time via raw SQL — bump always uses now()
+        from sqlalchemy import text
+
+        await db_session.execute(
+            text("UPDATE workflow_runs SET heartbeat_at = :stale WHERE id = :id"),
+            {
+                "stale": datetime.now(UTC) - timedelta(seconds=300),
+                "id": silent.id,
+            },
+        )
+        await db_session.flush()
+
+        stalled = await repo.list_stalled_runs(stale_threshold_seconds=60)
+        ids = {r.id for r in stalled}
+        assert cold.id in ids
+        assert silent.id in ids
+
+        # Confirm the classifier inputs are right
+        cold_row = next(r for r in stalled if r.id == cold.id)
+        assert cold_row.heartbeat_at is None
+        silent_row = next(r for r in stalled if r.id == silent.id)
+        assert silent_row.heartbeat_at is not None
+
+    async def test_list_stalled_runs_skips_completed(self, db_session) -> None:
+        from datetime import timedelta
+
+        workflow = await _create_workflow(db_session)
+        repo = WorkflowRunRepository(db_session)
+
+        completed = await repo.create_run(_make_run(workflow.id, status="completed"))
+        await repo.update_run_status(
+            completed.id,
+            "completed",
+            started_at=datetime.now(UTC) - timedelta(seconds=600),
+            completed_at=datetime.now(UTC) - timedelta(seconds=500),
+        )
+        await db_session.flush()
+
+        stalled = await repo.list_stalled_runs(stale_threshold_seconds=60)
+        assert completed.id not in [r.id for r in stalled]

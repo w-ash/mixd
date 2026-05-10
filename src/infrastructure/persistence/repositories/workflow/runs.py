@@ -3,10 +3,10 @@
 # pyright: reportAttributeAccessIssue=false, reportUnknownMemberType=false
 # Legitimate: CursorResult.rowcount is valid but invisible to pyright through generic Result[Any]
 
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 from uuid import UUID
 
-from sqlalchemy import func, select, update
+from sqlalchemy import func, or_, select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
@@ -47,6 +47,54 @@ class WorkflowRunRepository:
         await self.session.flush()
         await self.session.refresh(db_run, attribute_names=["nodes"])
         return self.mapper.to_domain(db_run, include_nodes=True)
+
+    @db_operation("bump_heartbeat")
+    async def bump_heartbeat(self, run_id: UUID) -> None:
+        """Set ``heartbeat_at = now()`` for a run.
+
+        Called periodically by the workflow's heartbeat ticker so the sweeper
+        can distinguish active runs from orphans. Silently no-ops if the row
+        is missing — heartbeats can race with completion.
+        """
+        await self.session.execute(
+            update(DBWorkflowRun)
+            .where(DBWorkflowRun.id == run_id)
+            .values(heartbeat_at=datetime.now(UTC))
+        )
+
+    @db_operation("list_stalled_runs")
+    async def list_stalled_runs(
+        self, *, stale_threshold_seconds: int
+    ) -> list[WorkflowRun]:
+        """Find runs whose heartbeat has gone silent past the threshold.
+
+        Returns rows where ``status='running'`` AND either:
+        - ``heartbeat_at IS NULL AND started_at < now() - threshold`` — cold-start
+          hang: the workflow runner never began executing tasks.
+        - ``heartbeat_at < now() - threshold`` — stalled mid-execution.
+
+        Callers distinguish the two cases by checking ``run.heartbeat_at`` to
+        produce appropriate ``error_message`` text.
+        """
+        threshold = datetime.now(UTC) - timedelta(seconds=stale_threshold_seconds)
+        stmt = (
+            select(DBWorkflowRun)
+            .where(
+                DBWorkflowRun.status == "running",
+                DBWorkflowRun.started_at < threshold,
+                or_(
+                    DBWorkflowRun.heartbeat_at.is_(None),
+                    DBWorkflowRun.heartbeat_at < threshold,
+                ),
+            )
+            .order_by(DBWorkflowRun.started_at.asc())
+        )
+        result = await self.session.execute(stmt)
+        db_runs = list(result.scalars().all())
+        return [
+            self.mapper.to_domain(r, include_nodes=False, include_definition=False)
+            for r in db_runs
+        ]
 
     @db_operation("update_run_status")
     async def update_run_status(

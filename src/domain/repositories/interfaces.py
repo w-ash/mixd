@@ -1246,6 +1246,16 @@ class WorkflowRunRepositoryProtocol(Protocol):
         """Update run status and optional completion fields."""
         ...
 
+    def bump_heartbeat(self, run_id: UUID) -> Awaitable[None]:
+        """Set ``heartbeat_at = now()`` for a run. Used by liveness ticker."""
+        ...
+
+    def list_stalled_runs(
+        self, *, stale_threshold_seconds: int
+    ) -> Awaitable[list[WorkflowRun]]:
+        """Return ``status='running'`` runs whose heartbeat is older than the threshold."""
+        ...
+
     def save_node_record(self, node: WorkflowRunNode) -> Awaitable[WorkflowRunNode]:
         """Persist a new node execution record."""
         ...

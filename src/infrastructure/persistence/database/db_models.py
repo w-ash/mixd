@@ -804,6 +804,7 @@ class DBWorkflowRun(DatabaseModel, TimestampMixin):
     definition_version: Mapped[int] = mapped_column(default=1)
     started_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     completed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    heartbeat_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     duration_ms: Mapped[int | None]
     output_track_count: Mapped[int | None]
     output_playlist_id: Mapped[UuidType | None] = mapped_column(

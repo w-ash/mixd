@@ -82,6 +82,7 @@ class WorkflowRunMapper:
             definition_version=db.definition_version,
             started_at=db.started_at,
             completed_at=db.completed_at,
+            heartbeat_at=db.heartbeat_at,
             duration_ms=db.duration_ms,
             output_track_count=db.output_track_count,
             output_playlist_id=db.output_playlist_id,

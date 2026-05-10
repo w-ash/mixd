@@ -222,6 +222,7 @@ class WorkflowRun:
     definition_version: int = 1
     started_at: datetime | None = None
     completed_at: datetime | None = None
+    heartbeat_at: datetime | None = None
     duration_ms: int | None = None
     output_track_count: int | None = None
     output_playlist_id: UUID | None = None

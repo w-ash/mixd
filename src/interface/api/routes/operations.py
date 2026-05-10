@@ -4,9 +4,10 @@ Provides real-time progress streaming via Server-Sent Events and
 snapshot endpoints for querying operation state.
 """
 
+import asyncio
 from collections.abc import AsyncGenerator
 import contextlib
-from typing import Annotated, cast
+from typing import Annotated, Final, cast
 
 from fastapi import APIRouter, Depends, Request
 from fastapi.sse import EventSourceResponse, ServerSentEvent
@@ -21,6 +22,11 @@ from src.interface.api.services.progress import (
 logger = get_logger(__name__).bind(service="operations_api")
 
 router = APIRouter(prefix="/operations", tags=["operations"])
+
+# Server-side SSE keepalive interval. Beats Fly/Cloudflare proxy idle
+# timeouts (~60s) and gives the client a "still alive" signal that's
+# independent of workflow event emission cadence.
+_SSE_KEEPALIVE_INTERVAL_SECONDS: Final = 15
 
 
 async def _require_queue(operation_id: str) -> str:
@@ -65,7 +71,15 @@ async def stream_operation_progress(
             logger.debug("SSE client disconnected", operation_id=operation_id)
             break
 
-        raw = await queue.get()
+        try:
+            raw = await asyncio.wait_for(
+                queue.get(), timeout=_SSE_KEEPALIVE_INTERVAL_SECONDS
+            )
+        except TimeoutError:
+            # Comment frame: keeps the connection alive without delivering
+            # an event. EventSource clients ignore lines starting with ":".
+            yield ServerSentEvent(comment="keepalive")
+            continue
 
         if raw is SSE_SENTINEL:
             break

@@ -452,6 +452,35 @@ async def _update_run_status(
         await repo.update_run_status(run_id, status, **kwargs)
 
 
+async def _bump_heartbeat(run_id: UUID) -> None:
+    """Bump ``heartbeat_at`` on a run so the sweeper sees liveness.
+
+    Suppresses errors — heartbeats are advisory; a transient DB blip during
+    a tick mustn't crash the workflow.
+    """
+    try:
+        async with _run_repo_session() as repo:
+            await repo.bump_heartbeat(run_id)
+    except Exception:
+        logger.warning("Heartbeat bump failed", run_id=str(run_id), exc_info=True)
+
+
+async def _heartbeat_loop(run_id: UUID, *, interval_seconds: int = 5) -> None:
+    """Periodic ticker bumping ``heartbeat_at`` while a workflow runs.
+
+    Cancellation by the foreground task is the normal exit path. Each tick
+    is independent so a missed bump (DB blip, brief loop block) just means
+    the next bump catches up — the sweeper threshold (60s) is comfortably
+    larger than the interval.
+    """
+    # Bump immediately so cold-start hangs are detectable as fast as
+    # the ticker is alive at all (vs. waiting `interval_seconds` first).
+    await _bump_heartbeat(run_id)
+    while True:
+        await asyncio.sleep(interval_seconds)
+        await _bump_heartbeat(run_id)
+
+
 async def _update_node_status(
     run_id: UUID,
     node_id: str,
@@ -494,6 +523,9 @@ async def _execute_workflow_background(
     to ``ExecuteWorkflowRunUseCase`` in the application layer. This function
     only handles SSE event emission and cleanup.
     """
+    heartbeat_task = asyncio.create_task(
+        _heartbeat_loop(run_id), name=f"workflow_heartbeat_{run_id}"
+    )
     try:
         use_case = ExecuteWorkflowRunUseCase(
             update_run_status=_update_run_status,
@@ -546,6 +578,9 @@ async def _execute_workflow_background(
             )
 
     finally:
+        heartbeat_task.cancel()
+        with contextlib.suppress(asyncio.CancelledError, Exception):
+            await heartbeat_task
         await finalize_sse_operation(operation_id)
 
 
