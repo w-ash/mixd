@@ -70,7 +70,7 @@ primary_region = 'sjc'
     path = '/api/v1/health'
 
 [[vm]]
-  size = 'shared-cpu-1x'
-  memory = '512mb'
-  cpus = 1
-  memory_mb = 512
+  size = 'shared-cpu-2x'
+  memory = '1gb'
+  cpus = 2
+  memory_mb = 1024
