@@ -12,8 +12,19 @@ from typing import Annotated, Final, cast
 from fastapi import APIRouter, Depends, Request
 from fastapi.sse import EventSourceResponse, ServerSentEvent
 
+from src.application.runner import execute_use_case
+from src.application.use_cases.get_operation_snapshot import (
+    GetOperationSnapshotCommand,
+    GetOperationSnapshotUseCase,
+    is_terminal_status,
+)
 from src.config import get_logger
 from src.domain.exceptions import NotFoundError
+from src.interface.api.deps import get_current_user_id
+from src.interface.api.schemas.operations import (
+    OperationSnapshotNodeSchema,
+    OperationSnapshotResponse,
+)
 from src.interface.api.services.progress import (
     SSE_SENTINEL,
     get_operation_registry,
@@ -113,3 +124,56 @@ async def list_active_operations() -> dict[str, list[str]]:
     registry = get_operation_registry()
     ids = await registry.get_active_operation_ids()
     return {"operation_ids": ids}
+
+
+@router.get("/{operation_id}/snapshot")
+async def get_operation_snapshot(
+    operation_id: str,
+    user_id: str = Depends(get_current_user_id),
+) -> OperationSnapshotResponse:
+    """Persisted-state snapshot for an operation_id.
+
+    Used by the frontend's watchdog (45 s without any SSE frame) to
+    recover terminal state from the DB. Sweeper-marked-failed runs
+    return ``is_terminal=true`` here even when the terminal SSE event
+    was never delivered.
+
+    404 if the operation_id has no matching run row, or if the calling
+    user doesn't own the workflow that produced it. Authorization is
+    enforced inside the use case via the workflow lookup.
+    """
+    command = GetOperationSnapshotCommand(user_id=user_id, operation_id=operation_id)
+    result = await execute_use_case(
+        lambda uow: GetOperationSnapshotUseCase().execute(command, uow),
+        user_id=user_id,
+    )
+    run = result.run
+
+    return OperationSnapshotResponse(
+        operation_id=operation_id,
+        run_id=str(run.id),
+        workflow_id=str(run.workflow_id),
+        status=run.status,
+        is_terminal=is_terminal_status(run.status),
+        error_message=run.error_message,
+        heartbeat_at=run.heartbeat_at,
+        started_at=run.started_at,
+        completed_at=run.completed_at,
+        output_track_count=run.output_track_count,
+        duration_ms=run.duration_ms,
+        nodes=[
+            OperationSnapshotNodeSchema(
+                node_id=n.node_id,
+                node_type=n.node_type,
+                status=n.status,
+                execution_order=n.execution_order,
+                duration_ms=n.duration_ms,
+                input_track_count=n.input_track_count,
+                output_track_count=n.output_track_count,
+                error_message=n.error_message,
+                started_at=n.started_at,
+                completed_at=n.completed_at,
+            )
+            for n in run.nodes
+        ],
+    )

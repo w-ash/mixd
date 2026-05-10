@@ -302,17 +302,28 @@ async def run_workflow_endpoint(
     user_id: str = Depends(get_current_user_id),
 ) -> WorkflowRunStartedResponse:
     """Start a workflow execution. Returns immediately with operation_id + run_id."""
-    # 1. Create run record (PENDING) + check execution guard
-    command = RunWorkflowCommand(user_id=user_id, workflow_id=workflow_id)
-    result = await execute_use_case(
-        lambda uow: RunWorkflowUseCase().execute(command, uow),
-        user_id=user_id,
-    )
+    # 1. Allocate operation_id + SSE queue first so the run row can persist
+    # the operation_id. The snapshot endpoint resolves operation_id -> run
+    # via the DB, so the link must exist from the moment the run is created.
+    operation_id, sse_queue = await prepare_sse_operation()
+
+    try:
+        # 2. Create run record (PENDING) + check execution guard, with operation_id
+        command = RunWorkflowCommand(
+            user_id=user_id, workflow_id=workflow_id, operation_id=operation_id
+        )
+        result = await execute_use_case(
+            lambda uow: RunWorkflowUseCase().execute(command, uow),
+            user_id=user_id,
+        )
+    except Exception:
+        # Use case failed (e.g., 409 already-running). Tear down the SSE
+        # queue we just registered so it doesn't leak.
+        await finalize_sse_operation(operation_id)
+        raise
+
     run_id = result.run_id
     workflow = result.workflow
-
-    # 2. Register SSE queue
-    operation_id, sse_queue = await prepare_sse_operation()
 
     # 3. Push run_accepted before launching the bg task. The queue buffers,
     # so even if Prefect cold-starts for 20+ s the SSE consumer sees activity

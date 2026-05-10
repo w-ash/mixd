@@ -164,6 +164,41 @@ class TestListWorkflowRuns:
         assert response.status_code == 404
 
 
+class TestOperationSnapshotEndpoint:
+    """GET /operations/{operation_id}/snapshot — REST fallback for SSE stalls."""
+
+    async def test_snapshot_returns_run_state(self, client: httpx.AsyncClient) -> None:
+        """A POST /run lets us fetch the snapshot for that operation_id."""
+        wf_id = await _create_workflow(client)
+
+        run_resp = await client.post(f"/api/v1/workflows/{wf_id}/run")
+        body = run_resp.json()
+        operation_id = body["operation_id"]
+        run_id = body["run_id"]
+
+        snap_resp = await client.get(f"/api/v1/operations/{operation_id}/snapshot")
+        assert snap_resp.status_code == 200
+        snap = snap_resp.json()
+
+        assert snap["operation_id"] == operation_id
+        assert snap["run_id"] == run_id
+        assert snap["status"] == "pending"
+        assert snap["is_terminal"] is False
+        assert "nodes" in snap
+        assert isinstance(snap["nodes"], list)
+        # Pre-created node records exist for every task in the definition.
+        assert len(snap["nodes"]) >= 1
+
+    async def test_snapshot_404_for_unknown_operation(
+        self, client: httpx.AsyncClient
+    ) -> None:
+        from uuid import uuid4
+
+        response = await client.get(f"/api/v1/operations/{uuid4()}/snapshot")
+
+        assert response.status_code == 404
+
+
 class TestGetWorkflowRun:
     """GET /workflows/{id}/runs/{run_id} — run detail with nodes."""
 

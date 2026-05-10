@@ -232,6 +232,25 @@ class WorkflowRunRepository:
             raise NotFoundError(f"Workflow run {run_id} not found")
         return self.mapper.to_domain(db_run, include_nodes=True)
 
+    @db_operation("get_run_by_operation_id")
+    async def get_run_by_operation_id(self, operation_id: str) -> WorkflowRun | None:
+        """Resolve an SSE operation_id to its run row, or None if unknown.
+
+        Returns None (not raising) when the operation_id has no matching
+        row — the snapshot endpoint maps that to a 404. Pre-migration
+        rows have NULL operation_id so they never match.
+        """
+        stmt = (
+            select(DBWorkflowRun)
+            .where(DBWorkflowRun.operation_id == operation_id)
+            .options(selectinload(DBWorkflowRun.nodes))
+        )
+        result = await self.session.execute(stmt)
+        db_run = result.scalar_one_or_none()
+        if db_run is None:
+            return None
+        return self.mapper.to_domain(db_run, include_nodes=True)
+
     @db_operation("get_latest_run_for_workflow")
     async def get_latest_run_for_workflow(
         self, workflow_id: UUID

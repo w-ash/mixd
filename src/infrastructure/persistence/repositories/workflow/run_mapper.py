@@ -77,6 +77,7 @@ class WorkflowRunMapper:
         return WorkflowRun(
             id=db.id,
             workflow_id=db.workflow_id,
+            operation_id=db.operation_id,
             status=cast(RunStatus, db.status),
             definition_snapshot=definition,
             definition_version=db.definition_version,
@@ -97,6 +98,7 @@ class WorkflowRunMapper:
         definition_dict = attrs.asdict(run.definition_snapshot)
         return DBWorkflowRun(
             workflow_id=run.workflow_id,
+            operation_id=run.operation_id,
             status=run.status,
             definition_snapshot=definition_dict,
             definition_version=run.definition_version,

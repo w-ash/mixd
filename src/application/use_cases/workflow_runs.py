@@ -89,6 +89,7 @@ def serialize_output_tracks(
 class RunWorkflowCommand:
     user_id: str
     workflow_id: UUID
+    operation_id: str | None = None
 
 
 @define(frozen=True, slots=True)
@@ -132,6 +133,7 @@ class RunWorkflowUseCase:
 
             run = WorkflowRun(
                 workflow_id=workflow.id,
+                operation_id=command.operation_id,
                 status=WorkflowConstants.RUN_STATUS_PENDING,
                 definition_snapshot=definition_snapshot,
                 definition_version=workflow.definition_version,

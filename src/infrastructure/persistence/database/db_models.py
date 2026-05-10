@@ -799,6 +799,15 @@ class DBWorkflowRun(DatabaseModel, TimestampMixin):
         PgUuidCol(as_uuid=True),
         ForeignKey("workflows.id", ondelete="CASCADE"),
     )
+    # SSE registry's queue key. Lets the snapshot endpoint resolve
+    # operation_id -> run row without the in-memory registry, so a
+    # restarted Fly machine still answers /operations/{id}/snapshot.
+    operation_id: Mapped[str | None] = mapped_column(
+        String(36),
+        unique=True,
+        index=True,
+        nullable=True,
+    )
     status: Mapped[str] = mapped_column(String(20), nullable=False, default="pending")
     definition_snapshot: Mapped[JsonDict] = mapped_column(PgJsonb, nullable=False)
     definition_version: Mapped[int] = mapped_column(default=1)

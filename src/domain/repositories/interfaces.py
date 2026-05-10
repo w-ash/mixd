@@ -1286,6 +1286,12 @@ class WorkflowRunRepositoryProtocol(Protocol):
         """Get a single run with all node records loaded."""
         ...
 
+    def get_run_by_operation_id(
+        self, operation_id: str
+    ) -> Awaitable[WorkflowRun | None]:
+        """Resolve an SSE operation_id to its run row, or None if unknown."""
+        ...
+
     def get_latest_run_for_workflow(
         self, workflow_id: UUID
     ) -> Awaitable[WorkflowRun | None]:

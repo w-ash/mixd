@@ -215,6 +215,7 @@ class WorkflowRun:
 
     id: UUID = field(factory=uuid7)
     workflow_id: UUID = field(factory=uuid7)
+    operation_id: str | None = None
     status: RunStatus = "pending"
     definition_snapshot: WorkflowDef = field(
         factory=lambda: WorkflowDef(id="", name="")
