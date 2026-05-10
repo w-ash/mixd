@@ -3,7 +3,7 @@
  * Do not edit manually.
  * Mixd
  * Personal music metadata hub
- * OpenAPI spec version: 0.7.8.6
+ * OpenAPI spec version: 0.7.8.7
  */
 import type { ImportLastfmHistoryRequestMode } from './importLastfmHistoryRequestMode';
 

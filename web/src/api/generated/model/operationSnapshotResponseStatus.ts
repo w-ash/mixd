@@ -6,10 +6,10 @@
  * OpenAPI spec version: 0.7.8.7
  */
 
-export type WorkflowRunSummarySchemaStatus = typeof WorkflowRunSummarySchemaStatus[keyof typeof WorkflowRunSummarySchemaStatus];
+export type OperationSnapshotResponseStatus = typeof OperationSnapshotResponseStatus[keyof typeof OperationSnapshotResponseStatus];
 
 
-export const WorkflowRunSummarySchemaStatus = {
+export const OperationSnapshotResponseStatus = {
   pending: 'pending',
   running: 'running',
   completed: 'completed',

@@ -39,10 +39,9 @@ function createWrapper() {
 
 const sampleSnapshot: OperationSnapshot = {
   operation_id: "op-1",
-  run_id: "run-1",
+  id: "run-1",
   workflow_id: "wf-1",
   status: "running",
-  is_terminal: false,
   nodes: [
     {
       node_id: "n1",

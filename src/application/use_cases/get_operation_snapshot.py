@@ -13,7 +13,6 @@ the user doesn't own the workflow that produced this run.
 
 from attrs import define
 
-from src.config.constants import WorkflowConstants
 from src.domain.entities.workflow import WorkflowRun
 from src.domain.exceptions import NotFoundError
 from src.domain.repositories import UnitOfWorkProtocol
@@ -28,18 +27,6 @@ class GetOperationSnapshotCommand:
 @define(frozen=True, slots=True)
 class GetOperationSnapshotResult:
     run: WorkflowRun
-
-
-_TERMINAL_STATUSES: frozenset[str] = frozenset({
-    WorkflowConstants.RUN_STATUS_COMPLETED,
-    WorkflowConstants.RUN_STATUS_FAILED,
-    WorkflowConstants.RUN_STATUS_CANCELLED,
-})
-
-
-def is_terminal_status(status: str) -> bool:
-    """Pure helper — used by the route handler to derive the response field."""
-    return status in _TERMINAL_STATUSES
 
 
 @define(slots=True)

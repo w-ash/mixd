@@ -230,7 +230,6 @@ function PipelineStripImpl({
                       current: subProgress.current,
                       total: subProgress.total,
                       message: subProgress.message,
-                      samples: subProgress.samples,
                       itemsPerSecond: subProgress.itemsPerSecond,
                       etaSeconds: subProgress.etaSeconds,
                     }).label

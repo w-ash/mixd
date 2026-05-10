@@ -13,9 +13,28 @@ Usage::
 
 from __future__ import annotations
 
+from collections.abc import Callable, Coroutine
+from typing import Any
 from unittest.mock import AsyncMock, MagicMock
 
 from src.domain.entities.progress import ProgressEmitter
+
+
+def fake_run_async[T](value: T) -> Callable[[Coroutine[Any, Any, Any]], T]:
+    """Build a side_effect for patching ``run_async`` that returns ``value``.
+
+    The CLI bridge calls ``run_async(coro)`` where ``coro`` is a fresh
+    coroutine. A bare ``return_value`` patch never consumes the coroutine, so
+    it leaks until garbage collection emits ``RuntimeWarning: coroutine ...
+    was never awaited``. This helper closes the coroutine first.
+    """
+
+    def _closer(coro: Coroutine[Any, Any, Any]) -> T:
+        coro.close()
+        return value
+
+    return _closer
+
 
 # ---------------------------------------------------------------------------
 # Individual repository mocks

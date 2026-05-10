@@ -21,6 +21,7 @@ from src.interface.cli.cli_helpers import (
     validate_date_range,
     validate_file_path,
 )
+from tests.fixtures import fake_run_async
 
 
 class TestParseDateString:
@@ -176,7 +177,7 @@ class TestRunImportWithProgress:
             mock_run_import.return_value = expected_result
 
             # Execute (the function calls run_async internally)
-            mock_run_async.return_value = expected_result
+            mock_run_async.side_effect = fake_run_async(expected_result)
 
             result = run_import_with_progress(
                 service="spotify",
@@ -212,7 +213,7 @@ class TestRunImportWithProgress:
 
             expected_result = OperationResult(operation_name="test")
             mock_run_import.return_value = expected_result
-            mock_run_async.return_value = expected_result
+            mock_run_async.side_effect = fake_run_async(expected_result)
 
             # Execute with kwargs
             test_path = Path("/test/file.json")
@@ -268,7 +269,9 @@ class TestResolveTrackRef:
         from tests.fixtures import make_track
 
         track = make_track()
-        with patch("src.interface.cli.cli_helpers.run_async", return_value=track):
+        with patch(
+            "src.interface.cli.cli_helpers.run_async", side_effect=fake_run_async(track)
+        ):
             result = resolve_track_ref(str(uuid7()), user_id="u1")
         assert result is track
 
@@ -277,14 +280,19 @@ class TestResolveTrackRef:
         from tests.fixtures import make_track
 
         track = make_track(title="Creep")
-        with patch("src.interface.cli.cli_helpers.run_async", return_value=[track]):
+        with patch(
+            "src.interface.cli.cli_helpers.run_async",
+            side_effect=fake_run_async([track]),
+        ):
             result = resolve_track_ref("Creep", user_id="u1")
         assert result is track
 
     def test_empty_search_raises_bad_parameter(self):
         from src.interface.cli.cli_helpers import resolve_track_ref
 
-        with patch("src.interface.cli.cli_helpers.run_async", return_value=[]):
+        with patch(
+            "src.interface.cli.cli_helpers.run_async", side_effect=fake_run_async([])
+        ):
             with pytest.raises(typer.BadParameter, match="No track matching"):
                 resolve_track_ref("nosuchtrack", user_id="u1")
 
@@ -293,7 +301,10 @@ class TestResolveTrackRef:
         from tests.fixtures import make_tracks
 
         candidates = make_tracks(count=3)
-        with patch("src.interface.cli.cli_helpers.run_async", return_value=candidates):
+        with patch(
+            "src.interface.cli.cli_helpers.run_async",
+            side_effect=fake_run_async(candidates),
+        ):
             with pytest.raises(typer.BadParameter) as exc_info:
                 resolve_track_ref("song", user_id="u1")
         message = str(exc_info.value)
@@ -308,13 +319,17 @@ class TestResolvePlaylistRef:
         from tests.fixtures import make_playlist
 
         p = make_playlist(name="Chill")
-        with patch("src.interface.cli.cli_helpers.run_async", return_value=[p]):
+        with patch(
+            "src.interface.cli.cli_helpers.run_async", side_effect=fake_run_async([p])
+        ):
             assert resolve_playlist_ref("chill", user_id="u1") is p
 
     def test_no_match_raises(self):
         from src.interface.cli.cli_helpers import resolve_playlist_ref
 
-        with patch("src.interface.cli.cli_helpers.run_async", return_value=[]):
+        with patch(
+            "src.interface.cli.cli_helpers.run_async", side_effect=fake_run_async([])
+        ):
             with pytest.raises(typer.BadParameter, match="No playlist matching"):
                 resolve_playlist_ref("nothing", user_id="u1")
 
@@ -326,7 +341,10 @@ class TestResolvePlaylistRef:
             make_playlist(name="Chill Morning"),
             make_playlist(name="Chill Night"),
         ]
-        with patch("src.interface.cli.cli_helpers.run_async", return_value=playlists):
+        with patch(
+            "src.interface.cli.cli_helpers.run_async",
+            side_effect=fake_run_async(playlists),
+        ):
             with pytest.raises(typer.BadParameter, match="multiple playlists"):
                 resolve_playlist_ref("chill", user_id="u1")
 

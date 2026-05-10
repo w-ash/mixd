@@ -2,6 +2,7 @@ import { useQueryClient } from "@tanstack/react-query";
 import { useEffect, useRef, useState } from "react";
 
 import { useSSEConnection } from "#/hooks/useSSEConnection";
+import { SSE_EVENT } from "#/lib/sse-types";
 
 export type OperationStatus =
   | "pending"
@@ -160,7 +161,7 @@ export function useOperationProgress(
       const d = data as Record<string, unknown>;
 
       switch (eventType) {
-        case "started":
+        case SSE_EVENT.STARTED:
           setProgress(
             initialProgress(
               "running",
@@ -173,7 +174,7 @@ export function useOperationProgress(
           );
           break;
 
-        case "progress":
+        case SSE_EVENT.PROGRESS:
           setProgress((prev) => ({
             ...DEFAULT_PROGRESS,
             subOperationHistory: prev?.subOperationHistory ?? {},
@@ -187,7 +188,7 @@ export function useOperationProgress(
           }));
           break;
 
-        case "complete":
+        case SSE_EVENT.COMPLETE:
           setProgress((prev) => ({
             ...DEFAULT_PROGRESS,
             ...prev,
@@ -199,7 +200,7 @@ export function useOperationProgress(
           disconnect();
           break;
 
-        case "error":
+        case SSE_EVENT.ERROR:
           setProgress((prev) => ({
             ...DEFAULT_PROGRESS,
             ...prev,
@@ -212,7 +213,7 @@ export function useOperationProgress(
           disconnect();
           break;
 
-        case "sub_operation_started": {
+        case SSE_EVENT.SUB_OPERATION_STARTED: {
           const cid = (d.connector_playlist_identifier as string) ?? null;
           const opId = (d.operation_id as string) ?? "";
           const name = (d.playlist_name as string) ?? null;
@@ -251,7 +252,7 @@ export function useOperationProgress(
           break;
         }
 
-        case "sub_progress": {
+        case SSE_EVENT.SUB_PROGRESS: {
           const cid = (d.connector_playlist_identifier as string) ?? null;
           const opId = (d.operation_id as string) ?? "";
           const name = (d.playlist_name as string) ?? null;
@@ -313,7 +314,7 @@ export function useOperationProgress(
           break;
         }
 
-        case "sub_operation_completed":
+        case SSE_EVENT.SUB_OPERATION_COMPLETED:
           setProgress((prev) =>
             prev ? { ...prev, subOperation: null } : prev,
           );

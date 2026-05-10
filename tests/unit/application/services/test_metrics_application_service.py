@@ -53,9 +53,11 @@ class TestSubOperationProgressIntegration:
             "src.application.services.metrics_application_service.create_throttled_sub_operation",
             new_callable=AsyncMock,
         ) as mock_create:
-            # Return a (sub_op_id, callback) tuple
-            fake_callback = AsyncMock()
-            mock_create.return_value = ("sub-op-42", fake_callback)
+            # Return a fake emitter — both the progress callback (when invoked)
+            # and the teardown handle (via aclose()).
+            fake_emitter = AsyncMock()
+            fake_emitter.sub_op_id = "sub-op-42"
+            mock_create.return_value = fake_emitter
 
             await service.get_external_track_metrics(
                 track_ids=[1],
@@ -69,14 +71,16 @@ class TestSubOperationProgressIntegration:
 
             # create_throttled_sub_operation should have been called
             mock_create.assert_awaited_once()
+            # Emitter teardown must run on the success path.
+            fake_emitter.aclose.assert_awaited_once()
 
-            # Connector should have received the callback
+            # Connector should have received the emitter as the progress callback
             mock_connector.get_external_track_data.assert_awaited_once()
             call_kwargs = mock_connector.get_external_track_data.call_args
             assert (
-                call_kwargs.kwargs.get("progress_callback") is fake_callback
-                or (len(call_kwargs.args) > 1 and call_kwargs.args[1] is fake_callback)
-                or (call_kwargs[1].get("progress_callback") is fake_callback)
+                call_kwargs.kwargs.get("progress_callback") is fake_emitter
+                or (len(call_kwargs.args) > 1 and call_kwargs.args[1] is fake_emitter)
+                or (call_kwargs[1].get("progress_callback") is fake_emitter)
             )
 
     async def test_skips_sub_operation_when_no_progress_manager(self):

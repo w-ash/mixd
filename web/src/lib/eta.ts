@@ -2,18 +2,17 @@
  * Pure threshold logic for displaying live progress with ETA.
  *
  * Backend ProgressCoordinator already calculates items_per_second and
- * eta_seconds and sends them on every sub_progress event. The question
- * here is *when* to show them: showing "ETA 1s" that's wildly wrong is
- * worse than showing nothing.
+ * eta_seconds and sends them on every sub_progress event, throttled to
+ * 4 Hz so the rate is already smoothed by the time we see it. The
+ * question here is *when* to show them: showing "ETA 1s" that's wildly
+ * wrong is worse than showing nothing.
  *
  * Show ETA only when:
- *   - we have >= 3 samples (first sample includes connection setup,
- *     often 5x slower than steady state)
- *   - the latest 3 items_per_second values are within +/- 20% of their
- *     mean (rate has stabilized)
+ *   - total is known and > 0
+ *   - itemsPerSecond > 0 (otherwise the rate is meaningless)
  *   - completion < 80% (don't show "ETA 1s" right before done)
- *   - eta_seconds > 3 (sub-3s ETAs are noise — the work finishes
- *     before the user can read the number)
+ *   - etaSeconds > 3 (sub-3s ETAs flicker — the work finishes before
+ *     the user can read the number)
  *
  * Below threshold: "Enriching 12/87 tracks…"
  * Above threshold: "Enriching 12/87 · 12/sec · ETA 6s"
@@ -26,28 +25,14 @@ export interface ProgressLabelInput {
   total: number | null | undefined;
   /** Human-readable message from the sub-op (e.g., "Fetching lastfm metadata"). */
   message: string;
-  /** Last items_per_second samples for this sub-op, oldest -> newest. */
-  samples: readonly number[];
   /** items_per_second from the most recent event. */
   itemsPerSecond?: number | null;
   /** eta_seconds from the most recent event. */
   etaSeconds?: number | null;
 }
 
-const MIN_SAMPLES = 3;
-const STABILITY_TOLERANCE = 0.2;
 const COMPLETION_LIMIT = 0.8;
 const MIN_ETA_SECONDS = 3;
-
-function withinTolerance(samples: readonly number[]): boolean {
-  if (samples.length < MIN_SAMPLES) return false;
-  const recent = samples.slice(-MIN_SAMPLES);
-  const mean = recent.reduce((s, v) => s + v, 0) / recent.length;
-  if (mean <= 0) return false;
-  const lower = mean * (1 - STABILITY_TOLERANCE);
-  const upper = mean * (1 + STABILITY_TOLERANCE);
-  return recent.every((v) => v >= lower && v <= upper);
-}
 
 export interface FormatResult {
   /** True if the ETA portion is shown. */
@@ -64,8 +49,7 @@ export interface FormatResult {
  * the rate/total/eta and formats a single status line.
  */
 export function formatProgressLabel(input: ProgressLabelInput): FormatResult {
-  const { current, total, message, samples, itemsPerSecond, etaSeconds } =
-    input;
+  const { current, total, message, itemsPerSecond, etaSeconds } = input;
 
   const verb = message.split(" ")[0] || "Processing";
 
@@ -76,9 +60,7 @@ export function formatProgressLabel(input: ProgressLabelInput): FormatResult {
   const baseLabel = `${verb} ${current}/${total} tracks`;
   const completion = current / total;
 
-  const stable = withinTolerance(samples);
   const showEta =
-    stable &&
     completion < COMPLETION_LIMIT &&
     typeof itemsPerSecond === "number" &&
     itemsPerSecond > 0 &&

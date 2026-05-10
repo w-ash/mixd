@@ -1,6 +1,6 @@
 [project]
 name = "mixd"
-version = "0.7.8.6"
+version = "0.7.8.7"
 description = "Music metadata integration and playlist management platform"
 authors = [{name = "Ash Wright", email = "a@ashwright.net"}]
 readme = "README.md"
@@ -246,8 +246,6 @@ addopts = "--strict-markers --tb=short -n auto -m 'not diagnostic and not slow a
 filterwarnings = [
     # Savepoint-rollback test isolation triggers this when UoW manages its own transactions
     "ignore:nested transaction already deassociated from connection:sqlalchemy.exc.SAWarning",
-    # AsyncMock auto-creates coroutine attributes that GC collects before they're awaited
-    "ignore:coroutine '.*_safe_call' was never awaited:RuntimeWarning",
 ]
 markers = [
     # Test Pyramid Layers (applied via pytestmark in conftest.py)

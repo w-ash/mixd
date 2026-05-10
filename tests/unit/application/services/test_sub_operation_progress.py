@@ -106,7 +106,7 @@ class TestCreateThrottledSubOperation:
     async def test_first_call_emits_immediately(self):
         mock_manager = _make_mock_manager()
 
-        _sub_op_id, callback = await create_throttled_sub_operation(
+        emitter = await create_throttled_sub_operation(
             progress_manager=mock_manager,
             description="Fetching lastfm metadata",
             total_items=100,
@@ -116,14 +116,14 @@ class TestCreateThrottledSubOperation:
             min_interval_seconds=0.01,
         )
 
-        await callback(1, 100, "1/100")
+        await emitter(1, 100, "1/100")
         mock_manager.emit_progress.assert_awaited_once()
 
     async def test_terminal_tick_always_emits(self):
-        """callback(N, N, ...) bypasses the throttle and emits immediately."""
+        """emitter(N, N, ...) bypasses the throttle and emits immediately."""
         mock_manager = _make_mock_manager()
 
-        _sub_op_id, callback = await create_throttled_sub_operation(
+        emitter = await create_throttled_sub_operation(
             progress_manager=mock_manager,
             description="x",
             total_items=10,
@@ -133,9 +133,9 @@ class TestCreateThrottledSubOperation:
             min_interval_seconds=10.0,  # huge window — only terminal would emit
         )
 
-        await callback(1, 10, "1/10")  # first call always emits
-        await callback(2, 10, "2/10")  # within window — suppressed
-        await callback(10, 10, "10/10")  # terminal — emits despite window
+        await emitter(1, 10, "1/10")  # first call always emits
+        await emitter(2, 10, "2/10")  # within window — suppressed
+        await emitter(10, 10, "10/10")  # terminal — emits despite window
 
         # Two emits: the first call and the terminal tick
         assert mock_manager.emit_progress.await_count == 2
@@ -147,7 +147,7 @@ class TestCreateThrottledSubOperation:
         """High-frequency invocation collapses to <= 1 emit per window plus a tail."""
         mock_manager = _make_mock_manager()
 
-        _sub_op_id, callback = await create_throttled_sub_operation(
+        emitter = await create_throttled_sub_operation(
             progress_manager=mock_manager,
             description="x",
             total_items=1000,
@@ -159,7 +159,7 @@ class TestCreateThrottledSubOperation:
 
         # Hammer the callback 50 times in quick succession (no awaits between).
         for i in range(1, 51):
-            await callback(i, 1000, f"{i}/1000")
+            await emitter(i, 1000, f"{i}/1000")
 
         # Wait for tail-flush timer to fire.
         await asyncio.sleep(0.1)
@@ -176,11 +176,11 @@ class TestCreateThrottledSubOperation:
         assert last_event.current == 50
         assert last_event.total == 1000
 
-    async def test_complete_sub_operation_cancels_pending_tail(self):
-        """No stale progress fires after the sub-op is marked complete."""
+    async def test_aclose_cancels_pending_tail(self):
+        """No stale progress fires after the emitter is closed."""
         mock_manager = _make_mock_manager()
 
-        sub_op_id, callback = await create_throttled_sub_operation(
+        emitter = await create_throttled_sub_operation(
             progress_manager=mock_manager,
             description="x",
             total_items=100,
@@ -191,11 +191,11 @@ class TestCreateThrottledSubOperation:
         )
 
         # First call emits immediately.
-        await callback(1, 100, "1/100")
+        await emitter(1, 100, "1/100")
         # Second call within window — schedules tail.
-        await callback(2, 100, "2/100")
-        # Tail is pending; cancel via complete.
-        await complete_sub_operation(mock_manager, sub_op_id)
+        await emitter(2, 100, "2/100")
+        # Tail is pending; cancel via aclose().
+        await emitter.aclose()
         # Wait longer than min_interval to ensure the tail would have fired.
         await asyncio.sleep(0.6)
 
@@ -203,7 +203,7 @@ class TestCreateThrottledSubOperation:
         assert mock_manager.emit_progress.await_count == 1
         # complete_operation called once on the manager
         mock_manager.complete_operation.assert_awaited_once_with(
-            sub_op_id, OperationStatus.COMPLETED
+            emitter.sub_op_id, OperationStatus.COMPLETED
         )
 
 

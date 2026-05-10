@@ -22,6 +22,7 @@ import {
   RunStatusBadge,
 } from "#/components/shared/RunStatusBadge";
 import { SectionHeader } from "#/components/shared/SectionHeader";
+import { TableCard } from "#/components/shared/TableCard";
 import { WorkflowGraph } from "#/components/shared/WorkflowGraph";
 import { Button } from "#/components/ui/button";
 import { Skeleton } from "#/components/ui/skeleton";
@@ -231,35 +232,34 @@ function OutputTrackCard({
   metricColumns: string[];
 }) {
   return (
-    <article className="flex items-start gap-3 rounded-md border border-border bg-surface px-3 py-3">
-      <span className="mt-0.5 shrink-0 font-mono text-xs tabular-nums text-text-faint">
-        {rank}
-      </span>
-      <div className="min-w-0 flex-1">
-        <p className="truncate font-display text-sm font-medium text-text">
-          {String(track.title ?? "")}
-        </p>
-        <p className="truncate text-sm text-text-muted">
-          {String(track.artists ?? "")}
-        </p>
-        {metricColumns.length > 0 && (
-          <div className="mt-1.5 flex flex-wrap gap-x-3 gap-y-1 text-xs">
-            {metricColumns.map((col) => (
-              <span key={col} className="inline-flex items-baseline gap-1">
-                <span className="text-text-faint">
-                  {formatMetricHeader(col)}
-                </span>
-                <span className="font-mono tabular-nums text-text-muted">
-                  {formatMetricValue(
-                    (track.metrics as Record<string, unknown>)?.[col],
-                  )}
-                </span>
+    <TableCard
+      leading={
+        <span className="mt-0.5 shrink-0 font-mono text-xs tabular-nums text-text-faint">
+          {rank}
+        </span>
+      }
+    >
+      <p className="truncate font-display text-sm font-medium text-text">
+        {String(track.title ?? "")}
+      </p>
+      <p className="truncate text-sm text-text-muted">
+        {String(track.artists ?? "")}
+      </p>
+      {metricColumns.length > 0 && (
+        <div className="mt-1.5 flex flex-wrap gap-x-3 gap-y-1 text-xs">
+          {metricColumns.map((col) => (
+            <span key={col} className="inline-flex items-baseline gap-1">
+              <span className="text-text-faint">{formatMetricHeader(col)}</span>
+              <span className="font-mono tabular-nums text-text-muted">
+                {formatMetricValue(
+                  (track.metrics as Record<string, unknown>)?.[col],
+                )}
               </span>
-            ))}
-          </div>
-        )}
-      </div>
-    </article>
+            </span>
+          ))}
+        </div>
+      )}
+    </TableCard>
   );
 }
 

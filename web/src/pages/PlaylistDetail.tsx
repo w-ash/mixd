@@ -47,6 +47,8 @@ import {
   syncStatusVariant,
 } from "#/components/shared/StatusIndicator";
 import { SyncConfirmationDialog } from "#/components/shared/SyncConfirmationDialog";
+import { TableCard } from "#/components/shared/TableCard";
+import { TitleLink } from "#/components/shared/TitleLink";
 import { Button } from "#/components/ui/button";
 import {
   DialogDescription,
@@ -115,33 +117,31 @@ function DetailSkeleton() {
  */
 function PlaylistTrackCard({ entry }: { entry: PlaylistEntrySchema }) {
   return (
-    <article className="flex items-start gap-3 rounded-md border border-border bg-surface px-3 py-3">
-      <span className="mt-0.5 shrink-0 font-mono text-xs tabular-nums text-text-muted">
-        {entry.position}
-      </span>
-      <div className="min-w-0 flex-1">
-        <Link
-          to={`/library/${entry.track.id}`}
-          className="block truncate font-display text-sm font-medium text-text transition-colors hover:text-primary"
-        >
-          {entry.track.title}
-        </Link>
-        <p className="truncate text-sm text-text-muted">
-          {formatArtists(entry.track.artists)}
-        </p>
-        <div className="mt-1.5 flex flex-wrap items-center gap-x-3 gap-y-1 text-xs text-text-muted">
-          {entry.track.album && (
-            <span className="truncate">{entry.track.album}</span>
-          )}
-          <span className="shrink-0 tabular-nums">
-            {formatDuration(entry.track.duration_ms)}
-          </span>
-          {entry.added_at && (
-            <span className="shrink-0">Added {formatDate(entry.added_at)}</span>
-          )}
-        </div>
+    <TableCard
+      leading={
+        <span className="mt-0.5 shrink-0 font-mono text-xs tabular-nums text-text-muted">
+          {entry.position}
+        </span>
+      }
+    >
+      <TitleLink to={`/library/${entry.track.id}`}>
+        {entry.track.title}
+      </TitleLink>
+      <p className="truncate text-sm text-text-muted">
+        {formatArtists(entry.track.artists)}
+      </p>
+      <div className="mt-1.5 flex flex-wrap items-center gap-x-3 gap-y-1 text-xs text-text-muted">
+        {entry.track.album && (
+          <span className="truncate">{entry.track.album}</span>
+        )}
+        <span className="shrink-0 tabular-nums">
+          {formatDuration(entry.track.duration_ms)}
+        </span>
+        {entry.added_at && (
+          <span className="shrink-0">Added {formatDate(entry.added_at)}</span>
+        )}
       </div>
-    </article>
+    </TableCard>
   );
 }
 

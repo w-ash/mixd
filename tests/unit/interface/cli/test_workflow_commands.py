@@ -11,7 +11,7 @@ from typer.testing import CliRunner
 
 from src.application.use_cases.workflow_crud import ListWorkflowsResult
 from src.interface.cli.app import app
-from tests.fixtures import make_workflow, make_workflow_def
+from tests.fixtures import fake_run_async, make_workflow, make_workflow_def
 
 runner = CliRunner()
 
@@ -51,7 +51,7 @@ def _patch_db():
     return [
         patch(
             "src.interface.cli.workflow_commands.run_async",
-            return_value=_TEMPLATES,
+            side_effect=fake_run_async(_TEMPLATES),
         ),
     ]
 
@@ -60,7 +60,7 @@ class TestWorkflowList:
     def test_list_table_shows_workflows(self):
         with patch(
             "src.interface.cli.workflow_commands.run_async",
-            return_value=_TEMPLATES,
+            side_effect=fake_run_async(_TEMPLATES),
         ):
             result = runner.invoke(app, ["workflow", "list"])
 
@@ -74,7 +74,7 @@ class TestWorkflowList:
     def test_list_json_includes_db_id(self):
         with patch(
             "src.interface.cli.workflow_commands.run_async",
-            return_value=_TEMPLATES,
+            side_effect=fake_run_async(_TEMPLATES),
         ):
             result = runner.invoke(app, ["workflow", "list", "--format", "json"])
 
@@ -86,7 +86,7 @@ class TestWorkflowList:
     def test_list_empty(self):
         with patch(
             "src.interface.cli.workflow_commands.run_async",
-            return_value=[],
+            side_effect=fake_run_async([]),
         ):
             result = runner.invoke(app, ["workflow", "list"])
 
@@ -129,7 +129,7 @@ class TestWorkflowRun:
     def test_run_unknown_workflow_exits_with_error(self):
         with patch(
             "src.interface.cli.workflow_commands.run_async",
-            return_value=_TEMPLATES,
+            side_effect=fake_run_async(_TEMPLATES),
         ):
             result = runner.invoke(app, ["workflow", "run", "nonexistent"])
 
@@ -144,7 +144,7 @@ class TestWorkflowExport:
         """Must provide --all or --id."""
         with patch(
             "src.interface.cli.workflow_commands.run_async",
-            return_value=_MIXED,
+            side_effect=fake_run_async(_MIXED),
         ):
             result = runner.invoke(app, ["workflow", "export"])
 
@@ -154,7 +154,7 @@ class TestWorkflowExport:
     def test_export_all_and_id_mutually_exclusive(self):
         with patch(
             "src.interface.cli.workflow_commands.run_async",
-            return_value=_MIXED,
+            side_effect=fake_run_async(_MIXED),
         ):
             result = runner.invoke(
                 app, ["workflow", "export", "--all", "--id", "my_mix"]
@@ -166,7 +166,7 @@ class TestWorkflowExport:
     def test_export_all_writes_non_template_workflows(self, tmp_path):
         with patch(
             "src.interface.cli.workflow_commands.run_async",
-            return_value=_MIXED,
+            side_effect=fake_run_async(_MIXED),
         ):
             result = runner.invoke(
                 app, ["workflow", "export", "--all", "-o", str(tmp_path)]
@@ -187,7 +187,7 @@ class TestWorkflowExport:
     def test_export_by_id(self, tmp_path):
         with patch(
             "src.interface.cli.workflow_commands.run_async",
-            return_value=_MIXED,
+            side_effect=fake_run_async(_MIXED),
         ):
             result = runner.invoke(
                 app, ["workflow", "export", "--id", "my_mix", "-o", str(tmp_path)]
@@ -204,7 +204,7 @@ class TestWorkflowExport:
     def test_export_by_numeric_id(self, tmp_path):
         with patch(
             "src.interface.cli.workflow_commands.run_async",
-            return_value=_MIXED,
+            side_effect=fake_run_async(_MIXED),
         ):
             result = runner.invoke(
                 app, ["workflow", "export", "--id", "3", "-o", str(tmp_path)]
@@ -217,7 +217,7 @@ class TestWorkflowExport:
     def test_export_unknown_id_exits_with_error(self):
         with patch(
             "src.interface.cli.workflow_commands.run_async",
-            return_value=_MIXED,
+            side_effect=fake_run_async(_MIXED),
         ):
             result = runner.invoke(app, ["workflow", "export", "--id", "nonexistent"])
 
@@ -228,7 +228,7 @@ class TestWorkflowExport:
         """When --all is used but only template workflows exist."""
         with patch(
             "src.interface.cli.workflow_commands.run_async",
-            return_value=_TEMPLATES,
+            side_effect=fake_run_async(_TEMPLATES),
         ):
             result = runner.invoke(app, ["workflow", "export", "--all"])
 
@@ -239,7 +239,7 @@ class TestWorkflowExport:
         nested = tmp_path / "subdir" / "exports"
         with patch(
             "src.interface.cli.workflow_commands.run_async",
-            return_value=_MIXED,
+            side_effect=fake_run_async(_MIXED),
         ):
             result = runner.invoke(
                 app, ["workflow", "export", "--id", "my_mix", "-o", str(nested)]
@@ -255,7 +255,7 @@ class TestWorkflowSeedPersonal:
     def test_seed_personal_table_output(self):
         with patch(
             "src.interface.cli.workflow_commands.run_async",
-            return_value=3,
+            side_effect=fake_run_async(3),
         ):
             result = runner.invoke(app, ["workflow", "seed-personal"])
 
@@ -266,7 +266,7 @@ class TestWorkflowSeedPersonal:
     def test_seed_personal_json_output(self):
         with patch(
             "src.interface.cli.workflow_commands.run_async",
-            return_value=2,
+            side_effect=fake_run_async(2),
         ):
             result = runner.invoke(
                 app, ["workflow", "seed-personal", "--format", "json"]
@@ -278,7 +278,7 @@ class TestWorkflowSeedPersonal:
     def test_seed_personal_zero_count(self):
         with patch(
             "src.interface.cli.workflow_commands.run_async",
-            return_value=0,
+            side_effect=fake_run_async(0),
         ):
             result = runner.invoke(app, ["workflow", "seed-personal"])
 

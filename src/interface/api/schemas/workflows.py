@@ -190,6 +190,7 @@ class WorkflowRunSummarySchema(BaseModel):
     definition_version: int = 1
     started_at: datetime | None = None
     completed_at: datetime | None = None
+    heartbeat_at: datetime | None = None
     duration_ms: int | None = None
     output_track_count: int | None = None
     output_playlist_id: UUID | None = None
@@ -349,6 +350,7 @@ def to_run_summary(run: WorkflowRun) -> WorkflowRunSummarySchema:
         definition_version=run.definition_version,
         started_at=run.started_at,
         completed_at=run.completed_at,
+        heartbeat_at=run.heartbeat_at,
         duration_ms=run.duration_ms,
         output_track_count=run.output_track_count,
         output_playlist_id=run.output_playlist_id,
@@ -376,6 +378,7 @@ def to_run_detail(run: WorkflowRun) -> WorkflowRunDetailSchema:
         definition_version=summary.definition_version,
         started_at=summary.started_at,
         completed_at=summary.completed_at,
+        heartbeat_at=summary.heartbeat_at,
         duration_ms=summary.duration_ms,
         output_track_count=summary.output_track_count,
         output_playlist_id=summary.output_playlist_id,

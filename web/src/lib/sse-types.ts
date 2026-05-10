@@ -5,6 +5,8 @@
 export const SSE_EVENT = {
   RUN_ACCEPTED: "run_accepted",
   NODE_STATUS: "node_status",
+  STARTED: "started",
+  PROGRESS: "progress",
   SUB_OPERATION_STARTED: "sub_operation_started",
   SUB_PROGRESS: "sub_progress",
   SUB_OPERATION_COMPLETED: "sub_operation_completed",

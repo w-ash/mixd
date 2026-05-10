@@ -9,6 +9,8 @@ progress tracking for rate-limited batch processing and phased operations.
 import asyncio
 import time
 
+from attrs import define, field
+
 from src.config import get_logger
 from src.config.constants import NodeType, Phase
 from src.domain.entities.progress import (
@@ -24,11 +26,6 @@ logger = get_logger(__name__).bind(service="sub_operation_progress")
 
 # 4 Hz default — caps SSE wire rate without freezing the bar visibly.
 _DEFAULT_THROTTLE_INTERVAL_SECONDS = 0.25
-
-# Module-level registry of pending tail-flush timers per sub_operation_id.
-# complete_sub_operation cancels any pending tail before completing so
-# stale progress doesn't fire after the op is marked done.
-_pending_tails: dict[str, asyncio.Task[None]] = {}
 
 
 async def create_sub_operation(
@@ -80,6 +77,88 @@ async def create_sub_operation(
     return sub_op_id, callback
 
 
+@define(slots=True)
+class ThrottledSubOperationEmitter:
+    """Throttled progress sink for one sub-operation lifecycle.
+
+    Caps emissions to one every ``min_interval_seconds`` (default 250 ms,
+    i.e. 4 Hz). The terminal tick (``completed == total``) always emits
+    immediately. If a non-terminal call would otherwise be suppressed, a
+    tail-flush timer is scheduled so the most recent ``(completed, total,
+    message)`` tuple still emits within ``min_interval_seconds`` — the bar
+    never freezes mid-progress.
+
+    The instance is callable, satisfying ``ProgressCallback``. Use
+    ``await emitter(completed, total, message)`` from infrastructure code,
+    and ``await emitter.aclose(...)`` to mark the sub-op complete (which
+    also cancels any pending tail-flush so stale progress never fires
+    after teardown).
+    """
+
+    sub_op_id: str
+    manager: AsyncProgressManager
+    min_interval_seconds: float
+    last_emit: float = field(default=0.0, init=False)
+    last_seen: tuple[int, int, str] | None = field(default=None, init=False)
+    pending_tail: asyncio.Task[None] | None = field(default=None, init=False)
+
+    async def _emit(self, completed: int, total: int, message: str) -> None:
+        event = create_progress_event(
+            operation_id=self.sub_op_id,
+            current=completed,
+            total=total,
+            message=message,
+        )
+        await self.manager.emit_progress(event)
+
+    async def _tail_flush(self) -> None:
+        try:
+            await asyncio.sleep(self.min_interval_seconds)
+            if self.last_seen is None:
+                return
+            completed, total, message = self.last_seen
+            self.last_seen = None
+            self.last_emit = time.monotonic()
+            await self._emit(completed, total, message)
+        except asyncio.CancelledError:
+            # Cancelled by aclose() or by an immediate emit superseding
+            # this scheduled tail. No-op.
+            pass
+        finally:
+            self.pending_tail = None
+
+    async def __call__(self, completed: int, total: int, message: str) -> None:
+        # Closure-equivalent state mutated synchronously between awaits is
+        # safe because asyncio is single-threaded.
+        now = time.monotonic()
+        is_terminal = total > 0 and completed >= total
+        elapsed = now - self.last_emit
+
+        if is_terminal or elapsed >= self.min_interval_seconds:
+            # Cancel any pending tail — its data is now stale.
+            existing = self.pending_tail
+            self.pending_tail = None
+            if existing is not None and not existing.done():
+                existing.cancel()
+            self.last_seen = None
+            self.last_emit = now
+            await self._emit(completed, total, message)
+            return
+
+        # Suppress; capture latest for tail-flush.
+        self.last_seen = (completed, total, message)
+        if self.pending_tail is None:
+            self.pending_tail = asyncio.create_task(self._tail_flush())
+
+    async def aclose(self, status: OperationStatus = OperationStatus.COMPLETED) -> None:
+        """Mark the sub-op complete and cancel any pending tail-flush."""
+        pending = self.pending_tail
+        self.pending_tail = None
+        if pending is not None and not pending.done():
+            pending.cancel()
+        await self.manager.complete_operation(self.sub_op_id, status)
+
+
 async def create_throttled_sub_operation(
     progress_manager: AsyncProgressManager,
     description: str,
@@ -89,19 +168,14 @@ async def create_throttled_sub_operation(
     node_type: NodeType,
     *,
     min_interval_seconds: float = _DEFAULT_THROTTLE_INTERVAL_SECONDS,
-) -> tuple[str, ProgressCallback]:
+) -> ThrottledSubOperationEmitter:
     """Like ``create_sub_operation``, but throttles emissions.
 
-    Caps emissions to one every ``min_interval_seconds`` (default 250 ms,
-    i.e. 4 Hz). The terminal tick (``completed == total``) always emits
-    immediately. If a non-terminal call would otherwise be suppressed, a
-    tail-flush timer is scheduled so the most recent ``(completed, total,
-    message)`` tuple still emits within ``min_interval_seconds`` — the bar
-    never freezes mid-progress.
-
-    Use the same ``complete_sub_operation`` for teardown; it cancels any
-    pending tail-flush timer for this sub-op so stale progress doesn't fire
-    after the op is marked complete.
+    The returned emitter is both the infrastructure progress callback
+    (callable as ``ProgressCallback``) and the teardown handle —
+    ``await emitter.aclose()`` cancels any pending tail-flush along with
+    marking the sub-op complete. The sub-operation id is on the instance
+    as ``emitter.sub_op_id`` if a caller needs it.
 
     Why throttle here and not at ``AsyncProgressManager``: the manager also
     feeds the CLI's ``RichProgressProvider`` and ``OperationRunRecorder``,
@@ -120,62 +194,11 @@ async def create_throttled_sub_operation(
     )
 
     sub_op_id = await progress_manager.start_operation(operation)
-
-    # Closure state mutated by the returned callback. Safe without a lock
-    # because asyncio is single-threaded: the synchronous statements
-    # between awaits run atomically, so concurrent callbacks (e.g. from a
-    # TaskGroup) can't observe a partially-updated last_emit/last_seen.
-    last_emit = 0.0
-    last_seen: tuple[int, int, str] | None = None
-
-    async def emit(completed: int, total: int, message: str) -> None:
-        event = create_progress_event(
-            operation_id=sub_op_id,
-            current=completed,
-            total=total,
-            message=message,
-        )
-        await progress_manager.emit_progress(event)
-
-    async def tail_flush() -> None:
-        nonlocal last_emit, last_seen
-        try:
-            await asyncio.sleep(min_interval_seconds)
-            if last_seen is None:
-                return
-            completed, total, message = last_seen
-            last_seen = None
-            last_emit = time.monotonic()
-            await emit(completed, total, message)
-        except asyncio.CancelledError:
-            # Cancelled by complete_sub_operation or by an immediate emit
-            # superseding this scheduled tail. No-op.
-            pass
-        finally:
-            _pending_tails.pop(sub_op_id, None)
-
-    async def callback(completed: int, total: int, message: str) -> None:
-        nonlocal last_emit, last_seen
-        now = time.monotonic()
-        is_terminal = total > 0 and completed >= total
-        elapsed = now - last_emit
-
-        if is_terminal or elapsed >= min_interval_seconds:
-            # Cancel any pending tail — its data is now stale.
-            existing = _pending_tails.pop(sub_op_id, None)
-            if existing is not None and not existing.done():
-                existing.cancel()
-            last_seen = None
-            last_emit = now
-            await emit(completed, total, message)
-            return
-
-        # Suppress; capture latest for tail-flush.
-        last_seen = (completed, total, message)
-        if sub_op_id not in _pending_tails:
-            _pending_tails[sub_op_id] = asyncio.create_task(tail_flush())
-
-    return sub_op_id, callback
+    return ThrottledSubOperationEmitter(
+        sub_op_id=sub_op_id,
+        manager=progress_manager,
+        min_interval_seconds=min_interval_seconds,
+    )
 
 
 async def complete_sub_operation(
@@ -183,14 +206,12 @@ async def complete_sub_operation(
     sub_operation_id: str,
     status: OperationStatus = OperationStatus.COMPLETED,
 ) -> None:
-    """Complete a sub-operation with the given status.
+    """Complete a sub-operation created via ``create_sub_operation``.
 
-    Cancels any pending throttle tail-flush timer for this sub-op so
-    progress events don't fire after completion.
+    Throttled sub-operations should be torn down via
+    ``ThrottledSubOperationEmitter.aclose()`` instead, since only the
+    emitter knows about its pending tail-flush.
     """
-    pending = _pending_tails.pop(sub_operation_id, None)
-    if pending is not None and not pending.done():
-        pending.cancel()
     await progress_manager.complete_operation(sub_operation_id, status)
 
 

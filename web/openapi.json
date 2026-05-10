@@ -3,7 +3,7 @@
   "info": {
     "title": "Mixd",
     "description": "Personal music metadata hub",
-    "version": "0.7.8.6"
+    "version": "0.7.8.7"
   },
   "paths": {
     "/api/v1/connectors/{service}/auth-url": {
@@ -3213,7 +3213,7 @@
           "operations"
         ],
         "summary": "Get Operation Snapshot",
-        "description": "Persisted-state snapshot for an operation_id.\n\nUsed by the frontend's watchdog (45 s without any SSE frame) to\nrecover terminal state from the DB. Sweeper-marked-failed runs\nreturn ``is_terminal=true`` here even when the terminal SSE event\nwas never delivered.\n\n404 if the operation_id has no matching run row, or if the calling\nuser doesn't own the workflow that produced it. Authorization is\nenforced inside the use case via the workflow lookup.",
+        "description": "Persisted-state snapshot for an operation_id.\n\nUsed by the frontend's watchdog (45 s without any SSE frame) to\nrecover terminal state from the DB. Sweeper-marked-failed runs\nsurface here even when the terminal SSE event was never delivered.\n\n404 if the operation_id has no matching run row, or if the calling\nuser doesn't own the workflow that produced it. Authorization is\nenforced inside the use case via the workflow lookup.",
         "operationId": "get_operation_snapshot_api_v1_operations__operation_id__snapshot_get",
         "parameters": [
           {
@@ -5411,48 +5411,31 @@
       },
       "OperationSnapshotResponse": {
         "properties": {
-          "operation_id": {
+          "id": {
             "type": "string",
-            "title": "Operation Id"
-          },
-          "run_id": {
-            "type": "string",
-            "title": "Run Id"
+            "format": "uuid",
+            "title": "Id"
           },
           "workflow_id": {
             "type": "string",
+            "format": "uuid",
             "title": "Workflow Id"
           },
           "status": {
             "type": "string",
+            "enum": [
+              "pending",
+              "running",
+              "completed",
+              "failed",
+              "cancelled"
+            ],
             "title": "Status"
           },
-          "is_terminal": {
-            "type": "boolean",
-            "title": "Is Terminal"
-          },
-          "error_message": {
-            "anyOf": [
-              {
-                "type": "string"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Error Message"
-          },
-          "heartbeat_at": {
-            "anyOf": [
-              {
-                "type": "string",
-                "format": "date-time"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Heartbeat At"
+          "definition_version": {
+            "type": "integer",
+            "title": "Definition Version",
+            "default": 1
           },
           "started_at": {
             "anyOf": [
@@ -5478,16 +5461,17 @@
             ],
             "title": "Completed At"
           },
-          "output_track_count": {
+          "heartbeat_at": {
             "anyOf": [
               {
-                "type": "integer"
+                "type": "string",
+                "format": "date-time"
               },
               {
                 "type": "null"
               }
             ],
-            "title": "Output Track Count"
+            "title": "Heartbeat At"
           },
           "duration_ms": {
             "anyOf": [
@@ -5500,6 +5484,56 @@
             ],
             "title": "Duration Ms"
           },
+          "output_track_count": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Output Track Count"
+          },
+          "output_playlist_id": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "uuid"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Output Playlist Id"
+          },
+          "error_message": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Error Message"
+          },
+          "created_at": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "date-time"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Created At"
+          },
+          "operation_id": {
+            "type": "string",
+            "title": "Operation Id"
+          },
           "nodes": {
             "items": {
               "$ref": "#/components/schemas/WorkflowRunNodeSchema"
@@ -5510,15 +5544,13 @@
         },
         "type": "object",
         "required": [
-          "operation_id",
-          "run_id",
+          "id",
           "workflow_id",
           "status",
-          "is_terminal",
-          "nodes"
+          "operation_id"
         ],
         "title": "OperationSnapshotResponse",
-        "description": "Persisted state for an operation_id, used as REST fallback for SSE stalls."
+        "description": "Persisted state for an ``operation_id``, used as REST fallback for SSE stalls.\n\nExtends the run summary with the SSE handle (``operation_id``) and the\npersisted node list. ``is_terminal`` is derived client-side from\n``status`` to avoid duplicating the terminal-status set on the wire."
       },
       "OperationStartedResponse": {
         "properties": {
@@ -6946,6 +6978,18 @@
             ],
             "title": "Completed At"
           },
+          "heartbeat_at": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "date-time"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Heartbeat At"
+          },
           "duration_ms": {
             "anyOf": [
               {
@@ -7226,6 +7270,18 @@
               }
             ],
             "title": "Completed At"
+          },
+          "heartbeat_at": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "date-time"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Heartbeat At"
           },
           "duration_ms": {
             "anyOf": [

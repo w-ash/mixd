@@ -10,7 +10,9 @@ import { EmptyState } from "#/components/shared/EmptyState";
 import { QueryErrorState } from "#/components/shared/QueryErrorState";
 import { ResponsiveTable } from "#/components/shared/ResponsiveTable";
 import { getStatusConfig } from "#/components/shared/RunStatusBadge";
+import { TableCard } from "#/components/shared/TableCard";
 import { TablePagination } from "#/components/shared/TablePagination";
+import { TitleLink } from "#/components/shared/TitleLink";
 import { Badge } from "#/components/ui/badge";
 import { Button } from "#/components/ui/button";
 import { Skeleton } from "#/components/ui/skeleton";
@@ -132,50 +134,45 @@ function WorkflowCard({
   const runConf = lastRun ? getStatusConfig(lastRun.status) : null;
 
   return (
-    <article className="flex items-start gap-3 rounded-md border border-border bg-surface px-3 py-3">
-      <div className="min-w-0 flex-1">
-        <div className="flex flex-wrap items-baseline gap-x-2 gap-y-1">
-          <Link
-            to={`/workflows/${wf.id}`}
-            viewTransition
-            className="block truncate font-display text-sm font-medium text-text transition-colors hover:text-primary"
-          >
-            {wf.name}
-          </Link>
-          {wf.is_template && (
-            <Badge variant="outline" className="gap-1 text-[10px]">
-              <Lock className="size-2.5" aria-hidden="true" />
-              Template
-            </Badge>
-          )}
-        </div>
-        {wf.description && (
-          <p className="mt-0.5 line-clamp-1 text-xs text-text-muted">
-            {wf.description}
-          </p>
-        )}
-        <div className="mt-1.5 flex flex-wrap items-center gap-x-3 gap-y-1 text-xs text-text-muted">
-          <span className="tabular-nums">
-            {wf.task_count} task{wf.task_count === 1 ? "" : "s"}
-          </span>
-          {runConf && (
-            <span
-              className={cn(
-                "inline-flex items-center gap-1 font-display",
-                runConf.className,
-              )}
-            >
-              {runConf.icon}
-              {runConf.label}
-            </span>
-          )}
-          <span>Updated {formatDate(wf.updated_at)}</span>
-        </div>
-      </div>
-      <div className="shrink-0">
+    <TableCard
+      trailing={
         <WorkflowRowActions wf={wf} runningWorkflowId={runningWorkflowId} />
+      }
+    >
+      <div className="flex flex-wrap items-baseline gap-x-2 gap-y-1">
+        <TitleLink to={`/workflows/${wf.id}`} viewTransition>
+          {wf.name}
+        </TitleLink>
+        {wf.is_template && (
+          <Badge variant="outline" className="gap-1 text-[10px]">
+            <Lock className="size-2.5" aria-hidden="true" />
+            Template
+          </Badge>
+        )}
       </div>
-    </article>
+      {wf.description && (
+        <p className="mt-0.5 line-clamp-1 text-xs text-text-muted">
+          {wf.description}
+        </p>
+      )}
+      <div className="mt-1.5 flex flex-wrap items-center gap-x-3 gap-y-1 text-xs text-text-muted">
+        <span className="tabular-nums">
+          {wf.task_count} task{wf.task_count === 1 ? "" : "s"}
+        </span>
+        {runConf && (
+          <span
+            className={cn(
+              "inline-flex items-center gap-1 font-display",
+              runConf.className,
+            )}
+          >
+            {runConf.icon}
+            {runConf.label}
+          </span>
+        )}
+        <span>Updated {formatDate(wf.updated_at)}</span>
+      </div>
+    </TableCard>
   );
 }
 

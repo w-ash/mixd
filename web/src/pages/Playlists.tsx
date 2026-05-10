@@ -18,6 +18,7 @@ import { ImportPlaylistsConfirmDialog } from "#/components/shared/ImportPlaylist
 import { QueryErrorState } from "#/components/shared/QueryErrorState";
 import { ResponsiveTable } from "#/components/shared/ResponsiveTable";
 import { TablePagination } from "#/components/shared/TablePagination";
+import { TitleLink } from "#/components/shared/TitleLink";
 import { Button } from "#/components/ui/button";
 import { Skeleton } from "#/components/ui/skeleton";
 import {
@@ -57,13 +58,9 @@ function PlaylistCard({ playlist }: { playlist: PlaylistSummarySchema }) {
   return (
     <article className="flex items-start gap-3 rounded-md border border-border bg-surface px-3 py-3">
       <div className="min-w-0 flex-1">
-        <Link
-          to={`/playlists/${playlist.id}`}
-          viewTransition
-          className="block truncate font-display text-sm font-medium text-text transition-colors hover:text-primary"
-        >
+        <TitleLink to={`/playlists/${playlist.id}`} viewTransition>
           {playlist.name}
-        </Link>
+        </TitleLink>
         {playlist.description && (
           <p className="mt-0.5 line-clamp-1 text-xs text-text-muted">
             {decodeHtmlEntities(playlist.description)}

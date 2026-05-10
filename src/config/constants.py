@@ -113,6 +113,8 @@ class WorkflowConstants:
     # SSE event type names
     SSE_EVENT_RUN_ACCEPTED: Final = "run_accepted"
     SSE_EVENT_NODE_STATUS: Final = "node_status"
+    SSE_EVENT_STARTED: Final = "started"
+    SSE_EVENT_PROGRESS: Final = "progress"
     SSE_EVENT_SUB_OPERATION_STARTED: Final = "sub_operation_started"
     SSE_EVENT_SUB_PROGRESS: Final = "sub_progress"
     SSE_EVENT_SUB_OPERATION_COMPLETED: Final = "sub_operation_completed"

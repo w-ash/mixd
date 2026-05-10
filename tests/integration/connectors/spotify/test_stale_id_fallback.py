@@ -1,10 +1,18 @@
 """Tests for Spotify stale/dead track ID discovery (diagnostic, real API).
 
 These tests use the real Spotify API to verify that dead track IDs exist in
-old export data and can be resolved via artist+title search. Run with:
-    pytest -m diagnostic
+old export data and can be resolved via artist+title search.
+
+Diagnostic only — opt in by setting ``MIXD_DIAGNOSTIC_RUN=1`` and running
+against a developer environment with a stored Spotify OAuth token plus a
+local Spotify Wrapped export file. Without the opt-in, these tests skip:
+under the pytest harness, the ``_init_test_schema`` fixture redirects
+``DATABASE_URL`` to a fresh testcontainers Postgres with no token, so the
+Spotify client would fall back to launching the interactive browser OAuth
+flow — never an acceptable side effect of an automated test run.
 """
 
+import os
 from pathlib import Path
 
 import pytest
@@ -14,10 +22,15 @@ from src.infrastructure.connectors.spotify.client import SpotifyAPIClient
 
 @pytest.mark.diagnostic
 class TestStaleIdDiscovery:
-    """Diagnostic tests using real Spotify API. Run with: pytest -m diagnostic"""
+    """Diagnostic tests using real Spotify API. Run by hand against a real env."""
 
     @pytest.fixture
     def export_file(self) -> Path | None:
+        if os.environ.get("MIXD_DIAGNOSTIC_RUN") != "1":
+            pytest.skip(
+                "Diagnostic requires MIXD_DIAGNOSTIC_RUN=1 plus a real "
+                "DATABASE_URL with a stored Spotify token"
+            )
         path = Path("data/imports/Streaming_History_Audio_2011-2014_0.json")
         if not path.exists():
             pytest.skip("Export file not available")

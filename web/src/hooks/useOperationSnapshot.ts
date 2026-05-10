@@ -15,6 +15,7 @@
 import { useQuery } from "@tanstack/react-query";
 
 import { customFetch } from "#/api/client";
+import { OperationSnapshotResponseStatus } from "#/api/generated/model";
 
 export interface OperationSnapshotNode {
   node_id: string;
@@ -29,12 +30,12 @@ export interface OperationSnapshotNode {
   completed_at?: string | null;
 }
 
+/** is_terminal is derived client-side via {@link isTerminalSnapshot}. */
 export interface OperationSnapshot {
   operation_id: string;
-  run_id: string;
+  id: string;
   workflow_id: string;
   status: string;
-  is_terminal: boolean;
   error_message?: string | null;
   heartbeat_at?: string | null;
   started_at?: string | null;
@@ -42,6 +43,16 @@ export interface OperationSnapshot {
   output_track_count?: number | null;
   duration_ms?: number | null;
   nodes: OperationSnapshotNode[];
+}
+
+const TERMINAL_STATUSES: ReadonlySet<string> = new Set([
+  OperationSnapshotResponseStatus.completed,
+  OperationSnapshotResponseStatus.failed,
+  OperationSnapshotResponseStatus.cancelled,
+]);
+
+export function isTerminalSnapshot(snapshot: OperationSnapshot): boolean {
+  return TERMINAL_STATUSES.has(snapshot.status);
 }
 
 export const SNAPSHOT_POLL_INTERVAL_MS = 5_000;

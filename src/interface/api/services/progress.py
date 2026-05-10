@@ -166,7 +166,7 @@ class SSEProgressSubscriber:
 
         await queue.put({
             "id": event_id,
-            "event": "started",
+            "event": WorkflowConstants.SSE_EVENT_STARTED,
             "data": {
                 "operation_id": operation.operation_id,
                 "description": operation.description,
@@ -219,7 +219,7 @@ class SSEProgressSubscriber:
 
         await queue.put({
             "id": event_id,
-            "event": "progress",
+            "event": WorkflowConstants.SSE_EVENT_PROGRESS,
             "data": {
                 "operation_id": event.operation_id,
                 "current": event.current,
@@ -256,7 +256,11 @@ class SSEProgressSubscriber:
             return
 
         event_id = self._next_event_id(operation_id)
-        event_type = "error" if final_status == OperationStatus.FAILED else "complete"
+        event_type = (
+            WorkflowConstants.SSE_EVENT_ERROR
+            if final_status == OperationStatus.FAILED
+            else WorkflowConstants.SSE_EVENT_COMPLETE
+        )
 
         await queue.put({
             "id": event_id,

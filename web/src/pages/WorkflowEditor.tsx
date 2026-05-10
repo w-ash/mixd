@@ -1,8 +1,11 @@
 import { ReactFlowProvider } from "@xyflow/react";
+import { LayoutPanelLeft, Monitor } from "lucide-react";
 import { useEffect } from "react";
-import { useParams, useSearchParams } from "react-router";
+import { Link, useParams, useSearchParams } from "react-router";
 
 import { useGetWorkflowApiV1WorkflowsWorkflowIdGet } from "#/api/generated/workflows/workflows";
+import { PageHeader } from "#/components/layout/PageHeader";
+import { Button } from "#/components/ui/button";
 import { EditorCanvas } from "#/components/workflow/EditorCanvas";
 import { EditorToolbar } from "#/components/workflow/EditorToolbar";
 import { NodeConfigPanel } from "#/components/workflow/NodeConfigPanel";
@@ -10,8 +13,6 @@ import { NodePalette } from "#/components/workflow/NodePalette";
 import { PreviewPanel } from "#/components/workflow/PreviewPanel";
 import { useIsMobile } from "#/hooks/useIsMobile";
 import { useEditorStore } from "#/stores/editor-store";
-
-import { WorkflowEditorMobilePlaceholder } from "./WorkflowEditorMobilePlaceholder";
 
 export default function WorkflowEditor() {
   const { id } = useParams<{ id: string }>();
@@ -85,7 +86,46 @@ export default function WorkflowEditor() {
   // placeholder pointing the user at the runs view instead. The gate runs
   // after all hooks so the order stays stable across viewport changes.
   if (isMobile) {
-    return <WorkflowEditorMobilePlaceholder workflowId={workflowId} />;
+    return (
+      <>
+        <title>Workflow editor — Mixd</title>
+        <PageHeader
+          title="Workflow editor"
+          description="Editing a workflow's graph requires a larger screen."
+        />
+        <div className="rounded-xl border border-border bg-surface-elevated p-8 shadow-elevated">
+          <div className="mx-auto flex max-w-md flex-col items-center text-center">
+            <span
+              aria-hidden="true"
+              className="mb-4 flex size-12 items-center justify-center rounded-full bg-primary/10 text-primary"
+            >
+              <Monitor className="size-6" />
+            </span>
+            <h2 className="font-display text-base font-semibold text-text">
+              Workflow editing needs a larger screen
+            </h2>
+            <p className="mt-2 text-sm text-text-muted">
+              The graph canvas is desktop-only — open mixd on a screen at least
+              1024px wide to edit the pipeline. Run history and other workflow
+              actions stay fully usable here.
+            </p>
+            <div className="mt-6 flex flex-col gap-2 sm:flex-row">
+              {workflowId && (
+                <Button asChild>
+                  <Link to={`/workflows/${workflowId}`}>
+                    <LayoutPanelLeft className="mr-1.5 size-3.5" />
+                    View runs
+                  </Link>
+                </Button>
+              )}
+              <Button variant="outline" asChild>
+                <Link to="/workflows">All workflows</Link>
+              </Button>
+            </div>
+          </div>
+        </div>
+      </>
+    );
   }
 
   return (

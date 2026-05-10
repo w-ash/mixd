@@ -16,9 +16,9 @@ from src.application.runner import execute_use_case
 from src.application.use_cases.get_operation_snapshot import (
     GetOperationSnapshotCommand,
     GetOperationSnapshotUseCase,
-    is_terminal_status,
 )
 from src.config import get_logger
+from src.domain.entities.workflow import WorkflowRun
 from src.domain.exceptions import NotFoundError
 from src.interface.api.deps import get_current_user_id
 from src.interface.api.schemas.operations import OperationSnapshotResponse
@@ -133,8 +133,7 @@ async def get_operation_snapshot(
 
     Used by the frontend's watchdog (45 s without any SSE frame) to
     recover terminal state from the DB. Sweeper-marked-failed runs
-    return ``is_terminal=true`` here even when the terminal SSE event
-    was never delivered.
+    surface here even when the terminal SSE event was never delivered.
 
     404 if the operation_id has no matching run row, or if the calling
     user doesn't own the workflow that produced it. Authorization is
@@ -145,19 +144,23 @@ async def get_operation_snapshot(
         lambda uow: GetOperationSnapshotUseCase().execute(command, uow),
         user_id=user_id,
     )
-    run = result.run
+    return _to_snapshot(operation_id, result.run)
 
+
+def _to_snapshot(operation_id: str, run: WorkflowRun) -> OperationSnapshotResponse:
     return OperationSnapshotResponse(
-        operation_id=operation_id,
-        run_id=str(run.id),
-        workflow_id=str(run.workflow_id),
+        id=run.id,
+        workflow_id=run.workflow_id,
         status=run.status,
-        is_terminal=is_terminal_status(run.status),
-        error_message=run.error_message,
-        heartbeat_at=run.heartbeat_at,
+        definition_version=run.definition_version,
         started_at=run.started_at,
         completed_at=run.completed_at,
-        output_track_count=run.output_track_count,
+        heartbeat_at=run.heartbeat_at,
         duration_ms=run.duration_ms,
+        output_track_count=run.output_track_count,
+        output_playlist_id=run.output_playlist_id,
+        error_message=run.error_message,
+        created_at=run.created_at,
+        operation_id=operation_id,
         nodes=[WorkflowRunNodeSchema.model_validate(n) for n in run.nodes],
     )

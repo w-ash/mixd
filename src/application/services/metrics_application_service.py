@@ -13,7 +13,7 @@ from uuid import UUID
 from attrs import define
 
 from src.application.services.sub_operation_progress import (
-    complete_sub_operation,
+    ThrottledSubOperationEmitter,
     create_throttled_sub_operation,
 )
 from src.config import get_logger
@@ -222,47 +222,38 @@ class MetricsApplicationService:
                     )
 
                 if tracks_with_identity:
-                    progress_callback = None
-                    sub_op_id: str | None = None
+                    # Throttled sub-operation: caps SSE wire rate at 4 Hz so
+                    # per-track callbacks from the rate-limited batch processor
+                    # don't flood the queue or React tree.
+                    emitter: ThrottledSubOperationEmitter | None = (
+                        await create_throttled_sub_operation(
+                            progress_manager,
+                            description=f"Fetching {connector} metadata",
+                            total_items=len(tracks_with_identity),
+                            parent_operation_id=parent_operation_id,
+                            phase="enrich",
+                            node_type="enricher",
+                        )
+                        if progress_manager and parent_operation_id
+                        else None
+                    )
+                    teardown_status = OperationStatus.COMPLETED
                     try:
-                        # Throttled sub-operation: caps SSE wire rate at 4 Hz
-                        # so per-track callbacks from the rate-limited batch
-                        # processor don't flood the queue or React tree.
-                        if progress_manager and parent_operation_id:
-                            (
-                                sub_op_id,
-                                progress_callback,
-                            ) = await create_throttled_sub_operation(
-                                progress_manager,
-                                description=f"Fetching {connector} metadata",
-                                total_items=len(tracks_with_identity),
-                                parent_operation_id=parent_operation_id,
-                                phase="enrich",
-                                node_type="enricher",
-                            )
-
                         fresh_metadata = (
                             await connector_instance.get_external_track_data(
                                 tracks_with_identity,
-                                progress_callback=progress_callback,
+                                progress_callback=emitter,
                             )
                         )
-
-                        # Complete sub-operation
-                        if progress_manager and sub_op_id:
-                            await complete_sub_operation(progress_manager, sub_op_id)
                     except Exception as e:
-                        # Complete sub-operation as failed
-                        if progress_manager and sub_op_id:
-                            await complete_sub_operation(
-                                progress_manager,
-                                sub_op_id,
-                                OperationStatus.FAILED,
-                            )
+                        teardown_status = OperationStatus.FAILED
                         logger.error(
                             f"Failed to fetch metrics from {connector} API: {e}"
                         )
                         raise
+                    finally:
+                        if emitter is not None:
+                            await emitter.aclose(teardown_status)
 
             # Extract metrics from fresh metadata (only for missing track/metric pairs)
             missing_metric_names = [

@@ -181,9 +181,8 @@ class TestOperationSnapshotEndpoint:
         snap = snap_resp.json()
 
         assert snap["operation_id"] == operation_id
-        assert snap["run_id"] == run_id
+        assert snap["id"] == run_id
         assert snap["status"] == "pending"
-        assert snap["is_terminal"] is False
         assert "nodes" in snap
         assert isinstance(snap["nodes"], list)
         # Pre-created node records exist for every task in the definition.

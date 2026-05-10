@@ -17,6 +17,7 @@ import { useCallback, useEffect, useRef, useState } from "react";
 
 import { useNodeStatuses } from "#/hooks/useNodeStatuses";
 import {
+  isTerminalSnapshot,
   type OperationSnapshot,
   useOperationSnapshot,
 } from "#/hooks/useOperationSnapshot";
@@ -34,11 +35,7 @@ export interface SubProgressUpdate {
   message: string;
   itemsPerSecond: number | null;
   etaSeconds: number | null;
-  /** Recent items_per_second samples for stability detection (last 3). */
-  samples: readonly number[];
 }
-
-const SUB_PROGRESS_SAMPLE_WINDOW = 3;
 
 export interface UseWorkflowSSEOptions {
   /** Which event types signal completion (default: {"complete"}) */
@@ -87,18 +84,17 @@ export function useWorkflowSSE(
     null,
   );
 
-  // Per-sub-op samples buffer for stability detection. Keyed by sub-op id
-  // so consecutive sub-ops (e.g., lastfm enricher then spotify enricher)
-  // don't pollute each other's ETA threshold.
-  const samplesBySubOpRef = useRef<Map<string, number[]>>(new Map());
-
   // Idempotency guard: terminal events can race between SSE delivery and
   // the snapshot poll. The first one to fire wins; subsequent terminal
   // signals are no-ops.
   const terminalEmittedRef = useRef(false);
 
-  const { nodeStatuses, handleNodeStatusEvent, resetNodeStatuses } =
-    useNodeStatuses();
+  const {
+    nodeStatuses,
+    handleNodeStatusEvent,
+    mergeNodeStatusEvents,
+    resetNodeStatuses,
+  } = useNodeStatuses();
 
   // Hold the latest user callbacks in refs so the SSE/snapshot effects
   // don't need to depend on them (and re-trigger if the parent re-renders).
@@ -146,31 +142,20 @@ export function useWorkflowSSE(
           const subOperationId = String(d.operation_id ?? "");
           if (!subOperationId) return;
 
-          const ips = (d.items_per_second as number | null | undefined) ?? null;
-          const samples = samplesBySubOpRef.current.get(subOperationId) ?? [];
-          const nextSamples =
-            typeof ips === "number" && ips > 0
-              ? [...samples, ips].slice(-SUB_PROGRESS_SAMPLE_WINDOW)
-              : samples;
-          samplesBySubOpRef.current.set(subOperationId, nextSamples);
-
           setSubProgress({
             subOperationId,
             current: (d.current as number) ?? 0,
             total: (d.total as number | null | undefined) ?? null,
             message: (d.message as string) ?? "",
-            itemsPerSecond: ips,
+            itemsPerSecond:
+              (d.items_per_second as number | null | undefined) ?? null,
             etaSeconds: (d.eta_seconds as number | null | undefined) ?? null,
-            samples: nextSamples,
           });
           return;
         }
         case SSE_EVENT.SUB_OPERATION_COMPLETED: {
           const d = data as Record<string, unknown>;
           const subOperationId = String(d.operation_id ?? "");
-          // Drop the samples buffer for the completed sub-op and clear the
-          // displayed status. The next sub-op will build its own buffer.
-          samplesBySubOpRef.current.delete(subOperationId);
           setSubProgress((prev) =>
             prev?.subOperationId === subOperationId ? null : prev,
           );
@@ -204,12 +189,12 @@ export function useWorkflowSSE(
     const snapshot: OperationSnapshot | undefined = snapshotQuery.data;
     if (!snapshot) return;
 
-    // Reconcile persisted node states into the in-memory map. This keeps
-    // the pipeline strip in sync after a stall — the user might see a node
-    // jump from "running" to "completed" without intermediate updates.
+    // Reconcile persisted node states into the in-memory map in a single
+    // setState call — keeps the pipeline strip in sync after a stall
+    // without paying N intermediate Map allocations.
     const totalNodes = snapshot.nodes.length;
-    for (const node of snapshot.nodes) {
-      handleNodeStatusEvent({
+    mergeNodeStatusEvents(
+      snapshot.nodes.map((node) => ({
         node_id: node.node_id,
         node_type: node.node_type,
         status: node.status,
@@ -219,10 +204,10 @@ export function useWorkflowSSE(
         input_track_count: node.input_track_count ?? undefined,
         output_track_count: node.output_track_count ?? undefined,
         error_message: node.error_message ?? undefined,
-      });
-    }
+      })),
+    );
 
-    if (snapshot.is_terminal) {
+    if (isTerminalSnapshot(snapshot)) {
       // Sweeper-marked-failed runs surface here when the SSE terminal
       // event was lost (the heartbeat sweeper marked the row failed
       // server-side after 60 s of silence).
@@ -235,7 +220,7 @@ export function useWorkflowSSE(
     }
   }, [
     snapshotQuery.data,
-    handleNodeStatusEvent,
+    mergeNodeStatusEvents,
     fireTerminalComplete,
     fireTerminalError,
     disconnect,
@@ -248,7 +233,6 @@ export function useWorkflowSSE(
       resetNodeStatuses();
       setRunAccepted(false);
       setSubProgress(null);
-      samplesBySubOpRef.current.clear();
       terminalEmittedRef.current = false;
       setOperationId(opId);
       setIsRunning(true);
@@ -262,7 +246,6 @@ export function useWorkflowSSE(
     resetNodeStatuses();
     setRunAccepted(false);
     setSubProgress(null);
-    samplesBySubOpRef.current.clear();
     terminalEmittedRef.current = false;
     setOperationId(null);
     setIsRunning(false);

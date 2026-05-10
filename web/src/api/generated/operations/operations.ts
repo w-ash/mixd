@@ -3,7 +3,7 @@
  * Do not edit manually.
  * Mixd
  * Personal music metadata hub
- * OpenAPI spec version: 0.7.8.6
+ * OpenAPI spec version: 0.7.8.7
  */
 import {
   useQuery
@@ -303,8 +303,7 @@ export const getGetOperationSnapshotApiV1OperationsOperationIdSnapshotGetUrl = (
 
 Used by the frontend's watchdog (45 s without any SSE frame) to
 recover terminal state from the DB. Sweeper-marked-failed runs
-return ``is_terminal=true`` here even when the terminal SSE event
-was never delivered.
+surface here even when the terminal SSE event was never delivered.
 
 404 if the operation_id has no matching run row, or if the calling
 user doesn't own the workflow that produced it. Authorization is

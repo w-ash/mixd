@@ -30,6 +30,7 @@ previous  # Pydantic field on SpotifyPaginatedResponse
 SPOTIFY_TOKEN_URL  # URL constant, triggers S105 false positive
 database  # MixdSettings nested model field
 last_synced_at  # Pydantic ConnectorMetadataSchema field
+issue_count  # Pydantic field on OperationRunSummarySchema (audit-log list)
 theme_mode  # UserSettingsResponse / UserSettingsPatch Pydantic fields
 iat  # JWTClaims TypedDict
 iss  # JWTClaims TypedDict

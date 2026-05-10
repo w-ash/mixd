@@ -298,10 +298,18 @@ class TestProgressIntegration:
         operation_id = await progress_manager.start_operation(operation)
 
         # Patch asyncio.gather to raise CancelledError (simulating Prefect
-        # cancel scope injected at the await point)
+        # cancel scope injected at the await point). The generator expression
+        # materializes child coroutines before gather runs, so close them
+        # ourselves to avoid orphan-coroutine warnings.
+        def cancel_gather(*coros, return_exceptions=False):
+            for coro in coros:
+                if hasattr(coro, "close"):
+                    coro.close()
+            raise CancelledError()
+
         with patch(
             "src.application.services.progress_manager.asyncio.gather",
-            side_effect=CancelledError(),
+            side_effect=cancel_gather,
         ):
             # Should NOT raise — _broadcast absorbs the CancelledError
             await progress_manager.emit_progress(

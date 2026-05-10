@@ -31,6 +31,7 @@ from tests.fixtures.factories import (
     nonexistent_id,
 )
 from tests.fixtures.mocks import (
+    fake_run_async,
     make_mock_checkpoint_repo,
     make_mock_connector_playlist_repo,
     make_mock_connector_repo,
@@ -52,6 +53,7 @@ from tests.fixtures.mocks import (
 )
 
 __all__ = [
+    "fake_run_async",
     "make_connector_playlist",
     "make_connector_playlist_item",
     "make_connector_track",

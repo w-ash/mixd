@@ -19,8 +19,10 @@ import { EmptyState } from "#/components/shared/EmptyState";
 import { PreferenceBadge } from "#/components/shared/PreferenceToggle";
 import { QueryErrorState } from "#/components/shared/QueryErrorState";
 import { ResponsiveTable } from "#/components/shared/ResponsiveTable";
+import { TableCard } from "#/components/shared/TableCard";
 import { TablePagination } from "#/components/shared/TablePagination";
 import { TagChip } from "#/components/shared/TagChip";
+import { TitleLink } from "#/components/shared/TitleLink";
 import { Badge } from "#/components/ui/badge";
 import { Button } from "#/components/ui/button";
 import { Checkbox } from "#/components/ui/checkbox";
@@ -74,53 +76,50 @@ interface TrackCardProps {
  */
 function TrackCard({ track, selected, onSelectedChange }: TrackCardProps) {
   return (
-    <article className="flex items-start gap-3 rounded-md border border-border bg-surface px-3 py-3">
-      <Checkbox
-        aria-label={`Select ${track.title}`}
-        checked={selected}
-        onCheckedChange={(checked) => onSelectedChange(checked === true)}
-        className="mt-1 shrink-0"
-      />
-      <div className="min-w-0 flex-1">
-        <div className="flex items-baseline justify-between gap-2">
-          <Link
-            to={`/library/${track.id}`}
-            viewTransition
-            className="truncate font-display text-sm font-medium text-text transition-colors hover:text-primary"
-          >
-            {track.title}
-          </Link>
-          {track.is_liked && (
-            <Heart
-              className="size-3.5 shrink-0 text-status-liked"
-              aria-label="Liked"
-            />
-          )}
-        </div>
-        <p className="truncate text-sm text-text-muted">
-          {formatArtists(track.artists)}
-        </p>
-        <div className="mt-1.5 flex items-center gap-3 text-xs text-text-muted">
-          {track.album && <span className="truncate">{track.album}</span>}
-          <span className="shrink-0 tabular-nums">
-            {formatDuration(track.duration_ms)}
-          </span>
-          {track.preference && <PreferenceBadge state={track.preference} />}
-        </div>
-        {track.tags && track.tags.length > 0 && (
-          <div className="mt-2">
-            <TagRowChips tags={track.tags} />
-          </div>
-        )}
-        {track.connector_names.length > 0 && (
-          <div className="mt-2 flex gap-1">
-            {track.connector_names.map((name) => (
-              <ConnectorIcon key={name} name={name} labelHidden />
-            ))}
-          </div>
+    <TableCard
+      leading={
+        <Checkbox
+          aria-label={`Select ${track.title}`}
+          checked={selected}
+          onCheckedChange={(checked) => onSelectedChange(checked === true)}
+          className="mt-1 shrink-0"
+        />
+      }
+    >
+      <div className="flex items-baseline justify-between gap-2">
+        <TitleLink to={`/library/${track.id}`} viewTransition>
+          {track.title}
+        </TitleLink>
+        {track.is_liked && (
+          <Heart
+            className="size-3.5 shrink-0 text-status-liked"
+            aria-label="Liked"
+          />
         )}
       </div>
-    </article>
+      <p className="truncate text-sm text-text-muted">
+        {formatArtists(track.artists)}
+      </p>
+      <div className="mt-1.5 flex items-center gap-3 text-xs text-text-muted">
+        {track.album && <span className="truncate">{track.album}</span>}
+        <span className="shrink-0 tabular-nums">
+          {formatDuration(track.duration_ms)}
+        </span>
+        {track.preference && <PreferenceBadge state={track.preference} />}
+      </div>
+      {track.tags && track.tags.length > 0 && (
+        <div className="mt-2">
+          <TagRowChips tags={track.tags} />
+        </div>
+      )}
+      {track.connector_names.length > 0 && (
+        <div className="mt-2 flex gap-1">
+          {track.connector_names.map((name) => (
+            <ConnectorIcon key={name} name={name} labelHidden />
+          ))}
+        </div>
+      )}
+    </TableCard>
   );
 }
 
