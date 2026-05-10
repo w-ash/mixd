@@ -487,7 +487,6 @@ async def _bump_heartbeat(run_id: UUID) -> None:
     """
     try:
         async with _run_repo_session() as repo:
-            logger.info("Heartbeat session opened", run_id=str(run_id))
             await repo.bump_heartbeat(run_id)
     except Exception:
         logger.warning("Heartbeat bump failed", run_id=str(run_id), exc_info=True)
@@ -501,9 +500,10 @@ async def _heartbeat_loop(run_id: UUID, *, interval_seconds: int = 5) -> None:
     the next bump catches up — the sweeper threshold (60s) is comfortably
     larger than the interval.
     """
+    # Diagnostic breadcrumb — first-bump only, since all subsequent ticks are
+    # uninteresting. If this log appears but the heartbeat row never updates,
+    # the DB write is stuck; if this log is missing, the ticker never got CPU.
     logger.info("Heartbeat first bump attempt", run_id=str(run_id))
-    # Bump immediately so cold-start hangs are detectable as fast as
-    # the ticker is alive at all (vs. waiting `interval_seconds` first).
     await _bump_heartbeat(run_id)
     while True:
         await asyncio.sleep(interval_seconds)

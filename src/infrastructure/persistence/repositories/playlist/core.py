@@ -737,7 +737,7 @@ class PlaylistRepository(BaseRepository[DBPlaylist, Playlist]):
                 user_id=playlist.user_id,
                 raise_if_not_found=False,
             )
-            if existing_by_connector is not None and existing_by_connector.id:
+            if existing_by_connector is not None:
                 playlist = attrs.evolve(playlist, id=existing_by_connector.id)
 
         # Detect create vs update by checking if entity exists in DB
