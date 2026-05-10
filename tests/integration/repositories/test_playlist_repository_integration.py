@@ -313,3 +313,48 @@ class TestPlaylistRepositoryIntegration:
         assert second_saved.id == first_saved.id
         # Update path took effect (rename applied)
         assert second_saved.name == f"{playlist_name}_renamed"
+
+    async def test_save_playlist_isolates_users_with_same_connector_id(
+        self, db_session
+    ):
+        """Two users importing the same external playlist must each own a
+        separate canonical row, mapped to the shared connector_playlist.
+
+        Regression for v0.7.8.13: ``uq_connector_playlist`` was global, so
+        User B's save would either crash on UniqueViolation or — under the
+        v0.7.8.12 probe — route into User A's playlist row and silently
+        overwrite it. The user-scoped constraint
+        ``uq_user_connector_playlist`` lets both saves coexist.
+        """
+        uow = get_unit_of_work(db_session)
+        playlist_repo = uow.get_playlist_repository()
+
+        spotify_id = f"spotify_{uuid4()}"
+        user_a = f"user-a-{uuid4()}"
+        user_b = f"user-b-{uuid4()}"
+        name = f"TEST_MultiUser_{uuid4()}"
+
+        playlist_a = Playlist(
+            name=f"{name}_A",
+            user_id=user_a,
+            connector_playlist_identifiers={"spotify": spotify_id},
+        )
+        saved_a = await playlist_repo.save_playlist(playlist_a)
+
+        playlist_b = Playlist(
+            name=f"{name}_B",
+            user_id=user_b,
+            connector_playlist_identifiers={"spotify": spotify_id},
+        )
+        saved_b = await playlist_repo.save_playlist(playlist_b)
+
+        # Each user owns a distinct canonical row.
+        assert saved_a.id != saved_b.id
+        assert saved_a.user_id == user_a
+        assert saved_b.user_id == user_b
+        # Names preserved — User B's save did not overwrite User A's row.
+        assert saved_a.name == f"{name}_A"
+        assert saved_b.name == f"{name}_B"
+        # Both mappings still point at the same shared external playlist.
+        assert saved_a.connector_playlist_identifiers == {"spotify": spotify_id}
+        assert saved_b.connector_playlist_identifiers == {"spotify": spotify_id}

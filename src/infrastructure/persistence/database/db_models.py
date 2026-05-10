@@ -619,8 +619,11 @@ class DBPlaylistMapping(BaseEntity):
     __table_args__: tuple[SchemaItem, ...] = (
         # Prevent one canonical playlist from having multiple mappings to same connector
         UniqueConstraint("playlist_id", "connector_name", name="uq_playlist_connector"),
-        # Prevent multiple canonical playlists from claiming same external playlist
-        UniqueConstraint("connector_playlist_id", name="uq_connector_playlist"),
+        # One canonical per (user, external playlist). Scoping to user lets two
+        # users own separate local playlists for the same Spotify/Last.fm URL.
+        UniqueConstraint(
+            "user_id", "connector_playlist_id", name="uq_user_connector_playlist"
+        ),
         # Status queries for sync operations
         Index("ix_playlist_mappings_sync_status", "sync_status"),
     )

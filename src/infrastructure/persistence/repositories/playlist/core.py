@@ -446,7 +446,7 @@ class PlaylistRepository(BaseRepository[DBPlaylist, Playlist]):
         return connector_playlist_db_ids
 
     async def _create_connector_mappings(
-        self, playlist_id: UUID, connector_ids: dict[str, str]
+        self, playlist_id: UUID, connector_ids: dict[str, str], *, user_id: str
     ) -> None:
         """Create initial connector mappings for a new playlist.
 
@@ -455,6 +455,8 @@ class PlaylistRepository(BaseRepository[DBPlaylist, Playlist]):
         Args:
             playlist_id: Internal database playlist ID.
             connector_ids: Map of service names to external playlist IDs.
+            user_id: Owner of the canonical playlist. Stored on each mapping
+                so ``uq_user_connector_playlist`` correctly scopes per user.
         """
         if not connector_ids:
             return
@@ -473,6 +475,7 @@ class PlaylistRepository(BaseRepository[DBPlaylist, Playlist]):
         # Bulk create all mappings
         values = [
             {
+                "user_id": user_id,
                 "playlist_id": playlist_id,
                 "connector_name": connector_name,
                 "connector_playlist_id": connector_playlist_db_ids[connector_name],
@@ -484,20 +487,20 @@ class PlaylistRepository(BaseRepository[DBPlaylist, Playlist]):
         ]
 
         if values:
-            # Defense-in-depth: silently skip if the connector_playlist row
-            # is already mapped (uq_connector_playlist). The natural-identity
-            # probe in _save_playlist_impl should normally route us to the
-            # update path, but the ON CONFLICT clause guarantees idempotency
-            # even when the probe misses for any reason.
+            # Defense-in-depth: silently skip if this (user, external playlist)
+            # pair is already mapped (uq_user_connector_playlist). The
+            # natural-identity probe in _save_playlist_impl should normally
+            # route us to the update path; ON CONFLICT guarantees idempotency
+            # if the probe misses for any reason (e.g. concurrent save).
             _ = await self.session.execute(
                 pg_insert(DBPlaylistMapping)
                 .values(values)
-                .on_conflict_do_nothing(constraint="uq_connector_playlist")
+                .on_conflict_do_nothing(constraint="uq_user_connector_playlist")
             )
             await self.session.flush()
 
     async def _update_connector_mappings(
-        self, playlist_id: UUID, connector_ids: dict[str, str]
+        self, playlist_id: UUID, connector_ids: dict[str, str], *, user_id: str
     ) -> None:
         """Update connector mappings for an existing playlist.
 
@@ -506,6 +509,8 @@ class PlaylistRepository(BaseRepository[DBPlaylist, Playlist]):
         Args:
             playlist_id: Internal database playlist ID.
             connector_ids: Map of service names to external playlist IDs.
+            user_id: Owner of the canonical playlist. Stamped onto any new
+                mapping rows created here.
         """
         if not connector_ids:
             return
@@ -549,6 +554,7 @@ class PlaylistRepository(BaseRepository[DBPlaylist, Playlist]):
             else:
                 # Add new mapping
                 new_mappings.append({
+                    "user_id": user_id,
                     "playlist_id": playlist_id,
                     "connector_name": connector_name,
                     "connector_playlist_id": connector_playlist_db_id,
@@ -566,7 +572,7 @@ class PlaylistRepository(BaseRepository[DBPlaylist, Playlist]):
             _ = await self.session.execute(
                 pg_insert(DBPlaylistMapping)
                 .values(new_mappings)
-                .on_conflict_do_nothing(constraint="uq_connector_playlist")
+                .on_conflict_do_nothing(constraint="uq_user_connector_playlist")
             )
 
         await self.session.flush()
@@ -576,6 +582,8 @@ class PlaylistRepository(BaseRepository[DBPlaylist, Playlist]):
         playlist_id: UUID,
         connector_ids: dict[str, str],
         is_update: bool,
+        *,
+        user_id: str,
     ) -> None:
         """Manage connector mappings (delegates to focused methods).
 
@@ -583,11 +591,16 @@ class PlaylistRepository(BaseRepository[DBPlaylist, Playlist]):
             playlist_id: Internal database playlist ID.
             connector_ids: Map of service names to external playlist IDs.
             is_update: True if updating existing playlist, False if creating new.
+            user_id: Owner of the canonical playlist.
         """
         if is_update:
-            await self._update_connector_mappings(playlist_id, connector_ids)
+            await self._update_connector_mappings(
+                playlist_id, connector_ids, user_id=user_id
+            )
         else:
-            await self._create_connector_mappings(playlist_id, connector_ids)
+            await self._create_connector_mappings(
+                playlist_id, connector_ids, user_id=user_id
+            )
 
     # -------------------------------------------------------------------------
     # UTILITY METHODS
@@ -727,14 +740,18 @@ class PlaylistRepository(BaseRepository[DBPlaylist, Playlist]):
         """Execute playlist create/update with tracks and mappings (unified implementation).
 
         Detects create vs update on the *natural* identity for externally
-        sourced playlists — `(connector, connector_playlist_id)` — falling
-        back to the synthetic local UUID otherwise. The probe queries
-        `playlist_mappings` directly rather than going through
-        `get_playlist_by_connector`'s 3-table JOIN through `DBPlaylist`,
-        because the `uq_connector_playlist` UNIQUE constraint we're trying
-        not to violate lives on `playlist_mappings`, not on `playlists`.
-        Probing the constraint source is both more direct and immune to
-        stale identity-map state on the session.
+        sourced playlists — ``(user_id, connector, connector_playlist_id)``
+        — falling back to the synthetic local UUID otherwise. The probe
+        queries ``playlist_mappings`` directly rather than going through
+        ``get_playlist_by_connector``'s 3-table JOIN through ``DBPlaylist``,
+        because the ``uq_user_connector_playlist`` UNIQUE constraint we're
+        trying not to violate lives on ``playlist_mappings``, not on
+        ``playlists``. Probing the constraint source is both more direct
+        and immune to stale identity-map state on the session.
+
+        The probe scopes by ``user_id`` to mirror the constraint exactly:
+        two users importing the same external playlist URL each get their
+        own canonical row.
         """
         # Determine source connector if available
         source_connector = self._determine_source_connector(
@@ -742,11 +759,9 @@ class PlaylistRepository(BaseRepository[DBPlaylist, Playlist]):
         )
 
         # Natural-identity lookup: if a mapping already exists for this
-        # (connector, connector_playlist_id), reuse its playlist_id so the
-        # downstream code takes the update path. Probes the mapping table
-        # directly to ensure we always see the constraint's perspective —
-        # `uq_connector_playlist` is itself user-agnostic, so this lookup
-        # mirrors the actual conflict surface.
+        # (user_id, connector, connector_playlist_id), reuse its playlist_id
+        # so the downstream code takes the update path. Probes the mapping
+        # table directly to ensure we always see the constraint's perspective.
         if source_connector:
             connector_id = playlist.connector_playlist_identifiers[source_connector]
             mapping_stmt = (
@@ -756,10 +771,10 @@ class PlaylistRepository(BaseRepository[DBPlaylist, Playlist]):
                     DBPlaylistMapping.connector_playlist_id == DBConnectorPlaylist.id,
                 )
                 .where(
+                    DBPlaylistMapping.user_id == playlist.user_id,
                     DBPlaylistMapping.connector_name == source_connector,
                     DBConnectorPlaylist.connector_playlist_identifier == connector_id,
                 )
-                .limit(1)
             )
             existing_playlist_id = (
                 await self.session.execute(mapping_stmt)
@@ -805,7 +820,10 @@ class PlaylistRepository(BaseRepository[DBPlaylist, Playlist]):
 
             _ = await self.session.execute(
                 update(self.model_class)
-                .where(self.model_class.id == playlist.id)
+                .where(
+                    self.model_class.id == playlist.id,
+                    self.model_class.user_id == playlist.user_id,
+                )
                 .values(**updates)
             )
             playlist_id = playlist.id
@@ -830,6 +848,7 @@ class PlaylistRepository(BaseRepository[DBPlaylist, Playlist]):
             playlist_id,
             playlist.connector_playlist_identifiers,
             is_update,
+            user_id=playlist.user_id,
         )
 
         # Flush changes to ensure they're visible to subsequent queries
