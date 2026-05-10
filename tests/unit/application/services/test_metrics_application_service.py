@@ -50,7 +50,7 @@ class TestSubOperationProgressIntegration:
         mock_progress_manager.start_operation = AsyncMock(return_value="sub-op-42")
 
         with patch(
-            "src.application.services.metrics_application_service.create_sub_operation",
+            "src.application.services.metrics_application_service.create_throttled_sub_operation",
             new_callable=AsyncMock,
         ) as mock_create:
             # Return a (sub_op_id, callback) tuple
@@ -67,7 +67,7 @@ class TestSubOperationProgressIntegration:
                 parent_operation_id="parent-op-1",
             )
 
-            # create_sub_operation should have been called
+            # create_throttled_sub_operation should have been called
             mock_create.assert_awaited_once()
 
             # Connector should have received the callback

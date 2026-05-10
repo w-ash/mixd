@@ -14,7 +14,7 @@ from attrs import define
 
 from src.application.services.sub_operation_progress import (
     complete_sub_operation,
-    create_sub_operation,
+    create_throttled_sub_operation,
 )
 from src.config import get_logger
 from src.domain.entities.progress import OperationStatus
@@ -225,9 +225,14 @@ class MetricsApplicationService:
                     progress_callback = None
                     sub_op_id: str | None = None
                     try:
-                        # Create sub-operation callback for granular progress
+                        # Throttled sub-operation: caps SSE wire rate at 4 Hz
+                        # so per-track callbacks from the rate-limited batch
+                        # processor don't flood the queue or React tree.
                         if progress_manager and parent_operation_id:
-                            sub_op_id, progress_callback = await create_sub_operation(
+                            (
+                                sub_op_id,
+                                progress_callback,
+                            ) = await create_throttled_sub_operation(
                                 progress_manager,
                                 description=f"Fetching {connector} metadata",
                                 total_items=len(tracks_with_identity),

@@ -4,11 +4,13 @@ Tests create_sub_operation, complete_sub_operation, and emit_phase_progress
 functions that bridge infrastructure callbacks to AsyncProgressManager.
 """
 
+import asyncio
 from unittest.mock import AsyncMock
 
 from src.application.services.sub_operation_progress import (
     complete_sub_operation,
     create_sub_operation,
+    create_throttled_sub_operation,
     emit_phase_progress,
 )
 from src.domain.entities.progress import OperationStatus
@@ -91,6 +93,117 @@ class TestCompleteSubOperation:
 
         mock_manager.complete_operation.assert_awaited_once_with(
             "sub-op-456", OperationStatus.FAILED
+        )
+
+
+class TestCreateThrottledSubOperation:
+    """Throttled callback tests — verify rate cap, tail flush, and cleanup.
+
+    Use a small min_interval_seconds (10ms) instead of mocking time so the
+    tests exercise the real asyncio.sleep + asyncio.create_task path.
+    """
+
+    async def test_first_call_emits_immediately(self):
+        mock_manager = _make_mock_manager()
+
+        _sub_op_id, callback = await create_throttled_sub_operation(
+            progress_manager=mock_manager,
+            description="Fetching lastfm metadata",
+            total_items=100,
+            parent_operation_id="parent-1",
+            phase="enrich",
+            node_type="enricher",
+            min_interval_seconds=0.01,
+        )
+
+        await callback(1, 100, "1/100")
+        mock_manager.emit_progress.assert_awaited_once()
+
+    async def test_terminal_tick_always_emits(self):
+        """callback(N, N, ...) bypasses the throttle and emits immediately."""
+        mock_manager = _make_mock_manager()
+
+        _sub_op_id, callback = await create_throttled_sub_operation(
+            progress_manager=mock_manager,
+            description="x",
+            total_items=10,
+            parent_operation_id="p",
+            phase="enrich",
+            node_type="enricher",
+            min_interval_seconds=10.0,  # huge window — only terminal would emit
+        )
+
+        await callback(1, 10, "1/10")  # first call always emits
+        await callback(2, 10, "2/10")  # within window — suppressed
+        await callback(10, 10, "10/10")  # terminal — emits despite window
+
+        # Two emits: the first call and the terminal tick
+        assert mock_manager.emit_progress.await_count == 2
+        last_event = mock_manager.emit_progress.call_args[0][0]
+        assert last_event.current == 10
+        assert last_event.total == 10
+
+    async def test_rapid_calls_within_window_suppressed_then_tail_flushed(self):
+        """High-frequency invocation collapses to <= 1 emit per window plus a tail."""
+        mock_manager = _make_mock_manager()
+
+        _sub_op_id, callback = await create_throttled_sub_operation(
+            progress_manager=mock_manager,
+            description="x",
+            total_items=1000,
+            parent_operation_id="p",
+            phase="enrich",
+            node_type="enricher",
+            min_interval_seconds=0.05,  # 50 ms
+        )
+
+        # Hammer the callback 50 times in quick succession (no awaits between).
+        for i in range(1, 51):
+            await callback(i, 1000, f"{i}/1000")
+
+        # Wait for tail-flush timer to fire.
+        await asyncio.sleep(0.1)
+
+        # First call emits immediately. Some number of subsequent calls may
+        # cross window boundaries and emit (depends on scheduling). Tail
+        # flush emits the final suppressed (50, 1000, ...) tuple. Bound the
+        # total emits to a sane ceiling that proves throttling worked.
+        assert mock_manager.emit_progress.await_count >= 2
+        assert mock_manager.emit_progress.await_count <= 10
+
+        # The last emission must reflect the most recent call.
+        last_event = mock_manager.emit_progress.call_args[0][0]
+        assert last_event.current == 50
+        assert last_event.total == 1000
+
+    async def test_complete_sub_operation_cancels_pending_tail(self):
+        """No stale progress fires after the sub-op is marked complete."""
+        mock_manager = _make_mock_manager()
+
+        sub_op_id, callback = await create_throttled_sub_operation(
+            progress_manager=mock_manager,
+            description="x",
+            total_items=100,
+            parent_operation_id="p",
+            phase="enrich",
+            node_type="enricher",
+            min_interval_seconds=0.5,  # 500 ms — tail won't fire before our wait
+        )
+
+        # First call emits immediately.
+        await callback(1, 100, "1/100")
+        # Second call within window — schedules tail.
+        await callback(2, 100, "2/100")
+        # Tail is pending; cancel via complete.
+        await complete_sub_operation(mock_manager, sub_op_id)
+        # Wait longer than min_interval to ensure the tail would have fired.
+        await asyncio.sleep(0.6)
+
+        # Only the first call's emit should have happened.
+        assert mock_manager.emit_progress.await_count == 1
+        # complete_operation called once on the manager
+        mock_manager.complete_operation.assert_awaited_once_with(
+            sub_op_id, OperationStatus.COMPLETED
         )
 
 
