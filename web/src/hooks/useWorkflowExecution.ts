@@ -9,6 +9,7 @@ import { useCallback, useState } from "react";
 
 import { useRunWorkflowEndpointApiV1WorkflowsWorkflowIdRunPost } from "#/api/generated/workflows/workflows";
 import { useWorkflowExecutionContext } from "#/contexts/WorkflowExecutionContext";
+import type { SubProgressUpdate } from "#/hooks/useWorkflowSSE";
 import type { NodeStatus } from "#/lib/sse-types";
 import { toasts } from "#/lib/toasts";
 
@@ -22,6 +23,8 @@ export interface UseWorkflowExecutionReturn {
   nodeStatuses: Map<string, NodeStatus>;
   /** True once the server has emitted run_accepted for the active run. */
   runAccepted: boolean;
+  /** Latest sub-operation progress, or null when no sub-op is active. */
+  subProgress: SubProgressUpdate | null;
   error: Error | null;
   execute: () => void;
 }
@@ -71,6 +74,7 @@ export function useWorkflowExecution(
       runId: null,
       nodeStatuses: EMPTY_MAP,
       runAccepted: false,
+      subProgress: null,
       error: mutationError,
       execute,
     };
@@ -82,6 +86,7 @@ export function useWorkflowExecution(
     runId: ctx.runId,
     nodeStatuses: ctx.nodeStatuses,
     runAccepted: ctx.runAccepted,
+    subProgress: ctx.subProgress,
     error: mutationError ?? ctx.error,
     execute,
   };

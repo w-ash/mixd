@@ -32,7 +32,7 @@ import {
   getListWorkflowRunsApiV1WorkflowsWorkflowIdRunsGetQueryKey,
   getListWorkflowsApiV1WorkflowsGetQueryKey,
 } from "#/api/generated/workflows/workflows";
-import { useWorkflowSSE } from "#/hooks/useWorkflowSSE";
+import { type SubProgressUpdate, useWorkflowSSE } from "#/hooks/useWorkflowSSE";
 import type { NodeStatus, SSEState } from "#/lib/sse-types";
 
 export interface WorkflowExecutionState {
@@ -44,6 +44,8 @@ export interface WorkflowExecutionState {
   runAccepted: boolean;
   error: Error | null;
   nodeStatuses: Map<string, NodeStatus>;
+  /** Latest sub-operation progress, or null when no sub-op is active. */
+  subProgress: SubProgressUpdate | null;
   startExecution: (
     workflowId: string,
     operationId: string,
@@ -107,7 +109,8 @@ export function WorkflowExecutionProvider({
     [sse.start],
   );
 
-  // Domain state — changes on node lifecycle events (~10x per run).
+  // Domain state — changes on node lifecycle events (~10x per run) plus
+  // sub_progress updates throttled at the backend to <= 4 Hz.
   const executionValue = useMemo<WorkflowExecutionState>(
     () => ({
       workflowId,
@@ -117,6 +120,7 @@ export function WorkflowExecutionProvider({
       runAccepted: sse.runAccepted,
       error: sse.error,
       nodeStatuses: sse.nodeStatuses,
+      subProgress: sse.subProgress,
       startExecution,
     }),
     [
@@ -127,6 +131,7 @@ export function WorkflowExecutionProvider({
       sse.runAccepted,
       sse.error,
       sse.nodeStatuses,
+      sse.subProgress,
       startExecution,
     ],
   );

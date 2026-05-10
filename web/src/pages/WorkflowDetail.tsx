@@ -154,7 +154,7 @@ export function WorkflowDetail() {
     { query: { staleTime: STALE.SLOW } },
   );
 
-  const { isExecuting, nodeStatuses, runAccepted, execute } =
+  const { isExecuting, nodeStatuses, runAccepted, subProgress, execute } =
     useWorkflowExecution(workflowId);
 
   if (isLoading) return <DetailSkeleton />;
@@ -221,6 +221,7 @@ export function WorkflowDetail() {
             nodeStatuses={nodeStatuses}
             isExecuting={isExecuting}
             runAccepted={runAccepted}
+            subProgress={subProgress}
           />
           {isExecuting && <SSELivenessPill />}
         </div>

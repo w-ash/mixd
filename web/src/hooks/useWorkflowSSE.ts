@@ -25,6 +25,21 @@ import type { NodeStatus, SSEState } from "#/lib/sse-types";
 
 const DEFAULT_COMPLETION_EVENTS: ReadonlySet<string> = new Set(["complete"]);
 
+/** Snapshot of the most recent sub_progress event, keyed by its sub-op id. */
+export interface SubProgressUpdate {
+  /** Sub-operation id — distinguishes consecutive sub-ops (lastfm vs spotify enrich). */
+  subOperationId: string;
+  current: number;
+  total: number | null;
+  message: string;
+  itemsPerSecond: number | null;
+  etaSeconds: number | null;
+  /** Recent items_per_second samples for stability detection (last 3). */
+  samples: readonly number[];
+}
+
+const SUB_PROGRESS_SAMPLE_WINDOW = 3;
+
 export interface UseWorkflowSSEOptions {
   /** Which event types signal completion (default: {"complete"}) */
   completionEvents?: ReadonlySet<string>;
@@ -42,6 +57,8 @@ export interface UseWorkflowSSEReturn {
   nodeStatuses: Map<string, NodeStatus>;
   /** True once the server has emitted run_accepted (closes the route-to-Prefect silence gap). */
   runAccepted: boolean;
+  /** Latest sub-operation progress, or null when no sub-op is active. */
+  subProgress: SubProgressUpdate | null;
   error: Error | null;
   /** Discriminated SSE transport state for liveness UIs. */
   sseState: SSEState;
@@ -66,6 +83,14 @@ export function useWorkflowSSE(
   const [isRunning, setIsRunning] = useState(false);
   const [domainError, setDomainError] = useState<Error | null>(null);
   const [runAccepted, setRunAccepted] = useState(false);
+  const [subProgress, setSubProgress] = useState<SubProgressUpdate | null>(
+    null,
+  );
+
+  // Per-sub-op samples buffer for stability detection. Keyed by sub-op id
+  // so consecutive sub-ops (e.g., lastfm enricher then spotify enricher)
+  // don't pollute each other's ETA threshold.
+  const samplesBySubOpRef = useRef<Map<string, number[]>>(new Map());
 
   // Idempotency guard: terminal events can race between SSE delivery and
   // the snapshot poll. The first one to fire wins; subsequent terminal
@@ -114,6 +139,43 @@ export function useWorkflowSSE(
 
       if (eventType === "node_status") {
         handleNodeStatusEvent(data);
+        return;
+      }
+
+      if (eventType === "sub_progress") {
+        const d = data as Record<string, unknown>;
+        const subOperationId = String(d.operation_id ?? "");
+        if (!subOperationId) return;
+
+        const ips = (d.items_per_second as number | null | undefined) ?? null;
+        const samples = samplesBySubOpRef.current.get(subOperationId) ?? [];
+        const nextSamples =
+          typeof ips === "number" && ips > 0
+            ? [...samples, ips].slice(-SUB_PROGRESS_SAMPLE_WINDOW)
+            : samples;
+        samplesBySubOpRef.current.set(subOperationId, nextSamples);
+
+        setSubProgress({
+          subOperationId,
+          current: (d.current as number) ?? 0,
+          total: (d.total as number | null | undefined) ?? null,
+          message: (d.message as string) ?? "",
+          itemsPerSecond: ips,
+          etaSeconds: (d.eta_seconds as number | null | undefined) ?? null,
+          samples: nextSamples,
+        });
+        return;
+      }
+
+      if (eventType === "sub_operation_completed") {
+        const d = data as Record<string, unknown>;
+        const subOperationId = String(d.operation_id ?? "");
+        // Drop the samples buffer for the completed sub-op and clear the
+        // displayed status. The next sub-op will build its own buffer.
+        samplesBySubOpRef.current.delete(subOperationId);
+        setSubProgress((prev) =>
+          prev?.subOperationId === subOperationId ? null : prev,
+        );
         return;
       }
 
@@ -186,6 +248,8 @@ export function useWorkflowSSE(
       setDomainError(null);
       resetNodeStatuses();
       setRunAccepted(false);
+      setSubProgress(null);
+      samplesBySubOpRef.current.clear();
       terminalEmittedRef.current = false;
       setOperationId(opId);
       setIsRunning(true);
@@ -198,6 +262,8 @@ export function useWorkflowSSE(
     setDomainError(null);
     resetNodeStatuses();
     setRunAccepted(false);
+    setSubProgress(null);
+    samplesBySubOpRef.current.clear();
     terminalEmittedRef.current = false;
     setOperationId(null);
     setIsRunning(false);
@@ -208,6 +274,7 @@ export function useWorkflowSSE(
     isRunning,
     nodeStatuses,
     runAccepted,
+    subProgress,
     error: domainError ?? sseError,
     sseState,
     lastEventAt,

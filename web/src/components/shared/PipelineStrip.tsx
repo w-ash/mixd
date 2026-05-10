@@ -9,6 +9,8 @@
 import { Check, Loader2, X } from "lucide-react";
 import { memo, useCallback, useEffect, useRef, useState } from "react";
 import type { WorkflowTaskDefSchemaInput } from "#/api/generated/model";
+import type { SubProgressUpdate } from "#/hooks/useWorkflowSSE";
+import { formatProgressLabel } from "#/lib/eta";
 import type { NodeStatus } from "#/lib/sse-types";
 import { cn } from "#/lib/utils";
 import { getNodeCategory } from "#/lib/workflow-config";
@@ -24,6 +26,12 @@ interface PipelineStripProps {
    * pipeline…" (server has accepted the run and Prefect is warming).
    */
   runAccepted?: boolean;
+  /**
+   * Latest sub-operation progress (e.g., per-track Last.fm enrichment).
+   * Surfaces a third copy line under the step counter when present:
+   * "Enriching 12/87 tracks · 12/sec · ETA 6s".
+   */
+  subProgress?: SubProgressUpdate | null;
   className?: string;
 }
 
@@ -59,6 +67,7 @@ function PipelineStripImpl({
   nodeStatuses,
   isExecuting = false,
   runAccepted = false,
+  subProgress = null,
   className,
 }: PipelineStripProps) {
   // During execution: find current step for progress description
@@ -208,11 +217,27 @@ function PipelineStripImpl({
             />
           </div>
           {currentStep ? (
-            <p className="font-display text-xs text-text-muted">
-              Step {currentStep.executionOrder}/{currentStep.totalNodes}
-              {" \u2014 "}
-              {getNodeCategory(currentStep.nodeType).label}
-            </p>
+            <>
+              <p className="font-display text-xs text-text-muted">
+                Step {currentStep.executionOrder}/{currentStep.totalNodes}
+                {" \u2014 "}
+                {getNodeCategory(currentStep.nodeType).label}
+              </p>
+              {subProgress && subProgress.total !== null && (
+                <p className="font-mono text-[10px] text-text-faint tabular-nums">
+                  {
+                    formatProgressLabel({
+                      current: subProgress.current,
+                      total: subProgress.total,
+                      message: subProgress.message,
+                      samples: subProgress.samples,
+                      itemsPerSecond: subProgress.itemsPerSecond,
+                      etaSeconds: subProgress.etaSeconds,
+                    }).label
+                  }
+                </p>
+              )}
+            </>
           ) : !hasStatuses ? (
             <p className="font-display text-xs text-text-muted animate-text-breathe">
               {runAccepted
