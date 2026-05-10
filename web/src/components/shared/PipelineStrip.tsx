@@ -17,6 +17,13 @@ interface PipelineStripProps {
   tasks: WorkflowTaskDefSchemaInput[];
   nodeStatuses?: Map<string, NodeStatus>;
   isExecuting?: boolean;
+  /**
+   * True once the server has emitted run_accepted. Lets the strip
+   * distinguish "Initializing…" (waiting for the first event from a
+   * possibly cold-starting backend) from "Workflow accepted — starting
+   * pipeline…" (server has accepted the run and Prefect is warming).
+   */
+  runAccepted?: boolean;
   className?: string;
 }
 
@@ -51,6 +58,7 @@ function PipelineStripImpl({
   tasks,
   nodeStatuses,
   isExecuting = false,
+  runAccepted = false,
   className,
 }: PipelineStripProps) {
   // During execution: find current step for progress description
@@ -207,7 +215,9 @@ function PipelineStripImpl({
             </p>
           ) : !hasStatuses ? (
             <p className="font-display text-xs text-text-muted animate-text-breathe">
-              Initializing…
+              {runAccepted
+                ? "Workflow accepted — starting pipeline…"
+                : "Initializing…"}
             </p>
           ) : null}
         </div>

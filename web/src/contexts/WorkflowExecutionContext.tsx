@@ -40,6 +40,8 @@ export interface WorkflowExecutionState {
   operationId: string | null;
   runId: string | null;
   isExecuting: boolean;
+  /** True once the backend has emitted run_accepted for the current run. */
+  runAccepted: boolean;
   error: Error | null;
   nodeStatuses: Map<string, NodeStatus>;
   startExecution: (
@@ -112,6 +114,7 @@ export function WorkflowExecutionProvider({
       operationId: sse.operationId,
       runId,
       isExecuting: sse.isRunning,
+      runAccepted: sse.runAccepted,
       error: sse.error,
       nodeStatuses: sse.nodeStatuses,
       startExecution,
@@ -121,6 +124,7 @@ export function WorkflowExecutionProvider({
       sse.operationId,
       runId,
       sse.isRunning,
+      sse.runAccepted,
       sse.error,
       sse.nodeStatuses,
       startExecution,

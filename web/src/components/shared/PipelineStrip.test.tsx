@@ -110,6 +110,18 @@ describe("PipelineStrip", () => {
     expect(screen.queryByText(/Step/)).not.toBeInTheDocument();
   });
 
+  it("shows accepted-and-starting copy after run_accepted before first node", () => {
+    render(<PipelineStrip tasks={mockTasks} isExecuting runAccepted />);
+
+    // Closes the cold-start dead-air gap: server has accepted the run,
+    // Prefect is warming. Distinguishes from the pre-run_accepted state
+    // where the route hasn't returned yet.
+    expect(
+      screen.getByText("Workflow accepted — starting pipeline…"),
+    ).toBeInTheDocument();
+    expect(screen.queryByText("Initializing…")).not.toBeInTheDocument();
+  });
+
   it("wraps dot chain in a scrollable container", () => {
     render(<PipelineStrip tasks={mockTasks} />);
 

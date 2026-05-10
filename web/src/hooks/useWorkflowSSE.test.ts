@@ -40,7 +40,61 @@ describe("useWorkflowSSE", () => {
     expect(result.current.operationId).toBeNull();
     expect(result.current.isRunning).toBe(false);
     expect(result.current.nodeStatuses.size).toBe(0);
+    expect(result.current.runAccepted).toBe(false);
     expect(result.current.error).toBeNull();
+  });
+
+  it("flips runAccepted when run_accepted event arrives", async () => {
+    mockSSEWithEvents([
+      {
+        event: "run_accepted",
+        data: JSON.stringify({
+          operation_id: "op-rxa",
+          run_id: "run-rxa",
+          workflow_id: "wf-rxa",
+          task_count: 3,
+          accepted_at: "2026-05-09T00:00:00Z",
+        }),
+      },
+    ]);
+
+    const { result } = renderHook(() => useWorkflowSSE(), {
+      wrapper: createWrapper(),
+    });
+
+    act(() => {
+      result.current.start("op-rxa");
+    });
+
+    await waitFor(() => {
+      expect(result.current.runAccepted).toBe(true);
+    });
+    // run_accepted should not be treated as a completion or error
+    expect(result.current.error).toBeNull();
+  });
+
+  it("start() resets runAccepted to false for the next run", async () => {
+    mockSSEWithEvents([
+      { event: "run_accepted", data: JSON.stringify({ operation_id: "a" }) },
+    ]);
+
+    const { result } = renderHook(() => useWorkflowSSE(), {
+      wrapper: createWrapper(),
+    });
+
+    act(() => {
+      result.current.start("op-a");
+    });
+
+    await waitFor(() => {
+      expect(result.current.runAccepted).toBe(true);
+    });
+
+    mockSSEWithEvents([]);
+    act(() => {
+      result.current.start("op-b");
+    });
+    expect(result.current.runAccepted).toBe(false);
   });
 
   it("start() sets operationId and isRunning, connects SSE", async () => {

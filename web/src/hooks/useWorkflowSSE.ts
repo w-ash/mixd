@@ -30,6 +30,8 @@ export interface UseWorkflowSSEReturn {
   operationId: string | null;
   isRunning: boolean;
   nodeStatuses: Map<string, NodeStatus>;
+  /** True once the server has emitted run_accepted (closes the route-to-Prefect silence gap). */
+  runAccepted: boolean;
   error: Error | null;
   /** Discriminated SSE transport state for liveness UIs. */
   sseState: SSEState;
@@ -53,6 +55,7 @@ export function useWorkflowSSE(
   const [operationId, setOperationId] = useState<string | null>(null);
   const [isRunning, setIsRunning] = useState(false);
   const [domainError, setDomainError] = useState<Error | null>(null);
+  const [runAccepted, setRunAccepted] = useState(false);
 
   const { nodeStatuses, handleNodeStatusEvent, resetNodeStatuses } =
     useNodeStatuses();
@@ -64,6 +67,11 @@ export function useWorkflowSSE(
     lastEventAt,
   } = useSSEConnection(operationId, {
     onEvent(eventType, data) {
+      if (eventType === "run_accepted") {
+        setRunAccepted(true);
+        return;
+      }
+
       if (eventType === "node_status") {
         handleNodeStatusEvent(data);
         return;
@@ -92,6 +100,7 @@ export function useWorkflowSSE(
     (opId: string) => {
       setDomainError(null);
       resetNodeStatuses();
+      setRunAccepted(false);
       setOperationId(opId);
       setIsRunning(true);
     },
@@ -102,6 +111,7 @@ export function useWorkflowSSE(
     disconnect();
     setDomainError(null);
     resetNodeStatuses();
+    setRunAccepted(false);
     setOperationId(null);
     setIsRunning(false);
   }, [disconnect, resetNodeStatuses]);
@@ -110,6 +120,7 @@ export function useWorkflowSSE(
     operationId,
     isRunning,
     nodeStatuses,
+    runAccepted,
     error: domainError ?? sseError,
     sseState,
     lastEventAt,

@@ -20,6 +20,8 @@ export interface UseWorkflowExecutionReturn {
   operationId: string | null;
   runId: string | null;
   nodeStatuses: Map<string, NodeStatus>;
+  /** True once the server has emitted run_accepted for the active run. */
+  runAccepted: boolean;
   error: Error | null;
   execute: () => void;
 }
@@ -68,6 +70,7 @@ export function useWorkflowExecution(
       operationId: null,
       runId: null,
       nodeStatuses: EMPTY_MAP,
+      runAccepted: false,
       error: mutationError,
       execute,
     };
@@ -78,6 +81,7 @@ export function useWorkflowExecution(
     operationId: ctx.operationId,
     runId: ctx.runId,
     nodeStatuses: ctx.nodeStatuses,
+    runAccepted: ctx.runAccepted,
     error: mutationError ?? ctx.error,
     execute,
   };
