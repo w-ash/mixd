@@ -43,6 +43,17 @@ from src.domain.repositories.interfaces import UnitOfWorkProtocol
 logger = get_logger(__name__).bind(service="workflow_runs")
 
 
+def _jsonable_metric(value: MetricValue) -> int | float | str | None:
+    """Convert a ``MetricValue`` to a strict-JSON scalar for the JSONB column.
+
+    psycopg's default JSON adapter has no encoder for ``datetime`` — the dict
+    must already contain JSON-native types before it reaches the driver.
+    """
+    if isinstance(value, datetime):
+        return value.isoformat()
+    return value
+
+
 def serialize_output_tracks(
     tracks: list[Track],
     limit: int | None = None,
@@ -53,6 +64,11 @@ def serialize_output_tracks(
     Returns (tracks, metric_columns) where each track dict includes a ``metrics``
     sub-dict keyed by the selected columns. Up to MAX_OUTPUT_METRIC_COLUMNS
     columns are included, sorted alphabetically for deterministic ordering.
+
+    All values in the returned dicts are strict-JSON types (``str``, ``int``,
+    ``float``, ``None``) — ``track.id`` is stringified and any ``datetime``
+    metric value is converted to ISO 8601 — so the result can be written
+    directly to the ``workflow_runs.output_tracks`` JSONB column.
     """
     subset = tracks[:limit] if limit is not None else tracks
 
@@ -67,14 +83,15 @@ def serialize_output_tracks(
     result: list[dict[str, object]] = []
     for rank, track in enumerate(subset, 1):
         entry: dict[str, object] = {
-            "track_id": track.id,
+            "track_id": str(track.id),
             "title": track.title or "Unknown",
             "artists": track.artists_display or "Unknown",
             "rank": rank,
         }
         if metrics and metric_columns:
             entry["metrics"] = {
-                col: metrics[col].get(track.id) for col in metric_columns
+                col: _jsonable_metric(metrics[col].get(track.id))
+                for col in metric_columns
             }
         result.append(entry)
     return result, metric_columns

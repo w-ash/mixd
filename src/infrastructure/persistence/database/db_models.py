@@ -825,9 +825,9 @@ class DBWorkflowRun(DatabaseModel, TimestampMixin):
     error_message: Mapped[str | None] = mapped_column(String(2000))
     # Serialized track summaries (track_id, title, artists, rank, metrics) —
     # see serialize_output_tracks() in application/use_cases/workflow_runs.py.
-    # Uses dict[str, object] (not JsonDict) because entries contain UUIDs and
-    # MetricValue datetime fields that aren't strict JSON values; psycopg
-    # serializes them at write time.
+    # That function returns strict-JSON-only types (UUIDs are stringified,
+    # datetime metrics are ISO-formatted) so the dict can be written directly
+    # by psycopg's default JSONB adapter.
     output_tracks: Mapped[list[dict[str, object]] | None] = mapped_column(
         PgJsonb, nullable=True
     )

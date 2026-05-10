@@ -7,6 +7,8 @@ ExecuteWorkflowRunUseCase lifecycle, exception handling, and correlation context
 
 from asyncio import CancelledError
 from contextlib import contextmanager
+from datetime import UTC, datetime
+import json
 from unittest.mock import AsyncMock, MagicMock, call, patch
 
 import pytest
@@ -279,7 +281,7 @@ class TestSerializeOutputTracks:
         assert result[0]["rank"] == 1
         assert result[1]["rank"] == 2
         assert result[2]["rank"] == 3
-        assert result[0]["track_id"] == tracks[0].id
+        assert result[0]["track_id"] == str(tracks[0].id)
         assert result[0]["title"] == tracks[0].title
         assert isinstance(result[0]["artists"], str)
         assert columns == []
@@ -339,6 +341,25 @@ class TestSerializeOutputTracks:
 
         assert result[0]["metrics"]["playcount"] == 42
         assert result[1]["metrics"]["playcount"] is None
+
+    def test_result_is_strict_json_serializable(self) -> None:
+        """Regression for v0.7.8.14: every value must be JSON-native so the
+        dict can land in the ``workflow_runs.output_tracks`` JSONB column
+        without crashing psycopg's default adapter (no UUID/datetime support).
+        """
+        tracks = make_tracks(count=2)
+        last_played = datetime(2026, 5, 10, 12, 0, tzinfo=UTC)
+        metrics = {
+            "playcount": {tracks[0].id: 42, tracks[1].id: 7},
+            "last_played": {tracks[0].id: last_played, tracks[1].id: None},
+        }
+        result, _ = serialize_output_tracks(tracks, metrics=metrics)
+
+        json.dumps(result)  # raises if any UUID/datetime leaked through
+
+        assert result[0]["track_id"] == str(tracks[0].id)
+        assert result[0]["metrics"]["last_played"] == last_played.isoformat()
+        assert result[1]["metrics"]["last_played"] is None
 
 
 class TestExecuteWorkflowRunUseCase:
