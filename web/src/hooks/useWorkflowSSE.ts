@@ -5,11 +5,21 @@
  * the common event dispatch (node_status, error, completion). Consumers
  * configure which events signal completion and provide callbacks for
  * domain-specific side effects.
+ *
+ * When the SSE watchdog flips state to "stalled" (45 s without any
+ * frame), the hook polls GET /operations/{id}/snapshot and reconciles
+ * persisted run state into nodeStatuses. Terminal snapshots fire the
+ * configured completion callbacks with idempotency so a delayed SSE
+ * terminal event in the same render tick doesn't double-fire.
  */
 
-import { useCallback, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 
 import { useNodeStatuses } from "#/hooks/useNodeStatuses";
+import {
+  type OperationSnapshot,
+  useOperationSnapshot,
+} from "#/hooks/useOperationSnapshot";
 import { useSSEConnection } from "#/hooks/useSSEConnection";
 import type { NodeStatus, SSEState } from "#/lib/sse-types";
 
@@ -57,8 +67,38 @@ export function useWorkflowSSE(
   const [domainError, setDomainError] = useState<Error | null>(null);
   const [runAccepted, setRunAccepted] = useState(false);
 
+  // Idempotency guard: terminal events can race between SSE delivery and
+  // the snapshot poll. The first one to fire wins; subsequent terminal
+  // signals are no-ops.
+  const terminalEmittedRef = useRef(false);
+
   const { nodeStatuses, handleNodeStatusEvent, resetNodeStatuses } =
     useNodeStatuses();
+
+  // Hold the latest user callbacks in refs so the SSE/snapshot effects
+  // don't need to depend on them (and re-trigger if the parent re-renders).
+  const onCompleteRef = useRef(onComplete);
+  onCompleteRef.current = onComplete;
+  const onErrorRef = useRef(onError);
+  onErrorRef.current = onError;
+
+  const fireTerminalComplete = useCallback(
+    (eventType: string, data: unknown) => {
+      if (terminalEmittedRef.current) return;
+      terminalEmittedRef.current = true;
+      setIsRunning(false);
+      onCompleteRef.current?.(eventType, data);
+    },
+    [],
+  );
+
+  const fireTerminalError = useCallback((errorMessage: string) => {
+    if (terminalEmittedRef.current) return;
+    terminalEmittedRef.current = true;
+    setDomainError(new Error(errorMessage));
+    setIsRunning(false);
+    onErrorRef.current?.();
+  }, []);
 
   const {
     error: sseError,
@@ -79,28 +119,74 @@ export function useWorkflowSSE(
 
       if (eventType === "error") {
         const d = data as Record<string, unknown>;
-        setDomainError(
-          new Error((d.error_message as string) ?? errorFallbackMessage),
-        );
-        setIsRunning(false);
+        const errorMessage =
+          (d.error_message as string) ?? errorFallbackMessage;
+        fireTerminalError(errorMessage);
         disconnect();
-        onError?.();
         return;
       }
 
       if (completionEvents.has(eventType)) {
-        setIsRunning(false);
+        fireTerminalComplete(eventType, data);
         disconnect();
-        onComplete?.(eventType, data);
       }
     },
   });
+
+  // REST-based fallback: poll the snapshot endpoint while the SSE
+  // watchdog reports stalled. Stops automatically when SSE recovers.
+  const snapshotQuery = useOperationSnapshot(operationId, {
+    enabled: sseState.kind === "stalled" && !terminalEmittedRef.current,
+  });
+
+  useEffect(() => {
+    const snapshot: OperationSnapshot | undefined = snapshotQuery.data;
+    if (!snapshot) return;
+
+    // Reconcile persisted node states into the in-memory map. This keeps
+    // the pipeline strip in sync after a stall — the user might see a node
+    // jump from "running" to "completed" without intermediate updates.
+    const totalNodes = snapshot.nodes.length;
+    for (const node of snapshot.nodes) {
+      handleNodeStatusEvent({
+        node_id: node.node_id,
+        node_type: node.node_type,
+        status: node.status,
+        execution_order: node.execution_order,
+        total_nodes: totalNodes,
+        duration_ms: node.duration_ms ?? undefined,
+        input_track_count: node.input_track_count ?? undefined,
+        output_track_count: node.output_track_count ?? undefined,
+        error_message: node.error_message ?? undefined,
+      });
+    }
+
+    if (snapshot.is_terminal) {
+      // Sweeper-marked-failed runs surface here when the SSE terminal
+      // event was lost (the heartbeat sweeper marked the row failed
+      // server-side after 60 s of silence).
+      if (snapshot.status === "failed" || snapshot.status === "cancelled") {
+        fireTerminalError(snapshot.error_message ?? errorFallbackMessage);
+      } else {
+        fireTerminalComplete(snapshot.status, snapshot);
+      }
+      disconnect();
+    }
+  }, [
+    snapshotQuery.data,
+    handleNodeStatusEvent,
+    fireTerminalComplete,
+    fireTerminalError,
+    disconnect,
+    errorFallbackMessage,
+  ]);
 
   const start = useCallback(
     (opId: string) => {
       setDomainError(null);
       resetNodeStatuses();
       setRunAccepted(false);
+      terminalEmittedRef.current = false;
       setOperationId(opId);
       setIsRunning(true);
     },
@@ -112,6 +198,7 @@ export function useWorkflowSSE(
     setDomainError(null);
     resetNodeStatuses();
     setRunAccepted(false);
+    terminalEmittedRef.current = false;
     setOperationId(null);
     setIsRunning(false);
   }, [disconnect, resetNodeStatuses]);
