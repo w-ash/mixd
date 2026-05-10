@@ -343,12 +343,13 @@ class TestSerializeOutputTracks:
         assert result[1]["metrics"]["playcount"] is None
 
     def test_result_is_strict_json_serializable(self) -> None:
-        """Regression for v0.7.8.14: every value must be JSON-native so the
-        dict can land in the ``workflow_runs.output_tracks`` JSONB column
-        without crashing psycopg's default adapter (no UUID/datetime support).
+        """Values in output_tracks must be strict-JSON types so the dict can
+        land in the ``workflow_runs.output_tracks`` JSONB column without
+        crashing psycopg's default JSON adapter — which has no encoder for
+        ``UUID`` or ``datetime``.
         """
         tracks = make_tracks(count=2)
-        last_played = datetime(2026, 5, 10, 12, 0, tzinfo=UTC)
+        last_played = datetime(2020, 1, 1, 12, 0, tzinfo=UTC)
         metrics = {
             "playcount": {tracks[0].id: 42, tracks[1].id: 7},
             "last_played": {tracks[0].id: last_played, tracks[1].id: None},
