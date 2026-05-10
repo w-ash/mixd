@@ -11,7 +11,7 @@ import pytest
 
 from src.application.use_cases.workflow_preview import PreviewWorkflowUseCase
 from src.application.use_cases.workflow_runs import serialize_output_tracks
-from src.application.workflows.prefect import WorkflowAlreadyRunningError
+from src.application.workflows.run_guard import WorkflowAlreadyRunningError
 from src.config.constants import WorkflowConstants
 from tests.fixtures import make_tracks, make_workflow_def
 

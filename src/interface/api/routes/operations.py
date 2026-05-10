@@ -21,10 +21,8 @@ from src.application.use_cases.get_operation_snapshot import (
 from src.config import get_logger
 from src.domain.exceptions import NotFoundError
 from src.interface.api.deps import get_current_user_id
-from src.interface.api.schemas.operations import (
-    OperationSnapshotNodeSchema,
-    OperationSnapshotResponse,
-)
+from src.interface.api.schemas.operations import OperationSnapshotResponse
+from src.interface.api.schemas.workflows import WorkflowRunNodeSchema
 from src.interface.api.services.progress import (
     SSE_SENTINEL,
     get_operation_registry,
@@ -161,19 +159,5 @@ async def get_operation_snapshot(
         completed_at=run.completed_at,
         output_track_count=run.output_track_count,
         duration_ms=run.duration_ms,
-        nodes=[
-            OperationSnapshotNodeSchema(
-                node_id=n.node_id,
-                node_type=n.node_type,
-                status=n.status,
-                execution_order=n.execution_order,
-                duration_ms=n.duration_ms,
-                input_track_count=n.input_track_count,
-                output_track_count=n.output_track_count,
-                error_message=n.error_message,
-                started_at=n.started_at,
-                completed_at=n.completed_at,
-            )
-            for n in run.nodes
-        ],
+        nodes=[WorkflowRunNodeSchema.model_validate(n) for n in run.nodes],
     )

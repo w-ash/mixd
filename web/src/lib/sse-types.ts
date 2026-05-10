@@ -1,5 +1,19 @@
 /** Shared SSE event types used across workflow execution, preview, and progress hooks. */
 
+/** Wire names for the SSE events the workflow runner emits. Mirrors
+ *  WorkflowConstants.SSE_EVENT_* on the backend. */
+export const SSE_EVENT = {
+  RUN_ACCEPTED: "run_accepted",
+  NODE_STATUS: "node_status",
+  SUB_OPERATION_STARTED: "sub_operation_started",
+  SUB_PROGRESS: "sub_progress",
+  SUB_OPERATION_COMPLETED: "sub_operation_completed",
+  COMPLETE: "complete",
+  ERROR: "error",
+} as const;
+
+export type SSEEventType = (typeof SSE_EVENT)[keyof typeof SSE_EVENT];
+
 export type NodeExecutionStatus =
   | "pending"
   | "running"

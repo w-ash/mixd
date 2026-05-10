@@ -17,11 +17,11 @@ from uuid import UUID
 from attrs import define
 
 from src.application.utilities.timing import ExecutionTimer
-from src.application.workflows.prefect import (
+from src.application.workflows.protocols import NodeStatusUpdater, RunStatusUpdater
+from src.application.workflows.run_guard import (
     WorkflowAlreadyRunningError,
     is_workflow_running,
 )
-from src.application.workflows.protocols import NodeStatusUpdater, RunStatusUpdater
 from src.config.constants import (
     BusinessLimits,
     WorkflowConstants,

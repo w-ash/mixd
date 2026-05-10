@@ -42,25 +42,23 @@ export interface UseSSEConnectionReturn {
   disconnect: () => void;
 }
 
-function deriveLastEventAt(state: SSEState): number | null {
+function deriveLiveness(state: SSEState): {
+  lastEventAt: number | null;
+  isConnected: boolean;
+} {
+  const isConnected =
+    state.kind === "streaming" ||
+    state.kind === "stalled" ||
+    state.kind === "open-no-events";
   switch (state.kind) {
     case "streaming":
     case "stalled":
-      return state.lastEventAt;
     case "reconnecting":
     case "closed-error":
-      return state.lastEventAt;
+      return { lastEventAt: state.lastEventAt, isConnected };
     default:
-      return null;
+      return { lastEventAt: null, isConnected };
   }
-}
-
-function deriveIsConnected(state: SSEState): boolean {
-  return (
-    state.kind === "streaming" ||
-    state.kind === "stalled" ||
-    state.kind === "open-no-events"
-  );
 }
 
 export function useSSEConnection(
@@ -130,9 +128,22 @@ export function useSSEConnection(
           // Bump freshness for every frame, including server keepalive
           // comments (which arrive as `event: ""` with empty data).
           // Done before the data guard so keepalives reset the watchdog.
+          //
+          // Snap to second-resolution: the freshness pill ticks at 1Hz
+          // via useNow(1000), so finer-grained updates would only burn
+          // React reconciliations without changing what the user sees.
+          // Same-reference returns from the updater are skipped by React,
+          // so a 4Hz sub_progress storm collapses to ~1 Hz of commits.
           const now = Date.now();
+          const nowSecond = Math.floor(now / 1000);
           setState((prev) => {
             if (prev.kind === "closed-error" || prev.kind === "closed-done") {
+              return prev;
+            }
+            if (
+              prev.kind === "streaming" &&
+              Math.floor(prev.lastEventAt / 1000) === nowSecond
+            ) {
               return prev;
             }
             return { kind: "streaming", lastEventAt: now };
@@ -161,7 +172,7 @@ export function useSSEConnection(
         setState((prev) => ({
           kind: "closed-error",
           error,
-          lastEventAt: deriveLastEventAt(prev),
+          lastEventAt: deriveLiveness(prev).lastEventAt,
         }));
       }
     })();
@@ -172,8 +183,10 @@ export function useSSEConnection(
     };
   }, [operationId]);
 
-  const lastEventAt = useMemo(() => deriveLastEventAt(state), [state]);
-  const isConnected = useMemo(() => deriveIsConnected(state), [state]);
+  const { lastEventAt, isConnected } = useMemo(
+    () => deriveLiveness(state),
+    [state],
+  );
   const error = state.kind === "closed-error" ? state.error : null;
 
   return { state, lastEventAt, isConnected, error, disconnect };

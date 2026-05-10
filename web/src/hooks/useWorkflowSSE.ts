@@ -21,7 +21,7 @@ import {
   useOperationSnapshot,
 } from "#/hooks/useOperationSnapshot";
 import { useSSEConnection } from "#/hooks/useSSEConnection";
-import type { NodeStatus, SSEState } from "#/lib/sse-types";
+import { type NodeStatus, SSE_EVENT, type SSEState } from "#/lib/sse-types";
 
 const DEFAULT_COMPLETION_EVENTS: ReadonlySet<string> = new Set(["complete"]);
 
@@ -132,65 +132,64 @@ export function useWorkflowSSE(
     lastEventAt,
   } = useSSEConnection(operationId, {
     onEvent(eventType, data) {
-      if (eventType === "run_accepted") {
-        setRunAccepted(true);
-        return;
-      }
+      switch (eventType) {
+        case SSE_EVENT.RUN_ACCEPTED: {
+          setRunAccepted(true);
+          return;
+        }
+        case SSE_EVENT.NODE_STATUS: {
+          handleNodeStatusEvent(data);
+          return;
+        }
+        case SSE_EVENT.SUB_PROGRESS: {
+          const d = data as Record<string, unknown>;
+          const subOperationId = String(d.operation_id ?? "");
+          if (!subOperationId) return;
 
-      if (eventType === "node_status") {
-        handleNodeStatusEvent(data);
-        return;
-      }
+          const ips = (d.items_per_second as number | null | undefined) ?? null;
+          const samples = samplesBySubOpRef.current.get(subOperationId) ?? [];
+          const nextSamples =
+            typeof ips === "number" && ips > 0
+              ? [...samples, ips].slice(-SUB_PROGRESS_SAMPLE_WINDOW)
+              : samples;
+          samplesBySubOpRef.current.set(subOperationId, nextSamples);
 
-      if (eventType === "sub_progress") {
-        const d = data as Record<string, unknown>;
-        const subOperationId = String(d.operation_id ?? "");
-        if (!subOperationId) return;
-
-        const ips = (d.items_per_second as number | null | undefined) ?? null;
-        const samples = samplesBySubOpRef.current.get(subOperationId) ?? [];
-        const nextSamples =
-          typeof ips === "number" && ips > 0
-            ? [...samples, ips].slice(-SUB_PROGRESS_SAMPLE_WINDOW)
-            : samples;
-        samplesBySubOpRef.current.set(subOperationId, nextSamples);
-
-        setSubProgress({
-          subOperationId,
-          current: (d.current as number) ?? 0,
-          total: (d.total as number | null | undefined) ?? null,
-          message: (d.message as string) ?? "",
-          itemsPerSecond: ips,
-          etaSeconds: (d.eta_seconds as number | null | undefined) ?? null,
-          samples: nextSamples,
-        });
-        return;
-      }
-
-      if (eventType === "sub_operation_completed") {
-        const d = data as Record<string, unknown>;
-        const subOperationId = String(d.operation_id ?? "");
-        // Drop the samples buffer for the completed sub-op and clear the
-        // displayed status. The next sub-op will build its own buffer.
-        samplesBySubOpRef.current.delete(subOperationId);
-        setSubProgress((prev) =>
-          prev?.subOperationId === subOperationId ? null : prev,
-        );
-        return;
-      }
-
-      if (eventType === "error") {
-        const d = data as Record<string, unknown>;
-        const errorMessage =
-          (d.error_message as string) ?? errorFallbackMessage;
-        fireTerminalError(errorMessage);
-        disconnect();
-        return;
-      }
-
-      if (completionEvents.has(eventType)) {
-        fireTerminalComplete(eventType, data);
-        disconnect();
+          setSubProgress({
+            subOperationId,
+            current: (d.current as number) ?? 0,
+            total: (d.total as number | null | undefined) ?? null,
+            message: (d.message as string) ?? "",
+            itemsPerSecond: ips,
+            etaSeconds: (d.eta_seconds as number | null | undefined) ?? null,
+            samples: nextSamples,
+          });
+          return;
+        }
+        case SSE_EVENT.SUB_OPERATION_COMPLETED: {
+          const d = data as Record<string, unknown>;
+          const subOperationId = String(d.operation_id ?? "");
+          // Drop the samples buffer for the completed sub-op and clear the
+          // displayed status. The next sub-op will build its own buffer.
+          samplesBySubOpRef.current.delete(subOperationId);
+          setSubProgress((prev) =>
+            prev?.subOperationId === subOperationId ? null : prev,
+          );
+          return;
+        }
+        case SSE_EVENT.ERROR: {
+          const d = data as Record<string, unknown>;
+          const errorMessage =
+            (d.error_message as string) ?? errorFallbackMessage;
+          fireTerminalError(errorMessage);
+          disconnect();
+          return;
+        }
+        default: {
+          if (completionEvents.has(eventType)) {
+            fireTerminalComplete(eventType, data);
+            disconnect();
+          }
+        }
       }
     },
   });

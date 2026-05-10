@@ -17,18 +17,25 @@
 
 import { useSSELivenessContext } from "#/contexts/WorkflowExecutionContext";
 import { useNow } from "#/hooks/useNow";
+import { formatElapsed } from "#/lib/format";
 import { cn } from "#/lib/utils";
 
 const HIDE_BELOW_MS = 10_000;
 const AMBER_THRESHOLD_MS = 30_000;
 const RED_THRESHOLD_MS = 60_000;
 
-function formatRelative(ms: number): string {
-  const s = Math.floor(ms / 1000);
-  if (s < 60) return `${s}s ago`;
-  const m = Math.floor(s / 60);
-  if (m < 60) return `${m}m ago`;
-  return `${Math.floor(m / 60)}h ago`;
+type Tier = "neutral" | "amber" | "red";
+
+const TIER_STYLES: Record<Tier, { pill: string; dot: string }> = {
+  neutral: { pill: "bg-surface-sunken text-text-muted", dot: "bg-text-faint" },
+  amber: { pill: "bg-amber-500/10 text-amber-300", dot: "bg-amber-400" },
+  red: { pill: "bg-red-500/10 text-red-300", dot: "bg-red-400" },
+};
+
+function tierFor(elapsedMs: number): Tier {
+  if (elapsedMs >= RED_THRESHOLD_MS) return "red";
+  if (elapsedMs >= AMBER_THRESHOLD_MS) return "amber";
+  return "neutral";
 }
 
 interface SSELivenessPillProps {
@@ -39,7 +46,6 @@ export function SSELivenessPill({ className }: SSELivenessPillProps) {
   const { sseState, lastEventAt } = useSSELivenessContext();
   const now = useNow(1000);
 
-  // Render the stall banner whenever the watchdog has tripped.
   if (sseState.kind === "stalled") {
     const elapsed = now - sseState.lastEventAt;
     return (
@@ -51,13 +57,11 @@ export function SSELivenessPill({ className }: SSELivenessPillProps) {
           className,
         )}
       >
-        No update for {formatRelative(elapsed)}. Checking…
+        No update for {formatElapsed(elapsed)}. Checking…
       </div>
     );
   }
 
-  // No pill if we don't have a freshness signal yet, or if the
-  // connection is in a transient state where the pill would be noise.
   if (lastEventAt === null) return null;
   if (
     sseState.kind === "idle" ||
@@ -71,32 +75,27 @@ export function SSELivenessPill({ className }: SSELivenessPillProps) {
   const elapsed = now - lastEventAt;
   if (elapsed < HIDE_BELOW_MS) return null;
 
-  const isRed = elapsed >= RED_THRESHOLD_MS;
-  const isAmber = !isRed && elapsed >= AMBER_THRESHOLD_MS;
+  const tier = tierFor(elapsed);
+  const styles = TIER_STYLES[tier];
+  const label =
+    tier === "red"
+      ? `Connection may be stale — last update ${formatElapsed(elapsed)}`
+      : `Last update ${formatElapsed(elapsed)}`;
 
   return (
     <span
       aria-live="polite"
       className={cn(
         "inline-flex items-center gap-1.5 rounded-full px-2 py-0.5 font-display text-[10px] uppercase tracking-wide",
-        isRed && "bg-red-500/10 text-red-300",
-        isAmber && "bg-amber-500/10 text-amber-300",
-        !isRed && !isAmber && "bg-surface-sunken text-text-muted",
+        styles.pill,
         className,
       )}
     >
       <span
         aria-hidden="true"
-        className={cn(
-          "size-1.5 rounded-full",
-          isRed && "bg-red-400",
-          isAmber && "bg-amber-400",
-          !isRed && !isAmber && "bg-text-faint",
-        )}
+        className={cn("size-1.5 rounded-full", styles.dot)}
       />
-      {isRed
-        ? `Connection may be stale — last update ${formatRelative(elapsed)}`
-        : `Last update ${formatRelative(elapsed)}`}
+      {label}
     </span>
   );
 }

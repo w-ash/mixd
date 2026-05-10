@@ -330,7 +330,7 @@ async def run_workflow_endpoint(
     # within ~50 ms of the POST. evt_accept is a string id so it bypasses the
     # numeric Last-Event-ID resume regex (one-shot signaling event).
     await sse_queue.put({
-        "id": "evt_accept",
+        "id": WorkflowConstants.SSE_EVENT_ID_RUN_ACCEPTED,
         "event": WorkflowConstants.SSE_EVENT_RUN_ACCEPTED,
         "data": {
             "operation_id": operation_id,

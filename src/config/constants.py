@@ -113,9 +113,17 @@ class WorkflowConstants:
     # SSE event type names
     SSE_EVENT_RUN_ACCEPTED: Final = "run_accepted"
     SSE_EVENT_NODE_STATUS: Final = "node_status"
+    SSE_EVENT_SUB_OPERATION_STARTED: Final = "sub_operation_started"
+    SSE_EVENT_SUB_PROGRESS: Final = "sub_progress"
+    SSE_EVENT_SUB_OPERATION_COMPLETED: Final = "sub_operation_completed"
     SSE_EVENT_COMPLETE: Final = "complete"
     SSE_EVENT_ERROR: Final = "error"
     SSE_EVENT_PREVIEW_COMPLETE: Final = "preview_complete"
+
+    # SSE event id for the route-emitted run_accepted signal. Deliberately
+    # not numeric so the Last-Event-ID resume regex (^evt_\d+$) skips it on
+    # reconnect — it's a one-shot event, not part of the durable replay.
+    SSE_EVENT_ID_RUN_ACCEPTED: Final = "evt_accept"
 
 
 class MappingOrigin:

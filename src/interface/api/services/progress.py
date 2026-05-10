@@ -14,6 +14,7 @@ from typing import Final, override
 from attrs import define, evolve, field
 
 from src.config import get_logger
+from src.config.constants import WorkflowConstants
 from src.domain.entities.progress import (
     OperationStatus,
     ProgressEmitter,
@@ -139,7 +140,7 @@ class SSEProgressSubscriber:
             event_id = self._next_event_id(parent_id)
             await queue.put({
                 "id": event_id,
-                "event": "sub_operation_started",
+                "event": WorkflowConstants.SSE_EVENT_SUB_OPERATION_STARTED,
                 "data": {
                     "operation_id": operation.operation_id,
                     "parent_operation_id": parent_id,
@@ -188,7 +189,7 @@ class SSEProgressSubscriber:
                     sub_metadata = event.metadata or {}
                     await queue.put({
                         "id": event_id,
-                        "event": "sub_progress",
+                        "event": WorkflowConstants.SSE_EVENT_SUB_PROGRESS,
                         "data": {
                             "operation_id": event.operation_id,
                             "parent_operation_id": parent_id,
@@ -245,7 +246,7 @@ class SSEProgressSubscriber:
                     event_id = self._next_event_id(parent_id)
                     await parent_queue.put({
                         "id": event_id,
-                        "event": "sub_operation_completed",
+                        "event": WorkflowConstants.SSE_EVENT_SUB_OPERATION_COMPLETED,
                         "data": {
                             "operation_id": operation_id,
                             "parent_operation_id": parent_id,

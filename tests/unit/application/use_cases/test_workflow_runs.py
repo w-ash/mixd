@@ -23,7 +23,7 @@ from src.application.use_cases.workflow_runs import (
     RunWorkflowUseCase,
     serialize_output_tracks,
 )
-from src.application.workflows.prefect import WorkflowAlreadyRunningError
+from src.application.workflows.run_guard import WorkflowAlreadyRunningError
 from src.config.constants import WorkflowConstants
 from src.domain.entities.workflow import WorkflowRun
 from src.domain.exceptions import NotFoundError

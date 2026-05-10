@@ -9,20 +9,7 @@ from datetime import datetime
 
 from pydantic import BaseModel
 
-
-class OperationSnapshotNodeSchema(BaseModel):
-    """One row from ``workflow_run_nodes``, shaped to mirror node_status SSE events."""
-
-    node_id: str
-    node_type: str
-    status: str
-    execution_order: int
-    duration_ms: int | None = None
-    input_track_count: int | None = None
-    output_track_count: int | None = None
-    error_message: str | None = None
-    started_at: datetime | None = None
-    completed_at: datetime | None = None
+from src.interface.api.schemas.workflows import WorkflowRunNodeSchema
 
 
 class OperationSnapshotResponse(BaseModel):
@@ -39,4 +26,4 @@ class OperationSnapshotResponse(BaseModel):
     completed_at: datetime | None = None
     output_track_count: int | None = None
     duration_ms: int | None = None
-    nodes: list[OperationSnapshotNodeSchema]
+    nodes: list[WorkflowRunNodeSchema]
