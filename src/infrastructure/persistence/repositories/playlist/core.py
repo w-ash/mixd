@@ -713,18 +713,36 @@ class PlaylistRepository(BaseRepository[DBPlaylist, Playlist]):
     async def _save_playlist_impl(self, playlist: Playlist) -> Playlist:
         """Execute playlist create/update with tracks and mappings (unified implementation).
 
-        This method handles both creation and updates, detecting the operation
-        based on playlist.id existence. All shared logic (track persistence,
-        entry rebuilding, relationship management) is consolidated here.
+        Detects create vs update on the *natural* identity for externally
+        sourced playlists — `(connector, connector_playlist_id)` — falling
+        back to the synthetic local UUID otherwise. Without the natural-id
+        check, callers that mint a fresh `Playlist(...)` (e.g. workflow
+        source nodes on every run) would always take the create path and
+        collide with the `uq_connector_playlist` UNIQUE constraint when a
+        mapping already exists for the same external playlist.
         """
-        # Detect create vs update by checking if entity exists in DB
-        existing = await self.execute_select_one(self.select_by_id(playlist.id))
-        is_update = existing is not None
-
         # Determine source connector if available
         source_connector = self._determine_source_connector(
             playlist.connector_playlist_identifiers
         )
+
+        # Natural-identity lookup: if this playlist is externally sourced and
+        # already mapped locally, swap to the existing local UUID so the
+        # downstream code takes the update path.
+        if source_connector and playlist.user_id:
+            connector_id = playlist.connector_playlist_identifiers[source_connector]
+            existing_by_connector = await self.get_playlist_by_connector(
+                source_connector,
+                connector_id,
+                user_id=playlist.user_id,
+                raise_if_not_found=False,
+            )
+            if existing_by_connector is not None and existing_by_connector.id:
+                playlist = attrs.evolve(playlist, id=existing_by_connector.id)
+
+        # Detect create vs update by checking if entity exists in DB
+        existing = await self.execute_select_one(self.select_by_id(playlist.id))
+        is_update = existing is not None
 
         # Save tracks first with source connector for proper mappings
         # Extract tracks from entries for persistence

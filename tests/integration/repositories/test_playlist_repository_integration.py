@@ -269,3 +269,47 @@ class TestPlaylistRepositoryIntegration:
         for track in retrieved_playlist.tracks:
             assert track.id == saved_track.id
             assert track.title == saved_track.title
+
+    async def test_save_playlist_dedupes_on_connector_id_with_fresh_local_uuid(
+        self, db_session
+    ):
+        """Saving a fresh-UUID Playlist with the same (connector, connector_playlist_id)
+        as an existing one must take the update path, not collide on uq_connector_playlist.
+
+        Regression for v0.7.8.11: workflow source nodes mint a fresh local UUID
+        on every run. Without natural-identity dedup, the second run hits
+        UniqueViolation on playlist_mappings.connector_playlist_id.
+        """
+        uow = get_unit_of_work(db_session)
+        playlist_repo = uow.get_playlist_repository()
+
+        spotify_id = f"spotify_{uuid4()}"
+        user_id = f"test-user-{uuid4()}"
+        playlist_name = f"TEST_NaturalIdentity_{uuid4()}"
+
+        first = Playlist.from_tracklist(name=playlist_name, tracklist=[])
+        first = Playlist(
+            id=first.id,
+            name=first.name,
+            user_id=user_id,
+            entries=first.entries,
+            connector_playlist_identifiers={"spotify": spotify_id},
+        )
+        first_saved = await playlist_repo.save_playlist(first)
+
+        # Second save with a fresh local UUID but identical connector identity —
+        # this is exactly what a workflow source-node re-run produces.
+        second = Playlist.from_tracklist(name=playlist_name, tracklist=[])
+        second = Playlist(
+            id=second.id,
+            name=f"{playlist_name}_renamed",
+            user_id=user_id,
+            entries=second.entries,
+            connector_playlist_identifiers={"spotify": spotify_id},
+        )
+        second_saved = await playlist_repo.save_playlist(second)
+
+        # Natural-identity dedup: same local UUID on both saves
+        assert second_saved.id == first_saved.id
+        # Update path took effect (rename applied)
+        assert second_saved.name == f"{playlist_name}_renamed"
