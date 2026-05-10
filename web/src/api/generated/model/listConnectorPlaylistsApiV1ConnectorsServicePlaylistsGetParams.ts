@@ -3,7 +3,7 @@
  * Do not edit manually.
  * Mixd
  * Personal music metadata hub
- * OpenAPI spec version: 0.7.8.1
+ * OpenAPI spec version: 0.7.8.2
  */
 
 export type ListConnectorPlaylistsApiV1ConnectorsServicePlaylistsGetParams = {
