@@ -3,7 +3,7 @@
  * Do not edit manually.
  * Mixd
  * Personal music metadata hub
- * OpenAPI spec version: 0.7.8.4
+ * OpenAPI spec version: 0.7.8.5
  */
 
 export type PreferenceState = typeof PreferenceState[keyof typeof PreferenceState];

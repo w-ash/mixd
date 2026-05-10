@@ -12,7 +12,7 @@ from attrs import define, field
 from src.application.use_cases.workflow_runs import serialize_output_tracks
 from src.application.utilities.timing import ExecutionTimer
 from src.application.workflows.observers import NodePreviewSummary
-from src.application.workflows.prefect import (
+from src.application.workflows.run_guard import (
     WorkflowAlreadyRunningError,
     is_workflow_running,
 )

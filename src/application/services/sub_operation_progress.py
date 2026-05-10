@@ -121,8 +121,10 @@ async def create_throttled_sub_operation(
 
     sub_op_id = await progress_manager.start_operation(operation)
 
-    # Closure state — single owner (one callback consumer per sub_op),
-    # so no locking required.
+    # Closure state mutated by the returned callback. Safe without a lock
+    # because asyncio is single-threaded: the synchronous statements
+    # between awaits run atomically, so concurrent callbacks (e.g. from a
+    # TaskGroup) can't observe a partially-updated last_emit/last_seen.
     last_emit = 0.0
     last_seen: tuple[int, int, str] | None = None
 

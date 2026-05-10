@@ -3,7 +3,7 @@
   "info": {
     "title": "Mixd",
     "description": "Personal music metadata hub",
-    "version": "0.7.8.4"
+    "version": "0.7.8.5"
   },
   "paths": {
     "/api/v1/connectors/{service}/auth-url": {

@@ -16,7 +16,17 @@ primary_region = 'sjc'
   release_command = 'alembic upgrade head'
 
 [env]
-  PREFECT_SERVER_ALLOW_EPHEMERAL_MODE = 'true'
+  # Disable Prefect's ephemeral SQLite-backed FastAPI server. We don't use
+  # Prefect's flow-run history/UI (we have our own workflow_runs table);
+  # @flow and @task decorators still execute in-process. Cuts ~80-120MB RSS
+  # and removes the cold-start OOM that prevented v0.7.8.x workflow runs.
+  PREFECT_SERVER_ALLOW_EPHEMERAL_MODE = 'false'
+  # Tuning knobs that complement the above (May 2026 Prefect settings ref).
+  PREFECT_LOGGING_TO_API_ENABLED = 'false'      # no in-process log-shipping queue
+  PREFECT_LOGGING_LEVEL = 'WARNING'             # cut log-record allocations
+  PREFECT_RESULTS_PERSIST_BY_DEFAULT = 'false'  # we don't need Prefect to store outputs
+  PREFECT_SERVER_ANALYTICS_ENABLED = 'false'    # telemetry off
+  PREFECT_API_ENABLE_METRICS = 'false'          # metrics off
   PYTHONUNBUFFERED = '1'
   NEON_AUTH_URL = 'https://ep-super-glade-ak6se863.neonauth.c-3.us-west-2.aws.neon.tech/neondb/auth'
   NEON_AUTH_JWKS_URL = 'https://ep-super-glade-ak6se863.neonauth.c-3.us-west-2.aws.neon.tech/neondb/auth/.well-known/jwks.json'

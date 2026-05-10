@@ -39,6 +39,7 @@ from src.domain.entities.workflow import (
 from .node_registry import get_node
 from .observers import NullNodeObserver, ProgressNodeObserver
 from .protocols import NodeExecutionObserver, NodeResult
+from .run_guard import acquire_workflow_slot, release_workflow_slot
 from .validation import (
     ConnectorNotAvailableError,
     extract_required_connectors,
@@ -50,25 +51,6 @@ logger = get_logger(__name__)
 
 # One-time registry validation guard — runs before first workflow execution
 _registry_validated = False
-
-# --- Execution guard (conflict detection) ---
-
-_running_workflows: set[str] = set()
-_running_lock = asyncio.Lock()
-
-
-async def is_workflow_running(workflow_id: str) -> bool:
-    """Check if a workflow is currently executing (for v0.4.1 409 Conflict)."""
-    async with _running_lock:
-        return workflow_id in _running_workflows
-
-
-class WorkflowAlreadyRunningError(Exception):
-    """Raised when attempting to execute a workflow that is already running."""
-
-    def __init__(self, workflow_id: str) -> None:
-        self.workflow_id = workflow_id
-        super().__init__(f"Workflow '{workflow_id}' is already running")
 
 
 # --- Fault tolerance ---
@@ -631,10 +613,7 @@ async def run_workflow(
 
     # Execution guard — prevent concurrent runs of the same workflow
     workflow_id = workflow_def.id
-    async with _running_lock:
-        if workflow_id in _running_workflows:
-            raise WorkflowAlreadyRunningError(workflow_id)
-        _running_workflows.add(workflow_id)
+    await acquire_workflow_slot(workflow_id)
 
     flow_logger = get_run_logger()
     workflow_name = workflow_def.name
@@ -763,5 +742,4 @@ async def run_workflow(
                     loop.remove_signal_handler(signal.SIGTERM)
     finally:
         remove_workflow_run_logger(run_sink_id)
-        async with _running_lock:
-            _running_workflows.discard(workflow_id)
+        await release_workflow_slot(workflow_id)

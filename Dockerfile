@@ -88,7 +88,7 @@ RUN mkdir -p /app/data && chown mixd:mixd /app/data
 
 ENV PATH="/app/.venv/bin:$PATH" \
     PYTHONUNBUFFERED=1 \
-    PREFECT_SERVER_ALLOW_EPHEMERAL_MODE=true \
+    PREFECT_SERVER_ALLOW_EPHEMERAL_MODE=false \
     LOGGING__LOG_FILE=/app/data/mixd.log
 
 USER mixd
@@ -99,4 +99,7 @@ HEALTHCHECK --interval=30s --timeout=10s --start-period=60s --retries=3 \
 
 CMD ["uvicorn", "src.interface.api.app:app", \
      "--host", "0.0.0.0", "--port", "8000", \
-     "--workers", "1", "--access-log"]
+     "--workers", "1", \
+     "--no-access-log", \
+     "--limit-concurrency", "50", \
+     "--limit-max-requests", "5000"]

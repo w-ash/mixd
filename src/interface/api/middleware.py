@@ -8,7 +8,7 @@ from fastapi import FastAPI, Request
 from fastapi.responses import JSONResponse
 from sqlalchemy.exc import DatabaseError
 
-from src.application.workflows.prefect import WorkflowAlreadyRunningError
+from src.application.workflows.run_guard import WorkflowAlreadyRunningError
 from src.application.workflows.validation import ConnectorNotAvailableError
 from src.config import get_logger
 from src.domain.exceptions import (
