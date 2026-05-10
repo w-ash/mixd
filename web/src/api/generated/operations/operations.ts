@@ -3,7 +3,7 @@
  * Do not edit manually.
  * Mixd
  * Personal music metadata hub
- * OpenAPI spec version: 0.7.8.5
+ * OpenAPI spec version: 0.7.8.6
  */
 import {
   useQuery
@@ -22,7 +22,8 @@ import type {
 
 import type {
   HTTPValidationError,
-  ListActiveOperationsApiV1OperationsGet200
+  ListActiveOperationsApiV1OperationsGet200,
+  OperationSnapshotResponse
 } from '../model';
 
 import { customFetch } from '../../client';
@@ -259,6 +260,135 @@ export function useListActiveOperationsApiV1OperationsGet<TData = Awaited<Return
  ):  UseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> } {
 
   const queryOptions = getListActiveOperationsApiV1OperationsGetQueryOptions(options)
+
+  const query = useQuery(queryOptions, queryClient) as  UseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> };
+
+  return { ...query, queryKey: queryOptions.queryKey };
+}
+
+
+
+
+
+
+export type getOperationSnapshotApiV1OperationsOperationIdSnapshotGetResponse200 = {
+  data: OperationSnapshotResponse
+  status: 200
+}
+
+export type getOperationSnapshotApiV1OperationsOperationIdSnapshotGetResponse422 = {
+  data: HTTPValidationError
+  status: 422
+}
+
+export type getOperationSnapshotApiV1OperationsOperationIdSnapshotGetResponseSuccess = (getOperationSnapshotApiV1OperationsOperationIdSnapshotGetResponse200) & {
+  headers: Headers;
+};
+export type getOperationSnapshotApiV1OperationsOperationIdSnapshotGetResponseError = (getOperationSnapshotApiV1OperationsOperationIdSnapshotGetResponse422) & {
+  headers: Headers;
+};
+
+export type getOperationSnapshotApiV1OperationsOperationIdSnapshotGetResponse = (getOperationSnapshotApiV1OperationsOperationIdSnapshotGetResponseSuccess | getOperationSnapshotApiV1OperationsOperationIdSnapshotGetResponseError)
+
+export const getGetOperationSnapshotApiV1OperationsOperationIdSnapshotGetUrl = (operationId: string,) => {
+
+
+
+
+  return `/api/v1/operations/${operationId}/snapshot`
+}
+
+/**
+ * Persisted-state snapshot for an operation_id.
+
+Used by the frontend's watchdog (45 s without any SSE frame) to
+recover terminal state from the DB. Sweeper-marked-failed runs
+return ``is_terminal=true`` here even when the terminal SSE event
+was never delivered.
+
+404 if the operation_id has no matching run row, or if the calling
+user doesn't own the workflow that produced it. Authorization is
+enforced inside the use case via the workflow lookup.
+ * @summary Get Operation Snapshot
+ */
+export const getOperationSnapshotApiV1OperationsOperationIdSnapshotGet = async (operationId: string, options?: RequestInit): Promise<getOperationSnapshotApiV1OperationsOperationIdSnapshotGetResponse> => {
+
+  return customFetch<getOperationSnapshotApiV1OperationsOperationIdSnapshotGetResponse>(getGetOperationSnapshotApiV1OperationsOperationIdSnapshotGetUrl(operationId),
+  {
+    ...options,
+    method: 'GET'
+
+
+  }
+);}
+
+
+
+
+
+export const getGetOperationSnapshotApiV1OperationsOperationIdSnapshotGetQueryKey = (operationId: string,) => {
+    return [
+    `/api/v1/operations/${operationId}/snapshot`
+    ] as const;
+    }
+
+
+export const getGetOperationSnapshotApiV1OperationsOperationIdSnapshotGetQueryOptions = <TData = Awaited<ReturnType<typeof getOperationSnapshotApiV1OperationsOperationIdSnapshotGet>>, TError = HTTPValidationError>(operationId: string, options?: { query?:Partial<UseQueryOptions<Awaited<ReturnType<typeof getOperationSnapshotApiV1OperationsOperationIdSnapshotGet>>, TError, TData>>, request?: SecondParameter<typeof customFetch>}
+) => {
+
+const {query: queryOptions, request: requestOptions} = options ?? {};
+
+  const queryKey =  queryOptions?.queryKey ?? getGetOperationSnapshotApiV1OperationsOperationIdSnapshotGetQueryKey(operationId);
+
+
+
+    const queryFn: QueryFunction<Awaited<ReturnType<typeof getOperationSnapshotApiV1OperationsOperationIdSnapshotGet>>> = ({ signal }) => getOperationSnapshotApiV1OperationsOperationIdSnapshotGet(operationId, { signal, ...requestOptions });
+
+
+
+
+
+   return  { queryKey, queryFn, enabled: !!(operationId), ...queryOptions} as UseQueryOptions<Awaited<ReturnType<typeof getOperationSnapshotApiV1OperationsOperationIdSnapshotGet>>, TError, TData> & { queryKey: DataTag<QueryKey, TData, TError> }
+}
+
+export type GetOperationSnapshotApiV1OperationsOperationIdSnapshotGetQueryResult = NonNullable<Awaited<ReturnType<typeof getOperationSnapshotApiV1OperationsOperationIdSnapshotGet>>>
+export type GetOperationSnapshotApiV1OperationsOperationIdSnapshotGetQueryError = HTTPValidationError
+
+
+export function useGetOperationSnapshotApiV1OperationsOperationIdSnapshotGet<TData = Awaited<ReturnType<typeof getOperationSnapshotApiV1OperationsOperationIdSnapshotGet>>, TError = HTTPValidationError>(
+ operationId: string, options: { query:Partial<UseQueryOptions<Awaited<ReturnType<typeof getOperationSnapshotApiV1OperationsOperationIdSnapshotGet>>, TError, TData>> & Pick<
+        DefinedInitialDataOptions<
+          Awaited<ReturnType<typeof getOperationSnapshotApiV1OperationsOperationIdSnapshotGet>>,
+          TError,
+          Awaited<ReturnType<typeof getOperationSnapshotApiV1OperationsOperationIdSnapshotGet>>
+        > , 'initialData'
+      >, request?: SecondParameter<typeof customFetch>}
+ , queryClient?: QueryClient
+  ):  DefinedUseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> }
+export function useGetOperationSnapshotApiV1OperationsOperationIdSnapshotGet<TData = Awaited<ReturnType<typeof getOperationSnapshotApiV1OperationsOperationIdSnapshotGet>>, TError = HTTPValidationError>(
+ operationId: string, options?: { query?:Partial<UseQueryOptions<Awaited<ReturnType<typeof getOperationSnapshotApiV1OperationsOperationIdSnapshotGet>>, TError, TData>> & Pick<
+        UndefinedInitialDataOptions<
+          Awaited<ReturnType<typeof getOperationSnapshotApiV1OperationsOperationIdSnapshotGet>>,
+          TError,
+          Awaited<ReturnType<typeof getOperationSnapshotApiV1OperationsOperationIdSnapshotGet>>
+        > , 'initialData'
+      >, request?: SecondParameter<typeof customFetch>}
+ , queryClient?: QueryClient
+  ):  UseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> }
+export function useGetOperationSnapshotApiV1OperationsOperationIdSnapshotGet<TData = Awaited<ReturnType<typeof getOperationSnapshotApiV1OperationsOperationIdSnapshotGet>>, TError = HTTPValidationError>(
+ operationId: string, options?: { query?:Partial<UseQueryOptions<Awaited<ReturnType<typeof getOperationSnapshotApiV1OperationsOperationIdSnapshotGet>>, TError, TData>>, request?: SecondParameter<typeof customFetch>}
+ , queryClient?: QueryClient
+  ):  UseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> }
+/**
+ * @summary Get Operation Snapshot
+ */
+
+export function useGetOperationSnapshotApiV1OperationsOperationIdSnapshotGet<TData = Awaited<ReturnType<typeof getOperationSnapshotApiV1OperationsOperationIdSnapshotGet>>, TError = HTTPValidationError>(
+ operationId: string, options?: { query?:Partial<UseQueryOptions<Awaited<ReturnType<typeof getOperationSnapshotApiV1OperationsOperationIdSnapshotGet>>, TError, TData>>, request?: SecondParameter<typeof customFetch>}
+ , queryClient?: QueryClient
+ ):  UseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> } {
+
+  const queryOptions = getGetOperationSnapshotApiV1OperationsOperationIdSnapshotGetQueryOptions(operationId,options)
 
   const query = useQuery(queryOptions, queryClient) as  UseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> };
 

@@ -3,7 +3,7 @@
   "info": {
     "title": "Mixd",
     "description": "Personal music metadata hub",
-    "version": "0.7.8.5"
+    "version": "0.7.8.6"
   },
   "paths": {
     "/api/v1/connectors/{service}/auth-url": {
@@ -3207,6 +3207,49 @@
         }
       }
     },
+    "/api/v1/operations/{operation_id}/snapshot": {
+      "get": {
+        "tags": [
+          "operations"
+        ],
+        "summary": "Get Operation Snapshot",
+        "description": "Persisted-state snapshot for an operation_id.\n\nUsed by the frontend's watchdog (45 s without any SSE frame) to\nrecover terminal state from the DB. Sweeper-marked-failed runs\nreturn ``is_terminal=true`` here even when the terminal SSE event\nwas never delivered.\n\n404 if the operation_id has no matching run row, or if the calling\nuser doesn't own the workflow that produced it. Authorization is\nenforced inside the use case via the workflow lookup.",
+        "operationId": "get_operation_snapshot_api_v1_operations__operation_id__snapshot_get",
+        "parameters": [
+          {
+            "name": "operation_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Operation Id"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/OperationSnapshotResponse"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/api/v1/operation-runs": {
       "get": {
         "tags": [
@@ -5365,6 +5408,117 @@
         ],
         "title": "OperationRunSummarySchema",
         "description": "Lightweight row for the list view (no full ``issues`` payload).\n\nThe list endpoint returns this shape; full ``issues`` come back from\nthe per-run detail endpoint so a 100-issue run doesn't bloat the\nlist response."
+      },
+      "OperationSnapshotResponse": {
+        "properties": {
+          "operation_id": {
+            "type": "string",
+            "title": "Operation Id"
+          },
+          "run_id": {
+            "type": "string",
+            "title": "Run Id"
+          },
+          "workflow_id": {
+            "type": "string",
+            "title": "Workflow Id"
+          },
+          "status": {
+            "type": "string",
+            "title": "Status"
+          },
+          "is_terminal": {
+            "type": "boolean",
+            "title": "Is Terminal"
+          },
+          "error_message": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Error Message"
+          },
+          "heartbeat_at": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "date-time"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Heartbeat At"
+          },
+          "started_at": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "date-time"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Started At"
+          },
+          "completed_at": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "date-time"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Completed At"
+          },
+          "output_track_count": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Output Track Count"
+          },
+          "duration_ms": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Duration Ms"
+          },
+          "nodes": {
+            "items": {
+              "$ref": "#/components/schemas/WorkflowRunNodeSchema"
+            },
+            "type": "array",
+            "title": "Nodes"
+          }
+        },
+        "type": "object",
+        "required": [
+          "operation_id",
+          "run_id",
+          "workflow_id",
+          "status",
+          "is_terminal",
+          "nodes"
+        ],
+        "title": "OperationSnapshotResponse",
+        "description": "Persisted state for an operation_id, used as REST fallback for SSE stalls."
       },
       "OperationStartedResponse": {
         "properties": {

@@ -3,7 +3,7 @@
  * Do not edit manually.
  * Mixd
  * Personal music metadata hub
- * OpenAPI spec version: 0.7.8.5
+ * OpenAPI spec version: 0.7.8.6
  */
 import {
   faker
@@ -18,13 +18,16 @@ import type {
 } from 'msw';
 
 import type {
-  ListActiveOperationsApiV1OperationsGet200
+  ListActiveOperationsApiV1OperationsGet200,
+  OperationSnapshotResponse
 } from '../model';
 
 
 export const getListActiveOperationsApiV1OperationsGetResponseMock = (): ListActiveOperationsApiV1OperationsGet200 => ({
         [faker.string.alphanumeric(5)]: Array.from({ length: faker.number.int({min: 1, max: 10}) }, (_, i) => i + 1).map(() => (faker.string.alpha({length: {min: 10, max: 20}})))
       })
+
+export const getGetOperationSnapshotApiV1OperationsOperationIdSnapshotGetResponseMock = (overrideResponse: Partial<Extract<OperationSnapshotResponse, object>> = {}): OperationSnapshotResponse => ({operation_id: faker.string.alpha({length: {min: 10, max: 20}}), run_id: faker.string.alpha({length: {min: 10, max: 20}}), workflow_id: faker.string.alpha({length: {min: 10, max: 20}}), status: faker.string.alpha({length: {min: 10, max: 20}}), is_terminal: faker.datatype.boolean(), error_message: faker.helpers.arrayElement([faker.helpers.arrayElement([faker.string.alpha({length: {min: 10, max: 20}}),null,]), undefined]), heartbeat_at: faker.helpers.arrayElement([faker.helpers.arrayElement([faker.date.past().toISOString().slice(0, 19) + 'Z',null,]), undefined]), started_at: faker.helpers.arrayElement([faker.helpers.arrayElement([faker.date.past().toISOString().slice(0, 19) + 'Z',null,]), undefined]), completed_at: faker.helpers.arrayElement([faker.helpers.arrayElement([faker.date.past().toISOString().slice(0, 19) + 'Z',null,]), undefined]), output_track_count: faker.helpers.arrayElement([faker.helpers.arrayElement([faker.number.int(),null,]), undefined]), duration_ms: faker.helpers.arrayElement([faker.helpers.arrayElement([faker.number.int(),null,]), undefined]), nodes: Array.from({ length: faker.number.int({min: 1, max: 10}) }, (_, i) => i + 1).map(() => ({id: faker.string.uuid(), node_id: faker.string.alpha({length: {min: 10, max: 20}}), node_type: faker.string.alpha({length: {min: 10, max: 20}}), status: faker.helpers.arrayElement(['pending','running','completed','failed','cancelled'] as const), started_at: faker.helpers.arrayElement([faker.helpers.arrayElement([faker.date.past().toISOString().slice(0, 19) + 'Z',null,]), undefined]), completed_at: faker.helpers.arrayElement([faker.helpers.arrayElement([faker.date.past().toISOString().slice(0, 19) + 'Z',null,]), undefined]), duration_ms: faker.number.int(), input_track_count: faker.helpers.arrayElement([faker.helpers.arrayElement([faker.number.int(),null,]), undefined]), output_track_count: faker.helpers.arrayElement([faker.helpers.arrayElement([faker.number.int(),null,]), undefined]), error_message: faker.helpers.arrayElement([faker.helpers.arrayElement([faker.string.alpha({length: {min: 10, max: 20}}),null,]), undefined]), execution_order: faker.number.int(), node_details: faker.helpers.arrayElement([faker.helpers.arrayElement([null,]), undefined])})), ...overrideResponse})
 
 
 export const getStreamOperationProgressApiV1OperationsOperationIdProgressGetMockHandler = (overrideResponse?: unknown | ((info: Parameters<Parameters<typeof http.get>[1]>[0]) => Promise<unknown> | unknown), options?: RequestHandlerOptions) => {
@@ -48,7 +51,20 @@ export const getListActiveOperationsApiV1OperationsGetMockHandler = (overrideRes
       })
   }, options)
 }
+
+export const getGetOperationSnapshotApiV1OperationsOperationIdSnapshotGetMockHandler = (overrideResponse?: OperationSnapshotResponse | ((info: Parameters<Parameters<typeof http.get>[1]>[0]) => Promise<OperationSnapshotResponse> | OperationSnapshotResponse), options?: RequestHandlerOptions) => {
+  return http.get('*/api/v1/operations/:operationId/snapshot', async (info: Parameters<Parameters<typeof http.get>[1]>[0]) => {
+
+
+    return HttpResponse.json(overrideResponse !== undefined
+    ? (typeof overrideResponse === "function" ? await overrideResponse(info) : overrideResponse)
+    : getGetOperationSnapshotApiV1OperationsOperationIdSnapshotGetResponseMock(),
+      { status: 200
+      })
+  }, options)
+}
 export const getOperationsMock = () => [
   getStreamOperationProgressApiV1OperationsOperationIdProgressGetMockHandler(),
-  getListActiveOperationsApiV1OperationsGetMockHandler()
+  getListActiveOperationsApiV1OperationsGetMockHandler(),
+  getGetOperationSnapshotApiV1OperationsOperationIdSnapshotGetMockHandler()
 ]

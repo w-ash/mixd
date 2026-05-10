@@ -3,7 +3,7 @@
  * Do not edit manually.
  * Mixd
  * Personal music metadata hub
- * OpenAPI spec version: 0.7.8.5
+ * OpenAPI spec version: 0.7.8.6
  */
 
 export * from './activeAssignmentSchema';
@@ -85,6 +85,7 @@ export * from './operationRunDetailSchemaStatus';
 export * from './operationRunListResponse';
 export * from './operationRunSummarySchema';
 export * from './operationRunSummarySchemaStatus';
+export * from './operationSnapshotResponse';
 export * from './operationStartedResponse';
 export * from './paginatedLibraryTracksResponse';
 export * from './paginatedResponsePlaylistEntrySchema';
