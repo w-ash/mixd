@@ -3,7 +3,7 @@
  * Do not edit manually.
  * Mixd
  * Personal music metadata hub
- * OpenAPI spec version: 0.7.8.7
+ * OpenAPI spec version: 0.7.8.8
  */
 
 export type TrackFacetsSchemaLiked = {[key: string]: number};

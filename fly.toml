@@ -27,6 +27,16 @@ primary_region = 'sjc'
   PREFECT_RESULTS_PERSIST_BY_DEFAULT = 'false'  # we don't need Prefect to store outputs
   PREFECT_SERVER_ANALYTICS_ENABLED = 'false'    # telemetry off
   PREFECT_API_ENABLE_METRICS = 'false'          # metrics off
+  # Sentinel — Prefect 3.7's events worker has an asymmetric gate:
+  # `events/clients.py:get_events_client` honors EPHEMERAL_MODE above, but
+  # `events/worker.py:should_emit_events_to_ephemeral_server` only checks
+  # whether PREFECT_API_KEY is unset. With it unset, the worker bypasses
+  # the ephemeral-mode gate, calls get_events_client(), and raises
+  # "No Prefect API URL provided" mid-flow. Setting any non-empty key
+  # here makes should_emit_events() return False, and emit_event()
+  # short-circuits at the top — no events are queued, no client is built,
+  # no network calls. The value is never sent anywhere.
+  PREFECT_API_KEY = 'disabled-no-server'
   PYTHONUNBUFFERED = '1'
   NEON_AUTH_URL = 'https://ep-super-glade-ak6se863.neonauth.c-3.us-west-2.aws.neon.tech/neondb/auth'
   NEON_AUTH_JWKS_URL = 'https://ep-super-glade-ak6se863.neonauth.c-3.us-west-2.aws.neon.tech/neondb/auth/.well-known/jwks.json'
