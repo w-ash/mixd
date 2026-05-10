@@ -84,6 +84,7 @@ logs/
 # Node / Frontend #
 ###################
 node_modules/
+.pnpm-store/
 web/dist/
 web/playwright-report/
 web/test-results/
