@@ -185,6 +185,7 @@ def list_workflows(
                     for wf in workflows
                 ],
                 indent=2,
+                default=str,
             )
         )
     else:

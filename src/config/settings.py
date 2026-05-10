@@ -18,11 +18,36 @@ The configuration is organized into logical groups:
 """
 
 import contextlib
+import os
 from pathlib import Path
 from typing import Annotated, ClassVar, Literal, cast
 
+from dotenv import dotenv_values
 from pydantic import BaseModel, Field, SecretStr, model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
+
+_PROJECT_ROOT = Path(__file__).resolve().parents[2]
+
+
+# Pydantic-settings drops env-file keys whose prefix matches a nested field name
+# (e.g. ``database_url`` is dropped because ``database`` is a nested model),
+# regardless of ``env_nested_delimiter``. The custom ``transform_flat_env_vars``
+# validator below routes flat keys into nested groups, but only sees keys that
+# made it through pydantic's filter or are present in ``os.environ``.
+#
+# To make ``.env`` / ``.env.local`` work for *all* keys (including ``database_*``)
+# regardless of cwd (e.g. when invoked from ``web/``), eagerly load both files
+# into ``os.environ`` at import time. Precedence (highest first):
+# shell-exported vars > ``.env.local`` > ``.env``.
+_shell_env = set(os.environ)
+_dotenv_stack = {
+    **dotenv_values(_PROJECT_ROOT / ".env"),
+    **dotenv_values(_PROJECT_ROOT / ".env.local"),
+}
+for _key, _value in _dotenv_stack.items():
+    if _value is not None and _key not in _shell_env:
+        os.environ[_key] = _value
+del _shell_env, _dotenv_stack
 
 # =============================================================================
 # CONSTRAINED TYPE ALIASES
@@ -449,10 +474,14 @@ class Settings(BaseSettings):
     """
 
     model_config: ClassVar[SettingsConfigDict] = SettingsConfigDict(
+        # Pydantic-settings applies env_file entries in order with last-wins:
+        # .env first as a baseline, .env.local last so it overrides.
+        # Paths anchored to the project root so cwd doesn't matter (e.g. when
+        # invoked from web/).
         env_file=(
-            ".env.local",
-            ".env",
-        ),  # Load .env.local first if it exists, then .env
+            _PROJECT_ROOT / ".env",
+            _PROJECT_ROOT / ".env.local",
+        ),
         env_file_encoding="utf-8",
         env_nested_delimiter="__",
         case_sensitive=False,
