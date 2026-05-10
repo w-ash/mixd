@@ -10,6 +10,7 @@ from uuid import UUID
 
 import attrs
 from sqlalchemy import Select, delete, insert, select, update
+from sqlalchemy.dialects.postgresql import insert as pg_insert
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
@@ -483,7 +484,16 @@ class PlaylistRepository(BaseRepository[DBPlaylist, Playlist]):
         ]
 
         if values:
-            _ = await self.session.execute(insert(DBPlaylistMapping).values(values))
+            # Defense-in-depth: silently skip if the connector_playlist row
+            # is already mapped (uq_connector_playlist). The natural-identity
+            # probe in _save_playlist_impl should normally route us to the
+            # update path, but the ON CONFLICT clause guarantees idempotency
+            # even when the probe misses for any reason.
+            _ = await self.session.execute(
+                pg_insert(DBPlaylistMapping)
+                .values(values)
+                .on_conflict_do_nothing(constraint="uq_connector_playlist")
+            )
             await self.session.flush()
 
     async def _update_connector_mappings(
@@ -552,8 +562,11 @@ class PlaylistRepository(BaseRepository[DBPlaylist, Playlist]):
 
         # Execute inserts
         if new_mappings:
+            # See _create_connector_mappings for the ON CONFLICT rationale.
             _ = await self.session.execute(
-                insert(DBPlaylistMapping).values(new_mappings)
+                pg_insert(DBPlaylistMapping)
+                .values(new_mappings)
+                .on_conflict_do_nothing(constraint="uq_connector_playlist")
             )
 
         await self.session.flush()
@@ -715,30 +728,44 @@ class PlaylistRepository(BaseRepository[DBPlaylist, Playlist]):
 
         Detects create vs update on the *natural* identity for externally
         sourced playlists — `(connector, connector_playlist_id)` — falling
-        back to the synthetic local UUID otherwise. Without the natural-id
-        check, callers that mint a fresh `Playlist(...)` (e.g. workflow
-        source nodes on every run) would always take the create path and
-        collide with the `uq_connector_playlist` UNIQUE constraint when a
-        mapping already exists for the same external playlist.
+        back to the synthetic local UUID otherwise. The probe queries
+        `playlist_mappings` directly rather than going through
+        `get_playlist_by_connector`'s 3-table JOIN through `DBPlaylist`,
+        because the `uq_connector_playlist` UNIQUE constraint we're trying
+        not to violate lives on `playlist_mappings`, not on `playlists`.
+        Probing the constraint source is both more direct and immune to
+        stale identity-map state on the session.
         """
         # Determine source connector if available
         source_connector = self._determine_source_connector(
             playlist.connector_playlist_identifiers
         )
 
-        # Natural-identity lookup: if this playlist is externally sourced and
-        # already mapped locally, swap to the existing local UUID so the
-        # downstream code takes the update path.
-        if source_connector and playlist.user_id:
+        # Natural-identity lookup: if a mapping already exists for this
+        # (connector, connector_playlist_id), reuse its playlist_id so the
+        # downstream code takes the update path. Probes the mapping table
+        # directly to ensure we always see the constraint's perspective —
+        # `uq_connector_playlist` is itself user-agnostic, so this lookup
+        # mirrors the actual conflict surface.
+        if source_connector:
             connector_id = playlist.connector_playlist_identifiers[source_connector]
-            existing_by_connector = await self.get_playlist_by_connector(
-                source_connector,
-                connector_id,
-                user_id=playlist.user_id,
-                raise_if_not_found=False,
+            mapping_stmt = (
+                select(DBPlaylistMapping.playlist_id)
+                .join(
+                    DBConnectorPlaylist,
+                    DBPlaylistMapping.connector_playlist_id == DBConnectorPlaylist.id,
+                )
+                .where(
+                    DBPlaylistMapping.connector_name == source_connector,
+                    DBConnectorPlaylist.connector_playlist_identifier == connector_id,
+                )
+                .limit(1)
             )
-            if existing_by_connector is not None:
-                playlist = attrs.evolve(playlist, id=existing_by_connector.id)
+            existing_playlist_id = (
+                await self.session.execute(mapping_stmt)
+            ).scalar_one_or_none()
+            if existing_playlist_id is not None:
+                playlist = attrs.evolve(playlist, id=existing_playlist_id)
 
         # Detect create vs update by checking if entity exists in DB
         existing = await self.execute_select_one(self.select_by_id(playlist.id))

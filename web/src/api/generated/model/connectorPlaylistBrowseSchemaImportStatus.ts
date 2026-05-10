@@ -3,7 +3,7 @@
  * Do not edit manually.
  * Mixd
  * Personal music metadata hub
- * OpenAPI spec version: 0.7.8.11
+ * OpenAPI spec version: 0.7.8.12
  */
 
 export type ConnectorPlaylistBrowseSchemaImportStatus = typeof ConnectorPlaylistBrowseSchemaImportStatus[keyof typeof ConnectorPlaylistBrowseSchemaImportStatus];
