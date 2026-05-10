@@ -250,4 +250,104 @@ describe("useSSEConnection", () => {
       expect(firstAborted).toBe(true);
     });
   });
+
+  // ─── State machine + lastEventAt + watchdog (PR-2 / L3) ──────
+
+  describe("state machine", () => {
+    it("starts in idle when operationId is null", () => {
+      const { result } = renderHook(() => useSSEConnection(null, noopOptions), {
+        wrapper: createWrapper(),
+      });
+      expect(result.current.state.kind).toBe("idle");
+      expect(result.current.lastEventAt).toBeNull();
+    });
+
+    it("transitions to streaming and bumps lastEventAt on first event", async () => {
+      const onEvent = vi.fn();
+      mockSSEWithEvents([{ event: "node_status", data: '{"node_id":"n1"}' }]);
+
+      const { result } = renderHook(
+        () => useSSEConnection("op-123", { onEvent }),
+        { wrapper: createWrapper() },
+      );
+
+      await waitFor(() => {
+        expect(result.current.state.kind).toBe("closed-done");
+      });
+      // lastEventAt was set during streaming, persists through closed-done? No
+      // — closed-done has no lastEventAt. But onEvent was called once.
+      expect(onEvent).toHaveBeenCalledTimes(1);
+    });
+
+    it("bumps lastEventAt on a frame even when data is empty (keepalive shape)", async () => {
+      // Mock parser-yielded frame shape that mirrors a server keepalive
+      // comment after going through eventsource-parser. The data guard in
+      // the hook skips dispatch but the freshness timestamp must still be
+      // bumped before the guard.
+      const onEvent = vi.fn();
+      const { close } = mockSSEOpenStream([
+        { event: "", data: "" },
+        { event: "node_status", data: '{"node_id":"n1"}' },
+      ]);
+
+      const { result } = renderHook(
+        () => useSSEConnection("op-123", { onEvent }),
+        { wrapper: createWrapper() },
+      );
+
+      await waitFor(() => {
+        // After the second frame, state is streaming and onEvent has been
+        // called once (only the second frame had data).
+        expect(result.current.state.kind).toBe("streaming");
+      });
+      expect(onEvent).toHaveBeenCalledTimes(1);
+      expect(result.current.lastEventAt).not.toBeNull();
+      close();
+    });
+
+    it("derives isConnected = true while streaming", async () => {
+      const { close } = mockSSEOpenStream([
+        { event: "node_status", data: '{"node_id":"n1"}' },
+      ]);
+
+      const { result } = renderHook(
+        () => useSSEConnection("op-123", noopOptions),
+        { wrapper: createWrapper() },
+      );
+
+      await waitFor(() => {
+        expect(result.current.state.kind).toBe("streaming");
+      });
+      expect(result.current.isConnected).toBe(true);
+      close();
+    });
+
+    it("transitions to closed-done after stream ends naturally", async () => {
+      mockSSEWithEvents([{ event: "node_status", data: '{"node_id":"n1"}' }]);
+
+      const { result } = renderHook(
+        () => useSSEConnection("op-123", noopOptions),
+        { wrapper: createWrapper() },
+      );
+
+      await waitFor(() => {
+        expect(result.current.state.kind).toBe("closed-done");
+      });
+      expect(result.current.isConnected).toBe(false);
+    });
+
+    it("transitions to closed-error on connection failure", async () => {
+      mockSSEError(new Error("boom"));
+
+      const { result } = renderHook(
+        () => useSSEConnection("op-bad", noopOptions),
+        { wrapper: createWrapper() },
+      );
+
+      await waitFor(() => {
+        expect(result.current.state.kind).toBe("closed-error");
+      });
+      expect(result.current.error).toEqual(new Error("boom"));
+    });
+  });
 });

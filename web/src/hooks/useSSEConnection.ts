@@ -4,11 +4,25 @@
  * Owns the transport plumbing (AbortController, connectToSSE, event iteration,
  * AbortError suppression, malformed-JSON skip) so consumer hooks only handle
  * domain-specific event semantics via the onEvent callback.
+ *
+ * Exposes a discriminated SSEState union and lastEventAt timestamp for
+ * liveness UIs, plus a derived isConnected boolean kept for backwards
+ * compatibility with consumers that only care about open/closed.
+ *
+ * The 45 s watchdog transitions streaming -> stalled when no frame
+ * (including server keepalive comments) arrives. Comment frames bypass
+ * the data guard but still bump lastEventAt — a server keepalive every
+ * 15 s is enough to keep state in "streaming".
  */
 
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
 import { connectToSSE } from "#/api/sse-client";
+import {
+  SSE_STALL_THRESHOLD_MS,
+  SSE_WATCHDOG_TICK_MS,
+  type SSEState,
+} from "#/lib/sse-types";
 
 export interface UseSSEConnectionOptions {
   /** Called for each parsed SSE event. eventType is the SSE "event" field, data is the parsed JSON. */
@@ -18,17 +32,42 @@ export interface UseSSEConnectionOptions {
 }
 
 export interface UseSSEConnectionReturn {
+  /** Discriminated state for liveness UIs (pill, banner, watchdog). */
+  state: SSEState;
+  /** Most recent frame timestamp, or null if no frames yet / closed-done. */
+  lastEventAt: number | null;
+  /** Backwards-compatible: true when state is open (streaming/stalled/open-no-events). */
   isConnected: boolean;
   error: Error | null;
   disconnect: () => void;
+}
+
+function deriveLastEventAt(state: SSEState): number | null {
+  switch (state.kind) {
+    case "streaming":
+    case "stalled":
+      return state.lastEventAt;
+    case "reconnecting":
+    case "closed-error":
+      return state.lastEventAt;
+    default:
+      return null;
+  }
+}
+
+function deriveIsConnected(state: SSEState): boolean {
+  return (
+    state.kind === "streaming" ||
+    state.kind === "stalled" ||
+    state.kind === "open-no-events"
+  );
 }
 
 export function useSSEConnection(
   operationId: string | null,
   options: UseSSEConnectionOptions,
 ): UseSSEConnectionReturn {
-  const [isConnected, setIsConnected] = useState(false);
-  const [error, setError] = useState<Error | null>(null);
+  const [state, setState] = useState<SSEState>({ kind: "idle" });
 
   const abortRef = useRef<AbortController | null>(null);
 
@@ -44,19 +83,40 @@ export function useSSEConnection(
       abortRef.current.abort();
       abortRef.current = null;
     }
-    setIsConnected(false);
+    setState((prev) =>
+      prev.kind === "closed-done" || prev.kind === "closed-error"
+        ? prev
+        : { kind: "closed-done", finalAt: Date.now() },
+    );
   }, []);
+
+  // Watchdog: while streaming, transition to stalled if no frame for >45 s.
+  useEffect(() => {
+    if (state.kind !== "streaming") return;
+    const id = setInterval(() => {
+      setState((prev) => {
+        if (prev.kind !== "streaming") return prev;
+        const elapsed = Date.now() - prev.lastEventAt;
+        if (elapsed <= SSE_STALL_THRESHOLD_MS) return prev;
+        return {
+          kind: "stalled",
+          lastEventAt: prev.lastEventAt,
+          since: Date.now(),
+        };
+      });
+    }, SSE_WATCHDOG_TICK_MS);
+    return () => clearInterval(id);
+  }, [state.kind]);
 
   useEffect(() => {
     if (!operationId) {
-      setError(null);
-      setIsConnected(false);
+      setState({ kind: "idle" });
       return;
     }
 
     const ctrl = new AbortController();
     abortRef.current = ctrl;
-    setError(null);
+    setState({ kind: "connecting" });
 
     (async () => {
       try {
@@ -64,9 +124,20 @@ export function useSSEConnection(
           `/api/v1/operations/${operationId}/progress`,
           ctrl.signal,
         );
-        setIsConnected(true);
+        setState({ kind: "open-no-events", openedAt: Date.now() });
 
         for await (const event of events) {
+          // Bump freshness for every frame, including server keepalive
+          // comments (which arrive as `event: ""` with empty data).
+          // Done before the data guard so keepalives reset the watchdog.
+          const now = Date.now();
+          setState((prev) => {
+            if (prev.kind === "closed-error" || prev.kind === "closed-done") {
+              return prev;
+            }
+            return { kind: "streaming", lastEventAt: now };
+          });
+
           if (!event.data) continue;
 
           try {
@@ -77,19 +148,33 @@ export function useSSEConnection(
           }
         }
 
-        setIsConnected(false);
+        setState((prev) =>
+          prev.kind === "closed-error" || prev.kind === "closed-done"
+            ? prev
+            : { kind: "closed-done", finalAt: Date.now() },
+        );
         onStreamEndRef.current?.();
       } catch (err) {
         if (err instanceof DOMException && err.name === "AbortError") return;
-        setError(
-          err instanceof Error ? err : new Error("SSE connection error"),
-        );
-        setIsConnected(false);
+        const error =
+          err instanceof Error ? err : new Error("SSE connection error");
+        setState((prev) => ({
+          kind: "closed-error",
+          error,
+          lastEventAt: deriveLastEventAt(prev),
+        }));
       }
     })();
 
-    return disconnect;
-  }, [operationId, disconnect]);
+    return () => {
+      ctrl.abort();
+      abortRef.current = null;
+    };
+  }, [operationId]);
 
-  return { isConnected, error, disconnect };
+  const lastEventAt = useMemo(() => deriveLastEventAt(state), [state]);
+  const isConnected = useMemo(() => deriveIsConnected(state), [state]);
+  const error = state.kind === "closed-error" ? state.error : null;
+
+  return { state, lastEventAt, isConnected, error, disconnect };
 }

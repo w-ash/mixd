@@ -17,3 +17,25 @@ export interface NodeStatus {
   outputTrackCount?: number;
   errorMessage?: string;
 }
+
+/**
+ * Lifecycle states for an SSE connection.
+ *
+ * Transport-level (kind=connecting/open-no-events/streaming/stalled/
+ * reconnecting/closed-*) is owned by useSSEConnection. The "stalled"
+ * variant is reached when the watchdog (45s default) fires without any
+ * frame, including server keepalive comments. lastEventAt is wall-clock
+ * Date.now() of the most recent frame of any kind.
+ */
+export type SSEState =
+  | { kind: "idle" }
+  | { kind: "connecting" }
+  | { kind: "open-no-events"; openedAt: number }
+  | { kind: "streaming"; lastEventAt: number }
+  | { kind: "stalled"; lastEventAt: number; since: number }
+  | { kind: "reconnecting"; attempt: number; lastEventAt: number | null }
+  | { kind: "closed-error"; error: Error; lastEventAt: number | null }
+  | { kind: "closed-done"; finalAt: number };
+
+export const SSE_STALL_THRESHOLD_MS = 45_000;
+export const SSE_WATCHDOG_TICK_MS = 5_000;

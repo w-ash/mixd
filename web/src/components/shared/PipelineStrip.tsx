@@ -7,7 +7,7 @@
  */
 
 import { Check, Loader2, X } from "lucide-react";
-import { useCallback, useEffect, useRef, useState } from "react";
+import { memo, useCallback, useEffect, useRef, useState } from "react";
 import type { WorkflowTaskDefSchemaInput } from "#/api/generated/model";
 import type { NodeStatus } from "#/lib/sse-types";
 import { cn } from "#/lib/utils";
@@ -47,7 +47,7 @@ function StatusOverlay({ status }: { status?: NodeStatus["status"] }) {
   );
 }
 
-export function PipelineStrip({
+function PipelineStripImpl({
   tasks,
   nodeStatuses,
   isExecuting = false,
@@ -215,3 +215,9 @@ export function PipelineStrip({
     </div>
   );
 }
+
+// Memoize so 1Hz freshness ticks in the parent context (now in a
+// separate SSELivenessContext) don't re-render the pipeline strip.
+// nodeStatuses Map identity changes on each node_status event, which
+// is the only legitimate reason for this component to re-render.
+export const PipelineStrip = memo(PipelineStripImpl);

@@ -11,7 +11,7 @@ import { useCallback, useState } from "react";
 
 import { useNodeStatuses } from "#/hooks/useNodeStatuses";
 import { useSSEConnection } from "#/hooks/useSSEConnection";
-import type { NodeStatus } from "#/lib/sse-types";
+import type { NodeStatus, SSEState } from "#/lib/sse-types";
 
 const DEFAULT_COMPLETION_EVENTS: ReadonlySet<string> = new Set(["complete"]);
 
@@ -31,6 +31,10 @@ export interface UseWorkflowSSEReturn {
   isRunning: boolean;
   nodeStatuses: Map<string, NodeStatus>;
   error: Error | null;
+  /** Discriminated SSE transport state for liveness UIs. */
+  sseState: SSEState;
+  /** Wall-clock timestamp of most recent SSE frame (incl. keepalives). */
+  lastEventAt: number | null;
   start: (operationId: string) => void;
   reset: () => void;
   disconnect: () => void;
@@ -53,7 +57,12 @@ export function useWorkflowSSE(
   const { nodeStatuses, handleNodeStatusEvent, resetNodeStatuses } =
     useNodeStatuses();
 
-  const { error: sseError, disconnect } = useSSEConnection(operationId, {
+  const {
+    error: sseError,
+    disconnect,
+    state: sseState,
+    lastEventAt,
+  } = useSSEConnection(operationId, {
     onEvent(eventType, data) {
       if (eventType === "node_status") {
         handleNodeStatusEvent(data);
@@ -102,6 +111,8 @@ export function useWorkflowSSE(
     isRunning,
     nodeStatuses,
     error: domainError ?? sseError,
+    sseState,
+    lastEventAt,
     start,
     reset,
     disconnect,

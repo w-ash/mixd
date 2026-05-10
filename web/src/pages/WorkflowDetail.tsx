@@ -14,6 +14,7 @@ import { PipelineStrip } from "#/components/shared/PipelineStrip";
 import { ResponsiveTable } from "#/components/shared/ResponsiveTable";
 import { RunStatusBadge } from "#/components/shared/RunStatusBadge";
 import { SectionHeader } from "#/components/shared/SectionHeader";
+import { SSELivenessPill } from "#/components/shared/SSELivenessPill";
 import { Badge } from "#/components/ui/badge";
 import { Button } from "#/components/ui/button";
 import { Skeleton } from "#/components/ui/skeleton";
@@ -214,12 +215,14 @@ export function WorkflowDetail() {
 
       {/* Compact pipeline strip replaces full-height DAG */}
       {tasks.length > 0 && (
-        <PipelineStrip
-          tasks={tasks}
-          nodeStatuses={nodeStatuses}
-          isExecuting={isExecuting}
-          className="mb-6"
-        />
+        <div className="mb-6 space-y-2">
+          <PipelineStrip
+            tasks={tasks}
+            nodeStatuses={nodeStatuses}
+            isExecuting={isExecuting}
+          />
+          {isExecuting && <SSELivenessPill />}
+        </div>
       )}
 
       {/* Last run card */}

@@ -3,6 +3,17 @@
  *
  * Lives above the router so SSE connection + node statuses persist
  * across page navigations. Only one workflow runs at a time.
+ *
+ * Split into two contexts to control re-render cost:
+ *   - WorkflowExecutionContext: domain state (workflowId, runId,
+ *     isExecuting, error, nodeStatuses). Changes ~10x per run on node
+ *     lifecycle events.
+ *   - SSELivenessContext: transport liveness (sseState, lastEventAt).
+ *     Changes 1x/sec from server keepalive frames.
+ *
+ * Components subscribing only to liveness (the freshness pill) don't
+ * cause domain consumers (PipelineStrip, WorkflowGraph) to re-render
+ * every second.
  */
 
 import { useQueryClient } from "@tanstack/react-query";
@@ -22,7 +33,7 @@ import {
   getListWorkflowsApiV1WorkflowsGetQueryKey,
 } from "#/api/generated/workflows/workflows";
 import { useWorkflowSSE } from "#/hooks/useWorkflowSSE";
-import type { NodeStatus } from "#/lib/sse-types";
+import type { NodeStatus, SSEState } from "#/lib/sse-types";
 
 export interface WorkflowExecutionState {
   workflowId: string | null;
@@ -38,9 +49,16 @@ export interface WorkflowExecutionState {
   ) => void;
 }
 
+export interface SSELivenessState {
+  sseState: SSEState;
+  lastEventAt: number | null;
+}
+
 const WorkflowExecutionContext = createContext<WorkflowExecutionState | null>(
   null,
 );
+
+const SSELivenessContext = createContext<SSELivenessState | null>(null);
 
 export function WorkflowExecutionProvider({
   children,
@@ -87,7 +105,8 @@ export function WorkflowExecutionProvider({
     [sse.start],
   );
 
-  const value = useMemo<WorkflowExecutionState>(
+  // Domain state — changes on node lifecycle events (~10x per run).
+  const executionValue = useMemo<WorkflowExecutionState>(
     () => ({
       workflowId,
       operationId: sse.operationId,
@@ -108,9 +127,15 @@ export function WorkflowExecutionProvider({
     ],
   );
 
+  // Liveness state — changes ~1x/sec from server keepalive frames.
+  const livenessValue = useMemo<SSELivenessState>(
+    () => ({ sseState: sse.sseState, lastEventAt: sse.lastEventAt }),
+    [sse.sseState, sse.lastEventAt],
+  );
+
   return (
-    <WorkflowExecutionContext value={value}>
-      {children}
+    <WorkflowExecutionContext value={executionValue}>
+      <SSELivenessContext value={livenessValue}>{children}</SSELivenessContext>
     </WorkflowExecutionContext>
   );
 }
@@ -120,6 +145,16 @@ export function useWorkflowExecutionContext(): WorkflowExecutionState {
   if (!ctx) {
     throw new Error(
       "useWorkflowExecutionContext must be used within WorkflowExecutionProvider",
+    );
+  }
+  return ctx;
+}
+
+export function useSSELivenessContext(): SSELivenessState {
+  const ctx = useContext(SSELivenessContext);
+  if (!ctx) {
+    throw new Error(
+      "useSSELivenessContext must be used within WorkflowExecutionProvider",
     );
   }
   return ctx;
