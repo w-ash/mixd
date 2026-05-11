@@ -21,11 +21,16 @@ def validate_tracklist_has_tracks(
         raise ValueError(f"{attribute.name} must contain tracks")
 
 
-def non_empty_string(_instance: object, attribute: Attribute[str], value: str) -> None:
+def non_empty_string[StrT: str](
+    _instance: object, attribute: Attribute[StrT], value: StrT
+) -> None:
     """Reject empty or whitespace-only strings.
 
     Differs from ``attrs.validators.min_len(1)`` by also rejecting strings
     that are non-empty but contain only whitespace (e.g., ``"   "``).
+
+    Generic over ``StrT: str`` so it accepts ``NewType``-branded strings
+    (e.g., ``ConnectorPlaylistIdentifier``) as well as plain ``str``.
     """
     if not value or not value.strip():
         raise ValueError(f"{attribute.name} must be a non-empty string, got: {value!r}")

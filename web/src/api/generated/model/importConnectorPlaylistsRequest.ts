@@ -3,7 +3,7 @@
  * Do not edit manually.
  * Mixd
  * Personal music metadata hub
- * OpenAPI spec version: 0.7.8.16
+ * OpenAPI spec version: 0.7.8.17
  */
 import type { ImportConnectorPlaylistsRequestSyncDirection } from './importConnectorPlaylistsRequestSyncDirection';
 
@@ -26,7 +26,7 @@ this via the per-row "Force re-fetch" toggle.
  */
 export interface ImportConnectorPlaylistsRequest {
   /** @minItems 1 */
-  connector_playlist_ids: string[];
+  connector_playlist_identifiers: string[];
   sync_direction: ImportConnectorPlaylistsRequestSyncDirection;
   force?: boolean;
 }

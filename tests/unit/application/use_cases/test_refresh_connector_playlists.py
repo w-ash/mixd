@@ -25,7 +25,7 @@ def _cmd(ids, connector_name="spotify", user="default", *, force=False):
     return RefreshConnectorPlaylistsCommand(
         user_id=user,
         connector_name=connector_name,
-        connector_playlist_ids=ids,
+        connector_playlist_identifiers=ids,
         force=force,
     )
 

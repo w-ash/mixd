@@ -5,6 +5,7 @@ and source_played_tracks before workflow cleanup.
 """
 
 from unittest.mock import AsyncMock, MagicMock, patch
+from uuid import uuid7
 
 import pytest
 
@@ -23,6 +24,8 @@ from src.application.workflows.source_nodes import (
 )
 from src.domain.entities.track import Artist, Track, TrackList
 from tests.fixtures import make_connector_playlist, make_connector_playlist_item
+
+_PLAYLIST_ID = str(uuid7())
 
 
 @pytest.fixture
@@ -92,7 +95,7 @@ class TestPlaylistSource:
         self, mock_workflow_context, sample_tracks
     ):
         """Canonical playlist read returns TrackList with track_sources metadata."""
-        config = {"playlist_id": "pl-1"}
+        config = {"playlist_id": _PLAYLIST_ID}
         result = await playlist_source(mock_workflow_context, config)
 
         assert "tracklist" in result
@@ -263,7 +266,8 @@ class TestPlaylistSourceConnector:
             ) as mock_upsert,
         ):
             result = await playlist_source(
-                context, {"playlist_id": "sp-abc", "connector": "spotify"}
+                context,
+                {"connector_playlist_identifier": "sp-abc", "connector": "spotify"},
             )
 
         mock_sync.assert_awaited_once_with("spotify", "sp-abc", uow)
@@ -294,7 +298,8 @@ class TestPlaylistSourceConnector:
             ) as mock_upsert,
         ):
             result = await playlist_source(
-                context, {"playlist_id": "sp-abc", "connector": "spotify"}
+                context,
+                {"connector_playlist_identifier": "sp-abc", "connector": "spotify"},
             )
 
         mock_upsert.assert_not_awaited()
@@ -313,7 +318,8 @@ class TestPlaylistSourceConnector:
         ):
             with pytest.raises(ConnectionError, match="Spotify API down"):
                 await playlist_source(
-                    context, {"playlist_id": "sp-abc", "connector": "spotify"}
+                    context,
+                    {"connector_playlist_identifier": "sp-abc", "connector": "spotify"},
                 )
 
     async def test_connector_tracklist_has_connector_source_metadata(
@@ -337,7 +343,8 @@ class TestPlaylistSourceConnector:
             ),
         ):
             result = await playlist_source(
-                context, {"playlist_id": "sp-abc", "connector": "spotify"}
+                context,
+                {"connector_playlist_identifier": "sp-abc", "connector": "spotify"},
             )
 
         tl = result["tracklist"]

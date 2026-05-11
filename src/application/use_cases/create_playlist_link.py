@@ -8,6 +8,7 @@ DBConnectorPlaylist for future sync operations.
 from uuid import UUID
 
 from attrs import define, field
+from attrs.validators import min_len
 
 from src.application.connector_protocols import PlaylistConnector
 from src.application.use_cases._shared.command_validators import non_empty_string
@@ -20,6 +21,7 @@ from src.application.use_cases._shared.playlist_id_parser import (
 from src.application.use_cases._shared.playlist_resolver import require_playlist
 from src.config import get_logger
 from src.domain.entities.playlist_link import PlaylistLink, SyncDirection, SyncStatus
+from src.domain.entities.shared import ConnectorPlaylistIdentifier
 from src.domain.repositories.interfaces import UnitOfWorkProtocol
 
 logger = get_logger(__name__)
@@ -32,7 +34,9 @@ class CreatePlaylistLinkCommand:
     user_id: str
     playlist_id: UUID
     connector: str = field(validator=non_empty_string)
-    connector_playlist_id: str = field(validator=non_empty_string)
+    connector_playlist_identifier: ConnectorPlaylistIdentifier = field(
+        validator=min_len(1)
+    )
     sync_direction: SyncDirection = SyncDirection.PUSH
 
 
@@ -72,7 +76,7 @@ class CreatePlaylistLinkUseCase:
 
             # 3. Parse identifier (URL/URI/raw → raw ID)
             raw_id = parse_playlist_identifier(
-                command.connector, command.connector_playlist_id
+                command.connector, command.connector_playlist_identifier
             )
 
             # 4. Fetch external playlist (validates it exists)

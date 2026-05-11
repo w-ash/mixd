@@ -49,7 +49,7 @@ def _cmd(ids, user="default", *, force=False):
     return ImportConnectorPlaylistsAsCanonicalCommand(
         user_id=user,
         connector_name="spotify",
-        connector_playlist_ids=ids,
+        connector_playlist_identifiers=ids,
         sync_direction=SyncDirection.PULL,
         force=force,
     )

@@ -313,7 +313,7 @@ class TestSpotifyPlaylistImport:
         response = await client.post(
             "/api/v1/connectors/spotify/playlists/import",
             json={
-                "connector_playlist_ids": ["sp_single"],
+                "connector_playlist_identifiers": ["sp_single"],
                 "sync_direction": "pull",
             },
         )
@@ -326,11 +326,11 @@ class TestSpotifyPlaylistImport:
     async def test_empty_ids_returns_422_before_use_case(
         self, client: httpx.AsyncClient
     ) -> None:
-        """Empty connector_playlist_ids fails Pydantic validation (min_length=1)."""
+        """Empty connector_playlist_identifiers fails Pydantic validation (min_length=1)."""
         response = await client.post(
             "/api/v1/connectors/spotify/playlists/import",
             json={
-                "connector_playlist_ids": [],
+                "connector_playlist_identifiers": [],
                 "sync_direction": "pull",
             },
         )
@@ -344,7 +344,7 @@ class TestSpotifyPlaylistImport:
         response = await client.post(
             "/api/v1/connectors/spotify/playlists/import",
             json={
-                "connector_playlist_ids": ["sp_x"],
+                "connector_playlist_identifiers": ["sp_x"],
                 "sync_direction": "mirror",
             },
         )
@@ -363,7 +363,7 @@ class TestSpotifyPlaylistImport:
         response = await client.post(
             "/api/v1/connectors/spotify/playlists/import",
             json={
-                "connector_playlist_ids": ["sp_x"],
+                "connector_playlist_identifiers": ["sp_x"],
                 "sync_direction": "pull",
                 "force": True,
             },

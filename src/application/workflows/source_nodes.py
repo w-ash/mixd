@@ -33,7 +33,13 @@ from src.domain.entities.track import Track, TrackList
 from src.domain.repositories import UnitOfWorkProtocol
 from src.domain.repositories.interfaces import PlaySortBy
 
-from .config_accessors import cfg_int, cfg_str, cfg_str_or_none
+from .config_accessors import (
+    cfg_int,
+    cfg_str,
+    cfg_str_or_none,
+    require_canonical_playlist_uuid,
+    require_connector_playlist_identifier,
+)
 from .node_context import NodeContext
 from .protocols import NodeResult
 
@@ -101,19 +107,15 @@ async def playlist_source(
         Dict containing 'tracklist': TrackList with track source metadata.
 
     Raises:
-        ValueError: If playlist_id is missing from config.
+        ValueError: If the appropriate playlist identifier field is missing.
     """
-    playlist_id = cfg_str(config, "playlist_id")
-    if not playlist_id:
-        raise ValueError("Missing required config parameter: playlist_id")
-
     connector = cfg_str_or_none(config, "connector")
 
     ctx = NodeContext(context)
     workflow_context = ctx.extract_workflow_context()
 
     if not connector:
-        # Direct canonical playlist read
+        playlist_id = require_canonical_playlist_uuid(config, node="source.playlist")
         logger.info(f"Reading canonical playlist: {playlist_id}")
 
         read_command = ReadCanonicalPlaylistCommand(
@@ -143,8 +145,11 @@ async def playlist_source(
         )
         return {"tracklist": tracklist_with_source}
 
-    # Connector-based playlist: sync + upsert in a single atomic transaction
-    logger.info(f"Fetching {connector} playlist: {playlist_id}")
+    connector_playlist_identifier = require_connector_playlist_identifier(
+        config, node="source.playlist", connector=connector
+    )
+
+    logger.info(f"Fetching {connector} playlist: {connector_playlist_identifier}")
 
     await ctx.emit_phase_progress(
         "fetch",
@@ -156,7 +161,7 @@ async def playlist_source(
 
     async def _sync_and_upsert(uow: UnitOfWorkProtocol):
         connector_playlist: ConnectorPlaylist = await sync_connector_playlist(
-            connector_, playlist_id, uow
+            connector_, connector_playlist_identifier, uow
         )
         if not connector_playlist.items:
             return None
@@ -164,7 +169,7 @@ async def playlist_source(
         result = await upsert_canonical_playlist(
             connector_playlist,
             connector_,
-            playlist_id,
+            connector_playlist_identifier,
             uow,
             metric_config=workflow_context.metric_config,
             user_id=workflow_context.user_id,
@@ -180,16 +185,17 @@ async def playlist_source(
         outcome = await workflow_context.execute_service(_sync_and_upsert)
     except Exception as e:
         logger.error(
-            f"Source node failed: cannot fetch {connector} playlist {playlist_id} — stopping workflow",
+            f"Source node failed: cannot fetch {connector} playlist "
+            f"{connector_playlist_identifier} — stopping workflow",
             connector=connector,
-            playlist_id=playlist_id,
+            connector_playlist_identifier=connector_playlist_identifier,
             error_type=type(e).__name__,
             exc_info=True,
         )
         raise
 
     if outcome is None:
-        logger.warning(f"Playlist empty or not found: {playlist_id}")
+        logger.warning(f"Playlist empty or not found: {connector_playlist_identifier}")
         return {"tracklist": TrackList()}
 
     result, action = outcome
@@ -198,7 +204,7 @@ async def playlist_source(
         playlist.tracks,
         playlist.name,
         connector_,
-        playlist_id,
+        connector_playlist_identifier,
     )
 
     logger.info(

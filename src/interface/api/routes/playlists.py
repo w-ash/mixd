@@ -57,6 +57,7 @@ from src.application.use_cases.update_playlist_link import (
 )
 from src.config import get_logger
 from src.domain.entities.playlist_link import SyncDirection
+from src.domain.entities.shared import ConnectorPlaylistIdentifier
 from src.domain.entities.track import TrackList
 from src.domain.exceptions import NotFoundError
 from src.infrastructure.connectors._shared.metric_registry import (
@@ -269,7 +270,9 @@ async def create_playlist_link(
         user_id=user_id,
         playlist_id=playlist_id,
         connector=body.connector,
-        connector_playlist_id=body.connector_playlist_id,
+        connector_playlist_identifier=ConnectorPlaylistIdentifier(
+            body.connector_playlist_identifier
+        ),
         sync_direction=SyncDirection(body.sync_direction),
     )
     result = await execute_use_case(

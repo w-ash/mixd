@@ -25,6 +25,7 @@ from src.application.use_cases.update_connector_playlist import (
 )
 from src.config import get_logger
 from src.domain.entities.playlist_link import PlaylistLink, SyncDirection, SyncStatus
+from src.domain.entities.shared import ConnectorPlaylistIdentifier
 from src.domain.exceptions import ConfirmationRequiredError, NotFoundError
 from src.domain.playlist.diff_engine import calculate_playlist_diff
 from src.domain.playlist.sync_safety import check_sync_safety
@@ -169,7 +170,9 @@ class SyncPlaylistLinkUseCase:
 
         command = UpdateConnectorPlaylistCommand(
             user_id=user_id,
-            playlist_id=link.connector_playlist_identifier,
+            connector_playlist_identifier=ConnectorPlaylistIdentifier(
+                link.connector_playlist_identifier
+            ),
             new_tracklist=tracklist,
             connector=link.connector_name,
         )
@@ -193,7 +196,9 @@ class SyncPlaylistLinkUseCase:
         async with uow:
             # Fetch + cache external playlist
             connector_playlist = await sync_connector_playlist(
-                link.connector_name, link.connector_playlist_identifier, uow
+                link.connector_name,
+                ConnectorPlaylistIdentifier(link.connector_playlist_identifier),
+                uow,
             )
 
             # Count tracks before upsert for diff

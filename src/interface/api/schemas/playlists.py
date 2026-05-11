@@ -61,7 +61,7 @@ class PlaylistLinkSchema(BaseModel):
 
     id: UUID
     connector_name: str
-    connector_playlist_id: str
+    connector_playlist_identifier: str
     connector_playlist_name: str | None = None
     sync_direction: str
     sync_status: str
@@ -75,7 +75,7 @@ class CreateLinkRequest(BaseModel):
     """Request body for POST /playlists/{id}/links."""
 
     connector: str
-    connector_playlist_id: str  # Accepts Spotify URI, URL, or raw ID
+    connector_playlist_identifier: str  # Accepts Spotify URI, URL, or raw ID
     sync_direction: str = "push"
 
 
@@ -195,7 +195,7 @@ def to_link_schema(link: PlaylistLink) -> PlaylistLinkSchema:
     return PlaylistLinkSchema(
         id=link.id,
         connector_name=link.connector_name,
-        connector_playlist_id=link.connector_playlist_identifier,
+        connector_playlist_identifier=link.connector_playlist_identifier,
         connector_playlist_name=link.connector_playlist_name,
         sync_direction=link.sync_direction.value,
         sync_status=link.sync_status.value,

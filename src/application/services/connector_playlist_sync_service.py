@@ -27,6 +27,7 @@ from src.application.use_cases._shared import resolve_playlist_connector
 from src.config import get_logger
 from src.config.settings import settings
 from src.domain.entities.playlist import ConnectorPlaylist
+from src.domain.entities.shared import ConnectorPlaylistIdentifier
 from src.domain.repositories import UnitOfWorkProtocol
 
 logger = get_logger(__name__)
@@ -43,7 +44,7 @@ type itself lives on ``PlaylistConnector`` in connector_protocols."""
 class RefreshFailure:
     """One connector playlist that failed during fetch or upsert."""
 
-    connector_playlist_identifier: str
+    connector_playlist_identifier: ConnectorPlaylistIdentifier
     message: str
 
 
@@ -70,7 +71,7 @@ def has_fresh_cache(
 
 async def sync_connector_playlist(
     connector_name: str,
-    playlist_id: str,
+    connector_playlist_identifier: ConnectorPlaylistIdentifier,
     uow: UnitOfWorkProtocol,
 ) -> ConnectorPlaylist:
     """Fetch one external playlist and upsert it into ``DBConnectorPlaylist``.
@@ -79,10 +80,14 @@ async def sync_connector_playlist(
     commit — caller owns the transaction boundary.
     """
     connector_instance = resolve_playlist_connector(connector_name, uow)
-    connector_playlist = await connector_instance.get_playlist(playlist_id)
+    connector_playlist = await connector_instance.get_playlist(
+        connector_playlist_identifier
+    )
 
     if not connector_playlist:
-        raise ValueError(f"Playlist not found on {connector_name}: {playlist_id}")
+        raise ValueError(
+            f"Playlist not found on {connector_name}: {connector_playlist_identifier}"
+        )
 
     cp_repo = uow.get_connector_playlist_repository()
     stored_playlist = await cp_repo.upsert_model(connector_playlist)
@@ -90,7 +95,7 @@ async def sync_connector_playlist(
     logger.info(
         "Synced connector playlist to database",
         connector=connector_name,
-        playlist_id=playlist_id,
+        connector_playlist_identifier=connector_playlist_identifier,
         db_id=stored_playlist.id,
         track_count=len(stored_playlist.items),
     )
@@ -100,7 +105,7 @@ async def sync_connector_playlist(
 
 async def get_current_connector_playlists(
     connector_name: str,
-    connector_playlist_ids: Sequence[str],
+    connector_playlist_identifiers: Sequence[ConnectorPlaylistIdentifier],
     uow: UnitOfWorkProtocol,
     *,
     cached_by_id: dict[str, ConnectorPlaylist] | None = None,
@@ -133,10 +138,10 @@ async def get_current_connector_playlists(
             for cp in await cp_repo.list_by_connector(connector_name)
         }
 
-    unique_ids = list(dict.fromkeys(connector_playlist_ids))
+    unique_ids = list(dict.fromkeys(connector_playlist_identifiers))
 
     by_id: dict[str, ConnectorPlaylist] = {}
-    to_fetch: list[str] = []
+    to_fetch: list[ConnectorPlaylistIdentifier] = []
     for cid in unique_ids:
         if not force and has_fresh_cache(cached_by_id, cid):
             by_id[cid] = cached_by_id[cid]
@@ -153,7 +158,7 @@ async def get_current_connector_playlists(
 
 async def ensure_connector_playlist_cache(
     connector_name: str,
-    connector_playlist_ids: Sequence[str],
+    connector_playlist_identifiers: Sequence[ConnectorPlaylistIdentifier],
     uow: UnitOfWorkProtocol,
     *,
     cached_by_id: dict[str, ConnectorPlaylist] | None = None,
@@ -180,10 +185,10 @@ async def ensure_connector_playlist_cache(
             for cp in await cp_repo.list_by_connector(connector_name)
         }
 
-    unique_ids = list(dict.fromkeys(connector_playlist_ids))
+    unique_ids = list(dict.fromkeys(connector_playlist_identifiers))
 
     cache_hit: list[str] = []
-    to_fetch: list[str] = []
+    to_fetch: list[ConnectorPlaylistIdentifier] = []
     for cid in unique_ids:
         if not force and has_fresh_cache(cached_by_id, cid):
             cache_hit.append(cid)
@@ -203,7 +208,7 @@ async def ensure_connector_playlist_cache(
 
 async def _fetch_and_upsert_batch(
     connector_name: str,
-    ids_to_fetch: Sequence[str],
+    ids_to_fetch: Sequence[ConnectorPlaylistIdentifier],
     uow: UnitOfWorkProtocol,
     *,
     on_page_factory: OnPageFactory | None = None,
@@ -224,7 +229,7 @@ async def _fetch_and_upsert_batch(
     semaphore = asyncio.Semaphore(settings.api.spotify.concurrency)
 
     async def _fetch_one(
-        cid: str,
+        cid: ConnectorPlaylistIdentifier,
     ) -> tuple[ConnectorPlaylist | None, str | None]:
         async with semaphore:
             try:
@@ -239,7 +244,7 @@ async def _fetch_and_upsert_batch(
                 logger.warning(
                     "Failed to fetch connector playlist",
                     connector=connector_name,
-                    connector_playlist_id=cid,
+                    connector_playlist_identifier=cid,
                     exc_info=True,
                 )
                 return None, str(exc)
@@ -249,7 +254,7 @@ async def _fetch_and_upsert_batch(
     async with asyncio.TaskGroup() as tg:
         tasks = [(cid, tg.create_task(_fetch_one(cid))) for cid in ids_to_fetch]
 
-    fetched: list[tuple[str, ConnectorPlaylist]] = []
+    fetched: list[tuple[ConnectorPlaylistIdentifier, ConnectorPlaylist]] = []
     failed: list[RefreshFailure] = []
     for cid, task in tasks:
         cp, err = task.result()

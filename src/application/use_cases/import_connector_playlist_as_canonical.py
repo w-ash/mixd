@@ -43,7 +43,7 @@ from src.domain.entities.progress import (
     create_progress_event,
     create_progress_operation,
 )
-from src.domain.entities.shared import JsonValue
+from src.domain.entities.shared import ConnectorPlaylistIdentifier, JsonValue
 from src.domain.repositories import UnitOfWorkProtocol
 
 logger = get_logger(__name__)
@@ -51,7 +51,7 @@ logger = get_logger(__name__)
 
 @define(frozen=True, slots=True)
 class CanonicalImportOutcome:
-    connector_playlist_identifier: str
+    connector_playlist_identifier: ConnectorPlaylistIdentifier
     canonical_playlist_id: UUID
     resolved: int
     unresolved: int
@@ -59,7 +59,7 @@ class CanonicalImportOutcome:
 
 @define(frozen=True, slots=True)
 class CanonicalImportFailure:
-    connector_playlist_identifier: str
+    connector_playlist_identifier: ConnectorPlaylistIdentifier
     message: str
 
 
@@ -67,7 +67,7 @@ class CanonicalImportFailure:
 class ImportConnectorPlaylistsAsCanonicalCommand:
     user_id: str
     connector_name: str
-    connector_playlist_ids: Sequence[str]
+    connector_playlist_identifiers: Sequence[ConnectorPlaylistIdentifier]
     sync_direction: SyncDirection = SyncDirection.PULL
     # When True, bypass the snapshot-fresh + already-linked short-circuit
     # and re-fetch every requested id. Backs the
@@ -116,9 +116,9 @@ class ImportConnectorPlaylistsAsCanonicalUseCase:
                 for cp in await cp_repo.list_by_connector(command.connector_name)
             }
 
-            unique_ids = list(dict.fromkeys(command.connector_playlist_ids))
-            link_skipped: list[str] = []
-            to_refresh: list[str] = []
+            unique_ids = list(dict.fromkeys(command.connector_playlist_identifiers))
+            link_skipped: list[ConnectorPlaylistIdentifier] = []
+            to_refresh: list[ConnectorPlaylistIdentifier] = []
             for cid in unique_ids:
                 if (
                     not command.force
@@ -300,7 +300,9 @@ class ImportConnectorPlaylistsAsCanonicalUseCase:
                     unresolved_count = max(len(cp.items) - resolved_count, 0)
                     succeeded.append(
                         CanonicalImportOutcome(
-                            connector_playlist_identifier=cid,
+                            connector_playlist_identifier=ConnectorPlaylistIdentifier(
+                                cid
+                            ),
                             canonical_playlist_id=upsert_result.playlist.id,
                             resolved=resolved_count,
                             unresolved=unresolved_count,
@@ -309,7 +311,7 @@ class ImportConnectorPlaylistsAsCanonicalUseCase:
                     logger.info(
                         "Imported connector playlist as canonical",
                         connector=command.connector_name,
-                        connector_playlist_id=cid,
+                        connector_playlist_identifier=cid,
                         playlist_id=upsert_result.playlist.id,
                         resolved=resolved_count,
                         op=(
@@ -343,12 +345,14 @@ class ImportConnectorPlaylistsAsCanonicalUseCase:
                     logger.warning(
                         "Failed to create canonical playlist from connector",
                         connector=command.connector_name,
-                        connector_playlist_id=cid,
+                        connector_playlist_identifier=cid,
                         exc_info=True,
                     )
                     failed.append(
                         CanonicalImportFailure(
-                            connector_playlist_identifier=cid,
+                            connector_playlist_identifier=ConnectorPlaylistIdentifier(
+                                cid
+                            ),
                             message=str(exc),
                         )
                     )
@@ -497,7 +501,7 @@ class ImportConnectorPlaylistsAsCanonicalUseCase:
 async def run_import_connector_playlists_as_canonical(
     user_id: str,
     connector_name: str,
-    connector_playlist_ids: Sequence[str],
+    connector_playlist_identifiers: Sequence[ConnectorPlaylistIdentifier],
     sync_direction: SyncDirection = SyncDirection.PULL,
     *,
     force: bool = False,
@@ -521,7 +525,7 @@ async def run_import_connector_playlists_as_canonical(
     command = ImportConnectorPlaylistsAsCanonicalCommand(
         user_id=user_id,
         connector_name=connector_name,
-        connector_playlist_ids=connector_playlist_ids,
+        connector_playlist_identifiers=connector_playlist_identifiers,
         sync_direction=sync_direction,
         force=force,
     )

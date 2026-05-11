@@ -5,6 +5,7 @@ Pure utility functions with zero external dependencies.
 
 from collections.abc import Mapping, Sequence
 from datetime import UTC, datetime
+from typing import NewType
 
 # Metric values stored per-track: play counts (int), averages (float),
 # timestamps (datetime), or absent (None)
@@ -26,6 +27,12 @@ type JsonValue = (
 # Registered in SQLAlchemy's type_annotation_map so Mapped[JsonDict] resolves
 # to postgresql.JSONB automatically — see infrastructure/persistence/database/db_models.py.
 type JsonDict = dict[str, JsonValue]
+
+
+# A third-party music service's own playlist ID (e.g., Spotify base62, Last.fm slug).
+# Distinct from ``Playlist.id: UUID`` (mixd canonical) and ``ConnectorPlaylist.id: UUID``
+# (PK of the local cache row) — the brand prevents mixing the three at call sites.
+ConnectorPlaylistIdentifier = NewType("ConnectorPlaylistIdentifier", str)
 
 
 def empty_json_map() -> JsonDict:

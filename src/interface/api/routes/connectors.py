@@ -21,6 +21,7 @@ from src.application.use_cases.list_connector_playlists import (
 from src.application.use_cases.sync_likes import get_all_checkpoint_statuses
 from src.domain.entities.connector import Capability, derive_status_state
 from src.domain.entities.playlist_link import SyncDirection
+from src.domain.entities.shared import ConnectorPlaylistIdentifier
 from src.infrastructure.connectors._shared.connector_status import (
     get_all_connector_statuses,
 )
@@ -188,7 +189,10 @@ async def import_connector_playlists(
         await run_import_connector_playlists_as_canonical(
             user_id=user_id,
             connector_name=service,
-            connector_playlist_ids=body.connector_playlist_ids,
+            connector_playlist_identifiers=[
+                ConnectorPlaylistIdentifier(x)
+                for x in body.connector_playlist_identifiers
+            ],
             sync_direction=SyncDirection(body.sync_direction),
             force=body.force,
             progress_emitter=emitter,

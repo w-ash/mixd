@@ -17,6 +17,7 @@ from src.application.services.connector_playlist_sync_service import (
     RefreshFailure,
     ensure_connector_playlist_cache,
 )
+from src.domain.entities.shared import ConnectorPlaylistIdentifier
 from src.domain.repositories import UnitOfWorkProtocol
 
 
@@ -24,7 +25,7 @@ from src.domain.repositories import UnitOfWorkProtocol
 class RefreshConnectorPlaylistsCommand:
     user_id: str
     connector_name: str
-    connector_playlist_ids: Sequence[str]
+    connector_playlist_identifiers: Sequence[ConnectorPlaylistIdentifier]
     # When True, bypass the snapshot-fresh short-circuit and always
     # re-fetch from the connector. Backs the ``--refresh`` flag and the
     # web "Force re-fetch" toggle.
@@ -51,7 +52,7 @@ class RefreshConnectorPlaylistsUseCase:
         async with uow:
             outcome = await ensure_connector_playlist_cache(
                 command.connector_name,
-                command.connector_playlist_ids,
+                command.connector_playlist_identifiers,
                 uow,
                 force=command.force,
             )
@@ -67,7 +68,7 @@ class RefreshConnectorPlaylistsUseCase:
 async def run_refresh_connector_playlists(
     user_id: str,
     connector_name: str,
-    connector_playlist_ids: Sequence[str],
+    connector_playlist_identifiers: Sequence[ConnectorPlaylistIdentifier],
     *,
     force: bool = False,
 ) -> RefreshConnectorPlaylistsResult:
@@ -77,7 +78,7 @@ async def run_refresh_connector_playlists(
     command = RefreshConnectorPlaylistsCommand(
         user_id=user_id,
         connector_name=connector_name,
-        connector_playlist_ids=connector_playlist_ids,
+        connector_playlist_identifiers=connector_playlist_identifiers,
         force=force,
     )
     return await execute_use_case(

@@ -93,7 +93,7 @@ class TestListPlaylistLinks:
         assert link["connector_name"] == "spotify"
         assert link["sync_direction"] == "push"
         assert link["sync_status"] == "synced"
-        assert link["connector_playlist_id"].startswith("sp_")
+        assert link["connector_playlist_identifier"].startswith("sp_")
         assert link["connector_playlist_name"].startswith("My Spotify Playlist")
         assert link["last_sync_tracks_added"] == 5
         assert link["last_sync_tracks_removed"] == 1

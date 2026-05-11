@@ -135,7 +135,7 @@ class TestImportSpotifyResolution:
 
         assert result.exit_code == 0, result.output
         call_kwargs = import_mock.await_args.kwargs
-        assert list(call_kwargs["connector_playlist_ids"]) == ["sp1"]
+        assert list(call_kwargs["connector_playlist_identifiers"]) == ["sp1"]
         assert "Traceback" not in result.output
 
     def test_ambiguous_name_produces_clean_error(self) -> None:
@@ -236,7 +236,7 @@ class TestImportSpotifyAllNotImported:
             )
 
         assert result.exit_code == 0, result.output
-        sent_ids = set(import_mock.await_args.kwargs["connector_playlist_ids"])
+        sent_ids = set(import_mock.await_args.kwargs["connector_playlist_identifiers"])
         assert sent_ids == {"sp2", "sp3"}
         assert "Traceback" not in result.output
 
@@ -378,7 +378,7 @@ class TestRefreshSpotify:
 
         assert result.exit_code == 0, result.output
         call_kwargs = refresh_mock.await_args.kwargs
-        assert list(call_kwargs["connector_playlist_ids"]) == ["sp1"]
+        assert list(call_kwargs["connector_playlist_identifiers"]) == ["sp1"]
         assert call_kwargs["force"] is False
         assert "Traceback" not in result.output
 

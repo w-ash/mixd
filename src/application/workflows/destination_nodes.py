@@ -6,7 +6,6 @@ use cases. Supports both local canonical playlists and external platform playlis
 """
 
 from collections.abc import Mapping
-from uuid import UUID
 
 from src.application.use_cases.create_canonical_playlist import (
     CreateCanonicalPlaylistCommand,
@@ -24,7 +23,13 @@ from src.config import get_logger
 from src.domain.entities.shared import JsonValue
 from src.domain.entities.track import TrackList
 
-from .config_accessors import cfg_bool, cfg_str, cfg_str_or_none
+from .config_accessors import (
+    cfg_bool,
+    cfg_str,
+    cfg_str_or_none,
+    require_canonical_playlist_uuid,
+    require_connector_playlist_identifier,
+)
 from .node_context import NodeContext
 from .protocols import NodeResult, WorkflowContext
 from .template_utils import render_playlist_config_templates
@@ -46,38 +51,19 @@ def _prepare_destination(
     return tracklist, config, workflow_context
 
 
-async def _find_existing_playlist_by_name(
-    workflow_context: WorkflowContext, playlist_name: str
-) -> UUID | None:
-    """Check if a canonical playlist with this name already exists.
-
-    Returns the playlist ID if found, None otherwise. Used for idempotent
-    create_playlist: re-running a workflow updates the existing playlist
-    instead of creating duplicates.
-    """
-    from src.domain.repositories import UnitOfWorkProtocol
-
-    user_id = workflow_context.user_id
-
-    async def _search(uow: UnitOfWorkProtocol) -> UUID | None:
-        repo = uow.get_playlist_repository()
-        all_playlists = await repo.list_all_playlists(user_id=user_id)
-        for p in all_playlists:
-            if p.name == playlist_name:
-                return p.id
-        return None
-
-    return await workflow_context.execute_service(_search)
-
-
 async def create_playlist(
     context: dict[str, object],
     config: Mapping[str, JsonValue],
 ) -> NodeResult:
     """Create new playlist from track list with optional platform sync.
 
-    Idempotent: if a playlist with the same name already exists, updates it
-    instead of creating a duplicate. This makes workflow re-runs safe.
+    Always creates a fresh playlist. There is no name-based dedup — names
+    are not a stable identity for connector-paired playlists (date templates
+    differ across runs, names collide, names get renamed). If a workflow
+    needs to keep updating the *same* connector playlist across runs, use
+    ``destination.update_playlist`` with an explicit
+    ``connector_playlist_identifier`` instead — that's the natural-identity
+    lookup, against ``playlist_mappings``.
 
     Args:
         context: Workflow execution context containing tracklist, use cases, and connectors.
@@ -102,21 +88,6 @@ async def create_playlist(
         raise ValueError("Missing required 'name' for create_playlist operation")
 
     ctx = NodeContext(context)
-
-    # Idempotency: check if a playlist with this name already exists
-    existing_id = await _find_existing_playlist_by_name(workflow_context, playlist_name)
-    if existing_id is not None:
-        logger.info(
-            "Playlist already exists — updating instead of creating duplicate",
-            playlist_name=playlist_name,
-            existing_playlist_id=existing_id,
-        )
-        # Delegate to update_playlist with the existing ID
-        update_config = {
-            **config,
-            "playlist_id": str(existing_id),
-        }
-        return await update_playlist(context, update_config)
 
     track_count = len(tracklist.tracks)
 
@@ -213,23 +184,21 @@ async def update_playlist(
         )
         return {"tracklist": tracklist}
 
-    playlist_id = cfg_str(config, "playlist_id")
-    if not playlist_id:
-        raise ValueError("Missing required 'playlist_id' for update_playlist operation")
-
     append = cfg_bool(config, "append")
 
     ctx = NodeContext(context)
 
     if connector := cfg_str_or_none(config, "connector"):
+        connector_playlist_identifier = require_connector_playlist_identifier(
+            config, node="destination.update_playlist", connector=connector
+        )
         await ctx.emit_phase_progress(
             "sync", "destination", f"Syncing playlist to {connector}"
         )
 
-        # playlist_id is connector ID - update connector with optimistic canonical sync
         command = UpdateConnectorPlaylistCommand(
             user_id=workflow_context.user_id,
-            playlist_id=playlist_id,
+            connector_playlist_identifier=connector_playlist_identifier,
             new_tracklist=tracklist,
             connector=connector,
             append_mode=append,
@@ -244,7 +213,7 @@ async def update_playlist(
         logger.info(
             "update_playlist complete",
             connector=connector,
-            playlist_id=result.playlist_id,
+            connector_playlist_identifier=result.connector_playlist_identifier,
             append_mode=append,
             track_count=len(tracklist.tracks),
             operations_performed=result.operations_performed,
@@ -254,7 +223,10 @@ async def update_playlist(
         )
         playlist_changes = result.playlist_changes
     else:
-        # playlist_id is canonical ID - update canonical only
+        playlist_id = require_canonical_playlist_uuid(
+            config, node="destination.update_playlist"
+        )
+
         command = UpdateCanonicalPlaylistCommand(
             user_id=workflow_context.user_id,
             playlist_id=playlist_id,

@@ -63,7 +63,7 @@ class TestCreatePlaylistLinkHappyPath:
                 user_id="test-user",
                 playlist_id=playlist.id,
                 connector="spotify",
-                connector_playlist_id="ext123",
+                connector_playlist_identifier="ext123",
                 sync_direction=SyncDirection.PUSH,
             ),
             uow,
@@ -84,7 +84,7 @@ class TestCreatePlaylistLinkHappyPath:
                 user_id="test-user",
                 playlist_id=playlist.id,
                 connector="spotify",
-                connector_playlist_id="ext123",
+                connector_playlist_identifier="ext123",
                 sync_direction=SyncDirection.PULL,
             ),
             uow,
@@ -103,7 +103,7 @@ class TestCreatePlaylistLinkHappyPath:
                 user_id="test-user",
                 playlist_id=playlist.id,
                 connector="spotify",
-                connector_playlist_id="https://open.spotify.com/playlist/37i9dQZF1DZ06evO05tE88",
+                connector_playlist_identifier="https://open.spotify.com/playlist/37i9dQZF1DZ06evO05tE88",
             ),
             uow,
         )
@@ -122,7 +122,7 @@ class TestCreatePlaylistLinkHappyPath:
                 user_id="test-user",
                 playlist_id=playlist.id,
                 connector="spotify",
-                connector_playlist_id="ext123",
+                connector_playlist_identifier="ext123",
             ),
             uow,
         )
@@ -147,7 +147,7 @@ class TestCreatePlaylistLinkErrors:
                     user_id="test-user",
                     playlist_id=uuid7(),
                     connector="spotify",
-                    connector_playlist_id="ext123",
+                    connector_playlist_identifier="ext123",
                 ),
                 uow,
             )
@@ -166,7 +166,7 @@ class TestCreatePlaylistLinkErrors:
                     user_id="test-user",
                     playlist_id=playlist.id,
                     connector="badservice",
-                    connector_playlist_id="ext123",
+                    connector_playlist_identifier="ext123",
                 ),
                 uow,
             )
@@ -186,7 +186,7 @@ class TestCreatePlaylistLinkErrors:
                     user_id="test-user",
                     playlist_id=playlist.id,
                     connector="spotify",
-                    connector_playlist_id="nonexistent",
+                    connector_playlist_identifier="nonexistent",
                 ),
                 uow,
             )

@@ -13,6 +13,7 @@ from src.application.use_cases.update_connector_playlist import (
     UpdateConnectorPlaylistResult,
 )
 from src.domain.entities.playlist_link import PlaylistLink, SyncDirection, SyncStatus
+from src.domain.entities.shared import ConnectorPlaylistIdentifier
 from src.domain.exceptions import ConfirmationRequiredError, NotFoundError
 from tests.fixtures import make_mock_uow, make_playlist, make_tracks
 
@@ -66,7 +67,7 @@ class TestSyncPlaylistLinkPush:
         ]
 
         mock_push_result = UpdateConnectorPlaylistResult(
-            playlist_id="ext123",
+            connector_playlist_identifier=ConnectorPlaylistIdentifier("ext123"),
             connector="spotify",
             tracks_added=3,
             tracks_removed=1,

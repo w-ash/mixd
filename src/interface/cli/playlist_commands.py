@@ -9,6 +9,7 @@ from rich.table import Table
 import typer
 
 from src.domain.entities.playlist import Playlist
+from src.domain.entities.shared import ConnectorPlaylistIdentifier
 from src.interface.cli.async_runner import run_async
 from src.interface.cli.cli_helpers import (
     BatchOperationResult,
@@ -445,7 +446,9 @@ def create_link(
                     user_id=user_id,
                     playlist_id=UUID(playlist_id),
                     connector=connector,
-                    connector_playlist_id=external_id,
+                    connector_playlist_identifier=ConnectorPlaylistIdentifier(
+                        external_id
+                    ),
                     sync_direction=sync_dir,
                 ),
                 uow,
@@ -755,12 +758,13 @@ def import_spotify(
         if not resolved_ids:
             raise typer.Exit(1)
 
+    typed_resolved_ids = [ConnectorPlaylistIdentifier(x) for x in resolved_ids]
     try:
         result = run_async(
             run_import_connector_playlists_as_canonical(
                 user_id=get_cli_user_id(),
                 connector_name=SPOTIFY_CONNECTOR,
-                connector_playlist_ids=resolved_ids,
+                connector_playlist_identifiers=typed_resolved_ids,
                 sync_direction=sync_direction,
                 force=refresh,
             )
@@ -839,12 +843,13 @@ def refresh_spotify(
     if not resolved_ids:
         raise typer.Exit(1)
 
+    typed_resolved_ids = [ConnectorPlaylistIdentifier(x) for x in resolved_ids]
     try:
         result = run_async(
             run_refresh_connector_playlists(
                 user_id=get_cli_user_id(),
                 connector_name=SPOTIFY_CONNECTOR,
-                connector_playlist_ids=resolved_ids,
+                connector_playlist_identifiers=typed_resolved_ids,
                 force=refresh,
             )
         )

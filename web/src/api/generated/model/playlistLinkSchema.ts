@@ -3,7 +3,7 @@
  * Do not edit manually.
  * Mixd
  * Personal music metadata hub
- * OpenAPI spec version: 0.7.8.16
+ * OpenAPI spec version: 0.7.8.17
  */
 
 /**
@@ -12,7 +12,7 @@
 export interface PlaylistLinkSchema {
   id: string;
   connector_name: string;
-  connector_playlist_id: string;
+  connector_playlist_identifier: string;
   connector_playlist_name?: string | null;
   sync_direction: string;
   sync_status: string;

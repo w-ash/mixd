@@ -3,7 +3,7 @@
  * Do not edit manually.
  * Mixd
  * Personal music metadata hub
- * OpenAPI spec version: 0.7.8.16
+ * OpenAPI spec version: 0.7.8.17
  */
 import type { WorkflowRunSummarySchemaStatus } from './workflowRunSummarySchemaStatus';
 

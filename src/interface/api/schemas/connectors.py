@@ -110,6 +110,6 @@ class ImportConnectorPlaylistsRequest(BaseModel):
     this via the per-row "Force re-fetch" toggle.
     """
 
-    connector_playlist_ids: list[str] = Field(min_length=1)
+    connector_playlist_identifiers: list[str] = Field(min_length=1)
     sync_direction: Literal["pull", "push"]
     force: bool = False
