@@ -17,15 +17,22 @@ The critical cases:
   values stay values, types stay types).
 - **Mixed-type arrays**: JSON arrays with heterogeneous element types survive.
 - **Empty dict**: ``{}`` is a valid value, not coerced to ``None``.
+- **UUID and datetime values**: backed by orjson registered as the
+  psycopg JSON dumper via ``set_json_dumps`` in ``db_connection.py``.
+  Raw UUID / datetime values written to a JSONB column should serialize
+  to ISO / canonical strings rather than crash psycopg's default adapter.
 
 Uses ``DBUserSettings.settings`` (``Mapped[dict[str, Any]]`` on a JSONB
 column) as the test target — it's the simplest JSONB column without
 relationship complications.
 """
 
-from uuid import uuid4
+from datetime import UTC, date, datetime, time
+from uuid import UUID, uuid4
 
+import pytest
 from sqlalchemy import select
+from sqlalchemy.exc import StatementError
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.infrastructure.persistence.database.db_models import DBUserSettings
@@ -153,3 +160,72 @@ class TestJsonbRoundTripNumbers:
     async def test_negative_int(self, db_session: AsyncSession):
         settings = await _persist_and_reload(db_session, {"delta": -17})
         assert settings["delta"] == -17
+
+
+class TestJsonbEncoderUuidDatetime:
+    """orjson (registered via ``set_json_dumps`` in ``db_connection.py``)
+    must let raw UUID / datetime values reach a JSONB column without
+    crashing psycopg.
+
+    Builders that produce JSONB payloads still stringify at the
+    application boundary for in-process consumers (preview, CLI). These
+    tests verify the *fallback* path — any value that bypasses the
+    builder contract must still serialize at the driver layer.
+    """
+
+    async def test_uuid_value_serialized_to_string(
+        self, db_session: AsyncSession
+    ) -> None:
+        raw_uuid = uuid4()
+        settings = await _persist_and_reload(db_session, {"track_id": raw_uuid})
+        assert settings["track_id"] == str(raw_uuid)
+        # Round-trip parses cleanly as a UUID — encoder produced the canonical form.
+        assert UUID(str(settings["track_id"])) == raw_uuid
+
+    async def test_datetime_value_serialized_to_iso_string(
+        self, db_session: AsyncSession
+    ) -> None:
+        raw_dt = datetime(2026, 5, 10, 17, 26, 8, tzinfo=UTC)
+        settings = await _persist_and_reload(db_session, {"started_at": raw_dt})
+        assert settings["started_at"] == raw_dt.isoformat()
+
+    async def test_date_and_time_values_serialized_to_iso_strings(
+        self, db_session: AsyncSession
+    ) -> None:
+        raw_date = date(2026, 5, 10)
+        raw_time = time(17, 26, 8)
+        settings = await _persist_and_reload(
+            db_session, {"day": raw_date, "moment": raw_time}
+        )
+        assert settings["day"] == raw_date.isoformat()
+        assert settings["moment"] == raw_time.isoformat()
+
+    async def test_uuid_inside_nested_structure(self, db_session: AsyncSession) -> None:
+        """The bug shape from v0.7.8.14 / v0.7.8.15: a UUID nested several
+        levels deep inside a dict/list payload. The encoder must walk into
+        nested structures, not just top-level values.
+        """
+        ids = [uuid4(), uuid4(), uuid4()]
+        payload = {
+            "tracks_added": [{"track_id": ids[0]}, {"track_id": ids[1]}],
+            "tracks_moved": [{"track_id": ids[2]}],
+        }
+        settings = await _persist_and_reload(db_session, payload)
+        added = settings["tracks_added"]
+        assert isinstance(added, list)
+        assert added[0]["track_id"] == str(ids[0])
+        assert added[1]["track_id"] == str(ids[1])
+        moved = settings["tracks_moved"]
+        assert isinstance(moved, list)
+        assert moved[0]["track_id"] == str(ids[2])
+
+    async def test_unsupported_type_raises_typeerror(
+        self, db_session: AsyncSession
+    ) -> None:
+        """orjson is intentionally strict — anything outside its native
+        type set (UUID, datetime, date, time, dataclass, Enum, numpy,
+        and JSON-native types) raises ``TypeError`` at dump time. Loud
+        failure is preferable to silent ``repr()`` coercion.
+        """
+        with pytest.raises((TypeError, StatementError)):
+            await _persist_and_reload(db_session, {"weird": {1, 2, 3}})

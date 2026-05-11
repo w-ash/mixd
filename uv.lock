@@ -1045,7 +1045,7 @@ wheels = [
 
 [[package]]
 name = "mixd"
-version = "0.7.8.15"
+version = "0.7.8.16"
 source = { editable = "." }
 dependencies = [
     { name = "alembic" },
@@ -1054,6 +1054,7 @@ dependencies = [
     { name = "griffe" },
     { name = "httpx" },
     { name = "jellyfish" },
+    { name = "orjson" },
     { name = "prefect" },
     { name = "psycopg", extra = ["binary"] },
     { name = "pydantic-settings" },
@@ -1093,6 +1094,7 @@ requires-dist = [
     { name = "griffe", specifier = ">=1.5" },
     { name = "httpx", specifier = ">=0.28.1" },
     { name = "jellyfish", specifier = ">=1.2.1" },
+    { name = "orjson", specifier = ">=3.11.9" },
     { name = "prefect", specifier = ">=3.6.19" },
     { name = "psycopg", extras = ["binary"], specifier = ">=3.2" },
     { name = "pydantic-settings", specifier = ">=2.13.1" },

@@ -428,3 +428,221 @@ class TestHeartbeatAndStaleSweep:
 
         stalled = await repo.list_stalled_runs(stale_threshold_seconds=60)
         assert completed.id not in [r.id for r in stalled]
+
+
+class TestWorkflowRunJsonbWrites:
+    """End-to-end coverage of the two JSONB write paths exercised by
+    real workflow runs:
+
+    - ``workflow_run_nodes.node_details`` via ``update_node_status``
+    - ``workflow_runs.output_tracks`` via ``update_run_status``
+
+    Unit tests for the builders (``test_workflow_runs.py`` and
+    ``test_playlist_results.py``) confirm in-process dict shape. These
+    tests confirm the full UPDATE → SELECT round-trip with realistic
+    builder output, then exercise the orjson driver-level encoder by
+    submitting raw UUID / datetime values that bypass the builder
+    contract — the encoder must serialize them rather than crash.
+    """
+
+    async def test_node_details_round_trips_realistic_playlist_changes(
+        self, db_session
+    ) -> None:
+        """``build_playlist_changes`` output persists and reads back intact
+        through ``update_node_status`` — the path destination nodes use.
+        """
+        from src.application.use_cases._shared.playlist_results import (
+            build_playlist_changes,
+        )
+        from src.domain.entities.track import Artist, Track
+        from src.domain.playlist import (
+            PlaylistDiff,
+            PlaylistOperation,
+            PlaylistOperationType,
+        )
+
+        workflow = await _create_workflow(db_session)
+        repo = WorkflowRunRepository(db_session)
+        saved = await repo.create_run(_make_run(workflow.id))
+
+        added_track = Track(title="Added", artists=[Artist(name="ArtistA")])
+        removed_track = Track(title="Removed", artists=[Artist(name="ArtistR")])
+        diff = PlaylistDiff(
+            operations=[
+                PlaylistOperation(
+                    operation_type=PlaylistOperationType.ADD,
+                    track=added_track,
+                    position=0,
+                ),
+                PlaylistOperation(
+                    operation_type=PlaylistOperationType.REMOVE,
+                    track=removed_track,
+                    position=1,
+                ),
+                PlaylistOperation(
+                    operation_type=PlaylistOperationType.MOVE,
+                    track=added_track,
+                    position=2,
+                ),
+            ]
+        )
+        playlist_changes = build_playlist_changes(
+            diff, playlist_id="pl-local-1", connector="spotify"
+        )
+        node_details: dict[str, object] = {"playlist_changes": playlist_changes}
+
+        await repo.update_node_status(
+            saved.id,
+            "filter_1",
+            "completed",
+            completed_at=datetime.now(UTC),
+            duration_ms=200,
+            input_track_count=2,
+            output_track_count=2,
+            node_details=node_details,
+        )
+        await db_session.flush()
+
+        retrieved = await repo.get_run_by_id(saved.id)
+        node = next(n for n in retrieved.nodes if n.node_id == "filter_1")
+        assert node.node_details is not None
+        changes = node.node_details["playlist_changes"]
+        assert isinstance(changes, dict)
+        assert changes["tracks_added"][0]["track_id"] == str(added_track.id)
+        assert changes["tracks_removed"][0]["track_id"] == str(removed_track.id)
+        assert changes["tracks_added_total"] == 1
+        assert changes["tracks_removed_total"] == 1
+        assert changes["tracks_moved"] == 1
+        assert changes["playlist_id"] == "pl-local-1"
+        assert changes["connector"] == "spotify"
+
+    async def test_node_details_accepts_raw_uuid_via_orjson_encoder(
+        self, db_session
+    ) -> None:
+        """Regression guard for the bug shape that shipped pre-fix:
+        a payload containing raw ``uuid.UUID`` and ``datetime`` reaches
+        the JSONB column directly. The orjson encoder must serialize
+        these at the driver layer; if it doesn't, psycopg crashes on
+        flush with ``TypeError: Object of type UUID is not JSON serializable``.
+        """
+        workflow = await _create_workflow(db_session)
+        repo = WorkflowRunRepository(db_session)
+        saved = await repo.create_run(_make_run(workflow.id))
+
+        raw_uuid = uuid7()
+        raw_dt = datetime.now(UTC)
+        node_details: dict[str, object] = {
+            "track_uuid": raw_uuid,
+            "captured_at": raw_dt,
+            "nested": {"inner_track_id": raw_uuid, "logged_at": raw_dt},
+        }
+
+        await repo.update_node_status(
+            saved.id,
+            "source_1",
+            "completed",
+            completed_at=datetime.now(UTC),
+            node_details=node_details,
+        )
+        await db_session.flush()
+
+        retrieved = await repo.get_run_by_id(saved.id)
+        node = next(n for n in retrieved.nodes if n.node_id == "source_1")
+        details = node.node_details
+        assert details is not None
+        assert details["track_uuid"] == str(raw_uuid)
+        assert details["captured_at"] == raw_dt.isoformat()
+        nested = details["nested"]
+        assert isinstance(nested, dict)
+        assert nested["inner_track_id"] == str(raw_uuid)
+        assert nested["logged_at"] == raw_dt.isoformat()
+
+    async def test_output_tracks_round_trips_realistic_serialize_output(
+        self, db_session
+    ) -> None:
+        """``serialize_output_tracks`` output persists and reads back intact
+        through ``update_run_status`` — the path the CLI history observer uses.
+        """
+        from src.application.use_cases.workflow_runs import serialize_output_tracks
+        from tests.fixtures import make_tracks
+
+        workflow = await _create_workflow(db_session)
+        repo = WorkflowRunRepository(db_session)
+        saved = await repo.create_run(_make_run(workflow.id))
+
+        tracks = make_tracks(count=3)
+        metrics = {
+            "playcount": {tracks[0].id: 42, tracks[1].id: 7, tracks[2].id: 18},
+            "last_played": {
+                tracks[0].id: datetime(2026, 5, 10, 12, 0, tzinfo=UTC),
+                tracks[1].id: None,
+                tracks[2].id: datetime(2026, 5, 9, 9, 30, tzinfo=UTC),
+            },
+        }
+        output_tracks, columns = serialize_output_tracks(tracks, metrics=metrics)
+
+        await repo.update_run_status(
+            saved.id,
+            "completed",
+            completed_at=datetime.now(UTC),
+            duration_ms=1000,
+            output_track_count=len(tracks),
+            output_tracks=output_tracks,
+        )
+        await db_session.flush()
+
+        retrieved = await repo.get_run_by_id(saved.id)
+        assert retrieved.output_tracks is not None
+        assert len(retrieved.output_tracks) == 3
+        assert columns == ["last_played", "playcount"]
+
+        first = retrieved.output_tracks[0]
+        assert first["track_id"] == str(tracks[0].id)
+        assert first["rank"] == 1
+        first_metrics = first["metrics"]
+        assert isinstance(first_metrics, dict)
+        assert first_metrics["playcount"] == 42
+        assert first_metrics["last_played"] == "2026-05-10T12:00:00+00:00"
+
+        second_metrics = retrieved.output_tracks[1]["metrics"]
+        assert isinstance(second_metrics, dict)
+        assert second_metrics["last_played"] is None
+
+    async def test_output_tracks_accepts_raw_uuid_via_orjson_encoder(
+        self, db_session
+    ) -> None:
+        """Regression guard: ``output_tracks`` containing raw UUID and
+        datetime values reaches the JSONB column. orjson must serialize
+        them at the driver layer; otherwise psycopg crashes on flush.
+        """
+        workflow = await _create_workflow(db_session)
+        repo = WorkflowRunRepository(db_session)
+        saved = await repo.create_run(_make_run(workflow.id))
+
+        raw_uuid = uuid7()
+        raw_dt = datetime(2026, 5, 10, tzinfo=UTC)
+        output_tracks: list[dict[str, object]] = [
+            {
+                "track_id": raw_uuid,
+                "title": "Untitled",
+                "rank": 1,
+                "metrics": {"played_at": raw_dt, "playcount": 5},
+            },
+        ]
+
+        await repo.update_run_status(
+            saved.id,
+            "completed",
+            completed_at=datetime.now(UTC),
+            output_tracks=output_tracks,
+        )
+        await db_session.flush()
+
+        retrieved = await repo.get_run_by_id(saved.id)
+        assert retrieved.output_tracks is not None
+        first = retrieved.output_tracks[0]
+        assert first["track_id"] == str(raw_uuid)
+        metrics = first["metrics"]
+        assert isinstance(metrics, dict)
+        assert metrics["played_at"] == raw_dt.isoformat()
+        assert metrics["playcount"] == 5

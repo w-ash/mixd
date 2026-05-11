@@ -5,11 +5,14 @@ This module is responsible for:
 - Connection pooling
 - Session management
 - Transaction handling
+- Installing orjson as the JSONB serializer at module import (see below).
 """
 
 from collections.abc import AsyncGenerator
 from contextlib import asynccontextmanager
 
+import orjson
+from psycopg.types.json import set_json_dumps
 from sqlalchemy import event
 from sqlalchemy.engine.interfaces import DBAPIConnection
 from sqlalchemy.ext.asyncio import (
@@ -23,6 +26,17 @@ from sqlalchemy.pool import ConnectionPoolEntry
 from src.config import get_logger
 
 logger = get_logger(__name__)
+
+
+# Register orjson as the JSONB dumper. psycopg's default JSON encoder
+# can't serialize UUID or datetime — orjson handles those (plus date,
+# time, dataclasses, Enum, numpy) natively, so producers can pass raw
+# entity fields into JSONB columns without crashing at flush time.
+#
+# psycopg 3.3 (#569) accepts bytes from JSON dumpers directly, so
+# ``orjson.dumps`` plugs in without a wrapper. Naive datetimes raise
+# ``TypeError`` — aligned with ``datetime.now(UTC)`` everywhere.
+set_json_dumps(orjson.dumps)
 
 
 def _set_connection_timeouts(

@@ -44,10 +44,12 @@ logger = get_logger(__name__).bind(service="workflow_runs")
 
 
 def _jsonable_metric(value: MetricValue) -> int | float | str | None:
-    """Convert a ``MetricValue`` to a strict-JSON scalar for the JSONB column.
+    """Convert a ``MetricValue`` to a strict-JSON scalar for in-process callers.
 
-    psycopg's default JSON adapter has no encoder for ``datetime`` — the dict
-    must already contain JSON-native types before it reaches the driver.
+    ``serialize_output_tracks`` is consumed by both the JSONB write path
+    (workflow_runs.output_tracks) and the preview API path (no DB round-
+    trip). Stringifying at the boundary lets both paths share a single
+    JSON-compatible shape.
     """
     if isinstance(value, datetime):
         return value.isoformat()
@@ -65,10 +67,12 @@ def serialize_output_tracks(
     sub-dict keyed by the selected columns. Up to MAX_OUTPUT_METRIC_COLUMNS
     columns are included, sorted alphabetically for deterministic ordering.
 
-    All values in the returned dicts are strict-JSON types (``str``, ``int``,
+    Values in the returned dicts are strict-JSON types (``str``, ``int``,
     ``float``, ``None``) — ``track.id`` is stringified and any ``datetime``
-    metric value is converted to ISO 8601 — so the result can be written
-    directly to the ``workflow_runs.output_tracks`` JSONB column.
+    metric value is converted to ISO 8601 at the boundary. This is for the
+    benefit of in-process consumers (preview API responses, CLI rendering,
+    unit-test assertions); orjson handles raw UUID / datetime values at
+    the JSONB write path natively (see ``db_connection.set_json_dumps``).
     """
     subset = tracks[:limit] if limit is not None else tracks
 

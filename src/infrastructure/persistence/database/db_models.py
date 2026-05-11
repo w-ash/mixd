@@ -825,9 +825,11 @@ class DBWorkflowRun(DatabaseModel, TimestampMixin):
     error_message: Mapped[str | None] = mapped_column(String(2000))
     # Serialized track summaries (track_id, title, artists, rank, metrics) —
     # see serialize_output_tracks() in application/use_cases/workflow_runs.py.
-    # That function returns strict-JSON-only types (UUIDs are stringified,
-    # datetime metrics are ISO-formatted) so the dict can be written directly
-    # by psycopg's default JSONB adapter.
+    # That builder stringifies UUIDs and ISO-formats datetimes for the
+    # benefit of in-process consumers (preview, CLI). orjson is wired in
+    # as the psycopg JSONB dumper at engine init (db_connection.py), so
+    # any raw UUID/datetime values that reach the write path are also
+    # serialized natively.
     output_tracks: Mapped[list[dict[str, object]] | None] = mapped_column(
         PgJsonb, nullable=True
     )
@@ -866,11 +868,12 @@ class DBWorkflowRunNode(DatabaseModel):
     error_message: Mapped[str | None] = mapped_column(String(2000))
     execution_order: Mapped[int] = mapped_column(default=0)
     # Per-node observation payload (e.g., destination playlist_changes summary).
-    # Producers — see build_playlist_changes in use_cases/_shared/playlist_results.py
-    # for the canonical example — are responsible for emitting strict-JSON types
-    # only: stringified UUIDs, ISO-formatted datetimes. psycopg's default JSONB
-    # adapter has no encoder for raw UUID or datetime and will crash at write
-    # time otherwise.
+    # The canonical producer is build_playlist_changes in
+    # use_cases/_shared/playlist_results.py, which stringifies UUIDs at the
+    # boundary for in-process consumers. orjson is wired in as the
+    # psycopg JSONB dumper at engine init (db_connection.py), so a new
+    # producer that forgets the rule and emits raw UUIDs / datetimes
+    # won't crash at flush time.
     node_details: Mapped[dict[str, object] | None] = mapped_column(
         PgJsonb, nullable=True
     )

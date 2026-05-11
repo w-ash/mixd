@@ -1,6 +1,6 @@
 [project]
 name = "mixd"
-version = "0.7.8.15"
+version = "0.7.8.16"
 description = "Music metadata integration and playlist management platform"
 authors = [{name = "Ash Wright", email = "a@ashwright.net"}]
 readme = "README.md"
@@ -26,6 +26,7 @@ dependencies = [
     "python-multipart>=0.0.22",
     "jellyfish>=1.2.1",
     "pyjwt[crypto]>=2.12.1",
+    "orjson>=3.11.9",
 ]
 
 [project.scripts]

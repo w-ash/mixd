@@ -21,12 +21,15 @@ def build_playlist_changes(
     """Build lightweight playlist change evidence from a PlaylistDiff.
 
     Extracts track summaries (id, title, artists) from diff operations
-    for persisting as node_details in workflow run history.  Lists are
+    for persisting as node_details in workflow run history. Lists are
     capped at _MAX_EVIDENCE_TRACKS with a total count for the remainder.
 
-    All values in the returned dict are strict-JSON types (``str``, ``int``,
-    ``None``) — ``track.id`` is stringified — so the result can be written
-    directly to the ``workflow_run_nodes.node_details`` JSONB column.
+    Values in the returned dict are strict-JSON types (``str``, ``int``,
+    ``None``) — ``track.id`` is stringified at the boundary so in-process
+    consumers (workflow preview, CLI rendering, unit tests) can rely on
+    plain JSON-compatible values without further coercion. orjson handles
+    raw UUID / datetime values at the JSONB write path natively (see
+    ``db_connection.set_json_dumps``).
     """
     added: list[dict[str, object]] = []
     removed: list[dict[str, object]] = []
