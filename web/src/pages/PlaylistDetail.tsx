@@ -401,7 +401,7 @@ function LinkPlaylistDialog({ playlistId }: { playlistId: string }) {
       playlistId,
       data: {
         connector,
-        connector_playlist_id: playlistInput.trim(),
+        connector_playlist_identifier: playlistInput.trim(),
         sync_direction: direction,
       },
     });
@@ -697,7 +697,8 @@ function LinkedServicesSection({ playlistId }: { playlistId: string }) {
                 {/* Playlist name + direction + status */}
                 <div className="flex flex-wrap items-center gap-x-3 gap-y-1">
                   <span className="truncate font-body text-sm text-text-muted">
-                    {link.connector_playlist_name ?? link.connector_playlist_id}
+                    {link.connector_playlist_name ??
+                      link.connector_playlist_identifier}
                   </span>
                   <button
                     type="button"
@@ -745,7 +746,7 @@ function LinkedServicesSection({ playlistId }: { playlistId: string }) {
           connectorName={syncDialogLink.connector_name}
           playlistName={
             syncDialogLink.connector_playlist_name ??
-            syncDialogLink.connector_playlist_id
+            syncDialogLink.connector_playlist_identifier
           }
           currentDirection={syncDialogLink.sync_direction}
           isPending={syncMutation.isPending}

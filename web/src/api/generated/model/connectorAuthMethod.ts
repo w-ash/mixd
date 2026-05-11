@@ -3,7 +3,7 @@
  * Do not edit manually.
  * Mixd
  * Personal music metadata hub
- * OpenAPI spec version: 0.7.8.17
+ * OpenAPI spec version: 0.7.8.18
  */
 
 export type ConnectorAuthMethod = typeof ConnectorAuthMethod[keyof typeof ConnectorAuthMethod];

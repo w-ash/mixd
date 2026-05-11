@@ -200,7 +200,7 @@ export function ImportPlaylistsConfirmDialog({
         importMut.mutate({
           service: connector.name,
           data: {
-            connector_playlist_ids: playlists.map((p) => p.id),
+            connector_playlist_identifiers: playlists.map((p) => p.id),
             sync_direction: direction,
             force: forceRefetch,
           },
