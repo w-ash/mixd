@@ -866,8 +866,11 @@ class DBWorkflowRunNode(DatabaseModel):
     error_message: Mapped[str | None] = mapped_column(String(2000))
     execution_order: Mapped[int] = mapped_column(default=0)
     # Per-node observation payload (e.g., destination playlist_changes summary).
-    # See application/workflows/destination_nodes.py and observers.py for shapes.
-    # dict[str, object] (not JsonDict) because nested values may include UUIDs.
+    # Producers — see build_playlist_changes in use_cases/_shared/playlist_results.py
+    # for the canonical example — are responsible for emitting strict-JSON types
+    # only: stringified UUIDs, ISO-formatted datetimes. psycopg's default JSONB
+    # adapter has no encoder for raw UUID or datetime and will crash at write
+    # time otherwise.
     node_details: Mapped[dict[str, object] | None] = mapped_column(
         PgJsonb, nullable=True
     )
