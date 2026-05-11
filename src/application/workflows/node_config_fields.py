@@ -213,6 +213,14 @@ def _date_range_fields(
 
 _NODE_CONFIG_FIELDS: dict[str, tuple[ConfigFieldDef, ...]] = {
     # === SOURCES ===
+    # KNOWN TERMINOLOGY EXCEPTION — fix eventually.
+    # ``playlist_id`` here is polymorphic: when ``connector`` is empty it is
+    # the canonical mixd ``playlists.id`` (UUID); when ``connector`` is set
+    # it carries the *connector identifier* (Spotify base62 etc.). The
+    # project rule is one name per concept — split this into two fields
+    # (``playlist_id`` canonical-only + ``connector_playlist_identifier``)
+    # when the editor/seed JSONs are next touched. See the matching note
+    # in ``application/workflows/config_accessors.py``.
     "source.playlist": (
         ConfigFieldDef(
             key="playlist_id",
@@ -680,6 +688,9 @@ _NODE_CONFIG_FIELDS: dict[str, tuple[ConfigFieldDef, ...]] = {
             options=CONNECTOR_OPTIONS,
         ),
     ),
+    # KNOWN TERMINOLOGY EXCEPTION — see source.playlist above.
+    # Same polymorphic ``playlist_id`` shape: canonical UUID without
+    # ``connector``, connector identifier (Spotify base62 etc.) with it.
     "destination.update_playlist": (
         ConfigFieldDef(
             key="playlist_id",

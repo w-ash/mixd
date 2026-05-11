@@ -63,48 +63,48 @@ def cfg_bool(cfg: Mapping[str, JsonValue], key: str, default: bool = False) -> b
 def require_connector_playlist_identifier(
     cfg: Mapping[str, JsonValue], *, node: str, connector: str
 ) -> ConnectorPlaylistIdentifier:
-    """Read ``connector_playlist_identifier`` from a node config or raise.
+    """Read the connector's playlist ID from ``cfg["playlist_id"]`` or raise.
 
-    Fails fast at the workflow boundary rather than minutes later on an
-    external "not found", and steers users away from the common mistake
-    of pointing a connector node at a canonical mixd UUID.
+    KNOWN TERMINOLOGY EXCEPTION — fix eventually.
+    The project rule is: ``playlist_id`` always means ``playlists.id`` (the
+    canonical mixd UUID); ``connector_playlist_identifier`` always means the
+    external service's own ID (Spotify base62, Apple Music alphanumeric).
+    Source/destination playlist nodes violate that rule: when ``connector``
+    is set, ``playlist_id`` here carries the *connector identifier*, not a
+    canonical UUID. The schema in ``node_config_fields.py``, every seed JSON
+    under ``definitions/``, and the web editor all currently emit this
+    polymorphic shape, so reading it as-is is the only thing that doesn't
+    silently break saved workflows. The proper fix is to split the field
+    into ``playlist_id`` (canonical-only) and ``connector_playlist_identifier``
+    (connector-only), rewrite the seed JSONs, and re-seed personal workflows.
     """
-    raw = cfg.get("connector_playlist_identifier")
+    raw = cfg.get("playlist_id")
     if not isinstance(raw, str) or not raw:
         raise ValueError(
-            f"{node} with connector={connector!r} requires "
-            "'connector_playlist_identifier' in config (the external "
-            "service's playlist ID, e.g., a Spotify base62 string). "
-            f"Got config keys: {sorted(cfg.keys())}. If you meant the "
-            "canonical mixd playlist, remove the 'connector' field and "
-            "set 'playlist_id' to the canonical UUID."
+            f"{node} with connector={connector!r} is missing 'playlist_id' "
+            f"(the {connector} playlist ID)."
         )
     return ConnectorPlaylistIdentifier(raw)
 
 
 def require_canonical_playlist_uuid(cfg: Mapping[str, JsonValue], *, node: str) -> str:
-    """Read ``playlist_id`` as a canonical UUID string or raise.
+    """Read the canonical mixd playlist UUID from ``cfg["playlist_id"]`` or raise.
 
-    Returns the normalized string form (``str(UUID(raw))``). Validates the
-    UUID shape so a Spotify ID accidentally placed here fails at parse
-    time with an explanatory message instead of producing an unrelated
-    downstream error.
+    Returns the normalized string form (``str(UUID(raw))``). When no
+    ``connector`` is set, ``playlist_id`` must be a canonical UUID — the
+    UUID parse rejects connector-shaped IDs at the boundary instead of
+    surfacing as an opaque downstream error.
     """
     raw = cfg.get("playlist_id")
     if not isinstance(raw, str) or not raw:
-        raise ValueError(
-            f"{node} requires 'playlist_id' (the canonical mixd playlist "
-            "UUID) when no connector is set. If you meant an external "
-            "service, add 'connector': 'spotify' (or 'apple_music' etc.) "
-            "and use 'connector_playlist_identifier' for the service's ID."
-        )
+        raise ValueError(f"{node} is missing 'playlist_id'.")
     try:
         return str(UUID(raw))
     except ValueError as e:
         raise ValueError(
-            f"{node} 'playlist_id' must be a canonical UUID; got {raw!r}. "
-            "If this is a Spotify playlist ID, set 'connector': 'spotify' "
-            "and rename the field to 'connector_playlist_identifier'."
+            f"{node} 'playlist_id' must be a canonical mixd UUID when no "
+            f"connector is set; got {raw!r}. To target an external service, "
+            "set 'connector' (e.g. 'spotify')."
         ) from e
 
 

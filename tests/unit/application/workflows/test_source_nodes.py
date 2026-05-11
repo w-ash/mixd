@@ -267,7 +267,7 @@ class TestPlaylistSourceConnector:
         ):
             result = await playlist_source(
                 context,
-                {"connector_playlist_identifier": "sp-abc", "connector": "spotify"},
+                {"playlist_id": "sp-abc", "connector": "spotify"},
             )
 
         mock_sync.assert_awaited_once_with("spotify", "sp-abc", uow)
@@ -299,7 +299,7 @@ class TestPlaylistSourceConnector:
         ):
             result = await playlist_source(
                 context,
-                {"connector_playlist_identifier": "sp-abc", "connector": "spotify"},
+                {"playlist_id": "sp-abc", "connector": "spotify"},
             )
 
         mock_upsert.assert_not_awaited()
@@ -319,7 +319,7 @@ class TestPlaylistSourceConnector:
             with pytest.raises(ConnectionError, match="Spotify API down"):
                 await playlist_source(
                     context,
-                    {"connector_playlist_identifier": "sp-abc", "connector": "spotify"},
+                    {"playlist_id": "sp-abc", "connector": "spotify"},
                 )
 
     async def test_connector_tracklist_has_connector_source_metadata(
@@ -344,7 +344,7 @@ class TestPlaylistSourceConnector:
         ):
             result = await playlist_source(
                 context,
-                {"connector_playlist_identifier": "sp-abc", "connector": "spotify"},
+                {"playlist_id": "sp-abc", "connector": "spotify"},
             )
 
         tl = result["tracklist"]

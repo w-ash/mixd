@@ -132,7 +132,7 @@ class TestUpdatePlaylist:
         )
 
         config = {
-            "connector_playlist_identifier": "sp-123",
+            "playlist_id": "sp-123",
             "connector": "spotify",
         }
         result = await update_playlist(mock_context, config)
