@@ -1,8 +1,7 @@
 """Unit tests for the personal workflow seeder.
 
-Mirrors ``test_workflow_template_seeder.py`` but exercises the user-owned,
-non-template path: existing workflows are matched by ``definition.id`` per
-user (not by ``source_template``), and rows are written with ``is_template=False``.
+Exercises the user-owned path: existing workflows are matched by
+``definition.id`` per user, and every seeded row is a normal editable workflow.
 """
 
 from unittest.mock import patch
@@ -43,13 +42,10 @@ class TestSeedPersonalWorkflows:
         for call in repo.save_workflow.await_args_list:
             saved = call.args[0]
             assert saved.user_id == "u1"
-            assert saved.is_template is False
-            assert saved.source_template is None
 
     async def test_second_run_updates_existing(self) -> None:
         existing = make_workflow(
             user_id="u1",
-            is_template=False,
             definition=WorkflowDef(id="personal_a", name="Personal A (old)"),
         )
         repo = make_mock_workflow_repo(list_workflows=[existing])
@@ -94,6 +90,4 @@ class TestSeedPersonalWorkflows:
         ):
             await seed_personal_workflows(uow, user_id="u1")
 
-        repo.list_workflows.assert_awaited_once_with(
-            user_id="u1", include_templates=False
-        )
+        repo.list_workflows.assert_awaited_once_with(user_id="u1")

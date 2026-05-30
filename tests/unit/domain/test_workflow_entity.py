@@ -24,8 +24,6 @@ class TestWorkflowConstruction:
         assert workflow.definition.id == ""
         assert workflow.definition.name == ""
         assert workflow.definition.tasks == []
-        assert workflow.is_template is False
-        assert workflow.source_template is None
         assert workflow.created_at is None
         assert workflow.updated_at is None
 
@@ -39,17 +37,13 @@ class TestWorkflowConstruction:
                 WorkflowTaskDef(id="step1", type="source.liked_tracks"),
             ],
         )
-        workflow = Workflow(
-            id=wf_id, definition=wf_def, is_template=True, source_template="test"
-        )
+        workflow = Workflow(id=wf_id, definition=wf_def)
 
         assert workflow.id == wf_id
         assert workflow.definition.name == "Test Workflow"
         assert workflow.definition.description == "A test"
         assert len(workflow.definition.tasks) == 1
         assert workflow.definition.tasks[0].id == "step1"
-        assert workflow.is_template is True
-        assert workflow.source_template == "test"
 
     def test_workflow_def_embedded_not_flattened(self) -> None:
         """WorkflowDef is a nested field, not flattened into Workflow."""

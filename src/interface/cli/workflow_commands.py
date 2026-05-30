@@ -180,7 +180,6 @@ def list_workflows(
                         "name": wf.definition.name,
                         "description": wf.definition.description,
                         "task_count": len(wf.definition.tasks),
-                        "is_template": wf.is_template,
                     }
                     for wf in workflows
                 ],
@@ -249,10 +248,8 @@ def create(
             CreateWorkflowCommand,
             CreateWorkflowUseCase,
         )
-        from src.interface.cli.db_bootstrap import ensure_cli_db_ready
 
         user_id = get_cli_user_id()
-        await ensure_cli_db_ready()
         result = await execute_use_case(
             lambda uow: CreateWorkflowUseCase().execute(
                 CreateWorkflowCommand(user_id=user_id, definition=definition),
@@ -415,9 +412,7 @@ def seed_personal(
         from src.application.services.personal_workflow_seeder import (
             seed_personal_workflows,
         )
-        from src.interface.cli.db_bootstrap import ensure_cli_db_ready
 
-        await ensure_cli_db_ready()
         return await execute_use_case(
             lambda uow: seed_personal_workflows(uow, user_id),
             user_id=user_id,
@@ -442,7 +437,7 @@ def seed_personal(
 @app.command()
 def export(
     all_workflows: Annotated[
-        bool, typer.Option("--all", help="Export all non-template workflows")
+        bool, typer.Option("--all", help="Export all workflows")
     ] = False,
     workflow_id: Annotated[
         str | None, typer.Option("--id", help="Export a single workflow by ID or slug")
@@ -465,10 +460,7 @@ def export(
         raise typer.Exit(1)
 
     if all_workflows:
-        to_export = [wf for wf in workflows if not wf.is_template]
-        if not to_export:
-            console.print("[yellow]No non-template workflows to export.[/yellow]")
-            return
+        to_export = workflows
     else:
         selected = _resolve_workflow(workflows, workflow_id)  # type: ignore[arg-type]
         if selected is None:
@@ -924,7 +916,7 @@ def _resolve_workflow(
         db_id = int(identifier)
         return next((wf for wf in workflows if wf.id == db_id), None)
 
-    # Fall back to definition slug (source_template or definition.id)
+    # Fall back to definition slug (definition.id)
     return next(
         (wf for wf in workflows if wf.definition.id == identifier),
         None,
@@ -1085,25 +1077,22 @@ def _display_workflows_table(workflows: Sequence[Workflow]) -> None:
     table.add_column("Name", style="green", ratio=1)
     table.add_column("Description", style="dim", ratio=2)
     table.add_column("Tasks", justify="right", min_width=6, max_width=8)
-    table.add_column("Type", min_width=10, max_width=10)
 
     for i, wf in enumerate(workflows, 1):
         d = wf.definition
-        type_badge = "[dim]template[/dim]" if wf.is_template else "[cyan]custom[/cyan]"
         table.add_row(
             str(i),
             str(wf.id),
             d.name,
             d.description,
             str(len(d.tasks)),
-            type_badge,
         )
 
     console.print(table)
 
 
 def _get_available_workflows() -> list[Workflow]:
-    """Get workflows from database (seeds templates on first call)."""
+    """Get the user's workflows from the database."""
 
     async def _fetch():
         from src.application.runner import execute_use_case
@@ -1111,13 +1100,11 @@ def _get_available_workflows() -> list[Workflow]:
             ListWorkflowsCommand,
             ListWorkflowsUseCase,
         )
-        from src.interface.cli.db_bootstrap import ensure_cli_db_ready
 
         user_id = get_cli_user_id()
-        await ensure_cli_db_ready()
         result = await execute_use_case(
             lambda uow: ListWorkflowsUseCase().execute(
-                ListWorkflowsCommand(user_id=user_id, include_templates=True),
+                ListWorkflowsCommand(user_id=user_id),
                 uow,
             ),
             user_id=user_id,
@@ -1158,12 +1145,9 @@ def _serialize_workflow_json(workflow: Workflow) -> str:
 def _display_workflow_detail(workflow: Workflow) -> None:
     """Display a single workflow's full definition in Rich panels."""
     d = workflow.definition
-    type_badge = (
-        "[dim]template[/dim]" if workflow.is_template else "[cyan]custom[/cyan]"
-    )
 
     header = (
-        f"[bold]{d.name}[/bold] {type_badge}\n"
+        f"[bold]{d.name}[/bold]\n"
         f"[dim]{d.description}[/dim]\n"
         f"[cyan]DB ID: {workflow.id} | Slug: {d.id} | Version: v{workflow.definition_version} | Tasks: {len(d.tasks)}[/cyan]"
     )

@@ -3,7 +3,7 @@
  * Do not edit manually.
  * Mixd
  * Personal music metadata hub
- * OpenAPI spec version: 0.7.8.19
+ * OpenAPI spec version: 0.7.8.20
  */
 
 export * from './activeAssignmentSchema';
@@ -146,6 +146,7 @@ export * from './workflowTaskDefSchemaInput';
 export * from './workflowTaskDefSchemaInputConfig';
 export * from './workflowTaskDefSchemaOutput';
 export * from './workflowTaskDefSchemaOutputConfig';
+export * from './workflowTemplateSchema';
 export * from './workflowValidationErrorSchema';
 export * from './workflowValidationRequest';
 export * from './workflowValidationResponse';

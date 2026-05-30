@@ -1,11 +1,8 @@
-"""Seeds personal (user-owned, non-template) workflow JSON definitions for a dev user.
+"""Seeds user-owned workflow JSON definitions from ``definitions/personal/`` for a dev user.
 
-Companion to ``workflow_template_seeder``: that one loads the public templates
-under ``definitions/`` as ``is_template=True`` rows; this one loads everything
-under ``definitions/personal/`` as ``is_template=False`` rows owned by a
-specific user. Useful in alpha development where the database is occasionally
-recreated and re-clicking through the workflow builder for personal workflows
-is friction.
+Every seeded row is a normal, editable, user-owned workflow. Useful in alpha
+development where the database is occasionally recreated and re-clicking through
+the workflow builder for personal workflows is friction.
 
 Idempotent: if a user already has a workflow with the same ``definition.id``,
 the existing row's definition is updated in place rather than duplicated.
@@ -38,28 +35,15 @@ async def seed_personal_workflows(uow: UnitOfWorkProtocol, user_id: str) -> int:
     async with uow:
         repo = uow.get_workflow_repository()
         existing_by_slug = {
-            wf.definition.id: wf
-            for wf in await repo.list_workflows(
-                user_id=user_id, include_templates=False
-            )
+            wf.definition.id: wf for wf in await repo.list_workflows(user_id=user_id)
         }
 
         for wf_def in workflow_defs:
             existing = existing_by_slug.get(wf_def.id)
             workflow = (
-                evolve(
-                    existing,
-                    definition=wf_def,
-                    is_template=False,
-                    source_template=None,
-                )
+                evolve(existing, definition=wf_def)
                 if existing
-                else Workflow(
-                    user_id=user_id,
-                    definition=wf_def,
-                    is_template=False,
-                    source_template=None,
-                )
+                else Workflow(user_id=user_id, definition=wf_def)
             )
             await repo.save_workflow(workflow)
             count += 1

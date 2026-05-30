@@ -5,13 +5,38 @@ frozen Command/Result objects, slots=True UseCase classes, async with uow
 transaction boundaries.
 """
 
-from uuid import UUID
+import re
+from uuid import UUID, uuid4
 
-from attrs import define
+from attrs import define, evolve
 
 from src.domain.entities.workflow import Workflow, WorkflowDef, WorkflowVersion
-from src.domain.exceptions import NotFoundError, TemplateReadOnlyError
+from src.domain.exceptions import NotFoundError
 from src.domain.repositories.interfaces import UnitOfWorkProtocol
+
+_SLUG_RE = re.compile(r"[^a-z0-9]+")
+
+
+def _slugify(text: str) -> str:
+    """Lowercase, hyphenate runs of non-alphanumerics, trim dashes.
+
+    Returns ``""`` when there is nothing usable (e.g. an emoji-only name).
+    """
+    return _SLUG_RE.sub("-", text.lower()).strip("-")
+
+
+def _clone_definition(definition: WorkflowDef, *, name: str | None) -> WorkflowDef:
+    """Copy a definition into a fresh, independently-identified one.
+
+    Mints a new unique ``id`` slug so instantiated/duplicated workflows never
+    shadow their source — or each other — on the slug that the CLI
+    (``mixd workflow … --id <slug>``) and the personal seeder
+    (``existing_by_slug``) key on. Optionally overrides the display name; the
+    task pipeline is copied verbatim.
+    """
+    display_name = name if name is not None else definition.name
+    slug = f"{_slugify(display_name) or 'workflow'}-{uuid4().hex[:8]}"
+    return evolve(definition, id=slug, name=display_name)
 
 
 def _tasks_changed(old_def: WorkflowDef, new_def: WorkflowDef) -> bool:
@@ -53,7 +78,6 @@ def _generate_change_summary(old_def: WorkflowDef, new_def: WorkflowDef) -> str:
 @define(frozen=True, slots=True)
 class ListWorkflowsCommand:
     user_id: str
-    include_templates: bool = True
 
 
 @define(frozen=True, slots=True)
@@ -69,10 +93,7 @@ class ListWorkflowsUseCase:
     ) -> ListWorkflowsResult:
         async with uow:
             repo = uow.get_workflow_repository()
-            workflows = await repo.list_workflows(
-                user_id=command.user_id,
-                include_templates=command.include_templates,
-            )
+            workflows = await repo.list_workflows(user_id=command.user_id)
             return ListWorkflowsResult(
                 workflows=workflows,
                 total_count=len(workflows),
@@ -117,7 +138,6 @@ class GetWorkflowUseCase:
 class CreateWorkflowCommand:
     user_id: str
     definition: WorkflowDef
-    source_template: str | None = None
 
 
 @define(frozen=True, slots=True)
@@ -137,14 +157,96 @@ class CreateWorkflowUseCase:
         workflow = Workflow(
             user_id=command.user_id,
             definition=command.definition,
-            is_template=command.source_template is not None,
-            source_template=command.source_template,
         )
 
         async with uow:
             repo = uow.get_workflow_repository()
             saved = await repo.save_workflow(workflow)
             return CreateWorkflowResult(workflow=saved)
+
+
+# ---------------------------------------------------------------------------
+# Instantiate (clone a definition into a new user-owned workflow)
+# ---------------------------------------------------------------------------
+
+
+@define(frozen=True, slots=True)
+class InstantiateWorkflowCommand:
+    """Create a new user-owned workflow from a built-in template definition.
+
+    The caller supplies a gallery ``WorkflowDef``; the result is always a
+    plain, editable, user-owned workflow with a freshly-minted slug — never a
+    template. (Duplicating an existing workflow has its own use case.)
+    """
+
+    user_id: str
+    definition: WorkflowDef
+
+
+@define(frozen=True, slots=True)
+class InstantiateWorkflowResult:
+    workflow: Workflow
+
+
+@define(slots=True)
+class InstantiateWorkflowUseCase:
+    async def execute(
+        self, command: InstantiateWorkflowCommand, uow: UnitOfWorkProtocol
+    ) -> InstantiateWorkflowResult:
+        from src.application.workflows.validation import validate_workflow_def
+
+        definition = _clone_definition(command.definition, name=None)
+        validate_workflow_def(definition)
+
+        workflow = Workflow(user_id=command.user_id, definition=definition)
+
+        async with uow:
+            repo = uow.get_workflow_repository()
+            saved = await repo.save_workflow(workflow)
+            return InstantiateWorkflowResult(workflow=saved)
+
+
+# ---------------------------------------------------------------------------
+# Duplicate (clone an existing persisted workflow into a new copy)
+# ---------------------------------------------------------------------------
+
+
+@define(frozen=True, slots=True)
+class DuplicateWorkflowCommand:
+    user_id: str
+    workflow_id: UUID
+
+
+@define(frozen=True, slots=True)
+class DuplicateWorkflowResult:
+    workflow: Workflow
+
+
+@define(slots=True)
+class DuplicateWorkflowUseCase:
+    """Clone an existing workflow into a new, independent user-owned copy.
+
+    Fetch + clone + save run inside a single ``async with uow:`` so one
+    transaction owns the whole operation. Composing GetWorkflowUseCase and
+    InstantiateWorkflowUseCase in the route instead would open two UoW blocks
+    on one instance — and once the first latches ``_committed``, the second's
+    auto-commit is silently skipped.
+    """
+
+    async def execute(
+        self, command: DuplicateWorkflowCommand, uow: UnitOfWorkProtocol
+    ) -> DuplicateWorkflowResult:
+        async with uow:
+            repo = uow.get_workflow_repository()
+            existing = await repo.get_workflow_by_id(
+                command.workflow_id, user_id=command.user_id
+            )
+            clone = _clone_definition(
+                existing.definition, name=f"{existing.definition.name} (copy)"
+            )
+            workflow = Workflow(user_id=command.user_id, definition=clone)
+            saved = await repo.save_workflow(workflow)
+            return DuplicateWorkflowResult(workflow=saved)
 
 
 # ---------------------------------------------------------------------------
@@ -177,11 +279,6 @@ class UpdateWorkflowUseCase:
                 command.workflow_id, user_id=command.user_id
             )
 
-            if existing.is_template:
-                raise TemplateReadOnlyError(
-                    f"Cannot modify template workflow '{existing.definition.name}'"
-                )
-
             validate_workflow_def(command.definition)
 
             # Bump version when task pipeline changes; preserve on name/description-only edits
@@ -205,14 +302,10 @@ class UpdateWorkflowUseCase:
                 )
                 await version_repo.create_version(snapshot)
 
-            updated = Workflow(
-                id=existing.id,
-                user_id=command.user_id,
+            updated = evolve(
+                existing,
                 definition=command.definition,
-                is_template=existing.is_template,
-                source_template=existing.source_template,
                 definition_version=new_version,
-                created_at=existing.created_at,
             )
             saved = await repo.save_workflow(updated)
             return UpdateWorkflowResult(workflow=saved)
@@ -241,15 +334,6 @@ class DeleteWorkflowUseCase:
     ) -> DeleteWorkflowResult:
         async with uow:
             repo = uow.get_workflow_repository()
-            existing = await repo.get_workflow_by_id(
-                command.workflow_id, user_id=command.user_id
-            )
-
-            if existing.is_template:
-                raise TemplateReadOnlyError(
-                    f"Cannot delete template workflow '{existing.definition.name}'"
-                )
-
             deleted = await repo.delete_workflow(
                 command.workflow_id, user_id=command.user_id
             )

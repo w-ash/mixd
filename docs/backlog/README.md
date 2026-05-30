@@ -1,7 +1,9 @@
 # Project Mixd — Planning
 
-**Current Version**: 0.7.8.19
-**Next**: v0.8.0 Workflow & sync scheduling
+**Current Version**: 0.7.8.20
+**Next**: v0.8.0 Run reliability & validation hardening (opens the v0.8.x scheduling cycle)
+
+**Recent refactor (code-complete 2026-05-30, review-hardened, pending ship)**: Workflow "kinds" consolidated — the read-only built-in **template** kind was eliminated in favor of a file-backed template **gallery** + clone-on-use, leaving a single editable `Workflow` entity (migration `023` drops `is_template`/`source_template`, the read-only guards, and shared `user_id IS NULL` rows). Clone-on-use mints a fresh unique slug, and Duplicate runs through a single-transaction `DuplicateWorkflowUseCase`. This delivered most of v0.8.5's template *plumbing* early; v0.8.5 now scopes down to curating the template content + import/export. _(Version segment to finalize at ship — likely a `0.7.8.N` revision bump.)_
 
 → [Completed milestones](completed/) | [Unscheduled ideas](unscheduled.md)
 
@@ -64,9 +66,16 @@ Each milestone delivers a **vertical slice** — backend API + frontend page tog
 | **v0.7.6** | Tag maintenance & single-playlist Spotify polish — tag mgmt page, force-refresh, route integration tests | 🚀 Shipped | [details](v0.7.6.md#v076-tag-maintenance--single-playlist-polish) |
 | **v0.7.7** | Operation Run Log — persisted import history + post-run toast | 🚀 Shipped | [details](v0.7.7.md#v077-operation-run-log) |
 | **v0.7.8** | Mobile responsiveness + visual regression baseline (Playwright `toHaveScreenshot`) | 🚀 Shipped | [details](v0.7.8.md#v078-mobile-responsiveness) |
-| **v0.8.0** | Workflow & sync scheduling | 🔜 Not Started | [details](v0.8.x.md#v080-workflow--sync-scheduling) |
-| **v0.8.1** | Editor polish, templates & playlist browse | 🔜 Not Started | [details](v0.8.x.md#v081-editor-polish-templates--playlist-browse) |
+| **v0.8.0** | Run reliability & validation hardening | 🔜 Not Started | [details](v0.8.x.md#v080-run-reliability--validation-hardening) |
+| **v0.8.1** | Workflow engine swap (Prefect → stdlib asyncio) | 🔜 Not Started | [details](v0.8.x.md#v081-workflow-engine-swap-prefect-to-stdlib-asyncio) |
+| **v0.8.2** | Workflow scheduling — engine & CLI | 🔜 Not Started | [details](v0.8.x.md#v082-workflow-scheduling---engine--cli) |
+| **v0.8.3** | Workflow scheduling — web UI & failure alerts | 🔜 Not Started | [details](v0.8.x.md#v083-workflow-scheduling---web-ui--failure-alerts) |
+| **v0.8.4** | Background sync scheduling | 🔜 Not Started | [details](v0.8.x.md#v084-background-sync-scheduling) |
+| **v0.8.5** | Workflow templates & import/export | 🔜 Not Started | [details](v0.8.x.md#v085-workflow-templates--importexport) |
+| **v0.8.6** | Editor polish — sub-flows & playlist browse | 🔜 Not Started | [details](v0.8.x.md#v086-editor-polish---sub-flows--playlist-browse) |
+| **v0.8.7** | TBD iteration (reserved) | 🔜 Not Started | [details](v0.8.x.md#v087-tbd-iteration) |
 | **v0.9.0** | Workflow assistant — right-panel chat ported from couplefins | 🔜 Not Started | [details](v0.9.x.md#v090-workflow-assistant-right-panel-chat) |
+| **v0.9.1** | MCP server — mixd as a tool surface (shared registry with v0.9.0 chat) | 🔜 Not Started | [details](v0.9.x.md#v091-mcp-server-mixd-as-a-tool-surface) |
 | **v0.10.0** | First-class artists | 🔜 Not Started | [details](v0.10.x.md#v0100-first-class-artists) |
 | **v0.10.1** | First-class albums | 🔜 Not Started | [details](v0.10.x.md#v0101-first-class-albums) |
 | **v0.10.2** | Physical media & Discogs | 🔜 Not Started | [details](v0.10.x.md#v0102-physical-media--discogs) |
@@ -100,7 +109,7 @@ See [docs/personas.md](../personas.md) for full persona definitions.
 | v0.7.x | Preferences + tags + playlist bootstrap | Replaces 4 Spotify playlists with hmm/nah/yah/star, bulk-imports hundreds of themed playlists as tags | Explores tag system, builds taxonomies, workflow nodes for preferences/tags | Likes/dislikes via simple toggle, quick filters for "what should I listen to?" |
 | v0.7.8 | Mobile responsiveness | Phone for status checks ("did the overnight sync work?"), laptop for deep curation and workflow editing | Self-host UX feels polished on any viewport; workflow editor stays desktop-only by design | Phone is the primary device — full feature parity except editor; bottom nav, sheet dialogs, no horizontal scroll |
 | v0.8.x | Scheduling + templates | Automates the weekly ritual | Templates as onboarding entry point | Scheduling means playlists stay fresh without effort |
-| v0.9.0 | LLM-assisted creation | Power use — complex intent in natural language | Interesting tech to explore | THE adoption enabler — changes who can use mixd |
+| v0.9.x | LLM-assisted creation + MCP surface | Power use — complex intent in natural language; agents can run scheduled maintenance | Interesting tech to explore; mixd plugs into existing local-LLM toolchains via MCP | THE adoption enabler — changes who can use mixd; indirect benefit when third-party agents grow workflows over mixd |
 | v0.10.x | Artists, albums, physical | Deeper library modeling, Discogs integration | Rich data model to explore | Browsing by artist/album is intuitive |
 | v1.0.x | Data quality + connectors + cross-user identity | Fixes mappings, finds gaps, adds Rekordbox; v1.0.3 makes shared playlists trustworthy | Apple Music broadens self-host appeal; v1.0.3's audit ledger is full data-sovereignty | More services = less lock-in; v1.0.3 makes friend-shared links resolve correctly without trust |
 | v1.1.x | Social layer | Share curated playlists, discover curators | Public API surface, federation potential | Shareable links, follows — the growth mechanism |

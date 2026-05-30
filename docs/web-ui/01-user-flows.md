@@ -761,39 +761,38 @@ With database-backed credential storage, Settings handles the Last.fm web auth f
 
 **Steps**:
 
-1. Workflow list page shows all defined workflows (user-created and templates).
-   - Each row: Name, Description (truncated), Task Count, Node Type badges (colored category dots), Last Run status badge, Last Run date, Track count output (if last run succeeded), Template badge, Actions
+1. Workflow list page shows the user's own workflows. Every row is user-owned and editable — there is no template/custom distinction in the list (templates live in a separate gallery, see step 5).
+   - Each row: Name, Description (truncated), Task Count, Node Type badges (colored category dots), Last Run status badge, Last Run date, Track count output (if last run succeeded), Actions
 
-2. **Template rows** are visually distinct:
-   - Template badge ("Template") shown next to name
-   - "Use Template" action clones the template into a new editable user workflow
-   - Templates cannot be edited or deleted directly
-
-3. **Status badges** (from last run, v0.4.1+):
+2. **Status badges** (from last run, v0.4.1+):
    - **Never Run** (grey)
    - **Running** (blue, animated pulse)
    - **Completed** (green) with "42 tracks" output count
    - **Failed** (red) with error preview tooltip
 
-4. **Action buttons** per row:
+3. **Action buttons** per row (identical for every workflow):
    - **Run** (v0.4.1+): Execute the workflow (with confirmation dialog)
    - **Inline Run status** (v0.4.2+): Per-row `[▶]` Run button. During execution: row shows "Running..." with spinner replacing Run button. On completion: last-run column live-updates via query invalidation. Only one workflow runs at a time — other Run buttons disabled while executing. Each row uses its own `useWorkflowExecution(workflowId)` hook instance.
    - **View**: Navigate to workflow detail
    - **Edit** (v0.4.3+): Open visual editor
-   - **Delete** (danger, with confirmation -- not available for templates)
-   - **Use Template** (templates only): Clone into new user workflow
+   - **Duplicate** (v0.8.x): Copy into a new `"… (copy)"` workflow, then open it in the editor
+   - **Delete** (danger, with confirmation)
 
-5. **Create Workflow** button in top-right.
+4. **New Workflow** button in top-right opens an empty editor.
+
+5. **From template** button (v0.8.x) opens the template gallery dialog: a list of built-in, file-backed pipelines. Selecting one instantiates a new editable user workflow server-side and opens it in the editor.
 
 **Backend calls**:
 | Action | Endpoint | Use Case | Status |
 |--------|----------|----------|--------|
-| Load list | `GET /workflows?include_templates=true` | `ListWorkflowsUseCase` | ✅ Implemented (v0.4.0) |
-| Clone template | `POST /workflows` (with template's definition) | `CreateWorkflowUseCase` | ✅ Implemented (v0.4.0) |
+| Load list | `GET /workflows` | `ListWorkflowsUseCase` | ✅ Implemented (v0.4.0) |
+| List templates | `GET /workflows/templates` | `list_workflow_defs()` | ✅ Implemented (v0.8.x) |
+| Use template | `POST /workflows/templates/{id}/use` | `InstantiateWorkflowUseCase` | ✅ Implemented (v0.8.x) |
+| Duplicate | `POST /workflows/{id}/duplicate` | `DuplicateWorkflowUseCase` | ✅ Implemented (v0.8.x) |
 
 **Edge cases**:
-- No workflows and no templates: "No workflows yet. Create your first workflow." [Create Workflow]
-- No user workflows but templates exist: Templates shown with prominent "Use Template" CTA.
+- No user workflows yet: "No workflows yet. … Start from a template or build one from scratch." [From template] [New Workflow]
+- No built-in templates available: gallery dialog shows an empty state.
 
 ---
 
@@ -868,7 +867,7 @@ With database-backed credential storage, Settings handles the Last.fm web auth f
 **Steps**:
 
 1. Workflow detail page shows a **run-first layout** (v0.4.2 restructure — full DAG moved to editor and run inspection):
-   - **Header**: Name, description, template badge (if template), created/modified dates, `[Edit]` button → `/workflows/:id/edit` (v0.4.3), `[▶ Run]` button
+   - **Header**: Name, description, created/modified dates, `[Duplicate]` button (v0.8.x), `[Edit]` button → `/workflows/:id/edit` (v0.4.3), `[▶ Run]` button
    - **Pipeline Strip** (v0.4.2, replaces full DAG as the default view on this page — all DAG components are preserved for `WorkflowRunDetail` and the v0.4.3 editor):
      - Compact horizontal visualization — category-colored dots with human-readable labels connected by arrows, left-to-right
      - Labels derived from task config (e.g., `source.playlist` → playlist name, `filter.by_metric` → metric + threshold)
@@ -904,8 +903,7 @@ With database-backed credential storage, Settings handles the Last.fm web auth f
      - ~~Color-coded bars matching node category colors~~
      - ~~Total duration annotation~~
 
-3. **Action buttons**: Run (v0.4.1), Edit (v0.4.3), Delete
-   - For templates: "Use Template" instead of Edit, no Delete
+3. **Action buttons**: Run (v0.4.1), Duplicate (v0.8.x), Edit (v0.4.3), Delete
 
 **Backend calls**:
 | Action | Endpoint | Use Case | Status |
@@ -920,7 +918,7 @@ With database-backed credential storage, Settings handles the Last.fm web auth f
 
 > **DAG reuse**: The editor canvas reuses the existing v0.4.0 React Flow infrastructure — same 7 custom node components, `BaseWorkflowNode`, ELKjs layout, and `WorkflowCanvas` — upgraded from read-only to interactive mode (drag, connect, delete, undo/redo). This is not a rebuild.
 
-**Trigger**: User clicks **Create Workflow**, **Edit** on an existing workflow, or **Use Template** on a template.
+**Trigger**: User clicks **New Workflow**, **Edit** on an existing workflow, or picks a template from the **From template** gallery (which instantiates the workflow server-side, then opens it here).
 
 **Steps**:
 

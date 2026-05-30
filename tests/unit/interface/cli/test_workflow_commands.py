@@ -20,23 +20,18 @@ _TEMPLATES = [
     make_workflow(
         id=1,
         definition=make_workflow_def(id="hidden_gems", name="Hidden Gems"),
-        is_template=True,
-        source_template="hidden_gems",
     ),
     make_workflow(
         id=2,
         definition=make_workflow_def(
             id="current_obsessions", name="Current Obsessions"
         ),
-        is_template=True,
-        source_template="current_obsessions",
     ),
 ]
 
 _CUSTOM = make_workflow(
     id=3,
     definition=make_workflow_def(id="my_mix", name="My Mix"),
-    is_template=False,
 )
 
 _MIXED = [*_TEMPLATES, _CUSTOM]
@@ -47,7 +42,7 @@ def _mock_list_result() -> ListWorkflowsResult:
 
 
 def _patch_db():
-    """Patch both ensure_cli_db_ready and execute_use_case for list operations."""
+    """Patch run_async for list operations."""
     return [
         patch(
             "src.interface.cli.workflow_commands.run_async",
@@ -69,7 +64,6 @@ class TestWorkflowList:
             # "Current Obsessions" may wrap across lines in the Rich table
             assert "Current" in result.output
             assert "Obsessions" in result.output
-            assert "template" in result.output
 
     def test_list_json_includes_db_id(self):
         with patch(
@@ -81,7 +75,6 @@ class TestWorkflowList:
             assert result.exit_code == 0
             assert '"id": 1' in result.output
             assert '"slug": "hidden_gems"' in result.output
-            assert '"is_template": true' in result.output
 
     def test_list_empty(self):
         with patch(
@@ -163,7 +156,7 @@ class TestWorkflowExport:
             assert result.exit_code == 1
             assert "mutually exclusive" in result.output
 
-    def test_export_all_writes_non_template_workflows(self, tmp_path):
+    def test_export_all_writes_every_workflow(self, tmp_path):
         with patch(
             "src.interface.cli.workflow_commands.run_async",
             side_effect=fake_run_async(_MIXED),
@@ -173,16 +166,16 @@ class TestWorkflowExport:
             )
 
             assert result.exit_code == 0
-            assert "Exported 1 workflow(s)" in result.output
+            assert "Exported 3 workflow(s)" in result.output
 
             exported = tmp_path / "my_mix.json"
             assert exported.exists()
             data = json.loads(exported.read_text())
             assert data["definition"]["name"] == "My Mix"
 
-            # Templates should NOT be exported
-            assert not (tmp_path / "hidden_gems.json").exists()
-            assert not (tmp_path / "current_obsessions.json").exists()
+            # Every workflow exports now — there is no template/custom split.
+            assert (tmp_path / "hidden_gems.json").exists()
+            assert (tmp_path / "current_obsessions.json").exists()
 
     def test_export_by_id(self, tmp_path):
         with patch(
@@ -223,17 +216,6 @@ class TestWorkflowExport:
 
             assert result.exit_code == 1
             assert "not found" in result.output
-
-    def test_export_all_only_templates_shows_message(self):
-        """When --all is used but only template workflows exist."""
-        with patch(
-            "src.interface.cli.workflow_commands.run_async",
-            side_effect=fake_run_async(_TEMPLATES),
-        ):
-            result = runner.invoke(app, ["workflow", "export", "--all"])
-
-            assert result.exit_code == 0
-            assert "No non-template workflows" in result.output
 
     def test_export_creates_output_dir(self, tmp_path):
         nested = tmp_path / "subdir" / "exports"

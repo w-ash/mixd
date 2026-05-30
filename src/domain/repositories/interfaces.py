@@ -1197,10 +1197,8 @@ class ServiceConnectorProvider(Protocol):
 class WorkflowRepositoryProtocol(Protocol):
     """Repository interface for workflow persistence operations."""
 
-    def list_workflows(
-        self, *, user_id: str, include_templates: bool = True
-    ) -> Awaitable[list[Workflow]]:
-        """List user's workflows + shared templates."""
+    def list_workflows(self, *, user_id: str) -> Awaitable[list[Workflow]]:
+        """List the user's own workflows."""
         ...
 
     def get_workflow_by_id(
@@ -1215,12 +1213,6 @@ class WorkflowRepositoryProtocol(Protocol):
 
     def delete_workflow(self, workflow_id: UUID, *, user_id: str) -> Awaitable[bool]:
         """Delete workflow by ID, verifying ownership. Returns True if deleted."""
-        ...
-
-    def get_workflow_by_source_template(
-        self, source_template: str
-    ) -> Awaitable[Workflow | None]:
-        """Find workflow by source template key. Returns None if not found."""
         ...
 
 

@@ -46,7 +46,6 @@ Exception-to-HTTP mapping is handled by `src/interface/api/middleware.py`:
 | Exception | HTTP Status | Error Code | Notes |
 |-----------|-------------|------------|-------|
 | `NotFoundError` | `404` | `NOT_FOUND` | Domain exception from `src/domain/exceptions.py` |
-| `TemplateReadOnlyError` | `403` | `FORBIDDEN` | Cannot edit/delete template workflows (v0.4.0) |
 | `ValueError` | `400` | `VALIDATION_ERROR` | Input validation failures |
 | `RequestValidationError` | `422` | (FastAPI default) | Pydantic schema violations (automatic) |
 | `WorkflowAlreadyRunningError` | `409` | `CONFLICT` | Workflow is already executing (v0.4.1) |
@@ -453,12 +452,12 @@ Defined in `src/interface/api/schemas/playlists.py`.
 
 ```
 GET    /workflows
-       ?include_templates=true&limit=&offset=
+       ?limit=&offset=
        -> { data: WorkflowSummary[], total, limit, offset }
 ```
 - **Use case**: `ListWorkflowsUseCase`
 - **Status**: ✅ Implemented (v0.4.0)
-- **Notes**: `include_templates` defaults to `true`. Templates have `is_template: true` and cannot be edited/deleted.
+- **Notes**: Returns the caller's own workflows only. Every row is user-owned and editable — built-in templates are a separate file-backed gallery (see below), not rows in this list.
 
 ```
 POST   /workflows
@@ -483,7 +482,7 @@ PATCH  /workflows/{id}
 ```
 - **Use case**: `UpdateWorkflowUseCase`
 - **Status**: ✅ Implemented (v0.4.0)
-- **Notes**: Templates (`is_template=true`) return `403 Forbidden`. Validates definition if provided.
+- **Notes**: Validates definition if provided.
 
 ```
 DELETE /workflows/{id}
@@ -491,7 +490,34 @@ DELETE /workflows/{id}
 ```
 - **Use case**: `DeleteWorkflowUseCase`
 - **Status**: ✅ Implemented (v0.4.0)
-- **Notes**: Templates return `403 Forbidden`.
+
+### Template gallery & cloning (v0.8.x)
+
+Built-in templates are a file-backed gallery (`definitions/*.json`), not persisted `workflows` rows. Using one *instantiates* a fresh, fully-editable user-owned workflow with a newly-minted slug.
+
+```
+GET    /workflows/templates
+       -> WorkflowTemplate[]   # { id, name, description, task_count, node_types }
+```
+- **Use case**: `list_workflow_defs()` (file loader, not a persisted query)
+- **Status**: ✅ Implemented (v0.8.x)
+- **Notes**: Public, unauthenticated — the gallery is static app-bundled content.
+
+```
+POST   /workflows/templates/{template_id}/use
+       -> WorkflowDetail (201)
+```
+- **Use case**: `InstantiateWorkflowUseCase`
+- **Status**: ✅ Implemented (v0.8.x)
+- **Notes**: Clones the template definition into a new editable workflow owned by the caller. `404` if `template_id` is unknown.
+
+```
+POST   /workflows/{id}/duplicate
+       -> WorkflowDetail (201)
+```
+- **Use case**: `DuplicateWorkflowUseCase`
+- **Status**: ✅ Implemented (v0.8.x)
+- **Notes**: Copies an existing workflow into an independent `"… (copy)"`. Each clone gets a fresh unique `definition.id` slug, so duplicates never collide on the slug the CLI/seeder key on.
 
 ```
 POST   /workflows/validate
@@ -638,8 +664,6 @@ data: {
   "id": 1,
   "name": "Current Obsessions",
   "description": "Heavy rotation tracks from the last 30 days",
-  "is_template": false,
-  "source_template": "current_obsessions",
   "definition_version": 3,
   "task_count": 6,
   "node_types": ["source", "enricher", "filter", "sorter", "selector", "destination"],

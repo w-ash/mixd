@@ -15,7 +15,6 @@ from src.domain.exceptions import (
     ConfirmationRequiredError,
     NotFoundError,
     OptimisticLockError,
-    TemplateReadOnlyError,
 )
 
 logger = get_logger(__name__)
@@ -50,20 +49,6 @@ def register_exception_handlers(app: FastAPI) -> None:
                         "entity_id": str(exc.entity_id),
                         "expected_version": exc.expected_version,
                     },
-                }
-            },
-        )
-
-    @app.exception_handler(TemplateReadOnlyError)
-    async def template_readonly_handler(  # pyright: ignore[reportUnusedFunction]
-        _request: Request, exc: TemplateReadOnlyError
-    ) -> JSONResponse:
-        return JSONResponse(
-            status_code=403,
-            content={
-                "error": {
-                    "code": "TEMPLATE_READONLY",
-                    "message": str(exc),
                 }
             },
         )

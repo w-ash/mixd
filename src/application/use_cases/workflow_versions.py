@@ -6,7 +6,7 @@ automatically by ``UpdateWorkflowUseCase`` — see ``workflow_crud.py``.
 
 from uuid import UUID
 
-from attrs import define
+from attrs import define, evolve
 
 from src.domain.entities.workflow import Workflow, WorkflowVersion
 from src.domain.repositories.interfaces import UnitOfWorkProtocol
@@ -132,14 +132,10 @@ class RevertWorkflowVersionUseCase:
 
             # Update workflow with the reverted definition
             new_version = existing.definition_version + 1
-            reverted = Workflow(
-                id=existing.id,
-                user_id=command.user_id,
+            reverted = evolve(
+                existing,
                 definition=target_version.definition,
-                is_template=existing.is_template,
-                source_template=existing.source_template,
                 definition_version=new_version,
-                created_at=existing.created_at,
             )
             saved = await wf_repo.save_workflow(reverted)
 

@@ -2,9 +2,24 @@ import { HttpResponse, http } from "msw";
 import { describe, expect, it } from "vitest";
 
 import { server } from "#/test/setup";
-import { renderWithProviders, screen, waitFor } from "#/test/test-utils";
+import {
+  renderWithProviders,
+  screen,
+  userEvent,
+  waitFor,
+} from "#/test/test-utils";
 
 import { Workflows } from "./Workflows";
+
+const WF_A = "11111111-1111-1111-1111-111111111111";
+const WF_B = "22222222-2222-2222-2222-222222222222";
+
+function listResponse(data: unknown[]) {
+  return HttpResponse.json(
+    { data, total: data.length, limit: 50, offset: 0 },
+    { status: 200 },
+  );
+}
 
 describe("Workflows", () => {
   it("renders loading skeleton initially", () => {
@@ -16,52 +31,40 @@ describe("Workflows", () => {
 
   it("renders workflow table when API returns data", async () => {
     server.use(
-      http.get("*/api/v1/workflows", () => {
-        return HttpResponse.json(
+      http.get("*/api/v1/workflows", () =>
+        listResponse([
           {
-            data: [
-              {
-                id: 1,
-                name: "Current Obsessions",
-                description: "Tracks with 8+ plays in last 30 days",
-                is_template: true,
-                source_template: "current_obsessions",
-                definition_version: 3,
-                task_count: 4,
-                node_types: [
-                  "source.liked_tracks",
-                  "filter.play_count",
-                  "sorter.play_count",
-                  "destination.playlist",
-                ],
-                updated_at: "2026-02-15T12:00:00Z",
-                last_run: {
-                  id: 1,
-                  status: "completed",
-                  definition_version: 3,
-                  completed_at: "2026-02-15T11:00:00Z",
-                  output_track_count: 20,
-                },
-              },
-              {
-                id: 2,
-                name: "My Custom Flow",
-                description: null,
-                is_template: false,
-                source_template: null,
-                definition_version: 1,
-                task_count: 2,
-                node_types: ["source.liked_tracks", "destination.playlist"],
-                updated_at: "2026-03-01T08:30:00Z",
-              },
+            id: WF_A,
+            name: "Current Obsessions",
+            description: "Tracks with 8+ plays in last 30 days",
+            definition_version: 3,
+            task_count: 4,
+            node_types: [
+              "source.liked_tracks",
+              "filter.play_count",
+              "sorter.play_count",
+              "destination.playlist",
             ],
-            total: 2,
-            limit: 50,
-            offset: 0,
+            updated_at: "2026-02-15T12:00:00Z",
+            last_run: {
+              id: 1,
+              status: "completed",
+              definition_version: 3,
+              completed_at: "2026-02-15T11:00:00Z",
+              output_track_count: 20,
+            },
           },
-          { status: 200 },
-        );
-      }),
+          {
+            id: WF_B,
+            name: "My Custom Flow",
+            description: null,
+            definition_version: 1,
+            task_count: 2,
+            node_types: ["source.liked_tracks", "destination.playlist"],
+            updated_at: "2026-03-01T08:30:00Z",
+          },
+        ]),
+      ),
     );
 
     renderWithProviders(<Workflows />);
@@ -75,38 +78,56 @@ describe("Workflows", () => {
     expect(screen.getAllByText("My Custom Flow").length).toBeGreaterThan(0);
     expect(screen.getByText("4")).toBeInTheDocument();
     expect(screen.getByText("2")).toBeInTheDocument();
-    expect(screen.getAllByText("Template").length).toBeGreaterThan(0);
+  });
+
+  it("shows no Template badge — templates live in the gallery, not the list", async () => {
+    server.use(
+      http.get("*/api/v1/workflows", () =>
+        listResponse([
+          {
+            id: WF_A,
+            name: "Current Obsessions",
+            description: null,
+            definition_version: 1,
+            task_count: 3,
+            node_types: ["source.liked_tracks"],
+            updated_at: "2026-02-15T12:00:00Z",
+          },
+        ]),
+      ),
+    );
+
+    renderWithProviders(<Workflows />);
+
+    await waitFor(() => {
+      expect(screen.getAllByText("Current Obsessions").length).toBeGreaterThan(
+        0,
+      );
+    });
+
+    expect(screen.queryByText("Template")).not.toBeInTheDocument();
   });
 
   it("shows last run status in the table", async () => {
     server.use(
-      http.get("*/api/v1/workflows", () => {
-        return HttpResponse.json(
+      http.get("*/api/v1/workflows", () =>
+        listResponse([
           {
-            data: [
-              {
-                id: 1,
-                name: "Current Obsessions",
-                description: null,
-                is_template: false,
-                definition_version: 1,
-                task_count: 3,
-                node_types: ["source"],
-                updated_at: "2026-02-15T12:00:00Z",
-                last_run: {
-                  id: 5,
-                  status: "completed",
-                  definition_version: 1,
-                },
-              },
-            ],
-            total: 1,
-            limit: 50,
-            offset: 0,
+            id: WF_A,
+            name: "Current Obsessions",
+            description: null,
+            definition_version: 1,
+            task_count: 3,
+            node_types: ["source"],
+            updated_at: "2026-02-15T12:00:00Z",
+            last_run: {
+              id: 5,
+              status: "completed",
+              definition_version: 1,
+            },
           },
-          { status: 200 },
-        );
-      }),
+        ]),
+      ),
     );
 
     renderWithProviders(<Workflows />);
@@ -116,28 +137,74 @@ describe("Workflows", () => {
     });
   });
 
-  it("renders per-row run buttons", async () => {
+  it("renders per-row run, edit, and duplicate actions on every row", async () => {
     server.use(
-      http.get("*/api/v1/workflows", () => {
+      http.get("*/api/v1/workflows", () =>
+        listResponse([
+          {
+            id: WF_A,
+            name: "Flow A",
+            description: null,
+            definition_version: 1,
+            task_count: 2,
+            node_types: ["source"],
+            updated_at: "2026-02-15T12:00:00Z",
+          },
+        ]),
+      ),
+    );
+
+    renderWithProviders(<Workflows />);
+
+    await waitFor(() => {
+      expect(screen.getAllByText("Flow A").length).toBeGreaterThan(0);
+    });
+
+    expect(screen.getAllByTitle("Run workflow").length).toBeGreaterThan(0);
+    expect(screen.getAllByTitle("Edit workflow").length).toBeGreaterThan(0);
+    expect(screen.getAllByTitle("Duplicate workflow").length).toBeGreaterThan(
+      0,
+    );
+  });
+
+  it("duplicates a workflow when its row Duplicate action is clicked", async () => {
+    const user = userEvent.setup();
+    let duplicatedId: string | null = null;
+
+    server.use(
+      http.get("*/api/v1/workflows", () =>
+        listResponse([
+          {
+            id: WF_A,
+            name: "Flow A",
+            description: null,
+            definition_version: 1,
+            task_count: 2,
+            node_types: ["source"],
+            updated_at: "2026-02-15T12:00:00Z",
+          },
+        ]),
+      ),
+      http.post("*/api/v1/workflows/:id/duplicate", ({ params }) => {
+        duplicatedId = params.id as string;
         return HttpResponse.json(
           {
-            data: [
-              {
-                id: 1,
-                name: "Flow A",
-                description: null,
-                is_template: false,
-                definition_version: 1,
-                task_count: 2,
-                node_types: ["source"],
-                updated_at: "2026-02-15T12:00:00Z",
-              },
-            ],
-            total: 1,
-            limit: 50,
-            offset: 0,
+            id: WF_B,
+            name: "Flow A (copy)",
+            description: null,
+            definition_version: 1,
+            task_count: 2,
+            node_types: ["source"],
+            updated_at: "2026-03-01T08:30:00Z",
+            definition: {
+              id: WF_B,
+              name: "Flow A (copy)",
+              description: "",
+              version: "1.0",
+              tasks: [],
+            },
           },
-          { status: 200 },
+          { status: 201 },
         );
       }),
     );
@@ -148,18 +215,15 @@ describe("Workflows", () => {
       expect(screen.getAllByText("Flow A").length).toBeGreaterThan(0);
     });
 
-    expect(screen.getAllByTitle("Run workflow").length).toBeGreaterThan(0);
+    await user.click(screen.getAllByTitle("Duplicate workflow")[0]);
+
+    await waitFor(() => {
+      expect(duplicatedId).toBe(WF_A);
+    });
   });
 
   it("renders empty state when API returns no workflows", async () => {
-    server.use(
-      http.get("*/api/v1/workflows", () => {
-        return HttpResponse.json(
-          { data: [], total: 0, limit: 50, offset: 0 },
-          { status: 200 },
-        );
-      }),
-    );
+    server.use(http.get("*/api/v1/workflows", () => listResponse([])));
 
     renderWithProviders(<Workflows />);
 
@@ -170,12 +234,12 @@ describe("Workflows", () => {
 
   it("renders error state when API fails", async () => {
     server.use(
-      http.get("*/api/v1/workflows", () => {
-        return HttpResponse.json(
+      http.get("*/api/v1/workflows", () =>
+        HttpResponse.json(
           { error: { code: "INTERNAL_ERROR", message: "Server error" } },
           { status: 500 },
-        );
-      }),
+        ),
+      ),
     );
 
     renderWithProviders(<Workflows />);

@@ -1,7 +1,10 @@
-import { HelpCircle, Lock, Pencil, Play } from "lucide-react";
-import { Link, useParams } from "react-router";
+import { useQueryClient } from "@tanstack/react-query";
+import { Copy, HelpCircle, Pencil, Play } from "lucide-react";
+import { Link, useNavigate, useParams } from "react-router";
 import type { WorkflowRunSummarySchema } from "#/api/generated/model";
 import {
+  getListWorkflowsApiV1WorkflowsGetQueryKey,
+  useDuplicateWorkflowApiV1WorkflowsWorkflowIdDuplicatePost,
   useGetWorkflowApiV1WorkflowsWorkflowIdGet,
   useListWorkflowRunsApiV1WorkflowsWorkflowIdRunsGet,
 } from "#/api/generated/workflows/workflows";
@@ -15,7 +18,6 @@ import { ResponsiveTable } from "#/components/shared/ResponsiveTable";
 import { RunStatusBadge } from "#/components/shared/RunStatusBadge";
 import { SectionHeader } from "#/components/shared/SectionHeader";
 import { SSELivenessPill } from "#/components/shared/SSELivenessPill";
-import { Badge } from "#/components/ui/badge";
 import { Button } from "#/components/ui/button";
 import { Skeleton } from "#/components/ui/skeleton";
 import {
@@ -28,6 +30,7 @@ import {
 } from "#/components/ui/table";
 import { useWorkflowExecution } from "#/hooks/useWorkflowExecution";
 import { formatDate, formatDuration } from "#/lib/format";
+import { toasts } from "#/lib/toasts";
 import { cn } from "#/lib/utils";
 
 function DetailSkeleton() {
@@ -139,11 +142,28 @@ function RunHistoryTable({
 export function WorkflowDetail() {
   const { id } = useParams<{ id: string }>();
   const workflowId = id ?? "";
+  const navigate = useNavigate();
+  const queryClient = useQueryClient();
 
   const { data, isLoading, isError } =
     useGetWorkflowApiV1WorkflowsWorkflowIdGet(workflowId, {
       query: { staleTime: STALE.SLOW },
     });
+
+  const duplicate = useDuplicateWorkflowApiV1WorkflowsWorkflowIdDuplicatePost({
+    mutation: {
+      onSuccess: (res) => {
+        if (res.status === 201) {
+          queryClient.invalidateQueries({
+            queryKey: getListWorkflowsApiV1WorkflowsGetQueryKey(),
+          });
+          toasts.success("Workflow duplicated");
+          navigate(`/workflows/${res.data.id}/edit`);
+        }
+      },
+      meta: { errorLabel: "Failed to duplicate workflow" },
+    },
+  });
 
   const { data: runsData } = useListWorkflowRunsApiV1WorkflowsWorkflowIdRunsGet(
     workflowId,
@@ -186,20 +206,22 @@ export function WorkflowDetail() {
         description={workflow.description ?? undefined}
         action={
           <div className="flex items-center gap-2">
-            {workflow.is_template && (
-              <Badge variant="outline" className="gap-1">
-                <Lock className="size-3" aria-hidden="true" />
-                Template
-              </Badge>
-            )}
-            {!workflow.is_template && (
-              <Button variant="outline" size="sm" asChild className="gap-1.5">
-                <Link to={`/workflows/${workflowId}/edit`}>
-                  <Pencil className="size-3.5" />
-                  Edit
-                </Link>
-              </Button>
-            )}
+            <Button
+              variant="outline"
+              size="sm"
+              className="gap-1.5"
+              disabled={duplicate.isPending}
+              onClick={() => duplicate.mutate({ workflowId })}
+            >
+              <Copy className="size-3.5" />
+              Duplicate
+            </Button>
+            <Button variant="outline" size="sm" asChild className="gap-1.5">
+              <Link to={`/workflows/${workflowId}/edit`}>
+                <Pencil className="size-3.5" />
+                Edit
+              </Link>
+            </Button>
             <Button
               size="sm"
               disabled={isExecuting}

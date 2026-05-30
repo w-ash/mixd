@@ -4,7 +4,7 @@ from datetime import UTC, datetime
 from uuid import UUID
 
 import attrs
-from sqlalchemy import delete, or_, select
+from sqlalchemy import delete, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.config import get_logger
@@ -29,29 +29,20 @@ class WorkflowRepository(BaseRepository[DBWorkflow, Workflow]):
         )
 
     @db_operation("list_workflows")
-    async def list_workflows(
-        self, *, user_id: str, include_templates: bool = True
-    ) -> list[Workflow]:
-        """List user's workflows + shared templates (user_id IS NULL).
-
-        Args:
-            user_id: Owner's user ID for scoping.
-            include_templates: Whether to include template workflows.
-        """
+    async def list_workflows(self, *, user_id: str) -> list[Workflow]:
+        """List the user's own workflows, most-recently-updated first."""
         stmt = (
             select(DBWorkflow)
-            .where(or_(DBWorkflow.user_id == user_id, DBWorkflow.user_id.is_(None)))
+            .where(DBWorkflow.user_id == user_id)
             .order_by(DBWorkflow.updated_at.desc())
         )
-        if not include_templates:
-            stmt = stmt.where(DBWorkflow.is_template == False)  # noqa: E712
         result = await self.session.execute(stmt)
         db_models = list(result.scalars().all())
         return await self.mapper.map_collection(db_models)
 
     @db_operation("get_workflow_by_id")
     async def get_workflow_by_id(self, workflow_id: UUID, *, user_id: str) -> Workflow:
-        """Get workflow by ID. Shared templates (user_id IS NULL) accessible to all.
+        """Get a workflow by ID, scoped to its owner.
 
         Args:
             workflow_id: Internal workflow ID.
@@ -60,9 +51,7 @@ class WorkflowRepository(BaseRepository[DBWorkflow, Workflow]):
         Raises:
             NotFoundError: If workflow not found or belongs to another user.
         """
-        stmt = self.select_by_id(workflow_id).where(
-            or_(DBWorkflow.user_id == user_id, DBWorkflow.user_id.is_(None))
-        )
+        stmt = self.select_by_id(workflow_id).where(DBWorkflow.user_id == user_id)
         db_model = await self.execute_select_one(stmt)
         if not db_model:
             raise NotFoundError(f"Workflow with ID {workflow_id} not found")
@@ -88,8 +77,6 @@ class WorkflowRepository(BaseRepository[DBWorkflow, Workflow]):
         db_model.description = workflow.definition.description or None
         db_model.definition = definition_dict
         db_model.definition_version = workflow.definition_version
-        db_model.is_template = workflow.is_template
-        db_model.source_template = workflow.source_template
         db_model.updated_at = datetime.now(UTC)
         await self.session.flush()
         return await self.mapper.to_domain(db_model)
@@ -113,15 +100,3 @@ class WorkflowRepository(BaseRepository[DBWorkflow, Workflow]):
         )
         deleted_ids = result.scalars().all()
         return bool(deleted_ids)
-
-    @db_operation("get_workflow_by_source_template")
-    async def get_workflow_by_source_template(
-        self, source_template: str
-    ) -> Workflow | None:
-        """Find workflow by source template key."""
-        stmt = select(DBWorkflow).where(DBWorkflow.source_template == source_template)
-        result = await self.session.execute(stmt)
-        db_model = result.scalar_one_or_none()
-        if db_model is None:
-            return None
-        return await self.mapper.to_domain(db_model)

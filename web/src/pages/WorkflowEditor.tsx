@@ -1,7 +1,7 @@
 import { ReactFlowProvider } from "@xyflow/react";
 import { LayoutPanelLeft, Monitor } from "lucide-react";
 import { useEffect } from "react";
-import { Link, useParams, useSearchParams } from "react-router";
+import { Link, useParams } from "react-router";
 
 import { useGetWorkflowApiV1WorkflowsWorkflowIdGet } from "#/api/generated/workflows/workflows";
 import { PageHeader } from "#/components/layout/PageHeader";
@@ -16,19 +16,17 @@ import { useEditorStore } from "#/stores/editor-store";
 
 export default function WorkflowEditor() {
   const { id } = useParams<{ id: string }>();
-  const [searchParams] = useSearchParams();
   const workflowId = id ?? null;
-  const templateSourceId = searchParams.get("from");
   const isMobile = useIsMobile();
   const loadWorkflow = useEditorStore((s) => s.loadWorkflow);
-  const setName = useEditorStore((s) => s.setName);
   const isDirty = useEditorStore((s) => s.isDirty);
 
-  // Fetch workflow for edit mode OR template source for cloning
-  const fetchId = workflowId ?? templateSourceId;
+  // Fetch the workflow when editing an existing one; `/workflows/new` starts
+  // empty. Templates are instantiated server-side via the gallery before the
+  // editor opens, so there is no clone-on-load path here.
   const { data: workflowData } = useGetWorkflowApiV1WorkflowsWorkflowIdGet(
-    fetchId ?? "",
-    { query: { enabled: fetchId !== null } },
+    workflowId ?? "",
+    { query: { enabled: workflowId !== null } },
   );
 
   // Load workflow into editor store
@@ -36,15 +34,9 @@ export default function WorkflowEditor() {
 
   useEffect(() => {
     if (workflow) {
-      if (templateSourceId) {
-        // Clone template: load definition without workflow ID (creates new on save)
-        loadWorkflow(workflow.definition);
-        setName(`${workflow.name} (copy)`);
-      } else {
-        loadWorkflow(workflow.definition, workflow.id);
-      }
+      loadWorkflow(workflow.definition, workflow.id);
     }
-  }, [workflow, loadWorkflow, setName, templateSourceId]);
+  }, [workflow, loadWorkflow]);
 
   // Unsaved changes guard
   useEffect(() => {

@@ -244,7 +244,7 @@ class TestWorkflowIsolation:
             )
         )
 
-        result = await repo.list_workflows(user_id=USER_B, include_templates=False)
+        result = await repo.list_workflows(user_id=USER_B)
         assert result == []
 
     async def test_get_workflow_by_id_404(self, db_session):
@@ -269,23 +269,20 @@ class TestWorkflowIsolation:
         result = await repo.delete_workflow(wf.id, user_id=USER_B)
         assert result is False
 
-    async def test_template_not_visible_across_users(self, db_session):
-        """Templates currently use user_id='default' (NOT NULL), so they are
-        scoped like any other workflow. Making templates truly shared (via
-        nullable user_id) is a v0.7+ concern."""
+    async def test_workflow_not_visible_across_users(self, db_session):
+        """A workflow owned by USER_A is never returned in USER_B's list."""
         uow = get_unit_of_work(db_session)
         repo = uow.get_workflow_repository()
 
         await repo.save_workflow(
             Workflow(
                 id=uuid7(),
-                definition=make_workflow_def(id="tmpl-a", name="Template A"),
-                is_template=True,
+                definition=make_workflow_def(id="wf-a2", name="Workflow A2"),
                 user_id=USER_A,
             )
         )
 
-        result = await repo.list_workflows(user_id=USER_B, include_templates=True)
+        result = await repo.list_workflows(user_id=USER_B)
         assert result == []
 
 

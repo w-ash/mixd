@@ -3,7 +3,7 @@
  * Do not edit manually.
  * Mixd
  * Personal music metadata hub
- * OpenAPI spec version: 0.7.8.19
+ * OpenAPI spec version: 0.7.8.20
  */
 import {
   useMutation,
@@ -37,6 +37,7 @@ import type {
   WorkflowDetailSchema,
   WorkflowRunDetailSchema,
   WorkflowRunStartedResponse,
+  WorkflowTemplateSchema,
   WorkflowValidationRequest,
   WorkflowValidationResponse,
   WorkflowVersionSchema
@@ -265,6 +266,297 @@ export const useCreateWorkflowApiV1WorkflowsPost = <TError = HTTPValidationError
         TContext
       > => {
       return useMutation(getCreateWorkflowApiV1WorkflowsPostMutationOptions(options), queryClient);
+    }
+    export type listWorkflowTemplatesApiV1WorkflowsTemplatesGetResponse200 = {
+  data: WorkflowTemplateSchema[]
+  status: 200
+}
+
+export type listWorkflowTemplatesApiV1WorkflowsTemplatesGetResponseSuccess = (listWorkflowTemplatesApiV1WorkflowsTemplatesGetResponse200) & {
+  headers: Headers;
+};
+;
+
+export type listWorkflowTemplatesApiV1WorkflowsTemplatesGetResponse = (listWorkflowTemplatesApiV1WorkflowsTemplatesGetResponseSuccess)
+
+export const getListWorkflowTemplatesApiV1WorkflowsTemplatesGetUrl = () => {
+
+
+
+
+  return `/api/v1/workflows/templates`
+}
+
+/**
+ * List the built-in workflow templates (file-backed gallery).
+ * @summary List Workflow Templates
+ */
+export const listWorkflowTemplatesApiV1WorkflowsTemplatesGet = async ( options?: RequestInit): Promise<listWorkflowTemplatesApiV1WorkflowsTemplatesGetResponse> => {
+
+  return customFetch<listWorkflowTemplatesApiV1WorkflowsTemplatesGetResponse>(getListWorkflowTemplatesApiV1WorkflowsTemplatesGetUrl(),
+  {
+    ...options,
+    method: 'GET'
+
+
+  }
+);}
+
+
+
+
+
+export const getListWorkflowTemplatesApiV1WorkflowsTemplatesGetQueryKey = () => {
+    return [
+    `/api/v1/workflows/templates`
+    ] as const;
+    }
+
+
+export const getListWorkflowTemplatesApiV1WorkflowsTemplatesGetQueryOptions = <TData = Awaited<ReturnType<typeof listWorkflowTemplatesApiV1WorkflowsTemplatesGet>>, TError = unknown>( options?: { query?:Partial<UseQueryOptions<Awaited<ReturnType<typeof listWorkflowTemplatesApiV1WorkflowsTemplatesGet>>, TError, TData>>, request?: SecondParameter<typeof customFetch>}
+) => {
+
+const {query: queryOptions, request: requestOptions} = options ?? {};
+
+  const queryKey =  queryOptions?.queryKey ?? getListWorkflowTemplatesApiV1WorkflowsTemplatesGetQueryKey();
+
+
+
+    const queryFn: QueryFunction<Awaited<ReturnType<typeof listWorkflowTemplatesApiV1WorkflowsTemplatesGet>>> = ({ signal }) => listWorkflowTemplatesApiV1WorkflowsTemplatesGet({ signal, ...requestOptions });
+
+
+
+
+
+   return  { queryKey, queryFn, ...queryOptions} as UseQueryOptions<Awaited<ReturnType<typeof listWorkflowTemplatesApiV1WorkflowsTemplatesGet>>, TError, TData> & { queryKey: DataTag<QueryKey, TData, TError> }
+}
+
+export type ListWorkflowTemplatesApiV1WorkflowsTemplatesGetQueryResult = NonNullable<Awaited<ReturnType<typeof listWorkflowTemplatesApiV1WorkflowsTemplatesGet>>>
+export type ListWorkflowTemplatesApiV1WorkflowsTemplatesGetQueryError = unknown
+
+
+export function useListWorkflowTemplatesApiV1WorkflowsTemplatesGet<TData = Awaited<ReturnType<typeof listWorkflowTemplatesApiV1WorkflowsTemplatesGet>>, TError = unknown>(
+  options: { query:Partial<UseQueryOptions<Awaited<ReturnType<typeof listWorkflowTemplatesApiV1WorkflowsTemplatesGet>>, TError, TData>> & Pick<
+        DefinedInitialDataOptions<
+          Awaited<ReturnType<typeof listWorkflowTemplatesApiV1WorkflowsTemplatesGet>>,
+          TError,
+          Awaited<ReturnType<typeof listWorkflowTemplatesApiV1WorkflowsTemplatesGet>>
+        > , 'initialData'
+      >, request?: SecondParameter<typeof customFetch>}
+ , queryClient?: QueryClient
+  ):  DefinedUseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> }
+export function useListWorkflowTemplatesApiV1WorkflowsTemplatesGet<TData = Awaited<ReturnType<typeof listWorkflowTemplatesApiV1WorkflowsTemplatesGet>>, TError = unknown>(
+  options?: { query?:Partial<UseQueryOptions<Awaited<ReturnType<typeof listWorkflowTemplatesApiV1WorkflowsTemplatesGet>>, TError, TData>> & Pick<
+        UndefinedInitialDataOptions<
+          Awaited<ReturnType<typeof listWorkflowTemplatesApiV1WorkflowsTemplatesGet>>,
+          TError,
+          Awaited<ReturnType<typeof listWorkflowTemplatesApiV1WorkflowsTemplatesGet>>
+        > , 'initialData'
+      >, request?: SecondParameter<typeof customFetch>}
+ , queryClient?: QueryClient
+  ):  UseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> }
+export function useListWorkflowTemplatesApiV1WorkflowsTemplatesGet<TData = Awaited<ReturnType<typeof listWorkflowTemplatesApiV1WorkflowsTemplatesGet>>, TError = unknown>(
+  options?: { query?:Partial<UseQueryOptions<Awaited<ReturnType<typeof listWorkflowTemplatesApiV1WorkflowsTemplatesGet>>, TError, TData>>, request?: SecondParameter<typeof customFetch>}
+ , queryClient?: QueryClient
+  ):  UseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> }
+/**
+ * @summary List Workflow Templates
+ */
+
+export function useListWorkflowTemplatesApiV1WorkflowsTemplatesGet<TData = Awaited<ReturnType<typeof listWorkflowTemplatesApiV1WorkflowsTemplatesGet>>, TError = unknown>(
+  options?: { query?:Partial<UseQueryOptions<Awaited<ReturnType<typeof listWorkflowTemplatesApiV1WorkflowsTemplatesGet>>, TError, TData>>, request?: SecondParameter<typeof customFetch>}
+ , queryClient?: QueryClient
+ ):  UseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> } {
+
+  const queryOptions = getListWorkflowTemplatesApiV1WorkflowsTemplatesGetQueryOptions(options)
+
+  const query = useQuery(queryOptions, queryClient) as  UseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> };
+
+  return { ...query, queryKey: queryOptions.queryKey };
+}
+
+
+
+
+
+
+export type useWorkflowTemplateApiV1WorkflowsTemplatesTemplateIdUsePostResponse201 = {
+  data: WorkflowDetailSchema
+  status: 201
+}
+
+export type useWorkflowTemplateApiV1WorkflowsTemplatesTemplateIdUsePostResponse422 = {
+  data: HTTPValidationError
+  status: 422
+}
+
+export type useWorkflowTemplateApiV1WorkflowsTemplatesTemplateIdUsePostResponseSuccess = (useWorkflowTemplateApiV1WorkflowsTemplatesTemplateIdUsePostResponse201) & {
+  headers: Headers;
+};
+export type useWorkflowTemplateApiV1WorkflowsTemplatesTemplateIdUsePostResponseError = (useWorkflowTemplateApiV1WorkflowsTemplatesTemplateIdUsePostResponse422) & {
+  headers: Headers;
+};
+
+export type useWorkflowTemplateApiV1WorkflowsTemplatesTemplateIdUsePostResponse = (useWorkflowTemplateApiV1WorkflowsTemplatesTemplateIdUsePostResponseSuccess | useWorkflowTemplateApiV1WorkflowsTemplatesTemplateIdUsePostResponseError)
+
+export const getUseWorkflowTemplateApiV1WorkflowsTemplatesTemplateIdUsePostUrl = (templateId: string,) => {
+
+
+
+
+  return `/api/v1/workflows/templates/${templateId}/use`
+}
+
+/**
+ * Instantiate a built-in template as a new user-owned, editable workflow.
+ * @summary Use Workflow Template
+ */
+export const useWorkflowTemplateApiV1WorkflowsTemplatesTemplateIdUsePost = async (templateId: string, options?: RequestInit): Promise<useWorkflowTemplateApiV1WorkflowsTemplatesTemplateIdUsePostResponse> => {
+
+  return customFetch<useWorkflowTemplateApiV1WorkflowsTemplatesTemplateIdUsePostResponse>(getUseWorkflowTemplateApiV1WorkflowsTemplatesTemplateIdUsePostUrl(templateId),
+  {
+    ...options,
+    method: 'POST'
+
+
+  }
+);}
+
+
+
+
+export const getUseWorkflowTemplateApiV1WorkflowsTemplatesTemplateIdUsePostMutationOptions = <TError = HTTPValidationError,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof useWorkflowTemplateApiV1WorkflowsTemplatesTemplateIdUsePost>>, TError,{templateId: string}, TContext>, request?: SecondParameter<typeof customFetch>}
+): UseMutationOptions<Awaited<ReturnType<typeof useWorkflowTemplateApiV1WorkflowsTemplatesTemplateIdUsePost>>, TError,{templateId: string}, TContext> => {
+
+const mutationKey = ['useWorkflowTemplateApiV1WorkflowsTemplatesTemplateIdUsePost'];
+const {mutation: mutationOptions, request: requestOptions} = options ?
+      options.mutation && 'mutationKey' in options.mutation && options.mutation.mutationKey ?
+      options
+      : {...options, mutation: {...options.mutation, mutationKey}}
+      : {mutation: { mutationKey, }, request: undefined};
+
+
+
+
+      const mutationFn: MutationFunction<Awaited<ReturnType<typeof useWorkflowTemplateApiV1WorkflowsTemplatesTemplateIdUsePost>>, {templateId: string}> = (props) => {
+          const {templateId} = props ?? {};
+
+          return  useWorkflowTemplateApiV1WorkflowsTemplatesTemplateIdUsePost(templateId,requestOptions)
+        }
+
+
+
+
+
+
+  return  { mutationFn, ...mutationOptions }}
+
+    export type UseWorkflowTemplateApiV1WorkflowsTemplatesTemplateIdUsePostMutationResult = NonNullable<Awaited<ReturnType<typeof useWorkflowTemplateApiV1WorkflowsTemplatesTemplateIdUsePost>>>
+
+    export type UseWorkflowTemplateApiV1WorkflowsTemplatesTemplateIdUsePostMutationError = HTTPValidationError
+
+    /**
+ * @summary Use Workflow Template
+ */
+export const useUseWorkflowTemplateApiV1WorkflowsTemplatesTemplateIdUsePost = <TError = HTTPValidationError,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof useWorkflowTemplateApiV1WorkflowsTemplatesTemplateIdUsePost>>, TError,{templateId: string}, TContext>, request?: SecondParameter<typeof customFetch>}
+ , queryClient?: QueryClient): UseMutationResult<
+        Awaited<ReturnType<typeof useWorkflowTemplateApiV1WorkflowsTemplatesTemplateIdUsePost>>,
+        TError,
+        {templateId: string},
+        TContext
+      > => {
+      return useMutation(getUseWorkflowTemplateApiV1WorkflowsTemplatesTemplateIdUsePostMutationOptions(options), queryClient);
+    }
+    export type duplicateWorkflowApiV1WorkflowsWorkflowIdDuplicatePostResponse201 = {
+  data: WorkflowDetailSchema
+  status: 201
+}
+
+export type duplicateWorkflowApiV1WorkflowsWorkflowIdDuplicatePostResponse422 = {
+  data: HTTPValidationError
+  status: 422
+}
+
+export type duplicateWorkflowApiV1WorkflowsWorkflowIdDuplicatePostResponseSuccess = (duplicateWorkflowApiV1WorkflowsWorkflowIdDuplicatePostResponse201) & {
+  headers: Headers;
+};
+export type duplicateWorkflowApiV1WorkflowsWorkflowIdDuplicatePostResponseError = (duplicateWorkflowApiV1WorkflowsWorkflowIdDuplicatePostResponse422) & {
+  headers: Headers;
+};
+
+export type duplicateWorkflowApiV1WorkflowsWorkflowIdDuplicatePostResponse = (duplicateWorkflowApiV1WorkflowsWorkflowIdDuplicatePostResponseSuccess | duplicateWorkflowApiV1WorkflowsWorkflowIdDuplicatePostResponseError)
+
+export const getDuplicateWorkflowApiV1WorkflowsWorkflowIdDuplicatePostUrl = (workflowId: string,) => {
+
+
+
+
+  return `/api/v1/workflows/${workflowId}/duplicate`
+}
+
+/**
+ * Duplicate any workflow into a new user-owned, editable copy.
+ * @summary Duplicate Workflow
+ */
+export const duplicateWorkflowApiV1WorkflowsWorkflowIdDuplicatePost = async (workflowId: string, options?: RequestInit): Promise<duplicateWorkflowApiV1WorkflowsWorkflowIdDuplicatePostResponse> => {
+
+  return customFetch<duplicateWorkflowApiV1WorkflowsWorkflowIdDuplicatePostResponse>(getDuplicateWorkflowApiV1WorkflowsWorkflowIdDuplicatePostUrl(workflowId),
+  {
+    ...options,
+    method: 'POST'
+
+
+  }
+);}
+
+
+
+
+export const getDuplicateWorkflowApiV1WorkflowsWorkflowIdDuplicatePostMutationOptions = <TError = HTTPValidationError,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof duplicateWorkflowApiV1WorkflowsWorkflowIdDuplicatePost>>, TError,{workflowId: string}, TContext>, request?: SecondParameter<typeof customFetch>}
+): UseMutationOptions<Awaited<ReturnType<typeof duplicateWorkflowApiV1WorkflowsWorkflowIdDuplicatePost>>, TError,{workflowId: string}, TContext> => {
+
+const mutationKey = ['duplicateWorkflowApiV1WorkflowsWorkflowIdDuplicatePost'];
+const {mutation: mutationOptions, request: requestOptions} = options ?
+      options.mutation && 'mutationKey' in options.mutation && options.mutation.mutationKey ?
+      options
+      : {...options, mutation: {...options.mutation, mutationKey}}
+      : {mutation: { mutationKey, }, request: undefined};
+
+
+
+
+      const mutationFn: MutationFunction<Awaited<ReturnType<typeof duplicateWorkflowApiV1WorkflowsWorkflowIdDuplicatePost>>, {workflowId: string}> = (props) => {
+          const {workflowId} = props ?? {};
+
+          return  duplicateWorkflowApiV1WorkflowsWorkflowIdDuplicatePost(workflowId,requestOptions)
+        }
+
+
+
+
+
+
+  return  { mutationFn, ...mutationOptions }}
+
+    export type DuplicateWorkflowApiV1WorkflowsWorkflowIdDuplicatePostMutationResult = NonNullable<Awaited<ReturnType<typeof duplicateWorkflowApiV1WorkflowsWorkflowIdDuplicatePost>>>
+
+    export type DuplicateWorkflowApiV1WorkflowsWorkflowIdDuplicatePostMutationError = HTTPValidationError
+
+    /**
+ * @summary Duplicate Workflow
+ */
+export const useDuplicateWorkflowApiV1WorkflowsWorkflowIdDuplicatePost = <TError = HTTPValidationError,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof duplicateWorkflowApiV1WorkflowsWorkflowIdDuplicatePost>>, TError,{workflowId: string}, TContext>, request?: SecondParameter<typeof customFetch>}
+ , queryClient?: QueryClient): UseMutationResult<
+        Awaited<ReturnType<typeof duplicateWorkflowApiV1WorkflowsWorkflowIdDuplicatePost>>,
+        TError,
+        {workflowId: string},
+        TContext
+      > => {
+      return useMutation(getDuplicateWorkflowApiV1WorkflowsWorkflowIdDuplicatePostMutationOptions(options), queryClient);
     }
     export type listNodeTypesApiV1WorkflowsNodesGetResponse200 = {
   data: NodeTypeInfoSchema[]

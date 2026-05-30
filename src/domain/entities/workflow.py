@@ -164,16 +164,17 @@ class WorkflowVersion:
 class Workflow:
     """Persisted workflow wrapping a WorkflowDef with database identity.
 
-    Separates persistence concerns (id, timestamps, template metadata) from
-    the workflow definition itself. The definition JSON column maps directly
-    to ``WorkflowDef`` via ``attrs.asdict()`` / reconstruction.
+    Separates persistence concerns (id, timestamps) from the workflow
+    definition itself. The definition JSON column maps directly to
+    ``WorkflowDef`` via ``attrs.asdict()`` / reconstruction.
+
+    Every persisted workflow is user-owned and editable — built-in templates
+    are a file-backed gallery (``list_workflow_defs``), not rows in this table.
     """
 
     id: UUID = field(factory=uuid7)
     user_id: str | None = None
     definition: WorkflowDef = field(factory=lambda: WorkflowDef(id="", name=""))
-    is_template: bool = False
-    source_template: str | None = None
     definition_version: int = 1
     created_at: datetime | None = None
     updated_at: datetime | None = None

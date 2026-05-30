@@ -20,8 +20,12 @@ from src.application.use_cases.workflow_crud import (
     CreateWorkflowUseCase,
     DeleteWorkflowCommand,
     DeleteWorkflowUseCase,
+    DuplicateWorkflowCommand,
+    DuplicateWorkflowUseCase,
     GetWorkflowCommand,
     GetWorkflowUseCase,
+    InstantiateWorkflowCommand,
+    InstantiateWorkflowUseCase,
     ListWorkflowsCommand,
     ListWorkflowsUseCase,
     UpdateWorkflowCommand,
@@ -53,9 +57,11 @@ from src.application.workflows.validation import (
     is_validation_error,
     validate_workflow_def_detailed,
 )
+from src.application.workflows.workflow_loader import list_workflow_defs
 from src.config import get_logger
 from src.config.constants import WorkflowConstants, truncate_error_message
 from src.domain.entities.workflow import RunStatus, WorkflowDef, WorkflowRun
+from src.domain.exceptions import NotFoundError
 from src.domain.repositories import UnitOfWorkProtocol
 from src.interface.api.deps import get_current_user_id
 from src.interface.api.schemas.common import PaginatedResponse
@@ -69,6 +75,7 @@ from src.interface.api.schemas.workflows import (
     WorkflowRunStartedResponse,
     WorkflowRunSummarySchema,
     WorkflowSummarySchema,
+    WorkflowTemplateSchema,
     WorkflowValidationErrorSchema,
     WorkflowValidationRequest,
     WorkflowValidationResponse,
@@ -77,6 +84,7 @@ from src.interface.api.schemas.workflows import (
     schema_to_workflow_def,
     to_run_detail,
     to_run_summary,
+    to_template_schema,
     to_version_schema,
     to_workflow_detail,
     to_workflow_summary,
@@ -105,7 +113,6 @@ async def list_workflows(
     user_id: str = Depends(get_current_user_id),
     limit: int = Query(default=50, ge=1, le=200),
     offset: int = Query(default=0, ge=0),
-    include_templates: bool = Query(default=True),
 ) -> PaginatedResponse[WorkflowSummarySchema]:
     """List all workflows with pagination and last-run status."""
 
@@ -113,7 +120,7 @@ async def list_workflows(
         uow: UnitOfWorkProtocol,
     ) -> PaginatedResponse[WorkflowSummarySchema]:
         result = await ListWorkflowsUseCase().execute(
-            ListWorkflowsCommand(user_id=user_id, include_templates=include_templates),
+            ListWorkflowsCommand(user_id=user_id),
             uow,
         )
         workflows = result.workflows[offset : offset + limit]
@@ -153,6 +160,50 @@ async def create_workflow(
     command = CreateWorkflowCommand(user_id=user_id, definition=definition)
     result = await execute_use_case(
         lambda uow: CreateWorkflowUseCase().execute(command, uow),
+        user_id=user_id,
+    )
+    return to_workflow_detail(result.workflow)
+
+
+# ---------------------------------------------------------------------------
+# Template gallery + instantiation (built-in defs, not persisted rows)
+# ---------------------------------------------------------------------------
+
+
+@router.get("/templates")
+async def list_workflow_templates() -> list[WorkflowTemplateSchema]:
+    """List the built-in workflow templates (file-backed gallery)."""
+    return [to_template_schema(d) for d in list_workflow_defs()]
+
+
+@router.post("/templates/{template_id}/use", status_code=201)
+async def use_workflow_template(
+    template_id: str,
+    user_id: str = Depends(get_current_user_id),
+) -> WorkflowDetailSchema:
+    """Instantiate a built-in template as a new user-owned, editable workflow."""
+    wf_def = next((d for d in list_workflow_defs() if d.id == template_id), None)
+    if wf_def is None:
+        raise NotFoundError(f"Template '{template_id}' not found")
+    result = await execute_use_case(
+        lambda uow: InstantiateWorkflowUseCase().execute(
+            InstantiateWorkflowCommand(user_id=user_id, definition=wf_def), uow
+        ),
+        user_id=user_id,
+    )
+    return to_workflow_detail(result.workflow)
+
+
+@router.post("/{workflow_id}/duplicate", status_code=201)
+async def duplicate_workflow(
+    workflow_id: UUID,
+    user_id: str = Depends(get_current_user_id),
+) -> WorkflowDetailSchema:
+    """Duplicate any workflow into a new user-owned, editable copy."""
+    result = await execute_use_case(
+        lambda uow: DuplicateWorkflowUseCase().execute(
+            DuplicateWorkflowCommand(user_id=user_id, workflow_id=workflow_id), uow
+        ),
         user_id=user_id,
     )
     return to_workflow_detail(result.workflow)

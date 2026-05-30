@@ -158,9 +158,6 @@ def make_mock_workflow_repo(**overrides) -> AsyncMock:
     repo.get_workflow_by_id.return_value = overrides.pop("get_workflow_by_id", None)
     repo.save_workflow.side_effect = overrides.pop("save_workflow", lambda w: w)
     repo.delete_workflow.return_value = overrides.pop("delete_workflow", True)
-    repo.get_workflow_by_source_template.return_value = overrides.pop(
-        "get_workflow_by_source_template", None
-    )
     for k, v in overrides.items():
         setattr(repo, k, v)
     return repo

@@ -737,11 +737,11 @@ class DBPlaylistTrack(BaseEntity):
 
 
 class DBWorkflow(BaseEntity):
-    """Persisted workflow definition with template metadata.
+    """Persisted, user-owned workflow definition.
 
-    Stores the complete WorkflowDef as a JSON column alongside identity
-    and template tracking fields. source_template enables upsert-by-key
-    during template seeding (NULLs don't conflict in unique constraints).
+    Stores the complete WorkflowDef as a JSON column alongside identity.
+    Every row is a user-owned, editable workflow; built-in templates are a
+    file-backed gallery (``list_workflow_defs``), not rows in this table.
     """
 
     __tablename__: str = "workflows"
@@ -750,15 +750,9 @@ class DBWorkflow(BaseEntity):
     name: Mapped[str] = mapped_column(String(), nullable=False)
     description: Mapped[str | None] = mapped_column(String(1000))
     definition: Mapped[JsonDict] = mapped_column(PgJsonb, nullable=False)
-    is_template: Mapped[bool] = mapped_column(Boolean, default=False)
-    source_template: Mapped[str | None] = mapped_column(String(100))
     definition_version: Mapped[int] = mapped_column(default=1)
 
-    __table_args__: tuple[SchemaItem, ...] = (
-        UniqueConstraint("source_template", name="uq_workflows_source_template"),
-        Index("ix_workflows_is_template", "is_template"),
-        Index("ix_workflows_user_id", "user_id"),
-    )
+    __table_args__: tuple[SchemaItem, ...] = (Index("ix_workflows_user_id", "user_id"),)
 
 
 class DBWorkflowVersion(DatabaseModel, TimestampMixin):

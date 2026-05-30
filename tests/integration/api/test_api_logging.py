@@ -25,10 +25,6 @@ class TestAPILifespanLogging:
             patch(
                 "src.infrastructure.persistence.repositories.factories.get_unit_of_work",
             ),
-            patch(
-                "src.application.services.workflow_template_seeder.seed_workflow_templates",
-                new_callable=AsyncMock,
-            ),
         ):
             mock_manager = AsyncMock()
             mock_manager.subscribe = AsyncMock(return_value="sub-id")

@@ -63,8 +63,6 @@ class WorkflowSummarySchema(BaseModel):
     id: UUID
     name: str
     description: str | None = None
-    is_template: bool
-    source_template: str | None = None
     definition_version: int = 1
     task_count: int
     node_types: list[str]
@@ -75,6 +73,16 @@ class WorkflowSummarySchema(BaseModel):
 
 class WorkflowDetailSchema(WorkflowSummarySchema):
     definition: WorkflowDefSchema
+
+
+class WorkflowTemplateSchema(BaseModel):
+    """A built-in template in the gallery — a file-backed definition, not a persisted workflow row."""
+
+    id: str
+    name: str
+    description: str = ""
+    task_count: int
+    node_types: list[str]
 
 
 # --- Request schemas ---
@@ -279,8 +287,6 @@ def to_workflow_summary(
         id=workflow.id,
         name=workflow.definition.name,
         description=workflow.definition.description or None,
-        is_template=workflow.is_template,
-        source_template=workflow.source_template,
         definition_version=workflow.definition_version,
         task_count=len(workflow.definition.tasks),
         node_types=_extract_node_types(workflow.definition),
@@ -298,8 +304,6 @@ def to_workflow_detail(
         id=summary.id,
         name=summary.name,
         description=summary.description,
-        is_template=summary.is_template,
-        source_template=summary.source_template,
         definition_version=summary.definition_version,
         task_count=summary.task_count,
         node_types=summary.node_types,
@@ -307,6 +311,17 @@ def to_workflow_detail(
         updated_at=summary.updated_at,
         last_run=summary.last_run,
         definition=_def_to_schema(workflow.definition),
+    )
+
+
+def to_template_schema(wf_def: WorkflowDef) -> WorkflowTemplateSchema:
+    """Convert a built-in WorkflowDef into a lightweight gallery item."""
+    return WorkflowTemplateSchema(
+        id=wf_def.id,
+        name=wf_def.name,
+        description=wf_def.description,
+        task_count=len(wf_def.tasks),
+        node_types=_extract_node_types(wf_def),
     )
 
 

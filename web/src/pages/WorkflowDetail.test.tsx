@@ -2,7 +2,12 @@ import { HttpResponse, http } from "msw";
 import { describe, expect, it, vi } from "vitest";
 
 import { server } from "#/test/setup";
-import { renderWithProviders, screen, waitFor } from "#/test/test-utils";
+import {
+  renderWithProviders,
+  screen,
+  userEvent,
+  waitFor,
+} from "#/test/test-utils";
 
 import { WorkflowDetail } from "./WorkflowDetail";
 
@@ -19,8 +24,6 @@ const mockWorkflow = {
   id: 1,
   name: "Current Obsessions",
   description: "Tracks with 8+ plays in last 30 days",
-  is_template: true,
-  source_template: "current_obsessions",
   definition_version: 3,
   task_count: 3,
   node_types: [
@@ -109,7 +112,7 @@ describe("WorkflowDetail", () => {
     expect(screen.getByText("Destination")).toBeInTheDocument();
   });
 
-  it("shows template badge for template workflows", async () => {
+  it("never shows a Template badge and always offers Edit (no template fork)", async () => {
     server.use(
       http.get("*/api/v1/workflows/:id", () =>
         HttpResponse.json(mockWorkflow, { status: 200 }),
@@ -122,7 +125,44 @@ describe("WorkflowDetail", () => {
     renderWithProviders(<WorkflowDetail />);
 
     await waitFor(() => {
-      expect(screen.getByText("Template")).toBeInTheDocument();
+      expect(screen.getByText("Current Obsessions")).toBeInTheDocument();
+    });
+
+    expect(screen.queryByText("Template")).not.toBeInTheDocument();
+    const editLink = screen.getByRole("link", { name: /Edit/ });
+    expect(editLink).toHaveAttribute("href", "/workflows/1/edit");
+  });
+
+  it("duplicates the workflow when Duplicate is clicked", async () => {
+    const user = userEvent.setup();
+    let duplicatedId: string | null = null;
+
+    server.use(
+      http.get("*/api/v1/workflows/:id", () =>
+        HttpResponse.json(mockWorkflow, { status: 200 }),
+      ),
+      http.get("*/api/v1/workflows/:id/runs", () =>
+        HttpResponse.json(emptyRuns, { status: 200 }),
+      ),
+      http.post("*/api/v1/workflows/:id/duplicate", ({ params }) => {
+        duplicatedId = params.id as string;
+        return HttpResponse.json(
+          { ...mockWorkflow, id: 2, name: "Current Obsessions (copy)" },
+          { status: 201 },
+        );
+      }),
+    );
+
+    renderWithProviders(<WorkflowDetail />);
+
+    await waitFor(() => {
+      expect(screen.getByText("Current Obsessions")).toBeInTheDocument();
+    });
+
+    await user.click(screen.getByRole("button", { name: /Duplicate/ }));
+
+    await waitFor(() => {
+      expect(duplicatedId).toBe("1");
     });
   });
 

@@ -1,6 +1,6 @@
 """Integration tests for WorkflowRepository with real database operations.
 
-Tests CRUD, template filtering, and source_template upsert behavior.
+Tests CRUD and user-scoping behavior.
 """
 
 from uuid import uuid7
@@ -65,77 +65,25 @@ class TestWorkflowRepositoryCRUD:
             await repo.get_workflow_by_id(uuid7(), user_id="default")
 
 
-class TestWorkflowRepositoryTemplates:
-    async def test_list_includes_shared_templates(self, db_session) -> None:
-        repo = WorkflowRepository(db_session)
-        # Template: user_id=None (shared with all users)
-        await repo.save_workflow(
-            Workflow(definition=make_workflow_def("wf1"), is_template=True)
-        )
-        # Personal workflow: user_id="user-a"
-        await repo.save_workflow(
-            Workflow(
-                user_id="user-a", definition=make_workflow_def("wf2"), is_template=False
-            )
-        )
-
-        all_workflows = await repo.list_workflows(user_id="user-a")
-        assert len(all_workflows) == 2
-
-    async def test_list_excludes_templates(self, db_session) -> None:
+class TestWorkflowRepositoryScoping:
+    async def test_list_is_user_scoped(self, db_session) -> None:
         repo = WorkflowRepository(db_session)
         await repo.save_workflow(
-            Workflow(definition=make_workflow_def("wf1"), is_template=True)
+            Workflow(user_id="user-a", definition=make_workflow_def("wf1"))
         )
         await repo.save_workflow(
-            Workflow(
-                user_id="user-a", definition=make_workflow_def("wf2"), is_template=False
-            )
+            Workflow(user_id="user-b", definition=make_workflow_def("wf2"))
         )
 
-        user_workflows = await repo.list_workflows(
-            include_templates=False, user_id="user-a"
-        )
-        assert len(user_workflows) == 1
-        assert user_workflows[0].is_template is False
+        a_workflows = await repo.list_workflows(user_id="user-a")
+        assert len(a_workflows) == 1
+        assert a_workflows[0].definition.id == "wf1"
 
-    async def test_source_template_lookup(self, db_session) -> None:
+    async def test_get_other_users_workflow_raises(self, db_session) -> None:
         repo = WorkflowRepository(db_session)
-        await repo.save_workflow(
-            Workflow(
-                definition=make_workflow_def("builtin"),
-                is_template=True,
-                source_template="builtin",
-            )
+        saved = await repo.save_workflow(
+            Workflow(user_id="user-a", definition=make_workflow_def("wf1"))
         )
 
-        found = await repo.get_workflow_by_source_template("builtin")
-        assert found is not None
-        assert found.source_template == "builtin"
-
-    async def test_source_template_not_found(self, db_session) -> None:
-        repo = WorkflowRepository(db_session)
-
-        found = await repo.get_workflow_by_source_template("nonexistent")
-        assert found is None
-
-    async def test_source_template_unique_constraint(self, db_session) -> None:
-        repo = WorkflowRepository(db_session)
-        await repo.save_workflow(
-            Workflow(
-                definition=make_workflow_def("a"),
-                is_template=True,
-                source_template="key1",
-            )
-        )
-        # Flushing a duplicate source_template should raise
-        from sqlalchemy.exc import IntegrityError
-
-        with pytest.raises(IntegrityError):
-            await repo.save_workflow(
-                Workflow(
-                    definition=make_workflow_def("b"),
-                    is_template=True,
-                    source_template="key1",
-                )
-            )
+        with pytest.raises(NotFoundError):
+            await repo.get_workflow_by_id(saved.id, user_id="user-b")

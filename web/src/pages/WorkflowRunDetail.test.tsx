@@ -31,7 +31,6 @@ const mockWorkflow = {
   id: 1,
   name: "Hidden Gems",
   description: "Tracks unplayed for 6 months",
-  is_template: false,
   definition_version: 3,
   task_count: 2,
   node_types: ["source", "filter"],

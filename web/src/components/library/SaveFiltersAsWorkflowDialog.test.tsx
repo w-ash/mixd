@@ -58,7 +58,6 @@ describe("SaveFiltersAsWorkflowDialog", () => {
           {
             id: "wf_new_123",
             name: "My Mix",
-            is_template: false,
             definition: { id: "my_mix", name: "My Mix", tasks: [] },
           },
           { status: 201 },

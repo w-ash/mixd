@@ -3,7 +3,7 @@
  * Do not edit manually.
  * Mixd
  * Personal music metadata hub
- * OpenAPI spec version: 0.7.8.19
+ * OpenAPI spec version: 0.7.8.20
  */
 
 export type ConnectorCategory = typeof ConnectorCategory[keyof typeof ConnectorCategory];

@@ -3,7 +3,7 @@
   "info": {
     "title": "Mixd",
     "description": "Personal music metadata hub",
-    "version": "0.7.8.19"
+    "version": "0.7.8.20"
   },
   "paths": {
     "/api/v1/connectors/{service}/auth-url": {
@@ -2093,16 +2093,6 @@
               "default": 0,
               "title": "Offset"
             }
-          },
-          {
-            "name": "include_templates",
-            "in": "query",
-            "required": false,
-            "schema": {
-              "type": "boolean",
-              "default": true,
-              "title": "Include Templates"
-            }
           }
         ],
         "responses": {
@@ -2145,6 +2135,119 @@
             }
           }
         },
+        "responses": {
+          "201": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WorkflowDetailSchema"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/workflows/templates": {
+      "get": {
+        "tags": [
+          "workflows"
+        ],
+        "summary": "List Workflow Templates",
+        "description": "List the built-in workflow templates (file-backed gallery).",
+        "operationId": "list_workflow_templates_api_v1_workflows_templates_get",
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "items": {
+                    "$ref": "#/components/schemas/WorkflowTemplateSchema"
+                  },
+                  "type": "array",
+                  "title": "Response List Workflow Templates Api V1 Workflows Templates Get"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/workflows/templates/{template_id}/use": {
+      "post": {
+        "tags": [
+          "workflows"
+        ],
+        "summary": "Use Workflow Template",
+        "description": "Instantiate a built-in template as a new user-owned, editable workflow.",
+        "operationId": "use_workflow_template_api_v1_workflows_templates__template_id__use_post",
+        "parameters": [
+          {
+            "name": "template_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Template Id"
+            }
+          }
+        ],
+        "responses": {
+          "201": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WorkflowDetailSchema"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/workflows/{workflow_id}/duplicate": {
+      "post": {
+        "tags": [
+          "workflows"
+        ],
+        "summary": "Duplicate Workflow",
+        "description": "Duplicate any workflow into a new user-owned, editable copy.",
+        "operationId": "duplicate_workflow_api_v1_workflows__workflow_id__duplicate_post",
+        "parameters": [
+          {
+            "name": "workflow_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid",
+              "title": "Workflow Id"
+            }
+          }
+        ],
         "responses": {
           "201": {
             "description": "Successful Response",
@@ -6846,21 +6949,6 @@
             ],
             "title": "Description"
           },
-          "is_template": {
-            "type": "boolean",
-            "title": "Is Template"
-          },
-          "source_template": {
-            "anyOf": [
-              {
-                "type": "string"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Source Template"
-          },
           "definition_version": {
             "type": "integer",
             "title": "Definition Version",
@@ -6919,7 +7007,6 @@
         "required": [
           "id",
           "name",
-          "is_template",
           "task_count",
           "node_types",
           "definition"
@@ -7371,21 +7458,6 @@
             ],
             "title": "Description"
           },
-          "is_template": {
-            "type": "boolean",
-            "title": "Is Template"
-          },
-          "source_template": {
-            "anyOf": [
-              {
-                "type": "string"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Source Template"
-          },
           "definition_version": {
             "type": "integer",
             "title": "Definition Version",
@@ -7441,7 +7513,6 @@
         "required": [
           "id",
           "name",
-          "is_template",
           "task_count",
           "node_types"
         ],
@@ -7536,6 +7607,43 @@
           "type"
         ],
         "title": "WorkflowTaskDefSchema"
+      },
+      "WorkflowTemplateSchema": {
+        "properties": {
+          "id": {
+            "type": "string",
+            "title": "Id"
+          },
+          "name": {
+            "type": "string",
+            "title": "Name"
+          },
+          "description": {
+            "type": "string",
+            "title": "Description",
+            "default": ""
+          },
+          "task_count": {
+            "type": "integer",
+            "title": "Task Count"
+          },
+          "node_types": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "title": "Node Types"
+          }
+        },
+        "type": "object",
+        "required": [
+          "id",
+          "name",
+          "task_count",
+          "node_types"
+        ],
+        "title": "WorkflowTemplateSchema",
+        "description": "A built-in template in the gallery \u2014 a file-backed definition, not a persisted workflow row."
       },
       "WorkflowValidationErrorSchema": {
         "properties": {

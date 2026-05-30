@@ -30,38 +30,6 @@ logger = get_logger(__name__)
 _WEB_DIST = Path(__file__).resolve().parents[3] / "web" / "dist"
 
 
-async def _seed_templates() -> None:
-    """Seed built-in workflow templates in the background (idempotent)."""
-    try:
-        from src.application.services.workflow_template_seeder import (
-            seed_workflow_templates,
-        )
-        from src.infrastructure.persistence.database.db_connection import get_session
-        from src.infrastructure.persistence.repositories.factories import (
-            get_unit_of_work,
-        )
-
-        async with get_session() as session:
-            uow = get_unit_of_work(session)
-            await seed_workflow_templates(uow)
-    except Exception as e:
-        from sqlalchemy.exc import DatabaseError
-
-        if isinstance(e, DatabaseError):
-            from src.infrastructure.persistence.database.error_classification import (
-                classify_database_error,
-            )
-
-            info = classify_database_error(e)
-            logger.warning(
-                "Failed to seed workflow templates",
-                reason=info.user_message,
-                category=info.category,
-            )
-        else:
-            logger.warning("Failed to seed workflow templates", error=str(e))
-
-
 async def _prune_expired_oauth_states() -> None:
     """Delete expired OAuth CSRF state rows that weren't consumed within their TTL."""
     try:
@@ -103,7 +71,6 @@ async def lifespan(_app: FastAPI) -> AsyncGenerator[None]:
     # On cold starts (Fly machine + Neon DB waking together), blocking here
     # caused the server to miss Fly.io's health check grace period.
     startup_tasks = [
-        asyncio.create_task(_seed_templates()),
         asyncio.create_task(_prune_expired_oauth_states()),
     ]
 

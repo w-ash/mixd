@@ -226,8 +226,6 @@ def make_workflow_def(
 def make_workflow(
     id: UUID | None = None,
     definition: WorkflowDef | None = None,
-    is_template: bool = False,
-    source_template: str | None = None,
     user_id: str = "default",
     **kwargs,
 ) -> Workflow:
@@ -237,8 +235,6 @@ def make_workflow(
     return Workflow(
         id=id,
         definition=definition or make_workflow_def(),
-        is_template=is_template,
-        source_template=source_template,
         user_id=user_id,
         **kwargs,
     )

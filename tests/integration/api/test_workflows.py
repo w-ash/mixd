@@ -19,7 +19,7 @@ class TestListWorkflows:
 
         assert response.status_code == 200
         body = response.json()
-        # Templates may be seeded by lifespan, so just verify structure
+        # A fresh user starts with no workflows; just verify the envelope shape.
         assert "data" in body
         assert "total" in body
         assert isinstance(body["data"], list)
@@ -59,6 +59,90 @@ class TestCreateWorkflow:
         response = await client.post("/api/v1/workflows", json={})
 
         assert response.status_code == 422
+
+
+class TestWorkflowTemplates:
+    async def test_list_templates(self, client: httpx.AsyncClient) -> None:
+        response = await client.get("/api/v1/workflows/templates")
+
+        assert response.status_code == 200
+        body = response.json()
+        assert isinstance(body, list)
+        assert len(body) >= 1  # built-in definitions are bundled with the app
+        first = body[0]
+        assert {"id", "name", "task_count", "node_types"} <= set(first)
+
+    async def test_use_template_creates_editable_user_workflow(
+        self, client: httpx.AsyncClient
+    ) -> None:
+        templates = (await client.get("/api/v1/workflows/templates")).json()
+        template_id = templates[0]["id"]
+
+        response = await client.post(f"/api/v1/workflows/templates/{template_id}/use")
+
+        assert response.status_code == 201
+        body = response.json()
+        assert body["task_count"] >= 1
+        wf_id = body["id"]
+
+        # The instantiated workflow is a real, editable user workflow (not read-only).
+        update = await client.patch(
+            f"/api/v1/workflows/{wf_id}", json={"definition": body["definition"]}
+        )
+        assert update.status_code == 200
+
+    async def test_use_unknown_template_404(self, client: httpx.AsyncClient) -> None:
+        response = await client.post("/api/v1/workflows/templates/does-not-exist/use")
+
+        assert response.status_code == 404
+        assert response.json()["error"]["code"] == "NOT_FOUND"
+
+
+class TestDuplicateWorkflow:
+    async def test_duplicate_creates_independent_copy(
+        self, client: httpx.AsyncClient
+    ) -> None:
+        create = await client.post(
+            "/api/v1/workflows", json={"definition": _valid_definition()}
+        )
+        original = create.json()
+
+        response = await client.post(f"/api/v1/workflows/{original['id']}/duplicate")
+
+        assert response.status_code == 201
+        copy = response.json()
+        assert copy["id"] != original["id"]
+        assert copy["name"].endswith("(copy)")
+        assert copy["task_count"] == original["task_count"]
+
+    async def test_duplicates_get_distinct_slugs(
+        self, client: httpx.AsyncClient
+    ) -> None:
+        """Each duplicate mints a fresh definition slug (no CLI/seeder collisions)."""
+        original = (
+            await client.post(
+                "/api/v1/workflows", json={"definition": _valid_definition()}
+            )
+        ).json()
+
+        first = (
+            await client.post(f"/api/v1/workflows/{original['id']}/duplicate")
+        ).json()
+        second = (
+            await client.post(f"/api/v1/workflows/{original['id']}/duplicate")
+        ).json()
+
+        slugs = {
+            original["definition"]["id"],
+            first["definition"]["id"],
+            second["definition"]["id"],
+        }
+        assert len(slugs) == 3  # source + both copies are all distinct
+
+    async def test_duplicate_nonexistent_404(self, client: httpx.AsyncClient) -> None:
+        response = await client.post(f"/api/v1/workflows/{nonexistent_id()}/duplicate")
+
+        assert response.status_code == 404
 
 
 class TestGetWorkflow:

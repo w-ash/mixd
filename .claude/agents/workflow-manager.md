@@ -17,7 +17,7 @@ All commands support `--format json` for machine-readable output. Default is Ric
 ```bash
 mixd workflow list --format json
 ```
-Returns: `[{"id": 1, "slug": "current_obsessions", "name": "...", "task_count": 6, "is_template": true}, ...]`
+Returns: `[{"id": "<uuid>", "slug": "current_obsessions", "name": "...", "description": "...", "task_count": 6}, ...]`
 
 ### Get workflow detail
 ```bash
@@ -184,7 +184,6 @@ You must NOT run:
 
 | Error | Cause | Fix |
 |-------|-------|-----|
-| `TemplateReadOnlyError` | Tried to update/delete a template | Clone it as a new workflow instead |
 | `Unknown node type` | Typo in task `type` field | Check `mixd workflow nodes` |
 | `References unknown upstream` | Upstream ID doesn't match any task | Fix the `upstream` array |
 | `Cycle detected` | Circular dependency in task graph | Remove the back-edge |

@@ -14,15 +14,19 @@ from src.application.use_cases.workflow_crud import (
     CreateWorkflowUseCase,
     DeleteWorkflowCommand,
     DeleteWorkflowUseCase,
+    DuplicateWorkflowCommand,
+    DuplicateWorkflowUseCase,
     GetWorkflowCommand,
     GetWorkflowUseCase,
+    InstantiateWorkflowCommand,
+    InstantiateWorkflowUseCase,
     ListWorkflowsCommand,
     ListWorkflowsUseCase,
     UpdateWorkflowCommand,
     UpdateWorkflowUseCase,
     _generate_change_summary,
 )
-from src.domain.exceptions import NotFoundError, TemplateReadOnlyError
+from src.domain.exceptions import NotFoundError
 from tests.fixtures import (
     make_mock_uow,
     make_mock_workflow_repo,
@@ -53,18 +57,6 @@ class TestListWorkflows:
 
         assert result.total_count == 0
         assert result.workflows == []
-
-    async def test_include_templates_forwarded(self) -> None:
-        repo = make_mock_workflow_repo()
-        uow = make_mock_uow(workflow_repo=repo)
-
-        await ListWorkflowsUseCase().execute(
-            ListWorkflowsCommand(user_id="test-user", include_templates=False), uow
-        )
-
-        repo.list_workflows.assert_called_once_with(
-            user_id="test-user", include_templates=False
-        )
 
 
 class TestGetWorkflow:
@@ -115,9 +107,90 @@ class TestCreateWorkflow:
             )
 
 
+class TestInstantiateWorkflow:
+    async def test_instantiates_user_owned_workflow(self) -> None:
+        wf_def = make_workflow_def(name="Discovery Mix")
+        repo = make_mock_workflow_repo()
+        uow = make_mock_uow(workflow_repo=repo)
+
+        result = await InstantiateWorkflowUseCase().execute(
+            InstantiateWorkflowCommand(user_id="test-user", definition=wf_def), uow
+        )
+
+        repo.save_workflow.assert_called_once()
+        saved = repo.save_workflow.call_args[0][0]
+        assert saved.user_id == "test-user"
+        assert saved.definition.name == wf_def.name
+        # Pipeline is copied verbatim; only the slug is regenerated.
+        assert saved.definition.tasks == wf_def.tasks
+        assert result.workflow.user_id == "test-user"
+
+    async def test_regenerates_unique_slug(self) -> None:
+        """The slug is freshly minted so two instantiations never collide."""
+        wf_def = make_workflow_def(id="hidden_gems", name="Hidden Gems")
+        repo = make_mock_workflow_repo()
+        uow = make_mock_uow(workflow_repo=repo)
+
+        await InstantiateWorkflowUseCase().execute(
+            InstantiateWorkflowCommand(user_id="u", definition=wf_def), uow
+        )
+        first = repo.save_workflow.call_args[0][0].definition.id
+
+        await InstantiateWorkflowUseCase().execute(
+            InstantiateWorkflowCommand(user_id="u", definition=wf_def), uow
+        )
+        second = repo.save_workflow.call_args[0][0].definition.id
+
+        assert first != wf_def.id  # source slug is not reused
+        assert first != second  # each instantiation is unique
+        assert first.startswith("hidden-gems-")  # derived from the name, readable
+
+    async def test_validation_failure_raises(self) -> None:
+        from src.domain.entities.workflow import WorkflowDef
+
+        empty_def = WorkflowDef(id="empty", name="Empty", tasks=[])
+        uow = make_mock_uow()
+
+        with pytest.raises(ValueError, match="no tasks"):
+            await InstantiateWorkflowUseCase().execute(
+                InstantiateWorkflowCommand(user_id="test-user", definition=empty_def),
+                uow,
+            )
+
+
+class TestDuplicateWorkflow:
+    async def test_duplicates_into_independent_copy(self) -> None:
+        existing = make_workflow(definition=make_workflow_def(name="My Mix"))
+        repo = make_mock_workflow_repo(get_workflow_by_id=existing)
+        uow = make_mock_uow(workflow_repo=repo)
+
+        result = await DuplicateWorkflowUseCase().execute(
+            DuplicateWorkflowCommand(user_id="test-user", workflow_id=existing.id), uow
+        )
+
+        repo.save_workflow.assert_called_once()
+        saved = repo.save_workflow.call_args[0][0]
+        assert saved.user_id == "test-user"
+        assert saved.definition.name == "My Mix (copy)"
+        # A fresh slug — never the source's — so CLI/seeder slug lookups stay unambiguous.
+        assert saved.definition.id != existing.definition.id
+        assert saved.definition.tasks == existing.definition.tasks
+        assert result.workflow.user_id == "test-user"
+
+    async def test_missing_workflow_propagates_not_found(self) -> None:
+        repo = make_mock_workflow_repo()
+        repo.get_workflow_by_id.side_effect = NotFoundError("nope")
+        uow = make_mock_uow(workflow_repo=repo)
+
+        with pytest.raises(NotFoundError):
+            await DuplicateWorkflowUseCase().execute(
+                DuplicateWorkflowCommand(user_id="u", workflow_id=uuid7()), uow
+            )
+
+
 class TestUpdateWorkflow:
     async def test_updates_workflow(self) -> None:
-        existing = make_workflow(is_template=False)
+        existing = make_workflow()
         new_def = make_workflow_def(name="Updated")
         repo = make_mock_workflow_repo(get_workflow_by_id=existing)
         uow = make_mock_uow(workflow_repo=repo)
@@ -181,21 +254,6 @@ class TestUpdateWorkflow:
 
         saved = repo.save_workflow.call_args[0][0]
         assert saved.definition_version == 5
-
-    async def test_template_rejection(self) -> None:
-        template = make_workflow(is_template=True)
-        repo = make_mock_workflow_repo(get_workflow_by_id=template)
-        uow = make_mock_uow(workflow_repo=repo)
-
-        with pytest.raises(TemplateReadOnlyError):
-            await UpdateWorkflowUseCase().execute(
-                UpdateWorkflowCommand(
-                    user_id="test-user",
-                    workflow_id=template.id,
-                    definition=make_workflow_def(),
-                ),
-                uow,
-            )
 
     async def test_not_found_propagates(self) -> None:
         repo = make_mock_workflow_repo()
@@ -304,7 +362,7 @@ class TestGenerateChangeSummary:
 
 class TestDeleteWorkflow:
     async def test_deletes_workflow(self) -> None:
-        existing = make_workflow(is_template=False)
+        existing = make_workflow()
         repo = make_mock_workflow_repo(get_workflow_by_id=existing)
         uow = make_mock_uow(workflow_repo=repo)
 
@@ -315,19 +373,8 @@ class TestDeleteWorkflow:
         repo.delete_workflow.assert_called_once_with(existing.id, user_id="test-user")
         assert result.workflow_id == existing.id
 
-    async def test_template_rejection(self) -> None:
-        template = make_workflow(is_template=True)
-        repo = make_mock_workflow_repo(get_workflow_by_id=template)
-        uow = make_mock_uow(workflow_repo=repo)
-
-        with pytest.raises(TemplateReadOnlyError):
-            await DeleteWorkflowUseCase().execute(
-                DeleteWorkflowCommand(user_id="test-user", workflow_id=template.id), uow
-            )
-
     async def test_not_found_propagates(self) -> None:
-        repo = make_mock_workflow_repo()
-        repo.get_workflow_by_id.side_effect = NotFoundError("nope")
+        repo = make_mock_workflow_repo(delete_workflow=False)
         uow = make_mock_uow(workflow_repo=repo)
 
         with pytest.raises(NotFoundError):

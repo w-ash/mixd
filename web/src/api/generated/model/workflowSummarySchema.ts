@@ -3,7 +3,7 @@
  * Do not edit manually.
  * Mixd
  * Personal music metadata hub
- * OpenAPI spec version: 0.7.8.19
+ * OpenAPI spec version: 0.7.8.20
  */
 import type { LastRunSchema } from './lastRunSchema';
 
@@ -11,8 +11,6 @@ export interface WorkflowSummarySchema {
   id: string;
   name: string;
   description?: string | null;
-  is_template: boolean;
-  source_template?: string | null;
   definition_version?: number;
   task_count: number;
   node_types: string[];
