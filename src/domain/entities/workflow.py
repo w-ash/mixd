@@ -14,7 +14,7 @@ from attrs import define, field
 from src.domain.entities.shared import JsonValue, empty_json_map
 
 NodeExecutionStatus = Literal["completed", "failed", "skipped", "degraded"]
-RunStatus = Literal["pending", "running", "completed", "failed", "cancelled"]
+RunStatus = Literal["pending", "running", "completed", "failed", "cancelled", "crashed"]
 
 
 @define(frozen=True, slots=True)

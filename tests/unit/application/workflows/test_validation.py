@@ -6,7 +6,7 @@ and DAG ordering with cycle detection.
 
 import pytest
 
-import src.application.workflows.node_catalog  # noqa: F401 — triggers node registration
+import src.application.workflows.node_catalog as _node_catalog
 from src.application.workflows.validation import (
     ConnectorNotAvailableError,
     _validate_node_config,
@@ -14,8 +14,22 @@ from src.application.workflows.validation import (
     extract_required_connectors,
     validate_connector_availability,
     validate_workflow_def,
+    validate_workflow_def_detailed,
 )
 from src.domain.entities.workflow import WorkflowDef, WorkflowTaskDef
+
+# Importing node_catalog above triggers @node() registration as a side effect.
+# This reference keeps F401 from flagging the import as unused under ruff
+# configurations that autofix noqa comments.
+_NODE_CATALOG_MODULE = _node_catalog.__name__
+
+
+def _def(tasks: list[WorkflowTaskDef]) -> WorkflowDef:
+    return WorkflowDef(id="test", name="Test", tasks=tasks)
+
+
+def _errors_for(field: str, errors: list[dict[str, str]]) -> list[dict[str, str]]:
+    return [e for e in errors if e["field"] == field]
 
 
 class TestValidateWorkflowDef:
@@ -452,3 +466,107 @@ class TestConnectorNotAvailableError:
         assert err.missing_connectors == ["apple_music", "tidal"]
         assert "apple_music" in str(err)
         assert "tidal" in str(err)
+
+
+class TestPrimaryInputValidation:
+    """primary_input must name an actual upstream, else the executor silently
+    falls back to upstream[0] and produces plausible-but-wrong output."""
+
+    def _multi_upstream(self, primary: str) -> WorkflowDef:
+        return _def([
+            WorkflowTaskDef(id="a", type="source.liked_tracks"),
+            WorkflowTaskDef(id="b", type="source.liked_tracks"),
+            WorkflowTaskDef(
+                id="merge",
+                type="combiner.merge_playlists",
+                config={"primary_input": primary},
+                upstream=["a", "b"],
+            ),
+        ])
+
+    def test_blocking_rejects_primary_input_not_in_upstream(self):
+        with pytest.raises(ValueError, match="primary_input 'ghost'"):
+            validate_workflow_def(self._multi_upstream("ghost"))
+
+    def test_detailed_reports_primary_input_not_in_upstream(self):
+        errors = validate_workflow_def_detailed(self._multi_upstream("ghost"))
+        hits = _errors_for("config.primary_input", errors)
+        assert len(hits) == 1
+        assert hits[0]["task_id"] == "merge"
+
+    def test_primary_input_in_upstream_passes(self):
+        validate_workflow_def(self._multi_upstream("a"))  # no raise
+        assert validate_workflow_def_detailed(self._multi_upstream("a")) == []
+
+
+class TestResultKeyValidation:
+    """result_key is stored as an alias beside task ids; a key equal to another
+    task's id (or duplicated across tasks) silently overwrites a result."""
+
+    def test_blocking_rejects_result_key_colliding_with_task_id(self):
+        wf = _def([
+            WorkflowTaskDef(id="a", type="source.liked_tracks"),
+            WorkflowTaskDef(
+                id="b",
+                type="filter.deduplicate",
+                upstream=["a"],
+                result_key="a",  # collides with task "a"
+            ),
+        ])
+        with pytest.raises(ValueError, match="collides with the id"):
+            validate_workflow_def(wf)
+
+    def test_blocking_rejects_duplicate_result_keys(self):
+        wf = _def([
+            WorkflowTaskDef(id="a", type="source.liked_tracks", result_key="shared"),
+            WorkflowTaskDef(id="b", type="source.liked_tracks", result_key="shared"),
+        ])
+        with pytest.raises(ValueError, match="duplicates the one on task 'a'"):
+            validate_workflow_def(wf)
+
+    def test_detailed_attributes_collision_to_offending_task(self):
+        wf = _def([
+            WorkflowTaskDef(id="a", type="source.liked_tracks"),
+            WorkflowTaskDef(
+                id="b", type="filter.deduplicate", upstream=["a"], result_key="a"
+            ),
+        ])
+        hits = _errors_for("result_key", validate_workflow_def_detailed(wf))
+        assert len(hits) == 1
+        assert hits[0]["task_id"] == "b"
+
+    def test_result_key_matching_own_id_is_allowed(self):
+        # Storing under one's own id is a harmless self-overwrite, not a collision.
+        wf = _def([
+            WorkflowTaskDef(id="a", type="source.liked_tracks", result_key="a"),
+        ])
+        validate_workflow_def(wf)  # no raise
+
+    def test_distinct_result_key_passes(self):
+        wf = _def([
+            WorkflowTaskDef(id="a", type="source.liked_tracks", result_key="liked"),
+        ])
+        validate_workflow_def(wf)
+        assert validate_workflow_def_detailed(wf) == []
+
+
+class TestSourcePlacementValidation:
+    """Only source nodes may sit at level 0 (no upstream). A non-source there
+    passes the topological sort but empties or errors at runtime."""
+
+    def test_blocking_rejects_non_source_without_upstream(self):
+        wf = _def([
+            WorkflowTaskDef(id="dedup", type="filter.deduplicate"),  # no upstream
+        ])
+        with pytest.raises(ValueError, match="only source nodes may run without input"):
+            validate_workflow_def(wf)
+
+    def test_detailed_reports_non_source_without_upstream(self):
+        wf = _def([WorkflowTaskDef(id="dedup", type="filter.deduplicate")])
+        hits = _errors_for("upstream", validate_workflow_def_detailed(wf))
+        assert any(h["task_id"] == "dedup" for h in hits)
+
+    def test_source_without_upstream_passes(self):
+        wf = _def([WorkflowTaskDef(id="src", type="source.liked_tracks")])
+        validate_workflow_def(wf)
+        assert validate_workflow_def_detailed(wf) == []

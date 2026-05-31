@@ -133,6 +133,61 @@ class TestTransformNodeWarnings:
             assert any("filtered out" in w for w in warning_calls)
 
 
+class TestTransformOffload:
+    """Pure-CPU transforms run off the event loop so the heartbeat/SSE keep ticking."""
+
+    async def test_transform_runs_off_event_loop_and_stays_responsive(
+        self, monkeypatch, sample_tracklist
+    ):
+        """A blocking transform executes on a worker thread; the loop stays live.
+
+        Without the ``asyncio.to_thread`` offload the transform would run on the
+        event loop thread, the concurrent ticker could not advance, and a real
+        heartbeat would be starved into a false ``crashed`` reap.
+        """
+        import asyncio
+        import threading
+        import time
+
+        from src.application.workflows import node_factories
+        from src.application.workflows.node_factories import make_node
+        from src.application.workflows.transform_definitions import TransformEntry
+
+        loop_thread = threading.get_ident()
+        seen: dict[str, int] = {}
+
+        def blocking_transform(tracklist):
+            seen["thread"] = threading.get_ident()
+            time.sleep(0.1)  # blocks the WORKER thread, not the event loop
+            return tracklist
+
+        monkeypatch.setitem(
+            node_factories.TRANSFORM_REGISTRY["filter"],
+            "deduplicate",
+            TransformEntry(lambda _ctx, _cfg: blocking_transform, "test"),
+        )
+
+        node_func = make_node("filter", "deduplicate")
+        context = {"upstream_task_id": "src", "src": {"tracklist": sample_tracklist}}
+
+        ticks = 0
+
+        async def ticker():
+            nonlocal ticks
+            while True:
+                await asyncio.sleep(0.01)
+                ticks += 1
+
+        ticker_task = asyncio.create_task(ticker())
+        try:
+            await node_func(context, {})
+        finally:
+            ticker_task.cancel()
+
+        assert seen["thread"] != loop_thread  # ran on a worker thread
+        assert ticks >= 1  # the loop kept making progress during the blocking call
+
+
 class TestEnricherNodeFactory:
     """Test enricher node creation."""
 

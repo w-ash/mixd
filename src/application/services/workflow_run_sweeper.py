@@ -45,11 +45,15 @@ def _read_rss_kb() -> int | None:
 
 logger = get_logger(__name__).bind(service="workflow_run_sweeper")
 
-# Sweeper cadence. Threshold is the inactivity window after which a run is
-# considered stalled — see plan: 60s balances false-positive risk against
-# user wait time on the failure surface.
+# Sweeper cadence. The poll interval is the loop's wake-up rhythm; the stale
+# threshold is the inactivity window after which a run is reaped. The threshold
+# is derived as a multiple of the heartbeat interval (not a hardcoded 60s) so
+# the two can never drift apart — tightening the heartbeat tightens the reaper.
 SWEEP_INTERVAL_SECONDS: Final = 30
-STALE_THRESHOLD_SECONDS: Final = 60
+STALE_THRESHOLD_SECONDS: Final = (
+    WorkflowConstants.HEARTBEAT_INTERVAL_SECONDS
+    * WorkflowConstants.HEARTBEAT_STALE_MULTIPLE
+)
 
 
 _COLD_START_MESSAGE: Final = (
@@ -71,16 +75,21 @@ async def sweep_stalled_runs(
     *,
     stale_threshold_seconds: int = STALE_THRESHOLD_SECONDS,
 ) -> int:
-    """Mark stalled ``running`` runs as ``failed`` in a single pass.
+    """Mark stalled ``running`` runs as ``crashed`` in a single pass.
 
-    Returns the number of rows transitioned. Idempotent — only touches rows
-    that match the staleness condition. Safe to run on a schedule.
+    A stalled run means the worker died or its event loop blocked — an
+    operational event — so it is recorded ``crashed``, not ``failed`` (which is
+    reserved for the workflow's own logic raising). Returns the number of rows
+    transitioned. Idempotent — only touches rows that match the staleness
+    condition, capped at ``SWEEP_MAX_BATCH`` per cycle. Safe to run on a
+    schedule.
     """
     failed_count = 0
     async with uow:
         repo = uow.get_workflow_run_repository()
         stalled = await repo.list_stalled_runs(
-            stale_threshold_seconds=stale_threshold_seconds
+            stale_threshold_seconds=stale_threshold_seconds,
+            limit=WorkflowConstants.SWEEP_MAX_BATCH,
         )
         if not stalled:
             return 0
@@ -101,14 +110,14 @@ async def sweep_stalled_runs(
             try:
                 await repo.update_run_status(
                     run.id,
-                    WorkflowConstants.RUN_STATUS_FAILED,
+                    WorkflowConstants.RUN_STATUS_CRASHED,
                     completed_at=now,
                     duration_ms=duration_ms,
                     error_message=reason,
                 )
                 failed_count += 1
                 logger.warning(
-                    "Marked stalled run as failed",
+                    "Marked stalled run as crashed",
                     run_id=str(run.id),
                     workflow_id=str(run.workflow_id),
                     reason=reason,

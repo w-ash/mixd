@@ -1,9 +1,11 @@
 # Project Mixd — Planning
 
-**Current Version**: 0.7.8.20
-**Next**: v0.8.0 Run reliability & validation hardening (opens the v0.8.x scheduling cycle)
+**Current Version**: 0.8.0
+**Next**: v0.8.1 Workflow engine swap (Prefect → stdlib asyncio)
 
-**Recent refactor (code-complete 2026-05-30, review-hardened, pending ship)**: Workflow "kinds" consolidated — the read-only built-in **template** kind was eliminated in favor of a file-backed template **gallery** + clone-on-use, leaving a single editable `Workflow` entity (migration `023` drops `is_template`/`source_template`, the read-only guards, and shared `user_id IS NULL` rows). Clone-on-use mints a fresh unique slug, and Duplicate runs through a single-transaction `DuplicateWorkflowUseCase`. This delivered most of v0.8.5's template *plumbing* early; v0.8.5 now scopes down to curating the template content + import/export. _(Version segment to finalize at ship — likely a `0.7.8.N` revision bump.)_
+**v0.8.0 shipped (2026-05-30)** — Run reliability & validation hardening opened the v0.8.x scheduling cycle: a first-writer-wins terminal-write guard, a distinct `crashed` status (worker died) vs `failed` (logic broke), an OS-thread heartbeat watchdog that survives a blocked event loop, three closed silent-wrong-result validation gaps, and a SIGTERM-shielded connector cleanup.
+
+**Earlier refactor (shipped as 0.7.8.20)**: Workflow "kinds" consolidated — the read-only built-in **template** kind was eliminated in favor of a file-backed template **gallery** + clone-on-use, leaving a single editable `Workflow` entity (migration `023` drops `is_template`/`source_template`, the read-only guards, and shared `user_id IS NULL` rows). Clone-on-use mints a fresh unique slug, and Duplicate runs through a single-transaction `DuplicateWorkflowUseCase`. This delivered most of v0.8.5's template *plumbing* early; v0.8.5 now scopes down to curating the template content + import/export.
 
 → [Completed milestones](completed/) | [Unscheduled ideas](unscheduled.md)
 
@@ -66,7 +68,7 @@ Each milestone delivers a **vertical slice** — backend API + frontend page tog
 | **v0.7.6** | Tag maintenance & single-playlist Spotify polish — tag mgmt page, force-refresh, route integration tests | 🚀 Shipped | [details](v0.7.6.md#v076-tag-maintenance--single-playlist-polish) |
 | **v0.7.7** | Operation Run Log — persisted import history + post-run toast | 🚀 Shipped | [details](v0.7.7.md#v077-operation-run-log) |
 | **v0.7.8** | Mobile responsiveness + visual regression baseline (Playwright `toHaveScreenshot`) | 🚀 Shipped | [details](v0.7.8.md#v078-mobile-responsiveness) |
-| **v0.8.0** | Run reliability & validation hardening | 🔜 Not Started | [details](v0.8.x.md#v080-run-reliability--validation-hardening) |
+| **v0.8.0** | Run reliability & validation hardening | 🚀 Shipped | [details](v0.8.x.md#v080-run-reliability--validation-hardening) |
 | **v0.8.1** | Workflow engine swap (Prefect → stdlib asyncio) | 🔜 Not Started | [details](v0.8.x.md#v081-workflow-engine-swap-prefect-to-stdlib-asyncio) |
 | **v0.8.2** | Workflow scheduling — engine & CLI | 🔜 Not Started | [details](v0.8.x.md#v082-workflow-scheduling---engine--cli) |
 | **v0.8.3** | Workflow scheduling — web UI & failure alerts | 🔜 Not Started | [details](v0.8.x.md#v083-workflow-scheduling---web-ui--failure-alerts) |

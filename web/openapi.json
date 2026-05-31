@@ -3,7 +3,7 @@
   "info": {
     "title": "Mixd",
     "description": "Personal music metadata hub",
-    "version": "0.7.8.20"
+    "version": "0.8.0"
   },
   "paths": {
     "/api/v1/connectors/{service}/auth-url": {
@@ -4881,7 +4881,8 @@
               "running",
               "completed",
               "failed",
-              "cancelled"
+              "cancelled",
+              "crashed"
             ],
             "title": "Status"
           },
@@ -5531,7 +5532,8 @@
               "running",
               "completed",
               "failed",
-              "cancelled"
+              "cancelled",
+              "crashed"
             ],
             "title": "Status"
           },
@@ -7032,7 +7034,8 @@
               "running",
               "completed",
               "failed",
-              "cancelled"
+              "cancelled",
+              "crashed"
             ],
             "title": "Status"
           },
@@ -7194,7 +7197,8 @@
               "running",
               "completed",
               "failed",
-              "cancelled"
+              "cancelled",
+              "crashed"
             ],
             "title": "Status"
           },
@@ -7325,7 +7329,8 @@
               "running",
               "completed",
               "failed",
-              "cancelled"
+              "cancelled",
+              "crashed"
             ],
             "title": "Status"
           },

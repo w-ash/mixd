@@ -123,11 +123,82 @@ def _validate_node_config(
             raise ValueError(f"Task '{task_id}' config key '{key}' must not be empty")
 
 
+def _check_primary_input(task_def: WorkflowTaskDef) -> str | None:
+    """Return an error message if ``primary_input`` is set but not an upstream.
+
+    The executor uses ``config["primary_input"]`` to pick which upstream feeds a
+    multi-input node; when it names a task that isn't actually upstream it
+    silently falls back to ``upstream[0]``, producing plausible-but-wrong output.
+    """
+    primary = task_def.config.get("primary_input")
+    if primary is None:
+        return None
+    if primary not in task_def.upstream:
+        return (
+            f"Task '{task_def.id}' sets primary_input '{primary}', which is not "
+            f"one of its upstream tasks {sorted(task_def.upstream)}"
+        )
+    return None
+
+
+def _check_source_placement(task_def: WorkflowTaskDef, category: str) -> str | None:
+    """Return an error message if a non-source node has no upstream.
+
+    A node with no upstream lands at DAG level 0; only source nodes can produce
+    data from nothing. A filter/sorter/destination placed there passes the
+    topological check but empties or errors at runtime.
+    """
+    if category != "source" and not task_def.upstream:
+        return (
+            f"Task '{task_def.id}' (type '{task_def.type}', category '{category}') "
+            f"has no upstream — only source nodes may run without input"
+        )
+    return None
+
+
+def _find_result_key_problems(
+    tasks: list[WorkflowTaskDef],
+) -> list[tuple[str, str]]:
+    """Find ``result_key`` collisions and duplicates as ``(task_id, message)``.
+
+    The executor stores each result twice — under the task id and, if set, under
+    ``result_key`` as an alias. A ``result_key`` equal to *another* task's id
+    silently overwrites that task's result; two tasks sharing a ``result_key``
+    collide the same way. A ``result_key`` equal to the task's *own* id is a
+    harmless self-overwrite and is allowed.
+    """
+    task_ids = {t.id for t in tasks}
+    problems: list[tuple[str, str]] = []
+    seen: dict[str, str] = {}  # result_key -> first task id that declared it
+    for t in tasks:
+        if not t.result_key:
+            continue
+        # At most one problem per task: a key colliding with another task's id is
+        # reported as a collision, otherwise as a duplicate. Either way record the
+        # first declarer so the blocking and detailed validators agree on count.
+        if t.result_key in task_ids and t.result_key != t.id:
+            problems.append((
+                t.id,
+                f"Task '{t.id}' result_key '{t.result_key}' collides with the id of "
+                f"another task — it would overwrite that task's result",
+            ))
+        elif t.result_key in seen:
+            problems.append((
+                t.id,
+                f"Task '{t.id}' result_key '{t.result_key}' duplicates the one on "
+                f"task '{seen[t.result_key]}'",
+            ))
+        seen.setdefault(t.result_key, t.id)
+    return problems
+
+
 def validate_workflow_def(workflow_def: WorkflowDef) -> None:
     """Validate workflow definition structure before execution.
 
     Catches structural errors early — before any expensive I/O operations run.
-    Checks for: non-empty tasks, valid upstream references, and resolvable node types.
+    Checks for: non-empty tasks, valid upstream references, resolvable node
+    types, config completeness, primary_input/result_key correctness, and
+    correct source placement.
 
     Raises:
         ValueError: If the workflow definition is structurally invalid.
@@ -151,18 +222,28 @@ def validate_workflow_def(workflow_def: WorkflowDef) -> None:
                     f"Task '{task_def.id}' references unknown upstream '{upstream_id}'. Available: {sorted(task_ids)}"
                 )
 
-    # Validate node types are resolvable in the registry
+    # Resolve each node once and run its per-task structural checks in one pass:
+    # type resolvability, config completeness, and the silent-wrong-result guards
+    # (a primary_input that isn't an upstream, a non-source node with no input).
     for task_def in workflow_def.tasks:
         try:
-            get_node(task_def.type)
+            _, metadata = get_node(task_def.type)
         except KeyError:
             raise ValueError(
                 f"Task '{task_def.id}' has unknown node type '{task_def.type}'"
             ) from None
-
-    # Validate node config required keys per node type
-    for task_def in workflow_def.tasks:
         _validate_node_config(task_def.type, task_def.config, task_id=task_def.id)
+        for message in (
+            _check_primary_input(task_def),
+            _check_source_placement(task_def, metadata["category"]),
+        ):
+            if message:
+                raise ValueError(message)
+
+    # Reject result_key aliases that collide with a task id or duplicate another.
+    result_key_problems = _find_result_key_problems(workflow_def.tasks)
+    if result_key_problems:
+        raise ValueError(result_key_problems[0][1])
 
 
 # --- Connector pre-flight validation ---
@@ -325,7 +406,7 @@ def validate_workflow_def_detailed(workflow_def: WorkflowDef) -> list[dict[str, 
 
     for task_def in workflow_def.tasks:
         try:
-            get_node(task_def.type)
+            _, metadata = get_node(task_def.type)
         except KeyError:
             errors.append({
                 "task_id": task_def.id,
@@ -342,6 +423,24 @@ def validate_workflow_def_detailed(workflow_def: WorkflowDef) -> list[dict[str, 
                 "field": "config",
                 "message": str(e),
             })
+
+        # Silent-wrong-result checks (type resolved, so category is known).
+        for error_field, message in (
+            ("config.primary_input", _check_primary_input(task_def)),
+            ("upstream", _check_source_placement(task_def, metadata["category"])),
+        ):
+            if message:
+                errors.append({
+                    "task_id": task_def.id,
+                    "field": error_field,
+                    "message": message,
+                })
+
+    # result_key collisions/duplicates, attributed to the offending task
+    errors.extend(
+        {"task_id": task_id, "field": "result_key", "message": message}
+        for task_id, message in _find_result_key_problems(workflow_def.tasks)
+    )
 
     # Check for cycles
     try:

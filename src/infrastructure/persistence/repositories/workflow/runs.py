@@ -65,7 +65,7 @@ class WorkflowRunRepository:
 
     @db_operation("list_stalled_runs")
     async def list_stalled_runs(
-        self, *, stale_threshold_seconds: int
+        self, *, stale_threshold_seconds: int, limit: int | None = None
     ) -> list[WorkflowRun]:
         """Find runs whose heartbeat has gone silent past the threshold.
 
@@ -75,7 +75,9 @@ class WorkflowRunRepository:
         - ``heartbeat_at < now() - threshold`` — stalled mid-execution.
 
         Callers distinguish the two cases by checking ``run.heartbeat_at`` to
-        produce appropriate ``error_message`` text.
+        produce appropriate ``error_message`` text. ``limit`` caps the rows
+        returned per call (oldest-first) so one sweep cycle stays bounded under
+        a large backlog.
         """
         threshold = datetime.now(UTC) - timedelta(seconds=stale_threshold_seconds)
         stmt = (
@@ -90,6 +92,8 @@ class WorkflowRunRepository:
             )
             .order_by(DBWorkflowRun.started_at.asc())
         )
+        if limit is not None:
+            stmt = stmt.limit(limit)
         result = await self.session.execute(stmt)
         db_runs = list(result.scalars().all())
         return [
@@ -131,9 +135,28 @@ class WorkflowRunRepository:
         if error_message is not None:
             values["error_message"] = error_message
 
-        result = await self.session.execute(
-            update(DBWorkflowRun).where(DBWorkflowRun.id == run_id).values(**values)
-        )
+        # First-writer-wins guard on terminal writes. The completion path, the
+        # SIGTERM/reload handler, and the sweeper can all race to record an
+        # outcome on the same row; without a guard the last writer wins and
+        # leaves self-contradictory duration_ms/error_message. Guarding terminal
+        # writes with ``status NOT IN (terminal set)`` lets the first terminal
+        # write win and makes every later one a silent no-op (mirrors Prefect's
+        # HandleFlowTerminalStateTransitions). Same conditional-UPDATE /
+        # rowcount==0 idiom as playlist/links.py and track/core.py.
+        stmt = update(DBWorkflowRun).where(DBWorkflowRun.id == run_id)
+        if status in WorkflowConstants.RUN_STATUSES_TERMINAL:
+            stmt = stmt.where(
+                DBWorkflowRun.status.notin_(WorkflowConstants.RUN_STATUSES_TERMINAL)
+            )
+            # A lost terminal race (row already terminal) and a missing row both
+            # surface as rowcount==0 here; both are acceptable no-ops for a
+            # terminal write, so do not raise — the run already has an outcome.
+            await self.session.execute(stmt.values(**values))
+            return
+
+        # Non-terminal write (e.g. pending → running): a missing row is a real
+        # error, so keep the strict not-found semantics.
+        result = await self.session.execute(stmt.values(**values))
         if result.rowcount == 0:
             raise NotFoundError(f"Workflow run {run_id} not found")
 

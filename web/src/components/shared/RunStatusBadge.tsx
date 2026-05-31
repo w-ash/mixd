@@ -1,4 +1,4 @@
-import { Ban, Check, Clock, Play, X } from "lucide-react";
+import { AlertTriangle, Ban, Check, Clock, Play, X } from "lucide-react";
 
 import { cn } from "#/lib/utils";
 
@@ -16,7 +16,7 @@ const STATUS_CONFIG: Record<
     className: "bg-primary/15 text-primary",
     icon: <Play className="size-2.5 fill-current" />,
   },
-  // Workflow-run vocabulary: completed/failed.
+  // Workflow-run vocabulary: completed/failed/crashed.
   completed: {
     label: "Completed",
     className: "bg-status-connected/15 text-status-connected",
@@ -26,6 +26,13 @@ const STATUS_CONFIG: Record<
     label: "Failed",
     className: "bg-destructive/15 text-destructive",
     icon: <X className="size-2.5" />,
+  },
+  // Crashed = the worker died, not the workflow logic. Distinct amber tone +
+  // warning icon so triage can tell an operational event from a logic failure.
+  crashed: {
+    label: "Crashed",
+    className: "bg-status-expired/15 text-status-expired",
+    icon: <AlertTriangle className="size-2.5" />,
   },
   // OperationRun vocabulary: complete/error/cancelled.
   complete: {

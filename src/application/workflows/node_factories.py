@@ -14,6 +14,7 @@ The factories handle configuration parsing and dependency setup so workflow
 definitions can focus on data flow rather than implementation details.
 """
 
+import asyncio
 from collections.abc import Callable, Mapping
 from typing import TypedDict, cast
 
@@ -120,7 +121,7 @@ def make_node(
     )
     operation = operation_name or f"{category}.{node_type}"
 
-    async def node_impl(  # noqa: RUF029
+    async def node_impl(
         context: dict[str, object], config: Mapping[str, JsonValue]
     ) -> NodeResult:
         ctx = NodeContext(context)
@@ -128,7 +129,11 @@ def make_node(
             tracklist = ctx.extract_tracklist()
             require_database_tracks(tracklist)
             transform = transform_factory(ctx, config)
-            result = transform(tracklist)
+            # Offload the pure-CPU transform to a worker thread so a large
+            # tracklist can't starve the event loop (heartbeat + SSE keep
+            # ticking via GIL hand-off). Transforms are pure TrackList→TrackList
+            # with no loop-bound state, so this is thread-safe.
+            result = await asyncio.to_thread(transform, tracklist)
         except Exception as e:
             logger.error(f"Error in node {operation}: {e}")
             raise
@@ -170,7 +175,7 @@ def make_combiner_node(combiner_type: str) -> NodeFn:
     combiner_fn = COMBINER_REGISTRY[combiner_type].fn
     operation = f"combiner.{combiner_type}"
 
-    async def node_impl(  # noqa: RUF029
+    async def node_impl(
         context: dict[str, object], config: Mapping[str, JsonValue]
     ) -> NodeResult:
         ctx = NodeContext(context)
@@ -187,12 +192,17 @@ def make_combiner_node(combiner_type: str) -> NodeFn:
             require_database_tracks(tl)
 
         # Domain combiners are dual-mode: pass tracklist=TrackList() to get
-        # immediate TrackList result rather than a curried Transform function
+        # immediate TrackList result rather than a curried Transform function.
+        # Offloaded to a worker thread (pure CPU, no loop-bound state) so merging
+        # large tracklists doesn't starve the event loop — see make_node.
         deduplicate = cfg_bool(config, "deduplicate")
         result = cast(
             TrackList,
-            combiner_fn(
-                upstream_tracklists, deduplicate=deduplicate, tracklist=TrackList()
+            await asyncio.to_thread(
+                combiner_fn,
+                upstream_tracklists,
+                deduplicate=deduplicate,
+                tracklist=TrackList(),
             ),
         )
 

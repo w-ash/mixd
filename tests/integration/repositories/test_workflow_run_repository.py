@@ -8,6 +8,7 @@ from uuid import UUID, uuid7
 
 import pytest
 
+from src.config.constants import WorkflowConstants
 from src.domain.entities.workflow import (
     Workflow,
     WorkflowDef,
@@ -124,6 +125,59 @@ class TestWorkflowRunCRUD:
         retrieved = await repo.get_run_by_id(saved.id)
         assert retrieved.status == "failed"
         assert retrieved.error_message == "API timeout"
+
+    async def test_terminal_write_is_first_writer_wins(self, db_session) -> None:
+        """Once a run is terminal, a second terminal write is a silent no-op.
+
+        The completion path and the sweeper can both try to record an outcome
+        on the same row. The guard (`WHERE status NOT IN terminal`) lets the
+        first terminal write win; the loser must not raise and must not corrupt
+        the recorded fields. A single guarded UPDATE is atomic in Postgres, so
+        this sequential check exercises the same guard a real race would hit.
+        """
+        workflow = await _create_workflow(db_session)
+        repo = WorkflowRunRepository(db_session)
+        saved = await repo.create_run(_make_run(workflow.id))
+        await repo.update_run_status(saved.id, "running", started_at=datetime.now(UTC))
+
+        # First terminal write wins.
+        await repo.update_run_status(
+            saved.id, "completed", duration_ms=1500, output_track_count=42
+        )
+        # Second terminal write (e.g. the sweeper) must no-op, not raise.
+        await repo.update_run_status(
+            saved.id,
+            WorkflowConstants.RUN_STATUS_CRASHED,
+            duration_ms=999,
+            error_message="watchdog: heartbeat went silent",
+        )
+
+        retrieved = await repo.get_run_by_id(saved.id)
+        # Fields stay self-consistent with the first (winning) write.
+        assert retrieved.status == "completed"
+        assert retrieved.duration_ms == 1500
+        assert retrieved.error_message is None
+
+    async def test_crashed_terminal_write_blocks_later_writes(self, db_session) -> None:
+        """A crashed run is terminal — a later completed write can't overwrite it."""
+        workflow = await _create_workflow(db_session)
+        repo = WorkflowRunRepository(db_session)
+        saved = await repo.create_run(_make_run(workflow.id))
+        await repo.update_run_status(saved.id, "running", started_at=datetime.now(UTC))
+
+        await repo.update_run_status(
+            saved.id, WorkflowConstants.RUN_STATUS_CRASHED, error_message="worker died"
+        )
+        await repo.update_run_status(saved.id, "completed", duration_ms=10)
+
+        retrieved = await repo.get_run_by_id(saved.id)
+        assert retrieved.status == WorkflowConstants.RUN_STATUS_CRASHED
+
+    async def test_terminal_write_to_missing_run_is_silent(self, db_session) -> None:
+        """A terminal write to a missing row no-ops (the run already has an
+        outcome or never existed) — only non-terminal writes raise NotFound."""
+        repo = WorkflowRunRepository(db_session)
+        await repo.update_run_status(uuid7(), "completed")  # no raise
 
     async def test_update_nonexistent_run_raises(self, db_session) -> None:
         repo = WorkflowRunRepository(db_session)

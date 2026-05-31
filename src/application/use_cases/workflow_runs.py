@@ -387,16 +387,19 @@ class ExecuteWorkflowRunUseCase:
                     elapsed_ms=duration_ms,
                 )
 
+                # Worker died out from under the run (SIGTERM/reload), not a
+                # logic failure — record CRASHED so the user can tell an
+                # operational event apart from a broken pipeline.
                 try:
                     await self.update_run_status(
                         run_id,
-                        WorkflowConstants.RUN_STATUS_FAILED,
+                        WorkflowConstants.RUN_STATUS_CRASHED,
                         duration_ms=duration_ms,
                         error_message=WorkflowConstants.CANCELLED_BY_SERVER_MESSAGE,
                     )
                 except CancelledError, Exception:
                     logger.error(
-                        "Failed to update cancelled run status to FAILED",
+                        "Failed to update cancelled run status to CRASHED",
                         exc_info=True,
                     )
 

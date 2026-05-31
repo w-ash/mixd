@@ -49,6 +49,7 @@ const TERMINAL_STATUSES: ReadonlySet<string> = new Set([
   OperationSnapshotResponseStatus.completed,
   OperationSnapshotResponseStatus.failed,
   OperationSnapshotResponseStatus.cancelled,
+  OperationSnapshotResponseStatus.crashed,
 ]);
 
 export function isTerminalSnapshot(snapshot: OperationSnapshot): boolean {

@@ -90,12 +90,46 @@ class WorkflowConstants:
     TRANSFORM_TIMEOUT_SECONDS: Final = 60  # 1min — pure transforms (safety)
     DESTINATION_TIMEOUT_SECONDS: Final = 300  # 5min — external API writes
 
-    # Run status lifecycle: PENDING → RUNNING → COMPLETED | FAILED | CANCELLED
+    # Run status lifecycle:
+    #   PENDING → RUNNING → COMPLETED | FAILED | CANCELLED | CRASHED
+    # FAILED  = the workflow's own logic raised (user-fixable).
+    # CRASHED = the worker died out from under the run (OOM/SIGTERM/loop-block) —
+    #           an operational event, distinct triage from FAILED.
     RUN_STATUS_PENDING: Final = "pending"
     RUN_STATUS_RUNNING: Final = "running"
     RUN_STATUS_COMPLETED: Final = "completed"
     RUN_STATUS_FAILED: Final = "failed"
     RUN_STATUS_CANCELLED: Final = "cancelled"
+    RUN_STATUS_CRASHED: Final = "crashed"
+
+    # Terminal states — once a run reaches one, no further status write is
+    # permitted. The run-state write guard enforces first-writer-wins against
+    # these to prevent last-writer-wins corruption when the completion path and
+    # the sweeper race on the same row.
+    RUN_STATUSES_TERMINAL: Final[frozenset[str]] = frozenset({
+        RUN_STATUS_COMPLETED,
+        RUN_STATUS_FAILED,
+        RUN_STATUS_CANCELLED,
+        RUN_STATUS_CRASHED,
+    })
+    # Fail-class states — both "logic broke" (failed) and "worker died"
+    # (crashed) roll up as failures in run-level summaries and dashboards.
+    RUN_STATUSES_FAIL_CLASS: Final[frozenset[str]] = frozenset({
+        RUN_STATUS_FAILED,
+        RUN_STATUS_CRASHED,
+    })
+
+    # Run liveness — shared by the heartbeat emitter (interface) and the stale
+    # sweeper (application) so the threshold is always a multiple of the
+    # interval, never a drifting hardcoded value.
+    HEARTBEAT_INTERVAL_SECONDS: Final = 5
+    # Misses tolerated before a silent run is reaped as CRASHED. Floor of 3 keeps
+    # at least Temporal's 3:1 heartbeat:timeout safety margin; 12 preserves the
+    # historical 60s threshold (5s x 12).
+    HEARTBEAT_STALE_MULTIPLE: Final = 12
+    # Cap rows transitioned per sweep cycle so a large backlog can't make one
+    # tick unbounded (mirrors Prefect's late-run batch cap).
+    SWEEP_MAX_BATCH: Final = 400
 
     # Error message limits (matches DB column String(2000))
     ERROR_MESSAGE_MAX_LENGTH: Final = 2000

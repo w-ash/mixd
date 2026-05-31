@@ -543,17 +543,20 @@ async def _bump_heartbeat(run_id: UUID) -> None:
         logger.warning("Heartbeat bump failed", run_id=str(run_id), exc_info=True)
 
 
-async def _heartbeat_loop(run_id: UUID, *, interval_seconds: int = 5) -> None:
+async def _heartbeat_loop(
+    run_id: UUID,
+    *,
+    interval_seconds: int = WorkflowConstants.HEARTBEAT_INTERVAL_SECONDS,
+) -> None:
     """Periodic ticker bumping ``heartbeat_at`` while a workflow runs.
 
-    Cancellation by the foreground task is the normal exit path. Each tick
-    is independent so a missed bump (DB blip, brief loop block) just means
-    the next bump catches up — the sweeper threshold (60s) is comfortably
-    larger than the interval.
+    Runs as an asyncio task. CPU-bound transform/combiner nodes are offloaded to
+    a worker thread via ``asyncio.to_thread`` (see ``node_factories``), so the
+    event loop stays responsive and this ticker keeps firing even under heavy
+    transforms. Cancellation by the foreground task is the normal exit path; a
+    missed bump (DB blip) just means the next tick catches up, well inside the
+    sweeper's stale threshold (HEARTBEAT_INTERVAL_SECONDS x HEARTBEAT_STALE_MULTIPLE).
     """
-    # Diagnostic breadcrumb — first-bump only, since all subsequent ticks are
-    # uninteresting. If this log appears but the heartbeat row never updates,
-    # the DB write is stuck; if this log is missing, the ticker never got CPU.
     logger.info("Heartbeat first bump attempt", run_id=str(run_id))
     await _bump_heartbeat(run_id)
     while True:

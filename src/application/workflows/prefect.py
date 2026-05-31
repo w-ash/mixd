@@ -467,8 +467,15 @@ def build_flow(
                 "_node_records": node_records,
             }
         finally:
-            # Close cached connector instances (httpx pools) on success or failure
-            await workflow_context.connectors.aclose()
+            # Close cached connector instances (httpx pools) on success or failure.
+            # Shielded so a CancelledError arriving during SIGTERM (deploy/autoscale)
+            # can't abort the close mid-flight and leak pools into the next process.
+            # aclose() is idempotent, so the shield is safe. A strong reference is
+            # held because the loop keeps only a weak ref to the shielded task — see
+            # asyncio.shield docs. (Carries into executor.py when prefect.py is
+            # renamed in v0.8.1.)
+            cleanup = asyncio.ensure_future(workflow_context.connectors.aclose())
+            await asyncio.shield(cleanup)
 
     # Return the decorated flow function
     return workflow_flow

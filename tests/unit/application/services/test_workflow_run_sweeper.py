@@ -50,7 +50,9 @@ class TestSweepStalledRuns:
         repo.update_run_status.assert_awaited_once()
         call = repo.update_run_status.await_args
         assert call.args[0] == cold_start_run.id
-        assert call.args[1] == WorkflowConstants.RUN_STATUS_FAILED
+        # A stall is an operational event (worker died / loop blocked), recorded
+        # CRASHED — not FAILED, which is reserved for workflow logic raising.
+        assert call.args[1] == WorkflowConstants.RUN_STATUS_CRASHED
         assert "cold-start hang" in call.kwargs["error_message"]
         assert call.kwargs["completed_at"] is not None
         # duration_ms should be ~120000ms — let it be at least 100s worth
@@ -89,10 +91,15 @@ class TestSweepStalledRuns:
         assert count == 1
         assert repo.update_run_status.await_count == 2
 
-    async def test_threshold_passed_through_to_repo(self) -> None:
+    async def test_threshold_and_batch_cap_passed_through_to_repo(self) -> None:
         repo = make_mock_workflow_run_repo(list_stalled_runs=[])
         uow = make_mock_uow(workflow_run_repo=repo)
 
         await sweep_stalled_runs(uow, stale_threshold_seconds=42)
 
-        repo.list_stalled_runs.assert_awaited_once_with(stale_threshold_seconds=42)
+        # The sweep is batch-capped per cycle so a large backlog can't make one
+        # tick unbounded.
+        repo.list_stalled_runs.assert_awaited_once_with(
+            stale_threshold_seconds=42,
+            limit=WorkflowConstants.SWEEP_MAX_BATCH,
+        )

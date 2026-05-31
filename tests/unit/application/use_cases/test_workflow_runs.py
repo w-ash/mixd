@@ -440,7 +440,12 @@ class TestExecuteWorkflowRunUseCase:
         assert len(result.error_message) == WorkflowConstants.ERROR_MESSAGE_MAX_LENGTH
 
     async def test_execute_handles_cancelled_error(self) -> None:
-        """CancelledError → FAILED with CANCELLED_BY_SERVER_MESSAGE, then re-raised."""
+        """CancelledError (worker death/reload) → CRASHED, not FAILED, then re-raised.
+
+        CancelledError means the worker was killed out from under the run — an
+        operational event — so it records CRASHED (distinct from FAILED, which is
+        reserved for the workflow's own logic raising).
+        """
         workflow_def = make_workflow_def()
         mock_updater = AsyncMock()
         use_case = ExecuteWorkflowRunUseCase(
@@ -452,12 +457,12 @@ class TestExecuteWorkflowRunUseCase:
             with pytest.raises(CancelledError):
                 await use_case.execute(workflow_def, run_id=12)
 
-        # Status updater called: RUNNING, then FAILED with cancellation message
+        # Status updater called: RUNNING, then CRASHED with cancellation message
         assert mock_updater.call_count == 2
-        failed_call = mock_updater.call_args_list[1]
-        assert failed_call.args[1] == WorkflowConstants.RUN_STATUS_FAILED
+        crashed_call = mock_updater.call_args_list[1]
+        assert crashed_call.args[1] == WorkflowConstants.RUN_STATUS_CRASHED
         assert (
-            failed_call.kwargs["error_message"]
+            crashed_call.kwargs["error_message"]
             == WorkflowConstants.CANCELLED_BY_SERVER_MESSAGE
         )
 

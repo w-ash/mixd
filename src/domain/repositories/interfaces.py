@@ -1243,9 +1243,12 @@ class WorkflowRunRepositoryProtocol(Protocol):
         ...
 
     def list_stalled_runs(
-        self, *, stale_threshold_seconds: int
+        self, *, stale_threshold_seconds: int, limit: int | None = None
     ) -> Awaitable[list[WorkflowRun]]:
-        """Return ``status='running'`` runs whose heartbeat is older than the threshold."""
+        """Return ``status='running'`` runs whose heartbeat is older than the threshold.
+
+        ``limit`` caps the rows returned (oldest-first) so one sweep stays bounded.
+        """
         ...
 
     def save_node_record(self, node: WorkflowRunNode) -> Awaitable[WorkflowRunNode]:

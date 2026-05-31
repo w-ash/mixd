@@ -208,10 +208,15 @@ export function useWorkflowSSE(
     );
 
     if (isTerminalSnapshot(snapshot)) {
-      // Sweeper-marked-failed runs surface here when the SSE terminal
-      // event was lost (the heartbeat sweeper marked the row failed
-      // server-side after 60 s of silence).
-      if (snapshot.status === "failed" || snapshot.status === "cancelled") {
+      // Sweeper-marked runs surface here when the SSE terminal event was
+      // lost: the heartbeat sweeper marks a silent row "crashed" server-side
+      // after the stale threshold. "failed" (logic error) and "cancelled"
+      // also resolve to a terminal error rather than a completion.
+      if (
+        snapshot.status === "failed" ||
+        snapshot.status === "crashed" ||
+        snapshot.status === "cancelled"
+      ) {
         fireTerminalError(snapshot.error_message ?? errorFallbackMessage);
       } else {
         fireTerminalComplete(snapshot.status, snapshot);

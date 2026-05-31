@@ -236,6 +236,8 @@ class DuplicateWorkflowUseCase:
     async def execute(
         self, command: DuplicateWorkflowCommand, uow: UnitOfWorkProtocol
     ) -> DuplicateWorkflowResult:
+        from src.application.workflows.validation import validate_workflow_def
+
         async with uow:
             repo = uow.get_workflow_repository()
             existing = await repo.get_workflow_by_id(
@@ -244,6 +246,10 @@ class DuplicateWorkflowUseCase:
             clone = _clone_definition(
                 existing.definition, name=f"{existing.definition.name} (copy)"
             )
+            # Validate like Instantiate/Create/Update — never persist a copy the
+            # other write paths would reject (e.g. a source whose definition
+            # predates a tightened rule).
+            validate_workflow_def(clone)
             workflow = Workflow(user_id=command.user_id, definition=clone)
             saved = await repo.save_workflow(workflow)
             return DuplicateWorkflowResult(workflow=saved)

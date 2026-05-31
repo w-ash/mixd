@@ -3,7 +3,7 @@
  * Do not edit manually.
  * Mixd
  * Personal music metadata hub
- * OpenAPI spec version: 0.7.8.20
+ * OpenAPI spec version: 0.8.0
  */
 
 export type LastRunSchemaStatus = typeof LastRunSchemaStatus[keyof typeof LastRunSchemaStatus];
@@ -15,4 +15,5 @@ export const LastRunSchemaStatus = {
   completed: 'completed',
   failed: 'failed',
   cancelled: 'cancelled',
+  crashed: 'crashed',
 } as const;
