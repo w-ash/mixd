@@ -48,7 +48,6 @@ class TestDefaultsPassConstraints:
     def test_logging_config_defaults(self):
         config = LoggingConfig()
         assert config.console_level == "INFO"
-        assert config.prefect_log_level == "DEBUG"
 
     def test_freshness_config_defaults(self):
         config = FreshnessConfig()
@@ -261,15 +260,9 @@ class TestLogLevelValidation:
         with pytest.raises(ValidationError):
             LoggingConfig(console_level="SUCCESS")
 
-    def test_trace_rejected_for_prefect(self):
-        """TRACE is not a valid stdlib level."""
-        with pytest.raises(ValidationError):
-            LoggingConfig(prefect_log_level="TRACE")
-
-    def test_valid_stdlib_levels_for_prefect(self):
-        for level in ("DEBUG", "INFO", "WARNING", "ERROR", "CRITICAL"):
-            config = LoggingConfig(prefect_log_level=level)
-            assert config.prefect_log_level == level
+    def test_prefect_log_level_field_removed(self):
+        """The Prefect log-level knob is gone post-swap — no dead config remains."""
+        assert "prefect_log_level" not in LoggingConfig.model_fields
 
 
 class TestEnvIgnoreEmpty:

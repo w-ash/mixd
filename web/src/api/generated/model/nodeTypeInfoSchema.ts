@@ -3,7 +3,7 @@
  * Do not edit manually.
  * Mixd
  * Personal music metadata hub
- * OpenAPI spec version: 0.8.0
+ * OpenAPI spec version: 0.8.1
  */
 import type { ConfigFieldSchema } from './configFieldSchema';
 

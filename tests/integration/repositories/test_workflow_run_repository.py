@@ -16,7 +16,7 @@ from src.domain.entities.workflow import (
     WorkflowRunNode,
     WorkflowTaskDef,
 )
-from src.domain.exceptions import NotFoundError
+from src.domain.exceptions import NotFoundError, WorkflowAlreadyRunningError
 from src.infrastructure.persistence.repositories.workflow.core import WorkflowRepository
 from src.infrastructure.persistence.repositories.workflow.runs import (
     WorkflowRunRepository,
@@ -140,17 +140,20 @@ class TestWorkflowRunCRUD:
         saved = await repo.create_run(_make_run(workflow.id))
         await repo.update_run_status(saved.id, "running", started_at=datetime.now(UTC))
 
-        # First terminal write wins.
-        await repo.update_run_status(
+        # First terminal write wins → reports True (transitioned a row).
+        won = await repo.update_run_status(
             saved.id, "completed", duration_ms=1500, output_track_count=42
         )
-        # Second terminal write (e.g. the sweeper) must no-op, not raise.
-        await repo.update_run_status(
+        assert won is True
+        # Second terminal write (e.g. the sweeper) must no-op, not raise, and
+        # report False so counting callers don't over-report.
+        lost = await repo.update_run_status(
             saved.id,
             WorkflowConstants.RUN_STATUS_CRASHED,
             duration_ms=999,
             error_message="watchdog: heartbeat went silent",
         )
+        assert lost is False
 
         retrieved = await repo.get_run_by_id(saved.id)
         # Fields stay self-consistent with the first (winning) write.
@@ -190,6 +193,69 @@ class TestWorkflowRunCRUD:
 
         with pytest.raises(NotFoundError):
             await repo.get_run_by_id(uuid7())
+
+
+class TestActiveRunGuard:
+    """The uq_workflow_runs_active partial unique index enforces at most one
+    active (pending/running) run per workflow — the DB-backed concurrency guard.
+
+    Postgres checks the unique index against flushed-but-uncommitted rows within
+    the same transaction, so these sequential creates exercise the same conflict
+    a real cross-instance race would hit, without needing separate connections.
+    """
+
+    async def test_second_active_run_rejected(self, db_session) -> None:
+        """A second pending run for the same workflow trips the guard."""
+        workflow = await _create_workflow(db_session)
+        repo = WorkflowRunRepository(db_session)
+
+        await repo.create_run(_make_run(workflow.id))
+
+        with pytest.raises(WorkflowAlreadyRunningError) as excinfo:
+            await repo.create_run(_make_run(workflow.id))
+        assert excinfo.value.workflow_id == str(workflow.id)
+
+    async def test_running_run_also_blocks(self, db_session) -> None:
+        """The guard covers 'running', not just 'pending'."""
+        workflow = await _create_workflow(db_session)
+        repo = WorkflowRunRepository(db_session)
+
+        first = await repo.create_run(_make_run(workflow.id))
+        await repo.update_run_status(first.id, "running", started_at=datetime.now(UTC))
+
+        with pytest.raises(WorkflowAlreadyRunningError):
+            await repo.create_run(_make_run(workflow.id))
+
+    async def test_terminal_status_frees_the_slot(self, db_session) -> None:
+        """Once the active run reaches a terminal status it leaves the partial
+        index, so a fresh run for the same workflow can be created."""
+        workflow = await _create_workflow(db_session)
+        repo = WorkflowRunRepository(db_session)
+
+        first = await repo.create_run(_make_run(workflow.id))
+        await repo.update_run_status(
+            first.id, "completed", completed_at=datetime.now(UTC)
+        )
+
+        # Slot freed — second create succeeds.
+        second = await repo.create_run(_make_run(workflow.id))
+        assert second.id != first.id
+
+    async def test_different_workflows_run_concurrently(self, db_session) -> None:
+        """The guard is per-workflow: distinct workflows are unaffected."""
+        wf_repo = WorkflowRepository(db_session)
+        repo = WorkflowRunRepository(db_session)
+        wf1 = await wf_repo.save_workflow(
+            Workflow(user_id="default", definition=_make_def("wf1", "WF1"))
+        )
+        wf2 = await wf_repo.save_workflow(
+            Workflow(user_id="default", definition=_make_def("wf2", "WF2"))
+        )
+
+        run1 = await repo.create_run(_make_run(wf1.id))
+        run2 = await repo.create_run(_make_run(wf2.id))
+        assert run1.workflow_id == wf1.id
+        assert run2.workflow_id == wf2.id
 
 
 class TestWorkflowRunNodeStatus:
@@ -266,8 +332,10 @@ class TestWorkflowRunPagination:
         workflow = await _create_workflow(db_session)
         repo = WorkflowRunRepository(db_session)
 
+        # Terminal runs: a workflow accumulates many completed runs over its
+        # life. (Multiple *active* runs are forbidden by uq_workflow_runs_active.)
         for _ in range(3):
-            await repo.create_run(_make_run(workflow.id))
+            await repo.create_run(_make_run(workflow.id, status="completed"))
 
         runs, total = await repo.get_runs_for_workflow(workflow.id)
         assert total == 3
@@ -280,7 +348,7 @@ class TestWorkflowRunPagination:
         repo = WorkflowRunRepository(db_session)
 
         for _ in range(5):
-            await repo.create_run(_make_run(workflow.id))
+            await repo.create_run(_make_run(workflow.id, status="completed"))
 
         page1, total = await repo.get_runs_for_workflow(workflow.id, limit=2, offset=0)
         assert total == 5
@@ -310,8 +378,8 @@ class TestLatestRunQueries:
         workflow = await _create_workflow(db_session)
         repo = WorkflowRunRepository(db_session)
 
-        await repo.create_run(_make_run(workflow.id))
-        latest_run = await repo.create_run(_make_run(workflow.id))
+        await repo.create_run(_make_run(workflow.id, status="completed"))
+        latest_run = await repo.create_run(_make_run(workflow.id, status="completed"))
 
         result = await repo.get_latest_run_for_workflow(workflow.id)
         assert result is not None
@@ -335,10 +403,10 @@ class TestLatestRunQueries:
             Workflow(user_id="default", definition=_make_def("wf2", "WF2"))
         )
 
-        await repo.create_run(_make_run(wf1.id))
-        wf1_latest = await repo.create_run(_make_run(wf1.id))
+        await repo.create_run(_make_run(wf1.id, status="completed"))
+        wf1_latest = await repo.create_run(_make_run(wf1.id, status="completed"))
 
-        wf2_latest = await repo.create_run(_make_run(wf2.id))
+        wf2_latest = await repo.create_run(_make_run(wf2.id, status="completed"))
 
         result = await repo.get_latest_runs_for_workflows([wf1.id, wf2.id])
         assert len(result) == 2
@@ -423,11 +491,20 @@ class TestHeartbeatAndStaleSweep:
     ) -> None:
         from datetime import timedelta
 
-        workflow = await _create_workflow(db_session)
         repo = WorkflowRunRepository(db_session)
+        # Two distinct workflows — only one active run per workflow is allowed
+        # (uq_workflow_runs_active), so the two concurrently-running stalled runs
+        # must belong to different workflows.
+        wf_repo = WorkflowRepository(db_session)
+        wf_cold = await wf_repo.save_workflow(
+            Workflow(user_id="default", definition=_make_def("cold", "Cold"))
+        )
+        wf_silent = await wf_repo.save_workflow(
+            Workflow(user_id="default", definition=_make_def("silent", "Silent"))
+        )
 
         # Cold-start: started 5min ago, heartbeat NEVER set
-        cold = await repo.create_run(_make_run(workflow.id, status="running"))
+        cold = await repo.create_run(_make_run(wf_cold.id, status="running"))
         await repo.update_run_status(
             cold.id,
             "running",
@@ -435,7 +512,7 @@ class TestHeartbeatAndStaleSweep:
         )
 
         # Silent: started 10min ago, heartbeat is also stale
-        silent = await repo.create_run(_make_run(workflow.id, status="running"))
+        silent = await repo.create_run(_make_run(wf_silent.id, status="running"))
         await repo.update_run_status(
             silent.id,
             "running",

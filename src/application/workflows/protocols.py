@@ -226,11 +226,14 @@ class RunStatusUpdater(Protocol):
     """Typed contract for run-level status updates.
 
     Concrete impls live in the interface layer, injected at the call site.
+    Returns ``True`` if a row was transitioned, ``False`` if a guarded terminal
+    write no-op'd (already terminal). Most callers ignore the result; the
+    sweeper uses it to count only real transitions.
     """
 
     async def __call__(
         self, run_id: UUID, status: RunStatus, **kwargs: Unpack[RunStatusKwargs]
-    ) -> None: ...
+    ) -> bool: ...
 
 
 class NodeStatusUpdater(Protocol):

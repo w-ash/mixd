@@ -25,10 +25,9 @@ from src.application.use_cases.workflow_runs import (
     RunWorkflowUseCase,
     serialize_output_tracks,
 )
-from src.application.workflows.run_guard import WorkflowAlreadyRunningError
 from src.config.constants import WorkflowConstants
 from src.domain.entities.workflow import WorkflowRun
-from src.domain.exceptions import NotFoundError
+from src.domain.exceptions import NotFoundError, WorkflowAlreadyRunningError
 from tests.fixtures import make_mock_uow, make_tracks, make_workflow, make_workflow_def
 
 
@@ -45,11 +44,11 @@ def _patch_execute_deps(*, mock_run_return=None, observer_persist_failures=0):
         patch("src.application.use_cases.workflow_runs.logger") as mock_logger,
         patch("src.application.services.progress_manager.get_progress_manager"),
         patch(
-            "src.application.workflows.observers.RunHistoryObserver",
+            "src.application.workflows.engine.observers.RunHistoryObserver",
             return_value=mock_observer,
         ),
         patch(
-            "src.application.workflows.prefect.run_workflow",
+            "src.application.workflows.engine.executor.run_workflow",
             new_callable=AsyncMock,
         ) as mock_run,
     ):
@@ -83,14 +82,9 @@ class TestRunWorkflowUseCase:
         wf_repo.get_workflow_by_id.return_value = workflow
         uow = make_mock_uow(workflow_repo=wf_repo, workflow_run_repo=run_repo)
 
-        with patch(
-            "src.application.use_cases.workflow_runs.is_workflow_running",
-            new_callable=AsyncMock,
-            return_value=False,
-        ):
-            result = await RunWorkflowUseCase().execute(
-                RunWorkflowCommand(user_id="test-user", workflow_id=1), uow
-            )
+        result = await RunWorkflowUseCase().execute(
+            RunWorkflowCommand(user_id="test-user", workflow_id=1), uow
+        )
 
         assert result.run_id == 42
         assert result.workflow is workflow
@@ -117,32 +111,24 @@ class TestRunWorkflowUseCase:
         wf_repo.get_workflow_by_id.return_value = workflow
         uow = make_mock_uow(workflow_repo=wf_repo, workflow_run_repo=run_repo)
 
-        with patch(
-            "src.application.use_cases.workflow_runs.is_workflow_running",
-            new_callable=AsyncMock,
-            return_value=False,
-        ):
-            result = await RunWorkflowUseCase().execute(
-                RunWorkflowCommand(user_id="test-user", workflow_id=1), uow
-            )
+        result = await RunWorkflowUseCase().execute(
+            RunWorkflowCommand(user_id="test-user", workflow_id=1), uow
+        )
 
         assert result.run_id == 42
         created_run = run_repo.create_run.call_args[0][0]
         assert created_run.definition_version == 7
 
     async def test_rejects_already_running(self, workflow) -> None:
+        """A concurrent active run trips the DB guard in create_run, which the
+        use case surfaces as WorkflowAlreadyRunningError (→ 409)."""
         wf_repo = AsyncMock()
         wf_repo.get_workflow_by_id.return_value = workflow
-        uow = make_mock_uow(workflow_repo=wf_repo)
+        run_repo = AsyncMock()
+        run_repo.create_run.side_effect = WorkflowAlreadyRunningError("1")
+        uow = make_mock_uow(workflow_repo=wf_repo, workflow_run_repo=run_repo)
 
-        with (
-            patch(
-                "src.application.use_cases.workflow_runs.is_workflow_running",
-                new_callable=AsyncMock,
-                return_value=True,
-            ),
-            pytest.raises(WorkflowAlreadyRunningError),
-        ):
+        with pytest.raises(WorkflowAlreadyRunningError):
             await RunWorkflowUseCase().execute(
                 RunWorkflowCommand(user_id="test-user", workflow_id=1), uow
             )
@@ -465,6 +451,31 @@ class TestExecuteWorkflowRunUseCase:
             crashed_call.kwargs["error_message"]
             == WorkflowConstants.CANCELLED_BY_SERVER_MESSAGE
         )
+
+    async def test_execute_records_workflow_cancelled_error_as_cancelled(self) -> None:
+        """WorkflowCancelledError (graceful shutdown) → CANCELLED.
+
+        A cooperative between-node shutdown raises WorkflowCancelledError, a plain
+        Exception. It must be caught before the generic ``except Exception`` and
+        recorded CANCELLED — an orderly operational stop, distinct from a real
+        asyncio CancelledError (→ CRASHED) or a logic failure (→ FAILED).
+        """
+        from src.application.workflows.engine.executor import WorkflowCancelledError
+
+        workflow_def = make_workflow_def()
+        mock_updater = AsyncMock()
+        use_case = ExecuteWorkflowRunUseCase(
+            update_run_status=mock_updater, update_node_status=AsyncMock()
+        )
+
+        with _patch_execute_deps() as (_logger, mock_run, _observer):
+            mock_run.side_effect = WorkflowCancelledError("Shutdown after 1/3 nodes")
+            result = await use_case.execute(workflow_def, run_id=13)
+
+        assert mock_updater.call_count == 2
+        cancelled_call = mock_updater.call_args_list[1]
+        assert cancelled_call.args[1] == WorkflowConstants.RUN_STATUS_CANCELLED
+        assert result.status == WorkflowConstants.RUN_STATUS_CANCELLED
 
     async def test_execute_logs_when_status_update_fails_on_exception(self) -> None:
         """If both run_workflow and update_run_status fail, result is still returned."""

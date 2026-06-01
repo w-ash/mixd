@@ -1,7 +1,8 @@
 """Unit tests for workflow preview (dry-run) use case.
 
-Tests PreviewWorkflowUseCase: happy path, invalid definition, dry_run flag
-propagation, and execution guard.
+Tests PreviewWorkflowUseCase: happy path, invalid definition, and dry_run flag
+propagation. Previews are not subject to the active-run concurrency guard
+(no run row, no external writes).
 """
 
 from contextlib import contextmanager
@@ -11,7 +12,6 @@ import pytest
 
 from src.application.use_cases.workflow_preview import PreviewWorkflowUseCase
 from src.application.use_cases.workflow_runs import serialize_output_tracks
-from src.application.workflows.run_guard import WorkflowAlreadyRunningError
 from src.config.constants import WorkflowConstants
 from tests.fixtures import make_tracks, make_workflow_def
 
@@ -26,18 +26,13 @@ def _patch_preview_deps(*, mock_run_return=None):
         patch("src.application.use_cases.workflow_preview.logger") as mock_logger,
         patch("src.application.services.progress_manager.get_progress_manager"),
         patch(
-            "src.application.workflows.observers.PreviewNodeObserver",
+            "src.application.workflows.engine.observers.PreviewNodeObserver",
             return_value=mock_observer,
         ),
         patch(
-            "src.application.workflows.prefect.run_workflow",
+            "src.application.workflows.engine.executor.run_workflow",
             new_callable=AsyncMock,
         ) as mock_run,
-        patch(
-            "src.application.use_cases.workflow_preview.is_workflow_running",
-            new_callable=AsyncMock,
-            return_value=False,
-        ),
     ):
         mock_ctx = MagicMock()
         mock_ctx.__enter__ = MagicMock(return_value=None)
@@ -101,20 +96,6 @@ class TestPreviewWorkflowUseCase:
 
         with pytest.raises(ValueError, match="no tasks"):
             await PreviewWorkflowUseCase().execute(empty_def)
-
-    async def test_execution_guard_rejects_concurrent(self) -> None:
-        """Preview respects the execution guard."""
-        workflow_def = make_workflow_def()
-
-        with (
-            patch(
-                "src.application.use_cases.workflow_preview.is_workflow_running",
-                new_callable=AsyncMock,
-                return_value=True,
-            ),
-            pytest.raises(WorkflowAlreadyRunningError),
-        ):
-            await PreviewWorkflowUseCase().execute(workflow_def)
 
     async def test_output_tracks_limited(self) -> None:
         """Output tracks are limited to PREVIEW_OUTPUT_LIMIT."""

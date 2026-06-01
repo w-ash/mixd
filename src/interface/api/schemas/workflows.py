@@ -10,7 +10,7 @@ from uuid import UUID
 
 from pydantic import BaseModel, ConfigDict
 
-from src.application.workflows.node_config_fields import ConfigFieldDef, FieldType
+from src.application.workflows.nodes.config_fields import ConfigFieldDef, FieldType
 from src.domain.entities.shared import JsonValue
 from src.domain.entities.workflow import (
     RunStatus,

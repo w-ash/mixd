@@ -1,8 +1,9 @@
-"""Stale workflow-run sweeper — marks orphaned ``running`` rows as ``failed``.
+"""Stale workflow-run sweeper — marks orphaned ``running`` rows as ``crashed``.
 
-Production runs can stall in three ways: (a) the orchestration runtime fails
-to begin task execution (Prefect ephemeral cold-start hang on a small VM),
-(b) the background coroutine is killed mid-flight (SIGINT during a deploy),
+Production runs can stall in three ways: (a) the execution coroutine fails
+before recording a terminal state (e.g. a wedged connector the per-node
+timeout can't interrupt), (b) the background coroutine is killed mid-flight
+(SIGINT during a deploy),
 (c) the event loop is blocked long enough that the heartbeat ticker can't
 fire. In all three the run row stays in ``status='running'`` indefinitely
 because the only writers are the runtime itself.
@@ -108,13 +109,23 @@ async def sweep_stalled_runs(
             rss_kb = _read_rss_kb()
 
             try:
-                await repo.update_run_status(
+                transitioned = await repo.update_run_status(
                     run.id,
                     WorkflowConstants.RUN_STATUS_CRASHED,
                     completed_at=now,
                     duration_ms=duration_ms,
                     error_message=reason,
                 )
+                if not transitioned:
+                    # The run reached a terminal state between list_stalled_runs
+                    # and this write (its own completion path won the race), so
+                    # the guarded UPDATE no-op'd. Don't count it as a crash.
+                    logger.info(
+                        "Stalled run already terminal — skipped",
+                        run_id=str(run.id),
+                        workflow_id=str(run.workflow_id),
+                    )
+                    continue
                 failed_count += 1
                 logger.warning(
                     "Marked stalled run as crashed",

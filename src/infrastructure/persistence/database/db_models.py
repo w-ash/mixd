@@ -839,6 +839,17 @@ class DBWorkflowRun(DatabaseModel, TimestampMixin):
     __table_args__: tuple[SchemaItem, ...] = (
         Index("ix_workflow_runs_workflow_id_started_at", "workflow_id", "started_at"),
         Index("ix_workflow_runs_status", "status"),
+        # At most one active (pending/running) run per workflow — the DB-backed
+        # concurrency guard. Mirrors migration 024; declared here because
+        # integration tests build the schema via metadata.create_all, bypassing
+        # the migration chain. The repository maps this constraint's
+        # IntegrityError to WorkflowAlreadyRunningError (409).
+        Index(
+            "uq_workflow_runs_active",
+            "workflow_id",
+            unique=True,
+            postgresql_where=text("status IN ('pending', 'running')"),
+        ),
     )
 
 

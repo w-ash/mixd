@@ -27,7 +27,7 @@ from sqlalchemy.exc import (
 )
 
 from src.config import get_logger
-from src.domain.exceptions import NotFoundError
+from src.domain.exceptions import DomainError, NotFoundError
 
 # Initialize logger
 logger = get_logger(__name__)
@@ -174,8 +174,11 @@ def db_operation(operation_name: str | None = None):
                 )
                 raise
 
-            except (ValueError, NotFoundError) as e:
-                # Handle domain value errors (e.g. "not found" from get_by_id)
+            except (ValueError, DomainError, NotFoundError) as e:
+                # Expected domain/business conditions (e.g. "not found" from
+                # get_by_id, or WorkflowAlreadyRunningError mapped from a
+                # constraint hit) — log at debug and re-raise. These are not
+                # crashes, so they must not reach the generic traceback branch.
                 exec_time = (time.perf_counter() - start_time) * 1000
                 logger.debug(
                     f"Domain value error: {repo_name}.{func_name}",

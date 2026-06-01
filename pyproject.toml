@@ -1,11 +1,11 @@
 [project]
 name = "mixd"
-version = "0.8.0"
+version = "0.8.1"
 description = "Music metadata integration and playlist management platform"
 authors = [{name = "Ash Wright", email = "a@ashwright.net"}]
 readme = "README.md"
 license = "AGPL-3.0-only"
-requires-python = ">=3.13,<3.15"
+requires-python = ">=3.14,<3.15"
 dependencies = [
     "sqlalchemy[asyncio]>=2.0.47",
     "alembic>=1.18.4",
@@ -16,7 +16,6 @@ dependencies = [
     "typer>=0.24.1",
     "attrs>=26.1.0",
     "tenacity>=9.1.4",
-    "prefect>=3.6.19",
     "griffe>=1.5",
     "psycopg[binary]>=3.2",
     "rapidfuzz>=3.14.3",
@@ -141,6 +140,8 @@ unfixable = []
 ]
 "tests/**/*.py" = [
     "S101",     # Allow assert in tests
+    "S404",     # Allow subprocess import in tests (isolation guards run fixed commands)
+    "S603",     # Allow subprocess calls in tests (input is sys.executable + literal code)
     "ARG001",   # Allow unused function arguments (fixtures, mocks)
     "ARG002",   # Allow unused method arguments (fixtures, mocks)
     "RUF029",   # Allow async functions without await (test setup functions)
@@ -321,8 +322,6 @@ ignore_decorators = [
     "@*_app.command",      # Typer CLI sub-app commands (track_app, etc.)
     "@app.callback",       # Typer CLI callbacks
     "@app.exception_handler",  # FastAPI exception handlers
-    "@task",               # Prefect tasks
-    "@flow",               # Prefect flows
     "@field_validator",    # Pydantic field validators
     "@model_validator",    # Pydantic model validators
     "@computed_field",     # Pydantic computed fields

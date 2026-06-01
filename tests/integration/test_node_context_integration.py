@@ -85,7 +85,7 @@ class TestNodeContextIntegration:
 
     async def test_node_context_extraction(self):
         """Test that node context extraction works with real context."""
-        from src.application.workflows.node_context import NodeContext
+        from src.application.workflows.nodes.execution_context import NodeContext
 
         # Create test context like Prefect would provide
         test_tracklist = TrackList(

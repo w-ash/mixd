@@ -81,8 +81,8 @@ class TestSweepStalledRuns:
         good = _running_run(heartbeat_at=None, started_at=now - timedelta(seconds=120))
 
         repo = make_mock_workflow_run_repo(list_stalled_runs=[bad, good])
-        # First update fails; second succeeds.
-        repo.update_run_status.side_effect = [RuntimeError("DB blip"), None]
+        # First update raises; second transitions a row (returns True).
+        repo.update_run_status.side_effect = [RuntimeError("DB blip"), True]
         uow = make_mock_uow(workflow_run_repo=repo)
 
         count = await sweep_stalled_runs(uow, stale_threshold_seconds=60)
@@ -90,6 +90,27 @@ class TestSweepStalledRuns:
         # Only one row succeeded, but the loop kept going.
         assert count == 1
         assert repo.update_run_status.await_count == 2
+
+    async def test_already_terminal_run_not_counted(self) -> None:
+        """A run that won the race to terminal between list_stalled_runs and the
+        write makes the guarded UPDATE no-op (returns False). It must not inflate
+        the crash count — the sweeper only counts rows it actually transitioned.
+        """
+        now = datetime.now(UTC)
+        raced = _running_run(heartbeat_at=None, started_at=now - timedelta(seconds=120))
+        transitioned = _running_run(
+            heartbeat_at=None, started_at=now - timedelta(seconds=120)
+        )
+        repo = make_mock_workflow_run_repo(list_stalled_runs=[raced, transitioned])
+        # First write lost the race (no-op → False); second genuinely transitioned.
+        repo.update_run_status.side_effect = [False, True]
+        uow = make_mock_uow(workflow_run_repo=repo)
+
+        count = await sweep_stalled_runs(uow, stale_threshold_seconds=60)
+
+        # Both writes were attempted, but only the real transition is counted.
+        assert repo.update_run_status.await_count == 2
+        assert count == 1
 
     async def test_threshold_and_batch_cap_passed_through_to_repo(self) -> None:
         repo = make_mock_workflow_run_repo(list_stalled_runs=[])

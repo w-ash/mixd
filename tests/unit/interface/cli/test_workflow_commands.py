@@ -118,6 +118,22 @@ class TestWorkflowResolve:
         assert result is None
 
 
+def _run_async_sequence(*values):
+    """side_effect for run_async that returns each value in turn.
+
+    The `run` command calls run_async twice: first to list workflows, then to
+    execute the resolved one. Closes each coroutine to avoid never-awaited
+    warnings (mirrors fake_run_async).
+    """
+    seq = iter(values)
+
+    def _closer(coro):
+        coro.close()
+        return next(seq)
+
+    return _closer
+
+
 class TestWorkflowRun:
     def test_run_unknown_workflow_exits_with_error(self):
         with patch(
@@ -128,6 +144,54 @@ class TestWorkflowRun:
 
             assert result.exit_code == 1
             assert "not found" in result.output
+
+    def test_run_cancelled_shows_cancelled_panel_and_exits_zero(self):
+        """A graceful shutdown (WorkflowCancelledError) surfaces as the use
+        case's `cancelled` result — the CLI shows a Cancelled panel and exits 0
+        (an orderly stop, not a failure). Regression guard for the old inline
+        path that recorded graceful shutdown as `failed`.
+        """
+        from uuid import uuid7
+
+        from src.application.use_cases.workflow_runs import ExecuteWorkflowRunResult
+        from src.config.constants import WorkflowConstants
+
+        cancelled = ExecuteWorkflowRunResult(
+            status=WorkflowConstants.RUN_STATUS_CANCELLED,
+            run_id=uuid7(),
+            duration_ms=12,
+            error_message="Cancelled by server during shutdown",
+        )
+        with patch(
+            "src.interface.cli.workflow_commands.run_async",
+            side_effect=_run_async_sequence(_TEMPLATES, cancelled),
+        ):
+            result = runner.invoke(app, ["workflow", "run", "hidden_gems"])
+
+        assert result.exit_code == 0
+        assert "Cancelled" in result.output
+
+    def test_run_failed_exits_with_error(self):
+        """A workflow that records `failed` exits non-zero."""
+        from uuid import uuid7
+
+        from src.application.use_cases.workflow_runs import ExecuteWorkflowRunResult
+        from src.config.constants import WorkflowConstants
+
+        failed = ExecuteWorkflowRunResult(
+            status=WorkflowConstants.RUN_STATUS_FAILED,
+            run_id=uuid7(),
+            duration_ms=8,
+            error_message="connector exploded",
+        )
+        with patch(
+            "src.interface.cli.workflow_commands.run_async",
+            side_effect=_run_async_sequence(_TEMPLATES, failed),
+        ):
+            result = runner.invoke(app, ["workflow", "run", "hidden_gems"])
+
+        assert result.exit_code == 1
+        assert "Failed" in result.output
 
 
 class TestWorkflowExport:

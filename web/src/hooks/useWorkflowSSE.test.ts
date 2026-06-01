@@ -187,6 +187,66 @@ describe("useWorkflowSSE", () => {
     });
   });
 
+  it("treats a crashed final_status on the error channel as an error", async () => {
+    const onError = vi.fn();
+
+    mockSSEWithEvents([
+      {
+        event: "error",
+        data: JSON.stringify({
+          final_status: "crashed",
+          error_message: "worker died",
+        }),
+      },
+    ]);
+
+    const { result } = renderHook(() => useWorkflowSSE({ onError }), {
+      wrapper: createWrapper(),
+    });
+
+    act(() => {
+      result.current.start("op-crashed");
+    });
+
+    await waitFor(() => {
+      expect(result.current.error?.message).toBe("worker died");
+      expect(result.current.isRunning).toBe(false);
+      expect(onError).toHaveBeenCalledOnce();
+    });
+  });
+
+  it("treats a cancelled final_status as a graceful terminal, not an error", async () => {
+    const onComplete = vi.fn();
+    const onError = vi.fn();
+
+    mockSSEWithEvents([
+      {
+        event: "error",
+        data: JSON.stringify({
+          final_status: "cancelled",
+          error_message: "Cancelled by server",
+        }),
+      },
+    ]);
+
+    const { result } = renderHook(
+      () => useWorkflowSSE({ onComplete, onError }),
+      { wrapper: createWrapper() },
+    );
+
+    act(() => {
+      result.current.start("op-cancelled");
+    });
+
+    await waitFor(() => {
+      expect(result.current.isRunning).toBe(false);
+      expect(onComplete).toHaveBeenCalledWith("cancelled", expect.anything());
+    });
+    // A graceful cancellation must not surface as an error.
+    expect(result.current.error).toBeNull();
+    expect(onError).not.toHaveBeenCalled();
+  });
+
   it("uses custom errorFallbackMessage when error_message missing", async () => {
     mockSSEWithEvents([
       {

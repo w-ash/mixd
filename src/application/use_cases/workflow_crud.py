@@ -150,7 +150,9 @@ class CreateWorkflowUseCase:
     async def execute(
         self, command: CreateWorkflowCommand, uow: UnitOfWorkProtocol
     ) -> CreateWorkflowResult:
-        from src.application.workflows.validation import validate_workflow_def
+        from src.application.workflows.definition.validation import (
+            validate_workflow_def,
+        )
 
         validate_workflow_def(command.definition)
 
@@ -193,7 +195,9 @@ class InstantiateWorkflowUseCase:
     async def execute(
         self, command: InstantiateWorkflowCommand, uow: UnitOfWorkProtocol
     ) -> InstantiateWorkflowResult:
-        from src.application.workflows.validation import validate_workflow_def
+        from src.application.workflows.definition.validation import (
+            validate_workflow_def,
+        )
 
         definition = _clone_definition(command.definition, name=None)
         validate_workflow_def(definition)
@@ -236,7 +240,9 @@ class DuplicateWorkflowUseCase:
     async def execute(
         self, command: DuplicateWorkflowCommand, uow: UnitOfWorkProtocol
     ) -> DuplicateWorkflowResult:
-        from src.application.workflows.validation import validate_workflow_def
+        from src.application.workflows.definition.validation import (
+            validate_workflow_def,
+        )
 
         async with uow:
             repo = uow.get_workflow_repository()
@@ -277,7 +283,9 @@ class UpdateWorkflowUseCase:
     async def execute(
         self, command: UpdateWorkflowCommand, uow: UnitOfWorkProtocol
     ) -> UpdateWorkflowResult:
-        from src.application.workflows.validation import validate_workflow_def
+        from src.application.workflows.definition.validation import (
+            validate_workflow_def,
+        )
 
         async with uow:
             repo = uow.get_workflow_repository()

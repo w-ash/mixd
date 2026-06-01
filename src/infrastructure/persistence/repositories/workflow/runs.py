@@ -4,16 +4,18 @@
 # Legitimate: CursorResult.rowcount is valid but invisible to pyright through generic Result[Any]
 
 from datetime import UTC, datetime, timedelta
+from typing import cast
 from uuid import UUID
 
 from sqlalchemy import func, or_, select, update
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
 from src.config import get_logger
 from src.config.constants import WorkflowConstants
 from src.domain.entities.workflow import RunStatus, WorkflowRun, WorkflowRunNode
-from src.domain.exceptions import NotFoundError
+from src.domain.exceptions import NotFoundError, WorkflowAlreadyRunningError
 from src.infrastructure.persistence.database.db_models import (
     DBWorkflowRun,
     DBWorkflowRunNode,
@@ -25,6 +27,23 @@ from src.infrastructure.persistence.repositories.workflow.run_mapper import (
 
 logger = get_logger(__name__)
 
+_ACTIVE_RUN_CONSTRAINT = "uq_workflow_runs_active"
+
+
+def _is_active_run_conflict(exc: IntegrityError) -> bool:
+    """True if ``exc`` is the active-run partial unique index violation.
+
+    Matches by constraint name (psycopg ``diag.constraint_name``) and falls back
+    to a name-in-message check. Deliberately narrow so a different unique
+    conflict on the same table (e.g. ``operation_id``) is NOT misreported as a
+    concurrency conflict and still surfaces as a real integrity error.
+    """
+    diag = getattr(getattr(exc, "orig", None), "diag", None)
+    constraint: object = getattr(diag, "constraint_name", None)
+    if isinstance(constraint, str):
+        return constraint == _ACTIVE_RUN_CONSTRAINT
+    return _ACTIVE_RUN_CONSTRAINT in str(getattr(exc, "orig", None) or exc)
+
 
 class WorkflowRunRepository:
     """Manages workflow run persistence with node-level execution records."""
@@ -35,10 +54,22 @@ class WorkflowRunRepository:
 
     @db_operation("create_run")
     async def create_run(self, run: WorkflowRun) -> WorkflowRun:
-        """Persist a new workflow run with optional pre-created node records."""
+        """Persist a new workflow run with optional pre-created node records.
+
+        The first flush inserts the run row, where the ``uq_workflow_runs_active``
+        partial unique index enforces the one-active-run-per-workflow guard. A
+        collision there means a concurrent run already holds the slot (possibly
+        on another instance) → ``WorkflowAlreadyRunningError`` (409). Any other
+        integrity error re-raises unchanged.
+        """
         db_run = self.mapper.to_db(run)
         self.session.add(db_run)
-        await self.session.flush()
+        try:
+            await self.session.flush()
+        except IntegrityError as exc:
+            if _is_active_run_conflict(exc):
+                raise WorkflowAlreadyRunningError(str(run.workflow_id)) from exc
+            raise
 
         # Add node records if provided
         for node in run.nodes:
@@ -114,8 +145,14 @@ class WorkflowRunRepository:
         output_playlist_id: UUID | None = None,
         output_tracks: list[dict[str, object]] | None = None,
         error_message: str | None = None,
-    ) -> None:
-        """Update run status and optional completion fields."""
+    ) -> bool:
+        """Update run status and optional completion fields.
+
+        Returns ``True`` when a row was actually transitioned, ``False`` when a
+        guarded terminal write was a silent no-op (the row was already terminal —
+        a lost first-writer-wins race). Counting callers (the sweeper) use this
+        to avoid over-reporting; most callers ignore the return.
+        """
         values: dict[str, object] = {
             "status": status,
             "updated_at": datetime.now(UTC),
@@ -151,14 +188,17 @@ class WorkflowRunRepository:
             # A lost terminal race (row already terminal) and a missing row both
             # surface as rowcount==0 here; both are acceptable no-ops for a
             # terminal write, so do not raise — the run already has an outcome.
-            await self.session.execute(stmt.values(**values))
-            return
+            # Report whether this write won, so the sweeper counts only real
+            # transitions (rowcount==0 → False).
+            result = await self.session.execute(stmt.values(**values))
+            return cast("int", result.rowcount) > 0
 
         # Non-terminal write (e.g. pending → running): a missing row is a real
         # error, so keep the strict not-found semantics.
         result = await self.session.execute(stmt.values(**values))
         if result.rowcount == 0:
             raise NotFoundError(f"Workflow run {run_id} not found")
+        return True
 
     @db_operation("save_node_record")
     async def save_node_record(self, node: WorkflowRunNode) -> WorkflowRunNode:

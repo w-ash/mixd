@@ -18,16 +18,13 @@ from attrs import define
 
 from src.application.utilities.timing import ExecutionTimer
 from src.application.workflows.protocols import NodeStatusUpdater, RunStatusUpdater
-from src.application.workflows.run_guard import (
-    WorkflowAlreadyRunningError,
-    is_workflow_running,
-)
 from src.config.constants import (
     BusinessLimits,
     WorkflowConstants,
     truncate_error_message,
 )
 from src.config.logging import get_logger, logging_context
+from src.domain.entities.operations import OperationResult
 from src.domain.entities.shared import MetricValue
 from src.domain.entities.track import Track
 from src.domain.entities.workflow import (
@@ -123,8 +120,10 @@ class RunWorkflowResult:
 class RunWorkflowUseCase:
     """Creates a PENDING run record with pre-created node records.
 
-    Checks the execution guard first (409 if already running).
-    Returns the run_id so the API layer can launch the background task.
+    Inserting the pending row enforces the concurrency guard at the DB
+    (``uq_workflow_runs_active`` → ``WorkflowAlreadyRunningError`` → 409 if a run
+    is already active for this workflow). Returns the run_id so the API layer can
+    launch the background task.
     """
 
     async def execute(
@@ -136,9 +135,11 @@ class RunWorkflowUseCase:
                 command.workflow_id, user_id=command.user_id
             )
 
-            # Check execution guard
-            if await is_workflow_running(workflow.definition.id):
-                raise WorkflowAlreadyRunningError(workflow.definition.id)
+            # Concurrency guard is enforced at the DB: inserting the pending run
+            # below trips the uq_workflow_runs_active partial unique index if a
+            # run is already active for this workflow, raising
+            # WorkflowAlreadyRunningError (→ 409). Keyed on the workflow row id,
+            # so it holds across instances in a multi-machine deploy.
 
             # Build pending run with node records for every task
             definition_snapshot = workflow.definition
@@ -294,6 +295,10 @@ class ExecuteWorkflowRunResult:
     duration_ms: int
     output_track_count: int | None = None
     error_message: str | None = None
+    # The executor's full result (tracks + metrics), present only on the success
+    # path. Lets the CLI render its track table from one unified return value
+    # without a second query — the API path ignores it (it streams via SSE).
+    operation_result: OperationResult | None = None
 
 
 @define(slots=True)
@@ -316,8 +321,11 @@ class ExecuteWorkflowRunUseCase:
         user_id: str = BusinessLimits.DEFAULT_USER_ID,
     ) -> ExecuteWorkflowRunResult:
         from src.application.services.progress_manager import get_progress_manager
-        from src.application.workflows.observers import RunHistoryObserver
-        from src.application.workflows.prefect import run_workflow
+        from src.application.workflows.engine.executor import (
+            WorkflowCancelledError,
+            run_workflow,
+        )
+        from src.application.workflows.engine.observers import RunHistoryObserver
 
         timer = ExecutionTimer()
 
@@ -341,14 +349,14 @@ class ExecuteWorkflowRunUseCase:
                     update_node_status=self.update_node_status,
                     sse_queue=sse_queue,
                 )
-                logger.info("Calling run_workflow @flow", run_id=str(run_id))
+                logger.info("Calling run_workflow", run_id=str(run_id))
                 result = await run_workflow(
                     workflow_def,
                     progress_manager=progress_manager,
                     observer=observer,
                     user_id=user_id,
                 )
-                logger.info("run_workflow @flow returned", run_id=str(run_id))
+                logger.info("run_workflow returned", run_id=str(run_id))
 
                 # 3. Check for observer degradation (DB persistence failures)
                 if observer.persist_failure_count > 0:
@@ -378,6 +386,7 @@ class ExecuteWorkflowRunUseCase:
                     run_id=run_id,
                     duration_ms=duration_ms,
                     output_track_count=output_track_count,
+                    operation_result=result,
                 )
 
             except CancelledError:
@@ -404,6 +413,35 @@ class ExecuteWorkflowRunUseCase:
                     )
 
                 raise  # Re-raise so caller can handle SSE cleanup
+
+            except WorkflowCancelledError as exc:
+                # Cooperative graceful shutdown between nodes (e.g. SIGTERM drain
+                # on deploy/autoscale). An orderly operational stop, not a broken
+                # pipeline — record CANCELLED so users (and the sweeper) can tell
+                # it apart from `failed`/`crashed`.
+                duration_ms = timer.stop()
+                error_msg = truncate_error_message(
+                    str(exc), WorkflowConstants.ERROR_MESSAGE_MAX_LENGTH
+                )
+                try:
+                    await self.update_run_status(
+                        run_id,
+                        WorkflowConstants.RUN_STATUS_CANCELLED,
+                        completed_at=datetime.now(UTC),
+                        duration_ms=duration_ms,
+                        error_message=error_msg,
+                    )
+                except Exception:
+                    logger.error(
+                        "Failed to update run status to CANCELLED",
+                        exc_info=True,
+                    )
+                return ExecuteWorkflowRunResult(
+                    status=WorkflowConstants.RUN_STATUS_CANCELLED,
+                    run_id=run_id,
+                    duration_ms=duration_ms,
+                    error_message=error_msg,
+                )
 
             except Exception as exc:
                 logger.error("Workflow execution failed", exc_info=True)

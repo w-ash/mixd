@@ -12,7 +12,7 @@ from src.config.constants import BusinessLimits
 from src.domain.repositories import UnitOfWorkProtocol
 
 # Approved infrastructure bridge: context.py is a DI container (like runner.py and
-# prefect.py). Infrastructure imports for session creation and SQLAlchemy AsyncSession
+# executor.py). Infrastructure imports for session creation and SQLAlchemy AsyncSession
 # are intentional wiring — this is the designated integration point for workflow DI.
 from src.infrastructure.connectors.protocols import ConnectorConfig
 from src.infrastructure.persistence.database.db_connection import get_session

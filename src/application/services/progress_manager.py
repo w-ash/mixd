@@ -235,10 +235,10 @@ class AsyncProgressManager:
         gather(return_exceptions=True) instead of TaskGroup: subscriber
         failures must NEVER propagate to the publishing operation.
         TaskGroup propagates BaseException (including CancelledError from
-        Prefect cancel scopes), violating the isolation contract.
+        an enclosing cancel scope), violating the isolation contract.
 
-        CancelledError at the gather() site (injected by Prefect cancel scope
-        or uvicorn reload) is caught and cleared via task.uncancel() —
+        CancelledError at the gather() site (injected by an enclosing cancel
+        scope or uvicorn reload) is caught and cleared via task.uncancel() —
         subscriber notification is fire-and-forget and must never kill the
         publishing workflow.
         """

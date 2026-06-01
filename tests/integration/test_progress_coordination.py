@@ -63,10 +63,11 @@ class TestProgressConsoleCoordination:
             # Test that structlog logs go through Progress.console
             test_logger.info("Test log message from Loguru")
 
-            # Test that intercepted Python logging goes through Progress.console
-            # Use a Prefect logger that we know gets intercepted
-            prefect_logger = logging.getLogger("prefect.test")
-            prefect_logger.info("Test log message from Prefect logging")
+            # Test that intercepted Python logging goes through Progress.console.
+            # Use a stdlib logger (e.g. uvicorn) that structlog's stdlib
+            # integration routes through the same handlers.
+            stdlib_logger = logging.getLogger("uvicorn.test")
+            stdlib_logger.info("Test log message from stdlib logging")
 
             # Give logging a moment to process
             import asyncio
@@ -74,7 +75,7 @@ class TestProgressConsoleCoordination:
             await asyncio.sleep(0.01)
 
             # Verify that at least the Loguru log was captured
-            # (Python logging interception is specifically for Prefect loggers)
+            # (Python logging interception covers stdlib loggers like uvicorn)
             assert len(captured_output) >= 1, (
                 f"Expected at least 1 captured message, got {len(captured_output)}"
             )
@@ -88,17 +89,17 @@ class TestProgressConsoleCoordination:
                 "Loguru message should route through Progress.console"
             )
 
-            # Check that Prefect message was captured (if interception is working)
-            prefect_captured = any(
-                "Test log message from Prefect logging" in str(args)
+            # Check that the stdlib message was captured (if interception is working)
+            stdlib_captured = any(
+                "Test log message from stdlib logging" in str(args)
                 for category, args, kwargs in captured_output
             )
 
-            # Note: Prefect logging interception may not work in test environment,
-            # so we just verify the primary Loguru routing is working
+            # Note: stdlib logging interception may not fire in the test
+            # environment, so we just verify the primary Loguru routing works.
             if len(captured_output) >= 2:
-                assert prefect_captured, (
-                    "Prefect logging should route through Progress.console when intercepted"
+                assert stdlib_captured, (
+                    "stdlib logging should route through Progress.console when intercepted"
                 )
 
         finally:

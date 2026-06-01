@@ -1,7 +1,7 @@
 """Typed workflow definition entities replacing untyped dict[str, Any].
 
 These frozen domain entities represent the structure of workflow JSON definitions.
-Used by validation, execution (Prefect), API schemas, and persistence layers.
+Used by validation, execution, API schemas, and persistence layers.
 """
 
 from collections.abc import Mapping, Sequence
@@ -34,6 +34,57 @@ class WorkflowTaskDef:
     config: Mapping[str, JsonValue] = field(factory=empty_json_map)
     upstream: list[str] = field(factory=list)
     result_key: str | None = None
+
+
+def compute_parallel_levels(
+    tasks: list[WorkflowTaskDef],
+) -> list[list[WorkflowTaskDef]]:
+    """Group tasks into parallel execution levels using BFS topological sort.
+
+    Level 0: tasks with no dependencies (can all run concurrently)
+    Level N: tasks whose ALL dependencies are in levels < N
+
+    Uses Kahn's algorithm — iteratively peels off zero-in-degree nodes. A pure
+    operation over the task DAG, so it lives in the domain beside the entity it
+    orders (any layer can compute levels without importing the executor).
+
+    Returns:
+        List of levels, each containing tasks that can execute in parallel.
+
+    Raises:
+        ValueError: If the task graph contains a cycle.
+    """
+    task_by_id = {t.id: t for t in tasks}
+
+    # Build adjacency list (parent → children) for efficient traversal
+    children: dict[str, list[str]] = {t.id: [] for t in tasks}
+    in_degree: dict[str, int] = {}
+    for t in tasks:
+        in_degree[t.id] = len(t.upstream)
+        for parent_id in t.upstream:
+            children[parent_id].append(t.id)
+
+    # Start with zero-dependency tasks
+    current_ids = [t.id for t in tasks if in_degree[t.id] == 0]
+    levels: list[list[WorkflowTaskDef]] = []
+    visited = 0
+
+    while current_ids:
+        levels.append([task_by_id[tid] for tid in current_ids])
+        visited += len(current_ids)
+        next_ids: list[str] = []
+        for tid in current_ids:
+            for child_id in children[tid]:
+                in_degree[child_id] -= 1
+                if in_degree[child_id] == 0:
+                    next_ids.append(child_id)
+        current_ids = next_ids
+
+    if visited != len(tasks):
+        unvisited = {t.id for t in tasks} - {t.id for level in levels for t in level}
+        raise ValueError(f"Cycle detected in workflow: {sorted(unvisited)}")
+
+    return levels
 
 
 @define(frozen=True, slots=True)

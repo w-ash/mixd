@@ -108,3 +108,6 @@ web/test-results/
 ###################
 var/
 data/
+
+# Local-only reflective notes — not part of the project source.
+docs/ontology/

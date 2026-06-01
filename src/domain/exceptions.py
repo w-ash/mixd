@@ -42,3 +42,18 @@ class ConfirmationRequiredError(DomainError):
         self.removals = removals
         self.total = total
         self.remaining = remaining
+
+
+class WorkflowAlreadyRunningError(DomainError):
+    """Raised when a workflow already has an active (pending/running) run.
+
+    Enforced at the database via the ``uq_workflow_runs_active`` partial unique
+    index: the run repository maps that constraint's ``IntegrityError`` to this
+    exception so the API can answer 409 across every instance in a multi-machine
+    deploy (an in-process guard could not). ``workflow_id`` is kept as a string
+    for the JSON error body.
+    """
+
+    def __init__(self, workflow_id: str) -> None:
+        super().__init__(f"Workflow '{workflow_id}' is already running")
+        self.workflow_id = workflow_id

@@ -2,7 +2,7 @@
 
 Provides centralized logging setup with dual output: colorized console for
 humans, flat JSON for file/agents/aggregation. Uses structlog in stdlib
-integration mode so Prefect, Uvicorn, and FastAPI logs flow through
+integration mode so Uvicorn and FastAPI logs flow through
 automatically — no bridge code needed.
 
 Public API:
@@ -59,7 +59,7 @@ def _shared_processors() -> list[structlog.types.Processor]:
 def setup_logging(verbose: bool = False) -> None:
     """Configure structlog with dual output: pretty console + flat JSON file.
 
-    Uses stdlib integration mode — all Python loggers (Prefect, Uvicorn, etc.)
+    Uses stdlib integration mode — all Python loggers (Uvicorn, etc.)
     flow through structlog's processor pipeline automatically.
 
     Args:
@@ -138,11 +138,6 @@ def setup_logging(verbose: bool = False) -> None:
     root.addHandler(console_handler)
     root.addHandler(file_handler)
     root.setLevel(logging.DEBUG)  # Let handlers filter by their own levels
-
-    # --- Prefect log levels (stdlib integration — no bridge needed) ---
-    logging.getLogger("prefect").setLevel(
-        logging.getLevelNamesMapping()[settings.logging.prefect_log_level]
-    )
 
     # Suppress noisy third-party loggers
     logging.getLogger("httpx").setLevel(logging.WARNING)

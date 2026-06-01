@@ -10,7 +10,7 @@ the existing row's definition is updated in place rather than duplicated.
 
 from attrs import evolve
 
-from src.application.workflows.workflow_loader import (
+from src.application.workflows.definition.loader import (
     get_definitions_dir,
     list_workflow_defs,
 )

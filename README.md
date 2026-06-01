@@ -61,9 +61,9 @@ CLI (Typer + Rich)  ─┐
 Web (React + FastAPI)┘                           ← PostgreSQL/SQLAlchemy (async)
 ```
 
-Workflows are declarative pipelines: **Source → Enrich → Filter → Sort → Select → Destination**. Tracks flow through nodes that compose freely. The pipeline engine (Prefect 3.0) handles orchestration, retry, and progress tracking.
+Workflows are declarative pipelines: **Source → Enrich → Filter → Sort → Select → Destination**. Tracks flow through nodes that compose freely. The pipeline engine — a stdlib-`asyncio` executor — runs each DAG level concurrently and tracks progress; retries live in the connector layer.
 
-**Stack**: Python 3.14, PostgreSQL + SQLAlchemy 2.0 async (psycopg3), Prefect 3.0, attrs, httpx, FastAPI, React 19, Vite 8, Biome, Tailwind CSS v4, Tanstack Query
+**Stack**: Python 3.14, PostgreSQL + SQLAlchemy 2.0 async (psycopg3), attrs, httpx, FastAPI, React 19, Vite 8, Biome, Tailwind CSS v4, Tanstack Query
 
 ## Quick Start
 

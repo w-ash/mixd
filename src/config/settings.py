@@ -5,7 +5,7 @@ environment variable loading and validation using Pydantic Settings v2.13+.
 
 The configuration is organized into logical groups:
 - DatabaseConfig: Database connection string
-- LoggingConfig: Console/file levels, rotation, Prefect integration
+- LoggingConfig: Console/file levels, rotation, stdlib log integration
 - CredentialsConfig: Spotify and Last.fm API keys and secrets
 - APIConfig: Rate limits, batch sizes, timeouts for external APIs
 - BatchConfig: Display truncation for log output
@@ -82,7 +82,7 @@ class DatabaseConfig(BaseModel):
 class LoggingConfig(BaseModel):
     """Logging configuration for console and file output.
 
-    Uses structlog in stdlib integration mode — Prefect/Uvicorn/FastAPI logs
+    Uses structlog in stdlib integration mode — Uvicorn/FastAPI logs
     flow through automatically. Console gets colorized output, file gets flat JSON.
     """
 
@@ -105,10 +105,6 @@ class LoggingConfig(BaseModel):
     retention: str = Field(
         default="1 week",
         description="How long rotated log files are kept (mapped to backup count).",
-    )
-    prefect_log_level: StdlibLogLevel = Field(
-        default="DEBUG",
-        description="Minimum level for Prefect framework logs (stdlib integration — no bridge needed).",
     )
 
 

@@ -288,7 +288,9 @@ def make_mock_workflow_run_repo(**overrides) -> AsyncMock:
     """Build an ``AsyncMock`` mimicking :class:`WorkflowRunRepositoryProtocol`."""
     repo = AsyncMock()
     repo.create_run.side_effect = overrides.pop("create_run", lambda r: r)
-    repo.update_run_status.return_value = overrides.pop("update_run_status", None)
+    # update_run_status returns bool: True = a row was transitioned (default),
+    # False = a guarded terminal write no-op'd (already terminal).
+    repo.update_run_status.return_value = overrides.pop("update_run_status", True)
     repo.save_node_record.side_effect = overrides.pop("save_node_record", lambda n: n)
     repo.update_node_status.return_value = overrides.pop("update_node_status", None)
     repo.get_runs_for_workflow.return_value = overrides.pop(

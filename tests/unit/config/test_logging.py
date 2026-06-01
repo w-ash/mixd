@@ -294,4 +294,3 @@ class TestLoggingConfigDefaults:
         assert config.log_file == Path("mixd.log")
         assert config.rotation == "10 MB"
         assert config.retention == "1 week"
-        assert config.prefect_log_level == "DEBUG"

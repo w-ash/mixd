@@ -163,9 +163,19 @@ export function useWorkflowSSE(
         }
         case SSE_EVENT.ERROR: {
           const d = data as Record<string, unknown>;
-          const errorMessage =
-            (d.error_message as string) ?? errorFallbackMessage;
-          fireTerminalError(errorMessage);
+          // The terminal event carries the real run status (final_status). A
+          // `cancelled` run is a graceful, orderly stop (e.g. SIGTERM drain on
+          // deploy/autoscale), not a failure — resolve it as a terminal
+          // completion so the UI shows the neutral "Cancelled" badge rather
+          // than a spurious error. failed/crashed remain errors.
+          const finalStatus = d.final_status as string | undefined;
+          if (finalStatus === "cancelled") {
+            fireTerminalComplete(finalStatus, data);
+          } else {
+            const errorMessage =
+              (d.error_message as string) ?? errorFallbackMessage;
+            fireTerminalError(errorMessage);
+          }
           disconnect();
           return;
         }
@@ -210,13 +220,11 @@ export function useWorkflowSSE(
     if (isTerminalSnapshot(snapshot)) {
       // Sweeper-marked runs surface here when the SSE terminal event was
       // lost: the heartbeat sweeper marks a silent row "crashed" server-side
-      // after the stale threshold. "failed" (logic error) and "cancelled"
-      // also resolve to a terminal error rather than a completion.
-      if (
-        snapshot.status === "failed" ||
-        snapshot.status === "crashed" ||
-        snapshot.status === "cancelled"
-      ) {
+      // after the stale threshold. "failed" (logic error) resolves to a
+      // terminal error. "cancelled" is an orderly stop, not a failure, so it
+      // resolves as a terminal completion (neutral badge) — matching the live
+      // ERROR path above.
+      if (snapshot.status === "failed" || snapshot.status === "crashed") {
         fireTerminalError(snapshot.error_message ?? errorFallbackMessage);
       } else {
         fireTerminalComplete(snapshot.status, snapshot);

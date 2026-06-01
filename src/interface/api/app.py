@@ -52,6 +52,13 @@ async def lifespan(_app: FastAPI) -> AsyncGenerator[None]:
 
     setup_logging()
 
+    # Install the process-wide SIGTERM handler once so graceful shutdown is
+    # shared across all concurrent runs (replaces the former per-run handler,
+    # whose per-run reset let a starting run wipe an in-flight run's signal).
+    from src.application.workflows.engine.executor import install_shutdown_handler
+
+    install_shutdown_handler()
+
     from src.config import log_startup_warnings
 
     log_startup_warnings()

@@ -1234,8 +1234,12 @@ class WorkflowRunRepositoryProtocol(Protocol):
         output_track_count: int | None = None,
         output_playlist_id: UUID | None = None,
         error_message: str | None = None,
-    ) -> Awaitable[None]:
-        """Update run status and optional completion fields."""
+    ) -> Awaitable[bool]:
+        """Update run status and optional completion fields.
+
+        Returns True if a row was transitioned, False if a guarded terminal
+        write no-op'd (the row was already terminal — a lost first-writer race).
+        """
         ...
 
     def bump_heartbeat(self, run_id: UUID) -> Awaitable[None]:

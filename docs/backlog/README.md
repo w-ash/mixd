@@ -1,7 +1,9 @@
 # Project Mixd — Planning
 
-**Current Version**: 0.8.0
-**Next**: v0.8.1 Workflow engine swap (Prefect → stdlib asyncio)
+**Current Version**: 0.8.1
+**Next**: v0.8.2 Workflow scheduling — engine & CLI
+
+**v0.8.1 shipped (2026-05-31)** — Workflow engine swap: Prefect 3 removed in favor of a homespun stdlib-asyncio DAG executor. Parallel execution levels are computed via Kahn's topological sort (a pure domain function) and each level runs in an `asyncio.TaskGroup`; run-state, cancellation (SIGTERM), and fault tolerance are owned in-process. Prefect and its full transitive tail are gone — the app no longer imports an embedded orchestration server at boot. The `workflows/` package was reorganized into `definition/`, `engine/`, and `nodes/`. Review pass also fixed primary-input track-count diagnostics and made lifecycle-observer emission best-effort.
 
 **v0.8.0 shipped (2026-05-30)** — Run reliability & validation hardening opened the v0.8.x scheduling cycle: a first-writer-wins terminal-write guard, a distinct `crashed` status (worker died) vs `failed` (logic broke), an OS-thread heartbeat watchdog that survives a blocked event loop, three closed silent-wrong-result validation gaps, and a SIGTERM-shielded connector cleanup.
 
@@ -69,7 +71,7 @@ Each milestone delivers a **vertical slice** — backend API + frontend page tog
 | **v0.7.7** | Operation Run Log — persisted import history + post-run toast | 🚀 Shipped | [details](v0.7.7.md#v077-operation-run-log) |
 | **v0.7.8** | Mobile responsiveness + visual regression baseline (Playwright `toHaveScreenshot`) | 🚀 Shipped | [details](v0.7.8.md#v078-mobile-responsiveness) |
 | **v0.8.0** | Run reliability & validation hardening | 🚀 Shipped | [details](v0.8.x.md#v080-run-reliability--validation-hardening) |
-| **v0.8.1** | Workflow engine swap (Prefect → stdlib asyncio) | 🔜 Not Started | [details](v0.8.x.md#v081-workflow-engine-swap-prefect-to-stdlib-asyncio) |
+| **v0.8.1** | Workflow engine swap (Prefect → stdlib asyncio) | 🚀 Shipped | [details](v0.8.x.md#v081-workflow-engine-swap-prefect-to-stdlib-asyncio) |
 | **v0.8.2** | Workflow scheduling — engine & CLI | 🔜 Not Started | [details](v0.8.x.md#v082-workflow-scheduling---engine--cli) |
 | **v0.8.3** | Workflow scheduling — web UI & failure alerts | 🔜 Not Started | [details](v0.8.x.md#v083-workflow-scheduling---web-ui--failure-alerts) |
 | **v0.8.4** | Background sync scheduling | 🔜 Not Started | [details](v0.8.x.md#v084-background-sync-scheduling) |

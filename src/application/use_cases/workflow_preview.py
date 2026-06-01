@@ -11,11 +11,7 @@ from attrs import define, field
 
 from src.application.use_cases.workflow_runs import serialize_output_tracks
 from src.application.utilities.timing import ExecutionTimer
-from src.application.workflows.observers import NodePreviewSummary
-from src.application.workflows.run_guard import (
-    WorkflowAlreadyRunningError,
-    is_workflow_running,
-)
+from src.application.workflows.engine.observers import NodePreviewSummary
 from src.config.constants import BusinessLimits, WorkflowConstants
 from src.config.logging import get_logger, logging_context
 from src.domain.entities.workflow import WorkflowDef
@@ -49,15 +45,17 @@ class PreviewWorkflowUseCase:
         user_id: str = BusinessLimits.DEFAULT_USER_ID,
     ) -> PreviewWorkflowResult:
         from src.application.services.progress_manager import get_progress_manager
-        from src.application.workflows.observers import PreviewNodeObserver
-        from src.application.workflows.prefect import run_workflow
-        from src.application.workflows.validation import validate_workflow_def
+        from src.application.workflows.definition.validation import (
+            validate_workflow_def,
+        )
+        from src.application.workflows.engine.executor import run_workflow
+        from src.application.workflows.engine.observers import PreviewNodeObserver
 
         validate_workflow_def(workflow_def)
 
-        # Check execution guard — previews share the same guard as real runs
-        if await is_workflow_running(workflow_def.id):
-            raise WorkflowAlreadyRunningError(workflow_def.id)
+        # Previews are dry-run (no run row, no external writes), so they are not
+        # subject to the active-run concurrency guard — a preview can run
+        # alongside a real run of the same workflow.
 
         timer = ExecutionTimer()
 

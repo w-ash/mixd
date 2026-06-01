@@ -25,6 +25,35 @@ def _stub_workflow_background(monkeypatch):
     monkeypatch.setattr(_workflows_mod, "launch_background", _noop_launch)
 
 
+async def _seed_completed_runs(workflow_id: str, count: int) -> None:
+    """Insert ``count`` COMPLETED run rows for a workflow via the repository.
+
+    Terminal runs sidestep the active-run guard (uq_workflow_runs_active only
+    covers pending/running), so this builds run history without stacking active
+    POSTs — the realistic state the list/pagination endpoints operate on.
+    """
+    from uuid import UUID
+
+    from src.domain.entities.workflow import WorkflowDef, WorkflowRun
+    from src.infrastructure.persistence.database.db_connection import get_session
+    from src.infrastructure.persistence.repositories.workflow.runs import (
+        WorkflowRunRepository,
+    )
+
+    snapshot = WorkflowDef(id="test-wf", name="Test Workflow")
+    async with get_session(rollback=False) as session:
+        repo = WorkflowRunRepository(session)
+        for _ in range(count):
+            await repo.create_run(
+                WorkflowRun(
+                    workflow_id=UUID(workflow_id),
+                    status="completed",
+                    definition_snapshot=snapshot,
+                )
+            )
+        await session.commit()
+
+
 class TestRunWorkflowEndpoint:
     """POST /workflows/{id}/run — starts execution."""
 
@@ -102,24 +131,25 @@ class TestRunWorkflowEndpoint:
     ) -> None:
         wf_id = await _create_workflow(client)
 
-        # First run succeeds (202)
+        # Stub the background launcher to a no-op so the first run's PENDING row
+        # stays active (never transitions to terminal and frees the slot). The
+        # DB-backed guard (uq_workflow_runs_active) is what rejects the second
+        # POST — no need to fake an in-process flag.
+        monkeypatch.setattr(
+            "src.interface.api.routes.workflows.launch_background",
+            lambda *args, **kwargs: None,
+        )
+
+        # First run succeeds (202) and leaves an active PENDING row
         first = await client.post(f"/api/v1/workflows/{wf_id}/run")
         assert first.status_code == 202
 
-        # Monkeypatch the execution guard to report workflow as running
-        async def _always_running(_wf_id: str) -> bool:
-            return True
-
-        monkeypatch.setattr(
-            "src.application.use_cases.workflow_runs.is_workflow_running",
-            _always_running,
-        )
-
-        # Second attempt returns 409
+        # Second attempt collides on the active-run index → 409
         second = await client.post(f"/api/v1/workflows/{wf_id}/run")
         assert second.status_code == 409
         body = second.json()
         assert body["error"]["code"] == "WORKFLOW_RUNNING"
+        assert body["error"]["details"]["workflow_id"] == str(wf_id)
 
 
 class TestListWorkflowRuns:
@@ -137,8 +167,10 @@ class TestListWorkflowRuns:
 
     async def test_lists_runs_after_execution(self, client: httpx.AsyncClient) -> None:
         wf_id = await _create_workflow(client)
-        await client.post(f"/api/v1/workflows/{wf_id}/run")
-        await client.post(f"/api/v1/workflows/{wf_id}/run")
+        # A workflow accumulates many *completed* runs over time. Only one
+        # active run is allowed at a time (uq_workflow_runs_active), so build
+        # history with terminal runs rather than stacking pending POSTs.
+        await _seed_completed_runs(wf_id, 2)
 
         response = await client.get(f"/api/v1/workflows/{wf_id}/runs")
 
@@ -148,9 +180,7 @@ class TestListWorkflowRuns:
 
     async def test_pagination(self, client: httpx.AsyncClient) -> None:
         wf_id = await _create_workflow(client)
-        # Create 3 runs
-        for _ in range(3):
-            await client.post(f"/api/v1/workflows/{wf_id}/run")
+        await _seed_completed_runs(wf_id, 3)
 
         response = await client.get(f"/api/v1/workflows/{wf_id}/runs?limit=2&offset=0")
 

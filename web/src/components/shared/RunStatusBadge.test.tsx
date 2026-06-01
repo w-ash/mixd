@@ -9,6 +9,8 @@ describe("RunStatusBadge", () => {
     "running",
     "completed",
     "failed",
+    "crashed",
+    "cancelled",
   ])("renders %s status", (status) => {
     render(<RunStatusBadge status={status} />);
     const config = getStatusConfig(status);
@@ -35,6 +37,8 @@ describe("getStatusConfig", () => {
     expect(getStatusConfig("running").label).toBe("Running");
     expect(getStatusConfig("completed").label).toBe("Completed");
     expect(getStatusConfig("failed").label).toBe("Failed");
+    expect(getStatusConfig("crashed").label).toBe("Crashed");
+    expect(getStatusConfig("cancelled").label).toBe("Cancelled");
   });
 
   it("returns pending config for unknown status", () => {

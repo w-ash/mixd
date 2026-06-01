@@ -7,11 +7,9 @@ machine-readable output consumed by the workflow-manager agent.
 """
 
 from collections.abc import Sequence
-import contextlib
-from datetime import datetime
 from pathlib import Path
 import sys
-from typing import Annotated, Literal, Unpack, cast
+from typing import Annotated, Literal, cast
 from uuid import UUID
 
 from rich.panel import Panel
@@ -19,9 +17,14 @@ from rich.prompt import Prompt
 from rich.table import Table
 import typer
 
-from src.application.workflows.protocols import RunStatusKwargs
+from src.application.use_cases.workflow_runs import ExecuteWorkflowRunResult
+from src.config.constants import WorkflowConstants
 from src.domain.entities.shared import JsonDict
-from src.domain.entities.workflow import RunStatus, Workflow
+from src.domain.entities.workflow import Workflow
+from src.interface._shared.run_lifecycle import (
+    update_node_status,
+    update_run_status,
+)
 from src.interface.cli.async_runner import run_async
 from src.interface.cli.cli_helpers import get_cli_user_id, handle_cli_error
 from src.interface.cli.completions import complete_workflow_id
@@ -45,63 +48,10 @@ app = typer.Typer(
 )
 
 
-# ---------------------------------------------------------------------------
-# Status updater closures (infrastructure wiring for ExecuteWorkflowRunUseCase)
-# ---------------------------------------------------------------------------
-# Mirrors src/interface/api/routes/workflows.py — each interface layer owns
-# its own concrete implementations per interface-patterns rule.
-
-
-@contextlib.asynccontextmanager
-async def _run_repo_session():
-    """Short-lived independent session for run/node status updates."""
-    from src.infrastructure.persistence.database.db_connection import get_session
-    from src.infrastructure.persistence.repositories.workflow.runs import (
-        WorkflowRunRepository,
-    )
-
-    async with get_session() as session:
-        yield WorkflowRunRepository(session)
-        await session.commit()
-
-
-async def _update_run_status(
-    run_id: UUID,
-    status: RunStatus,
-    **kwargs: Unpack[RunStatusKwargs],
-) -> None:
-    """Concrete RunStatusUpdater for CLI."""
-    async with _run_repo_session() as repo:
-        await repo.update_run_status(run_id, status, **kwargs)
-
-
-async def _update_node_status(
-    run_id: UUID,
-    node_id: str,
-    status: RunStatus,
-    *,
-    started_at: datetime | None = None,
-    completed_at: datetime | None = None,
-    duration_ms: int | None = None,
-    input_track_count: int | None = None,
-    output_track_count: int | None = None,
-    error_message: str | None = None,
-    node_details: dict[str, object] | None = None,
-) -> None:
-    """Concrete NodeStatusUpdater for CLI."""
-    async with _run_repo_session() as repo:
-        await repo.update_node_status(
-            run_id,
-            node_id,
-            status,
-            started_at=started_at,
-            completed_at=completed_at,
-            duration_ms=duration_ms,
-            input_track_count=input_track_count,
-            output_track_count=output_track_count,
-            error_message=error_message,
-            node_details=node_details,
-        )
+# Run/node status updaters are shared with the API path — see
+# src/interface/_shared/run_lifecycle.py. The CLI injects them into
+# ExecuteWorkflowRunUseCase exactly as the web route does, so the run lifecycle
+# (RUNNING → completed/failed/cancelled/crashed) lives in one place.
 
 
 # ---------------------------------------------------------------------------
@@ -496,7 +446,7 @@ def validate(
     """Validate a workflow definition without saving."""
     import json as json_mod
 
-    from src.application.workflows.validation import (
+    from src.application.workflows.definition.validation import (
         is_validation_error,
         validate_workflow_def_detailed,
     )
@@ -556,8 +506,8 @@ def nodes(
 
     from attrs import asdict
 
-    from src.application.workflows.node_config_fields import get_node_config_fields
-    from src.application.workflows.node_registry import list_nodes
+    from src.application.workflows.nodes.config_fields import get_node_config_fields
+    from src.application.workflows.nodes.registry import list_nodes
 
     all_nodes = list_nodes()
     config_fields = get_node_config_fields()
@@ -955,12 +905,15 @@ def _execute_workflow(
     output_format: Literal["table", "json"],
     quiet: bool,
 ) -> None:
-    """Execute workflow with run record creation and Rich progress display.
+    """Execute a workflow through the shared run lifecycle.
 
-    Composes RunWorkflowUseCase (PENDING record) with direct run_workflow()
-    call so the CLI gets both: run history in the DB AND the OperationResult
-    for detailed track display. The RunHistoryObserver handles node-level
-    DB updates; ProgressNodeObserver handles Rich progress bars.
+    Creates the PENDING run record (RunWorkflowUseCase) then drives the
+    RUNNING → terminal lifecycle through ExecuteWorkflowRunUseCase — the *same*
+    use case the web API uses. This is why a graceful between-node shutdown is
+    recorded ``cancelled`` (not ``failed``): the status machine lives in exactly
+    one place. The live Rich progress display still works because
+    ``progress_coordination_context`` activates the shared global progress
+    manager the use case fetches internally.
     """
     wf_def = workflow.definition
     try:
@@ -974,19 +927,23 @@ def _execute_workflow(
             )
 
         async def _run_with_history():
-            from datetime import UTC, datetime
-
             from src.application.runner import execute_use_case
             from src.application.use_cases.workflow_runs import (
+                ExecuteWorkflowRunUseCase,
                 RunWorkflowCommand,
                 RunWorkflowUseCase,
-                serialize_output_tracks,
             )
-            from src.application.workflows.observers import RunHistoryObserver
-            from src.application.workflows.prefect import run_workflow
-            from src.config.constants import WorkflowConstants, truncate_error_message
 
-            # 1. Create PENDING run record
+            # Install the SIGTERM handler once for this CLI process so a deploy
+            # drains the active run at the next node boundary (→ cancelled).
+            from src.application.workflows.engine.executor import (
+                install_shutdown_handler,
+            )
+
+            install_shutdown_handler()
+
+            # 1. Create the PENDING run record (also trips the DB concurrency
+            #    guard if this workflow is already running).
             user_id = get_cli_user_id()
             run_result = await execute_use_case(
                 lambda uow: RunWorkflowUseCase().execute(
@@ -998,68 +955,74 @@ def _execute_workflow(
                 ),
                 user_id=user_id,
             )
-            run_id = run_result.run_id
 
-            # 2. Update to RUNNING
-            await _update_run_status(
-                run_id,
-                WorkflowConstants.RUN_STATUS_RUNNING,
-                started_at=datetime.now(UTC),
-            )
-
-            # 3. Execute with both observers (composition handled by run_workflow)
-            try:
-                async with progress_coordination_context(show_live=not quiet) as ctx:
-                    progress_manager = ctx.get_progress_manager()
-                    observer = RunHistoryObserver(
-                        run_id=run_id,
-                        update_node_status=_update_node_status,
-                    )
-                    result = await run_workflow(
-                        wf_def, progress_manager, observer=observer
-                    )
-            except Exception as exc:
-                # 5. Update to FAILED
-                with contextlib.suppress(Exception):
-                    await _update_run_status(
-                        run_id,
-                        WorkflowConstants.RUN_STATUS_FAILED,
-                        error_message=truncate_error_message(str(exc), 500),
-                    )
-                raise
-            else:
-                # 4. Update to COMPLETED
-                output_tracks, _ = serialize_output_tracks(
-                    result.tracks, metrics=result.metrics
-                )
-                await _update_run_status(
-                    run_id,
-                    WorkflowConstants.RUN_STATUS_COMPLETED,
-                    completed_at=datetime.now(UTC),
-                    output_track_count=len(result.tracks) if result.tracks else None,
-                    output_tracks=output_tracks,
-                )
-                return result
+            # 2. Drive RUNNING → terminal through the shared use case, wrapped in
+            #    the live progress display (which shares the global progress
+            #    manager the use case picks up internally).
+            async with progress_coordination_context(show_live=not quiet):
+                return await ExecuteWorkflowRunUseCase(
+                    update_run_status=update_run_status,
+                    update_node_status=update_node_status,
+                ).execute(wf_def, run_result.run_id, user_id=user_id)
 
         result = run_async(_run_with_history())
-
-        if not quiet:
-            track_count = len(result.tracks) if result and result.tracks else 0
-            console.print(
-                Panel.fit(
-                    f"[bold green]{wf_def.name}[/bold green]\n[cyan]Processed [bold]{track_count}[/bold] tracks[/cyan]",
-                    title="[bold green]✓ Workflow Completed[/bold green]",
-                    border_style="green",
-                )
-            )
-
-        if show_results and result:
-            display_operation_result(result, output_format=output_format)
-
     except Exception as e:
         if not quiet:
             handle_cli_error(e, "Workflow execution failed")
         raise typer.Exit(1) from e
+
+    if not quiet:
+        _print_run_result_panel(wf_def.name, result)
+
+    op_result = result.operation_result
+    if show_results and op_result is not None:
+        display_operation_result(op_result, output_format=output_format)
+
+    # Non-zero exit for genuine failures (failed/crashed); a graceful cancel is
+    # an orderly stop, not an error, so it exits 0.
+    if result.status in WorkflowConstants.RUN_STATUSES_FAIL_CLASS:
+        raise typer.Exit(1)
+
+
+def _print_run_result_panel(
+    workflow_name: str, result: ExecuteWorkflowRunResult
+) -> None:
+    """Render a terminal-status panel for a finished CLI workflow run."""
+    status = result.status
+    error_message = result.error_message
+    if status == WorkflowConstants.RUN_STATUS_COMPLETED:
+        op_result = result.operation_result
+        tracks = op_result.tracks if op_result else None
+        track_count = len(tracks) if tracks else 0
+        console.print(
+            Panel.fit(
+                f"[bold green]{workflow_name}[/bold green]\n"
+                f"[cyan]Processed [bold]{track_count}[/bold] tracks[/cyan]",
+                title="[bold green]✓ Workflow Completed[/bold green]",
+                border_style="green",
+            )
+        )
+    elif status == WorkflowConstants.RUN_STATUS_CANCELLED:
+        console.print(
+            Panel.fit(
+                f"[bold]{workflow_name}[/bold]\n"
+                f"[dim]{error_message or 'Stopped before completion'}[/dim]",
+                title="[bold yellow]⊘ Workflow Cancelled[/bold yellow]",
+                border_style="yellow",
+            )
+        )
+    else:  # failed / crashed
+        label = (
+            "Crashed" if status == WorkflowConstants.RUN_STATUS_CRASHED else "Failed"
+        )
+        console.print(
+            Panel.fit(
+                f"[bold red]{workflow_name}[/bold red]\n"
+                f"[red]{error_message or label}[/red]",
+                title=f"[bold red]✗ Workflow {label}[/bold red]",
+                border_style="red",
+            )
+        )
 
 
 def _display_workflows_table(workflows: Sequence[Workflow]) -> None:

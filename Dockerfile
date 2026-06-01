@@ -88,7 +88,6 @@ RUN mkdir -p /app/data && chown mixd:mixd /app/data
 
 ENV PATH="/app/.venv/bin:$PATH" \
     PYTHONUNBUFFERED=1 \
-    PREFECT_SERVER_ALLOW_EPHEMERAL_MODE=false \
     LOGGING__LOG_FILE=/app/data/mixd.log
 
 USER mixd

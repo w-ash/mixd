@@ -1,0 +1,23 @@
+{
+  "execution_time": 0.0,
+  "operation_name": "Golden Snapshot Workflow",
+  "per_track_metrics_summary": {
+    "lastfm_plays": {
+      "avg_value": 15.0,
+      "total_tracks": 2
+    }
+  },
+  "track_count": 1,
+  "tracks": [
+    {
+      "artists": [
+        "Artist One"
+      ],
+      "id": "00000000-0000-0000-0000-000000000001",
+      "metrics": {
+        "lastfm_plays": 10
+      },
+      "title": "Frozen Track One"
+    }
+  ]
+}

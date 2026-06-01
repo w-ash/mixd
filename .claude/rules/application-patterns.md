@@ -9,7 +9,7 @@ paths:
 - All database operations go through UnitOfWork: `async with uow:` per transaction.
 - The use case owns transaction boundaries: explicit `await uow.commit()`.
 - All use cases run through `application/runner.py` → `execute_use_case()`.
-- **Approved infrastructure bridges**: `runner.py`, `prefect.py`, `workflows/context.py` are DI wiring entry points that intentionally import infrastructure for session/UoW creation.
+- **Approved infrastructure bridges**: `runner.py`, `workflows/engine/executor.py`, `workflows/context.py` are DI wiring entry points that intentionally import infrastructure for session/UoW creation.
 
 ## Connector resolution
 Use typed resolvers from `_shared/connector_resolver.py` — `resolve_playlist_connector()`, `resolve_liked_track_connector()`, `resolve_love_track_connector()` — returning typed capability protocols (`PlaylistConnector`, `LikedTrackConnector`, etc. from `connector_protocols.py`). Raw `resolve_connector()` returns `Any`; reach for the typed resolver in typed code.
@@ -21,7 +21,7 @@ Use typed resolvers from `_shared/connector_resolver.py` — `resolve_playlist_c
 
 ## Workflows
 - Pipelines are declarative: Source → Enricher → Filter → Sorter → Selector → Destination (see `docs/guides/workflows.md`).
-- Prefect tasks each create their own session from the PostgreSQL pool; level-based `asyncio.gather()` for parallel DAG execution (see `compute_parallel_levels` in `validation.py`).
+- Each node task creates its own session from the PostgreSQL pool; level-based `asyncio.TaskGroup` for parallel DAG execution (see `compute_parallel_levels` in `validation.py`).
 - All workflow operations work on database tracks (`track.id is not None`), never on raw connector data. Source nodes persist via `SavePlaylistUseCase` before returning.
 
 ## Preview use cases
