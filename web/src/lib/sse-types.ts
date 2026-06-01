@@ -14,8 +14,6 @@ export const SSE_EVENT = {
   ERROR: "error",
 } as const;
 
-export type SSEEventType = (typeof SSE_EVENT)[keyof typeof SSE_EVENT];
-
 export type NodeExecutionStatus =
   | "pending"
   | "running"
