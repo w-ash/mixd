@@ -17,6 +17,7 @@ from src.config.settings import (
     ImportConfig,
     LoggingConfig,
     MatchingConfig,
+    SchedulerConfig,
 )
 
 
@@ -61,6 +62,40 @@ class TestDefaultsPassConstraints:
     def test_cli_config_defaults(self):
         config = CLIConfig()
         assert config.playlist_name_min_width == 15
+
+    def test_scheduler_config_defaults(self):
+        config = SchedulerConfig()
+        assert config.enabled is True
+        assert config.poll_interval_seconds == 60
+        assert config.max_concurrent_scheduled_runs == 3
+        assert config.catchup is False
+        assert config.stuck_start_timeout_seconds == 1800
+
+    def test_scheduler_config_rejects_non_positive_poll_interval(self):
+        with pytest.raises(ValidationError):
+            SchedulerConfig(poll_interval_seconds=0)
+
+    def test_scheduler_config_rejects_inverted_timeout_ordering(self):
+        # The live-cancellation bound must trip before the dead-dispatch reaper;
+        # an operator misconfig that inverts them must be rejected at construction.
+        with pytest.raises(ValidationError):
+            SchedulerConfig(
+                dispatch_timeout_seconds=1800, stuck_start_timeout_seconds=900
+            )
+
+    def test_scheduler_config_rejects_equal_timeouts(self):
+        # Equal bounds are also invalid — the live bound must be strictly below.
+        with pytest.raises(ValidationError):
+            SchedulerConfig(
+                dispatch_timeout_seconds=900, stuck_start_timeout_seconds=900
+            )
+
+    def test_scheduler_config_accepts_ordered_timeouts(self):
+        config = SchedulerConfig(
+            dispatch_timeout_seconds=600, stuck_start_timeout_seconds=1200
+        )
+        assert config.dispatch_timeout_seconds == 600
+        assert config.stuck_start_timeout_seconds == 1200
 
 
 class TestConnectorAPIConfigNesting:

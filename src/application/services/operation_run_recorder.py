@@ -26,11 +26,14 @@ async def start_run(
     *,
     user_id: str,
     operation_type: str,
+    triggered_by_schedule_id: UUID | None = None,
 ) -> UUID:
     """Insert an ``OperationRun`` row at operation kickoff.
 
     Returns the new ``run_id`` so the route can pass it to
-    :func:`run_sse_operation` for terminal finalization.
+    :func:`run_sse_operation` for terminal finalization. ``triggered_by_schedule_id``
+    is set by the scheduler so a scheduled sync's audit row traces back to its
+    schedule (None for user-initiated operations).
     """
 
     async def _create(uow: UnitOfWorkProtocol) -> UUID:
@@ -39,6 +42,7 @@ async def start_run(
             operation_type=operation_type,
             started_at=datetime.now(UTC),
             status="running",
+            triggered_by_schedule_id=triggered_by_schedule_id,
         )
         async with uow:
             repo = uow.get_operation_run_repository()

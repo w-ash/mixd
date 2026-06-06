@@ -37,6 +37,9 @@ class OperationRun:
     ended_at: datetime | None = None
     counts: JsonDict = field(factory=empty_json_map)
     issues: list[JsonDict] = field(factory=_empty_issues)
+    # Provenance: the schedule that fired this run, if any (None for runs the
+    # user kicked off directly). ON DELETE SET NULL preserves history.
+    triggered_by_schedule_id: UUID | None = None
     created_at: datetime = field(factory=utc_now_factory)
     updated_at: datetime = field(factory=utc_now_factory)
     id: UUID = field(factory=uuid7)

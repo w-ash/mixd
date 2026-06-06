@@ -33,6 +33,9 @@ import type {
   PaginatedResponseWorkflowRunSummarySchema,
   PaginatedResponseWorkflowSummarySchema,
   PreviewStartedResponse,
+  ScheduleResponse,
+  ScheduleToggleRequest,
+  ScheduleUpsertRequest,
   UpdateWorkflowRequest,
   WorkflowDetailSchema,
   WorkflowRunDetailSchema,
@@ -1930,4 +1933,398 @@ export const useRevertWorkflowVersionApiV1WorkflowsWorkflowIdVersionsVersionReve
         TContext
       > => {
       return useMutation(getRevertWorkflowVersionApiV1WorkflowsWorkflowIdVersionsVersionRevertPostMutationOptions(options), queryClient);
+    }
+    export type upsertWorkflowScheduleApiV1WorkflowsWorkflowIdSchedulePutResponse200 = {
+  data: ScheduleResponse
+  status: 200
+}
+
+export type upsertWorkflowScheduleApiV1WorkflowsWorkflowIdSchedulePutResponse422 = {
+  data: HTTPValidationError
+  status: 422
+}
+
+export type upsertWorkflowScheduleApiV1WorkflowsWorkflowIdSchedulePutResponseSuccess = (upsertWorkflowScheduleApiV1WorkflowsWorkflowIdSchedulePutResponse200) & {
+  headers: Headers;
+};
+export type upsertWorkflowScheduleApiV1WorkflowsWorkflowIdSchedulePutResponseError = (upsertWorkflowScheduleApiV1WorkflowsWorkflowIdSchedulePutResponse422) & {
+  headers: Headers;
+};
+
+export type upsertWorkflowScheduleApiV1WorkflowsWorkflowIdSchedulePutResponse = (upsertWorkflowScheduleApiV1WorkflowsWorkflowIdSchedulePutResponseSuccess | upsertWorkflowScheduleApiV1WorkflowsWorkflowIdSchedulePutResponseError)
+
+export const getUpsertWorkflowScheduleApiV1WorkflowsWorkflowIdSchedulePutUrl = (workflowId: string,) => {
+
+
+
+
+  return `/api/v1/workflows/${workflowId}/schedule`
+}
+
+/**
+ * Create or replace this workflow's schedule (201 created / 200 replaced).
+
+A workflow the user doesn't own (or that doesn't exist) is rejected by the
+use case's target check → ``NotFoundError`` → 404.
+ * @summary Upsert Workflow Schedule
+ */
+export const upsertWorkflowScheduleApiV1WorkflowsWorkflowIdSchedulePut = async (workflowId: string,
+    scheduleUpsertRequest: ScheduleUpsertRequest, options?: RequestInit): Promise<upsertWorkflowScheduleApiV1WorkflowsWorkflowIdSchedulePutResponse> => {
+
+  return customFetch<upsertWorkflowScheduleApiV1WorkflowsWorkflowIdSchedulePutResponse>(getUpsertWorkflowScheduleApiV1WorkflowsWorkflowIdSchedulePutUrl(workflowId),
+  {
+    ...options,
+    method: 'PUT',
+    headers: { 'Content-Type': 'application/json', ...options?.headers },
+    body: JSON.stringify(
+      scheduleUpsertRequest,)
+  }
+);}
+
+
+
+
+export const getUpsertWorkflowScheduleApiV1WorkflowsWorkflowIdSchedulePutMutationOptions = <TError = HTTPValidationError,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof upsertWorkflowScheduleApiV1WorkflowsWorkflowIdSchedulePut>>, TError,{workflowId: string;data: ScheduleUpsertRequest}, TContext>, request?: SecondParameter<typeof customFetch>}
+): UseMutationOptions<Awaited<ReturnType<typeof upsertWorkflowScheduleApiV1WorkflowsWorkflowIdSchedulePut>>, TError,{workflowId: string;data: ScheduleUpsertRequest}, TContext> => {
+
+const mutationKey = ['upsertWorkflowScheduleApiV1WorkflowsWorkflowIdSchedulePut'];
+const {mutation: mutationOptions, request: requestOptions} = options ?
+      options.mutation && 'mutationKey' in options.mutation && options.mutation.mutationKey ?
+      options
+      : {...options, mutation: {...options.mutation, mutationKey}}
+      : {mutation: { mutationKey, }, request: undefined};
+
+
+
+
+      const mutationFn: MutationFunction<Awaited<ReturnType<typeof upsertWorkflowScheduleApiV1WorkflowsWorkflowIdSchedulePut>>, {workflowId: string;data: ScheduleUpsertRequest}> = (props) => {
+          const {workflowId,data} = props ?? {};
+
+          return  upsertWorkflowScheduleApiV1WorkflowsWorkflowIdSchedulePut(workflowId,data,requestOptions)
+        }
+
+
+
+
+
+
+  return  { mutationFn, ...mutationOptions }}
+
+    export type UpsertWorkflowScheduleApiV1WorkflowsWorkflowIdSchedulePutMutationResult = NonNullable<Awaited<ReturnType<typeof upsertWorkflowScheduleApiV1WorkflowsWorkflowIdSchedulePut>>>
+    export type UpsertWorkflowScheduleApiV1WorkflowsWorkflowIdSchedulePutMutationBody = ScheduleUpsertRequest
+    export type UpsertWorkflowScheduleApiV1WorkflowsWorkflowIdSchedulePutMutationError = HTTPValidationError
+
+    /**
+ * @summary Upsert Workflow Schedule
+ */
+export const useUpsertWorkflowScheduleApiV1WorkflowsWorkflowIdSchedulePut = <TError = HTTPValidationError,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof upsertWorkflowScheduleApiV1WorkflowsWorkflowIdSchedulePut>>, TError,{workflowId: string;data: ScheduleUpsertRequest}, TContext>, request?: SecondParameter<typeof customFetch>}
+ , queryClient?: QueryClient): UseMutationResult<
+        Awaited<ReturnType<typeof upsertWorkflowScheduleApiV1WorkflowsWorkflowIdSchedulePut>>,
+        TError,
+        {workflowId: string;data: ScheduleUpsertRequest},
+        TContext
+      > => {
+      return useMutation(getUpsertWorkflowScheduleApiV1WorkflowsWorkflowIdSchedulePutMutationOptions(options), queryClient);
+    }
+    export type getWorkflowScheduleApiV1WorkflowsWorkflowIdScheduleGetResponse200 = {
+  data: ScheduleResponse
+  status: 200
+}
+
+export type getWorkflowScheduleApiV1WorkflowsWorkflowIdScheduleGetResponse422 = {
+  data: HTTPValidationError
+  status: 422
+}
+
+export type getWorkflowScheduleApiV1WorkflowsWorkflowIdScheduleGetResponseSuccess = (getWorkflowScheduleApiV1WorkflowsWorkflowIdScheduleGetResponse200) & {
+  headers: Headers;
+};
+export type getWorkflowScheduleApiV1WorkflowsWorkflowIdScheduleGetResponseError = (getWorkflowScheduleApiV1WorkflowsWorkflowIdScheduleGetResponse422) & {
+  headers: Headers;
+};
+
+export type getWorkflowScheduleApiV1WorkflowsWorkflowIdScheduleGetResponse = (getWorkflowScheduleApiV1WorkflowsWorkflowIdScheduleGetResponseSuccess | getWorkflowScheduleApiV1WorkflowsWorkflowIdScheduleGetResponseError)
+
+export const getGetWorkflowScheduleApiV1WorkflowsWorkflowIdScheduleGetUrl = (workflowId: string,) => {
+
+
+
+
+  return `/api/v1/workflows/${workflowId}/schedule`
+}
+
+/**
+ * Return this workflow's schedule, or 404 if none is configured.
+ * @summary Get Workflow Schedule
+ */
+export const getWorkflowScheduleApiV1WorkflowsWorkflowIdScheduleGet = async (workflowId: string, options?: RequestInit): Promise<getWorkflowScheduleApiV1WorkflowsWorkflowIdScheduleGetResponse> => {
+
+  return customFetch<getWorkflowScheduleApiV1WorkflowsWorkflowIdScheduleGetResponse>(getGetWorkflowScheduleApiV1WorkflowsWorkflowIdScheduleGetUrl(workflowId),
+  {
+    ...options,
+    method: 'GET'
+
+
+  }
+);}
+
+
+
+
+
+export const getGetWorkflowScheduleApiV1WorkflowsWorkflowIdScheduleGetQueryKey = (workflowId: string,) => {
+    return [
+    `/api/v1/workflows/${workflowId}/schedule`
+    ] as const;
+    }
+
+
+export const getGetWorkflowScheduleApiV1WorkflowsWorkflowIdScheduleGetQueryOptions = <TData = Awaited<ReturnType<typeof getWorkflowScheduleApiV1WorkflowsWorkflowIdScheduleGet>>, TError = HTTPValidationError>(workflowId: string, options?: { query?:Partial<UseQueryOptions<Awaited<ReturnType<typeof getWorkflowScheduleApiV1WorkflowsWorkflowIdScheduleGet>>, TError, TData>>, request?: SecondParameter<typeof customFetch>}
+) => {
+
+const {query: queryOptions, request: requestOptions} = options ?? {};
+
+  const queryKey =  queryOptions?.queryKey ?? getGetWorkflowScheduleApiV1WorkflowsWorkflowIdScheduleGetQueryKey(workflowId);
+
+
+
+    const queryFn: QueryFunction<Awaited<ReturnType<typeof getWorkflowScheduleApiV1WorkflowsWorkflowIdScheduleGet>>> = ({ signal }) => getWorkflowScheduleApiV1WorkflowsWorkflowIdScheduleGet(workflowId, { signal, ...requestOptions });
+
+
+
+
+
+   return  { queryKey, queryFn, enabled: !!(workflowId), ...queryOptions} as UseQueryOptions<Awaited<ReturnType<typeof getWorkflowScheduleApiV1WorkflowsWorkflowIdScheduleGet>>, TError, TData> & { queryKey: DataTag<QueryKey, TData, TError> }
+}
+
+export type GetWorkflowScheduleApiV1WorkflowsWorkflowIdScheduleGetQueryResult = NonNullable<Awaited<ReturnType<typeof getWorkflowScheduleApiV1WorkflowsWorkflowIdScheduleGet>>>
+export type GetWorkflowScheduleApiV1WorkflowsWorkflowIdScheduleGetQueryError = HTTPValidationError
+
+
+export function useGetWorkflowScheduleApiV1WorkflowsWorkflowIdScheduleGet<TData = Awaited<ReturnType<typeof getWorkflowScheduleApiV1WorkflowsWorkflowIdScheduleGet>>, TError = HTTPValidationError>(
+ workflowId: string, options: { query:Partial<UseQueryOptions<Awaited<ReturnType<typeof getWorkflowScheduleApiV1WorkflowsWorkflowIdScheduleGet>>, TError, TData>> & Pick<
+        DefinedInitialDataOptions<
+          Awaited<ReturnType<typeof getWorkflowScheduleApiV1WorkflowsWorkflowIdScheduleGet>>,
+          TError,
+          Awaited<ReturnType<typeof getWorkflowScheduleApiV1WorkflowsWorkflowIdScheduleGet>>
+        > , 'initialData'
+      >, request?: SecondParameter<typeof customFetch>}
+ , queryClient?: QueryClient
+  ):  DefinedUseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> }
+export function useGetWorkflowScheduleApiV1WorkflowsWorkflowIdScheduleGet<TData = Awaited<ReturnType<typeof getWorkflowScheduleApiV1WorkflowsWorkflowIdScheduleGet>>, TError = HTTPValidationError>(
+ workflowId: string, options?: { query?:Partial<UseQueryOptions<Awaited<ReturnType<typeof getWorkflowScheduleApiV1WorkflowsWorkflowIdScheduleGet>>, TError, TData>> & Pick<
+        UndefinedInitialDataOptions<
+          Awaited<ReturnType<typeof getWorkflowScheduleApiV1WorkflowsWorkflowIdScheduleGet>>,
+          TError,
+          Awaited<ReturnType<typeof getWorkflowScheduleApiV1WorkflowsWorkflowIdScheduleGet>>
+        > , 'initialData'
+      >, request?: SecondParameter<typeof customFetch>}
+ , queryClient?: QueryClient
+  ):  UseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> }
+export function useGetWorkflowScheduleApiV1WorkflowsWorkflowIdScheduleGet<TData = Awaited<ReturnType<typeof getWorkflowScheduleApiV1WorkflowsWorkflowIdScheduleGet>>, TError = HTTPValidationError>(
+ workflowId: string, options?: { query?:Partial<UseQueryOptions<Awaited<ReturnType<typeof getWorkflowScheduleApiV1WorkflowsWorkflowIdScheduleGet>>, TError, TData>>, request?: SecondParameter<typeof customFetch>}
+ , queryClient?: QueryClient
+  ):  UseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> }
+/**
+ * @summary Get Workflow Schedule
+ */
+
+export function useGetWorkflowScheduleApiV1WorkflowsWorkflowIdScheduleGet<TData = Awaited<ReturnType<typeof getWorkflowScheduleApiV1WorkflowsWorkflowIdScheduleGet>>, TError = HTTPValidationError>(
+ workflowId: string, options?: { query?:Partial<UseQueryOptions<Awaited<ReturnType<typeof getWorkflowScheduleApiV1WorkflowsWorkflowIdScheduleGet>>, TError, TData>>, request?: SecondParameter<typeof customFetch>}
+ , queryClient?: QueryClient
+ ):  UseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> } {
+
+  const queryOptions = getGetWorkflowScheduleApiV1WorkflowsWorkflowIdScheduleGetQueryOptions(workflowId,options)
+
+  const query = useQuery(queryOptions, queryClient) as  UseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> };
+
+  return { ...query, queryKey: queryOptions.queryKey };
+}
+
+
+
+
+
+
+export type toggleWorkflowScheduleApiV1WorkflowsWorkflowIdSchedulePatchResponse200 = {
+  data: ScheduleResponse
+  status: 200
+}
+
+export type toggleWorkflowScheduleApiV1WorkflowsWorkflowIdSchedulePatchResponse422 = {
+  data: HTTPValidationError
+  status: 422
+}
+
+export type toggleWorkflowScheduleApiV1WorkflowsWorkflowIdSchedulePatchResponseSuccess = (toggleWorkflowScheduleApiV1WorkflowsWorkflowIdSchedulePatchResponse200) & {
+  headers: Headers;
+};
+export type toggleWorkflowScheduleApiV1WorkflowsWorkflowIdSchedulePatchResponseError = (toggleWorkflowScheduleApiV1WorkflowsWorkflowIdSchedulePatchResponse422) & {
+  headers: Headers;
+};
+
+export type toggleWorkflowScheduleApiV1WorkflowsWorkflowIdSchedulePatchResponse = (toggleWorkflowScheduleApiV1WorkflowsWorkflowIdSchedulePatchResponseSuccess | toggleWorkflowScheduleApiV1WorkflowsWorkflowIdSchedulePatchResponseError)
+
+export const getToggleWorkflowScheduleApiV1WorkflowsWorkflowIdSchedulePatchUrl = (workflowId: string,) => {
+
+
+
+
+  return `/api/v1/workflows/${workflowId}/schedule`
+}
+
+/**
+ * Enable or disable this workflow's schedule (preserves run history).
+ * @summary Toggle Workflow Schedule
+ */
+export const toggleWorkflowScheduleApiV1WorkflowsWorkflowIdSchedulePatch = async (workflowId: string,
+    scheduleToggleRequest: ScheduleToggleRequest, options?: RequestInit): Promise<toggleWorkflowScheduleApiV1WorkflowsWorkflowIdSchedulePatchResponse> => {
+
+  return customFetch<toggleWorkflowScheduleApiV1WorkflowsWorkflowIdSchedulePatchResponse>(getToggleWorkflowScheduleApiV1WorkflowsWorkflowIdSchedulePatchUrl(workflowId),
+  {
+    ...options,
+    method: 'PATCH',
+    headers: { 'Content-Type': 'application/json', ...options?.headers },
+    body: JSON.stringify(
+      scheduleToggleRequest,)
+  }
+);}
+
+
+
+
+export const getToggleWorkflowScheduleApiV1WorkflowsWorkflowIdSchedulePatchMutationOptions = <TError = HTTPValidationError,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof toggleWorkflowScheduleApiV1WorkflowsWorkflowIdSchedulePatch>>, TError,{workflowId: string;data: ScheduleToggleRequest}, TContext>, request?: SecondParameter<typeof customFetch>}
+): UseMutationOptions<Awaited<ReturnType<typeof toggleWorkflowScheduleApiV1WorkflowsWorkflowIdSchedulePatch>>, TError,{workflowId: string;data: ScheduleToggleRequest}, TContext> => {
+
+const mutationKey = ['toggleWorkflowScheduleApiV1WorkflowsWorkflowIdSchedulePatch'];
+const {mutation: mutationOptions, request: requestOptions} = options ?
+      options.mutation && 'mutationKey' in options.mutation && options.mutation.mutationKey ?
+      options
+      : {...options, mutation: {...options.mutation, mutationKey}}
+      : {mutation: { mutationKey, }, request: undefined};
+
+
+
+
+      const mutationFn: MutationFunction<Awaited<ReturnType<typeof toggleWorkflowScheduleApiV1WorkflowsWorkflowIdSchedulePatch>>, {workflowId: string;data: ScheduleToggleRequest}> = (props) => {
+          const {workflowId,data} = props ?? {};
+
+          return  toggleWorkflowScheduleApiV1WorkflowsWorkflowIdSchedulePatch(workflowId,data,requestOptions)
+        }
+
+
+
+
+
+
+  return  { mutationFn, ...mutationOptions }}
+
+    export type ToggleWorkflowScheduleApiV1WorkflowsWorkflowIdSchedulePatchMutationResult = NonNullable<Awaited<ReturnType<typeof toggleWorkflowScheduleApiV1WorkflowsWorkflowIdSchedulePatch>>>
+    export type ToggleWorkflowScheduleApiV1WorkflowsWorkflowIdSchedulePatchMutationBody = ScheduleToggleRequest
+    export type ToggleWorkflowScheduleApiV1WorkflowsWorkflowIdSchedulePatchMutationError = HTTPValidationError
+
+    /**
+ * @summary Toggle Workflow Schedule
+ */
+export const useToggleWorkflowScheduleApiV1WorkflowsWorkflowIdSchedulePatch = <TError = HTTPValidationError,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof toggleWorkflowScheduleApiV1WorkflowsWorkflowIdSchedulePatch>>, TError,{workflowId: string;data: ScheduleToggleRequest}, TContext>, request?: SecondParameter<typeof customFetch>}
+ , queryClient?: QueryClient): UseMutationResult<
+        Awaited<ReturnType<typeof toggleWorkflowScheduleApiV1WorkflowsWorkflowIdSchedulePatch>>,
+        TError,
+        {workflowId: string;data: ScheduleToggleRequest},
+        TContext
+      > => {
+      return useMutation(getToggleWorkflowScheduleApiV1WorkflowsWorkflowIdSchedulePatchMutationOptions(options), queryClient);
+    }
+    export type deleteWorkflowScheduleApiV1WorkflowsWorkflowIdScheduleDeleteResponse204 = {
+  data: void
+  status: 204
+}
+
+export type deleteWorkflowScheduleApiV1WorkflowsWorkflowIdScheduleDeleteResponse422 = {
+  data: HTTPValidationError
+  status: 422
+}
+
+export type deleteWorkflowScheduleApiV1WorkflowsWorkflowIdScheduleDeleteResponseSuccess = (deleteWorkflowScheduleApiV1WorkflowsWorkflowIdScheduleDeleteResponse204) & {
+  headers: Headers;
+};
+export type deleteWorkflowScheduleApiV1WorkflowsWorkflowIdScheduleDeleteResponseError = (deleteWorkflowScheduleApiV1WorkflowsWorkflowIdScheduleDeleteResponse422) & {
+  headers: Headers;
+};
+
+export type deleteWorkflowScheduleApiV1WorkflowsWorkflowIdScheduleDeleteResponse = (deleteWorkflowScheduleApiV1WorkflowsWorkflowIdScheduleDeleteResponseSuccess | deleteWorkflowScheduleApiV1WorkflowsWorkflowIdScheduleDeleteResponseError)
+
+export const getDeleteWorkflowScheduleApiV1WorkflowsWorkflowIdScheduleDeleteUrl = (workflowId: string,) => {
+
+
+
+
+  return `/api/v1/workflows/${workflowId}/schedule`
+}
+
+/**
+ * Delete this workflow's schedule (404 if none). Run history is preserved.
+ * @summary Delete Workflow Schedule
+ */
+export const deleteWorkflowScheduleApiV1WorkflowsWorkflowIdScheduleDelete = async (workflowId: string, options?: RequestInit): Promise<deleteWorkflowScheduleApiV1WorkflowsWorkflowIdScheduleDeleteResponse> => {
+
+  return customFetch<deleteWorkflowScheduleApiV1WorkflowsWorkflowIdScheduleDeleteResponse>(getDeleteWorkflowScheduleApiV1WorkflowsWorkflowIdScheduleDeleteUrl(workflowId),
+  {
+    ...options,
+    method: 'DELETE'
+
+
+  }
+);}
+
+
+
+
+export const getDeleteWorkflowScheduleApiV1WorkflowsWorkflowIdScheduleDeleteMutationOptions = <TError = HTTPValidationError,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof deleteWorkflowScheduleApiV1WorkflowsWorkflowIdScheduleDelete>>, TError,{workflowId: string}, TContext>, request?: SecondParameter<typeof customFetch>}
+): UseMutationOptions<Awaited<ReturnType<typeof deleteWorkflowScheduleApiV1WorkflowsWorkflowIdScheduleDelete>>, TError,{workflowId: string}, TContext> => {
+
+const mutationKey = ['deleteWorkflowScheduleApiV1WorkflowsWorkflowIdScheduleDelete'];
+const {mutation: mutationOptions, request: requestOptions} = options ?
+      options.mutation && 'mutationKey' in options.mutation && options.mutation.mutationKey ?
+      options
+      : {...options, mutation: {...options.mutation, mutationKey}}
+      : {mutation: { mutationKey, }, request: undefined};
+
+
+
+
+      const mutationFn: MutationFunction<Awaited<ReturnType<typeof deleteWorkflowScheduleApiV1WorkflowsWorkflowIdScheduleDelete>>, {workflowId: string}> = (props) => {
+          const {workflowId} = props ?? {};
+
+          return  deleteWorkflowScheduleApiV1WorkflowsWorkflowIdScheduleDelete(workflowId,requestOptions)
+        }
+
+
+
+
+
+
+  return  { mutationFn, ...mutationOptions }}
+
+    export type DeleteWorkflowScheduleApiV1WorkflowsWorkflowIdScheduleDeleteMutationResult = NonNullable<Awaited<ReturnType<typeof deleteWorkflowScheduleApiV1WorkflowsWorkflowIdScheduleDelete>>>
+
+    export type DeleteWorkflowScheduleApiV1WorkflowsWorkflowIdScheduleDeleteMutationError = HTTPValidationError
+
+    /**
+ * @summary Delete Workflow Schedule
+ */
+export const useDeleteWorkflowScheduleApiV1WorkflowsWorkflowIdScheduleDelete = <TError = HTTPValidationError,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof deleteWorkflowScheduleApiV1WorkflowsWorkflowIdScheduleDelete>>, TError,{workflowId: string}, TContext>, request?: SecondParameter<typeof customFetch>}
+ , queryClient?: QueryClient): UseMutationResult<
+        Awaited<ReturnType<typeof deleteWorkflowScheduleApiV1WorkflowsWorkflowIdScheduleDelete>>,
+        TError,
+        {workflowId: string},
+        TContext
+      > => {
+      return useMutation(getDeleteWorkflowScheduleApiV1WorkflowsWorkflowIdScheduleDeleteMutationOptions(options), queryClient);
     }

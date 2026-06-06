@@ -1,11 +1,15 @@
 """Shared utilities and helper functions for domain entities.
 
-Pure utility functions with zero external dependencies.
+Pure utility functions and reusable attrs field validators. Depends only on
+the standard library and ``attrs`` (the domain's modelling foundation) — no
+infrastructure, application, or third-party service dependencies.
 """
 
 from collections.abc import Mapping, Sequence
 from datetime import UTC, datetime
 from typing import NewType
+
+from attrs import Attribute
 
 # Metric values stored per-track: play counts (int), averages (float),
 # timestamps (datetime), or absent (None)
@@ -54,6 +58,23 @@ def utc_now_factory() -> datetime:
         timestamp: datetime = field(factory=utc_now_factory)
     """
     return datetime.now(UTC)
+
+
+def validate_timezone_aware[T](
+    _instance: object,
+    attribute: Attribute[T],
+    value: T,
+) -> None:
+    """attrs field validator: reject naive datetimes.
+
+    Shared across entities (e.g. ``operations.py``, ``schedule.py``) so the
+    timezone-aware invariant has one definition. Use with an attrs field:
+        played_at: datetime = field(validator=validate_timezone_aware)
+    """
+    if isinstance(value, datetime) and value.tzinfo is None:
+        raise ValueError(
+            f"Field '{attribute.name}' must be timezone-aware. Use datetime.now(UTC) or datetime.replace(tzinfo=UTC) for naive datetimes."
+        )
 
 
 # ---------------------------------------------------------------------------

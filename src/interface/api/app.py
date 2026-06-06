@@ -87,13 +87,44 @@ async def lifespan(_app: FastAPI) -> AsyncGenerator[None]:
 
     sweeper_task = asyncio.create_task(run_sweeper_loop(), name="workflow_run_sweeper")
 
+    # Long-lived workflow/sync scheduler — polls due schedules and dispatches
+    # them. The concrete run-lifecycle updaters are injected here (interface
+    # layer) exactly as the CLI/API inject them into ExecuteWorkflowRunUseCase,
+    # keeping the application-layer scheduler free of infrastructure imports.
+    # A transient tick error (e.g. the schedules table not yet present during a
+    # rolling deploy) is logged and swallowed by the loop, so the loop survives.
+    from src.config import settings
+
+    scheduler_task: asyncio.Task[None] | None = None
+    if settings.scheduler.enabled:
+        from src.application.services.scheduler import run_scheduler_loop
+        from src.interface._shared.run_lifecycle import (
+            update_node_status,
+            update_run_status,
+        )
+
+        # Every replica runs this loop; per-tick advisory locking inside the tick
+        # ensures only one instance scans each tick (no leader wiring needed here).
+        scheduler_task = asyncio.create_task(
+            run_scheduler_loop(
+                update_run_status=update_run_status,
+                update_node_status=update_node_status,
+            ),
+            name="workflow_scheduler",
+        )
+
     yield
     logger.info("API server shutting down — cancelling background tasks")
     sweeper_task.cancel()
+    if scheduler_task is not None:
+        scheduler_task.cancel()
     for task in startup_tasks:
         task.cancel()
     with contextlib.suppress(asyncio.CancelledError):
         await sweeper_task
+    if scheduler_task is not None:
+        with contextlib.suppress(asyncio.CancelledError):
+            await scheduler_task
     for task in startup_tasks:
         with contextlib.suppress(asyncio.CancelledError):
             await task
@@ -167,6 +198,7 @@ def create_app() -> FastAPI:
     )
     from src.interface.api.routes.playlists import router as playlists_router
     from src.interface.api.routes.reviews import router as reviews_router
+    from src.interface.api.routes.schedules import router as schedules_router
     from src.interface.api.routes.settings import router as settings_router
     from src.interface.api.routes.stats import router as stats_router
     from src.interface.api.routes.tags import router as tags_router
@@ -194,6 +226,7 @@ def create_app() -> FastAPI:
     app.include_router(operations_router, prefix="/api/v1")
     app.include_router(operation_runs_router, prefix="/api/v1")
     app.include_router(reviews_router, prefix="/api/v1")
+    app.include_router(schedules_router, prefix="/api/v1")
     app.include_router(settings_router, prefix="/api/v1")
 
     # Serve built frontend if web/dist/ exists

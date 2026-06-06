@@ -9,12 +9,17 @@ from datetime import datetime
 from typing import TYPE_CHECKING, Final, Self
 from uuid import UUID, uuid7
 
-from attrs import Attribute, define, field
+from attrs import define, field
 
 if TYPE_CHECKING:
     from src.infrastructure.connectors.spotify.personal_data import SpotifyPlayRecord
 
-from .shared import JsonValue, MetricValue, empty_json_map
+from .shared import (
+    JsonValue,
+    MetricValue,
+    empty_json_map,
+    validate_timezone_aware,
+)
 from .summary_metrics import SummaryMetricCollection
 from .track import Track, TrackList
 
@@ -167,18 +172,6 @@ class PlayRecord:
     raw_data: Mapping[str, JsonValue] = field(factory=empty_json_map)
 
 
-def _validate_timezone_aware_datetime[T](
-    _instance: object,
-    attribute: Attribute[T],
-    value: T,
-) -> None:
-    """Validator to ensure datetime fields are timezone-aware."""
-    if isinstance(value, datetime) and value.tzinfo is None:
-        raise ValueError(
-            f"Field '{attribute.name}' must be timezone-aware. Use datetime.now(UTC) or datetime.replace(tzinfo=UTC) for naive datetimes."
-        )
-
-
 @define(frozen=True, slots=True)
 class ConnectorTrackPlay:
     """Raw play data from external music services before resolution to canonical tracks.
@@ -194,7 +187,7 @@ class ConnectorTrackPlay:
     # Raw API data (core fields from all services)
     artist_name: str
     track_name: str
-    played_at: datetime = field(validator=_validate_timezone_aware_datetime)
+    played_at: datetime = field(validator=validate_timezone_aware)
     service: str  # "spotify", "lastfm"
     user_id: str = "default"
     album_name: str | None = None
@@ -205,7 +198,7 @@ class ConnectorTrackPlay:
     api_page: int | None = None
     raw_data: Mapping[str, JsonValue] = field(factory=empty_json_map)
     import_timestamp: datetime | None = field(
-        default=None, validator=_validate_timezone_aware_datetime
+        default=None, validator=validate_timezone_aware
     )
     import_source: str | None = None  # "lastfm_api", "spotify_export"
     import_batch_id: str | None = None
@@ -217,7 +210,7 @@ class ConnectorTrackPlay:
     # Resolution tracking (nullable until resolved)
     resolved_track_id: UUID | None = None
     resolved_at: datetime | None = field(
-        default=None, validator=_validate_timezone_aware_datetime
+        default=None, validator=validate_timezone_aware
     )
 
     # Database persistence
@@ -314,7 +307,7 @@ class TrackPlay:
 
     track_id: UUID | None
     service: str
-    played_at: datetime = field(validator=_validate_timezone_aware_datetime)
+    played_at: datetime = field(validator=validate_timezone_aware)
     user_id: str = "default"
     ms_played: int | None = None
     context: Mapping[str, JsonValue] | None = None
@@ -325,7 +318,7 @@ class TrackPlay:
 
     # Import tracking (service-agnostic)
     import_timestamp: datetime | None = field(
-        default=None, validator=_validate_timezone_aware_datetime
+        default=None, validator=validate_timezone_aware
     )
     import_source: str | None = None  # "spotify_export", "lastfm_api", "manual"
     import_batch_id: str | None = None

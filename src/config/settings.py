@@ -20,7 +20,7 @@ The configuration is organized into logical groups:
 import contextlib
 import os
 from pathlib import Path
-from typing import Annotated, ClassVar, Literal, cast
+from typing import Annotated, ClassVar, Literal, Self, cast
 
 from dotenv import dotenv_values
 from pydantic import BaseModel, Field, SecretStr, model_validator
@@ -459,6 +459,79 @@ class SecurityConfig(BaseModel):
     )
 
 
+class SchedulerConfig(BaseModel):
+    """In-process workflow/sync scheduler tuning.
+
+    Accessed as ``settings.scheduler.*``; override via ``SCHEDULER__*`` env
+    (e.g. ``SCHEDULER__ENABLED=false`` to turn the poll loop off in local dev).
+    Fixed operational bounds (the per-tick batch cap) live in
+    ``SchedulerConstants`` — these are the knobs an operator may tune.
+    """
+
+    enabled: bool = Field(
+        default=True,
+        description="Run the background scheduler poll loop in the API lifespan.",
+    )
+    poll_interval_seconds: PositiveInt = Field(
+        default=60,
+        description=(
+            "Seconds between due-schedule polls. Balances responsiveness with "
+            "Neon keep-alive on the shared-cpu-2x VM."
+        ),
+    )
+    max_concurrent_scheduled_runs: PositiveInt = Field(
+        default=3,
+        description="Concurrent dispatches a single poll tick may run.",
+    )
+    catchup: bool = Field(
+        default=False,
+        description=(
+            "False: a schedule whose fire time was missed advances to the next "
+            "future fire (no backfill). True: run one catchup fire, then advance."
+        ),
+    )
+    dispatch_timeout_seconds: PositiveInt = Field(
+        default=900,
+        description=(
+            "Live-cancellation bound on a single dispatch (asyncio.timeout). An "
+            "overrunning dispatch is cancelled — freeing its semaphore slot — and "
+            "recorded as a failure, so one wedged connector can't stall the whole "
+            "tick. Must be below stuck_start_timeout_seconds (the dead-dispatch "
+            "reaper's bound) so a hung-but-live dispatch is recorded as a real "
+            "failure before the reaper would skip it. 15min covers a long "
+            "incremental import without falsely cancelling it."
+        ),
+    )
+    stuck_start_timeout_seconds: PositiveInt = Field(
+        default=1800,
+        description=(
+            "DB-side bound for a DEAD dispatch (process killed before recording an "
+            "outcome): a claim still held after this many seconds is reaped as a "
+            "skip and advanced. Distinct from dispatch_timeout_seconds, which "
+            "cancels a still-live dispatch. 30min is generous enough that a long "
+            "Last.fm full-history import isn't falsely reaped."
+        ),
+    )
+
+    @model_validator(mode="after")
+    def _timeouts_ordered(self) -> Self:
+        """The live-cancellation bound must trip before the dead-dispatch reaper.
+
+        Both field docstrings assert ``dispatch_timeout_seconds <
+        stuck_start_timeout_seconds``; enforce it so a misconfiguration can't
+        silently invert the two. If the live bound were >= the reaper's bound, a
+        hung-but-live dispatch would be reaped as a benign skip before
+        ``asyncio.timeout`` cancels it and records the real failure.
+        """
+        if self.dispatch_timeout_seconds >= self.stuck_start_timeout_seconds:
+            raise ValueError(
+                "dispatch_timeout_seconds must be < stuck_start_timeout_seconds "
+                f"(got {self.dispatch_timeout_seconds} >= "
+                f"{self.stuck_start_timeout_seconds})"
+            )
+        return self
+
+
 class Settings(BaseSettings):
     """Main application settings with environment variable support.
 
@@ -500,6 +573,7 @@ class Settings(BaseSettings):
     freshness: FreshnessConfig = Field(default_factory=FreshnessConfig)
     server: ServerConfig = Field(default_factory=ServerConfig)
     security: SecurityConfig = Field(default_factory=SecurityConfig)
+    scheduler: SchedulerConfig = Field(default_factory=SchedulerConfig)
 
     # Top-level settings
     data_dir: Path = Field(

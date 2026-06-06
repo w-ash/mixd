@@ -67,7 +67,18 @@ from src.interface._shared.run_lifecycle import (
     update_run_status,
 )
 from src.interface.api.deps import get_current_user_id
+from src.interface.api.routes._schedule_ops import (
+    delete_schedule,
+    get_schedule,
+    toggle_schedule,
+    upsert_schedule,
+)
 from src.interface.api.schemas.common import PaginatedResponse
+from src.interface.api.schemas.schedules import (
+    ScheduleResponse,
+    ScheduleToggleRequest,
+    ScheduleUpsertRequest,
+)
 from src.interface.api.schemas.workflows import (
     CreateWorkflowRequest,
     NodeTypeInfoSchema,
@@ -499,6 +510,63 @@ async def revert_workflow_version(
         user_id=user_id,
     )
     return to_workflow_detail(result.workflow)
+
+
+# ---------------------------------------------------------------------------
+# Schedule endpoints (workflow target) — sync targets live on the schedules
+# router. PUT is idempotent per workflow (201 created / 200 replaced).
+# ---------------------------------------------------------------------------
+
+
+@router.put("/{workflow_id}/schedule")
+async def upsert_workflow_schedule(
+    workflow_id: UUID,
+    body: ScheduleUpsertRequest,
+    response: Response,
+    user_id: str = Depends(get_current_user_id),
+) -> ScheduleResponse:
+    """Create or replace this workflow's schedule (201 created / 200 replaced).
+
+    A workflow the user doesn't own (or that doesn't exist) is rejected by the
+    use case's target check → ``NotFoundError`` → 404.
+    """
+    return await upsert_schedule(
+        user_id=user_id, body=body, response=response, workflow_id=workflow_id
+    )
+
+
+@router.get("/{workflow_id}/schedule")
+async def get_workflow_schedule(
+    workflow_id: UUID,
+    user_id: str = Depends(get_current_user_id),
+) -> ScheduleResponse:
+    """Return this workflow's schedule, or 404 if none is configured."""
+    return await get_schedule(
+        user_id=user_id,
+        not_found_message=f"No schedule for workflow {workflow_id}",
+        workflow_id=workflow_id,
+    )
+
+
+@router.patch("/{workflow_id}/schedule")
+async def toggle_workflow_schedule(
+    workflow_id: UUID,
+    body: ScheduleToggleRequest,
+    user_id: str = Depends(get_current_user_id),
+) -> ScheduleResponse:
+    """Enable or disable this workflow's schedule (preserves run history)."""
+    return await toggle_schedule(
+        user_id=user_id, enabled=body.enabled, workflow_id=workflow_id
+    )
+
+
+@router.delete("/{workflow_id}/schedule", status_code=204)
+async def delete_workflow_schedule(
+    workflow_id: UUID,
+    user_id: str = Depends(get_current_user_id),
+) -> Response:
+    """Delete this workflow's schedule (404 if none). Run history is preserved."""
+    return await delete_schedule(user_id=user_id, workflow_id=workflow_id)
 
 
 # ---------------------------------------------------------------------------

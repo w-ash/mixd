@@ -108,6 +108,9 @@ class RunWorkflowCommand:
     user_id: str
     workflow_id: UUID
     operation_id: str | None = None
+    # Set by the scheduler when this run was fired by a schedule, so the run
+    # row traces back to its trigger. None for manual (CLI/API) runs.
+    triggered_by_schedule_id: UUID | None = None
 
 
 @define(frozen=True, slots=True)
@@ -160,6 +163,7 @@ class RunWorkflowUseCase:
                 definition_snapshot=definition_snapshot,
                 definition_version=workflow.definition_version,
                 nodes=pending_nodes,
+                triggered_by_schedule_id=command.triggered_by_schedule_id,
             )
 
             run_repo = uow.get_workflow_run_repository()

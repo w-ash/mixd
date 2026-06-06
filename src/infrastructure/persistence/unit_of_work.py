@@ -24,6 +24,7 @@ from src.domain.repositories.interfaces import (
     PlaylistRepositoryProtocol,
     PlaysRepositoryProtocol,
     PreferenceRepositoryProtocol,
+    ScheduleRepositoryProtocol,
     ServiceConnectorProvider,
     StatsRepositoryProtocol,
     TagRepositoryProtocol,
@@ -278,6 +279,14 @@ class DatabaseUnitOfWork:
         )
 
         return OperationRunRepository(self._session)
+
+    def get_schedule_repository(self) -> ScheduleRepositoryProtocol:
+        """Get schedule repository for workflow/sync calendar triggers."""
+        from src.infrastructure.persistence.repositories.schedule import (
+            ScheduleRepository,
+        )
+
+        return ScheduleRepository(self._session)
 
     def get_track_merge_service(self) -> TrackMergeServiceProtocol:
         """Get track merge service using this unit of work's transaction."""

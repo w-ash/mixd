@@ -13,7 +13,7 @@ Prefer `typer.BadParameter` over ad-hoc `typer.Exit(1)` for argument validation
 leaks a stack trace.
 """
 
-from collections.abc import Callable, Sequence
+from collections.abc import Awaitable, Callable, Sequence
 from datetime import UTC, datetime
 from pathlib import Path
 from typing import Literal, Never
@@ -34,6 +34,7 @@ from src.domain.entities.playlist_assignment import (
 from src.domain.entities.playlist_link import SyncDirection
 from src.domain.entities.preference import PREFERENCE_ORDER, PreferenceState
 from src.domain.entities.progress import NullProgressEmitter, ProgressEmitter
+from src.domain.entities.schedule import Schedule, validate_time_of_day
 from src.domain.entities.tag import normalize_tag
 from src.domain.repositories import UnitOfWorkProtocol
 from src.interface.cli.async_runner import run_async
@@ -528,3 +529,281 @@ def render_batch_summary(result: BatchOperationResult, *, title: str) -> Table:
     table.add_section()
     table.add_row("Total", str(result.total), style="bold")
     return table
+
+
+# ---------------------------------------------------------------------------
+# Schedule helpers (v0.8.2) — shared by `workflow schedule` and `sync schedule`
+# ---------------------------------------------------------------------------
+
+# Weekday name ↔ cron day_of_week (0=Sunday … 6=Saturday — the schedule entity's
+# convention). Lets the CLI speak "sunday" while the domain stores the int.
+_WEEKDAY_TO_DOW: dict[str, int] = {
+    "sunday": 0,
+    "monday": 1,
+    "tuesday": 2,
+    "wednesday": 3,
+    "thursday": 4,
+    "friday": 5,
+    "saturday": 6,
+}
+_DOW_TO_WEEKDAY: dict[int, str] = {v: k for k, v in _WEEKDAY_TO_DOW.items()}
+
+
+def parse_time_of_day(value: str) -> tuple[int, int]:
+    """Parse a 24-hour ``HH:MM`` string → ``(hour, minute)`` or raise.
+
+    The range check delegates to the domain ``validate_time_of_day`` so the CLI
+    and the entity backstop reject the same out-of-range times identically.
+    """
+    hour_str, sep, minute_str = value.partition(":")
+    if not sep:
+        raise typer.BadParameter(
+            f"invalid time {value!r}; use HH:MM (24-hour), e.g. 06:30"
+        )
+    try:
+        hour, minute = int(hour_str), int(minute_str)
+    except ValueError:
+        raise typer.BadParameter(
+            f"invalid time {value!r}; use HH:MM (24-hour), e.g. 06:30"
+        ) from None
+    try:
+        return validate_time_of_day(hour, minute)
+    except ValueError as e:
+        raise typer.BadParameter(str(e)) from e
+
+
+def parse_weekday(name: str) -> int:
+    """Map a weekday name (case-insensitive) → ``day_of_week`` (0=Sun…6=Sat)."""
+    dow = _WEEKDAY_TO_DOW.get(name.strip().lower())
+    if dow is None:
+        valid = ", ".join(_WEEKDAY_TO_DOW)
+        raise typer.BadParameter(f"invalid weekday {name!r}; expected one of: {valid}")
+    return dow
+
+
+def weekday_name(day_of_week: int) -> str:
+    """Render a ``day_of_week`` int back to a capitalized weekday name."""
+    return _DOW_TO_WEEKDAY.get(day_of_week, "?").capitalize()
+
+
+def validate_timezone_arg(tz: str) -> str:
+    """``--tz`` validator → IANA name or ``typer.BadParameter``."""
+    from src.application.use_cases._shared.schedule_validators import (
+        validate_iana_timezone,
+    )
+
+    try:
+        return validate_iana_timezone(tz)
+    except ValueError as e:
+        raise typer.BadParameter(str(e)) from e
+
+
+def validate_sync_target_arg(target: str) -> str:
+    """Sync-target argument validator → the target or ``typer.BadParameter``."""
+    from src.application.use_cases._shared.sync_targets import validate_sync_target
+
+    try:
+        return validate_sync_target(target)
+    except ValueError as e:
+        raise typer.BadParameter(str(e)) from e
+
+
+def resolve_default_timezone() -> str:
+    """Best-effort local IANA timezone for the schedule default; UTC on failure.
+
+    No new dependency: tries ``$TZ`` then the ``/etc/localtime`` symlink (which
+    points into the zoneinfo tree on Linux/macOS). Falls back to UTC with a
+    warning so the user knows to pass ``--tz`` if the guess was wrong.
+    """
+    import os
+
+    from src.application.use_cases._shared.schedule_validators import (
+        validate_iana_timezone,
+    )
+
+    env_tz = os.environ.get("TZ")
+    if env_tz:
+        try:
+            return validate_iana_timezone(env_tz)
+        except ValueError:
+            pass
+    try:
+        link = str(Path("/etc/localtime").readlink())
+        if "zoneinfo/" in link:
+            return validate_iana_timezone(link.rsplit("zoneinfo/", maxsplit=1)[-1])
+    except OSError, ValueError:
+        pass
+    err_console.print(
+        "[yellow]Could not detect local timezone; defaulting to UTC. "
+        "Pass --tz to override.[/yellow]"
+    )
+    return "UTC"
+
+
+def format_next_run(schedule: Schedule) -> str:
+    """Render a schedule's next fire time in its own timezone for display."""
+    if schedule.next_run_at is None:
+        return "—"
+    from zoneinfo import ZoneInfo
+
+    local = schedule.next_run_at.astimezone(ZoneInfo(schedule.timezone))
+    return local.strftime("%Y-%m-%d %H:%M %Z")
+
+
+def describe_cadence(schedule: Schedule) -> str:
+    """Plain-English cadence summary, e.g. "Weekly on Sunday at 06:30 (UTC)"."""
+    at = f"{schedule.hour:02d}:{schedule.minute:02d}"
+    if schedule.day_of_week is None:
+        return f"Daily at {at} ({schedule.timezone})"
+    return (
+        f"Weekly on {weekday_name(schedule.day_of_week)} at {at} ({schedule.timezone})"
+    )
+
+
+# ---------------------------------------------------------------------------
+# Shared schedule command orchestration (the single codepath behind both
+# `mixd workflow schedule` and `mixd sync schedule`).
+# ---------------------------------------------------------------------------
+
+
+def _render_schedule(schedule: Schedule, *, label: str) -> None:
+    """Print a schedule's cadence, next run, status, and failure state."""
+    console.print(f"[bold]{label}[/bold]")
+    console.print(f"  Cadence: {describe_cadence(schedule)}")
+    console.print(f"  Next run: {format_next_run(schedule)}")
+    status_color = "green" if schedule.status == "enabled" else "dim"
+    console.print(f"  Status: [{status_color}]{schedule.status}[/{status_color}]")
+    if schedule.consecutive_failures > 0:
+        console.print(
+            f"  [red]⚠ {schedule.consecutive_failures} consecutive failure(s)[/red]"
+        )
+        if schedule.last_error:
+            console.print(f"  [dim]Last error: {schedule.last_error}[/dim]")
+
+
+def run_schedule_command(
+    *,
+    user_id: str,
+    label: str,
+    workflow_id: UUID | None = None,
+    sync_target: str | None = None,
+    daily: bool = False,
+    weekly: str | None = None,
+    at: str | None = None,
+    tz: str | None = None,
+    enable: bool = False,
+    disable: bool = False,
+    remove: bool = False,
+) -> None:
+    """Resolve the requested schedule action and run it (one codepath, two edges).
+
+    Exactly one mutating action is allowed per invocation; with none, the current
+    schedule is printed. All validation lives here and in the application use
+    cases, so ``workflow schedule`` and ``sync schedule`` stay thin wrappers that
+    only differ in which target identity they pass.
+    """
+    from src.application.runner import execute_use_case
+    from src.application.use_cases.schedules import (
+        DeleteScheduleCommand,
+        DeleteScheduleUseCase,
+        GetScheduleCommand,
+        GetScheduleUseCase,
+        ToggleScheduleCommand,
+        ToggleScheduleUseCase,
+        UpsertScheduleCommand,
+        UpsertScheduleUseCase,
+    )
+
+    def _run[T](
+        factory: Callable[[UnitOfWorkProtocol], Awaitable[T]], *, error: str
+    ) -> T:
+        # handle_cli_error is `-> Never`, so on failure this does not return —
+        # callers read the result unconditionally.
+        try:
+            return run_async(execute_use_case(factory, user_id=user_id))
+        except Exception as e:
+            handle_cli_error(e, error)
+
+    if sum([remove, enable, disable, daily, weekly is not None]) > 1:
+        raise typer.BadParameter(
+            "choose only one of --daily/--weekly, --enable, --disable, --remove"
+        )
+    # --at / --tz only mean something alongside a cadence; alone they would
+    # silently fall through to "show", so reject them explicitly.
+    if (at is not None or tz is not None) and not (daily or weekly is not None):
+        raise typer.BadParameter("--at / --tz require --daily or --weekly")
+
+    if remove:
+        _run(
+            lambda uow: DeleteScheduleUseCase().execute(
+                DeleteScheduleCommand(
+                    user_id=user_id, workflow_id=workflow_id, sync_target=sync_target
+                ),
+                uow,
+            ),
+            error=f"Failed to remove schedule for {label}",
+        )
+        console.print(f"[green]✓ Removed schedule for {label}.[/green]")
+        return
+
+    if enable or disable:
+        result = _run(
+            lambda uow: ToggleScheduleUseCase().execute(
+                ToggleScheduleCommand(
+                    user_id=user_id,
+                    enabled=enable,
+                    workflow_id=workflow_id,
+                    sync_target=sync_target,
+                ),
+                uow,
+            ),
+            error=f"Failed to toggle schedule for {label}",
+        )
+        verb = "enabled" if enable else "disabled"
+        console.print(f"[green]✓ Schedule {verb} for {label}.[/green]")
+        _render_schedule(result.schedule, label=label)
+        return
+
+    if daily or weekly is not None:
+        if at is None:
+            raise typer.BadParameter("--at HH:MM is required when setting a schedule")
+        hour, minute = parse_time_of_day(at)
+        day_of_week = parse_weekday(weekly) if weekly is not None else None
+        timezone = validate_timezone_arg(tz) if tz else resolve_default_timezone()
+        result = _run(
+            lambda uow: UpsertScheduleUseCase().execute(
+                UpsertScheduleCommand(
+                    user_id=user_id,
+                    workflow_id=workflow_id,
+                    sync_target=sync_target,
+                    hour=hour,
+                    minute=minute,
+                    day_of_week=day_of_week,
+                    timezone=timezone,
+                ),
+                uow,
+            ),
+            error=f"Failed to schedule {label}",
+        )
+        action = "Scheduled" if result.created else "Updated schedule for"
+        console.print(f"[green]✓ {action} {label}.[/green]")
+        _render_schedule(result.schedule, label=label)
+        return
+
+    # No action — show the current schedule (empty state if none).
+    result = _run(
+        lambda uow: GetScheduleUseCase().execute(
+            GetScheduleCommand(
+                user_id=user_id, workflow_id=workflow_id, sync_target=sync_target
+            ),
+            uow,
+        ),
+        error=f"Failed to read schedule for {label}",
+    )
+    if result.schedule is None:
+        console.print(f"[dim]No schedule set for {label}.[/dim]")
+        console.print(
+            "[dim]Set one with --daily --at HH:MM or --weekly <day> --at HH:MM.[/dim]"
+        )
+        return
+    _render_schedule(result.schedule, label=label)

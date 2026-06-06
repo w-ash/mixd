@@ -72,7 +72,7 @@ Each milestone delivers a **vertical slice** — backend API + frontend page tog
 | **v0.7.8** | Mobile responsiveness + visual regression baseline (Playwright `toHaveScreenshot`) | 🚀 Shipped | [details](v0.7.8.md#v078-mobile-responsiveness) |
 | **v0.8.0** | Run reliability & validation hardening | 🚀 Shipped | [details](v0.8.x.md#v080-run-reliability--validation-hardening) |
 | **v0.8.1** | Workflow engine swap (Prefect → stdlib asyncio) | 🚀 Shipped | [details](v0.8.x.md#v081-workflow-engine-swap-prefect-to-stdlib-asyncio) |
-| **v0.8.2** | Workflow scheduling — engine & CLI | 🔜 Not Started | [details](v0.8.x.md#v082-workflow-scheduling---engine--cli) |
+| **v0.8.2** | Workflow scheduling — engine & CLI | 🔨 In Progress | [details](v0.8.x.md#v082-workflow-scheduling---engine--cli) |
 | **v0.8.3** | Workflow scheduling — web UI & failure alerts | 🔜 Not Started | [details](v0.8.x.md#v083-workflow-scheduling---web-ui--failure-alerts) |
 | **v0.8.4** | Background sync scheduling | 🔜 Not Started | [details](v0.8.x.md#v084-background-sync-scheduling) |
 | **v0.8.5** | Workflow templates & import/export | 🔜 Not Started | [details](v0.8.x.md#v085-workflow-templates--importexport) |

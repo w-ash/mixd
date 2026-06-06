@@ -28,6 +28,7 @@ import {
   TableHeader,
   TableRow,
 } from "#/components/ui/table";
+import { WorkflowScheduleCard } from "#/components/workflow/WorkflowScheduleCard";
 import { useWorkflowExecution } from "#/hooks/useWorkflowExecution";
 import { formatDate, formatDuration } from "#/lib/format";
 import { toasts } from "#/lib/toasts";
@@ -257,6 +258,8 @@ export function WorkflowDetail() {
       />
 
       <RunHistoryTable runs={runs} workflowId={workflowId} />
+
+      <WorkflowScheduleCard workflowId={workflowId} />
     </div>
   );
 }

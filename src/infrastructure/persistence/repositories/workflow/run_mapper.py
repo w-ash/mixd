@@ -91,6 +91,7 @@ class WorkflowRunMapper:
             error_message=db.error_message,
             nodes=nodes,
             created_at=db.created_at,
+            triggered_by_schedule_id=db.triggered_by_schedule_id,
         )
 
     @staticmethod
@@ -109,4 +110,5 @@ class WorkflowRunMapper:
             output_playlist_id=run.output_playlist_id,
             output_tracks=run.output_tracks or None,
             error_message=run.error_message,
+            triggered_by_schedule_id=run.triggered_by_schedule_id,
         )

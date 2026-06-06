@@ -21,7 +21,7 @@ from datetime import UTC, datetime
 import pathlib
 from typing import Final
 
-from src.application.runner import execute_use_case
+from src.application.services.periodic_loop import run_periodic_background_loop
 from src.config.constants import WorkflowConstants
 from src.config.logging import get_logger
 from src.domain.entities.workflow import WorkflowRun
@@ -162,9 +162,10 @@ async def run_sweeper_loop(
 ) -> None:
     """Lifespan-managed loop. Sweeps every ``interval_seconds`` until cancelled.
 
-    Each tick opens a short-lived UoW via ``execute_use_case``. Errors inside a
-    tick are logged and swallowed so a transient failure (e.g. Neon cold-pause)
-    doesn't kill the loop.
+    A thin binding over the shared ``run_periodic_background_loop`` skeleton —
+    the cadence-corrected sleep, transient-error swallowing, and clean
+    cancellation all live there now (extracted when the scheduler became the
+    second caller).
     """
 
     async def _tick(uow: UnitOfWorkProtocol) -> int:
@@ -172,19 +173,18 @@ async def run_sweeper_loop(
             uow, stale_threshold_seconds=stale_threshold_seconds
         )
 
+    def _log(count: int) -> None:
+        if count > 0:
+            logger.info("Sweeper tick", failed_count=count)
+
     logger.info(
-        "Workflow run sweeper started",
+        "Workflow run sweeper config",
         interval_seconds=interval_seconds,
         stale_threshold_seconds=stale_threshold_seconds,
     )
-    while True:
-        try:
-            count = await execute_use_case(_tick)
-            if count > 0:
-                logger.info("Sweeper tick", failed_count=count)
-        except asyncio.CancelledError:
-            logger.info("Workflow run sweeper cancelled")
-            raise
-        except Exception:
-            logger.warning("Sweeper tick failed", exc_info=True)
-        await asyncio.sleep(interval_seconds)
+    await run_periodic_background_loop(
+        _tick,
+        interval_seconds=interval_seconds,
+        name="workflow_run_sweeper",
+        log_result=_log,
+    )

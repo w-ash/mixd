@@ -162,6 +162,29 @@ class WorkflowConstants:
     SSE_EVENT_ID_RUN_ACCEPTED: Final = "evt_accept"
 
 
+class SchedulerConstants:
+    """Non-tunable operational bounds for the workflow/sync scheduler.
+
+    User-tunable knobs (poll interval, concurrency, catchup, min-interval,
+    stuck-start timeout) live in ``settings.scheduler`` — see
+    ``SchedulerConfig``. These are fixed bounds the operator should not need
+    to change. Error-message truncation reuses
+    ``WorkflowConstants.ERROR_MESSAGE_MAX_LENGTH`` (don't redefine it).
+    """
+
+    # Cap schedules claimed per poll tick so a large due-backlog can't make one
+    # tick unbounded (mirrors WorkflowConstants.SWEEP_MAX_BATCH).
+    DUE_BATCH_MAX: Final = 400
+
+    # pg_try_advisory_xact_lock key guarding the per-tick poll. Taken at the top of
+    # each tick's poll transaction so only one instance scans/reaps that tick (no
+    # N-fold redundant cross-tenant scans across replicas); it auto-releases when
+    # the transaction ends, so there's no long-lived lock to leak. The atomic
+    # mark_schedule_started claim — not this lock — is what prevents double-dispatch.
+    # The value is the ASCII for "mixd" (0x6D697864), a fixed arbitrary bigint.
+    POLL_LOCK_KEY: Final = 0x6D697864
+
+
 class MappingOrigin:
     """How a track mapping was established.
 

@@ -14,6 +14,8 @@ from src.domain.exceptions import (
     ConfirmationRequiredError,
     NotFoundError,
     OptimisticLockError,
+    ScheduleAlreadyExistsError,
+    ScheduleInvariantError,
     WorkflowAlreadyRunningError,
 )
 
@@ -83,6 +85,38 @@ def register_exception_handlers(app: FastAPI) -> None:
                     "code": "WORKFLOW_RUNNING",
                     "message": str(exc),
                     "details": {"workflow_id": exc.workflow_id},
+                }
+            },
+        )
+
+    @app.exception_handler(ScheduleAlreadyExistsError)
+    async def schedule_exists_handler(  # pyright: ignore[reportUnusedFunction]
+        _request: Request, exc: ScheduleAlreadyExistsError
+    ) -> JSONResponse:
+        return JSONResponse(
+            status_code=409,
+            content={
+                "error": {
+                    "code": "SCHEDULE_EXISTS",
+                    "message": str(exc),
+                    "details": {"target": exc.target},
+                }
+            },
+        )
+
+    @app.exception_handler(ScheduleInvariantError)
+    async def schedule_invariant_handler(  # pyright: ignore[reportUnusedFunction]
+        _request: Request, exc: ScheduleInvariantError
+    ) -> JSONResponse:
+        # A malformed schedule that slipped past request validation and tripped a
+        # DB CHECK is a validation failure (422), not a server fault (500).
+        return JSONResponse(
+            status_code=422,
+            content={
+                "error": {
+                    "code": "SCHEDULE_INVALID",
+                    "message": str(exc),
+                    "details": {"constraint": exc.constraint},
                 }
             },
         )

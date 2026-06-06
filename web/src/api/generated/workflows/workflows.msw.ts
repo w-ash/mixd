@@ -25,6 +25,7 @@ import type {
   PaginatedResponseWorkflowRunSummarySchema,
   PaginatedResponseWorkflowSummarySchema,
   PreviewStartedResponse,
+  ScheduleResponse,
   WorkflowDetailSchema,
   WorkflowRunDetailSchema,
   WorkflowRunStartedResponse,
@@ -85,6 +86,12 @@ export const getGetWorkflowVersionApiV1WorkflowsWorkflowIdVersionsVersionGetResp
 export const getRevertWorkflowVersionApiV1WorkflowsWorkflowIdVersionsVersionRevertPostResponseMock = (overrideResponse: Partial<Extract<WorkflowDetailSchema, object>> = {}): WorkflowDetailSchema => ({id: faker.string.uuid(), name: faker.string.alpha({length: {min: 10, max: 20}}), description: faker.helpers.arrayElement([faker.helpers.arrayElement([faker.string.alpha({length: {min: 10, max: 20}}),null,]), undefined]), definition_version: faker.number.int(), task_count: faker.number.int(), node_types: Array.from({ length: faker.number.int({min: 1, max: 10}) }, (_, i) => i + 1).map(() => (faker.string.alpha({length: {min: 10, max: 20}}))), created_at: faker.helpers.arrayElement([faker.helpers.arrayElement([faker.date.past().toISOString().slice(0, 19) + 'Z',null,]), undefined]), updated_at: faker.helpers.arrayElement([faker.helpers.arrayElement([faker.date.past().toISOString().slice(0, 19) + 'Z',null,]), undefined]), last_run: faker.helpers.arrayElement([faker.helpers.arrayElement([{id: faker.string.uuid(), status: faker.helpers.arrayElement(['pending','running','completed','failed','cancelled','crashed'] as const), definition_version: faker.number.int(), completed_at: faker.helpers.arrayElement([faker.helpers.arrayElement([faker.date.past().toISOString().slice(0, 19) + 'Z',null,]), undefined]), output_track_count: faker.helpers.arrayElement([faker.helpers.arrayElement([faker.number.int(),null,]), undefined])},null,]), undefined]), definition: {id: faker.string.alpha({length: {min: 10, max: 20}}), name: faker.string.alpha({length: {min: 10, max: 20}}), description: faker.string.alpha({length: {min: 10, max: 20}}), version: faker.string.alpha({length: {min: 10, max: 20}}), tasks: Array.from({ length: faker.number.int({min: 1, max: 10}) }, (_, i) => i + 1).map(() => ({id: faker.string.alpha({length: {min: 10, max: 20}}), type: faker.string.alpha({length: {min: 10, max: 20}}), config: {
         [faker.string.alphanumeric(5)]: faker.helpers.arrayElement([faker.string.alpha({length: {min: 10, max: 20}}),faker.number.int(),faker.number.float({fractionDigits: 2}),faker.datatype.boolean(),[],null,])
       }, upstream: Array.from({ length: faker.number.int({min: 1, max: 10}) }, (_, i) => i + 1).map(() => (faker.string.alpha({length: {min: 10, max: 20}}))), result_key: faker.helpers.arrayElement([faker.helpers.arrayElement([faker.string.alpha({length: {min: 10, max: 20}}),null,]), undefined])}))}, ...overrideResponse})
+
+export const getUpsertWorkflowScheduleApiV1WorkflowsWorkflowIdSchedulePutResponseMock = (overrideResponse: Partial<Extract<ScheduleResponse, object>> = {}): ScheduleResponse => ({id: faker.string.uuid(), target_type: faker.helpers.arrayElement(['workflow','sync'] as const), workflow_id: faker.helpers.arrayElement([faker.string.uuid(),null,]), sync_target: faker.helpers.arrayElement([faker.string.alpha({length: {min: 10, max: 20}}),null,]), schedule_type: faker.helpers.arrayElement(['daily','weekly'] as const), hour: faker.number.int(), minute: faker.number.int(), day_of_week: faker.helpers.arrayElement([faker.number.int(),null,]), timezone: faker.string.alpha({length: {min: 10, max: 20}}), status: faker.helpers.arrayElement(['enabled','disabled'] as const), next_run_at: faker.helpers.arrayElement([faker.date.past().toISOString().slice(0, 19) + 'Z',null,]), last_run_at: faker.helpers.arrayElement([faker.date.past().toISOString().slice(0, 19) + 'Z',null,]), last_run_status: faker.helpers.arrayElement([faker.string.alpha({length: {min: 10, max: 20}}),null,]), last_error: faker.helpers.arrayElement([faker.string.alpha({length: {min: 10, max: 20}}),null,]), consecutive_failures: faker.number.int(), run_count: faker.number.int(), ...overrideResponse})
+
+export const getGetWorkflowScheduleApiV1WorkflowsWorkflowIdScheduleGetResponseMock = (overrideResponse: Partial<Extract<ScheduleResponse, object>> = {}): ScheduleResponse => ({id: faker.string.uuid(), target_type: faker.helpers.arrayElement(['workflow','sync'] as const), workflow_id: faker.helpers.arrayElement([faker.string.uuid(),null,]), sync_target: faker.helpers.arrayElement([faker.string.alpha({length: {min: 10, max: 20}}),null,]), schedule_type: faker.helpers.arrayElement(['daily','weekly'] as const), hour: faker.number.int(), minute: faker.number.int(), day_of_week: faker.helpers.arrayElement([faker.number.int(),null,]), timezone: faker.string.alpha({length: {min: 10, max: 20}}), status: faker.helpers.arrayElement(['enabled','disabled'] as const), next_run_at: faker.helpers.arrayElement([faker.date.past().toISOString().slice(0, 19) + 'Z',null,]), last_run_at: faker.helpers.arrayElement([faker.date.past().toISOString().slice(0, 19) + 'Z',null,]), last_run_status: faker.helpers.arrayElement([faker.string.alpha({length: {min: 10, max: 20}}),null,]), last_error: faker.helpers.arrayElement([faker.string.alpha({length: {min: 10, max: 20}}),null,]), consecutive_failures: faker.number.int(), run_count: faker.number.int(), ...overrideResponse})
+
+export const getToggleWorkflowScheduleApiV1WorkflowsWorkflowIdSchedulePatchResponseMock = (overrideResponse: Partial<Extract<ScheduleResponse, object>> = {}): ScheduleResponse => ({id: faker.string.uuid(), target_type: faker.helpers.arrayElement(['workflow','sync'] as const), workflow_id: faker.helpers.arrayElement([faker.string.uuid(),null,]), sync_target: faker.helpers.arrayElement([faker.string.alpha({length: {min: 10, max: 20}}),null,]), schedule_type: faker.helpers.arrayElement(['daily','weekly'] as const), hour: faker.number.int(), minute: faker.number.int(), day_of_week: faker.helpers.arrayElement([faker.number.int(),null,]), timezone: faker.string.alpha({length: {min: 10, max: 20}}), status: faker.helpers.arrayElement(['enabled','disabled'] as const), next_run_at: faker.helpers.arrayElement([faker.date.past().toISOString().slice(0, 19) + 'Z',null,]), last_run_at: faker.helpers.arrayElement([faker.date.past().toISOString().slice(0, 19) + 'Z',null,]), last_run_status: faker.helpers.arrayElement([faker.string.alpha({length: {min: 10, max: 20}}),null,]), last_error: faker.helpers.arrayElement([faker.string.alpha({length: {min: 10, max: 20}}),null,]), consecutive_failures: faker.number.int(), run_count: faker.number.int(), ...overrideResponse})
 
 
 export const getListWorkflowsApiV1WorkflowsGetMockHandler = (overrideResponse?: PaginatedResponseWorkflowSummarySchema | ((info: Parameters<Parameters<typeof http.get>[1]>[0]) => Promise<PaginatedResponseWorkflowSummarySchema> | PaginatedResponseWorkflowSummarySchema), options?: RequestHandlerOptions) => {
@@ -300,6 +307,52 @@ export const getRevertWorkflowVersionApiV1WorkflowsWorkflowIdVersionsVersionReve
       })
   }, options)
 }
+
+export const getUpsertWorkflowScheduleApiV1WorkflowsWorkflowIdSchedulePutMockHandler = (overrideResponse?: ScheduleResponse | ((info: Parameters<Parameters<typeof http.put>[1]>[0]) => Promise<ScheduleResponse> | ScheduleResponse), options?: RequestHandlerOptions) => {
+  return http.put('*/api/v1/workflows/:workflowId/schedule', async (info: Parameters<Parameters<typeof http.put>[1]>[0]) => {
+
+
+    return HttpResponse.json(overrideResponse !== undefined
+    ? (typeof overrideResponse === "function" ? await overrideResponse(info) : overrideResponse)
+    : getUpsertWorkflowScheduleApiV1WorkflowsWorkflowIdSchedulePutResponseMock(),
+      { status: 200
+      })
+  }, options)
+}
+
+export const getGetWorkflowScheduleApiV1WorkflowsWorkflowIdScheduleGetMockHandler = (overrideResponse?: ScheduleResponse | ((info: Parameters<Parameters<typeof http.get>[1]>[0]) => Promise<ScheduleResponse> | ScheduleResponse), options?: RequestHandlerOptions) => {
+  return http.get('*/api/v1/workflows/:workflowId/schedule', async (info: Parameters<Parameters<typeof http.get>[1]>[0]) => {
+
+
+    return HttpResponse.json(overrideResponse !== undefined
+    ? (typeof overrideResponse === "function" ? await overrideResponse(info) : overrideResponse)
+    : getGetWorkflowScheduleApiV1WorkflowsWorkflowIdScheduleGetResponseMock(),
+      { status: 200
+      })
+  }, options)
+}
+
+export const getToggleWorkflowScheduleApiV1WorkflowsWorkflowIdSchedulePatchMockHandler = (overrideResponse?: ScheduleResponse | ((info: Parameters<Parameters<typeof http.patch>[1]>[0]) => Promise<ScheduleResponse> | ScheduleResponse), options?: RequestHandlerOptions) => {
+  return http.patch('*/api/v1/workflows/:workflowId/schedule', async (info: Parameters<Parameters<typeof http.patch>[1]>[0]) => {
+
+
+    return HttpResponse.json(overrideResponse !== undefined
+    ? (typeof overrideResponse === "function" ? await overrideResponse(info) : overrideResponse)
+    : getToggleWorkflowScheduleApiV1WorkflowsWorkflowIdSchedulePatchResponseMock(),
+      { status: 200
+      })
+  }, options)
+}
+
+export const getDeleteWorkflowScheduleApiV1WorkflowsWorkflowIdScheduleDeleteMockHandler = (overrideResponse?: void | ((info: Parameters<Parameters<typeof http.delete>[1]>[0]) => Promise<void> | void), options?: RequestHandlerOptions) => {
+  return http.delete('*/api/v1/workflows/:workflowId/schedule', async (info: Parameters<Parameters<typeof http.delete>[1]>[0]) => {
+  if (typeof overrideResponse === 'function') {await overrideResponse(info); }
+
+    return new HttpResponse(null,
+      { status: 204
+      })
+  }, options)
+}
 export const getWorkflowsMock = () => [
   getListWorkflowsApiV1WorkflowsGetMockHandler(),
   getCreateWorkflowApiV1WorkflowsPostMockHandler(),
@@ -318,5 +371,9 @@ export const getWorkflowsMock = () => [
   getGetWorkflowRunApiV1WorkflowsWorkflowIdRunsRunIdGetMockHandler(),
   getListWorkflowVersionsApiV1WorkflowsWorkflowIdVersionsGetMockHandler(),
   getGetWorkflowVersionApiV1WorkflowsWorkflowIdVersionsVersionGetMockHandler(),
-  getRevertWorkflowVersionApiV1WorkflowsWorkflowIdVersionsVersionRevertPostMockHandler()
+  getRevertWorkflowVersionApiV1WorkflowsWorkflowIdVersionsVersionRevertPostMockHandler(),
+  getUpsertWorkflowScheduleApiV1WorkflowsWorkflowIdSchedulePutMockHandler(),
+  getGetWorkflowScheduleApiV1WorkflowsWorkflowIdScheduleGetMockHandler(),
+  getToggleWorkflowScheduleApiV1WorkflowsWorkflowIdSchedulePatchMockHandler(),
+  getDeleteWorkflowScheduleApiV1WorkflowsWorkflowIdScheduleDeleteMockHandler()
 ]

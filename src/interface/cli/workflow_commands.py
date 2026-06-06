@@ -26,7 +26,11 @@ from src.interface._shared.run_lifecycle import (
     update_run_status,
 )
 from src.interface.cli.async_runner import run_async
-from src.interface.cli.cli_helpers import get_cli_user_id, handle_cli_error
+from src.interface.cli.cli_helpers import (
+    get_cli_user_id,
+    handle_cli_error,
+    run_schedule_command,
+)
 from src.interface.cli.completions import complete_workflow_id
 from src.interface.cli.console import (
     brand_panel,
@@ -662,6 +666,65 @@ def list_runs(
         )
 
     console.print(table)
+
+
+@app.command(name="schedule")
+def schedule_workflow(
+    workflow_id: Annotated[
+        str,
+        typer.Argument(
+            help="Workflow ID (number or slug)",
+            autocompletion=complete_workflow_id,
+        ),
+    ],
+    daily: Annotated[
+        bool, typer.Option("--daily", help="Run every day at --at")
+    ] = False,
+    weekly: Annotated[
+        str | None,
+        typer.Option("--weekly", help="Run weekly on this weekday, e.g. sunday"),
+    ] = None,
+    at: Annotated[
+        str | None, typer.Option("--at", help="Time of day, HH:MM (24-hour)")
+    ] = None,
+    tz: Annotated[
+        str | None,
+        typer.Option("--tz", help="IANA timezone (default: detected local zone)"),
+    ] = None,
+    enable: Annotated[
+        bool, typer.Option("--enable", help="Enable the existing schedule")
+    ] = False,
+    disable: Annotated[
+        bool, typer.Option("--disable", help="Disable the existing schedule")
+    ] = False,
+    remove: Annotated[
+        bool, typer.Option("--remove", help="Remove the schedule")
+    ] = False,
+) -> None:
+    """Schedule a workflow to run daily or weekly.
+
+    With no options, prints the current schedule. Examples:
+    `mixd workflow schedule my-flow --daily --at 06:30` /
+    `mixd workflow schedule my-flow --weekly sunday --at 06:30 --tz America/Los_Angeles`.
+    """
+    workflows = _get_available_workflows()
+    selected = _resolve_workflow(workflows, workflow_id)
+    if selected is None:
+        err_console.print(f"[red]Error: Workflow '{workflow_id}' not found.[/red]")
+        raise typer.Exit(1)
+
+    run_schedule_command(
+        user_id=get_cli_user_id(),
+        label=f"workflow '{selected.definition.name}'",
+        workflow_id=selected.id,
+        daily=daily,
+        weekly=weekly,
+        at=at,
+        tz=tz,
+        enable=enable,
+        disable=disable,
+        remove=remove,
+    )
 
 
 @app.command(name="versions")

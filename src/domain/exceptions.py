@@ -57,3 +57,36 @@ class WorkflowAlreadyRunningError(DomainError):
     def __init__(self, workflow_id: str) -> None:
         super().__init__(f"Workflow '{workflow_id}' is already running")
         self.workflow_id = workflow_id
+
+
+class ScheduleAlreadyExistsError(DomainError):
+    """Raised when a user already has a schedule for the same target.
+
+    Enforced at the database via the partial unique indexes
+    ``uq_schedules_workflow_target`` / ``uq_schedules_sync_target`` (one schedule
+    per ``(user_id, workflow_id)`` and per ``(user_id, sync_target)``). The
+    schedule repository maps that constraint's ``IntegrityError`` to this
+    exception so the API can answer 409 — mirrors ``WorkflowAlreadyRunningError``.
+    ``target`` is a human-readable identifier for the JSON error body.
+    """
+
+    def __init__(self, target: str) -> None:
+        super().__init__(f"A schedule for '{target}' already exists")
+        self.target = target
+
+
+class ScheduleInvariantError(DomainError):
+    """Raised when a schedule write violates a DB CHECK constraint.
+
+    The ``schedules`` table's CHECK constraints (the exclusive target arc and the
+    hour/minute/day_of_week ranges) live
+    only in migration 025, so a write that breaks one surfaces as a raw
+    ``IntegrityError`` rather than a friendly error. The repository maps those
+    constraints' ``IntegrityError`` to this exception so the API can answer 422
+    (a malformed schedule is a validation failure) instead of a 500. ``constraint``
+    is the violated constraint name for triage.
+    """
+
+    def __init__(self, constraint: str) -> None:
+        super().__init__(f"Schedule violates constraint '{constraint}'")
+        self.constraint = constraint

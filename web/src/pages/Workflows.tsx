@@ -1,6 +1,8 @@
 import { GitBranch, LayoutTemplate, Plus } from "lucide-react";
+import { useMemo } from "react";
 import { Link } from "react-router";
 
+import { useListSchedulesApiV1SchedulesGet } from "#/api/generated/schedules/schedules";
 import { useListWorkflowsApiV1WorkflowsGet } from "#/api/generated/workflows/workflows";
 import { STALE } from "#/api/query-client";
 import { PageHeader } from "#/components/layout/PageHeader";
@@ -21,6 +23,7 @@ import { TemplateGalleryDialog } from "#/components/workflow/TemplateGalleryDial
 import { WorkflowRow } from "#/components/workflow/WorkflowRow";
 import { useWorkflowExecutionContext } from "#/contexts/WorkflowExecutionContext";
 import { usePagination } from "#/hooks/usePagination";
+import { formatNextRun } from "#/lib/schedule";
 
 function WorkflowTableSkeleton() {
   return (
@@ -77,6 +80,27 @@ export function Workflows() {
   const total = response?.total ?? 0;
   const totalPages = total > 0 ? Math.ceil(total / limit) : 1;
 
+  // One fetch powers the whole "Next run" column — no per-row N+1. Map each
+  // enabled workflow schedule to its formatted next-run for O(1) row lookup.
+  const { data: schedulesData } = useListSchedulesApiV1SchedulesGet({
+    query: { staleTime: STALE.SLOW },
+  });
+  const nextRunByWorkflow = useMemo(() => {
+    const map = new Map<string, string>();
+    const rows = schedulesData?.status === 200 ? schedulesData.data.data : [];
+    for (const s of rows) {
+      if (
+        s.target_type === "workflow" &&
+        s.workflow_id &&
+        s.status === "enabled" &&
+        s.next_run_at
+      ) {
+        map.set(s.workflow_id, formatNextRun(s));
+      }
+    }
+    return map;
+  }, [schedulesData]);
+
   return (
     <div>
       <title>Workflows — Mixd</title>
@@ -111,6 +135,7 @@ export function Workflows() {
                     key={wf.id}
                     wf={wf}
                     runningWorkflowId={runningWorkflowId}
+                    nextRun={nextRunByWorkflow.get(wf.id) ?? null}
                     variant="card"
                   />
                 ))}
@@ -123,6 +148,7 @@ export function Workflows() {
                     <TableHead>Name</TableHead>
                     <TableHead className="w-20 text-right">Tasks</TableHead>
                     <TableHead className="w-28">Last Run</TableHead>
+                    <TableHead className="w-40">Next Run</TableHead>
                     <TableHead className="w-36 text-right">Updated</TableHead>
                     <TableHead className="w-12" />
                   </TableRow>
@@ -133,6 +159,7 @@ export function Workflows() {
                       key={wf.id}
                       wf={wf}
                       runningWorkflowId={runningWorkflowId}
+                      nextRun={nextRunByWorkflow.get(wf.id) ?? null}
                       variant="table"
                     />
                   ))}

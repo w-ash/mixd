@@ -42,6 +42,14 @@ from .preference import (
     TrackPreference,
 )
 
+# Schedule entities
+from .schedule import (
+    Schedule,
+    ScheduleStatus,
+    ScheduleTargetType,
+    ScheduleType,
+)
+
 # Shared utilities
 from .shared import MetricValue, ensure_utc, utc_now_factory
 
@@ -108,6 +116,10 @@ __all__ = [
     "PlaylistLink",
     "PreferenceEvent",
     "PreferenceState",
+    "Schedule",
+    "ScheduleStatus",
+    "ScheduleTargetType",
+    "ScheduleType",
     "SummaryMetric",
     "SummaryMetricCollection",
     "SyncCheckpoint",

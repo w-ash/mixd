@@ -51,6 +51,7 @@ class OperationRunRepository(BaseRepository[DBOperationRun, OperationRun]):
             status=run.status,
             counts=dict(run.counts),
             issues=list(run.issues),
+            triggered_by_schedule_id=run.triggered_by_schedule_id,
         )
         self.session.add(db_row)
         await self.session.flush()

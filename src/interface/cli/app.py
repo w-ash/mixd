@@ -146,6 +146,7 @@ def _register_commands() -> None:
         preference_commands,
         review_commands,
         stats_commands,
+        sync_commands,
         tag_commands,
         track_commands,
         workflow_commands,
@@ -177,6 +178,13 @@ def _register_commands() -> None:
         likes_commands.app,
         name="likes",
         help="Import and export your liked tracks across music services",
+        rich_help_panel="🔄 Track Data Sync",
+    )
+
+    app.add_typer(
+        sync_commands.app,
+        name="sync",
+        help="Schedule recurring background data syncs",
         rich_help_panel="🔄 Track Data Sync",
     )
 

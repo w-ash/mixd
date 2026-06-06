@@ -283,3 +283,6 @@ class WorkflowRun:
     error_message: str | None = None
     nodes: list[WorkflowRunNode] = field(factory=list)
     created_at: datetime | None = None
+    # Provenance: the schedule that fired this run, if any (None for manual
+    # runs). ON DELETE SET NULL at the DB so deleting a schedule preserves history.
+    triggered_by_schedule_id: UUID | None = None
