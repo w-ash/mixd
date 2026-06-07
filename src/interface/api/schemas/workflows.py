@@ -196,6 +196,7 @@ class WorkflowRunSummarySchema(BaseModel):
     workflow_id: UUID
     status: RunStatus
     definition_version: int = 1
+    operation_id: str | None = None
     started_at: datetime | None = None
     completed_at: datetime | None = None
     heartbeat_at: datetime | None = None
@@ -363,6 +364,7 @@ def to_run_summary(run: WorkflowRun) -> WorkflowRunSummarySchema:
         workflow_id=run.workflow_id,
         status=run.status,
         definition_version=run.definition_version,
+        operation_id=run.operation_id,
         started_at=run.started_at,
         completed_at=run.completed_at,
         heartbeat_at=run.heartbeat_at,

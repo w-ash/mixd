@@ -62,6 +62,12 @@ export interface UseWorkflowSSEReturn {
   /** Wall-clock timestamp of most recent SSE frame (incl. keepalives). */
   lastEventAt: number | null;
   start: (operationId: string) => void;
+  /**
+   * Like `start`, but for re-attaching to a run that's already in flight (e.g.
+   * after a page reload). Seeds current state from the DB snapshot immediately
+   * instead of waiting for an SSE stall, then streams live where available.
+   */
+  adopt: (operationId: string) => void;
   reset: () => void;
   disconnect: () => void;
 }
@@ -83,6 +89,10 @@ export function useWorkflowSSE(
   const [subProgress, setSubProgress] = useState<SubProgressUpdate | null>(
     null,
   );
+  // True between an adopt() and the first snapshot seed. Keeps the snapshot
+  // query enabled immediately on reconnect (not only after a 45s SSE stall) so
+  // a reloaded page paints the real current state at once.
+  const [seedFromSnapshot, setSeedFromSnapshot] = useState(false);
 
   // Idempotency guard: terminal events can race between SSE delivery and
   // the snapshot poll. The first one to fire wins; subsequent terminal
@@ -192,12 +202,18 @@ export function useWorkflowSSE(
   // REST-based fallback: poll the snapshot endpoint while the SSE
   // watchdog reports stalled. Stops automatically when SSE recovers.
   const snapshotQuery = useOperationSnapshot(operationId, {
-    enabled: sseState.kind === "stalled" && !terminalEmittedRef.current,
+    enabled:
+      (sseState.kind === "stalled" || seedFromSnapshot) &&
+      !terminalEmittedRef.current,
   });
 
   useEffect(() => {
     const snapshot: OperationSnapshot | undefined = snapshotQuery.data;
     if (!snapshot) return;
+
+    // First snapshot after an adopt() is the reconnect seed — once it's merged
+    // we have the real current state, so drop back to stall-only polling.
+    setSeedFromSnapshot(false);
 
     // Reconcile persisted node states into the in-memory map in a single
     // setState call — keeps the pipeline strip in sync after a stall
@@ -240,12 +256,13 @@ export function useWorkflowSSE(
     errorFallbackMessage,
   ]);
 
-  const start = useCallback(
-    (opId: string) => {
+  const begin = useCallback(
+    (opId: string, seed: boolean) => {
       setDomainError(null);
       resetNodeStatuses();
       setRunAccepted(false);
       setSubProgress(null);
+      setSeedFromSnapshot(seed);
       terminalEmittedRef.current = false;
       setOperationId(opId);
       setIsRunning(true);
@@ -253,12 +270,19 @@ export function useWorkflowSSE(
     [resetNodeStatuses],
   );
 
+  // Fresh run started in this tab — no seed needed; SSE delivers from frame one.
+  const start = useCallback((opId: string) => begin(opId, false), [begin]);
+
+  // Re-attach to a run already in flight — seed current state from the snapshot.
+  const adopt = useCallback((opId: string) => begin(opId, true), [begin]);
+
   const reset = useCallback(() => {
     disconnect();
     setDomainError(null);
     resetNodeStatuses();
     setRunAccepted(false);
     setSubProgress(null);
+    setSeedFromSnapshot(false);
     terminalEmittedRef.current = false;
     setOperationId(null);
     setIsRunning(false);
@@ -274,6 +298,7 @@ export function useWorkflowSSE(
     sseState,
     lastEventAt,
     start,
+    adopt,
     reset,
     disconnect,
   };

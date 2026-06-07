@@ -1,7 +1,11 @@
 # Project Mixd — Planning
 
-**Current Version**: 0.8.1
-**Next**: v0.8.2 Workflow scheduling — engine & CLI
+**Current Version**: 0.8.3
+**Next**: v0.8.4 Background sync scheduling
+
+**v0.8.3 shipped (2026-06-07)** — Workflow scheduling **web UI** + an unplanned **workflow-page redesign with live-run reconnection**. A timezone-aware `SchedulePicker` (daily/weekly toggle, no cron) sets automation; the workflow list shows a "Next run" column sourced from a single caller-scoped `/schedules` fetch (no N+1). The detail page replaced the loose pipeline strip + `LastRunCard` with one state-aware `WorkflowStatusPanel` (active/idle/never-run) + a dedicated `RunHistoryTable`, and now reconnects to an in-flight run after reload via an app-global active-runs source + DB snapshot adoption. A paired scheduler fix persists an `operation_id` on scheduled runs so they're reconnectable, and the review pass unified schedule advancement into one fresh-read `_release` transaction. **Partial:** only the per-schedule failure badge shipped; the proactive dashboard banner + workflow-list failure indicator are carried to v0.8.4.
+
+**v0.8.2 shipped (2026-06-07)** — Workflow scheduling **engine & CLI**. DB-stored daily/weekly schedules (no freeform cron; `croniter` kept only as the internal DST-correct next-occurrence engine over `zoneinfo`) fire from an in-process poll loop in the FastAPI lifespan, built on a shared `run_periodic_background_loop` (the sweeper was retrofitted onto it). Resilience: optimistic per-tick claim, a txn-level advisory poll-lock for multi-instance leader election, a stuck-start reaper-as-skip (no failure-streak bump), per-user OAuth-token isolation, and a single `schedules` table with an exclusive-arc CHECK for workflow-vs-sync targets. Drivable end-to-end via `mixd workflow schedule` / `mixd sync schedule`.
 
 **v0.8.1 shipped (2026-05-31)** — Workflow engine swap: Prefect 3 removed in favor of a homespun stdlib-asyncio DAG executor. Parallel execution levels are computed via Kahn's topological sort (a pure domain function) and each level runs in an `asyncio.TaskGroup`; run-state, cancellation (SIGTERM), and fault tolerance are owned in-process. Prefect and its full transitive tail are gone — the app no longer imports an embedded orchestration server at boot. The `workflows/` package was reorganized into `definition/`, `engine/`, and `nodes/`. Review pass also fixed primary-input track-count diagnostics and made lifecycle-observer emission best-effort.
 
@@ -72,8 +76,8 @@ Each milestone delivers a **vertical slice** — backend API + frontend page tog
 | **v0.7.8** | Mobile responsiveness + visual regression baseline (Playwright `toHaveScreenshot`) | 🚀 Shipped | [details](v0.7.8.md#v078-mobile-responsiveness) |
 | **v0.8.0** | Run reliability & validation hardening | 🚀 Shipped | [details](v0.8.x.md#v080-run-reliability--validation-hardening) |
 | **v0.8.1** | Workflow engine swap (Prefect → stdlib asyncio) | 🚀 Shipped | [details](v0.8.x.md#v081-workflow-engine-swap-prefect-to-stdlib-asyncio) |
-| **v0.8.2** | Workflow scheduling — engine & CLI | 🔨 In Progress | [details](v0.8.x.md#v082-workflow-scheduling---engine--cli) |
-| **v0.8.3** | Workflow scheduling — web UI & failure alerts | 🔜 Not Started | [details](v0.8.x.md#v083-workflow-scheduling---web-ui--failure-alerts) |
+| **v0.8.2** | Workflow scheduling — engine & CLI | 🚀 Shipped | [details](v0.8.x.md#v082-workflow-scheduling---engine--cli) |
+| **v0.8.3** | Workflow scheduling — web UI & failure alerts | 🚀 Shipped | [details](v0.8.x.md#v083-workflow-scheduling---web-ui--failure-alerts) |
 | **v0.8.4** | Background sync scheduling | 🔜 Not Started | [details](v0.8.x.md#v084-background-sync-scheduling) |
 | **v0.8.5** | Workflow templates & import/export | 🔜 Not Started | [details](v0.8.x.md#v085-workflow-templates--importexport) |
 | **v0.8.6** | Editor polish — sub-flows & playlist browse | 🔜 Not Started | [details](v0.8.x.md#v086-editor-polish---sub-flows--playlist-browse) |

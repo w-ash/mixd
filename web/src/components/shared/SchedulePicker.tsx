@@ -17,6 +17,7 @@ import type {
 } from "#/api/generated/model";
 import { ScheduleFailureBanner } from "#/components/shared/ScheduleFailureBanner";
 import { Button } from "#/components/ui/button";
+import { Input } from "#/components/ui/input";
 import {
   Select,
   SelectContent,
@@ -193,9 +194,10 @@ export function SchedulePicker({
           </div>
         )}
 
-        <label className="flex flex-col gap-1">
+        <label htmlFor="schedule-time" className="flex flex-col gap-1">
           <span className="font-display text-xs text-text-muted">Time</span>
-          <input
+          <Input
+            id="schedule-time"
             type="time"
             aria-label="Time of day"
             value={timeValue}
@@ -207,20 +209,24 @@ export function SchedulePicker({
                 minute: Number(m) || 0,
               }));
             }}
-            className="h-9 rounded-md border border-border bg-surface px-2 font-mono text-sm text-text"
+            className="font-mono"
           />
         </label>
 
-        <label className="flex min-w-40 flex-1 flex-col gap-1">
+        <label
+          htmlFor="schedule-timezone"
+          className="flex min-w-40 flex-1 flex-col gap-1"
+        >
           <span className="font-display text-xs text-text-muted">Timezone</span>
-          <input
+          <Input
+            id="schedule-timezone"
             type="text"
             aria-label="Timezone"
             value={form.timezone}
             onChange={(e) =>
               setForm((f) => ({ ...f, timezone: e.target.value }))
             }
-            className="h-9 rounded-md border border-border bg-surface px-2 font-mono text-sm text-text"
+            className="font-mono"
           />
         </label>
       </div>

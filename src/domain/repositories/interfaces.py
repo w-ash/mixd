@@ -1282,6 +1282,12 @@ class WorkflowRunRepositoryProtocol(Protocol):
         """List runs for a workflow (without nodes loaded) with total count."""
         ...
 
+    def get_active_runs_for_user(
+        self, user_id: str, limit: int = 50, offset: int = 0
+    ) -> Awaitable[tuple[list[WorkflowRun], int]]:
+        """List the user's in-flight (pending/running) runs across all workflows."""
+        ...
+
     def get_run_by_id(self, run_id: UUID) -> Awaitable[WorkflowRun]:
         """Get a single run with all node records loaded."""
         ...

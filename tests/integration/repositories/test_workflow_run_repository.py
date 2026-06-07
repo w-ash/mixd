@@ -777,3 +777,76 @@ class TestWorkflowRunJsonbWrites:
         assert isinstance(metrics, dict)
         assert metrics["played_at"] == raw_dt.isoformat()
         assert metrics["playcount"] == 5
+
+
+class TestActiveRunsForUser:
+    """get_active_runs_for_user — cross-workflow, user-scoped in-flight runs."""
+
+    async def _workflow_for(self, db_session, user_id: str) -> UUID:
+        wf_repo = WorkflowRepository(db_session)
+        wf = await wf_repo.save_workflow(
+            Workflow(user_id=user_id, definition=_make_def())
+        )
+        return wf.id
+
+    async def test_returns_pending_and_running_excludes_terminal(
+        self, db_session
+    ) -> None:
+        repo = WorkflowRunRepository(db_session)
+        # One active run per workflow (uq_workflow_runs_active), so spread the
+        # pending + running + completed runs across three workflows.
+        pending_wf = await self._workflow_for(db_session, "user-a")
+        running_wf = await self._workflow_for(db_session, "user-a")
+        done_wf = await self._workflow_for(db_session, "user-a")
+        await repo.create_run(_make_run(pending_wf, status="pending"))
+        await repo.create_run(_make_run(running_wf, status="running"))
+        await repo.create_run(_make_run(done_wf, status="completed"))
+        await db_session.flush()
+
+        runs, total = await repo.get_active_runs_for_user("user-a")
+
+        assert total == 2
+        statuses = {r.status for r in runs}
+        assert statuses == {"pending", "running"}
+
+    async def test_scoped_to_user(self, db_session) -> None:
+        repo = WorkflowRunRepository(db_session)
+        mine = await self._workflow_for(db_session, "me")
+        theirs = await self._workflow_for(db_session, "someone-else")
+        await repo.create_run(_make_run(mine, status="running"))
+        await repo.create_run(_make_run(theirs, status="running"))
+        await db_session.flush()
+
+        runs, total = await repo.get_active_runs_for_user("me")
+
+        assert total == 1
+        assert runs[0].workflow_id == mine
+
+    async def test_preserves_operation_id(self, db_session) -> None:
+        repo = WorkflowRunRepository(db_session)
+        wf = await self._workflow_for(db_session, "user-a")
+        run = _make_run(wf, status="running")
+        run = WorkflowRun(
+            workflow_id=run.workflow_id,
+            status=run.status,
+            definition_snapshot=run.definition_snapshot,
+            nodes=run.nodes,
+            operation_id="op-1234",
+        )
+        await repo.create_run(run)
+        await db_session.flush()
+
+        runs, _ = await repo.get_active_runs_for_user("user-a")
+
+        assert runs[0].operation_id == "op-1234"
+
+    async def test_empty_when_no_active_runs(self, db_session) -> None:
+        repo = WorkflowRunRepository(db_session)
+        done_wf = await self._workflow_for(db_session, "user-a")
+        await repo.create_run(_make_run(done_wf, status="completed"))
+        await db_session.flush()
+
+        runs, total = await repo.get_active_runs_for_user("user-a")
+
+        assert runs == []
+        assert total == 0

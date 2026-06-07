@@ -166,24 +166,45 @@ describe("WorkflowDetail", () => {
     });
   });
 
-  it("renders last run card with status", async () => {
+  it("renders run history with status and track count", async () => {
+    // The last run's status/tracks now live only in the history table (the
+    // status panel no longer duplicates them).
+    const runs = {
+      data: [
+        {
+          id: 5,
+          workflow_id: 1,
+          status: "completed",
+          definition_version: 2,
+          duration_ms: 42_000,
+          output_track_count: 20,
+          started_at: "2026-02-15T11:00:00Z",
+          created_at: "2026-02-15T11:00:00Z",
+        },
+      ],
+      total: 1,
+      limit: 10,
+      offset: 0,
+    };
+
     server.use(
       http.get("*/api/v1/workflows/:id", () =>
         HttpResponse.json(mockWorkflow, { status: 200 }),
       ),
       http.get("*/api/v1/workflows/:id/runs", () =>
-        HttpResponse.json(emptyRuns, { status: 200 }),
+        HttpResponse.json(runs, { status: 200 }),
       ),
     );
 
     renderWithProviders(<WorkflowDetail />);
 
     await waitFor(() => {
-      expect(screen.getByText("Completed")).toBeInTheDocument();
+      // ResponsiveTable renders both the card and table layouts, so the badge
+      // appears more than once — assert presence, not uniqueness.
+      expect(screen.getAllByText("Completed").length).toBeGreaterThan(0);
     });
 
     expect(screen.getByText("20 tracks")).toBeInTheDocument();
-    expect(screen.getByText("Details")).toBeInTheDocument();
   });
 
   it("shows version mismatch warning in last run card", async () => {
@@ -259,7 +280,7 @@ describe("WorkflowDetail", () => {
     });
   });
 
-  it("renders no runs message when no run history", async () => {
+  it("shows the never-run prompt when there is no run history", async () => {
     const workflowNoRun = { ...mockWorkflow, last_run: null };
 
     server.use(
@@ -274,7 +295,7 @@ describe("WorkflowDetail", () => {
     renderWithProviders(<WorkflowDetail />);
 
     await waitFor(() => {
-      expect(screen.getByText("No runs yet")).toBeInTheDocument();
+      expect(screen.getByText(/Never run yet/i)).toBeInTheDocument();
     });
   });
 });

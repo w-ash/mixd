@@ -315,3 +315,44 @@ class TestWorkflowListIncludesLastRun:
         assert our_wf is not None
         assert our_wf["last_run"] is not None
         assert our_wf["last_run"]["status"] == "pending"
+
+
+class TestListActiveRuns:
+    """GET /workflows/active-runs — cross-workflow in-flight runs for the user."""
+
+    async def test_empty_when_nothing_running(self, client: httpx.AsyncClient) -> None:
+        await _create_workflow(client)
+
+        response = await client.get("/api/v1/workflows/active-runs")
+
+        assert response.status_code == 200
+        body = response.json()
+        assert body["data"] == []
+        assert body["total"] == 0
+
+    async def test_lists_active_run_with_operation_id(
+        self, client: httpx.AsyncClient
+    ) -> None:
+        wf_id = await _create_workflow(client)
+        run_resp = await client.post(f"/api/v1/workflows/{wf_id}/run")
+        operation_id = run_resp.json()["operation_id"]
+
+        response = await client.get("/api/v1/workflows/active-runs")
+
+        assert response.status_code == 200
+        body = response.json()
+        assert body["total"] == 1
+        active = body["data"][0]
+        assert active["workflow_id"] == wf_id
+        assert active["status"] == "pending"
+        # operation_id is the field that lets the client reconnect (snapshot/SSE).
+        assert active["operation_id"] == operation_id
+
+    async def test_excludes_completed_runs(self, client: httpx.AsyncClient) -> None:
+        wf_id = await _create_workflow(client)
+        await _seed_completed_runs(wf_id, 1)
+
+        response = await client.get("/api/v1/workflows/active-runs")
+
+        assert response.status_code == 200
+        assert response.json()["data"] == []

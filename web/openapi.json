@@ -3,7 +3,7 @@
   "info": {
     "title": "Mixd",
     "description": "Personal music metadata hub",
-    "version": "0.8.1"
+    "version": "0.8.3"
   },
   "paths": {
     "/api/v1/connectors/{service}/auth-url": {
@@ -2291,6 +2291,63 @@
                   },
                   "type": "array",
                   "title": "Response List Node Types Api V1 Workflows Nodes Get"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/workflows/active-runs": {
+      "get": {
+        "tags": [
+          "workflows"
+        ],
+        "summary": "List Active Runs",
+        "description": "List the caller's in-flight runs across all workflows.\n\nCross-instance, DB-backed source for reconnecting the detail page to a live\nrun after reload and for a future \"a run is happening\" sidebar indicator.\nDeclared before ``/{workflow_id}`` so the literal path wins over the param.",
+        "operationId": "list_active_runs_api_v1_workflows_active_runs_get",
+        "parameters": [
+          {
+            "name": "limit",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "maximum": 100,
+              "minimum": 1,
+              "default": 50,
+              "title": "Limit"
+            }
+          },
+          {
+            "name": "offset",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "minimum": 0,
+              "default": 0,
+              "title": "Offset"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PaginatedResponse_WorkflowRunSummarySchema_"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
                 }
               }
             }
@@ -5926,6 +5983,17 @@
             "title": "Definition Version",
             "default": 1
           },
+          "operation_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Operation Id"
+          },
           "started_at": {
             "anyOf": [
               {
@@ -6019,10 +6087,6 @@
             ],
             "title": "Created At"
           },
-          "operation_id": {
-            "type": "string",
-            "title": "Operation Id"
-          },
           "nodes": {
             "items": {
               "$ref": "#/components/schemas/WorkflowRunNodeSchema"
@@ -6035,11 +6099,10 @@
         "required": [
           "id",
           "workflow_id",
-          "status",
-          "operation_id"
+          "status"
         ],
         "title": "OperationSnapshotResponse",
-        "description": "Persisted state for an ``operation_id``, used as REST fallback for SSE stalls.\n\nExtends the run summary with the SSE handle (``operation_id``) and the\npersisted node list. ``is_terminal`` is derived client-side from\n``status`` to avoid duplicating the terminal-status set on the wire."
+        "description": "Persisted state for an ``operation_id``, used as REST fallback for SSE stalls.\n\nExtends the run summary (which already carries the ``operation_id`` SSE\nhandle) with the persisted node list. ``is_terminal`` is derived client-side\nfrom ``status`` to avoid duplicating the terminal-status set on the wire."
       },
       "OperationStartedResponse": {
         "properties": {
@@ -7663,6 +7726,17 @@
             "title": "Definition Version",
             "default": 1
           },
+          "operation_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Operation Id"
+          },
           "started_at": {
             "anyOf": [
               {
@@ -7957,6 +8031,17 @@
             "type": "integer",
             "title": "Definition Version",
             "default": 1
+          },
+          "operation_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Operation Id"
           },
           "started_at": {
             "anyOf": [

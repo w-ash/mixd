@@ -16,24 +16,27 @@ assert the decision logic the scheduler owns:
 import asyncio
 import contextlib
 from datetime import UTC, datetime, timedelta
+from types import SimpleNamespace
 from unittest.mock import AsyncMock, patch
 from uuid import uuid7
 
 import pytest
 
 from src.application.services import scheduler
+from src.application.services.schedule_timing import compute_next_run
 from src.application.services.scheduler import (
     _classify_run_status,
     _dispatch_sync,
     _DispatchOutcome,
     _process_one,
+    _release,
     _safe_failure_message,
     _UnschedulableTargetError,
     run_scheduler_tick,
 )
 from src.domain.entities.operations import OperationResult
 from src.domain.entities.schedule import Schedule
-from src.domain.exceptions import WorkflowAlreadyRunningError
+from src.domain.exceptions import NotFoundError, WorkflowAlreadyRunningError
 from tests.fixtures import make_mock_uow
 
 pytestmark = pytest.mark.unit
@@ -62,10 +65,10 @@ def _patched(**overrides):
         "_claim": AsyncMock(return_value=True),
         "_dispatch_workflow": AsyncMock(),
         "_dispatch_sync": AsyncMock(),
+        # _release owns the fresh re-read + advance internally now; mocking it
+        # keeps _process_one's routing tests off the DB.
         "_release": AsyncMock(),
         "_disable": AsyncMock(),
-        # Stub the fresh re-read so _process_one doesn't open a real UoW.
-        "_advance_from_fresh": AsyncMock(return_value=datetime.now(UTC)),
     }
     names.update(overrides)
     with patch.multiple("src.application.services.scheduler", **names):
@@ -226,6 +229,104 @@ class TestProcessOne:
         kwargs = m["_release"].await_args.kwargs
         assert kwargs["disposition"] == "success"
         assert kwargs["last_run_id"] == op_id
+
+
+class TestDispatchWorkflow:
+    """A scheduled workflow run must persist an ``operation_id`` so the web UI can
+    reconnect to it via the snapshot endpoint (the run row carries the only handle;
+    no live SSE queue exists for a scheduler-started run)."""
+
+    async def test_persists_operation_id_for_reconnect(self) -> None:
+        schedule = _wf_schedule(next_run_at=datetime.now(UTC))
+        run_result = SimpleNamespace(
+            run_id=uuid7(), workflow=SimpleNamespace(definition=object())
+        )
+        exec_result = SimpleNamespace(run_id=run_result.run_id, status="completed")
+        run_execute = AsyncMock(return_value=run_result)
+
+        async def _fake_exec(fn, **_kw):  # run the lambda with a throwaway uow
+            return await fn(AsyncMock())
+
+        with (
+            patch.object(
+                scheduler, "execute_use_case", AsyncMock(side_effect=_fake_exec)
+            ),
+            patch.object(scheduler, "RunWorkflowUseCase") as m_run_cls,
+            patch.object(
+                scheduler,
+                "ExecuteWorkflowRunUseCase",
+                return_value=SimpleNamespace(
+                    execute=AsyncMock(return_value=exec_result)
+                ),
+            ),
+        ):
+            m_run_cls.return_value.execute = run_execute
+            outcome = await scheduler._dispatch_workflow(
+                schedule,
+                update_run_status=AsyncMock(),
+                update_node_status=AsyncMock(),
+            )
+
+        command = run_execute.await_args.args[0]
+        assert command.operation_id is not None
+        assert command.triggered_by_schedule_id == schedule.id
+        assert outcome.disposition == "success"
+
+
+class TestRelease:
+    """``_release`` recomputes ``next_run_at`` from a FRESH read inside its own
+    transaction — so a cadence the user edited mid-dispatch is honored on EVERY
+    exit path (the missed-window skip used to advance from the stale captured row)."""
+
+    @staticmethod
+    async def _run_release(repo: AsyncMock, schedule: Schedule, **kwargs) -> None:
+        uow = make_mock_uow(schedule_repo=repo)
+
+        async def _fake_exec(op, **_kw):
+            return await op(uow)
+
+        # Await INSIDE the patch context — returning the coroutine would let it
+        # run after the patch is torn down, hitting the real execute_use_case.
+        with patch.object(
+            scheduler, "execute_use_case", AsyncMock(side_effect=_fake_exec)
+        ):
+            await _release(schedule, **kwargs)
+
+    async def test_advances_from_fresh_cadence_not_captured(self) -> None:
+        now = datetime(2026, 6, 1, 12, 0, tzinfo=UTC)
+        captured = Schedule(user_id="u1", workflow_id=uuid7(), hour=6, next_run_at=now)
+        # The user moved the cadence from 06:00 to 09:00 mid-dispatch.
+        edited = Schedule(
+            user_id="u1", workflow_id=captured.workflow_id, hour=9, next_run_at=now
+        )
+        repo = AsyncMock()
+        repo.get_by_id.return_value = edited
+
+        await self._run_release(
+            repo,
+            captured,
+            disposition="skip",
+            now=now,
+            last_run_status="skipped_missed",
+        )
+
+        repo.get_by_id.assert_awaited_once_with(captured.id)
+        written = repo.mark_schedule_skipped.await_args.kwargs["next_run_at"]
+        assert written == compute_next_run(edited, now=now)
+        assert written != compute_next_run(captured, now=now)
+
+    async def test_falls_back_to_captured_when_row_vanished(self) -> None:
+        now = datetime(2026, 6, 1, 12, 0, tzinfo=UTC)
+        captured = Schedule(user_id="u1", workflow_id=uuid7(), hour=6, next_run_at=now)
+        repo = AsyncMock()
+        repo.get_by_id.side_effect = NotFoundError("schedule deleted")
+
+        await self._run_release(
+            repo, captured, disposition="success", now=now, last_run_status="completed"
+        )
+
+        written = repo.mark_schedule_completed.await_args.kwargs["next_run_at"]
+        assert written == compute_next_run(captured, now=now)
 
 
 class TestDispatchSync:
@@ -401,7 +502,6 @@ class TestSchedulerTick:
         with (
             patch.object(scheduler, "_process_one", AsyncMock(side_effect=_process)),
             patch.object(scheduler, "_release", AsyncMock()) as m_release,
-            patch.object(scheduler, "_advance_from_fresh", AsyncMock(return_value=now)),
         ):
             count = await run_scheduler_tick(
                 uow,

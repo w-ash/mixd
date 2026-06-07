@@ -3,7 +3,7 @@
  * Do not edit manually.
  * Mixd
  * Personal music metadata hub
- * OpenAPI spec version: 0.8.1
+ * OpenAPI spec version: 0.8.3
  */
 import {
   useMutation,
@@ -27,6 +27,7 @@ import type {
 import type {
   CreateWorkflowRequest,
   HTTPValidationError,
+  ListActiveRunsApiV1WorkflowsActiveRunsGetParams,
   ListWorkflowRunsApiV1WorkflowsWorkflowIdRunsGetParams,
   ListWorkflowsApiV1WorkflowsGetParams,
   NodeTypeInfoSchema,
@@ -663,6 +664,137 @@ export function useListNodeTypesApiV1WorkflowsNodesGet<TData = Awaited<ReturnTyp
  ):  UseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> } {
 
   const queryOptions = getListNodeTypesApiV1WorkflowsNodesGetQueryOptions(options)
+
+  const query = useQuery(queryOptions, queryClient) as  UseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> };
+
+  return { ...query, queryKey: queryOptions.queryKey };
+}
+
+
+
+
+
+
+export type listActiveRunsApiV1WorkflowsActiveRunsGetResponse200 = {
+  data: PaginatedResponseWorkflowRunSummarySchema
+  status: 200
+}
+
+export type listActiveRunsApiV1WorkflowsActiveRunsGetResponse422 = {
+  data: HTTPValidationError
+  status: 422
+}
+
+export type listActiveRunsApiV1WorkflowsActiveRunsGetResponseSuccess = (listActiveRunsApiV1WorkflowsActiveRunsGetResponse200) & {
+  headers: Headers;
+};
+export type listActiveRunsApiV1WorkflowsActiveRunsGetResponseError = (listActiveRunsApiV1WorkflowsActiveRunsGetResponse422) & {
+  headers: Headers;
+};
+
+export type listActiveRunsApiV1WorkflowsActiveRunsGetResponse = (listActiveRunsApiV1WorkflowsActiveRunsGetResponseSuccess | listActiveRunsApiV1WorkflowsActiveRunsGetResponseError)
+
+export const getListActiveRunsApiV1WorkflowsActiveRunsGetUrl = (params?: ListActiveRunsApiV1WorkflowsActiveRunsGetParams,) => {
+  const normalizedParams = new URLSearchParams();
+
+  Object.entries(params || {}).forEach(([key, value]) => {
+
+    if (value !== undefined) {
+      normalizedParams.append(key, value === null ? 'null' : value.toString())
+    }
+  });
+
+  const stringifiedParams = normalizedParams.toString();
+
+  return stringifiedParams.length > 0 ? `/api/v1/workflows/active-runs?${stringifiedParams}` : `/api/v1/workflows/active-runs`
+}
+
+/**
+ * List the caller's in-flight runs across all workflows.
+
+Cross-instance, DB-backed source for reconnecting the detail page to a live
+run after reload and for a future "a run is happening" sidebar indicator.
+Declared before ``/{workflow_id}`` so the literal path wins over the param.
+ * @summary List Active Runs
+ */
+export const listActiveRunsApiV1WorkflowsActiveRunsGet = async (params?: ListActiveRunsApiV1WorkflowsActiveRunsGetParams, options?: RequestInit): Promise<listActiveRunsApiV1WorkflowsActiveRunsGetResponse> => {
+
+  return customFetch<listActiveRunsApiV1WorkflowsActiveRunsGetResponse>(getListActiveRunsApiV1WorkflowsActiveRunsGetUrl(params),
+  {
+    ...options,
+    method: 'GET'
+
+
+  }
+);}
+
+
+
+
+
+export const getListActiveRunsApiV1WorkflowsActiveRunsGetQueryKey = (params?: ListActiveRunsApiV1WorkflowsActiveRunsGetParams,) => {
+    return [
+    `/api/v1/workflows/active-runs`, ...(params ? [params] : [])
+    ] as const;
+    }
+
+
+export const getListActiveRunsApiV1WorkflowsActiveRunsGetQueryOptions = <TData = Awaited<ReturnType<typeof listActiveRunsApiV1WorkflowsActiveRunsGet>>, TError = HTTPValidationError>(params?: ListActiveRunsApiV1WorkflowsActiveRunsGetParams, options?: { query?:Partial<UseQueryOptions<Awaited<ReturnType<typeof listActiveRunsApiV1WorkflowsActiveRunsGet>>, TError, TData>>, request?: SecondParameter<typeof customFetch>}
+) => {
+
+const {query: queryOptions, request: requestOptions} = options ?? {};
+
+  const queryKey =  queryOptions?.queryKey ?? getListActiveRunsApiV1WorkflowsActiveRunsGetQueryKey(params);
+
+
+
+    const queryFn: QueryFunction<Awaited<ReturnType<typeof listActiveRunsApiV1WorkflowsActiveRunsGet>>> = ({ signal }) => listActiveRunsApiV1WorkflowsActiveRunsGet(params, { signal, ...requestOptions });
+
+
+
+
+
+   return  { queryKey, queryFn, ...queryOptions} as UseQueryOptions<Awaited<ReturnType<typeof listActiveRunsApiV1WorkflowsActiveRunsGet>>, TError, TData> & { queryKey: DataTag<QueryKey, TData, TError> }
+}
+
+export type ListActiveRunsApiV1WorkflowsActiveRunsGetQueryResult = NonNullable<Awaited<ReturnType<typeof listActiveRunsApiV1WorkflowsActiveRunsGet>>>
+export type ListActiveRunsApiV1WorkflowsActiveRunsGetQueryError = HTTPValidationError
+
+
+export function useListActiveRunsApiV1WorkflowsActiveRunsGet<TData = Awaited<ReturnType<typeof listActiveRunsApiV1WorkflowsActiveRunsGet>>, TError = HTTPValidationError>(
+ params: undefined |  ListActiveRunsApiV1WorkflowsActiveRunsGetParams, options: { query:Partial<UseQueryOptions<Awaited<ReturnType<typeof listActiveRunsApiV1WorkflowsActiveRunsGet>>, TError, TData>> & Pick<
+        DefinedInitialDataOptions<
+          Awaited<ReturnType<typeof listActiveRunsApiV1WorkflowsActiveRunsGet>>,
+          TError,
+          Awaited<ReturnType<typeof listActiveRunsApiV1WorkflowsActiveRunsGet>>
+        > , 'initialData'
+      >, request?: SecondParameter<typeof customFetch>}
+ , queryClient?: QueryClient
+  ):  DefinedUseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> }
+export function useListActiveRunsApiV1WorkflowsActiveRunsGet<TData = Awaited<ReturnType<typeof listActiveRunsApiV1WorkflowsActiveRunsGet>>, TError = HTTPValidationError>(
+ params?: ListActiveRunsApiV1WorkflowsActiveRunsGetParams, options?: { query?:Partial<UseQueryOptions<Awaited<ReturnType<typeof listActiveRunsApiV1WorkflowsActiveRunsGet>>, TError, TData>> & Pick<
+        UndefinedInitialDataOptions<
+          Awaited<ReturnType<typeof listActiveRunsApiV1WorkflowsActiveRunsGet>>,
+          TError,
+          Awaited<ReturnType<typeof listActiveRunsApiV1WorkflowsActiveRunsGet>>
+        > , 'initialData'
+      >, request?: SecondParameter<typeof customFetch>}
+ , queryClient?: QueryClient
+  ):  UseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> }
+export function useListActiveRunsApiV1WorkflowsActiveRunsGet<TData = Awaited<ReturnType<typeof listActiveRunsApiV1WorkflowsActiveRunsGet>>, TError = HTTPValidationError>(
+ params?: ListActiveRunsApiV1WorkflowsActiveRunsGetParams, options?: { query?:Partial<UseQueryOptions<Awaited<ReturnType<typeof listActiveRunsApiV1WorkflowsActiveRunsGet>>, TError, TData>>, request?: SecondParameter<typeof customFetch>}
+ , queryClient?: QueryClient
+  ):  UseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> }
+/**
+ * @summary List Active Runs
+ */
+
+export function useListActiveRunsApiV1WorkflowsActiveRunsGet<TData = Awaited<ReturnType<typeof listActiveRunsApiV1WorkflowsActiveRunsGet>>, TError = HTTPValidationError>(
+ params?: ListActiveRunsApiV1WorkflowsActiveRunsGetParams, options?: { query?:Partial<UseQueryOptions<Awaited<ReturnType<typeof listActiveRunsApiV1WorkflowsActiveRunsGet>>, TError, TData>>, request?: SecondParameter<typeof customFetch>}
+ , queryClient?: QueryClient
+ ):  UseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> } {
+
+  const queryOptions = getListActiveRunsApiV1WorkflowsActiveRunsGetQueryOptions(params,options)
 
   const query = useQuery(queryOptions, queryClient) as  UseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> };
 

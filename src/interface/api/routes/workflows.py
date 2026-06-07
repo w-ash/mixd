@@ -36,6 +36,8 @@ from src.application.use_cases.workflow_runs import (
     GetLatestWorkflowRunsUseCase,
     GetWorkflowRunCommand,
     GetWorkflowRunUseCase,
+    ListActiveRunsCommand,
+    ListActiveRunsUseCase,
     ListWorkflowRunsCommand,
     ListWorkflowRunsUseCase,
     RunWorkflowCommand,
@@ -242,6 +244,31 @@ async def list_node_types() -> list[NodeTypeInfoSchema]:
             )
         )
     return result
+
+
+@router.get("/active-runs")
+async def list_active_runs(
+    user_id: str = Depends(get_current_user_id),
+    limit: int = Query(default=50, ge=1, le=100),
+    offset: int = Query(default=0, ge=0),
+) -> PaginatedResponse[WorkflowRunSummarySchema]:
+    """List the caller's in-flight runs across all workflows.
+
+    Cross-instance, DB-backed source for reconnecting the detail page to a live
+    run after reload and for a future "a run is happening" sidebar indicator.
+    Declared before ``/{workflow_id}`` so the literal path wins over the param.
+    """
+    command = ListActiveRunsCommand(user_id=user_id, limit=limit, offset=offset)
+    result = await execute_use_case(
+        lambda uow: ListActiveRunsUseCase().execute(command, uow),
+        user_id=user_id,
+    )
+    return PaginatedResponse(
+        data=[to_run_summary(r) for r in result.runs],
+        total=result.total_count,
+        limit=limit,
+        offset=offset,
+    )
 
 
 @router.post("/validate")

@@ -29,6 +29,7 @@ import {
 
 import {
   getGetWorkflowApiV1WorkflowsWorkflowIdGetQueryKey,
+  getListActiveRunsApiV1WorkflowsActiveRunsGetQueryKey,
   getListWorkflowRunsApiV1WorkflowsWorkflowIdRunsGetQueryKey,
   getListWorkflowsApiV1WorkflowsGetQueryKey,
 } from "#/api/generated/workflows/workflows";
@@ -51,6 +52,12 @@ export interface WorkflowExecutionState {
     operationId: string,
     runId: string,
   ) => void;
+  /**
+   * Re-attach to a run already in flight (e.g. after a page reload). Seeds
+   * current state from the DB snapshot, then streams live where available.
+   * Unlike `startExecution`, this does not begin a new run.
+   */
+  adoptRun: (workflowId: string, operationId: string, runId: string) => void;
 }
 
 export interface SSELivenessState {
@@ -92,6 +99,11 @@ export function WorkflowExecutionProvider({
     queryClient.invalidateQueries({
       queryKey: getListWorkflowsApiV1WorkflowsGetQueryKey(),
     });
+    // The app-global active-runs source — so the detail page collapses back to
+    // idle on completion and a future sidebar indicator clears immediately.
+    queryClient.invalidateQueries({
+      queryKey: getListActiveRunsApiV1WorkflowsActiveRunsGetQueryKey(),
+    });
   }, [queryClient]);
 
   const sse = useWorkflowSSE({
@@ -109,6 +121,15 @@ export function WorkflowExecutionProvider({
     [sse.start],
   );
 
+  const adoptRun = useCallback(
+    (wfId: string, opId: string, rId: string) => {
+      setWorkflowId(wfId);
+      setRunId(rId);
+      sse.adopt(opId);
+    },
+    [sse.adopt],
+  );
+
   // Domain state — changes on node lifecycle events (~10x per run) plus
   // sub_progress updates throttled at the backend to <= 4 Hz.
   const executionValue = useMemo<WorkflowExecutionState>(
@@ -122,6 +143,7 @@ export function WorkflowExecutionProvider({
       nodeStatuses: sse.nodeStatuses,
       subProgress: sse.subProgress,
       startExecution,
+      adoptRun,
     }),
     [
       workflowId,
@@ -133,6 +155,7 @@ export function WorkflowExecutionProvider({
       sse.nodeStatuses,
       sse.subProgress,
       startExecution,
+      adoptRun,
     ],
   );
 

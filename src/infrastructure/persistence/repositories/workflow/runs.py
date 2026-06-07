@@ -17,6 +17,7 @@ from src.config.constants import WorkflowConstants
 from src.domain.entities.workflow import RunStatus, WorkflowRun, WorkflowRunNode
 from src.domain.exceptions import NotFoundError, WorkflowAlreadyRunningError
 from src.infrastructure.persistence.database.db_models import (
+    DBWorkflow,
     DBWorkflowRun,
     DBWorkflowRunNode,
 )
@@ -269,6 +270,47 @@ class WorkflowRunRepository:
         stmt = (
             select(DBWorkflowRun)
             .where(DBWorkflowRun.workflow_id == workflow_id)
+            .order_by(DBWorkflowRun.created_at.desc(), DBWorkflowRun.id.desc())
+            .limit(limit)
+            .offset(offset)
+        )
+        result = await self.session.execute(stmt)
+        db_runs = list(result.scalars().all())
+        runs = [
+            self.mapper.to_domain(r, include_nodes=False, include_definition=False)
+            for r in db_runs
+        ]
+        return runs, total
+
+    @db_operation("get_active_runs_for_user")
+    async def get_active_runs_for_user(
+        self, user_id: str, limit: int = 50, offset: int = 0
+    ) -> tuple[list[WorkflowRun], int]:
+        """List the user's in-flight (pending/running) runs across all workflows.
+
+        Cross-instance truth rebuilt from the DB — the app-global "what's running
+        now" source for the workflow detail page's reconnection and a future
+        sidebar indicator. User scoping is enforced by the JOIN to ``workflows``;
+        the ``RUN_STATUSES_ACTIVE`` filter matches the ``uq_workflow_runs_active``
+        partial unique index (so at most one active run per workflow).
+        """
+        active = WorkflowConstants.RUN_STATUSES_ACTIVE
+        scope = (
+            DBWorkflow.user_id == user_id,
+            DBWorkflowRun.status.in_(active),
+        )
+
+        count_result = await self.session.execute(
+            select(func.count(DBWorkflowRun.id))
+            .join(DBWorkflow, DBWorkflowRun.workflow_id == DBWorkflow.id)
+            .where(*scope)
+        )
+        total = count_result.scalar_one()
+
+        stmt = (
+            select(DBWorkflowRun)
+            .join(DBWorkflow, DBWorkflowRun.workflow_id == DBWorkflow.id)
+            .where(*scope)
             .order_by(DBWorkflowRun.created_at.desc(), DBWorkflowRun.id.desc())
             .limit(limit)
             .offset(offset)

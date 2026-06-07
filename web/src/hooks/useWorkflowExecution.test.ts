@@ -184,8 +184,9 @@ describe("useWorkflowExecution", () => {
     });
 
     await waitFor(() => {
-      // Should invalidate runs list, workflows list, and workflow detail
-      expect(invalidateSpy).toHaveBeenCalledTimes(3);
+      // Invalidates runs list, workflow detail, workflows list, and the
+      // app-global active-runs source (so the page collapses back to idle).
+      expect(invalidateSpy).toHaveBeenCalledTimes(4);
     });
   });
 

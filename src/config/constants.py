@@ -118,6 +118,14 @@ class WorkflowConstants:
         RUN_STATUS_FAILED,
         RUN_STATUS_CRASHED,
     })
+    # Active (in-flight) states — a run not yet in a terminal state. The
+    # ``uq_workflow_runs_active`` partial unique index uses this same set to
+    # enforce at most one active run per workflow, so the cross-workflow
+    # "what's running now" query and the DB constraint stay in lockstep.
+    RUN_STATUSES_ACTIVE: Final[frozenset[str]] = frozenset({
+        RUN_STATUS_PENDING,
+        RUN_STATUS_RUNNING,
+    })
 
     # Run liveness — shared by the heartbeat emitter (interface) and the stale
     # sweeper (application) so the threshold is always a multiple of the

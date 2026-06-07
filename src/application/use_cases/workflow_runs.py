@@ -216,6 +216,47 @@ class ListWorkflowRunsUseCase:
 
 
 # ---------------------------------------------------------------------------
+# List active runs (cross-workflow)
+# ---------------------------------------------------------------------------
+
+
+@define(frozen=True, slots=True)
+class ListActiveRunsCommand:
+    user_id: str
+    limit: int = 50
+    offset: int = 0
+
+
+@define(frozen=True, slots=True)
+class ListActiveRunsResult:
+    runs: list[WorkflowRun]
+    total_count: int
+
+
+@define(slots=True)
+class ListActiveRunsUseCase:
+    """List the user's in-flight runs across every workflow.
+
+    The app-global "what's running now" source. Reads cross-instance truth from
+    the DB so the detail page can reconnect to a live run after reload and a
+    future sidebar can light up without per-workflow polling. User scoping lives
+    in the repository JOIN — no per-workflow ownership check needed here.
+    """
+
+    async def execute(
+        self, command: ListActiveRunsCommand, uow: UnitOfWorkProtocol
+    ) -> ListActiveRunsResult:
+        async with uow:
+            run_repo = uow.get_workflow_run_repository()
+            runs, total = await run_repo.get_active_runs_for_user(
+                command.user_id,
+                limit=command.limit,
+                offset=command.offset,
+            )
+            return ListActiveRunsResult(runs=runs, total_count=total)
+
+
+# ---------------------------------------------------------------------------
 # Get run detail
 # ---------------------------------------------------------------------------
 

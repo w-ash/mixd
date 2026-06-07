@@ -8,6 +8,7 @@
  */
 
 import type { ScheduleResponse } from "#/api/generated/model";
+import { formatDateTime } from "#/lib/format";
 
 export const WEEKDAYS = [
   "Sunday",
@@ -54,11 +55,9 @@ export function describeSchedule(schedule: {
 export function formatNextRun(schedule: ScheduleResponse): string {
   if (!schedule.next_run_at) return "—";
   try {
-    return new Intl.DateTimeFormat(undefined, {
+    return formatDateTime(schedule.next_run_at, {
       timeZone: schedule.timezone,
-      dateStyle: "medium",
-      timeStyle: "short",
-    }).format(new Date(schedule.next_run_at));
+    });
   } catch {
     // Unknown timezone (shouldn't happen — validated server-side); fall back.
     return new Date(schedule.next_run_at).toLocaleString();

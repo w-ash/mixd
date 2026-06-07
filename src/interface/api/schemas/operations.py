@@ -16,10 +16,9 @@ from src.interface.api.schemas.workflows import (
 class OperationSnapshotResponse(WorkflowRunSummarySchema):
     """Persisted state for an ``operation_id``, used as REST fallback for SSE stalls.
 
-    Extends the run summary with the SSE handle (``operation_id``) and the
-    persisted node list. ``is_terminal`` is derived client-side from
-    ``status`` to avoid duplicating the terminal-status set on the wire.
+    Extends the run summary (which already carries the ``operation_id`` SSE
+    handle) with the persisted node list. ``is_terminal`` is derived client-side
+    from ``status`` to avoid duplicating the terminal-status set on the wire.
     """
 
-    operation_id: str
     nodes: list[WorkflowRunNodeSchema] = Field(default_factory=list)

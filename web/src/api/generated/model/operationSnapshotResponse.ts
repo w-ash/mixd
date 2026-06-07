@@ -3,7 +3,7 @@
  * Do not edit manually.
  * Mixd
  * Personal music metadata hub
- * OpenAPI spec version: 0.8.1
+ * OpenAPI spec version: 0.8.3
  */
 import type { OperationSnapshotResponseStatus } from './operationSnapshotResponseStatus';
 import type { WorkflowRunNodeSchema } from './workflowRunNodeSchema';
@@ -11,15 +11,16 @@ import type { WorkflowRunNodeSchema } from './workflowRunNodeSchema';
 /**
  * Persisted state for an ``operation_id``, used as REST fallback for SSE stalls.
 
-Extends the run summary with the SSE handle (``operation_id``) and the
-persisted node list. ``is_terminal`` is derived client-side from
-``status`` to avoid duplicating the terminal-status set on the wire.
+Extends the run summary (which already carries the ``operation_id`` SSE
+handle) with the persisted node list. ``is_terminal`` is derived client-side
+from ``status`` to avoid duplicating the terminal-status set on the wire.
  */
 export interface OperationSnapshotResponse {
   id: string;
   workflow_id: string;
   status: OperationSnapshotResponseStatus;
   definition_version?: number;
+  operation_id?: string | null;
   started_at?: string | null;
   completed_at?: string | null;
   heartbeat_at?: string | null;
@@ -28,6 +29,5 @@ export interface OperationSnapshotResponse {
   output_playlist_id?: string | null;
   error_message?: string | null;
   created_at?: string | null;
-  operation_id: string;
   nodes?: WorkflowRunNodeSchema[];
 }

@@ -50,7 +50,7 @@ from asyncio import CancelledError
 import contextlib
 from datetime import UTC, datetime
 from typing import Literal
-from uuid import UUID
+from uuid import UUID, uuid4
 
 from attrs import define
 
@@ -162,12 +162,19 @@ async def _dispatch_workflow(
     if workflow_id is None:  # defensive — target_type guarantees this is set
         raise ValueError("workflow schedule has no workflow_id")
 
+    # Allocate a bare operation_id handle (no in-memory SSE queue — that lives in
+    # the web process and would never be consumed here). Persisting it lets the
+    # web UI reconnect to a scheduled run via the snapshot endpoint, which reads
+    # run + node state purely from the DB. Live SSE is unavailable for scheduled
+    # runs; the frontend's snapshot-poll fallback covers them.
+    operation_id = str(uuid4())
     run_result = await execute_use_case(
         lambda uow: RunWorkflowUseCase().execute(
             RunWorkflowCommand(
                 user_id=user_id,
                 workflow_id=workflow_id,
                 triggered_by_schedule_id=schedule.id,
+                operation_id=operation_id,
             ),
             uow,
         ),
@@ -270,11 +277,10 @@ async def _claim(schedule: Schedule, now: datetime) -> bool:
 
 
 async def _release(
-    schedule_id: UUID,
+    schedule: Schedule,
     *,
     disposition: _Disposition,
-    next_run_at: datetime,
-    last_run_at: datetime,
+    now: datetime,
     last_run_status: str,
     last_run_id: UUID | None = None,
     last_error: str | None = None,
@@ -282,36 +288,46 @@ async def _release(
 ) -> None:
     """Release the claim and advance one schedule, routed by ``disposition``.
 
-    One transaction over the repo's already-deduped ``_release_and_advance``,
-    replacing the former ``_complete``/``_skip``/``_fail`` wrapper trio so the
-    success/skip/failure decision lives in exactly one ``match``.
+    ``next_run_at`` is recomputed from the schedule's CURRENT cadence, re-read in
+    the SAME transaction as the advance-write. A user can edit cadence
+    (``update_schedule``) while a dispatch is in flight: that edit writes a new
+    ``next_run_at`` but cannot clear the claim. Reading fresh here — instead of
+    advancing from the row captured at tick start — means every exit path honors
+    the user's NEW cadence rather than clobbering it. Falls back to the captured
+    entity if the row vanished. One transaction over the repo's already-deduped
+    ``_release_and_advance``, with the success/skip/failure decision in one ``match``.
     """
 
     async def _op(uow: UnitOfWorkProtocol) -> None:
         async with uow:
             repo = uow.get_schedule_repository()
+            try:
+                fresh = await repo.get_by_id(schedule.id)
+            except NotFoundError:
+                fresh = schedule
+            next_run_at = compute_next_run(fresh, now=now)
             match disposition:
                 case "success":
                     await repo.mark_schedule_completed(
-                        schedule_id,
+                        schedule.id,
                         next_run_at=next_run_at,
-                        last_run_at=last_run_at,
+                        last_run_at=now,
                         last_run_status=last_run_status,
                         last_run_id=last_run_id,
                     )
                 case "failure":
                     await repo.mark_schedule_failed(
-                        schedule_id,
+                        schedule.id,
                         next_run_at=next_run_at,
-                        last_run_at=last_run_at,
+                        last_run_at=now,
                         last_error=last_error or "unknown error",
                         last_run_status=last_run_status,
                     )
                 case "skip":
                     await repo.mark_schedule_skipped(
-                        schedule_id,
+                        schedule.id,
                         next_run_at=next_run_at,
-                        last_run_at=last_run_at,
+                        last_run_at=now,
                         last_run_status=last_run_status,
                         reset_failures=reset_failures,
                     )
@@ -333,30 +349,6 @@ async def _disable(schedule_id: UUID, *, last_error: str) -> None:
             )
 
     await execute_use_case(_op)
-
-
-async def _advance_from_fresh(schedule: Schedule, *, now: datetime) -> datetime:
-    """Recompute ``next_run_at`` from the schedule's CURRENT cadence.
-
-    A user can edit cadence (``update_schedule``) while a dispatch is in flight:
-    that edit writes a new ``next_run_at`` but cannot clear the claim. Recomputing
-    from a fresh read here means the completing dispatch advances using the user's
-    NEW cadence instead of clobbering it with one derived from the cadence captured
-    at tick start. The fresh read and the terminal write aren't atomic, but the
-    ``started_at IS NOT NULL`` release guard plus recompute-from-fresh makes a lost
-    update benign — the next tick re-advances correctly. Falls back to the captured
-    entity if the row vanished.
-    """
-
-    async def _op(uow: UnitOfWorkProtocol) -> Schedule:
-        async with uow:
-            return await uow.get_schedule_repository().get_by_id(schedule.id)
-
-    try:
-        fresh = await execute_use_case(_op)
-    except NotFoundError:
-        fresh = schedule
-    return compute_next_run(fresh, now=now)
 
 
 # ---------------------------------------------------------------------------
@@ -402,10 +394,9 @@ async def _process_one(
             schedule_id=str(schedule.id),
         )
         await _release(
-            schedule.id,
+            schedule,
             disposition="skip",
-            next_run_at=compute_next_run(schedule, now=now),
-            last_run_at=now,
+            now=now,
             last_run_status="skipped_missed",
         )
         return
@@ -424,10 +415,9 @@ async def _process_one(
         # healthy right now, so this skip RESETS the failure streak.
         skipped_at = datetime.now(UTC)
         await _release(
-            schedule.id,
+            schedule,
             disposition="skip",
-            next_run_at=await _advance_from_fresh(schedule, now=skipped_at),
-            last_run_at=skipped_at,
+            now=skipped_at,
             last_run_status="skipped_already_running",
             reset_failures=True,
         )
@@ -453,23 +443,22 @@ async def _process_one(
         )
         failed_at = datetime.now(UTC)
         await _release(
-            schedule.id,
+            schedule,
             disposition="failure",
-            next_run_at=await _advance_from_fresh(schedule, now=failed_at),
-            last_run_at=failed_at,
+            now=failed_at,
             last_run_status="failed",
             last_error=_safe_failure_message(exc),
         )
         return
 
-    # Terminal write, routed purely by the classified disposition. next_run_at is
-    # recomputed from a FRESH read so a cadence edited mid-dispatch is not clobbered.
+    # Terminal write, routed purely by the classified disposition. _release
+    # recomputes next_run_at from a fresh read so a cadence edited mid-dispatch
+    # is not clobbered.
     finished_at = datetime.now(UTC)
     await _release(
-        schedule.id,
+        schedule,
         disposition=outcome.disposition,
-        next_run_at=await _advance_from_fresh(schedule, now=finished_at),
-        last_run_at=finished_at,
+        now=finished_at,
         last_run_status=outcome.status,
         last_run_id=outcome.run_id,
         last_error=outcome.error_label,
@@ -564,12 +553,9 @@ async def run_scheduler_tick(
                 with contextlib.suppress(Exception):
                     timed_out_at = datetime.now(UTC)
                     await _release(
-                        schedule.id,
+                        schedule,
                         disposition="failure",
-                        next_run_at=await _advance_from_fresh(
-                            schedule, now=timed_out_at
-                        ),
-                        last_run_at=timed_out_at,
+                        now=timed_out_at,
                         last_run_status="timeout",
                         last_error="dispatch timed out",
                     )
@@ -582,10 +568,9 @@ async def run_scheduler_tick(
                 with contextlib.suppress(Exception):
                     shutdown_at = datetime.now(UTC)
                     await _release(
-                        schedule.id,
+                        schedule,
                         disposition="skip",
-                        next_run_at=compute_next_run(schedule, now=shutdown_at),
-                        last_run_at=shutdown_at,
+                        now=shutdown_at,
                         last_run_status="skipped_shutdown",
                     )
                 raise

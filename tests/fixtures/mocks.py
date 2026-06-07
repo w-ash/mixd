@@ -296,6 +296,9 @@ def make_mock_workflow_run_repo(**overrides) -> AsyncMock:
     repo.get_runs_for_workflow.return_value = overrides.pop(
         "get_runs_for_workflow", ([], 0)
     )
+    repo.get_active_runs_for_user.return_value = overrides.pop(
+        "get_active_runs_for_user", ([], 0)
+    )
     repo.get_run_by_id.return_value = overrides.pop("get_run_by_id", None)
     repo.get_latest_run_for_workflow.return_value = overrides.pop(
         "get_latest_run_for_workflow", None

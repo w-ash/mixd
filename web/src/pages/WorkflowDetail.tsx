@@ -1,36 +1,27 @@
 import { useQueryClient } from "@tanstack/react-query";
 import { Copy, HelpCircle, Pencil, Play } from "lucide-react";
+import { useEffect } from "react";
 import { Link, useNavigate, useParams } from "react-router";
-import type { WorkflowRunSummarySchema } from "#/api/generated/model";
 import {
   getListWorkflowsApiV1WorkflowsGetQueryKey,
   useDuplicateWorkflowApiV1WorkflowsWorkflowIdDuplicatePost,
   useGetWorkflowApiV1WorkflowsWorkflowIdGet,
+  useGetWorkflowScheduleApiV1WorkflowsWorkflowIdScheduleGet,
   useListWorkflowRunsApiV1WorkflowsWorkflowIdRunsGet,
 } from "#/api/generated/workflows/workflows";
 import { STALE } from "#/api/query-client";
 import { PageHeader } from "#/components/layout/PageHeader";
 import { BackLink } from "#/components/shared/BackLink";
 import { EmptyState } from "#/components/shared/EmptyState";
-import { LastRunCard } from "#/components/shared/LastRunCard";
-import { PipelineStrip } from "#/components/shared/PipelineStrip";
-import { ResponsiveTable } from "#/components/shared/ResponsiveTable";
-import { RunStatusBadge } from "#/components/shared/RunStatusBadge";
-import { SectionHeader } from "#/components/shared/SectionHeader";
-import { SSELivenessPill } from "#/components/shared/SSELivenessPill";
 import { Button } from "#/components/ui/button";
 import { Skeleton } from "#/components/ui/skeleton";
-import {
-  Table,
-  TableBody,
-  TableCell,
-  TableHead,
-  TableHeader,
-  TableRow,
-} from "#/components/ui/table";
+import { RunHistoryTable } from "#/components/workflow/RunHistoryTable";
 import { WorkflowScheduleCard } from "#/components/workflow/WorkflowScheduleCard";
+import { WorkflowStatusPanel } from "#/components/workflow/WorkflowStatusPanel";
+import { useWorkflowExecutionContext } from "#/contexts/WorkflowExecutionContext";
+import { useActiveRun } from "#/hooks/useActiveRuns";
 import { useWorkflowExecution } from "#/hooks/useWorkflowExecution";
-import { formatDate, formatDuration } from "#/lib/format";
+import { formatNextRun } from "#/lib/schedule";
 import { toasts } from "#/lib/toasts";
 import { cn } from "#/lib/utils";
 
@@ -44,99 +35,6 @@ function DetailSkeleton() {
       <Skeleton className="h-16 w-full rounded-lg" />
       <Skeleton className="h-24 w-full rounded-lg" />
     </div>
-  );
-}
-
-function RunHistoryTable({
-  runs,
-  workflowId,
-}: {
-  runs: WorkflowRunSummarySchema[];
-  workflowId: string;
-}) {
-  if (runs.length === 0) return null;
-
-  return (
-    <section className="mt-8 space-y-3">
-      <SectionHeader title="Execution History" />
-      <ResponsiveTable
-        cards={
-          <div className="flex flex-col gap-2">
-            {runs.map((run) => (
-              <article
-                key={`${run.id}-card`}
-                className="flex items-start gap-3 rounded-md border border-border bg-surface px-3 py-3"
-              >
-                <div className="min-w-0 flex-1">
-                  <div className="flex flex-wrap items-center gap-2">
-                    <Link
-                      to={`/workflows/${workflowId}/runs/${run.id}`}
-                      className="font-mono text-sm text-text transition-colors hover:text-primary"
-                    >
-                      #{run.id}
-                    </Link>
-                    <RunStatusBadge status={run.status} />
-                  </div>
-                  <div className="mt-1 flex flex-wrap items-baseline gap-x-3 gap-y-1 font-mono text-xs text-text-muted">
-                    <span>Duration {formatDuration(run.duration_ms)}</span>
-                    <span>
-                      {run.output_track_count ?? "\u2014"} track
-                      {run.output_track_count === 1 ? "" : "s"}
-                    </span>
-                    <span>
-                      Started {formatDate(run.started_at ?? run.created_at)}
-                    </span>
-                  </div>
-                </div>
-              </article>
-            ))}
-          </div>
-        }
-        table={
-          <Table>
-            <TableHeader>
-              <TableRow>
-                <TableHead className="w-16">Run</TableHead>
-                <TableHead>Status</TableHead>
-                <TableHead className="text-right">Duration</TableHead>
-                <TableHead className="text-right">Tracks</TableHead>
-                <TableHead className="text-right">Started</TableHead>
-                <TableHead className="w-16" />
-              </TableRow>
-            </TableHeader>
-            <TableBody>
-              {runs.map((run) => (
-                <TableRow key={run.id}>
-                  <TableCell className="font-mono text-xs text-text-muted">
-                    #{run.id}
-                  </TableCell>
-                  <TableCell>
-                    <RunStatusBadge status={run.status} />
-                  </TableCell>
-                  <TableCell className="text-right font-mono text-xs tabular-nums text-text-muted">
-                    {formatDuration(run.duration_ms)}
-                  </TableCell>
-                  <TableCell className="text-right font-mono text-xs tabular-nums text-text-muted">
-                    {run.output_track_count ?? "\u2014"}
-                  </TableCell>
-                  <TableCell className="text-right text-xs text-text-muted">
-                    {formatDate(run.started_at ?? run.created_at)}
-                  </TableCell>
-                  <TableCell className="text-right">
-                    <Link
-                      to={`/workflows/${workflowId}/runs/${run.id}`}
-                      className="text-xs text-text-muted transition-colors hover:text-text"
-                    >
-                      View
-                    </Link>
-                  </TableCell>
-                </TableRow>
-              ))}
-            </TableBody>
-          </Table>
-        }
-      />
-    </section>
   );
 }
 
@@ -168,15 +66,47 @@ export function WorkflowDetail() {
 
   const { data: runsData } = useListWorkflowRunsApiV1WorkflowsWorkflowIdRunsGet(
     workflowId,
-    {
-      limit: 10,
-      offset: 0,
-    },
+    { limit: 10, offset: 0 },
     { query: { staleTime: STALE.SLOW } },
   );
 
-  const { isExecuting, nodeStatuses, runAccepted, subProgress, execute } =
-    useWorkflowExecution(workflowId);
+  // Schedule powers the idle cadence line. Same query key as the schedule card
+  // below, so this is deduped, not a second network call.
+  const { data: scheduleData } =
+    useGetWorkflowScheduleApiV1WorkflowsWorkflowIdScheduleGet(workflowId, {
+      query: { staleTime: STALE.SLOW, retry: false },
+    });
+
+  const {
+    isExecuting,
+    nodeStatuses,
+    runAccepted,
+    subProgress,
+    runId,
+    execute,
+  } = useWorkflowExecution(workflowId);
+
+  // App-global active-runs source: the in-flight run for THIS workflow (server
+  // truth), or null. Drives reconnection + the panel's active state.
+  const { data: activeRun = null } = useActiveRun(workflowId);
+
+  const {
+    adoptRun,
+    operationId,
+    workflowId: drivingWorkflowId,
+  } = useWorkflowExecutionContext();
+
+  // Reconnect on mount / when an active run appears: adopt the in-flight run so
+  // a reloaded page shows real current state. Skip if already driving this run,
+  // or if the single execution slot is busy with another workflow (that page
+  // keeps its own live stream; this one would otherwise steal the connection).
+  useEffect(() => {
+    const opId = activeRun?.operation_id;
+    if (!opId || !activeRun) return;
+    if (operationId === opId) return;
+    if (operationId !== null && drivingWorkflowId !== workflowId) return;
+    adoptRun(workflowId, opId, activeRun.id);
+  }, [activeRun, operationId, drivingWorkflowId, workflowId, adoptRun]);
 
   if (isLoading) return <DetailSkeleton />;
 
@@ -196,6 +126,14 @@ export function WorkflowDetail() {
   const tasks = workflow.definition.tasks ?? [];
   const runs = runsData?.status === 200 ? (runsData.data.data ?? []) : [];
   const lastRun = workflow.last_run ?? null;
+
+  const schedule = scheduleData?.status === 200 ? scheduleData.data : null;
+  const nextRunLabel =
+    schedule && schedule.status === "enabled" && schedule.next_run_at
+      ? `Next run ${formatNextRun(schedule)}`
+      : null;
+
+  const runDisabled = isExecuting || activeRun !== null;
 
   return (
     <div>
@@ -225,36 +163,29 @@ export function WorkflowDetail() {
             </Button>
             <Button
               size="sm"
-              disabled={isExecuting}
+              disabled={runDisabled}
               onClick={execute}
               className="gap-1.5"
             >
-              <Play className={cn("size-3.5", isExecuting && "animate-spin")} />
-              {isExecuting ? "Running..." : "Run"}
+              <Play className={cn("size-3.5", runDisabled && "animate-spin")} />
+              {runDisabled ? "Running..." : "Run"}
             </Button>
           </div>
         }
       />
 
-      {/* Compact pipeline strip replaces full-height DAG */}
-      {tasks.length > 0 && (
-        <div className="mb-6 space-y-2">
-          <PipelineStrip
-            tasks={tasks}
-            nodeStatuses={nodeStatuses}
-            isExecuting={isExecuting}
-            runAccepted={runAccepted}
-            subProgress={subProgress}
-          />
-          {isExecuting && <SSELivenessPill />}
-        </div>
-      )}
-
-      {/* Last run card */}
-      <LastRunCard
-        run={lastRun}
-        currentDefinitionVersion={workflow.definition_version ?? 1}
+      <WorkflowStatusPanel
         workflowId={workflowId}
+        tasks={tasks}
+        lastRun={lastRun}
+        currentDefinitionVersion={workflow.definition_version ?? 1}
+        activeRun={activeRun}
+        nodeStatuses={nodeStatuses}
+        isExecuting={isExecuting}
+        runAccepted={runAccepted}
+        subProgress={subProgress}
+        runId={runId}
+        nextRunLabel={nextRunLabel}
       />
 
       <RunHistoryTable runs={runs} workflowId={workflowId} />

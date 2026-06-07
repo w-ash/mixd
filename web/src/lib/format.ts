@@ -19,18 +19,23 @@ export function formatDate(
   });
 }
 
-/** Format a date string as "Jan 1, 2025, 02:30 PM". Returns `fallback` for nullish input. */
+/**
+ * Format a date string as "Jan 1, 2025, 02:30 PM". Returns `fallback` for
+ * nullish input. Pass `timeZone` (an IANA zone) to render in a specific zone
+ * rather than the browser's — e.g. a schedule's own timezone.
+ */
 export function formatDateTime(
   dateStr: string | null | undefined,
-  fallback = "Never",
+  options?: { fallback?: string; timeZone?: string },
 ): string {
-  if (!dateStr) return fallback;
+  if (!dateStr) return options?.fallback ?? "Never";
   return new Date(dateStr).toLocaleDateString(undefined, {
     month: "short",
     day: "numeric",
     year: "numeric",
     hour: "2-digit",
     minute: "2-digit",
+    timeZone: options?.timeZone,
   });
 }
 

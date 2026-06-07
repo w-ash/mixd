@@ -13,6 +13,14 @@ vi.mock("#/api/sse-client", () => ({
   connectToSSE: vi.fn(),
 }));
 
+// The snapshot fallback fetches through customFetch; mock it so adopt() can be
+// driven without a live backend. Existing tests never enable the snapshot query
+// (it only turns on while stalled or adopting), so this is inert for them.
+vi.mock("#/api/client", () => ({
+  customFetch: vi.fn(),
+}));
+
+import { customFetch } from "#/api/client";
 import { connectToSSE } from "#/api/sse-client";
 import { mockSSEWithEvents } from "#/test/sse-test-utils";
 
@@ -420,5 +428,51 @@ describe("useWorkflowSSE", () => {
     expect(result.current.isRunning).toBe(false);
     expect(result.current.nodeStatuses.size).toBe(0);
     expect(result.current.error).toBeNull();
+  });
+
+  it("adopt() seeds node state from the snapshot immediately (no SSE stall)", async () => {
+    // SSE connects but emits nothing — adoption must still paint current state.
+    mockSSEWithEvents([]);
+    vi.mocked(customFetch).mockResolvedValue({
+      data: {
+        operation_id: "op-adopt",
+        id: "run-adopt",
+        workflow_id: "wf-adopt",
+        status: "running",
+        nodes: [
+          {
+            node_id: "n1",
+            node_type: "source.playlist",
+            status: "completed",
+            execution_order: 1,
+          },
+          {
+            node_id: "n2",
+            node_type: "filter.by_metric",
+            status: "running",
+            execution_order: 2,
+          },
+        ],
+      },
+      status: 200,
+      headers: new Headers(),
+    });
+
+    const { result } = renderHook(() => useWorkflowSSE(), {
+      wrapper: createWrapper(),
+    });
+
+    act(() => {
+      result.current.adopt("op-adopt");
+    });
+
+    // Seeded from the snapshot without waiting for a 45s stall.
+    await waitFor(() => {
+      expect(result.current.nodeStatuses.size).toBe(2);
+    });
+    expect(result.current.isRunning).toBe(true);
+    expect(customFetch).toHaveBeenCalledWith(
+      "/api/v1/operations/op-adopt/snapshot",
+    );
   });
 });
