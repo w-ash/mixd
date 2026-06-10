@@ -190,7 +190,7 @@ export function Tags() {
   });
 
   const handleRename = () => {
-    if (!activeDialog || activeDialog.mode !== "rename") return;
+    if (activeDialog?.mode !== "rename") return;
     const newTag = targetInput.trim();
     if (!newTag) return;
     const sourceTag = activeDialog.tag.tag;
@@ -205,7 +205,7 @@ export function Tags() {
   };
 
   const handleMerge = () => {
-    if (!activeDialog || activeDialog.mode !== "merge") return;
+    if (activeDialog?.mode !== "merge") return;
     const target = targetInput.trim();
     if (!target) return;
     const sourceTag = activeDialog.tag.tag;
@@ -220,7 +220,7 @@ export function Tags() {
   };
 
   const handleDelete = () => {
-    if (!activeDialog || activeDialog.mode !== "delete") return;
+    if (activeDialog?.mode !== "delete") return;
     const sourceTag = activeDialog.tag.tag;
     deleteMutation.mutate(
       { tag: sourceTag },

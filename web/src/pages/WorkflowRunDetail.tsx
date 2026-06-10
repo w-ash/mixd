@@ -400,11 +400,11 @@ export function WorkflowRunDetail() {
 
   return (
     <div>
-      <title>{`Run #${run.id} — Mixd`}</title>
+      <title>{`Run #${run.run_number} — Mixd`}</title>
       <BackLink to={`/workflows/${workflowId}`}>{workflowName}</BackLink>
 
       <PageHeader
-        title={`Run #${run.id}`}
+        title={`Run #${run.run_number}`}
         description={`${workflowName} — definition v${run.definition_version ?? 1}`}
         action={
           <div className="flex items-center gap-3">

@@ -53,4 +53,21 @@ describe("WorkflowRow", () => {
       `/workflows/${wf.id}/edit`,
     );
   });
+
+  it("shows a failing marker only when the schedule is in a failed streak", () => {
+    const { rerender } = renderWithProviders(
+      <WorkflowRow wf={wf} runningWorkflowId={null} variant="card" />,
+    );
+    expect(screen.queryByText("Failing")).not.toBeInTheDocument();
+
+    rerender(
+      <WorkflowRow
+        wf={wf}
+        runningWorkflowId={null}
+        variant="card"
+        scheduleFailing
+      />,
+    );
+    expect(screen.getByText("Failing")).toBeInTheDocument();
+  });
 });

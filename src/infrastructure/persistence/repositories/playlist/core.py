@@ -22,8 +22,6 @@ from src.infrastructure.persistence.database.db_models import (
     DBPlaylist,
     DBPlaylistMapping,
     DBPlaylistTrack,
-    DBTrack,
-    DBTrackMapping,
 )
 from src.infrastructure.persistence.repositories.base_repo import BaseRepository
 from src.infrastructure.persistence.repositories.playlist.mapper import PlaylistMapper
@@ -101,19 +99,11 @@ class PlaylistRepository(BaseRepository[DBPlaylist, Playlist]):
     ) -> Select[tuple[DBPlaylist]]:
         """Add eager loading for playlist tracks and external service mappings.
 
-        Args:
-            stmt: Base SQLAlchemy select statement.
-
-        Returns:
-            Enhanced statement with relationship loading.
+        Thin delegate to ``PlaylistMapper.get_default_relationships`` so the
+        explicit get paths and the inherited ``get_by_id`` path share one loader
+        definition (single source of truth for the eager-load chain).
         """
-        return stmt.options(
-            selectinload(self.model_class.mappings),
-            selectinload(self.model_class.tracks)
-            .selectinload(DBPlaylistTrack.track)
-            .selectinload(DBTrack.mappings)
-            .selectinload(DBTrackMapping.connector_track),
-        )
+        return self.with_relationship(stmt, *self.mapper.get_default_relationships())
 
     # -------------------------------------------------------------------------
     # HELPER METHODS (non-decorated)

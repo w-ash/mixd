@@ -319,7 +319,15 @@ def build_flow(
                 )
                 return (task_id, WorkflowCancelledError("Shutdown requested"))
 
-            try:
+            async def _run_task_inner() -> tuple[str, NodeResult | Exception]:
+                """Run the node's observer/timeout/diagnostics lifecycle.
+
+                Extracted from ``_run_node_lifecycle`` so the protective ``try``
+                clause stays small; the same statements remain guarded by the
+                caller's ``CancelledError``/``Exception`` totality net. Returns
+                ``(task_id, NodeResult)`` on success/degrade or ``(task_id,
+                Exception)`` on a fatal node failure.
+                """
                 logger.info(f"Starting task: {task_id} (type: {node_type})")
 
                 # Build task-specific context from static metadata + upstream
@@ -470,6 +478,11 @@ def build_flow(
                 if task_def.result_key:
                     logger.debug(f"Storing result under key: {task_def.result_key}")
                     task_results[task_def.result_key] = result
+
+                return (task_id, result)
+
+            try:
+                return await _run_task_inner()
             except asyncio.CancelledError:
                 # Cooperative/forced cancellation (SIGTERM). Must propagate as a
                 # bare CancelledError so the run is recorded `crashed`, not `failed`.
@@ -495,8 +508,6 @@ def build_flow(
                     )
                 )
                 return (task_id, exc)
-            else:
-                return (task_id, result)
 
         # --- Level-based execution ---
         try:
@@ -779,7 +790,13 @@ async def run_workflow(
             else:
                 effective_observer = None
 
-            try:
+            async def _build_and_execute_workflow() -> OperationResult:
+                """Build the flow, run it, and assemble the workflow result.
+
+                Extracted from ``run_workflow`` so the protective ``try`` clause
+                stays small; the same statements remain guarded by the caller's
+                broad ``except Exception`` that marks the workflow failed.
+                """
                 # Start timing
                 start_time = datetime.datetime.now(datetime.UTC)
 
@@ -818,6 +835,11 @@ async def run_workflow(
                     await progress_manager.complete_operation(
                         workflow_operation_id, OperationStatus.COMPLETED
                     )
+
+                return result
+
+            try:
+                return await _build_and_execute_workflow()
             except Exception:
                 # Mark workflow progress as failed
                 if progress_manager and workflow_operation_id:
@@ -827,7 +849,5 @@ async def run_workflow(
 
                 logger.error("Workflow failed — see node error above")
                 raise
-            else:
-                return result
     finally:
         remove_workflow_run_logger(run_sink_id)

@@ -84,12 +84,15 @@ async def upsert_canonical_playlist(
     playlist. Caller owns the UoW and the commit boundary."""
     # Check if playlist already exists locally
     existing_playlist = None
+    read_use_case = ReadCanonicalPlaylistUseCase()
+    read_command = ReadCanonicalPlaylistCommand(
+        user_id=user_id, playlist_id=playlist_id, connector=connector_name
+    )
     try:
-        read_use_case = ReadCanonicalPlaylistUseCase()
-        read_command = ReadCanonicalPlaylistCommand(
-            user_id=user_id, playlist_id=playlist_id, connector=connector_name
-        )
         result = await read_use_case.execute(read_command, uow)
+    except NotFoundError:
+        logger.info("No existing local playlist found - will create new one")
+    else:
         existing_playlist = result.playlist
         if existing_playlist:
             logger.info(
@@ -97,8 +100,6 @@ async def upsert_canonical_playlist(
                 local_id=existing_playlist.id,
                 name=existing_playlist.name,
             )
-    except NotFoundError:
-        logger.info("No existing local playlist found - will create new one")
 
     if existing_playlist:
         command = build_update_playlist_command(

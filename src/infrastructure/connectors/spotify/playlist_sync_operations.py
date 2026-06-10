@@ -177,29 +177,27 @@ class SpotifyPlaylistSyncOperations:
             if op.spotify_uri.startswith("canonical:"):
                 try:
                     track_id = UUID(op.spotify_uri.split(":", 1)[1])
-                    track = track_map.get(track_id)
-
-                    if not track:
-                        stats["missing_track"] += 1
-                        continue
-
-                    spotify_id = track.connector_track_identifiers.get("spotify")
-                    if not spotify_id:
-                        stats["missing_spotify_id"] += 1
-                        logger.warning(
-                            "Track missing Spotify ID",
-                            canonical_id=track_id,
-                            title=track.title,
-                        )
-                        continue
-
-                    resolved.append(
-                        evolve(op, spotify_uri=f"spotify:track:{spotify_id}")
-                    )
-                    stats["resolved"] += 1
-
                 except ValueError, IndexError:
                     continue
+
+                track = track_map.get(track_id)
+
+                if not track:
+                    stats["missing_track"] += 1
+                    continue
+
+                spotify_id = track.connector_track_identifiers.get("spotify")
+                if not spotify_id:
+                    stats["missing_spotify_id"] += 1
+                    logger.warning(
+                        "Track missing Spotify ID",
+                        canonical_id=track_id,
+                        title=track.title,
+                    )
+                    continue
+
+                resolved.append(evolve(op, spotify_uri=f"spotify:track:{spotify_id}"))
+                stats["resolved"] += 1
 
             elif op.spotify_uri.startswith("spotify:track:"):
                 resolved.append(op)
@@ -285,19 +283,10 @@ class SpotifyPlaylistSyncOperations:
         for i in range(0, len(items), 100):
             batch = items[i : i + 100]
             try:
-                result = (
-                    await self.client.playlist_remove_specific_occurrences_of_items(
-                        playlist_id=playlist_id,
-                        items=batch,
-                        snapshot_id=current_snapshot,
-                    )
+                current_snapshot, batch_failed = await self._submit_remove_batch(
+                    playlist_id, batch, current_snapshot
                 )
-                if result:
-                    current_snapshot = result.snapshot_id
-                else:
-                    failed_batches += 1
-
-                await asyncio.sleep(settings.api.spotify.request_delay)
+                failed_batches += batch_failed
 
             except Exception as e:
                 failed_batches += 1
@@ -312,6 +301,27 @@ class SpotifyPlaylistSyncOperations:
             )
 
         return current_snapshot
+
+    async def _submit_remove_batch(
+        self,
+        playlist_id: str,
+        batch: list[JsonDict],
+        current_snapshot: str | None,
+    ) -> tuple[str | None, int]:
+        """Submit one remove batch; return (snapshot, 1 if no-op result else 0)."""
+        result = await self.client.playlist_remove_specific_occurrences_of_items(
+            playlist_id=playlist_id,
+            items=batch,
+            snapshot_id=current_snapshot,
+        )
+        if result:
+            current_snapshot = result.snapshot_id
+            batch_failed = 0
+        else:
+            batch_failed = 1
+
+        await asyncio.sleep(settings.api.spotify.request_delay)
+        return current_snapshot, batch_failed
 
     async def _execute_add_operations(
         self,
@@ -410,21 +420,13 @@ class SpotifyPlaylistSyncOperations:
                     "BUG: move op passed validation with None old_position"
                 )
             try:
-                result = await self.client.playlist_reorder_items(
-                    playlist_id=playlist_id,
-                    range_start=op.old_position,
-                    insert_before=op.position,
-                    range_length=1,
-                    snapshot_id=current_snapshot,
+                current_snapshot, op_ok = await self._submit_move_operation(
+                    playlist_id, op.old_position, op.position, current_snapshot
                 )
-
-                if result:
-                    current_snapshot = result.snapshot_id
+                if op_ok:
                     successful += 1
                 else:
                     failed += 1
-
-                await asyncio.sleep(settings.api.spotify.request_delay)
 
             except Exception as e:
                 failed += 1
@@ -438,6 +440,31 @@ class SpotifyPlaylistSyncOperations:
             )
 
         return current_snapshot
+
+    async def _submit_move_operation(
+        self,
+        playlist_id: str,
+        range_start: int,
+        insert_before: int,
+        current_snapshot: str | None,
+    ) -> tuple[str | None, bool]:
+        """Submit one reorder op; return (snapshot, True if applied)."""
+        result = await self.client.playlist_reorder_items(
+            playlist_id=playlist_id,
+            range_start=range_start,
+            insert_before=insert_before,
+            range_length=1,
+            snapshot_id=current_snapshot,
+        )
+
+        if result:
+            current_snapshot = result.snapshot_id
+            op_ok = True
+        else:
+            op_ok = False
+
+        await asyncio.sleep(settings.api.spotify.request_delay)
+        return current_snapshot, op_ok
 
     async def _get_updated_snapshot(
         self, playlist_id: str, fallback: str | None

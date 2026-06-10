@@ -391,22 +391,7 @@ class RichProgressProvider:
             is allowed to propagate per Python 3.14 best practices.
         """
         try:
-            await asyncio.sleep(delay_seconds)
-
-            async with self._lock:
-                operation_task = self._operation_tasks.get(operation_id)
-                if operation_task is not None:
-                    # Remove from Rich progress display
-                    with contextlib.suppress(KeyError):
-                        # Task may have already been removed
-                        self._progress.remove_task(operation_task.task_id)
-
-                    # Remove from our tracking
-                    del self._operation_tasks[operation_id]
-
-                    self._logger.debug(
-                        "Completed progress task cleaned up", operation_id=operation_id
-                    )
+            await self._sleep_then_remove_task(operation_id, delay_seconds)
         except asyncio.CancelledError:
             # Task was cancelled during shutdown - this is expected
             # Re-raise to allow proper cancellation propagation (Python 3.14 best practice)
@@ -414,6 +399,27 @@ class RichProgressProvider:
                 "Cleanup task cancelled during shutdown", operation_id=operation_id
             )
             raise
+
+    async def _sleep_then_remove_task(
+        self, operation_id: str, delay_seconds: float
+    ) -> None:
+        """Wait, then drop the completed task from the display and tracking."""
+        await asyncio.sleep(delay_seconds)
+
+        async with self._lock:
+            operation_task = self._operation_tasks.get(operation_id)
+            if operation_task is not None:
+                # Remove from Rich progress display
+                with contextlib.suppress(KeyError):
+                    # Task may have already been removed
+                    self._progress.remove_task(operation_task.task_id)
+
+                # Remove from our tracking
+                del self._operation_tasks[operation_id]
+
+                self._logger.debug(
+                    "Completed progress task cleaned up", operation_id=operation_id
+                )
 
     def get_console(self):
         """Get the Live Display console for coordinated output.

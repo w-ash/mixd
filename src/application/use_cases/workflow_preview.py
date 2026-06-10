@@ -44,12 +44,9 @@ class PreviewWorkflowUseCase:
         sse_queue: asyncio.Queue[object] | None = None,
         user_id: str = BusinessLimits.DEFAULT_USER_ID,
     ) -> PreviewWorkflowResult:
-        from src.application.services.progress_manager import get_progress_manager
         from src.application.workflows.definition.validation import (
             validate_workflow_def,
         )
-        from src.application.workflows.engine.executor import run_workflow
-        from src.application.workflows.engine.observers import PreviewNodeObserver
 
         validate_workflow_def(workflow_def)
 
@@ -65,37 +62,55 @@ class PreviewWorkflowUseCase:
             mode="preview",
         ):
             try:
-                progress_manager = get_progress_manager()
-                observer = PreviewNodeObserver(sse_queue=sse_queue)
-
-                result = await run_workflow(
-                    workflow_def,
-                    progress_manager=progress_manager,
-                    observer=observer,
-                    dry_run=True,
-                    user_id=user_id,
-                )
-
-                duration_ms = timer.stop()
-                total_track_count = len(result.tracks) if result.tracks else 0
-                if result.tracks:
-                    output_tracks, metric_columns = serialize_output_tracks(
-                        result.tracks,
-                        limit=WorkflowConstants.PREVIEW_OUTPUT_LIMIT,
-                        metrics=result.metrics,
-                    )
-                else:
-                    output_tracks, metric_columns = [], []
-                node_summaries = observer.get_summaries()
-
-                return PreviewWorkflowResult(
-                    output_tracks=output_tracks,
-                    node_summaries=node_summaries,
-                    duration_ms=duration_ms,
-                    total_track_count=total_track_count,
-                    metric_columns=metric_columns,
-                )
+                return await self._run_preview(workflow_def, sse_queue, user_id, timer)
 
             except Exception:
                 logger.error("Preview execution failed", exc_info=True)
                 raise
+
+    async def _run_preview(
+        self,
+        workflow_def: WorkflowDef,
+        sse_queue: asyncio.Queue[object] | None,
+        user_id: str,
+        timer: ExecutionTimer,
+    ) -> PreviewWorkflowResult:
+        """Run the workflow as a dry-run preview and build the result.
+
+        Extracted from ``execute`` so the protective ``try`` clause stays small;
+        the same statements remain guarded by the caller's broad ``except``.
+        """
+        from src.application.services.progress_manager import get_progress_manager
+        from src.application.workflows.engine.executor import run_workflow
+        from src.application.workflows.engine.observers import PreviewNodeObserver
+
+        progress_manager = get_progress_manager()
+        observer = PreviewNodeObserver(sse_queue=sse_queue)
+
+        result = await run_workflow(
+            workflow_def,
+            progress_manager=progress_manager,
+            observer=observer,
+            dry_run=True,
+            user_id=user_id,
+        )
+
+        duration_ms = timer.stop()
+        total_track_count = len(result.tracks) if result.tracks else 0
+        if result.tracks:
+            output_tracks, metric_columns = serialize_output_tracks(
+                result.tracks,
+                limit=WorkflowConstants.PREVIEW_OUTPUT_LIMIT,
+                metrics=result.metrics,
+            )
+        else:
+            output_tracks, metric_columns = [], []
+        node_summaries = observer.get_summaries()
+
+        return PreviewWorkflowResult(
+            output_tracks=output_tracks,
+            node_summaries=node_summaries,
+            duration_ms=duration_ms,
+            total_track_count=total_track_count,
+            metric_columns=metric_columns,
+        )

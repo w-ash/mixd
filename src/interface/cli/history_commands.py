@@ -216,35 +216,39 @@ def checkpoints_cmd() -> None:
     run_async(_show_checkpoints_async())
 
 
+async def _render_checkpoints_table() -> None:
+    """Fetch checkpoint statuses and render them (raising body of the command)."""
+    from rich.table import Table
+
+    from src.application.use_cases.sync_likes import get_all_checkpoint_statuses
+
+    statuses = await get_all_checkpoint_statuses(user_id=get_cli_user_id())
+
+    if not statuses:
+        console.print("[yellow]No sync checkpoints found.[/yellow]")
+        return
+
+    table = Table(title="Sync Checkpoints")
+    table.add_column("Service", style="cyan")
+    table.add_column("Entity", style="green")
+    table.add_column("Last Sync", style="dim")
+    table.add_column("Has Previous", justify="center")
+
+    for s in statuses:
+        table.add_row(
+            s.service,
+            s.entity_type,
+            str(s.last_sync_timestamp) if s.last_sync_timestamp else "Never",
+            "[green]Yes[/green]" if s.has_previous_sync else "[dim]No[/dim]",
+        )
+
+    console.print(table)
+
+
 async def _show_checkpoints_async() -> None:
     """Display checkpoint statuses in a Rich table."""
     try:
-        from rich.table import Table
-
-        from src.application.use_cases.sync_likes import get_all_checkpoint_statuses
-
-        statuses = await get_all_checkpoint_statuses(user_id=get_cli_user_id())
-
-        if not statuses:
-            console.print("[yellow]No sync checkpoints found.[/yellow]")
-            return
-
-        table = Table(title="Sync Checkpoints")
-        table.add_column("Service", style="cyan")
-        table.add_column("Entity", style="green")
-        table.add_column("Last Sync", style="dim")
-        table.add_column("Has Previous", justify="center")
-
-        for s in statuses:
-            table.add_row(
-                s.service,
-                s.entity_type,
-                str(s.last_sync_timestamp) if s.last_sync_timestamp else "Never",
-                "[green]Yes[/green]" if s.has_previous_sync else "[dim]No[/dim]",
-            )
-
-        console.print(table)
-
+        await _render_checkpoints_table()
     except Exception as e:
         from src.interface.cli.cli_helpers import handle_cli_error
 

@@ -1,5 +1,5 @@
 import { useQueryClient } from "@tanstack/react-query";
-import { CalendarClock, Copy, Pencil, Play } from "lucide-react";
+import { AlertTriangle, CalendarClock, Copy, Pencil, Play } from "lucide-react";
 import { memo } from "react";
 import { Link, useNavigate } from "react-router";
 import type { WorkflowSummarySchema } from "#/api/generated/model";
@@ -108,6 +108,19 @@ export function WorkflowRowActions({
   );
 }
 
+/** Marker shown when a workflow's schedule is in a failed streak. */
+function FailingMarker() {
+  return (
+    <span
+      className="inline-flex items-center gap-1 font-display text-status-expired"
+      title="Recent scheduled runs failed"
+    >
+      <AlertTriangle className="size-3" />
+      Failing
+    </span>
+  );
+}
+
 /**
  * Single workflow-row renderer used by both the mobile card list and the
  * desktop table (ResponsiveTable swaps between them at the @2xl threshold).
@@ -119,12 +132,15 @@ export const WorkflowRow = memo(function WorkflowRow({
   runningWorkflowId,
   variant,
   nextRun = null,
+  scheduleFailing = false,
 }: {
   wf: WorkflowSummarySchema;
   runningWorkflowId: string | null;
   variant: "card" | "table";
   /** Pre-formatted next-run label for an enabled schedule, or null if none. */
   nextRun?: string | null;
+  /** True when the workflow's schedule has a non-zero failure streak. */
+  scheduleFailing?: boolean;
 }) {
   const lastRun = wf.last_run;
   const runConf = lastRun ? getStatusConfig(lastRun.status) : null;
@@ -164,6 +180,7 @@ export const WorkflowRow = memo(function WorkflowRow({
               {nextRun}
             </span>
           )}
+          {scheduleFailing && <FailingMarker />}
           <span>Updated {formatDate(wf.updated_at)}</span>
         </div>
       </TableCard>
@@ -203,14 +220,17 @@ export const WorkflowRow = memo(function WorkflowRow({
         )}
       </TableCell>
       <TableCell className="text-xs text-text-muted">
-        {nextRun ? (
-          <span className="inline-flex items-center gap-1 font-display text-primary">
-            <CalendarClock className="size-3" />
-            {nextRun}
-          </span>
-        ) : (
-          <span className="text-text-faint">&mdash;</span>
-        )}
+        <div className="flex flex-col gap-0.5">
+          {nextRun ? (
+            <span className="inline-flex items-center gap-1 font-display text-primary">
+              <CalendarClock className="size-3" />
+              {nextRun}
+            </span>
+          ) : (
+            !scheduleFailing && <span className="text-text-faint">&mdash;</span>
+          )}
+          {scheduleFailing && <FailingMarker />}
+        </div>
       </TableCell>
       <TableCell className="text-right text-sm text-text-muted">
         {formatDate(wf.updated_at)}

@@ -125,3 +125,9 @@ class TestListSchedules:
         target_types = {row["target_type"] for row in data}
         assert target_types == {"workflow", "sync"}
         assert len(data) == 2
+
+        # Each row carries a resolved display label: the workflow's name, and the
+        # sync target's friendly name (not the raw "lastfm:plays" id).
+        labels = {row["target_type"]: row["target_label"] for row in data}
+        assert labels["workflow"] == "Test Workflow"
+        assert labels["sync"] == "Last.fm plays"

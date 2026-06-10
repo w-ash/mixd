@@ -979,7 +979,8 @@ def _execute_workflow(
     manager the use case fetches internally.
     """
     wf_def = workflow.definition
-    try:
+
+    def _run_workflow_lifecycle():
         if not quiet:
             console.print(
                 brand_panel(
@@ -1028,7 +1029,10 @@ def _execute_workflow(
                     update_node_status=update_node_status,
                 ).execute(wf_def, run_result.run_id, user_id=user_id)
 
-        result = run_async(_run_with_history())
+        return run_async(_run_with_history())
+
+    try:
+        result = _run_workflow_lifecycle()
     except Exception as e:
         if not quiet:
             handle_cli_error(e, "Workflow execution failed")

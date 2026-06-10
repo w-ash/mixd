@@ -235,43 +235,12 @@ class SpotifyInwardResolver(InwardTrackResolver):
                 continue
 
             try:
-                spotify_track = spotify_metadata[spotify_id]
-
-                # Check if an existing canonical already owns this ISRC
-                isrc = None
-                if spotify_track.external_ids and spotify_track.external_ids.isrc:
-                    isrc = normalize_isrc(spotify_track.external_ids.isrc)
-
-                if isrc and isrc in existing_by_isrc:
-                    existing_track = existing_by_isrc[isrc]
-                    # Reuse existing canonical — just create the Spotify mapping
-                    await uow.get_connector_repository().map_track_to_connector(
-                        existing_track,
-                        "spotify",
-                        spotify_id,
-                        MatchMethod.ISRC_MATCH,
-                        confidence=MatchMethod.ISRC_MATCH_CONFIDENCE,
-                        metadata=spotify_track.model_dump(),
-                    )
-                    result[spotify_id] = existing_track
-                    logger.info(
-                        f"ISRC dedup: reused canonical {existing_track.id} for spotify:{spotify_id} (ISRC={isrc})"
-                    )
-                    continue
-
-                canonical_track = await self._save_with_connector_mappings(
+                result[spotify_id] = await self._resolve_one_missing_track(
                     spotify_id,
-                    spotify_track,
+                    spotify_metadata[spotify_id],
+                    existing_by_isrc,
                     uow,
-                    match_method=MatchMethod.DIRECT_IMPORT,
-                    confidence=100,
                 )
-
-                if spotify_track.id != spotify_id:
-                    self._redirect_resolved_ids.add(spotify_id)
-
-                result[spotify_id] = canonical_track
-
             except Exception as e:
                 logger.error(f"Failed to create track for {spotify_id}: {e}")
 
@@ -283,6 +252,48 @@ class SpotifyInwardResolver(InwardTrackResolver):
             self._fallback_resolved_ids.update(fallback_tracks.keys())
 
         return result
+
+    async def _resolve_one_missing_track(
+        self,
+        spotify_id: str,
+        spotify_track: SpotifyTrack,
+        existing_by_isrc: dict[str, Track],
+        uow: UnitOfWorkProtocol,
+    ) -> Track:
+        """Resolve one missing Spotify id to a canonical track (ISRC dedup or new)."""
+        # Check if an existing canonical already owns this ISRC
+        isrc = None
+        if spotify_track.external_ids and spotify_track.external_ids.isrc:
+            isrc = normalize_isrc(spotify_track.external_ids.isrc)
+
+        if isrc and isrc in existing_by_isrc:
+            existing_track = existing_by_isrc[isrc]
+            # Reuse existing canonical — just create the Spotify mapping
+            await uow.get_connector_repository().map_track_to_connector(
+                existing_track,
+                "spotify",
+                spotify_id,
+                MatchMethod.ISRC_MATCH,
+                confidence=MatchMethod.ISRC_MATCH_CONFIDENCE,
+                metadata=spotify_track.model_dump(),
+            )
+            logger.info(
+                f"ISRC dedup: reused canonical {existing_track.id} for spotify:{spotify_id} (ISRC={isrc})"
+            )
+            return existing_track
+
+        canonical_track = await self._save_with_connector_mappings(
+            spotify_id,
+            spotify_track,
+            uow,
+            match_method=MatchMethod.DIRECT_IMPORT,
+            confidence=100,
+        )
+
+        if spotify_track.id != spotify_id:
+            self._redirect_resolved_ids.add(spotify_id)
+
+        return canonical_track
 
     async def _fallback_resolve_by_search(
         self,

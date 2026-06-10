@@ -1,7 +1,9 @@
 # Project Mixd — Planning
 
-**Current Version**: 0.8.3
-**Next**: v0.8.4 Background sync scheduling
+**Current Version**: 0.8.4
+**Next**: v0.8.5 Workflow templates & import/export
+
+**v0.8.4 shipped (2026-06-09)** — Background **sync scheduling** + proactive **failure surfaces**, closing the "sync overnight → rebuild in the morning" loop. Daily/weekly schedules for the three sync targets (`lastfm:plays`, `spotify:likes`, `lastfm:likes`) live on their existing Settings›Sync cards via a shared `ScheduleCard` + `useScheduleController` (the bespoke `WorkflowScheduleCard` was refactored onto the same pair — zero new backend; the v0.8.2/8.3 engine already covered it). Two discovery-without-checking surfaces ride the already-fetched `GET /schedules`: a dashboard aggregate `ScheduleFailuresBanner` and an amber "Failing" marker on each workflow row, both self-clearing on the scheduler's success reset (one shared `AlertBanner` primitive behind both the per-schedule and aggregate banners). Also folded in: a human-facing per-workflow `run_number` (migration `027`, shown instead of the UUID), the `loaded_list`/`loaded_one` no-I/O mapper read primitives + a scoped 7-relationship `lazy="raise_on_sql"` guard (down-payment on the v0.8.7 eager-load-hardening epic), and a toolchain/dependency bump pass (SQLAlchemy 2.0.50, uv 0.11, node 24, pnpm 11.5.2, flyctl 1.6, Playwright 1.60).
 
 **v0.8.3 shipped (2026-06-07)** — Workflow scheduling **web UI** + an unplanned **workflow-page redesign with live-run reconnection**. A timezone-aware `SchedulePicker` (daily/weekly toggle, no cron) sets automation; the workflow list shows a "Next run" column sourced from a single caller-scoped `/schedules` fetch (no N+1). The detail page replaced the loose pipeline strip + `LastRunCard` with one state-aware `WorkflowStatusPanel` (active/idle/never-run) + a dedicated `RunHistoryTable`, and now reconnects to an in-flight run after reload via an app-global active-runs source + DB snapshot adoption. A paired scheduler fix persists an `operation_id` on scheduled runs so they're reconnectable, and the review pass unified schedule advancement into one fresh-read `_release` transaction. **Partial:** only the per-schedule failure badge shipped; the proactive dashboard banner + workflow-list failure indicator are carried to v0.8.4.
 
@@ -78,7 +80,7 @@ Each milestone delivers a **vertical slice** — backend API + frontend page tog
 | **v0.8.1** | Workflow engine swap (Prefect → stdlib asyncio) | 🚀 Shipped | [details](v0.8.x.md#v081-workflow-engine-swap-prefect-to-stdlib-asyncio) |
 | **v0.8.2** | Workflow scheduling — engine & CLI | 🚀 Shipped | [details](v0.8.x.md#v082-workflow-scheduling---engine--cli) |
 | **v0.8.3** | Workflow scheduling — web UI & failure alerts | 🚀 Shipped | [details](v0.8.x.md#v083-workflow-scheduling---web-ui--failure-alerts) |
-| **v0.8.4** | Background sync scheduling | 🔜 Not Started | [details](v0.8.x.md#v084-background-sync-scheduling) |
+| **v0.8.4** | Background sync scheduling | 🚀 Shipped | [details](v0.8.x.md#v084-background-sync-scheduling) |
 | **v0.8.5** | Workflow templates & import/export | 🔜 Not Started | [details](v0.8.x.md#v085-workflow-templates--importexport) |
 | **v0.8.6** | Editor polish — sub-flows & playlist browse | 🔜 Not Started | [details](v0.8.x.md#v086-editor-polish---sub-flows--playlist-browse) |
 | **v0.8.7** | TBD iteration (reserved) | 🔜 Not Started | [details](v0.8.x.md#v087-tbd-iteration) |

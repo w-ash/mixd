@@ -84,52 +84,7 @@ class MusicBrainzProvider(BaseMatchingProvider):
 
         if valid_tracks:
             try:
-                # Use MusicBrainz batch optimization
-                isrcs = [t.isrc for t in valid_tracks if t.isrc]
-                isrc_results = await self.connector_instance.batch_isrc_lookup(isrcs)
-
-                # Map results back to tracks
-                for track in valid_tracks:
-                    track_id = track.id
-                    if not track_id:
-                        continue
-                    if track.isrc and track.isrc in isrc_results:
-                        mbid = isrc_results[track.isrc]
-                        if not mbid:
-                            failures.append(
-                                create_and_log_failure(
-                                    track_id,
-                                    MatchFailureReason.NO_RESULTS,
-                                    self.service_name,
-                                    "isrc",
-                                    f"No MusicBrainz MBID for ISRC: {track.isrc}",
-                                )
-                            )
-                            continue
-                        raw_match = self._create_isrc_raw_match(mbid)
-                        if raw_match:
-                            matches[track_id] = raw_match
-                        else:
-                            failures.append(
-                                create_and_log_failure(
-                                    track_id,
-                                    MatchFailureReason.INVALID_RESPONSE,
-                                    self.service_name,
-                                    "isrc",
-                                    "Failed to create raw match from MusicBrainz response",
-                                )
-                            )
-                    else:
-                        failures.append(
-                            create_and_log_failure(
-                                track_id,
-                                MatchFailureReason.NO_RESULTS,
-                                self.service_name,
-                                "isrc",
-                                f"No MusicBrainz results for ISRC: {track.isrc}",
-                            )
-                        )
-
+                await self._lookup_isrc_batch(valid_tracks, matches, failures)
             except Exception as e:
                 # Batch API failed, record failures for all tracks
                 failures.extend(
@@ -141,6 +96,59 @@ class MusicBrainzProvider(BaseMatchingProvider):
                 )
 
         return matches, failures
+
+    async def _lookup_isrc_batch(
+        self,
+        valid_tracks: list[Track],
+        matches: dict[UUID, RawProviderMatch],
+        failures: list[MatchFailure],
+    ) -> None:
+        """Perform batch ISRC lookup and map results into matches/failures."""
+        # Use MusicBrainz batch optimization
+        isrcs = [t.isrc for t in valid_tracks if t.isrc]
+        isrc_results = await self.connector_instance.batch_isrc_lookup(isrcs)
+
+        # Map results back to tracks
+        for track in valid_tracks:
+            track_id = track.id
+            if not track_id:
+                continue
+            if track.isrc and track.isrc in isrc_results:
+                mbid = isrc_results[track.isrc]
+                if not mbid:
+                    failures.append(
+                        create_and_log_failure(
+                            track_id,
+                            MatchFailureReason.NO_RESULTS,
+                            self.service_name,
+                            "isrc",
+                            f"No MusicBrainz MBID for ISRC: {track.isrc}",
+                        )
+                    )
+                    continue
+                raw_match = self._create_isrc_raw_match(mbid)
+                if raw_match:
+                    matches[track_id] = raw_match
+                else:
+                    failures.append(
+                        create_and_log_failure(
+                            track_id,
+                            MatchFailureReason.INVALID_RESPONSE,
+                            self.service_name,
+                            "isrc",
+                            "Failed to create raw match from MusicBrainz response",
+                        )
+                    )
+            else:
+                failures.append(
+                    create_and_log_failure(
+                        track_id,
+                        MatchFailureReason.NO_RESULTS,
+                        self.service_name,
+                        "isrc",
+                        f"No MusicBrainz results for ISRC: {track.isrc}",
+                    )
+                )
 
     @override
     async def _match_by_artist_title(
@@ -176,36 +184,7 @@ class MusicBrainzProvider(BaseMatchingProvider):
 
             # Call MusicBrainz API
             try:
-                artist = track.artists[0].name if track.artists else ""
-                recording = await self.connector_instance.search_recording(
-                    artist, track.title
-                )
-
-                if recording:
-                    raw_match = self._create_artist_title_raw_match(recording)
-                    if raw_match:
-                        matches[track.id] = raw_match
-                    else:
-                        failures.append(
-                            create_and_log_failure(
-                                track.id,
-                                MatchFailureReason.INVALID_RESPONSE,
-                                self.service_name,
-                                "artist_title",
-                                "Failed to create raw match from MusicBrainz response",
-                            )
-                        )
-                else:
-                    failures.append(
-                        create_and_log_failure(
-                            track.id,
-                            MatchFailureReason.NO_RESULTS,
-                            self.service_name,
-                            "artist_title",
-                            f"No MusicBrainz results for '{artist} - {track.title}'",
-                        )
-                    )
-
+                await self._search_artist_title(track, matches, failures)
             except Exception as e:
                 failures.append(
                     handle_track_processing_failure(
@@ -214,6 +193,44 @@ class MusicBrainzProvider(BaseMatchingProvider):
                 )
 
         return matches, failures
+
+    async def _search_artist_title(
+        self,
+        track: Track,
+        matches: dict[UUID, RawProviderMatch],
+        failures: list[MatchFailure],
+    ) -> None:
+        """Search MusicBrainz by artist/title and record match or failure."""
+        track_id = track.id
+        if not track_id:
+            return
+        artist = track.artists[0].name if track.artists else ""
+        recording = await self.connector_instance.search_recording(artist, track.title)
+
+        if recording:
+            raw_match = self._create_artist_title_raw_match(recording)
+            if raw_match:
+                matches[track_id] = raw_match
+            else:
+                failures.append(
+                    create_and_log_failure(
+                        track_id,
+                        MatchFailureReason.INVALID_RESPONSE,
+                        self.service_name,
+                        "artist_title",
+                        "Failed to create raw match from MusicBrainz response",
+                    )
+                )
+        else:
+            failures.append(
+                create_and_log_failure(
+                    track_id,
+                    MatchFailureReason.NO_RESULTS,
+                    self.service_name,
+                    "artist_title",
+                    f"No MusicBrainz results for '{artist} - {track.title}'",
+                )
+            )
 
     def _create_isrc_raw_match(self, mbid: str) -> RawProviderMatch | None:
         """Create raw match data for ISRC-based matches.

@@ -113,22 +113,26 @@ async def lifespan(_app: FastAPI) -> AsyncGenerator[None]:
             name="workflow_scheduler",
         )
 
-    yield
-    logger.info("API server shutting down — cancelling background tasks")
-    sweeper_task.cancel()
-    if scheduler_task is not None:
-        scheduler_task.cancel()
-    for task in startup_tasks:
-        task.cancel()
-    with contextlib.suppress(asyncio.CancelledError):
-        await sweeper_task
-    if scheduler_task is not None:
+    try:
+        yield
+    finally:
+        # Cleanup must run even if the lifespan body raises, so background
+        # tasks and the progress subscription are never leaked on shutdown.
+        logger.info("API server shutting down — cancelling background tasks")
+        sweeper_task.cancel()
+        if scheduler_task is not None:
+            scheduler_task.cancel()
+        for task in startup_tasks:
+            task.cancel()
         with contextlib.suppress(asyncio.CancelledError):
-            await scheduler_task
-    for task in startup_tasks:
-        with contextlib.suppress(asyncio.CancelledError):
-            await task
-    await manager.unsubscribe(sub_id)
+            await sweeper_task
+        if scheduler_task is not None:
+            with contextlib.suppress(asyncio.CancelledError):
+                await scheduler_task
+        for task in startup_tasks:
+            with contextlib.suppress(asyncio.CancelledError):
+                await task
+        await manager.unsubscribe(sub_id)
 
 
 def create_app() -> FastAPI:

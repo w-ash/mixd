@@ -40,33 +40,7 @@ class ListenBrainzLookup:
             Spotify track ID string, or None if no match found.
         """
         try:
-            response = await self._client.post(
-                "/spotify-id-from-metadata/json",
-                json=[
-                    {
-                        "artist_name": artist_name,
-                        "recording_name": recording_name,
-                    }
-                ],
-            )
-            response.raise_for_status()
-            raw = cast("object", response.json())
-            if not isinstance(raw, list) or not raw:
-                return None
-            data = cast("list[dict[str, JsonValue]]", raw)
-
-            if not data:
-                return None
-
-            result: dict[str, JsonValue] = data[0]
-            spotify_id_val: JsonValue = result.get("spotify_track_id")
-            if not spotify_id_val or not isinstance(spotify_id_val, str):
-                return None
-            spotify_id: str = spotify_id_val
-
-            # Strip "spotify:track:" prefix if present
-            spotify_id = spotify_id.removeprefix("spotify:track:")
-
+            spotify_id = await self._request_spotify_id(artist_name, recording_name)
         except httpx.HTTPStatusError as e:
             logger.debug(
                 f"ListenBrainz lookup HTTP error for {artist_name} - {recording_name}: {e.response.status_code}"
@@ -79,6 +53,37 @@ class ListenBrainzLookup:
             return None
         else:
             return spotify_id
+
+    async def _request_spotify_id(
+        self, artist_name: str, recording_name: str
+    ) -> str | None:
+        """Post the metadata query and extract the Spotify track ID."""
+        response = await self._client.post(
+            "/spotify-id-from-metadata/json",
+            json=[
+                {
+                    "artist_name": artist_name,
+                    "recording_name": recording_name,
+                }
+            ],
+        )
+        response.raise_for_status()
+        raw = cast("object", response.json())
+        if not isinstance(raw, list) or not raw:
+            return None
+        data = cast("list[dict[str, JsonValue]]", raw)
+
+        if not data:
+            return None
+
+        result: dict[str, JsonValue] = data[0]
+        spotify_id_val: JsonValue = result.get("spotify_track_id")
+        if not spotify_id_val or not isinstance(spotify_id_val, str):
+            return None
+        spotify_id: str = spotify_id_val
+
+        # Strip "spotify:track:" prefix if present
+        return spotify_id.removeprefix("spotify:track:")
 
     async def aclose(self) -> None:
         """Close the underlying HTTP client."""

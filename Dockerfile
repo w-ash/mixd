@@ -9,7 +9,7 @@
 # ---------------------------------------------------------------------------
 # Stage 1: Python builder (dependencies only — project source copied in runtime)
 # ---------------------------------------------------------------------------
-FROM ghcr.io/astral-sh/uv:0.10-python3.14-trixie-slim AS python-builder
+FROM ghcr.io/astral-sh/uv:0.11-python3.14-trixie-slim AS python-builder
 
 WORKDIR /app
 
@@ -25,7 +25,7 @@ RUN --mount=type=cache,target=/root/.cache/uv \
 # ---------------------------------------------------------------------------
 # Stage 2: Node builder
 # ---------------------------------------------------------------------------
-FROM node:22-slim AS node-builder
+FROM node:24-slim AS node-builder
 
 WORKDIR /app/web
 
@@ -39,7 +39,7 @@ ENV VITE_NEON_AUTH_URL=$VITE_NEON_AUTH_URL \
 # `packageManager` field. Drift here caused the v0.7.8 deploy to fail with
 # `settings.onlyBuiltDependencies.push is not a function` against a workspace
 # config that pnpm v11 tolerates and pnpm v10 doesn't.
-RUN npm install -g pnpm@11.0.8
+RUN npm install -g pnpm@11.5.2
 
 # Install dependencies first (layer cache)
 COPY web/package.json web/pnpm-lock.yaml web/pnpm-workspace.yaml ./

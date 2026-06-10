@@ -21,13 +21,115 @@ from src.application.use_cases.match_and_identify_tracks import (
     MatchAndIdentifyTracksUseCase,
 )
 from src.config import get_logger, setup_script_logger
-from src.domain.entities.track import TrackList
+from src.domain.entities.track import Track, TrackList
+from src.domain.repositories.interfaces import UnitOfWorkProtocol
 from src.infrastructure.connectors.lastfm import LastFMConnector
 from src.infrastructure.persistence.database.db_connection import get_session
 from src.infrastructure.persistence.repositories.factories import get_unit_of_work
 
 console = Console()
 logger = get_logger(__name__)
+
+
+async def _load_and_show_track(uow: UnitOfWorkProtocol, track_id: int) -> Track:
+    """Load a canonical track and print its metadata + connector mappings."""
+    track_repo = uow.get_track_repository()
+    track = await track_repo.get_by_id(track_id)
+
+    console.print(
+        f"✅ Found track: [green]{track.title}[/green] by [green]{', '.join(a.name for a in track.artists)}[/green]"
+    )
+    if track.album:
+        console.print(f"   Album: [dim]{track.album}[/dim]")
+    if track.duration_ms:
+        console.print(f"   Duration: [dim]{track.duration_ms}ms[/dim]")
+
+    # Show existing connector mappings
+    if track.connector_track_ids:
+        console.print("   Existing connectors:")
+        for connector, ext_id in track.connector_track_ids.items():
+            console.print(f"     • [cyan]{connector}[/cyan]: {ext_id}")
+    else:
+        console.print("   [dim]No existing connector mappings[/dim]")
+
+    return track
+
+
+async def _run_and_show_matching(
+    command: MatchAndIdentifyTracksCommand, uow: UnitOfWorkProtocol
+) -> None:
+    """Execute identity resolution and print the result summary + mappings."""
+    use_case = MatchAndIdentifyTracksUseCase()
+    result = await use_case.execute(command, uow)
+
+    # Display results
+    console.print("\n[bold green]📊 Results Summary[/bold green]")
+    table = Table(show_header=True, header_style="bold magenta")
+    table.add_column("Metric")
+    table.add_column("Value")
+
+    table.add_row("Tracks Processed", str(result.track_count))
+    table.add_row("Successfully Resolved", str(result.resolved_count))
+    table.add_row("Execution Time", f"{result.execution_time_ms}ms")
+    table.add_row("Errors", str(len(result.errors)))
+
+    console.print(table)
+
+    # Show errors if any
+    if result.errors:
+        console.print("\n[red]❌ Errors:[/red]")
+        for error in result.errors:
+            console.print(f"   • {error}")
+
+    # Show identity mappings
+    if result.identity_mappings:
+        console.print("\n[green]✅ Identity Mappings Found:[/green]")
+        for matched_id, match_result in result.identity_mappings.items():
+            console.print(f"   Track {matched_id}:")
+            console.print(f"     • Success: [green]{match_result.success}[/green]")
+            console.print(
+                f"     • Connector ID: [cyan]{match_result.connector_id}[/cyan]"
+            )
+            console.print(
+                f"     • Confidence: [yellow]{match_result.confidence}[/yellow]"
+            )
+            console.print(
+                f"     • Match Method: [blue]{match_result.match_method}[/blue]"
+            )
+
+            if hasattr(match_result, "evidence") and match_result.evidence:
+                console.print("     • Evidence:")
+                evidence = match_result.evidence
+                if hasattr(evidence, "title_similarity"):
+                    console.print(
+                        f"       - Title similarity: {evidence.title_similarity:.3f}"
+                    )
+                if hasattr(evidence, "artist_similarity"):
+                    console.print(
+                        f"       - Artist similarity: {evidence.artist_similarity:.3f}"
+                    )
+                if hasattr(evidence, "duration_diff_ms"):
+                    console.print(
+                        f"       - Duration diff: {evidence.duration_diff_ms}ms"
+                    )
+
+            if hasattr(match_result, "service_data") and match_result.service_data:
+                console.print("     • Service Data:")
+                service_data = match_result.service_data
+                if "title" in service_data:
+                    console.print(
+                        f"       - Title: [green]{service_data['title']}[/green]"
+                    )
+                if "artist" in service_data:
+                    console.print(
+                        f"       - Artist: [green]{service_data['artist']}[/green]"
+                    )
+                if "lastfm_global_playcount" in service_data:
+                    console.print(
+                        f"       - Global plays: [yellow]{service_data['lastfm_global_playcount']}[/yellow]"
+                    )
+    else:
+        console.print("\n[red]❌ No identity mappings found[/red]")
 
 
 async def debug_track_matching(track_id: int, connector_name: str = "lastfm") -> None:
@@ -42,25 +144,7 @@ async def debug_track_matching(track_id: int, connector_name: str = "lastfm") ->
         # Step 1: Load the track from database
         console.print("[yellow]Step 1: Loading track from database...[/yellow]")
         try:
-            track_repo = uow.get_track_repository()
-            track = await track_repo.get_by_id(track_id)
-
-            console.print(
-                f"✅ Found track: [green]{track.title}[/green] by [green]{', '.join(a.name for a in track.artists)}[/green]"
-            )
-            if track.album:
-                console.print(f"   Album: [dim]{track.album}[/dim]")
-            if track.duration_ms:
-                console.print(f"   Duration: [dim]{track.duration_ms}ms[/dim]")
-
-            # Show existing connector mappings
-            if track.connector_track_ids:
-                console.print("   Existing connectors:")
-                for connector, ext_id in track.connector_track_ids.items():
-                    console.print(f"     • [cyan]{connector}[/cyan]: {ext_id}")
-            else:
-                console.print("   [dim]No existing connector mappings[/dim]")
-
+            track = await _load_and_show_track(uow, track_id)
         except Exception as e:
             console.print(f"❌ Failed to load track: [red]{e}[/red]")
             return
@@ -101,83 +185,7 @@ async def debug_track_matching(track_id: int, connector_name: str = "lastfm") ->
         # Step 4: Execute matching (same as workflow)
         console.print("\n[yellow]Step 4: Executing identity resolution...[/yellow]")
         try:
-            use_case = MatchAndIdentifyTracksUseCase()
-            result = await use_case.execute(command, uow)
-
-            # Display results
-            console.print("\n[bold green]📊 Results Summary[/bold green]")
-            table = Table(show_header=True, header_style="bold magenta")
-            table.add_column("Metric")
-            table.add_column("Value")
-
-            table.add_row("Tracks Processed", str(result.track_count))
-            table.add_row("Successfully Resolved", str(result.resolved_count))
-            table.add_row("Execution Time", f"{result.execution_time_ms}ms")
-            table.add_row("Errors", str(len(result.errors)))
-
-            console.print(table)
-
-            # Show errors if any
-            if result.errors:
-                console.print("\n[red]❌ Errors:[/red]")
-                for error in result.errors:
-                    console.print(f"   • {error}")
-
-            # Show identity mappings
-            if result.identity_mappings:
-                console.print("\n[green]✅ Identity Mappings Found:[/green]")
-                for matched_id, match_result in result.identity_mappings.items():
-                    console.print(f"   Track {matched_id}:")
-                    console.print(
-                        f"     • Success: [green]{match_result.success}[/green]"
-                    )
-                    console.print(
-                        f"     • Connector ID: [cyan]{match_result.connector_id}[/cyan]"
-                    )
-                    console.print(
-                        f"     • Confidence: [yellow]{match_result.confidence}[/yellow]"
-                    )
-                    console.print(
-                        f"     • Match Method: [blue]{match_result.match_method}[/blue]"
-                    )
-
-                    if hasattr(match_result, "evidence") and match_result.evidence:
-                        console.print("     • Evidence:")
-                        evidence = match_result.evidence
-                        if hasattr(evidence, "title_similarity"):
-                            console.print(
-                                f"       - Title similarity: {evidence.title_similarity:.3f}"
-                            )
-                        if hasattr(evidence, "artist_similarity"):
-                            console.print(
-                                f"       - Artist similarity: {evidence.artist_similarity:.3f}"
-                            )
-                        if hasattr(evidence, "duration_diff_ms"):
-                            console.print(
-                                f"       - Duration diff: {evidence.duration_diff_ms}ms"
-                            )
-
-                    if (
-                        hasattr(match_result, "service_data")
-                        and match_result.service_data
-                    ):
-                        console.print("     • Service Data:")
-                        service_data = match_result.service_data
-                        if "title" in service_data:
-                            console.print(
-                                f"       - Title: [green]{service_data['title']}[/green]"
-                            )
-                        if "artist" in service_data:
-                            console.print(
-                                f"       - Artist: [green]{service_data['artist']}[/green]"
-                            )
-                        if "lastfm_global_playcount" in service_data:
-                            console.print(
-                                f"       - Global plays: [yellow]{service_data['lastfm_global_playcount']}[/yellow]"
-                            )
-            else:
-                console.print("\n[red]❌ No identity mappings found[/red]")
-
+            await _run_and_show_matching(command, uow)
         except Exception as e:
             console.print(f"❌ Matching failed: [red]{e}[/red]")
             import traceback

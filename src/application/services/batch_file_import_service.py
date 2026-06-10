@@ -152,23 +152,14 @@ class BatchFileImportService:
 
         for file_path in pending_files:
             try:
-                logger.info(f"Importing file: {file_path.name}")
-
-                # Execute import
-                _ = self._import_executor(
+                destination = self._import_and_archive_file(
                     service=service,
-                    mode="file",
                     file_path=file_path,
+                    imported_dir=imported_dir,
                     batch_size=batch_size,
                     progress_emitter=progress_emitter,
                 )
-
-                # Archive file after successful import
-                destination = imported_dir / file_path.name
-                _ = file_path.rename(destination)
                 archived_files.append(destination)
-
-                logger.info(f"Successfully imported and archived: {file_path.name}")
                 successful += 1
 
             except Exception as e:
@@ -184,3 +175,36 @@ class BatchFileImportService:
             failed_files=failed_files,
             archived_files=archived_files,
         )
+
+    def _import_and_archive_file(
+        self,
+        *,
+        service: Literal["lastfm", "spotify"],
+        file_path: Path,
+        imported_dir: Path,
+        batch_size: int | None,
+        progress_emitter: ProgressEmitter,
+    ) -> Path:
+        """Import a single file, then archive it, returning the archive path.
+
+        Extracted from the per-file loop so the protective ``try`` clause stays
+        small; the same statements remain guarded by the caller's broad
+        ``except``.
+        """
+        logger.info(f"Importing file: {file_path.name}")
+
+        # Execute import
+        _ = self._import_executor(
+            service=service,
+            mode="file",
+            file_path=file_path,
+            batch_size=batch_size,
+            progress_emitter=progress_emitter,
+        )
+
+        # Archive file after successful import
+        destination = imported_dir / file_path.name
+        _ = file_path.rename(destination)
+
+        logger.info(f"Successfully imported and archived: {file_path.name}")
+        return destination

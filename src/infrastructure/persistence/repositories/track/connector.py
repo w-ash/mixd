@@ -8,13 +8,13 @@ tracks to canonical internal tracks, and stores service-specific metadata and ID
 
 from collections.abc import Mapping, Sequence
 from datetime import UTC, datetime, timedelta
-from typing import Any, cast, overload, override
+from typing import cast, overload, override
 from uuid import UUID
 
 from attrs import define
 from sqlalchemy import Integer, case, delete, func, select, update
-from sqlalchemy.engine import CursorResult
 from sqlalchemy.ext.asyncio import AsyncSession
+from structlog.stdlib import BoundLogger
 
 from src.config import get_logger
 from src.config.constants import BusinessLimits, DenormalizedTrackColumns, MappingOrigin
@@ -30,6 +30,7 @@ from src.infrastructure.persistence.database.db_models import (
 from src.infrastructure.persistence.repositories.base_repo import (
     BaseModelMapper,
     BaseRepository,
+    rows_affected,
 )
 from src.infrastructure.persistence.repositories.repo_decorator import db_operation
 from src.infrastructure.persistence.repositories.track.core import TrackRepository
@@ -835,15 +836,12 @@ class TrackConnectorRepository:
         self, mapping_id: UUID, new_track_id: UUID, origin: str
     ) -> TrackMapping:
         """Move a mapping to a different canonical track."""
-        result = cast(
-            CursorResult[Any],  # pyright: ignore[reportExplicitAny]  # CursorResult is generic over row tuple shape
-            await self.session.execute(
-                update(DBTrackMapping)
-                .where(DBTrackMapping.id == mapping_id)
-                .values(track_id=new_track_id, origin=origin, is_primary=False)
-            ),
+        result = await self.session.execute(
+            update(DBTrackMapping)
+            .where(DBTrackMapping.id == mapping_id)
+            .values(track_id=new_track_id, origin=origin, is_primary=False)
         )
-        if result.rowcount == 0:
+        if rows_affected(result) == 0:
             raise NotFoundError(f"Mapping {mapping_id} not found")
         # Re-fetch updated mapping
         refreshed = await self.session.execute(
@@ -1100,40 +1098,49 @@ class TrackConnectorRepository:
         )
 
         try:
-            # Step 1: Reset all primaries for this track-connector pair
-            _ = await self.session.execute(
-                update(DBTrackMapping)
-                .where(
-                    DBTrackMapping.track_id == track_id,
-                    DBTrackMapping.connector_name == connector_name,
-                )
-                .values(is_primary=False)
+            success = await self._reset_and_set_primary_mapping(
+                track_id, connector_name, connector_track_id, log
             )
-
-            # Step 2: Set the specified mapping as primary
-            result = cast(
-                CursorResult[Any],  # pyright: ignore[reportExplicitAny]  # CursorResult is generic over row tuple shape
-                await self.session.execute(
-                    update(DBTrackMapping)
-                    .where(
-                        DBTrackMapping.track_id == track_id,
-                        DBTrackMapping.connector_track_id == connector_track_id,
-                    )
-                    .values(is_primary=True)
-                ),
-            )
-
-            success = result.rowcount > 0
-            if success:
-                log.debug("Set primary mapping")
-            else:
-                log.warning("Failed to set primary mapping - no matching record found")
-
         except Exception:
             log.error("Error setting primary mapping", exc_info=True)
             return False
         else:
             return success
+
+    async def _reset_and_set_primary_mapping(
+        self,
+        track_id: UUID,
+        connector_name: str,
+        connector_track_id: UUID,
+        log: BoundLogger,
+    ) -> bool:
+        """Reset existing primaries then mark one mapping primary; return success."""
+        # Step 1: Reset all primaries for this track-connector pair
+        _ = await self.session.execute(
+            update(DBTrackMapping)
+            .where(
+                DBTrackMapping.track_id == track_id,
+                DBTrackMapping.connector_name == connector_name,
+            )
+            .values(is_primary=False)
+        )
+
+        # Step 2: Set the specified mapping as primary
+        result = await self.session.execute(
+            update(DBTrackMapping)
+            .where(
+                DBTrackMapping.track_id == track_id,
+                DBTrackMapping.connector_track_id == connector_track_id,
+            )
+            .values(is_primary=True)
+        )
+
+        success = rows_affected(result) > 0
+        if success:
+            log.debug("Set primary mapping")
+        else:
+            log.warning("Failed to set primary mapping - no matching record found")
+        return success
 
     @db_operation("batch_ensure_primary_mappings")
     async def batch_ensure_primary_mappings(
@@ -1187,18 +1194,15 @@ class TrackConnectorRepository:
             ct_db_id = ct_id_map.get((connector_name, connector_id))
             if ct_db_id is None:
                 continue
-            result = cast(
-                CursorResult[Any],  # pyright: ignore[reportExplicitAny]  # CursorResult is generic over row tuple shape
-                await self.session.execute(
-                    update(DBTrackMapping)
-                    .where(
-                        DBTrackMapping.track_id == track_id,
-                        DBTrackMapping.connector_track_id == ct_db_id,
-                    )
-                    .values(is_primary=True)
-                ),
+            result = await self.session.execute(
+                update(DBTrackMapping)
+                .where(
+                    DBTrackMapping.track_id == track_id,
+                    DBTrackMapping.connector_track_id == ct_db_id,
+                )
+                .values(is_primary=True)
             )
-            if result.rowcount > 0:
+            if rows_affected(result) > 0:
                 promoted += 1
 
         return promoted

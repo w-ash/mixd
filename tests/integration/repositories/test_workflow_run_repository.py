@@ -85,6 +85,22 @@ class TestWorkflowRunCRUD:
         assert retrieved.nodes[0].node_id == "source_1"
         assert retrieved.nodes[1].node_id == "filter_1"
 
+    async def test_run_number_increments_per_workflow(self, db_session) -> None:
+        wf_a = await _create_workflow(db_session)
+        wf_b = await _create_workflow(db_session)
+        repo = WorkflowRunRepository(db_session)
+
+        # Workflow A: 1, then 2 (completing the first frees the active-run slot).
+        a1 = await repo.create_run(_make_run(wf_a.id))
+        assert a1.run_number == 1
+        await repo.update_run_status(a1.id, "completed", completed_at=datetime.now(UTC))
+        a2 = await repo.create_run(_make_run(wf_a.id))
+        assert a2.run_number == 2
+
+        # A different workflow numbers independently, also starting at 1.
+        b1 = await repo.create_run(_make_run(wf_b.id))
+        assert b1.run_number == 1
+
     async def test_update_run_status_to_running(self, db_session) -> None:
         workflow = await _create_workflow(db_session)
         repo = WorkflowRunRepository(db_session)

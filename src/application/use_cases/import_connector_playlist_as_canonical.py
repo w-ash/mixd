@@ -16,7 +16,7 @@ Zero events fire when no emitter is passed, preserving every existing CLI
 and unit-test path unchanged.
 """
 
-from collections.abc import Sequence
+from collections.abc import Awaitable, Callable, Sequence
 from uuid import UUID
 
 from attrs import define
@@ -259,88 +259,18 @@ class ImportConnectorPlaylistsAsCanonicalUseCase:
                 # Update the stored name now that we have real metadata.
                 playlist_name_by_cid[cid] = cp.name
                 try:
-                    # Phase transition: fetch → resolve. One lightweight
-                    # event so the UI updates the message; resolution
-                    # itself is typically sub-second DB batch work.
-                    if progress_manager is not None and cid in sub_op_by_cid:
-                        await progress_manager.emit_progress(
-                            create_progress_event(
-                                operation_id=sub_op_by_cid[cid],
-                                current=0,
-                                total=len(cp.items) if cp.items else None,
-                                message=f"Resolving '{cp.name}' in your library...",
-                                phase="resolve",
-                                connector_playlist_identifier=cid,
-                                playlist_name=cp.name,
-                            )
-                        )
-
-                    upsert_result = await upsert_canonical_playlist(
-                        cp,
-                        command.connector_name,
+                    await self._import_one(
                         cid,
+                        cp,
+                        command,
                         uow,
-                        metric_config=self.metric_config,
-                        user_id=command.user_id,
+                        progress_manager=progress_manager,
+                        sub_op_by_cid=sub_op_by_cid,
+                        existing_by_id=existing_by_id,
+                        links_to_create=links_to_create,
+                        succeeded=succeeded,
+                        tick_top=_tick_top,
                     )
-
-                    if cid not in existing_by_id:
-                        links_to_create.append(
-                            PlaylistLink(
-                                playlist_id=upsert_result.playlist.id,
-                                connector_name=command.connector_name,
-                                connector_playlist_identifier=cid,
-                                connector_playlist_name=cp.name,
-                                sync_direction=command.sync_direction,
-                                sync_status=SyncStatus.NEVER_SYNCED,
-                            )
-                        )
-
-                    resolved_count = len(upsert_result.playlist.tracks)
-                    unresolved_count = max(len(cp.items) - resolved_count, 0)
-                    succeeded.append(
-                        CanonicalImportOutcome(
-                            connector_playlist_identifier=ConnectorPlaylistIdentifier(
-                                cid
-                            ),
-                            canonical_playlist_id=upsert_result.playlist.id,
-                            resolved=resolved_count,
-                            unresolved=unresolved_count,
-                        )
-                    )
-                    logger.info(
-                        "Imported connector playlist as canonical",
-                        connector=command.connector_name,
-                        connector_playlist_identifier=cid,
-                        playlist_id=upsert_result.playlist.id,
-                        resolved=resolved_count,
-                        op=(
-                            "created"
-                            if isinstance(upsert_result, CreateCanonicalPlaylistResult)
-                            else "updated"
-                        ),
-                    )
-                    await self._emit_sub_outcome(
-                        progress_manager,
-                        sub_op_id=sub_op_by_cid.get(cid),
-                        cid=cid,
-                        name=cp.name,
-                        outcome="succeeded",
-                        message=(
-                            f"Imported '{cp.name}' — {resolved_count} resolved"
-                            + (
-                                f", {unresolved_count} unresolved"
-                                if unresolved_count
-                                else ""
-                            )
-                        ),
-                        phase="done",
-                        resolved=resolved_count,
-                        unresolved=unresolved_count,
-                        canonical_playlist_id=str(upsert_result.playlist.id),
-                        final_status=OperationStatus.COMPLETED,
-                    )
-                    await _tick_top(f"Imported '{cp.name}'")
                 except Exception as exc:
                     logger.warning(
                         "Failed to create canonical playlist from connector",
@@ -387,6 +317,98 @@ class ImportConnectorPlaylistsAsCanonicalUseCase:
                 skipped_unchanged=link_skipped,
                 failed=failed,
             )
+
+    async def _import_one(
+        self,
+        cid: str,
+        cp: ConnectorPlaylist,
+        command: ImportConnectorPlaylistsAsCanonicalCommand,
+        uow: UnitOfWorkProtocol,
+        *,
+        progress_manager: AsyncProgressManager | None,
+        sub_op_by_cid: dict[str, str],
+        existing_by_id: dict[str, PlaylistLink],
+        links_to_create: list[PlaylistLink],
+        succeeded: list[CanonicalImportOutcome],
+        tick_top: Callable[[str], Awaitable[None]],
+    ) -> None:
+        """Resolves and upserts one connector playlist, recording its outcome."""
+        # Phase transition: fetch → resolve. One lightweight
+        # event so the UI updates the message; resolution
+        # itself is typically sub-second DB batch work.
+        if progress_manager is not None and cid in sub_op_by_cid:
+            await progress_manager.emit_progress(
+                create_progress_event(
+                    operation_id=sub_op_by_cid[cid],
+                    current=0,
+                    total=len(cp.items) if cp.items else None,
+                    message=f"Resolving '{cp.name}' in your library...",
+                    phase="resolve",
+                    connector_playlist_identifier=cid,
+                    playlist_name=cp.name,
+                )
+            )
+
+        upsert_result = await upsert_canonical_playlist(
+            cp,
+            command.connector_name,
+            cid,
+            uow,
+            metric_config=self.metric_config,
+            user_id=command.user_id,
+        )
+
+        if cid not in existing_by_id:
+            links_to_create.append(
+                PlaylistLink(
+                    playlist_id=upsert_result.playlist.id,
+                    connector_name=command.connector_name,
+                    connector_playlist_identifier=cid,
+                    connector_playlist_name=cp.name,
+                    sync_direction=command.sync_direction,
+                    sync_status=SyncStatus.NEVER_SYNCED,
+                )
+            )
+
+        resolved_count = len(upsert_result.playlist.tracks)
+        unresolved_count = max(len(cp.items) - resolved_count, 0)
+        succeeded.append(
+            CanonicalImportOutcome(
+                connector_playlist_identifier=ConnectorPlaylistIdentifier(cid),
+                canonical_playlist_id=upsert_result.playlist.id,
+                resolved=resolved_count,
+                unresolved=unresolved_count,
+            )
+        )
+        logger.info(
+            "Imported connector playlist as canonical",
+            connector=command.connector_name,
+            connector_playlist_identifier=cid,
+            playlist_id=upsert_result.playlist.id,
+            resolved=resolved_count,
+            op=(
+                "created"
+                if isinstance(upsert_result, CreateCanonicalPlaylistResult)
+                else "updated"
+            ),
+        )
+        await self._emit_sub_outcome(
+            progress_manager,
+            sub_op_id=sub_op_by_cid.get(cid),
+            cid=cid,
+            name=cp.name,
+            outcome="succeeded",
+            message=(
+                f"Imported '{cp.name}' — {resolved_count} resolved"
+                + (f", {unresolved_count} unresolved" if unresolved_count else "")
+            ),
+            phase="done",
+            resolved=resolved_count,
+            unresolved=unresolved_count,
+            canonical_playlist_id=str(upsert_result.playlist.id),
+            final_status=OperationStatus.COMPLETED,
+        )
+        await tick_top(f"Imported '{cp.name}'")
 
     @staticmethod
     async def _start_top_op(

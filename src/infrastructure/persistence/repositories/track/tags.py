@@ -8,10 +8,9 @@ change. Same shape on ``remove_tags``.
 
 from collections.abc import Sequence
 from datetime import UTC, datetime
-from typing import Any, cast
 from uuid import UUID, uuid7
 
-from sqlalchemy import CursorResult, delete, func, select, tuple_
+from sqlalchemy import delete, func, select, tuple_
 from sqlalchemy.dialects.postgresql import insert as pg_insert
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -25,6 +24,7 @@ from src.infrastructure.persistence.database.db_models import (
 from src.infrastructure.persistence.repositories.base_repo import (
     BaseRepository,
     SimpleMapperFactory,
+    rows_affected,
 )
 from src.infrastructure.persistence.repositories.repo_decorator import db_operation
 
@@ -259,11 +259,7 @@ class TrackTagRepository(BaseRepository[DBTrackTag, TrackTag]):
                 self.model_class.user_id == user_id,
                 self.model_class.tag == normalized_source,
             )
-            # session.execute() returns Result[Any] in stubs but a DELETE
-            # produces a CursorResult at runtime — same cast pattern used
-            # by base_repo.bulk_insert_ignore_conflicts.
-            del_result = cast(CursorResult[Any], await self.session.execute(del_stmt))  # pyright: ignore[reportExplicitAny]  # CursorResult is generic over row tuple shape
-            affected = del_result.rowcount or 0
+            affected = rows_affected(await self.session.execute(del_stmt))
 
         now = datetime.now(UTC)
         events: list[TagEvent] = []
@@ -319,13 +315,10 @@ class TrackTagRepository(BaseRepository[DBTrackTag, TrackTag]):
                     DBTrackTagEvent.tag == normalized,
                 )
             )
-            del_result = cast(
-                CursorResult[Any],  # pyright: ignore[reportExplicitAny]  # CursorResult is generic over row tuple shape
-                await self.session.execute(
-                    delete(self.model_class).where(
-                        self.model_class.user_id == user_id,
-                        self.model_class.tag == normalized,
-                    )
-                ),
+            del_result = await self.session.execute(
+                delete(self.model_class).where(
+                    self.model_class.user_id == user_id,
+                    self.model_class.tag == normalized,
+                )
             )
-        return del_result.rowcount or 0
+        return rows_affected(del_result)

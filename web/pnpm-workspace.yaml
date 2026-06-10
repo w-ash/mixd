@@ -5,3 +5,10 @@ allowBuilds:
 onlyBuiltDependencies:
   - esbuild
   - msw
+# Migrated from package.json "pnpm.overrides" — pnpm 11.5+ reads overrides here.
+# Security floors for transitive deps; keep the minimum-safe versions pinned.
+overrides:
+  hono: '>=4.12.7'
+  fastify: '>=5.8.3'
+  defu: '>=6.1.5'
+  picomatch: '>=4.0.4'

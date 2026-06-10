@@ -68,7 +68,7 @@ def whoami_command() -> None:
 
         return await get_all_connector_statuses(user_id)
 
-    try:
+    def _print_connector_status_table() -> None:
         statuses = run_async(_status())
         table = Table(title="Connectors", show_header=True)
         table.add_column("Service", style="cyan")
@@ -82,6 +82,9 @@ def whoami_command() -> None:
             table.add_row(s.name, status_str, s.account_name or "—")
 
         console.print(table)
+
+    try:
+        _print_connector_status_table()
     except Exception:
         console.print("[dim]Could not check connector status.[/dim]")
 
@@ -103,33 +106,38 @@ def init_cli(
     _warn_if_no_data()
 
 
+def _check_user_has_data() -> None:
+    """Query for the configured user's data and warn when none exists (may raise)."""
+    from src.config.constants import BusinessLimits
+    from src.config.settings import settings
+
+    user_id = settings.cli.user_id
+    if not user_id or user_id == BusinessLimits.DEFAULT_USER_ID:
+        return
+
+    from src.config.settings import get_sync_database_url
+
+    db_url = get_sync_database_url()
+    if not db_url:
+        return
+
+    import psycopg
+
+    with psycopg.connect(db_url, autocommit=True) as conn:
+        row = conn.execute(
+            "SELECT count(*) FROM tracks WHERE user_id = %s", (user_id,)
+        ).fetchone()
+        if row and row[0] == 0:
+            console.print(
+                f"[yellow]No data found for user {user_id}. "
+                f"Check MIXD_USER_ID or import data first.[/yellow]"
+            )
+
+
 def _warn_if_no_data() -> None:
     """Best-effort warning when MIXD_USER_ID is set but no data exists for that user."""
     try:
-        from src.config.constants import BusinessLimits
-        from src.config.settings import settings
-
-        user_id = settings.cli.user_id
-        if not user_id or user_id == BusinessLimits.DEFAULT_USER_ID:
-            return
-
-        from src.config.settings import get_sync_database_url
-
-        db_url = get_sync_database_url()
-        if not db_url:
-            return
-
-        import psycopg
-
-        with psycopg.connect(db_url, autocommit=True) as conn:
-            row = conn.execute(
-                "SELECT count(*) FROM tracks WHERE user_id = %s", (user_id,)
-            ).fetchone()
-            if row and row[0] == 0:
-                console.print(
-                    f"[yellow]No data found for user {user_id}. "
-                    f"Check MIXD_USER_ID or import data first.[/yellow]"
-                )
+        _check_user_has_data()
     except Exception:
         return  # Best-effort — startup check must never break CLI
 

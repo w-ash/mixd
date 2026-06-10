@@ -3,7 +3,7 @@
   "info": {
     "title": "Mixd",
     "description": "Personal music metadata hub",
-    "version": "0.8.3"
+    "version": "0.8.4"
   },
   "paths": {
     "/api/v1/connectors/{service}/auth-url": {
@@ -5315,6 +5315,10 @@
             "format": "uuid",
             "title": "Id"
           },
+          "run_number": {
+            "type": "integer",
+            "title": "Run Number"
+          },
           "status": {
             "type": "string",
             "enum": [
@@ -5359,6 +5363,7 @@
         "type": "object",
         "required": [
           "id",
+          "run_number",
           "status"
         ],
         "title": "LastRunSchema",
@@ -5966,6 +5971,10 @@
             "format": "uuid",
             "title": "Workflow Id"
           },
+          "run_number": {
+            "type": "integer",
+            "title": "Run Number"
+          },
           "status": {
             "type": "string",
             "enum": [
@@ -6099,6 +6108,7 @@
         "required": [
           "id",
           "workflow_id",
+          "run_number",
           "status"
         ],
         "title": "OperationSnapshotResponse",
@@ -6777,11 +6787,170 @@
         "title": "ResolveReviewResponse",
         "description": "Response after resolving a review."
       },
+      "ScheduleListItem": {
+        "properties": {
+          "id": {
+            "type": "string",
+            "format": "uuid",
+            "title": "Id"
+          },
+          "target_type": {
+            "type": "string",
+            "enum": [
+              "workflow",
+              "sync"
+            ],
+            "title": "Target Type"
+          },
+          "workflow_id": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "uuid"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Workflow Id"
+          },
+          "sync_target": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Sync Target"
+          },
+          "schedule_type": {
+            "type": "string",
+            "enum": [
+              "daily",
+              "weekly"
+            ],
+            "title": "Schedule Type"
+          },
+          "hour": {
+            "type": "integer",
+            "title": "Hour"
+          },
+          "minute": {
+            "type": "integer",
+            "title": "Minute"
+          },
+          "day_of_week": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Day Of Week"
+          },
+          "timezone": {
+            "type": "string",
+            "title": "Timezone"
+          },
+          "status": {
+            "type": "string",
+            "enum": [
+              "enabled",
+              "disabled"
+            ],
+            "title": "Status"
+          },
+          "next_run_at": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "date-time"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Next Run At"
+          },
+          "last_run_at": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "date-time"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Last Run At"
+          },
+          "last_run_status": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Last Run Status"
+          },
+          "last_error": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Last Error"
+          },
+          "consecutive_failures": {
+            "type": "integer",
+            "title": "Consecutive Failures"
+          },
+          "run_count": {
+            "type": "integer",
+            "title": "Run Count"
+          },
+          "target_label": {
+            "type": "string",
+            "title": "Target Label"
+          }
+        },
+        "type": "object",
+        "required": [
+          "id",
+          "target_type",
+          "workflow_id",
+          "sync_target",
+          "schedule_type",
+          "hour",
+          "minute",
+          "day_of_week",
+          "timezone",
+          "status",
+          "next_run_at",
+          "last_run_at",
+          "last_run_status",
+          "last_error",
+          "consecutive_failures",
+          "run_count",
+          "target_label"
+        ],
+        "title": "ScheduleListItem",
+        "description": "A list-view schedule plus its resolved display label.\n\nOnly the list carries ``target_label`` (the workflow name / friendly sync\nname): single-resource responses feed the picker, which doesn't need it, so\nthe name-resolution cost stays on the one read that uses it."
+      },
       "ScheduleListResponse": {
         "properties": {
           "data": {
             "items": {
-              "$ref": "#/components/schemas/ScheduleResponse"
+              "$ref": "#/components/schemas/ScheduleListItem"
             },
             "type": "array",
             "title": "Data"
@@ -7709,6 +7878,10 @@
             "format": "uuid",
             "title": "Workflow Id"
           },
+          "run_number": {
+            "type": "integer",
+            "title": "Run Number"
+          },
           "status": {
             "type": "string",
             "enum": [
@@ -7863,6 +8036,7 @@
         "required": [
           "id",
           "workflow_id",
+          "run_number",
           "status",
           "definition_snapshot"
         ],
@@ -8015,6 +8189,10 @@
             "format": "uuid",
             "title": "Workflow Id"
           },
+          "run_number": {
+            "type": "integer",
+            "title": "Run Number"
+          },
           "status": {
             "type": "string",
             "enum": [
@@ -8141,6 +8319,7 @@
         "required": [
           "id",
           "workflow_id",
+          "run_number",
           "status"
         ],
         "title": "WorkflowRunSummarySchema"

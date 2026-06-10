@@ -16,10 +16,6 @@ across a multi-machine deploy win a due schedule without holding a row lock,
 reusing the v0.8.0 guarded-UPDATE idiom from ``workflow/runs.py``.
 """
 
-# pyright: reportAttributeAccessIssue=false, reportUnknownMemberType=false
-# Legitimate: CursorResult.rowcount is valid but invisible to pyright through
-# the generic Result[Any] returned by session.execute().
-
 from datetime import UTC, datetime, timedelta
 from typing import cast
 from uuid import UUID
@@ -44,6 +40,7 @@ from src.infrastructure.persistence.database.db_models import DBSchedule
 from src.infrastructure.persistence.repositories.base_repo import (
     BaseRepository,
     SimpleMapperFactory,
+    rows_affected,
 )
 from src.infrastructure.persistence.repositories.repo_decorator import db_operation
 
@@ -345,7 +342,7 @@ class ScheduleRepository(BaseRepository[DBSchedule, Schedule]):
             .values(started_at=now, updated_at=now)
         )
         result = await self.session.execute(stmt)
-        return cast("int", result.rowcount) > 0
+        return rows_affected(result) > 0
 
     async def _release_and_advance(
         self,
@@ -378,7 +375,7 @@ class ScheduleRepository(BaseRepository[DBSchedule, Schedule]):
             )
         )
         result = await self.session.execute(stmt)
-        return cast("int", result.rowcount) > 0
+        return rows_affected(result) > 0
 
     @db_operation("mark_schedule_completed")
     async def mark_schedule_completed(
@@ -485,7 +482,7 @@ class ScheduleRepository(BaseRepository[DBSchedule, Schedule]):
             )
         )
         result = await self.session.execute(stmt)
-        return cast("int", result.rowcount) > 0
+        return rows_affected(result) > 0
 
     # NB: the cross-tenant ``get_by_id(id_)`` the scheduler uses to re-read a
     # claimed row's current cadence is inherited from ``BaseRepository`` (it filters

@@ -31,6 +31,20 @@ SYNC_DISPATCH: Final[Mapping[str, Callable[[str], Awaitable[object]]]] = {
 # The runtime source of truth for "is this target schedulable?".
 SCHEDULABLE_SYNC_TARGETS: Final[frozenset[str]] = frozenset(SYNC_DISPATCH)
 
+# Friendly display names for each schedulable target — the single source of human
+# labels, consumed by both the API list read-model and the CLI schedule table.
+# Lives beside SYNC_DISPATCH so a new connector's id and label land in one place.
+SYNC_TARGET_LABELS: Final[Mapping[str, str]] = {
+    "lastfm:plays": "Last.fm plays",
+    "spotify:likes": "Spotify likes",
+    "lastfm:likes": "Last.fm loves",
+}
+
+
+def sync_target_label(target: str) -> str:
+    """Friendly name for a sync target, falling back to the raw id if unknown."""
+    return SYNC_TARGET_LABELS.get(target, target)
+
 
 def validate_sync_target(raw: str) -> str:
     """Return the sync target if schedulable, else raise ``ValueError``."""

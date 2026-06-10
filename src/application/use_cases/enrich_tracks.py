@@ -175,58 +175,8 @@ class EnrichTracksUseCase:
                         execution_time_ms=timer.stop(),
                     )
 
-                def _raise_unknown_enrichment_type_error(enrichment_type: str) -> Never:
-                    raise ValueError(f"Unknown enrichment type: {enrichment_type}")
-
                 try:
-                    # Delegate to appropriate enrichment strategy
-                    if command.enrichment_config.enrichment_type == "external_metadata":
-                        result = await self._enrich_external_metadata(
-                            command.tracklist,
-                            command.enrichment_config,
-                            uow,
-                            user_id=command.user_id,
-                            progress_manager=command.progress_manager,
-                            parent_operation_id=command.parent_operation_id,
-                        )
-                    elif command.enrichment_config.enrichment_type == "play_history":
-                        result = await self._enrich_play_history(
-                            command.tracklist,
-                            command.enrichment_config,
-                            uow,
-                            user_id=command.user_id,
-                        )
-                    elif command.enrichment_config.enrichment_type == "preferences":
-                        result = await self._enrich_preferences(
-                            command.tracklist,
-                            uow,
-                            user_id=command.user_id,
-                        )
-                    elif command.enrichment_config.enrichment_type == "tags":
-                        result = await self._enrich_tags(
-                            command.tracklist,
-                            uow,
-                            user_id=command.user_id,
-                        )
-                    else:
-                        _raise_unknown_enrichment_type_error(
-                            command.enrichment_config.enrichment_type
-                        )
-
-                    enriched_count = sum(len(metrics) for metrics in result[1].values())
-
-                    logger.info(
-                        f"Successfully enriched tracks with {enriched_count} total metric values"
-                    )
-
-                    return EnrichTracksResult(
-                        enriched_tracklist=result[0],
-                        metrics_added=result[1],
-                        track_count=len(command.tracklist.tracks),
-                        enriched_count=enriched_count,
-                        execution_time_ms=timer.stop(),
-                        errors=[],
-                    )
+                    return await self._run_enrichment_strategy(command, uow, timer)
 
                 except Exception as e:
                     error_msg = f"Track enrichment failed: {e}"
@@ -240,6 +190,70 @@ class EnrichTracksUseCase:
                         execution_time_ms=timer.stop(),
                         errors=[error_msg],
                     )
+
+    async def _run_enrichment_strategy(
+        self,
+        command: EnrichTracksCommand,
+        uow: UnitOfWorkProtocol,
+        timer: ExecutionTimer,
+    ) -> EnrichTracksResult:
+        """Delegates to the appropriate enrichment strategy and builds the result.
+
+        Extracted from ``execute`` so the protective ``try`` clause stays small;
+        the same statements remain guarded by the caller's broad ``except``.
+        """
+
+        def _raise_unknown_enrichment_type_error(enrichment_type: str) -> Never:
+            raise ValueError(f"Unknown enrichment type: {enrichment_type}")
+
+        # Delegate to appropriate enrichment strategy
+        if command.enrichment_config.enrichment_type == "external_metadata":
+            result = await self._enrich_external_metadata(
+                command.tracklist,
+                command.enrichment_config,
+                uow,
+                user_id=command.user_id,
+                progress_manager=command.progress_manager,
+                parent_operation_id=command.parent_operation_id,
+            )
+        elif command.enrichment_config.enrichment_type == "play_history":
+            result = await self._enrich_play_history(
+                command.tracklist,
+                command.enrichment_config,
+                uow,
+                user_id=command.user_id,
+            )
+        elif command.enrichment_config.enrichment_type == "preferences":
+            result = await self._enrich_preferences(
+                command.tracklist,
+                uow,
+                user_id=command.user_id,
+            )
+        elif command.enrichment_config.enrichment_type == "tags":
+            result = await self._enrich_tags(
+                command.tracklist,
+                uow,
+                user_id=command.user_id,
+            )
+        else:
+            _raise_unknown_enrichment_type_error(
+                command.enrichment_config.enrichment_type
+            )
+
+        enriched_count = sum(len(metrics) for metrics in result[1].values())
+
+        logger.info(
+            f"Successfully enriched tracks with {enriched_count} total metric values"
+        )
+
+        return EnrichTracksResult(
+            enriched_tracklist=result[0],
+            metrics_added=result[1],
+            track_count=len(command.tracklist.tracks),
+            enriched_count=enriched_count,
+            execution_time_ms=timer.stop(),
+            errors=[],
+        )
 
     async def _enrich_external_metadata(
         self,
@@ -475,11 +489,6 @@ class EnrichTracksUseCase:
             progress_manager: Optional progress manager for sub-operation tracking.
             parent_operation_id: Parent operation ID for sub-operation nesting.
         """
-        from src.application.use_cases.match_and_identify_tracks import (
-            MatchAndIdentifyTracksCommand,
-            MatchAndIdentifyTracksUseCase,
-        )
-
         logger.info(
             f"Ensuring track identities for {len(tracklist.tracks)} tracks with {connector}",
             connector=connector,
@@ -487,30 +496,15 @@ class EnrichTracksUseCase:
         )
 
         try:
-            # Use the existing identity resolution system
-            match_command = MatchAndIdentifyTracksCommand(
+            await self._resolve_track_identities(
+                tracklist,
+                connector,
+                connector_instance,
+                uow,
                 user_id=user_id,
-                tracklist=tracklist,
-                connector=connector,
-                connector_instance=connector_instance,
                 progress_manager=progress_manager,
                 parent_operation_id=parent_operation_id,
             )
-
-            match_use_case = MatchAndIdentifyTracksUseCase()
-            match_result = await match_use_case.execute(match_command, uow)
-
-            logger.info(
-                f"Identity resolution completed: {match_result.resolved_count}/{match_result.track_count} tracks have {connector} mappings",
-                connector=connector,
-                resolved_count=match_result.resolved_count,
-                total_tracks=match_result.track_count,
-            )
-
-            if match_result.errors:
-                logger.warning(
-                    f"Identity resolution encountered {len(match_result.errors)} errors for {connector}"
-                )
 
         except Exception as e:
             logger.warning(
@@ -519,3 +513,49 @@ class EnrichTracksUseCase:
                 error=str(e),
             )
             # Don't raise - metrics collection can proceed with existing mappings
+
+    async def _resolve_track_identities(
+        self,
+        tracklist: TrackList,
+        connector: str,
+        connector_instance: TrackMetadataConnector,
+        uow: UnitOfWorkProtocol,
+        *,
+        user_id: str,
+        progress_manager: AsyncProgressManager | None = None,
+        parent_operation_id: str | None = None,
+    ) -> None:
+        """Run identity resolution via ``MatchAndIdentifyTracksUseCase``.
+
+        Extracted from ``_ensure_track_identities`` so the protective ``try``
+        clause stays small; the caller's broad ``except`` still guards this work.
+        """
+        from src.application.use_cases.match_and_identify_tracks import (
+            MatchAndIdentifyTracksCommand,
+            MatchAndIdentifyTracksUseCase,
+        )
+
+        # Use the existing identity resolution system
+        match_command = MatchAndIdentifyTracksCommand(
+            user_id=user_id,
+            tracklist=tracklist,
+            connector=connector,
+            connector_instance=connector_instance,
+            progress_manager=progress_manager,
+            parent_operation_id=parent_operation_id,
+        )
+
+        match_use_case = MatchAndIdentifyTracksUseCase()
+        match_result = await match_use_case.execute(match_command, uow)
+
+        logger.info(
+            f"Identity resolution completed: {match_result.resolved_count}/{match_result.track_count} tracks have {connector} mappings",
+            connector=connector,
+            resolved_count=match_result.resolved_count,
+            total_tracks=match_result.track_count,
+        )
+
+        if match_result.errors:
+            logger.warning(
+                f"Identity resolution encountered {len(match_result.errors)} errors for {connector}"
+            )

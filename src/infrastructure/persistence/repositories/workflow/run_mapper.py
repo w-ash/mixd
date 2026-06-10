@@ -77,6 +77,7 @@ class WorkflowRunMapper:
         return WorkflowRun(
             id=db.id,
             workflow_id=db.workflow_id,
+            run_number=db.run_number,
             operation_id=db.operation_id,
             status=cast(RunStatus, db.status),
             definition_snapshot=definition,

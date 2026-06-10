@@ -127,68 +127,7 @@ class CreateConnectorPlaylistUseCase:
         )
 
         try:
-            # Step 1: Create playlist on external service
-            external_result = await self._create_external_playlist(command, uow)
-
-            # Step 2: Optimistic internal sync if requested and external succeeded
-            external_playlist_id = external_result["playlist_id"]
-            internal_playlist = None
-            if (
-                external_result["success"]
-                and external_playlist_id is not None
-                and command.create_internal_playlist
-            ):
-                internal_playlist = await self._create_internal_playlist_optimistic(
-                    command=command,
-                    external_playlist_id=external_playlist_id,
-                    external_metadata=external_result["metadata"],
-                    uow=uow,
-                )
-
-            # Use internal playlist if created, otherwise create minimal playlist for result
-            if internal_playlist:
-                result_playlist = internal_playlist
-            elif external_playlist_id is not None:
-                # Create minimal playlist entity for result (not persisted)
-                result_playlist = Playlist.from_tracklist(
-                    name=command.playlist_name,
-                    tracklist=command.tracklist,
-                    added_at=datetime.now(UTC),
-                    description=command.playlist_description,
-                    connector_playlist_identifiers={
-                        command.connector: external_playlist_id
-                    },
-                )
-            else:
-                # External creation failed — create result without connector identifiers
-                result_playlist = Playlist.from_tracklist(
-                    name=command.playlist_name,
-                    tracklist=command.tracklist,
-                    added_at=datetime.now(UTC),
-                    description=command.playlist_description,
-                )
-
-            result = CreateConnectorPlaylistResult(
-                playlist=result_playlist,
-                connector=command.connector,
-                external_playlist_id=external_playlist_id or "",
-                tracks_created=len(command.tracklist.tracks),
-                execution_time_ms=timer.stop(),
-                external_metadata=external_result["metadata"],
-                errors=external_result.get("errors", []),
-            )
-
-            logger.info(
-                "Connector playlist creation completed",
-                connector=command.connector,
-                external_playlist_id=external_result["playlist_id"],
-                internal_playlist_id=internal_playlist.id
-                if internal_playlist
-                else None,
-                tracks_created=result.tracks_created,
-                execution_time_ms=timer.elapsed_ms,
-            )
-
+            result = await self._create_playlist(command, uow, timer)
         except Exception as e:
             logger.error(
                 "Connector playlist creation failed",
@@ -199,6 +138,75 @@ class CreateConnectorPlaylistUseCase:
             raise
         else:
             return result
+
+    async def _create_playlist(
+        self,
+        command: CreateConnectorPlaylistCommand,
+        uow: UnitOfWorkProtocol,
+        timer: ExecutionTimer,
+    ) -> CreateConnectorPlaylistResult:
+        """Creates the external playlist, optionally syncs internally, builds result."""
+        # Step 1: Create playlist on external service
+        external_result = await self._create_external_playlist(command, uow)
+
+        # Step 2: Optimistic internal sync if requested and external succeeded
+        external_playlist_id = external_result["playlist_id"]
+        internal_playlist = None
+        if (
+            external_result["success"]
+            and external_playlist_id is not None
+            and command.create_internal_playlist
+        ):
+            internal_playlist = await self._create_internal_playlist_optimistic(
+                command=command,
+                external_playlist_id=external_playlist_id,
+                external_metadata=external_result["metadata"],
+                uow=uow,
+            )
+
+        # Use internal playlist if created, otherwise create minimal playlist for result
+        if internal_playlist:
+            result_playlist = internal_playlist
+        elif external_playlist_id is not None:
+            # Create minimal playlist entity for result (not persisted)
+            result_playlist = Playlist.from_tracklist(
+                name=command.playlist_name,
+                tracklist=command.tracklist,
+                added_at=datetime.now(UTC),
+                description=command.playlist_description,
+                connector_playlist_identifiers={
+                    command.connector: external_playlist_id
+                },
+            )
+        else:
+            # External creation failed — create result without connector identifiers
+            result_playlist = Playlist.from_tracklist(
+                name=command.playlist_name,
+                tracklist=command.tracklist,
+                added_at=datetime.now(UTC),
+                description=command.playlist_description,
+            )
+
+        result = CreateConnectorPlaylistResult(
+            playlist=result_playlist,
+            connector=command.connector,
+            external_playlist_id=external_playlist_id or "",
+            tracks_created=len(command.tracklist.tracks),
+            execution_time_ms=timer.stop(),
+            external_metadata=external_result["metadata"],
+            errors=external_result.get("errors", []),
+        )
+
+        logger.info(
+            "Connector playlist creation completed",
+            connector=command.connector,
+            external_playlist_id=external_result["playlist_id"],
+            internal_playlist_id=internal_playlist.id if internal_playlist else None,
+            tracks_created=result.tracks_created,
+            execution_time_ms=timer.elapsed_ms,
+        )
+
+        return result
 
     async def _create_external_playlist(
         self, command: CreateConnectorPlaylistCommand, uow: UnitOfWorkProtocol
@@ -298,43 +306,12 @@ class CreateConnectorPlaylistUseCase:
         """
         async with uow:
             try:
-                # Step 1: Create internal playlist with connector mapping
-                tracklist = TrackList(tracks=list(command.tracklist.tracks))
-                playlist_base = Playlist.from_tracklist(
-                    name=command.playlist_name,
-                    tracklist=tracklist,
-                    added_at=datetime.now(UTC),
-                    description=command.playlist_description,
-                    connector_playlist_identifiers={
-                        command.connector: external_playlist_id
-                    },
-                )
-                playlist = attrs.evolve(playlist_base, user_id=command.user_id)
-
-                # Save internal playlist
-                playlist_repo = uow.get_playlist_repository()
-                saved_playlist = await playlist_repo.save_playlist(playlist)
-
-                # Step 3: Create connector_playlist entry for metadata storage
-                await self._create_connector_playlist_entry(
-                    saved_playlist=saved_playlist,
+                saved_playlist = await self._persist_internal_playlist(
+                    command=command,
                     external_playlist_id=external_playlist_id,
                     external_metadata=external_metadata,
-                    command=command,
                     uow=uow,
                 )
-
-                # Step 4: Commit the transaction
-                await uow.commit()
-
-                logger.debug(
-                    "Internal playlist created optimistically",
-                    playlist_id=saved_playlist.id,
-                    connector=command.connector,
-                    external_playlist_id=external_playlist_id,
-                    tracks_persisted=len(tracklist.tracks),
-                )
-
             except Exception as e:
                 # Rollback on any failure
                 await uow.rollback()
@@ -347,6 +324,51 @@ class CreateConnectorPlaylistUseCase:
                 raise
             else:
                 return saved_playlist
+
+    async def _persist_internal_playlist(
+        self,
+        command: CreateConnectorPlaylistCommand,
+        external_playlist_id: str,
+        external_metadata: dict[str, JsonValue],
+        uow: UnitOfWorkProtocol,
+    ) -> Playlist:
+        """Builds, saves, and commits the internal playlist plus connector entry."""
+        # Step 1: Create internal playlist with connector mapping
+        tracklist = TrackList(tracks=list(command.tracklist.tracks))
+        playlist_base = Playlist.from_tracklist(
+            name=command.playlist_name,
+            tracklist=tracklist,
+            added_at=datetime.now(UTC),
+            description=command.playlist_description,
+            connector_playlist_identifiers={command.connector: external_playlist_id},
+        )
+        playlist = attrs.evolve(playlist_base, user_id=command.user_id)
+
+        # Save internal playlist
+        playlist_repo = uow.get_playlist_repository()
+        saved_playlist = await playlist_repo.save_playlist(playlist)
+
+        # Step 3: Create connector_playlist entry for metadata storage
+        await self._create_connector_playlist_entry(
+            saved_playlist=saved_playlist,
+            external_playlist_id=external_playlist_id,
+            external_metadata=external_metadata,
+            command=command,
+            uow=uow,
+        )
+
+        # Step 4: Commit the transaction
+        await uow.commit()
+
+        logger.debug(
+            "Internal playlist created optimistically",
+            playlist_id=saved_playlist.id,
+            connector=command.connector,
+            external_playlist_id=external_playlist_id,
+            tracks_persisted=len(tracklist.tracks),
+        )
+
+        return saved_playlist
 
     async def _create_connector_playlist_entry(
         self,
@@ -369,50 +391,12 @@ class CreateConnectorPlaylistUseCase:
             uow: Database transaction manager and repository provider.
         """
         try:
-            connector_repo = uow.get_connector_playlist_repository()
-
-            # Create track items list for connector_playlist table using factory
-            items = create_connector_playlist_items_from_tracks(
-                tracks=list(saved_playlist.tracks),
-                connector_name=command.connector,
-            )
-
-            # Narrow JsonValue → typed fields for ConnectorPlaylist constructor
-            owner = external_metadata.get("owner")
-            owner_id = external_metadata.get("owner_id")
-            is_public = external_metadata.get("public", False)
-            collaborative = external_metadata.get("collaborative", False)
-            follower_count = external_metadata.get("follower_count")
-
-            # Create ConnectorPlaylist domain model
-            connector_playlist = ConnectorPlaylist(
-                connector_name=command.connector,
-                connector_playlist_identifier=external_playlist_id,
-                name=command.playlist_name,
-                description=command.playlist_description,
-                owner=owner if isinstance(owner, str) else None,
-                owner_id=owner_id if isinstance(owner_id, str) else None,
-                is_public=is_public if isinstance(is_public, bool) else False,
-                collaborative=collaborative
-                if isinstance(collaborative, bool)
-                else False,
-                follower_count=follower_count
-                if isinstance(follower_count, int)
-                and not isinstance(follower_count, bool)
-                else None,
-                items=items,
-                raw_metadata=external_metadata,
-                last_updated=datetime.now(UTC),
-            )
-
-            # Save connector playlist entry
-            _ = await connector_repo.upsert_model(connector_playlist)
-
-            logger.debug(
-                "Connector playlist entry created",
-                connector=command.connector,
+            await self._build_and_save_connector_entry(
+                saved_playlist=saved_playlist,
                 external_playlist_id=external_playlist_id,
-                items_count=len(items),
+                external_metadata=external_metadata,
+                command=command,
+                uow=uow,
             )
 
         except Exception as e:
@@ -424,3 +408,55 @@ class CreateConnectorPlaylistUseCase:
                 error=str(e),
                 # This would be a good candidate for a compensation queue in production
             )
+
+    async def _build_and_save_connector_entry(
+        self,
+        saved_playlist: Playlist,
+        external_playlist_id: str,
+        external_metadata: dict[str, JsonValue],
+        command: CreateConnectorPlaylistCommand,
+        uow: UnitOfWorkProtocol,
+    ) -> None:
+        """Builds the ConnectorPlaylist domain model and upserts it."""
+        connector_repo = uow.get_connector_playlist_repository()
+
+        # Create track items list for connector_playlist table using factory
+        items = create_connector_playlist_items_from_tracks(
+            tracks=list(saved_playlist.tracks),
+            connector_name=command.connector,
+        )
+
+        # Narrow JsonValue → typed fields for ConnectorPlaylist constructor
+        owner = external_metadata.get("owner")
+        owner_id = external_metadata.get("owner_id")
+        is_public = external_metadata.get("public", False)
+        collaborative = external_metadata.get("collaborative", False)
+        follower_count = external_metadata.get("follower_count")
+
+        # Create ConnectorPlaylist domain model
+        connector_playlist = ConnectorPlaylist(
+            connector_name=command.connector,
+            connector_playlist_identifier=external_playlist_id,
+            name=command.playlist_name,
+            description=command.playlist_description,
+            owner=owner if isinstance(owner, str) else None,
+            owner_id=owner_id if isinstance(owner_id, str) else None,
+            is_public=is_public if isinstance(is_public, bool) else False,
+            collaborative=collaborative if isinstance(collaborative, bool) else False,
+            follower_count=follower_count
+            if isinstance(follower_count, int) and not isinstance(follower_count, bool)
+            else None,
+            items=items,
+            raw_metadata=external_metadata,
+            last_updated=datetime.now(UTC),
+        )
+
+        # Save connector playlist entry
+        _ = await connector_repo.upsert_model(connector_playlist)
+
+        logger.debug(
+            "Connector playlist entry created",
+            connector=command.connector,
+            external_playlist_id=external_playlist_id,
+            items_count=len(items),
+        )

@@ -14,6 +14,7 @@ one-schedule-per-target DB index guarantees the lookup is unambiguous.
 
 from __future__ import annotations
 
+from collections.abc import Mapping
 from datetime import UTC, datetime
 from uuid import UUID
 
@@ -23,7 +24,10 @@ from src.application.services.schedule_timing import compute_next_run
 from src.application.use_cases._shared.schedule_validators import (
     validate_iana_timezone,
 )
-from src.application.use_cases._shared.sync_targets import validate_sync_target
+from src.application.use_cases._shared.sync_targets import (
+    sync_target_label,
+    validate_sync_target,
+)
 from src.domain.entities.schedule import Schedule
 from src.domain.exceptions import NotFoundError
 from src.domain.repositories.interfaces import UnitOfWorkProtocol
@@ -293,8 +297,22 @@ class ListSchedulesCommand:
 
 
 @define(frozen=True, slots=True)
+class ScheduleListEntry:
+    """A schedule plus its resolved display label — the list read-model.
+
+    ``target_label`` is the human name every surface (dashboard banner, CLI table)
+    wants but the entity can't hold: a sync target's friendly name, or the
+    workflow's name resolved at read time. Computed here, in the one list codepath,
+    so no edge re-implements labeling.
+    """
+
+    schedule: Schedule
+    target_label: str
+
+
+@define(frozen=True, slots=True)
 class ListSchedulesResult:
-    schedules: list[Schedule]
+    entries: list[ScheduleListEntry]
 
 
 @define(slots=True)
@@ -303,6 +321,30 @@ class ListSchedulesUseCase:
         self, command: ListSchedulesCommand, uow: UnitOfWorkProtocol
     ) -> ListSchedulesResult:
         async with uow:
-            repo = uow.get_schedule_repository()
-            schedules = await repo.list_for_user(user_id=command.user_id)
-            return ListSchedulesResult(schedules=schedules)
+            schedules = await uow.get_schedule_repository().list_for_user(
+                user_id=command.user_id
+            )
+            # Resolve workflow names only when a workflow schedule exists — a
+            # sync-only user pays no extra query. Reuses the existing
+            # list_workflows codepath rather than a parallel name lookup.
+            names: dict[UUID, str] = {}
+            if any(s.workflow_id is not None for s in schedules):
+                workflows = await uow.get_workflow_repository().list_workflows(
+                    user_id=command.user_id
+                )
+                names = {w.id: w.definition.name for w in workflows}
+
+            return ListSchedulesResult(
+                entries=[
+                    ScheduleListEntry(schedule=s, target_label=_target_label(s, names))
+                    for s in schedules
+                ]
+            )
+
+
+def _target_label(schedule: Schedule, workflow_names: Mapping[UUID, str]) -> str:
+    """Friendly target name: sync label, or the workflow's name (then its id)."""
+    if schedule.sync_target is not None:
+        return sync_target_label(schedule.sync_target)
+    wid = schedule.workflow_id
+    return workflow_names.get(wid, str(wid)) if wid is not None else "Workflow"

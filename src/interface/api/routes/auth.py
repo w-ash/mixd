@@ -171,25 +171,31 @@ async def spotify_callback(
         )
 
     try:
-        storage = get_token_storage()
-        mgr = SpotifyTokenManager(storage=storage, user_id=user_id)
-        token_info = await mgr.exchange_code(code, code_verifier=code_verifier)
-
-        # Fetch display name before saving to avoid a double upsert
-        display_name = await fetch_spotify_display_name(token_info["access_token"])
-        token_to_save = StoredToken(**token_info)
-        if display_name:
-            token_to_save = StoredToken(**token_info, account_name=display_name)
-        await storage.save_token("spotify", user_id, token_to_save)
-
-        logger.info("Spotify web auth completed successfully", user_id=user_id)
-        return RedirectResponse("/settings/integrations?auth=spotify&status=success")
-
+        return await _complete_spotify_auth(code, code_verifier, user_id)
     except Exception:
         logger.error("Spotify auth callback failed", exc_info=True)
         return RedirectResponse(
             "/settings/integrations?auth=spotify&status=error&reason=exchange_failed"
         )
+
+
+async def _complete_spotify_auth(
+    code: str, code_verifier: str | None, user_id: str
+) -> RedirectResponse:
+    """Exchange the Spotify code, persist tokens, and redirect to success."""
+    storage = get_token_storage()
+    mgr = SpotifyTokenManager(storage=storage, user_id=user_id)
+    token_info = await mgr.exchange_code(code, code_verifier=code_verifier)
+
+    # Fetch display name before saving to avoid a double upsert
+    display_name = await fetch_spotify_display_name(token_info["access_token"])
+    token_to_save = StoredToken(**token_info)
+    if display_name:
+        token_to_save = StoredToken(**token_info, account_name=display_name)
+    await storage.save_token("spotify", user_id, token_to_save)
+
+    logger.info("Spotify web auth completed successfully", user_id=user_id)
+    return RedirectResponse("/settings/integrations?auth=spotify&status=success")
 
 
 @router.get("/auth/lastfm/callback")
@@ -226,28 +232,32 @@ async def lastfm_callback(token: str = "", _state: str = "") -> RedirectResponse
         )
 
     try:
-        from src.infrastructure.connectors.lastfm.client import LastFMAPIClient
-
-        async with LastFMAPIClient() as lastfm_client:
-            session_key, username = await lastfm_client.exchange_web_auth_token(token)
-
-        # Store permanent session key
-        storage = get_token_storage()
-        await storage.save_token(
-            "lastfm",
-            user_id,
-            StoredToken(
-                session_key=session_key,
-                token_type="session",  # noqa: S106 — metadata label, not a secret
-                account_name=username,
-            ),
-        )
-
-        logger.info(f"Last.fm web auth completed for user {username}", user_id=user_id)
-        return RedirectResponse("/settings/integrations?auth=lastfm&status=success")
-
+        return await _complete_lastfm_auth(token, user_id)
     except Exception:
         logger.error("Last.fm auth callback failed", exc_info=True)
         return RedirectResponse(
             "/settings/integrations?auth=lastfm&status=error&reason=exchange_failed"
         )
+
+
+async def _complete_lastfm_auth(token: str, user_id: str) -> RedirectResponse:
+    """Exchange the Last.fm token for a session key, persist it, and redirect."""
+    from src.infrastructure.connectors.lastfm.client import LastFMAPIClient
+
+    async with LastFMAPIClient() as lastfm_client:
+        session_key, username = await lastfm_client.exchange_web_auth_token(token)
+
+    # Store permanent session key
+    storage = get_token_storage()
+    await storage.save_token(
+        "lastfm",
+        user_id,
+        StoredToken(
+            session_key=session_key,
+            token_type="session",  # noqa: S106 — metadata label, not a secret
+            account_name=username,
+        ),
+    )
+
+    logger.info(f"Last.fm web auth completed for user {username}", user_id=user_id)
+    return RedirectResponse("/settings/integrations?auth=lastfm&status=success")

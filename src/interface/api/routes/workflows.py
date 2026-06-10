@@ -606,6 +606,51 @@ async def delete_workflow_schedule(
 # ExecuteWorkflowRunUseCase so the run lifecycle lives in exactly one place.
 
 
+async def _run_workflow_and_push_terminal(
+    operation_id: str,
+    workflow_def: WorkflowDef,
+    run_id: UUID,
+    sse_queue: asyncio.Queue[object],
+    user_id: str,
+) -> None:
+    """Run the workflow use case and push the terminal SSE event for its result."""
+    use_case = ExecuteWorkflowRunUseCase(
+        update_run_status=update_run_status,
+        update_node_status=update_node_status,
+    )
+    run_result = await use_case.execute(
+        workflow_def, run_id, sse_queue=sse_queue, user_id=user_id
+    )
+
+    # Push terminal SSE event based on use case result
+    if run_result.status == WorkflowConstants.RUN_STATUS_COMPLETED:
+        await sse_queue.put(
+            build_terminal_event(
+                "evt_final",
+                WorkflowConstants.SSE_EVENT_COMPLETE,
+                operation_id,
+                WorkflowConstants.RUN_STATUS_COMPLETED,
+                run_id=run_id,
+                output_track_count=run_result.output_track_count,
+                duration_ms=run_result.duration_ms,
+            )
+        )
+    else:
+        await sse_queue.put(
+            build_terminal_event(
+                "evt_error",
+                WorkflowConstants.SSE_EVENT_ERROR,
+                operation_id,
+                run_result.status,
+                run_id=run_id,
+                error_message=truncate_error_message(
+                    run_result.error_message or "Unknown error",
+                    WorkflowConstants.SSE_ERROR_MAX_LENGTH,
+                ),
+            )
+        )
+
+
 async def _execute_workflow_background(
     operation_id: str,
     workflow_def: WorkflowDef,
@@ -630,42 +675,9 @@ async def _execute_workflow_background(
     )
     logger.info("Heartbeat task scheduled", run_id=str(run_id))
     try:
-        use_case = ExecuteWorkflowRunUseCase(
-            update_run_status=update_run_status,
-            update_node_status=update_node_status,
+        await _run_workflow_and_push_terminal(
+            operation_id, workflow_def, run_id, sse_queue, user_id
         )
-        run_result = await use_case.execute(
-            workflow_def, run_id, sse_queue=sse_queue, user_id=user_id
-        )
-
-        # Push terminal SSE event based on use case result
-        if run_result.status == WorkflowConstants.RUN_STATUS_COMPLETED:
-            await sse_queue.put(
-                build_terminal_event(
-                    "evt_final",
-                    WorkflowConstants.SSE_EVENT_COMPLETE,
-                    operation_id,
-                    WorkflowConstants.RUN_STATUS_COMPLETED,
-                    run_id=run_id,
-                    output_track_count=run_result.output_track_count,
-                    duration_ms=run_result.duration_ms,
-                )
-            )
-        else:
-            await sse_queue.put(
-                build_terminal_event(
-                    "evt_error",
-                    WorkflowConstants.SSE_EVENT_ERROR,
-                    operation_id,
-                    run_result.status,
-                    run_id=run_id,
-                    error_message=truncate_error_message(
-                        run_result.error_message or "Unknown error",
-                        WorkflowConstants.SSE_ERROR_MAX_LENGTH,
-                    ),
-                )
-            )
-
     except CancelledError:
         # Best-effort push of error SSE event on cancellation
         with contextlib.suppress(CancelledError, Exception):

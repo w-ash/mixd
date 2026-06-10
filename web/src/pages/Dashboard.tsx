@@ -27,6 +27,7 @@ import { ConnectorIcon } from "#/components/shared/ConnectorIcon";
 import { PreferenceBadge } from "#/components/shared/PreferenceToggle";
 import { QueryErrorState } from "#/components/shared/QueryErrorState";
 import { ResponsiveTable } from "#/components/shared/ResponsiveTable";
+import { ScheduleFailuresBanner } from "#/components/shared/ScheduleFailuresBanner";
 import { SectionHeader } from "#/components/shared/SectionHeader";
 import {
   confidenceVariant,
@@ -539,6 +540,8 @@ export function Dashboard() {
         title="Dashboard"
         description="Your music library at a glance"
       />
+
+      <ScheduleFailuresBanner />
 
       {isLoading && <DashboardSkeleton />}
 

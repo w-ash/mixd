@@ -2,6 +2,7 @@ import { GitBranch, LayoutTemplate, Plus } from "lucide-react";
 import { useMemo } from "react";
 import { Link } from "react-router";
 
+import type { ScheduleResponse } from "#/api/generated/model";
 import { useListSchedulesApiV1SchedulesGet } from "#/api/generated/schedules/schedules";
 import { useListWorkflowsApiV1WorkflowsGet } from "#/api/generated/workflows/workflows";
 import { STALE } from "#/api/query-client";
@@ -23,7 +24,7 @@ import { TemplateGalleryDialog } from "#/components/workflow/TemplateGalleryDial
 import { WorkflowRow } from "#/components/workflow/WorkflowRow";
 import { useWorkflowExecutionContext } from "#/contexts/WorkflowExecutionContext";
 import { usePagination } from "#/hooks/usePagination";
-import { formatNextRun } from "#/lib/schedule";
+import { formatNextRun, isScheduleFailing } from "#/lib/schedule";
 
 function WorkflowTableSkeleton() {
   return (
@@ -80,26 +81,31 @@ export function Workflows() {
   const total = response?.total ?? 0;
   const totalPages = total > 0 ? Math.ceil(total / limit) : 1;
 
-  // One fetch powers the whole "Next run" column — no per-row N+1. Map each
-  // enabled workflow schedule to its formatted next-run for O(1) row lookup.
+  // One fetch powers both the "Next run" column and the failing-schedule marker
+  // — no per-row N+1. Map each workflow to its whole schedule for O(1) lookup;
+  // the row derives next-run and failing state from it.
   const { data: schedulesData } = useListSchedulesApiV1SchedulesGet({
     query: { staleTime: STALE.SLOW },
   });
-  const nextRunByWorkflow = useMemo(() => {
-    const map = new Map<string, string>();
+  const scheduleByWorkflow = useMemo(() => {
+    const map = new Map<string, ScheduleResponse>();
     const rows = schedulesData?.status === 200 ? schedulesData.data.data : [];
     for (const s of rows) {
-      if (
-        s.target_type === "workflow" &&
-        s.workflow_id &&
-        s.status === "enabled" &&
-        s.next_run_at
-      ) {
-        map.set(s.workflow_id, formatNextRun(s));
+      if (s.target_type === "workflow" && s.workflow_id) {
+        map.set(s.workflow_id, s);
       }
     }
     return map;
   }, [schedulesData]);
+
+  function rowSchedule(workflowId: string) {
+    const s = scheduleByWorkflow.get(workflowId);
+    return {
+      nextRun:
+        s && s.status === "enabled" && s.next_run_at ? formatNextRun(s) : null,
+      scheduleFailing: s ? isScheduleFailing(s) : false,
+    };
+  }
 
   return (
     <div>
@@ -135,8 +141,8 @@ export function Workflows() {
                     key={wf.id}
                     wf={wf}
                     runningWorkflowId={runningWorkflowId}
-                    nextRun={nextRunByWorkflow.get(wf.id) ?? null}
                     variant="card"
+                    {...rowSchedule(wf.id)}
                   />
                 ))}
               </div>
@@ -159,8 +165,8 @@ export function Workflows() {
                       key={wf.id}
                       wf={wf}
                       runningWorkflowId={runningWorkflowId}
-                      nextRun={nextRunByWorkflow.get(wf.id) ?? null}
                       variant="table"
+                      {...rowSchedule(wf.id)}
                     />
                   ))}
                 </TableBody>

@@ -365,12 +365,7 @@ class ExecuteWorkflowRunUseCase:
         sse_queue: asyncio.Queue[object] | None = None,
         user_id: str = BusinessLimits.DEFAULT_USER_ID,
     ) -> ExecuteWorkflowRunResult:
-        from src.application.services.progress_manager import get_progress_manager
-        from src.application.workflows.engine.executor import (
-            WorkflowCancelledError,
-            run_workflow,
-        )
-        from src.application.workflows.engine.observers import RunHistoryObserver
+        from src.application.workflows.engine.executor import WorkflowCancelledError
 
         timer = ExecutionTimer()
 
@@ -380,58 +375,12 @@ class ExecuteWorkflowRunUseCase:
             run_id=run_id,
         ):
             try:
-                # 1. Update run → RUNNING
-                await self.update_run_status(
-                    run_id,
-                    WorkflowConstants.RUN_STATUS_RUNNING,
-                    started_at=datetime.now(UTC),
-                )
-
-                # 2. Execute workflow with observer for node-level tracking
-                progress_manager = get_progress_manager()
-                observer = RunHistoryObserver(
-                    run_id=run_id,
-                    update_node_status=self.update_node_status,
-                    sse_queue=sse_queue,
-                )
-                logger.info("Calling run_workflow", run_id=str(run_id))
-                result = await run_workflow(
+                return await self._run_to_completion(
                     workflow_def,
-                    progress_manager=progress_manager,
-                    observer=observer,
-                    user_id=user_id,
-                )
-                logger.info("run_workflow returned", run_id=str(run_id))
-
-                # 3. Check for observer degradation (DB persistence failures)
-                if observer.persist_failure_count > 0:
-                    logger.error(
-                        "Run history incomplete — DB persistence failures during execution",
-                        persist_failures=observer.persist_failure_count,
-                    )
-
-                # 4. Update run → COMPLETED
-                duration_ms = timer.stop()
-                output_track_count = len(result.tracks) if result.tracks else None
-                output_tracks, _metric_columns = serialize_output_tracks(
-                    result.tracks, metrics=result.metrics
-                )
-
-                await self.update_run_status(
                     run_id,
-                    WorkflowConstants.RUN_STATUS_COMPLETED,
-                    completed_at=datetime.now(UTC),
-                    duration_ms=duration_ms,
-                    output_track_count=output_track_count,
-                    output_tracks=output_tracks,
-                )
-
-                return ExecuteWorkflowRunResult(
-                    status=WorkflowConstants.RUN_STATUS_COMPLETED,
-                    run_id=run_id,
-                    duration_ms=duration_ms,
-                    output_track_count=output_track_count,
-                    operation_result=result,
+                    sse_queue,
+                    user_id,
+                    timer,
                 )
 
             except CancelledError:
@@ -515,3 +464,75 @@ class ExecuteWorkflowRunUseCase:
                     duration_ms=duration_ms,
                     error_message=error_msg,
                 )
+
+    async def _run_to_completion(
+        self,
+        workflow_def: WorkflowDef,
+        run_id: UUID,
+        sse_queue: asyncio.Queue[object] | None,
+        user_id: str,
+        timer: ExecutionTimer,
+    ) -> ExecuteWorkflowRunResult:
+        """Drive the run from RUNNING through COMPLETED and build the result.
+
+        Extracted from ``execute`` so the protective ``try`` clause stays small;
+        the same statements remain guarded by the caller's lifecycle ``except``
+        clauses (``CancelledError`` / ``WorkflowCancelledError`` / ``Exception``).
+        """
+        from src.application.services.progress_manager import get_progress_manager
+        from src.application.workflows.engine.executor import run_workflow
+        from src.application.workflows.engine.observers import RunHistoryObserver
+
+        # 1. Update run → RUNNING
+        await self.update_run_status(
+            run_id,
+            WorkflowConstants.RUN_STATUS_RUNNING,
+            started_at=datetime.now(UTC),
+        )
+
+        # 2. Execute workflow with observer for node-level tracking
+        progress_manager = get_progress_manager()
+        observer = RunHistoryObserver(
+            run_id=run_id,
+            update_node_status=self.update_node_status,
+            sse_queue=sse_queue,
+        )
+        logger.info("Calling run_workflow", run_id=str(run_id))
+        result = await run_workflow(
+            workflow_def,
+            progress_manager=progress_manager,
+            observer=observer,
+            user_id=user_id,
+        )
+        logger.info("run_workflow returned", run_id=str(run_id))
+
+        # 3. Check for observer degradation (DB persistence failures)
+        if observer.persist_failure_count > 0:
+            logger.error(
+                "Run history incomplete — DB persistence failures during execution",
+                persist_failures=observer.persist_failure_count,
+            )
+
+        # 4. Update run → COMPLETED
+        duration_ms = timer.stop()
+        output_track_count = len(result.tracks) if result.tracks else None
+        output_tracks, _metric_columns = serialize_output_tracks(
+            result.tracks, metrics=result.metrics
+        )
+
+        await self.update_run_status(
+            run_id,
+            WorkflowConstants.RUN_STATUS_COMPLETED,
+            completed_at=datetime.now(UTC),
+            duration_ms=duration_ms,
+            output_track_count=output_track_count,
+            output_tracks=output_tracks,
+        )
+
+        return ExecuteWorkflowRunResult(
+            status=WorkflowConstants.RUN_STATUS_COMPLETED,
+            run_id=run_id,
+            duration_ms=duration_ms,
+            output_track_count=output_track_count,
+            operation_result=result,
+        )

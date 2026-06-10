@@ -111,15 +111,24 @@ class ThrottledSubOperationEmitter:
         )
         await self.manager.emit_progress(event)
 
+    async def _flush_after_interval(self) -> None:
+        """Sleep the debounce interval, then emit the latest suppressed update.
+
+        Extracted from ``_tail_flush`` so the protective ``try`` clause stays
+        small; the same statements remain guarded by the caller's
+        ``CancelledError`` handler and ``finally``.
+        """
+        await asyncio.sleep(self.min_interval_seconds)
+        if self.last_seen is None:
+            return
+        completed, total, message = self.last_seen
+        self.last_seen = None
+        self.last_emit = time.monotonic()
+        await self._emit(completed, total, message)
+
     async def _tail_flush(self) -> None:
         try:
-            await asyncio.sleep(self.min_interval_seconds)
-            if self.last_seen is None:
-                return
-            completed, total, message = self.last_seen
-            self.last_seen = None
-            self.last_emit = time.monotonic()
-            await self._emit(completed, total, message)
+            await self._flush_after_interval()
         except asyncio.CancelledError:
             # Cancelled by aclose() or by an immediate emit superseding
             # this scheduled tail. No-op.

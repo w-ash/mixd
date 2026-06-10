@@ -206,36 +206,48 @@ class LastfmPlayImporter(BasePlayImporter[PlayRecord], PlayImporterProtocol):
         MIGRATED: Eliminates duplicate checkpoint loading logic across methods.
         """
 
-        def _raise_username_required_error() -> None:
-            raise ValueError("Username is required for checkpoint operations")
-
         if not uow:
             return None
 
         try:
-            resolved_username = username or self.lastfm_connector.lastfm_username
-            if not resolved_username:
-                if require_username:
-                    _raise_username_required_error()
-                logger.debug("No username available for checkpoint operations")
-                return None
-
-            # Get checkpoint repository from UnitOfWork to ensure same transaction context
-            checkpoint_repository = uow.get_checkpoint_repository()
-            checkpoint = await checkpoint_repository.get_sync_checkpoint(
-                user_id=resolved_username, service="lastfm", entity_type="plays"
-            )
-
-            logger.debug(
-                f"Checkpoint resolution: found={checkpoint is not None}, user={resolved_username}"
+            return await self._load_checkpoint(
+                username, uow, require_username=require_username
             )
         except Exception as e:
             logger.warning(f"Checkpoint resolution failed: {e}")
             if require_username:
                 raise
             return None
-        else:
-            return checkpoint
+
+    async def _load_checkpoint(
+        self,
+        username: str | None,
+        uow: UnitOfWorkProtocol,
+        *,
+        require_username: bool,
+    ) -> SyncCheckpoint | None:
+        """Resolve the username and load the plays sync checkpoint."""
+
+        def _raise_username_required_error() -> None:
+            raise ValueError("Username is required for checkpoint operations")
+
+        resolved_username = username or self.lastfm_connector.lastfm_username
+        if not resolved_username:
+            if require_username:
+                _raise_username_required_error()
+            logger.debug("No username available for checkpoint operations")
+            return None
+
+        # Get checkpoint repository from UnitOfWork to ensure same transaction context
+        checkpoint_repository = uow.get_checkpoint_repository()
+        checkpoint = await checkpoint_repository.get_sync_checkpoint(
+            user_id=resolved_username, service="lastfm", entity_type="plays"
+        )
+
+        logger.debug(
+            f"Checkpoint resolution: found={checkpoint is not None}, user={resolved_username}"
+        )
+        return checkpoint
 
     def _determine_date_range(
         self,

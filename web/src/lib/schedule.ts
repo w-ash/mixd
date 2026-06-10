@@ -51,6 +51,34 @@ export function describeSchedule(schedule: {
   return `Daily at ${at} (${schedule.timezone})`;
 }
 
+/**
+ * The background-syncable targets the Sync page renders a scheduler for — the
+ * minimal frontend mirror of the backend's canonical `SYNC_DISPATCH`. `SyncTarget`
+ * types the card literals so a drifted id is a compile error, not a runtime 404.
+ * Friendly display names live server-side (`target_label`), not here.
+ */
+export const SYNC_TARGETS = [
+  "lastfm:plays",
+  "spotify:likes",
+  "lastfm:likes",
+] as const;
+
+export type SyncTarget = (typeof SYNC_TARGETS)[number];
+
+/**
+ * Whether a schedule's recent runs are actively failing.
+ *
+ * Gated on `status === "enabled"`: a disabled schedule never runs, so the
+ * scheduler can never reset its streak to 0 — counting it as failing would pin
+ * the dashboard banner and row marker open forever after the user paused it.
+ * The one predicate behind every failure surface (banner, aggregate, row marker).
+ */
+export function isScheduleFailing(
+  schedule: Pick<ScheduleResponse, "status" | "consecutive_failures">,
+): boolean {
+  return schedule.status === "enabled" && schedule.consecutive_failures >= 1;
+}
+
 /** Format `next_run_at` (UTC ISO) in the schedule's own timezone for display. */
 export function formatNextRun(schedule: ScheduleResponse): string {
   if (!schedule.next_run_at) return "—";

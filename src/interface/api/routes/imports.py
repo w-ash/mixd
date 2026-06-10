@@ -110,6 +110,21 @@ async def export_lastfm_likes(
     )
 
 
+async def _stream_upload_to_fd(file: UploadFile, fd: int) -> bool:
+    """Stream an upload to ``fd`` in 64KB chunks; return True if size limit exceeded.
+
+    Stops writing as soon as the byte count passes ``MAX_UPLOAD_BYTES`` so an
+    oversized upload never lands on disk in full.
+    """
+    bytes_written = 0
+    while chunk := await file.read(64 * 1024):
+        bytes_written += len(chunk)
+        if bytes_written > BusinessLimits.MAX_UPLOAD_BYTES:
+            return True
+        os.write(fd, chunk)
+    return False
+
+
 @router.post("/spotify/history")
 async def import_spotify_history(
     file: UploadFile,
@@ -127,15 +142,8 @@ async def import_spotify_history(
     # enforces the size limit regardless of what Content-Length claims.
     # Using os.* instead of pathlib for async-safe file I/O (ASYNC240).
     fd, temp_name = tempfile.mkstemp(suffix=".json")
-    oversized = False
     try:
-        bytes_written = 0
-        while chunk := await file.read(64 * 1024):
-            bytes_written += len(chunk)
-            if bytes_written > BusinessLimits.MAX_UPLOAD_BYTES:
-                oversized = True
-                break
-            os.write(fd, chunk)
+        oversized = await _stream_upload_to_fd(file, fd)
     except BaseException:
         os.close(fd)
         os.unlink(temp_name)  # noqa: PTH108 — os.unlink is async-safe, pathlib is not (ASYNC240)

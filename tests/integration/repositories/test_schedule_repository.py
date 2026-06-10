@@ -498,6 +498,7 @@ class TestForeignKeyBehavior:
 
         run = DBWorkflowRun(
             workflow_id=wf.id,
+            run_number=1,
             definition_snapshot={"nodes": []},
             triggered_by_schedule_id=sched.id,
         )

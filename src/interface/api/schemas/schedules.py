@@ -75,7 +75,46 @@ class ScheduleResponse(BaseModel):
     run_count: int
 
 
+class ScheduleListItem(ScheduleResponse):
+    """A list-view schedule plus its resolved display label.
+
+    Only the list carries ``target_label`` (the workflow name / friendly sync
+    name): single-resource responses feed the picker, which doesn't need it, so
+    the name-resolution cost stays on the one read that uses it.
+    """
+
+    target_label: str
+
+    @classmethod
+    def from_response(cls, base: ScheduleResponse, *, target_label: str) -> Self:
+        """Widen a validated ``ScheduleResponse`` with its resolved label.
+
+        Field-by-field off the typed base (not a ``model_dump()`` spread) so the
+        projection stays statically checked — a new ScheduleResponse field is a
+        compile error here, not a silently-dropped column.
+        """
+        return cls(
+            id=base.id,
+            target_type=base.target_type,
+            workflow_id=base.workflow_id,
+            sync_target=base.sync_target,
+            schedule_type=base.schedule_type,
+            hour=base.hour,
+            minute=base.minute,
+            day_of_week=base.day_of_week,
+            timezone=base.timezone,
+            status=base.status,
+            next_run_at=base.next_run_at,
+            last_run_at=base.last_run_at,
+            last_run_status=base.last_run_status,
+            last_error=base.last_error,
+            consecutive_failures=base.consecutive_failures,
+            run_count=base.run_count,
+            target_label=target_label,
+        )
+
+
 class ScheduleListResponse(BaseModel):
     """All of a user's schedules (workflow + sync) for the schedules view."""
 
-    data: list[ScheduleResponse]
+    data: list[ScheduleListItem]

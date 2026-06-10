@@ -23,12 +23,15 @@ import {
 } from "#/components/shared/DatabaseUnavailable";
 import { FileUpload } from "#/components/shared/FileUpload";
 import { OperationProgress } from "#/components/shared/OperationProgress";
+import { ScheduleCard } from "#/components/shared/ScheduleCard";
 import { SectionHeader } from "#/components/shared/SectionHeader";
 import { Button } from "#/components/ui/button";
 import { Switch } from "#/components/ui/switch";
 import { useOperationProgress } from "#/hooks/useOperationProgress";
+import { useSyncScheduleController } from "#/hooks/useScheduleController";
 import { formatDateTime } from "#/lib/format";
 import { pluralSuffix } from "#/lib/pluralize";
+import type { SyncTarget } from "#/lib/schedule";
 import { type RunOperationType, toasts } from "#/lib/toasts";
 import { cn } from "#/lib/utils";
 
@@ -63,6 +66,23 @@ function makeOperationCallbacks(
 
 // ─── Operation Card ──────────────────────────────────────────────
 
+/**
+ * Recurring-schedule control for a sync target, sharing the workflow schedule
+ * shell. Only the three background-syncable targets pass one in; the file-upload
+ * imports (which can't run unattended) render no scheduler.
+ */
+function SyncScheduleField({ targetId }: { targetId: SyncTarget }) {
+  const controller = useSyncScheduleController(targetId);
+  return (
+    <div className="mt-3 border-t border-border-muted pt-3">
+      <p className="mb-2 font-display text-xs text-text-muted">
+        Automatic sync
+      </p>
+      <ScheduleCard {...controller} />
+    </div>
+  );
+}
+
 interface OperationCardProps {
   connector: string;
   title: string;
@@ -75,6 +95,8 @@ interface OperationCardProps {
   onTrigger: () => void;
   triggerLabel?: string;
   triggerDisabled?: boolean;
+  /** Background-sync target id (e.g. `lastfm:plays`). When set, the card shows a recurring-schedule control. */
+  syncTarget?: SyncTarget;
   children?: React.ReactNode;
 }
 
@@ -90,6 +112,7 @@ function OperationCard({
   onTrigger,
   triggerLabel = "Import",
   triggerDisabled,
+  syncTarget,
   children,
 }: OperationCardProps) {
   const { progress, isActive } = useOperationProgress(operationId, {
@@ -141,6 +164,8 @@ function OperationCard({
       {children && <div className="mt-3">{children}</div>}
 
       {progress && <OperationProgress progress={progress} className="mt-3" />}
+
+      {syncTarget && <SyncScheduleField targetId={syncTarget} />}
 
       <p className="mt-3 text-right text-xs text-text-faint">
         Last sync:{" "}
@@ -215,6 +240,7 @@ function LastfmHistoryImport({
       operationType="import_lastfm_history"
       isPending={mutation.isPending}
       onTrigger={trigger}
+      syncTarget="lastfm:plays"
     >
       <div>
         <div
@@ -306,6 +332,7 @@ function SpotifyLikesImport({
       operationType="import_spotify_likes"
       isPending={mutation.isPending}
       onTrigger={trigger}
+      syncTarget="spotify:likes"
     >
       {checkpoint?.local_count != null && (
         <p className="mt-2 font-mono text-xs text-text-muted">
@@ -362,6 +389,7 @@ function LastfmLikesExport({
       isPending={mutation.isPending}
       triggerLabel="Export"
       onTrigger={trigger}
+      syncTarget="lastfm:likes"
     />
   );
 }

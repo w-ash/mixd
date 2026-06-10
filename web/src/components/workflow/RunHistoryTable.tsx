@@ -50,7 +50,7 @@ export function RunHistoryTable({
                       to={`/workflows/${workflowId}/runs/${run.id}`}
                       className="font-mono text-sm text-text transition-colors hover:text-primary"
                     >
-                      #{run.id}
+                      #{run.run_number}
                     </Link>
                     <RunStatusBadge status={run.status} />
                   </div>
@@ -86,7 +86,7 @@ export function RunHistoryTable({
               {runs.map((run) => (
                 <TableRow key={run.id}>
                   <TableCell className="font-mono text-xs text-text-muted">
-                    #{run.id}
+                    #{run.run_number}
                   </TableCell>
                   <TableCell>
                     <RunStatusBadge status={run.status} />

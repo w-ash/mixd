@@ -96,6 +96,49 @@ async def sweep_stalled_runs(
             return 0
 
         now = datetime.now(UTC)
+
+        async def _mark_run_crashed(
+            run: WorkflowRun,
+            duration_ms: int | None,
+            reason: str,
+            live_tasks: list[str],
+            rss_kb: int | None,
+        ) -> int:
+            """Mark one stalled run crashed; return 1 if counted, else 0.
+
+            Holds the DB write and success logging so the caller's protective
+            ``try``/``except Exception`` stays narrow while still covering every
+            statement that can raise (the update and the structured logs).
+            """
+            transitioned = await repo.update_run_status(
+                run.id,
+                WorkflowConstants.RUN_STATUS_CRASHED,
+                completed_at=now,
+                duration_ms=duration_ms,
+                error_message=reason,
+            )
+            if not transitioned:
+                # The run reached a terminal state between list_stalled_runs
+                # and this write (its own completion path won the race), so
+                # the guarded UPDATE no-op'd. Don't count it as a crash.
+                logger.info(
+                    "Stalled run already terminal — skipped",
+                    run_id=str(run.id),
+                    workflow_id=str(run.workflow_id),
+                )
+                return 0
+            logger.warning(
+                "Marked stalled run as crashed",
+                run_id=str(run.id),
+                workflow_id=str(run.workflow_id),
+                reason=reason,
+                started_at=_iso(run.started_at),
+                heartbeat_at=_iso(run.heartbeat_at),
+                live_tasks=live_tasks,
+                rss_kb=rss_kb,
+            )
+            return 1
+
         for run in stalled:
             duration_ms: int | None = None
             if run.started_at is not None:
@@ -109,33 +152,8 @@ async def sweep_stalled_runs(
             rss_kb = _read_rss_kb()
 
             try:
-                transitioned = await repo.update_run_status(
-                    run.id,
-                    WorkflowConstants.RUN_STATUS_CRASHED,
-                    completed_at=now,
-                    duration_ms=duration_ms,
-                    error_message=reason,
-                )
-                if not transitioned:
-                    # The run reached a terminal state between list_stalled_runs
-                    # and this write (its own completion path won the race), so
-                    # the guarded UPDATE no-op'd. Don't count it as a crash.
-                    logger.info(
-                        "Stalled run already terminal — skipped",
-                        run_id=str(run.id),
-                        workflow_id=str(run.workflow_id),
-                    )
-                    continue
-                failed_count += 1
-                logger.warning(
-                    "Marked stalled run as crashed",
-                    run_id=str(run.id),
-                    workflow_id=str(run.workflow_id),
-                    reason=reason,
-                    started_at=_iso(run.started_at),
-                    heartbeat_at=_iso(run.heartbeat_at),
-                    live_tasks=live_tasks,
-                    rss_kb=rss_kb,
+                failed_count += await _mark_run_crashed(
+                    run, duration_ms, reason, live_tasks, rss_kb
                 )
             except Exception:
                 logger.warning(

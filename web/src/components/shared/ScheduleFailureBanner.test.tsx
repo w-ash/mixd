@@ -7,7 +7,24 @@ describe("ScheduleFailureBanner", () => {
   it("renders nothing when there are no consecutive failures", () => {
     const { container } = render(
       <ScheduleFailureBanner
-        schedule={{ consecutive_failures: 0, last_error: null }}
+        schedule={{
+          status: "enabled",
+          consecutive_failures: 0,
+          last_error: null,
+        }}
+      />,
+    );
+    expect(container).toBeEmptyDOMElement();
+  });
+
+  it("renders nothing for a paused schedule even with a stale streak", () => {
+    const { container } = render(
+      <ScheduleFailureBanner
+        schedule={{
+          status: "disabled",
+          consecutive_failures: 3,
+          last_error: "SpotifyAuthError",
+        }}
       />,
     );
     expect(container).toBeEmptyDOMElement();
@@ -16,7 +33,11 @@ describe("ScheduleFailureBanner", () => {
   it("shows the failure count and sanitized last error", () => {
     render(
       <ScheduleFailureBanner
-        schedule={{ consecutive_failures: 3, last_error: "SpotifyAuthError" }}
+        schedule={{
+          status: "enabled",
+          consecutive_failures: 3,
+          last_error: "SpotifyAuthError",
+        }}
       />,
     );
     expect(screen.getByRole("alert")).toBeInTheDocument();
@@ -29,7 +50,11 @@ describe("ScheduleFailureBanner", () => {
   it("uses singular wording for a single failure", () => {
     render(
       <ScheduleFailureBanner
-        schedule={{ consecutive_failures: 1, last_error: null }}
+        schedule={{
+          status: "enabled",
+          consecutive_failures: 1,
+          last_error: null,
+        }}
       />,
     );
     expect(

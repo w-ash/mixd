@@ -15,3 +15,4 @@ paths:
 - **httpx event hooks on AsyncClient**: hooks MUST be `async def` — `AsyncClient` always awaits them; sync hook raises `TypeError`
 - **No TYPE_CHECKING** unless circular imports (exception: `operations.py` → `spotify/personal_data`)
 - **Multi-exception syntax**: `except CancelledError, Exception:` (no parens, PEP 758)
+- **No suppressions**: resolve lint/type warnings by fixing the code, not `# noqa` / `# type: ignore` / `# pyright: ignore[...]` / file-level `reportAny`. For `Any`, reach for `object`, `Awaitable[T]`, `ParamSpec`, `Protocol`, `TypeVar`, or Pydantic models. A genuinely-required suppression (third-party stubs, `# noqa: S104` for an intentional `0.0.0.0` bind) needs user sign-off first.

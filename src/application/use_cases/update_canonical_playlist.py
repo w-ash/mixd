@@ -162,127 +162,7 @@ class UpdateCanonicalPlaylistUseCase:
 
         async with uow:
             try:
-                # Step 1: Get current playlist state
-                current_playlist = await require_playlist(
-                    command.playlist_id, uow, user_id=command.user_id
-                )
-
-                # Step 1.5: Process ConnectorPlaylist data if present (returns Playlist or TrackList)
-                source_data = command.new_tracklist
-                if command.connector_playlist is not None:
-                    from src.application.services.connector_playlist_processing_service import (
-                        ConnectorPlaylistProcessingService,
-                    )
-
-                    processing_service = ConnectorPlaylistProcessingService()
-                    source_data = await processing_service.process_connector_playlist(
-                        command.connector_playlist, uow, user_id=command.user_id
-                    )
-
-                # Convert source_data to Playlist if it's a TrackList
-                if isinstance(source_data, Playlist):
-                    processed_playlist = source_data
-                else:
-                    # Convert TrackList to Playlist with current timestamp for new entries
-                    processed_playlist = Playlist.from_tracklist(
-                        name=current_playlist.name,  # Use existing name
-                        tracklist=source_data,
-                        added_at=datetime.now(UTC),  # Timestamp for new tracks
-                    )
-
-                # Step 2: Handle metadata updates (name/description)
-                if (
-                    command.playlist_name is not None
-                    or command.playlist_description is not None
-                ):
-                    current_playlist = await self._update_playlist_metadata(
-                        current_playlist, command, uow
-                    )
-
-                # Short-circuit: metadata-only update (no tracks, no connector playlist)
-                has_tracks = bool(command.new_tracklist.tracks)
-                has_connector = command.connector_playlist is not None
-                if not has_tracks and not has_connector:
-                    if not command.dry_run:
-                        await uow.commit()
-                    return UpdateCanonicalPlaylistResult(
-                        playlist=current_playlist,
-                        execution_time_ms=timer.stop(),
-                    )
-
-                # Step 3: Handle track updates based on mode
-                playlist_changes: dict[str, object] = {}
-                if command.append_mode:
-                    # Append mode: add new tracks to end of existing playlist
-                    (
-                        result_playlist,
-                        operations_performed,
-                        operation_counts,
-                    ) = await self._append_entries(
-                        current_playlist, processed_playlist, uow, command.dry_run
-                    )
-                    confidence_score = 1.0  # High confidence for simple append
-
-                    # Extract metrics from new tracks (only for non-dry runs)
-                    if not command.dry_run:
-                        await self.metrics_service.extract_track_metrics(
-                            processed_playlist.tracks, uow
-                        )
-                else:
-                    # Overwrite mode: use diff engine with preservation
-                    diff = calculate_playlist_diff(current_playlist, processed_playlist)
-
-                    if not diff.has_changes:
-                        logger.info("No changes detected, playlist already up to date")
-                        return UpdateCanonicalPlaylistResult(
-                            playlist=current_playlist,
-                            execution_time_ms=timer.stop(),
-                            confidence_score=diff.confidence_score,
-                        )
-
-                    # Execute differential operations
-                    result_playlist = current_playlist
-                    operations_performed = 0
-                    operation_counts = OperationCounts()
-
-                    if not command.dry_run:
-                        (
-                            result_playlist,
-                            operations_performed,
-                            operation_counts,
-                        ) = await self._execute_operations(
-                            current_playlist, diff, processed_playlist, uow
-                        )
-                    confidence_score = diff.confidence_score
-                    playlist_changes = build_playlist_changes(diff, command.playlist_id)
-
-                    # Extract metrics from new tracks (only for non-dry runs)
-                    if not command.dry_run:
-                        await self.metrics_service.extract_track_metrics(
-                            processed_playlist.tracks, uow
-                        )
-
-                # Commit changes if not dry run
-                if not command.dry_run:
-                    await uow.commit()
-
-                result = UpdateCanonicalPlaylistResult(
-                    playlist=result_playlist,
-                    operations_performed=operations_performed,
-                    operation_counts=operation_counts,
-                    execution_time_ms=timer.stop(),
-                    confidence_score=confidence_score,
-                    playlist_changes=playlist_changes,
-                )
-
-                logger.info(
-                    "Canonical playlist update completed",
-                    playlist_id=command.playlist_id,
-                    operations_performed=operations_performed,
-                    execution_time_ms=timer.elapsed_ms,
-                    dry_run=command.dry_run,
-                )
-
+                result = await self._update_playlist(command, uow, timer)
             except Exception as e:
                 # Explicit rollback on business logic failure
                 await uow.rollback()
@@ -294,6 +174,136 @@ class UpdateCanonicalPlaylistUseCase:
                 raise
             else:
                 return result
+
+    async def _update_playlist(
+        self,
+        command: UpdateCanonicalPlaylistCommand,
+        uow: UnitOfWorkProtocol,
+        timer: ExecutionTimer,
+    ) -> UpdateCanonicalPlaylistResult:
+        """Applies the requested metadata/track updates and builds the result."""
+        # Step 1: Get current playlist state
+        current_playlist = await require_playlist(
+            command.playlist_id, uow, user_id=command.user_id
+        )
+
+        # Step 1.5: Process ConnectorPlaylist data if present (returns Playlist or TrackList)
+        source_data = command.new_tracklist
+        if command.connector_playlist is not None:
+            from src.application.services.connector_playlist_processing_service import (
+                ConnectorPlaylistProcessingService,
+            )
+
+            processing_service = ConnectorPlaylistProcessingService()
+            source_data = await processing_service.process_connector_playlist(
+                command.connector_playlist, uow, user_id=command.user_id
+            )
+
+        # Convert source_data to Playlist if it's a TrackList
+        if isinstance(source_data, Playlist):
+            processed_playlist = source_data
+        else:
+            # Convert TrackList to Playlist with current timestamp for new entries
+            processed_playlist = Playlist.from_tracklist(
+                name=current_playlist.name,  # Use existing name
+                tracklist=source_data,
+                added_at=datetime.now(UTC),  # Timestamp for new tracks
+            )
+
+        # Step 2: Handle metadata updates (name/description)
+        if (
+            command.playlist_name is not None
+            or command.playlist_description is not None
+        ):
+            current_playlist = await self._update_playlist_metadata(
+                current_playlist, command, uow
+            )
+
+        # Short-circuit: metadata-only update (no tracks, no connector playlist)
+        has_tracks = bool(command.new_tracklist.tracks)
+        has_connector = command.connector_playlist is not None
+        if not has_tracks and not has_connector:
+            if not command.dry_run:
+                await uow.commit()
+            return UpdateCanonicalPlaylistResult(
+                playlist=current_playlist,
+                execution_time_ms=timer.stop(),
+            )
+
+        # Step 3: Handle track updates based on mode
+        playlist_changes: dict[str, object] = {}
+        if command.append_mode:
+            # Append mode: add new tracks to end of existing playlist
+            (
+                result_playlist,
+                operations_performed,
+                operation_counts,
+            ) = await self._append_entries(
+                current_playlist, processed_playlist, uow, command.dry_run
+            )
+            confidence_score = 1.0  # High confidence for simple append
+
+            # Extract metrics from new tracks (only for non-dry runs)
+            if not command.dry_run:
+                await self.metrics_service.extract_track_metrics(
+                    processed_playlist.tracks, uow
+                )
+        else:
+            # Overwrite mode: use diff engine with preservation
+            diff = calculate_playlist_diff(current_playlist, processed_playlist)
+
+            if not diff.has_changes:
+                logger.info("No changes detected, playlist already up to date")
+                return UpdateCanonicalPlaylistResult(
+                    playlist=current_playlist,
+                    execution_time_ms=timer.stop(),
+                    confidence_score=diff.confidence_score,
+                )
+
+            # Execute differential operations
+            result_playlist = current_playlist
+            operations_performed = 0
+            operation_counts = OperationCounts()
+
+            if not command.dry_run:
+                (
+                    result_playlist,
+                    operations_performed,
+                    operation_counts,
+                ) = await self._execute_operations(
+                    current_playlist, diff, processed_playlist, uow
+                )
+            confidence_score = diff.confidence_score
+            playlist_changes = build_playlist_changes(diff, command.playlist_id)
+
+            # Extract metrics from new tracks (only for non-dry runs)
+            if not command.dry_run:
+                await self.metrics_service.extract_track_metrics(
+                    processed_playlist.tracks, uow
+                )
+
+        # Commit changes if not dry run
+        if not command.dry_run:
+            await uow.commit()
+
+        result = UpdateCanonicalPlaylistResult(
+            playlist=result_playlist,
+            operations_performed=operations_performed,
+            operation_counts=operation_counts,
+            execution_time_ms=timer.stop(),
+            confidence_score=confidence_score,
+            playlist_changes=playlist_changes,
+        )
+
+        logger.info(
+            "Canonical playlist update completed",
+            playlist_id=command.playlist_id,
+            operations_performed=operations_performed,
+            execution_time_ms=timer.elapsed_ms,
+            dry_run=command.dry_run,
+        )
+
+        return result
 
     async def _execute_operations(
         self,

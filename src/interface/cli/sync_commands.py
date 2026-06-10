@@ -121,7 +121,7 @@ def _list_schedules() -> None:
     except Exception as e:
         handle_cli_error(e, "Failed to list schedules")
 
-    if not result.schedules:
+    if not result.entries:
         console.print("[dim]No schedules configured.[/dim]")
         return
 
@@ -132,8 +132,8 @@ def _list_schedules() -> None:
     table.add_column("Status")
     table.add_column("Failures", justify="right")
 
-    for s in result.schedules:
-        target = str(s.workflow_id) if s.target_type == "workflow" else s.sync_target
+    for entry in result.entries:
+        s = entry.schedule
         status = (
             "[green]enabled[/green]" if s.status == "enabled" else "[dim]disabled[/dim]"
         )
@@ -141,7 +141,7 @@ def _list_schedules() -> None:
             f"[red]{s.consecutive_failures}[/red]" if s.consecutive_failures else "0"
         )
         table.add_row(
-            f"{s.target_type}: {target}",
+            f"{s.target_type}: {entry.target_label}",
             describe_cadence(s),
             format_next_run(s),
             status,

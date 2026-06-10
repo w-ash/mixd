@@ -22,6 +22,7 @@ from src.infrastructure.persistence.database.db_models import (
     DBConnectorPlaylist,
     DBPlaylistMapping,
 )
+from src.infrastructure.persistence.repositories.base_repo import rows_affected
 from src.infrastructure.persistence.repositories.repo_decorator import db_operation
 
 logger = get_logger(__name__)
@@ -189,7 +190,7 @@ class PlaylistLinkRepository:
             .values(sync_direction=direction.value)
         )
         result = await self._session.execute(stmt)
-        if result.rowcount == 0:
+        if rows_affected(result) == 0:
             return None
         return await self.get_link(link_id)
 

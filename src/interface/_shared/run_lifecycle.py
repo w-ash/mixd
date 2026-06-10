@@ -37,8 +37,17 @@ async def run_repo_session():
     )
 
     async with get_session(rollback=False) as session:
-        yield WorkflowRunRepository(session)
-        await session.commit()
+        committed = False
+        try:
+            yield WorkflowRunRepository(session)
+            committed = True
+        finally:
+            # Commit only on clean exit — a consumer error (or cancellation)
+            # leaves ``committed`` False and the session is discarded unchanged,
+            # exactly as before. The try/finally just guarantees the commit
+            # decision is evaluated even though it follows the ``yield``.
+            if committed:
+                await session.commit()
 
 
 async def update_run_status(

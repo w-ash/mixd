@@ -17,7 +17,9 @@ export default defineConfig({
           name: "customFetch",
         },
         query: {
-          useQuery: true,
+          // Defaults: GET -> useQuery, non-GET -> useMutation. (orval 8.15
+          // changed precedence so a global `useQuery: true` would force POST/
+          // PUT/DELETE into query hooks and suppress mutations — so don't set it.)
           useSuspenseQuery: false,
         },
       },

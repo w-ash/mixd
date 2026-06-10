@@ -87,59 +87,7 @@ class LastFMProvider:
             failures: list[MatchFailure] = []
 
             try:
-                # Get batch track info from LastFM
-                logger.info(f"Fetching LastFM metadata for {len(tracks)} tracks")
-
-                track_infos = await self.connector_instance.get_track_info_batch(
-                    tracks=tracks
-                )
-                logger.info(
-                    f"LastFM API completed: retrieved {len(track_infos)} track metadata results"
-                )
-
-                # Process results and classify failures
-                processed_track_ids: set[UUID] = set()
-                for track_id, track_info in track_infos.items():
-                    processed_track_ids.add(track_id)
-
-                    if track_info and track_info.lastfm_url:
-                        raw_match = self._create_raw_match(track_info)
-                        if raw_match:
-                            matches[track_id] = raw_match
-                        else:
-                            failures.append(
-                                create_and_log_failure(
-                                    track_id,
-                                    MatchFailureReason.INVALID_RESPONSE,
-                                    self.service_name,
-                                    "batch_lookup",
-                                    "Failed to create raw match from LastFM response",
-                                )
-                            )
-                    else:
-                        failures.append(
-                            create_and_log_failure(
-                                track_id,
-                                MatchFailureReason.NO_RESULTS,
-                                self.service_name,
-                                "batch_lookup",
-                                "No LastFM data available for track",
-                            )
-                        )
-
-                # Handle tracks that weren't returned by LastFM API
-                failures.extend(
-                    create_and_log_failure(
-                        track.id,
-                        MatchFailureReason.NO_RESULTS,
-                        self.service_name,
-                        "batch_lookup",
-                        "Track not found in LastFM batch response",
-                    )
-                    for track in tracks
-                    if track.id and track.id not in processed_track_ids
-                )
-
+                await self._fetch_and_classify_batch(tracks, matches, failures)
             except Exception as e:
                 # Batch API failed - all tracks failed
                 failures.extend(
@@ -163,6 +111,64 @@ class LastFMProvider:
             logger.info(f"Found {len(matches)} matches from {len(tracks)} tracks")
 
             return ProviderMatchResult(matches=matches, failures=failures)
+
+    async def _fetch_and_classify_batch(
+        self,
+        tracks: list[Track],
+        matches: dict[UUID, RawProviderMatch],
+        failures: list[MatchFailure],
+    ) -> None:
+        """Fetch LastFM batch metadata and classify into matches/failures."""
+        # Get batch track info from LastFM
+        logger.info(f"Fetching LastFM metadata for {len(tracks)} tracks")
+
+        track_infos = await self.connector_instance.get_track_info_batch(tracks=tracks)
+        logger.info(
+            f"LastFM API completed: retrieved {len(track_infos)} track metadata results"
+        )
+
+        # Process results and classify failures
+        processed_track_ids: set[UUID] = set()
+        for track_id, track_info in track_infos.items():
+            processed_track_ids.add(track_id)
+
+            if track_info and track_info.lastfm_url:
+                raw_match = self._create_raw_match(track_info)
+                if raw_match:
+                    matches[track_id] = raw_match
+                else:
+                    failures.append(
+                        create_and_log_failure(
+                            track_id,
+                            MatchFailureReason.INVALID_RESPONSE,
+                            self.service_name,
+                            "batch_lookup",
+                            "Failed to create raw match from LastFM response",
+                        )
+                    )
+            else:
+                failures.append(
+                    create_and_log_failure(
+                        track_id,
+                        MatchFailureReason.NO_RESULTS,
+                        self.service_name,
+                        "batch_lookup",
+                        "No LastFM data available for track",
+                    )
+                )
+
+        # Handle tracks that weren't returned by LastFM API
+        failures.extend(
+            create_and_log_failure(
+                track.id,
+                MatchFailureReason.NO_RESULTS,
+                self.service_name,
+                "batch_lookup",
+                "Track not found in LastFM batch response",
+            )
+            for track in tracks
+            if track.id and track.id not in processed_track_ids
+        )
 
     def _create_raw_match(self, track_info: LastFMTrackInfo) -> RawProviderMatch | None:
         """Create raw match data from LastFM track data.

@@ -29,6 +29,7 @@ const baseProps = {
 
 const lastRun: LastRunSchema = {
   id: "run-9",
+  run_number: 9,
   status: "completed",
   definition_version: 3,
   completed_at: "2026-06-01T10:00:00Z",
@@ -39,6 +40,7 @@ function activeRun(): WorkflowRunSummarySchema {
   return {
     id: "run-live",
     workflow_id: "wf-1",
+    run_number: 12,
     status: "running",
     operation_id: "op-live",
     started_at: "2026-06-05T10:00:00Z",

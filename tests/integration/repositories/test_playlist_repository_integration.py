@@ -123,6 +123,67 @@ class TestPlaylistRepositoryIntegration:
             == test_playlist.connector_playlist_identifiers
         )
 
+    async def test_round_trip_preserves_tracks_and_connector_ids(self, db_session):
+        """A non-empty playlist round-trips BOTH its tracks and its
+        connector_playlist_identifiers through the production get path.
+
+        Closes the gap the eager-load refactor hinges on: ``to_domain`` reads
+        ``tracks -> track`` and ``mappings -> connector_playlist`` via no-I/O
+        primitives, so the deep ``get_default_relationships`` chain MUST
+        materialize both. Existing tests covered tracks-without-connector-ids
+        (``test_save_and_retrieve_playlist``) and connector-ids-without-tracks
+        (``test_playlist_with_connector_identifiers``) separately — only their
+        combination exercises the silent-empty failure mode.
+        """
+        uow = get_unit_of_work(db_session)
+        playlist_repo = uow.get_playlist_repository()
+        track_repo = uow.get_track_repository()
+
+        saved_track1 = await track_repo.save_track(
+            make_track(
+                title=f"TEST_Track_{uuid4()}",
+                artist=f"TEST_Artist_{uuid4()}",
+                connector_track_identifiers={},
+            )
+        )
+        saved_track2 = await track_repo.save_track(
+            make_track(
+                title=f"TEST_Track_{uuid4()}",
+                artist=f"TEST_Artist_{uuid4()}",
+                connector_track_identifiers={},
+            )
+        )
+
+        base = Playlist.from_tracklist(
+            name=f"TEST_Playlist_{uuid4()}",
+            tracklist=[saved_track1, saved_track2],
+        )
+        connector_ids = {
+            "spotify": f"spotify_{uuid4()}",
+            "lastfm": f"lastfm_{uuid4()}",
+        }
+        playlist = Playlist(
+            id=base.id,
+            name=base.name,
+            entries=base.entries,
+            connector_playlist_identifiers=connector_ids,
+        )
+        saved = await playlist_repo.save_playlist(playlist)
+
+        # Production read path (explicit loader).
+        retrieved = await playlist_repo.get_playlist_by_id(saved.id, user_id="default")
+        assert len(retrieved.entries) == 2
+        assert {e.track.title for e in retrieved.entries} == {
+            saved_track1.title,
+            saved_track2.title,
+        }
+        assert retrieved.connector_playlist_identifiers == connector_ids
+
+        # Inherited get_by_id path must agree (both share the deep loader).
+        via_get_by_id = await playlist_repo.get_by_id(saved.id)
+        assert len(via_get_by_id.entries) == 2
+        assert via_get_by_id.connector_playlist_identifiers == connector_ids
+
     async def test_playlist_track_management_operations(self, db_session):
         """Test advanced playlist track management: add, remove, reorder tracks."""
         uow = get_unit_of_work(db_session)

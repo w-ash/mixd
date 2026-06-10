@@ -22,6 +22,24 @@ _connectors: dict[str, ConnectorConfig] = {}
 _connectors_cache: dict[str, ConnectorConfig] | None = None
 
 
+def _load_connector_config(name: str) -> ConnectorConfig | None:
+    """Import a connector module and return its config, or None if it has none.
+
+    Holds the import + config resolution so the caller's ``try``/``except
+    ImportError`` stays narrow while still covering every statement that can
+    raise ``ImportError`` — both ``import_module`` and ``get_config()`` (which
+    triggers a connector's deferred optional-dependency imports).
+    """
+    connector_module = importlib.import_module(name)
+    if not hasattr(connector_module, "get_connector_config"):
+        return None
+    get_config = cast(
+        "Callable[[], ConnectorConfig]",
+        connector_module.get_connector_config,
+    )
+    return get_config()
+
+
 def discover_connectors() -> dict[str, ConnectorConfig]:
     """Discover and register connector configurations.
 
@@ -57,21 +75,15 @@ def discover_connectors() -> dict[str, ConnectorConfig]:
             continue
 
         try:
-            # Import the module/subpackage
-            connector_module = importlib.import_module(name)
-
-            # Check if module implements connector interface
-            if hasattr(connector_module, "get_connector_config"):
-                # Register the connector by name
-                get_config = cast(
-                    "Callable[[], ConnectorConfig]",
-                    connector_module.get_connector_config,
-                )
-                config = get_config()
-                _connectors[module_name] = config
-                logger.debug(f"Registered connector: {module_name}")
+            config = _load_connector_config(name)
         except ImportError as e:
             logger.warning(f"Could not import connector module {module_name}: {e}")
+        else:
+            # Non-fallible registration — kept out of the try so the ImportError
+            # guard covers only the import/config resolution, as before.
+            if config is not None:
+                _connectors[module_name] = config
+                logger.debug(f"Registered connector: {module_name}")
 
     logger.info(
         f"Discovered {len(_connectors)} connectors: {', '.join(_connectors.keys())}",

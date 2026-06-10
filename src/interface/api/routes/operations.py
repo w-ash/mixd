@@ -151,6 +151,7 @@ def _to_snapshot(operation_id: str, run: WorkflowRun) -> OperationSnapshotRespon
     return OperationSnapshotResponse(
         id=run.id,
         workflow_id=run.workflow_id,
+        run_number=run.run_number,
         status=run.status,
         definition_version=run.definition_version,
         started_at=run.started_at,

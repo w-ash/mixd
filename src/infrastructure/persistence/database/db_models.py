@@ -14,8 +14,9 @@ All entities use hard deletes for simplicity and performance.
 Data recovery relies on external API re-import and database backups.
 """
 
+from collections.abc import Sequence
 from datetime import UTC, datetime
-from typing import Any, ClassVar
+from typing import Any, ClassVar, cast
 import uuid as uuid_mod
 
 from sqlalchemy import (
@@ -26,12 +27,15 @@ from sqlalchemy import (
     MetaData,
     String,
     UniqueConstraint,
+    inspect,
     text,
 )
 from sqlalchemy.dialects import postgresql as pg_dialect
 from sqlalchemy.ext.asyncio import AsyncAttrs
 from sqlalchemy.orm import (
+    NO_VALUE,
     DeclarativeBase,
+    InstrumentedAttribute,
     Mapped,
     mapped_column,
     relationship,
@@ -86,6 +90,43 @@ class DatabaseModel(AsyncAttrs, DeclarativeBase):
     id: Mapped[UuidType] = mapped_column(
         PgUuidCol(as_uuid=True), primary_key=True, default=uuid_mod.uuid7, sort_order=-1
     )
+
+    def loaded_list[T](
+        self, attribute: InstrumentedAttribute[Sequence[T]], item_type: type[T]
+    ) -> list[T]:
+        """Read an eager-loaded ``*``-to-many relationship as a typed list.
+
+        Zero I/O: ``AttributeState.loaded_value`` is a plain dict lookup against
+        the instance state (``state.dict.get(key, NO_VALUE)``), so this can never
+        emit SQL or hit a greenlet boundary. Returns ``[]`` when the relationship
+        was not eager-loaded — a forgotten ``selectinload`` degrades gracefully
+        instead of lazy-loading. ``item_type`` narrows ``loaded_value`` (typed
+        ``Any`` in the stubs) and filters out any element of the wrong type.
+
+        Pass the ORM descriptor directly: ``model.loaded_list(DBPlaylist.tracks,
+        DBPlaylistTrack)``.
+        """
+        value = cast(object, inspect(self).attrs[attribute.key].loaded_value)
+        if value is NO_VALUE or not isinstance(value, list):
+            return []
+        return [
+            item for item in cast("list[object]", value) if isinstance(item, item_type)
+        ]
+
+    def loaded_one[T](
+        self, attribute: InstrumentedAttribute[T], item_type: type[T]
+    ) -> T | None:
+        """Read an eager-loaded ``*``-to-one relationship as a typed value-or-None.
+
+        The to-one counterpart of :meth:`loaded_list`. Zero I/O; returns ``None``
+        when the relationship was not eager-loaded (``loaded_value`` is ``NO_VALUE``,
+        which fails the ``isinstance`` check) or holds the wrong type.
+
+        Pass the ORM descriptor directly: ``mapping.loaded_one(
+        DBTrackMapping.connector_track, DBConnectorTrack)``.
+        """
+        value = cast(object, inspect(self).attrs[attribute.key].loaded_value)
+        return value if isinstance(value, item_type) else None
 
 
 class TimestampMixin:
@@ -153,6 +194,7 @@ class DBTrack(BaseEntity):
     mappings: Mapped[list[DBTrackMapping]] = relationship(
         back_populates="track",
         passive_deletes=True,
+        lazy="raise_on_sql",
     )
     metrics: Mapped[list[DBTrackMetric]] = relationship(
         back_populates="track",
@@ -161,6 +203,7 @@ class DBTrack(BaseEntity):
     likes: Mapped[list[DBTrackLike]] = relationship(
         back_populates="track",
         cascade="all, delete-orphan",
+        lazy="raise_on_sql",
     )
     plays: Mapped[list[DBTrackPlay]] = relationship(
         back_populates="track",
@@ -272,6 +315,7 @@ class DBTrackMapping(BaseEntity):
     connector_track: Mapped[DBConnectorTrack] = relationship(
         back_populates="mappings",
         passive_deletes=True,
+        lazy="raise_on_sql",
     )
 
     __table_args__: tuple[SchemaItem, ...] = (
@@ -567,10 +611,12 @@ class DBPlaylist(BaseEntity):
     tracks: Mapped[list[DBPlaylistTrack]] = relationship(
         back_populates="playlist",
         cascade="all, delete-orphan",
+        lazy="raise_on_sql",
     )
     mappings: Mapped[list[DBPlaylistMapping]] = relationship(
         back_populates="playlist",
         passive_deletes=True,
+        lazy="raise_on_sql",
     )
 
 
@@ -670,6 +716,7 @@ class DBPlaylistMapping(BaseEntity):
     connector_playlist: Mapped[DBConnectorPlaylist] = relationship(
         back_populates="mappings",
         passive_deletes=True,
+        lazy="raise_on_sql",
     )
 
 
@@ -733,6 +780,7 @@ class DBPlaylistTrack(BaseEntity):
     track: Mapped[DBTrack] = relationship(
         back_populates="playlist_tracks",
         passive_deletes=True,
+        lazy="raise_on_sql",
     )
 
 
@@ -796,6 +844,12 @@ class DBWorkflowRun(DatabaseModel, TimestampMixin):
         PgUuidCol(as_uuid=True),
         ForeignKey("workflows.id", ondelete="CASCADE"),
     )
+    # Per-workflow sequential run number (1, 2, 3 …) — the human-facing run
+    # identity the UI shows instead of the UUID. Assigned at create_run as
+    # MAX(run_number)+1 for the workflow (migration 027). The server_default="0"
+    # matches the migration (deploy-window safety for the prior release) and keeps
+    # autogenerate from flagging drift; create_run always sets the real value.
+    run_number: Mapped[int] = mapped_column(nullable=False, server_default=text("0"))
     # SSE registry's queue key. Lets the snapshot endpoint resolve
     # operation_id -> run row without the in-memory registry, so a
     # restarted Fly machine still answers /operations/{id}/snapshot.

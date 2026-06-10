@@ -12,6 +12,7 @@ from src.domain.entities.playlist import ConnectorPlaylist, Playlist, PlaylistEn
 from src.domain.entities.shared import JsonValue
 from src.domain.entities.track import ConnectorTrack, Track
 from src.domain.repositories import UnitOfWorkProtocol
+from src.domain.repositories.interfaces import ConnectorRepositoryProtocol
 
 logger = get_logger(__name__)
 
@@ -185,18 +186,13 @@ class ConnectorPlaylistProcessingService:
                 # Retry individual tracks to handle partial conflicts
                 for connector_track in new_connector_tracks:
                     try:
-                        single_track_result = (
-                            await connector_repo.ingest_external_tracks_bulk(
-                                connector_name, [connector_track], user_id=user_id
-                            )
+                        await self._ingest_single_track(
+                            connector_repo,
+                            connector_name,
+                            connector_track,
+                            track_id_to_domain_track,
+                            user_id=user_id,
                         )
-                        if single_track_result:
-                            track = single_track_result[0]
-                            connector_track_id = track.connector_track_identifiers.get(
-                                connector_name
-                            )
-                            if connector_track_id:
-                                track_id_to_domain_track[connector_track_id] = track
                     except Exception as individual_error:
                         logger.warning(
                             f"Failed to ingest individual track {connector_track.connector_track_identifier}",
@@ -298,3 +294,27 @@ class ConnectorPlaylistProcessingService:
                 "unique_tracks": len(track_id_to_domain_track),
             },
         )
+
+    async def _ingest_single_track(
+        self,
+        connector_repo: ConnectorRepositoryProtocol,
+        connector_name: str,
+        connector_track: ConnectorTrack,
+        track_id_to_domain_track: dict[str, Track],
+        *,
+        user_id: str,
+    ) -> None:
+        """Ingest one connector track and record it in the domain-track mapping.
+
+        Extracted from the individual-retry loop so the protective ``try`` clause
+        stays small; the same statements remain guarded by the caller's broad
+        ``except``.
+        """
+        single_track_result = await connector_repo.ingest_external_tracks_bulk(
+            connector_name, [connector_track], user_id=user_id
+        )
+        if single_track_result:
+            track = single_track_result[0]
+            connector_track_id = track.connector_track_identifiers.get(connector_name)
+            if connector_track_id:
+                track_id_to_domain_track[connector_track_id] = track

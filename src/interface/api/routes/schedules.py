@@ -26,6 +26,7 @@ from src.interface.api.routes._schedule_ops import (
     upsert_schedule,
 )
 from src.interface.api.schemas.schedules import (
+    ScheduleListItem,
     ScheduleListResponse,
     ScheduleResponse,
     ScheduleToggleRequest,
@@ -47,7 +48,13 @@ async def list_schedules(
         user_id=user_id,
     )
     return ScheduleListResponse(
-        data=[ScheduleResponse.model_validate(s) for s in result.schedules]
+        data=[
+            ScheduleListItem.from_response(
+                ScheduleResponse.model_validate(e.schedule),
+                target_label=e.target_label,
+            )
+            for e in result.entries
+        ]
     )
 
 

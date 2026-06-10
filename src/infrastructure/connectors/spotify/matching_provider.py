@@ -8,7 +8,7 @@ from typing import override
 from uuid import UUID
 
 from src.config import create_matching_config, get_logger
-from src.domain.entities import Track
+from src.domain.entities import Artist, Track
 from src.domain.entities.shared import JsonValue
 from src.domain.matching.algorithms import select_best_by_title_similarity
 from src.domain.matching.config import MatchingConfig
@@ -86,39 +86,44 @@ class SpotifyProvider(BaseMatchingProvider):
 
             # Call Spotify API
             try:
-                result = await self.connector_instance.search_by_isrc(track.isrc)
-                if result and result.id:
-                    raw_match = self._create_raw_match(result, "isrc")
-                    if raw_match:
-                        matches[track.id] = raw_match
-                    else:
-                        failures.append(
-                            create_and_log_failure(
-                                track.id,
-                                MatchFailureReason.INVALID_RESPONSE,
-                                self.service_name,
-                                "isrc",
-                                "Failed to create raw match from Spotify response",
-                            )
-                        )
-                else:
-                    failures.append(
-                        create_and_log_failure(
-                            track.id,
-                            MatchFailureReason.NO_RESULTS,
-                            self.service_name,
-                            "isrc",
-                            f"No Spotify results for ISRC: {track.isrc}",
-                        )
-                    )
+                match, failure = await self._match_track_by_isrc(track.id, track.isrc)
             except Exception as e:
                 failures.append(
                     handle_track_processing_failure(
                         track.id, self.service_name, "isrc", e
                     )
                 )
+            else:
+                if match is not None:
+                    matches[track.id] = match
+                if failure is not None:
+                    failures.append(failure)
 
         return matches, failures
+
+    async def _match_track_by_isrc(
+        self, track_id: UUID, isrc: str
+    ) -> tuple[RawProviderMatch | None, MatchFailure | None]:
+        """Search Spotify by ISRC for one track; return (match, failure)."""
+        result = await self.connector_instance.search_by_isrc(isrc)
+        if result and result.id:
+            raw_match = self._create_raw_match(result, "isrc")
+            if raw_match:
+                return raw_match, None
+            return None, create_and_log_failure(
+                track_id,
+                MatchFailureReason.INVALID_RESPONSE,
+                self.service_name,
+                "isrc",
+                "Failed to create raw match from Spotify response",
+            )
+        return None, create_and_log_failure(
+            track_id,
+            MatchFailureReason.NO_RESULTS,
+            self.service_name,
+            "isrc",
+            f"No Spotify results for ISRC: {isrc}",
+        )
 
     @override
     async def _match_by_artist_title(
@@ -154,76 +159,75 @@ class SpotifyProvider(BaseMatchingProvider):
 
             # Call Spotify API — fetch multiple candidates and pick best by title similarity
             try:
-                artist_name = track.artists[0].name if track.artists else ""
-                candidates = await self.connector_instance.search_track(
-                    artist_name, track.title
+                match, failure = await self._match_track_by_artist_title_one(
+                    track.id, track.title, track.artists
                 )
-                if not candidates:
-                    failures.append(
-                        create_and_log_failure(
-                            track.id,
-                            MatchFailureReason.NO_RESULTS,
-                            self.service_name,
-                            "artist_title",
-                            f"No Spotify results for '{artist_name} - {track.title}'",
-                        )
-                    )
-                    continue
-
-                # Rank candidates by title similarity, pick the best match
-                best_result = select_best_by_title_similarity(
-                    track.title,
-                    candidates,
-                    lambda c: c.name,
-                    self._matching_config,
-                )
-
-                if best_result is None:
-                    failures.append(
-                        create_and_log_failure(
-                            track.id,
-                            MatchFailureReason.NO_RESULTS,
-                            self.service_name,
-                            "artist_title",
-                            f"No valid Spotify candidates for '{artist_name} - {track.title}'",
-                        )
-                    )
-                    continue
-
-                best = best_result.candidate
-
-                if best.id:
-                    raw_match = self._create_raw_match(best, "artist_title")
-                    if raw_match:
-                        matches[track.id] = raw_match
-                    else:
-                        failures.append(
-                            create_and_log_failure(
-                                track.id,
-                                MatchFailureReason.INVALID_RESPONSE,
-                                self.service_name,
-                                "artist_title",
-                                "Failed to create raw match from Spotify response",
-                            )
-                        )
-                else:
-                    failures.append(
-                        create_and_log_failure(
-                            track.id,
-                            MatchFailureReason.INVALID_RESPONSE,
-                            self.service_name,
-                            "artist_title",
-                            "Best Spotify candidate missing track ID",
-                        )
-                    )
             except Exception as e:
                 failures.append(
                     handle_track_processing_failure(
                         track.id, self.service_name, "artist_title", e
                     )
                 )
+            else:
+                if match is not None:
+                    matches[track.id] = match
+                if failure is not None:
+                    failures.append(failure)
 
         return matches, failures
+
+    async def _match_track_by_artist_title_one(
+        self, track_id: UUID, title: str, artists: list[Artist]
+    ) -> tuple[RawProviderMatch | None, MatchFailure | None]:
+        """Search Spotify by artist/title for one track; return (match, failure)."""
+        artist_name = artists[0].name if artists else ""
+        candidates = await self.connector_instance.search_track(artist_name, title)
+        if not candidates:
+            return None, create_and_log_failure(
+                track_id,
+                MatchFailureReason.NO_RESULTS,
+                self.service_name,
+                "artist_title",
+                f"No Spotify results for '{artist_name} - {title}'",
+            )
+
+        # Rank candidates by title similarity, pick the best match
+        best_result = select_best_by_title_similarity(
+            title,
+            candidates,
+            lambda c: c.name,
+            self._matching_config,
+        )
+
+        if best_result is None:
+            return None, create_and_log_failure(
+                track_id,
+                MatchFailureReason.NO_RESULTS,
+                self.service_name,
+                "artist_title",
+                f"No valid Spotify candidates for '{artist_name} - {title}'",
+            )
+
+        best = best_result.candidate
+
+        if best.id:
+            raw_match = self._create_raw_match(best, "artist_title")
+            if raw_match:
+                return raw_match, None
+            return None, create_and_log_failure(
+                track_id,
+                MatchFailureReason.INVALID_RESPONSE,
+                self.service_name,
+                "artist_title",
+                "Failed to create raw match from Spotify response",
+            )
+        return None, create_and_log_failure(
+            track_id,
+            MatchFailureReason.INVALID_RESPONSE,
+            self.service_name,
+            "artist_title",
+            "Best Spotify candidate missing track ID",
+        )
 
     def _create_raw_match(
         self, spotify_track: SpotifyTrack, match_method: str

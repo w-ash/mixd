@@ -1,10 +1,6 @@
 """Workflow run repository for execution history persistence."""
 
-# pyright: reportAttributeAccessIssue=false, reportUnknownMemberType=false
-# Legitimate: CursorResult.rowcount is valid but invisible to pyright through generic Result[Any]
-
 from datetime import UTC, datetime, timedelta
-from typing import cast
 from uuid import UUID
 
 from sqlalchemy import func, or_, select, update
@@ -21,6 +17,7 @@ from src.infrastructure.persistence.database.db_models import (
     DBWorkflowRun,
     DBWorkflowRunNode,
 )
+from src.infrastructure.persistence.repositories.base_repo import rows_affected
 from src.infrastructure.persistence.repositories.repo_decorator import db_operation
 from src.infrastructure.persistence.repositories.workflow.run_mapper import (
     WorkflowRunMapper,
@@ -64,6 +61,10 @@ class WorkflowRunRepository:
         integrity error re-raises unchanged.
         """
         db_run = self.mapper.to_db(run)
+        # Per-workflow run number = MAX+1. Safe without its own unique index: the
+        # active-run guard below serializes concurrent creates for one workflow,
+        # so two runs can't claim the same number (the loser 409s before commit).
+        db_run.run_number = await self._next_run_number(run.workflow_id)
         self.session.add(db_run)
         try:
             await self.session.flush()
@@ -80,6 +81,13 @@ class WorkflowRunRepository:
         await self.session.flush()
         await self.session.refresh(db_run, attribute_names=["nodes"])
         return self.mapper.to_domain(db_run, include_nodes=True)
+
+    async def _next_run_number(self, workflow_id: UUID) -> int:
+        """The next per-workflow run number (``MAX(run_number)+1``, 1 for the first)."""
+        stmt = select(func.coalesce(func.max(DBWorkflowRun.run_number), 0) + 1).where(
+            DBWorkflowRun.workflow_id == workflow_id
+        )
+        return (await self.session.execute(stmt)).scalar_one()
 
     @db_operation("bump_heartbeat")
     async def bump_heartbeat(self, run_id: UUID) -> None:
@@ -192,12 +200,12 @@ class WorkflowRunRepository:
             # Report whether this write won, so the sweeper counts only real
             # transitions (rowcount==0 → False).
             result = await self.session.execute(stmt.values(**values))
-            return cast("int", result.rowcount) > 0
+            return rows_affected(result) > 0
 
         # Non-terminal write (e.g. pending → running): a missing row is a real
         # error, so keep the strict not-found semantics.
         result = await self.session.execute(stmt.values(**values))
-        if result.rowcount == 0:
+        if rows_affected(result) == 0:
             raise NotFoundError(f"Workflow run {run_id} not found")
         return True
 
@@ -250,7 +258,7 @@ class WorkflowRunRepository:
             )
             .values(**values)
         )
-        if result.rowcount == 0:
+        if rows_affected(result) == 0:
             raise NotFoundError(f"Node '{node_id}' not found in run {run_id}")
 
     @db_operation("get_runs_for_workflow")

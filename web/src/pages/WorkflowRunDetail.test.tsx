@@ -43,6 +43,7 @@ const mockWorkflow = {
 
 const mockRun = {
   id: 5,
+  run_number: 5,
   workflow_id: 1,
   status: "completed",
   definition_version: 2,

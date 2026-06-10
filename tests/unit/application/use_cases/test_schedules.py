@@ -17,14 +17,17 @@ from src.application.use_cases.schedules import (
     DeleteScheduleUseCase,
     GetScheduleCommand,
     GetScheduleUseCase,
+    ListSchedulesCommand,
+    ListSchedulesUseCase,
     ToggleScheduleCommand,
     ToggleScheduleUseCase,
     UpsertScheduleCommand,
     UpsertScheduleUseCase,
 )
 from src.domain.entities.schedule import Schedule
+from src.domain.entities.workflow import Workflow, WorkflowDef
 from src.domain.exceptions import NotFoundError
-from tests.fixtures import make_mock_uow
+from tests.fixtures import make_mock_uow, make_mock_workflow_repo
 
 pytestmark = pytest.mark.unit
 
@@ -212,3 +215,41 @@ class TestGetSchedule:
 
         result = await GetScheduleUseCase().execute(cmd, uow)
         assert result.schedule is existing
+
+
+class TestListSchedules:
+    async def test_resolves_target_labels(self) -> None:
+        wf_id = uuid7()
+        workflow_sched = Schedule(user_id="u1", workflow_id=wf_id, hour=6)
+        sync_sched = Schedule(user_id="u1", sync_target="lastfm:plays", hour=6)
+
+        schedule_repo = AsyncMock()
+        schedule_repo.list_for_user.return_value = [workflow_sched, sync_sched]
+        # The use case resolves a workflow schedule's label from its name.
+        workflow = Workflow(
+            id=wf_id, definition=WorkflowDef(id="x", name="Fresh Faves")
+        )
+        workflow_repo = make_mock_workflow_repo()
+        workflow_repo.list_workflows.return_value = [workflow]
+
+        uow = make_mock_uow(schedule_repo=schedule_repo, workflow_repo=workflow_repo)
+        result = await ListSchedulesUseCase().execute(
+            ListSchedulesCommand(user_id="u1"), uow
+        )
+
+        labels = {e.schedule.target_type: e.target_label for e in result.entries}
+        assert labels == {"workflow": "Fresh Faves", "sync": "Last.fm plays"}
+
+    async def test_skips_workflow_fetch_for_sync_only_user(self) -> None:
+        sync_sched = Schedule(user_id="u1", sync_target="spotify:likes", hour=6)
+        schedule_repo = AsyncMock()
+        schedule_repo.list_for_user.return_value = [sync_sched]
+        workflow_repo = make_mock_workflow_repo()
+
+        uow = make_mock_uow(schedule_repo=schedule_repo, workflow_repo=workflow_repo)
+        result = await ListSchedulesUseCase().execute(
+            ListSchedulesCommand(user_id="u1"), uow
+        )
+
+        assert result.entries[0].target_label == "Spotify likes"
+        workflow_repo.list_workflows.assert_not_awaited()

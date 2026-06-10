@@ -132,117 +132,13 @@ class BasePlayImporter[TRawData](ABC):
         )
 
         try:
-            # Step 2: Fetch raw data (Strategy pattern - implemented by subclasses)
-            await progress_emitter.emit_progress(
-                create_progress_event(
-                    operation_id=operation_id,
-                    current=20,
-                    total=100,
-                    message="Fetching data...",
-                    status=ProgressStatus.IN_PROGRESS,
-                )
-            )
-
-            raw_data = await self._fetch_data(
+            result = await self._run_import_pipeline(
                 progress_emitter=progress_emitter,
-                uow=uow,
                 operation_id=operation_id,
-                **kwargs,
-            )
-
-            if not raw_data:
-                # Handle empty data case - still call checkpoints for consistency
-                await progress_emitter.emit_progress(
-                    create_progress_event(
-                        operation_id=operation_id,
-                        current=90,
-                        total=100,
-                        message="No data to import - updating checkpoints...",
-                        status=ProgressStatus.IN_PROGRESS,
-                    )
-                )
-
-                await self._handle_checkpoints(raw_data=raw_data, uow=uow, **kwargs)
-
-                await progress_emitter.complete_operation(
-                    operation_id, OperationStatus.COMPLETED
-                )
-                return self._create_empty_result(batch_id)
-
-            # Step 3: Process raw data into TrackPlay objects (Strategy pattern)
-            await progress_emitter.emit_progress(
-                create_progress_event(
-                    operation_id=operation_id,
-                    current=60,
-                    total=100,
-                    message=f"Processing {len(raw_data)} records...",
-                    status=ProgressStatus.IN_PROGRESS,
-                )
-            )
-
-            track_plays = await self._process_data(
-                raw_data=raw_data,
                 batch_id=batch_id,
                 import_timestamp=import_timestamp,
-                progress_emitter=progress_emitter,
                 uow=uow,
                 **kwargs,
-            )
-
-            # Step 4: Save to database (Template - always the same)
-            await progress_emitter.emit_progress(
-                create_progress_event(
-                    operation_id=operation_id,
-                    current=80,
-                    total=100,
-                    message=f"Saving {len(track_plays)} plays to database...",
-                    status=ProgressStatus.IN_PROGRESS,
-                )
-            )
-
-            imported_count, duplicate_count = await self._save_data(track_plays, uow)
-
-            # Step 5: Handle checkpoints (Strategy pattern - delegated to subclasses)
-            await progress_emitter.emit_progress(
-                create_progress_event(
-                    operation_id=operation_id,
-                    current=90,
-                    total=100,
-                    message="Updating checkpoints...",
-                    status=ProgressStatus.IN_PROGRESS,
-                )
-            )
-
-            try:
-                await self._handle_checkpoints(raw_data=raw_data, uow=uow, **kwargs)
-            except Exception as e:
-                logger.error(
-                    f"Checkpoint handling failed: {e}",
-                    batch_id=batch_id,
-                    service=self.__class__.__name__,
-                    error_type=type(e).__name__,
-                    error_str=str(e),
-                )
-                raise
-
-            # Step 6: Create success result (Template - standardized format)
-            await progress_emitter.complete_operation(
-                operation_id, OperationStatus.COMPLETED
-            )
-
-            logger.info(
-                f"{self.operation_name} completed successfully",
-                batch_id=batch_id,
-                processed=len(raw_data),
-                imported=imported_count,
-            )
-
-            result = self._create_success_result(
-                raw_data=raw_data,
-                processed_data=track_plays,
-                imported_count=imported_count,
-                duplicate_count=duplicate_count,
-                batch_id=batch_id,
             )
 
         except Exception as e:
@@ -262,6 +158,130 @@ class BasePlayImporter[TRawData](ABC):
             return self._create_error_result(error_msg, batch_id)
         else:
             return result
+
+    async def _run_import_pipeline(
+        self,
+        *,
+        progress_emitter: ProgressEmitter,
+        operation_id: str,
+        batch_id: str,
+        import_timestamp: datetime,
+        uow: UnitOfWorkProtocol | None,
+        **kwargs: object,
+    ) -> OperationResult:
+        """Fetch → process → save → checkpoint pipeline body for :meth:`import_data`."""
+        # Step 2: Fetch raw data (Strategy pattern - implemented by subclasses)
+        await progress_emitter.emit_progress(
+            create_progress_event(
+                operation_id=operation_id,
+                current=20,
+                total=100,
+                message="Fetching data...",
+                status=ProgressStatus.IN_PROGRESS,
+            )
+        )
+
+        raw_data = await self._fetch_data(
+            progress_emitter=progress_emitter,
+            uow=uow,
+            operation_id=operation_id,
+            **kwargs,
+        )
+
+        if not raw_data:
+            # Handle empty data case - still call checkpoints for consistency
+            await progress_emitter.emit_progress(
+                create_progress_event(
+                    operation_id=operation_id,
+                    current=90,
+                    total=100,
+                    message="No data to import - updating checkpoints...",
+                    status=ProgressStatus.IN_PROGRESS,
+                )
+            )
+
+            await self._handle_checkpoints(raw_data=raw_data, uow=uow, **kwargs)
+
+            await progress_emitter.complete_operation(
+                operation_id, OperationStatus.COMPLETED
+            )
+            return self._create_empty_result(batch_id)
+
+        # Step 3: Process raw data into TrackPlay objects (Strategy pattern)
+        await progress_emitter.emit_progress(
+            create_progress_event(
+                operation_id=operation_id,
+                current=60,
+                total=100,
+                message=f"Processing {len(raw_data)} records...",
+                status=ProgressStatus.IN_PROGRESS,
+            )
+        )
+
+        track_plays = await self._process_data(
+            raw_data=raw_data,
+            batch_id=batch_id,
+            import_timestamp=import_timestamp,
+            progress_emitter=progress_emitter,
+            uow=uow,
+            **kwargs,
+        )
+
+        # Step 4: Save to database (Template - always the same)
+        await progress_emitter.emit_progress(
+            create_progress_event(
+                operation_id=operation_id,
+                current=80,
+                total=100,
+                message=f"Saving {len(track_plays)} plays to database...",
+                status=ProgressStatus.IN_PROGRESS,
+            )
+        )
+
+        imported_count, duplicate_count = await self._save_data(track_plays, uow)
+
+        # Step 5: Handle checkpoints (Strategy pattern - delegated to subclasses)
+        await progress_emitter.emit_progress(
+            create_progress_event(
+                operation_id=operation_id,
+                current=90,
+                total=100,
+                message="Updating checkpoints...",
+                status=ProgressStatus.IN_PROGRESS,
+            )
+        )
+
+        try:
+            await self._handle_checkpoints(raw_data=raw_data, uow=uow, **kwargs)
+        except Exception as e:
+            logger.error(
+                f"Checkpoint handling failed: {e}",
+                batch_id=batch_id,
+                service=self.__class__.__name__,
+                error_type=type(e).__name__,
+                error_str=str(e),
+            )
+            raise
+
+        # Step 6: Create success result (Template - standardized format)
+        await progress_emitter.complete_operation(
+            operation_id, OperationStatus.COMPLETED
+        )
+
+        logger.info(
+            f"{self.operation_name} completed successfully",
+            batch_id=batch_id,
+            processed=len(raw_data),
+            imported=imported_count,
+        )
+
+        return self._create_success_result(
+            raw_data=raw_data,
+            processed_data=track_plays,
+            imported_count=imported_count,
+            duplicate_count=duplicate_count,
+            batch_id=batch_id,
+        )
 
     @abstractmethod
     async def _fetch_data(

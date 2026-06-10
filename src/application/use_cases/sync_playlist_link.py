@@ -85,32 +85,7 @@ class SyncPlaylistLinkUseCase:
 
         # Run sync outside the initial transaction — push/pull create their own
         try:
-            if direction == SyncDirection.PUSH:
-                result = await self._push_sync(
-                    link, uow, user_id=command.user_id, confirmed=command.confirmed
-                )
-            else:
-                result = await self._pull_sync(link, uow, user_id=command.user_id)
-
-            # Update status to synced and re-fetch for fresh state
-            async with uow:
-                link_repo = uow.get_playlist_link_repository()
-                await link_repo.update_sync_status(
-                    link_id,
-                    SyncStatus.SYNCED,
-                    tracks_added=result.tracks_added,
-                    tracks_removed=result.tracks_removed,
-                )
-                await uow.commit()
-
-                updated_link = await link_repo.get_link(command.link_id)
-                if updated_link is None:
-                    _raise_disappeared(command.link_id)
-                return SyncPlaylistLinkResult(
-                    link=updated_link,
-                    tracks_added=result.tracks_added,
-                    tracks_removed=result.tracks_removed,
-                )
+            return await self._run_sync(command, uow, direction, link, link_id)
 
         except Exception as e:
             # Update status to error
@@ -123,6 +98,42 @@ class SyncPlaylistLinkUseCase:
                 )
                 await uow.commit()
             raise
+
+    async def _run_sync(
+        self,
+        command: SyncPlaylistLinkCommand,
+        uow: UnitOfWorkProtocol,
+        direction: SyncDirection,
+        link: PlaylistLink,
+        link_id: UUID,
+    ) -> SyncPlaylistLinkResult:
+        """Runs the push/pull sync and persists the synced status."""
+        if direction == SyncDirection.PUSH:
+            result = await self._push_sync(
+                link, uow, user_id=command.user_id, confirmed=command.confirmed
+            )
+        else:
+            result = await self._pull_sync(link, uow, user_id=command.user_id)
+
+        # Update status to synced and re-fetch for fresh state
+        async with uow:
+            link_repo = uow.get_playlist_link_repository()
+            await link_repo.update_sync_status(
+                link_id,
+                SyncStatus.SYNCED,
+                tracks_added=result.tracks_added,
+                tracks_removed=result.tracks_removed,
+            )
+            await uow.commit()
+
+            updated_link = await link_repo.get_link(command.link_id)
+            if updated_link is None:
+                _raise_disappeared(command.link_id)
+            return SyncPlaylistLinkResult(
+                link=updated_link,
+                tracks_added=result.tracks_added,
+                tracks_removed=result.tracks_removed,
+            )
 
     async def _push_sync(
         self,

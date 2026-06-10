@@ -1,11 +1,11 @@
 """Playlist repository mappers for domain-persistence conversions."""
 
-# pyright: reportAttributeAccessIssue=false, reportUnknownMemberType=false, reportUnknownArgumentType=false, reportUnknownLambdaType=false, reportAny=false
-# Legitimate Any: SQLAlchemy JSON columns, dynamic relationship traversal via safe_fetch_relationship
-
+from collections.abc import Sequence
 from typing import override
 
 from attrs import define
+from sqlalchemy.orm import selectinload
+from sqlalchemy.orm.interfaces import ORMOption
 
 from src.config import get_logger
 from src.domain.entities import (
@@ -19,13 +19,17 @@ from src.domain.entities import (
 )
 from src.infrastructure.persistence.database.db_models import (
     DBConnectorPlaylist,
+    DBConnectorTrack,
     DBPlaylist,
+    DBPlaylistMapping,
+    DBPlaylistTrack,
+    DBTrack,
+    DBTrackMapping,
 )
-from src.infrastructure.persistence.repositories.base_repo import (
-    BaseModelMapper,
-    safe_fetch_relationship,
+from src.infrastructure.persistence.repositories.base_repo import BaseModelMapper
+from src.infrastructure.persistence.repositories.track.mapper import (
+    extract_db_artist_names,
 )
-from src.infrastructure.persistence.repositories.track.mapper import TrackMapper
 
 # Create module logger
 logger = get_logger(__name__)
@@ -37,135 +41,87 @@ class PlaylistMapper(BaseModelMapper[DBPlaylist, Playlist]):
 
     @override
     @staticmethod
-    def get_default_relationships() -> list[str]:
-        """Get default relationships to load for this model."""
-        return ["mappings", "tracks"]
+    def get_default_relationships() -> Sequence[ORMOption]:
+        """Eager-load the full chain ``to_domain`` traverses.
+
+        Single source of truth for both the explicit (``get_playlist_by_id`` via
+        ``with_playlist_relationships``) and inherited (``get_by_id`` via
+        ``with_default_relationships``) load paths. A deep ``selectinload`` chain so
+        the mapper reads only materialized state and never lazy-loads.
+        """
+        return [
+            selectinload(DBPlaylist.mappings).selectinload(
+                DBPlaylistMapping.connector_playlist
+            ),
+            selectinload(DBPlaylist.tracks)
+            .selectinload(DBPlaylistTrack.track)
+            .selectinload(DBTrack.mappings)
+            .selectinload(DBTrackMapping.connector_track),
+        ]
 
     @override
     @staticmethod
     async def to_domain(db_model: DBPlaylist) -> Playlist:
-        """Convert persistence model to domain entity using a consistent async-safe approach."""
-        # Process playlist entries - build PlaylistEntry with track + position metadata
+        """Convert persistence model to domain entity.
+
+        A pure transformation over eager-loaded state: every relationship is read
+        through ``loaded_list``/``loaded_one`` (zero I/O), so this awaits nothing.
+        ``get_default_relationships`` guarantees the chain is materialized; an
+        unloaded relationship degrades to ``[]``/``None`` rather than emitting a
+        lazy query.
+        """
         playlist_entries: list[PlaylistEntry] = []
 
-        # Get playlist tracks using safe fetch relationship (always returns a list)
-        playlist_tracks = await safe_fetch_relationship(db_model, "tracks")
-
-        # Filter and sort active tracks (no soft delete filtering needed after hard delete migration)
-        active_tracks = sorted(
-            playlist_tracks,
-            key=lambda pt: pt.sort_key if hasattr(pt, "sort_key") else 0,
-        )
-
-        # Process each playlist track to build PlaylistEntry
-        for pt in active_tracks:
-            # Get track consistently - safe_fetch_relationship always returns a list
-            tracks = await safe_fetch_relationship(pt, "track")
-
-            # Skip if no track was found
-            if not tracks:
+        # Tracks are ordered by their lexicographic sort_key.
+        for pt in sorted(
+            db_model.loaded_list(DBPlaylist.tracks, DBPlaylistTrack),
+            key=lambda pt: pt.sort_key,
+        ):
+            track = pt.loaded_one(DBPlaylistTrack.track, DBTrack)
+            if track is None:
                 continue
 
-            # Get the first track from the list (to-one relationship)
-            track = tracks[0]
-
-            # Skip missing tracks (no soft delete filtering needed after hard delete migration)
-            if not track:
-                continue
-
-            # Get track mappings - always returns a list
-            track_mappings = await safe_fetch_relationship(track, "mappings")
-
-            # Build connector_track_identifiers from mappings
+            # Build connector_track_identifiers from the track's connector mappings.
             connector_track_identifiers: dict[str, str] = {}
-
-            # Process track mappings (no soft delete filtering needed after hard delete migration)
-            for m in track_mappings:
-                # Get connector tracks - always returns a list
-                try:
-                    connector_tracks = await safe_fetch_relationship(
-                        m, "connector_track"
+            for m in track.loaded_list(DBTrack.mappings, DBTrackMapping):
+                ct = m.loaded_one(DBTrackMapping.connector_track, DBConnectorTrack)
+                if ct is not None:
+                    connector_track_identifiers[ct.connector_name] = (
+                        ct.connector_track_identifier
                     )
-                    if not connector_tracks:
-                        continue
 
-                    # Get the first connector track (to-one relationship)
-                    connector_track = connector_tracks[0]
-
-                    # Skip if missing required attributes (no soft delete filtering needed after hard delete migration)
-                    if (
-                        not connector_track
-                        or not hasattr(connector_track, "connector_name")
-                        or not hasattr(connector_track, "connector_track_identifier")
-                    ):
-                        continue
-
-                    # Store connector track identifier
-                    connector_track_identifiers[connector_track.connector_name] = (
-                        connector_track.connector_track_identifier
-                    )
-                except Exception as e:
-                    logger.debug(f"Error getting connector track: {e}")
-                    continue
-
-            # Skip tracks missing essential attributes
-            if not all(hasattr(track, attr) for attr in ["id", "title", "artists"]):
-                continue
-
-            # Extract artist names using standardized method
-            artist_names = TrackMapper.extract_artist_names(
-                track.artists.get("names", [])
-            )
+            artist_names = extract_db_artist_names(track.artists)
+            # Track._validate_artists raises on empty artists; skip silently so one
+            # malformed track does not abort mapping the whole playlist.
             if not artist_names:
                 continue
 
-            # Create the track domain object
             domain_track = Track(
                 id=track.id,
                 version=track.version,
                 user_id=track.user_id,
                 title=track.title,
                 artists=[Artist(name=name) for name in artist_names],
-                album=getattr(track, "album", None),
-                duration_ms=getattr(track, "duration_ms", None),
-                release_date=ensure_utc(getattr(track, "release_date", None)),
-                isrc=getattr(track, "isrc", None),
+                album=track.album,
+                duration_ms=track.duration_ms,
+                release_date=ensure_utc(track.release_date),
+                isrc=track.isrc,
                 connector_track_identifiers=connector_track_identifiers,
             )
 
-            # Extract position metadata from DBPlaylistTrack
-            # NOTE: Only added_at is stored in DB. added_by would require schema changes.
-            added_at = getattr(pt, "added_at", None)
-
-            # Create PlaylistEntry with track + position metadata
-            playlist_entry = PlaylistEntry(
-                track=domain_track,
-                added_at=added_at,
-                added_by=None,  # Not stored in DB currently
+            # Only added_at is persisted; added_by would require a schema change.
+            playlist_entries.append(
+                PlaylistEntry(track=domain_track, added_at=pt.added_at, added_by=None)
             )
-            playlist_entries.append(playlist_entry)
 
-        # Get playlist mappings using safe fetch relationship (always returns a list)
-        playlist_mappings = await safe_fetch_relationship(db_model, "mappings")
-
-        # Process active playlist mappings
+        # Build connector_playlist_identifiers from the playlist's connector mappings.
         connector_playlist_identifiers: dict[str, str] = {}
-        for m in playlist_mappings:
-            if hasattr(m, "connector_name") and hasattr(m, "connector_playlist_id"):
-                # Get the connector playlist to extract the external identifier
-                try:
-                    connector_playlists = await safe_fetch_relationship(
-                        m, "connector_playlist"
-                    )
-                    if connector_playlists:
-                        connector_playlist = connector_playlists[0]
-                        if hasattr(connector_playlist, "connector_playlist_identifier"):
-                            connector_playlist_identifiers[m.connector_name] = (
-                                connector_playlist.connector_playlist_identifier
-                            )
-                except Exception as e:
-                    logger.debug(f"Error getting connector playlist: {e}")
-                    continue
+        for m in db_model.loaded_list(DBPlaylist.mappings, DBPlaylistMapping):
+            cp = m.loaded_one(DBPlaylistMapping.connector_playlist, DBConnectorPlaylist)
+            if cp is not None:
+                connector_playlist_identifiers[m.connector_name] = (
+                    cp.connector_playlist_identifier
+                )
 
         return Playlist(
             id=db_model.id,

@@ -14,6 +14,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 - **Batch-first** — design for collections, single items are degenerate cases
 - **Immutable domain** — pure transformations only
 - **User goal-focused** — design around "what is the user trying to accomplish?" not "what can our APIs do?"
+- **Multi-user** — design for concurrency, multi-tenancy (RLS), and shared-cache thundering-herd; `DEFAULT_USER_ID = "default"` is local-dev only
 
 ## Architecture
 
@@ -25,7 +26,13 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 - **Infrastructure** (`src/infrastructure/`) - API adapters (Spotify/Last.fm/MusicBrainz), SQLAlchemy repos, metadata providers.
 - **Interface** (`src/interface/`) - CLI via Typer + Rich, Web via FastAPI + React.
 
-Layer-specific rules auto-load from `.claude/rules/` when editing matching files.
+**Layer invariants** (hold even when creating a new file, before the path-scoped rule loads):
+- `domain/`: entities `@define(frozen=True, slots=True)`, pure (no I/O), imports only domain + stdlib
+- each layer imports inward only (Interface → Application → Domain ← Infrastructure); never reach sideways/outward
+- `interface/` data access only via `execute_use_case()`; API route handlers stay 5–10 lines
+- `application/` owns transactions (`async with uow:`); Commands/Results are frozen attrs
+
+Layer-specific rules auto-load from `.claude/rules/` when editing matching files (note: they fire on read/edit, not always on new-file creation — the invariants above are the always-loaded safety net).
 
 → See docs/architecture/layers-and-patterns.md for full layer responsibilities
 

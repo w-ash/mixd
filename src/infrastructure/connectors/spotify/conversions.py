@@ -45,6 +45,15 @@ def validate_non_empty[T](items: Sequence[object], empty_result: T) -> T | None:
     return empty_result if not items else None
 
 
+def _parse_release_date(date_str: str, precision: str) -> datetime:
+    """Parse a Spotify release date string by precision into a UTC datetime."""
+    if precision == "year":
+        return datetime.strptime(date_str, "%Y").replace(tzinfo=UTC)
+    if precision == "month":
+        return datetime.strptime(date_str, "%Y-%m").replace(tzinfo=UTC)
+    return datetime.strptime(date_str, "%Y-%m-%d").replace(tzinfo=UTC)
+
+
 def convert_spotify_track_to_connector(
     spotify_track: SpotifyTrack | Mapping[str, JsonValue],
 ) -> ConnectorTrack:
@@ -62,14 +71,7 @@ def convert_spotify_track_to_connector(
         date_str = track.album.release_date
         precision = track.album.release_date_precision
         try:
-            if precision == "year":
-                release_date = datetime.strptime(date_str, "%Y").replace(tzinfo=UTC)
-            elif precision == "month":
-                release_date = datetime.strptime(date_str, "%Y-%m").replace(tzinfo=UTC)
-            else:
-                release_date = datetime.strptime(date_str, "%Y-%m-%d").replace(
-                    tzinfo=UTC
-                )
+            release_date = _parse_release_date(date_str, precision)
         except ValueError as e:
             logger.warning(f"Failed to parse release date '{date_str}': {e}")
 

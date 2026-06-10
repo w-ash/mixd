@@ -130,34 +130,42 @@ class AppleMusicErrorClassifier(HTTPErrorClassifier):
         an 'errors' array containing error objects with 'code', 'detail', etc.
         """
         try:
-            error_msg = str(exception)
-            details: dict[str, str] = {}
-
-            # Try to parse JSON error response if present
-            # Look for JSON in the error message
-            json_start = error_msg.find("{")
-            if json_start != -1:
-                try:
-                    json_part = error_msg[json_start:]
-                    error_data = cast("dict[str, object]", json.loads(json_part))
-
-                    # Apple Music API uses JSON:API format
-                    errors_raw = error_data.get("errors")
-                    if isinstance(errors_raw, list) and errors_raw:
-                        errors_list = cast("list[object]", errors_raw)
-                        first_error = errors_list[0]
-                        if isinstance(first_error, dict):
-                            error_obj = cast("dict[str, object]", first_error)
-                            for field_name in ("code", "detail", "title"):
-                                val = error_obj.get(field_name)
-                                if isinstance(val, str):
-                                    details[field_name] = val
-
-                except json.JSONDecodeError:
-                    pass  # JSON parsing failed, continue with text parsing
-
+            details = self._extract_error_details(exception)
         except Exception:
             # If parsing fails, return empty dict
             return {}
         else:
             return details
+
+    def _extract_error_details(self, exception: Exception) -> dict[str, str]:
+        """Extract JSON:API error fields from an exception message.
+
+        Returns a dict with any of 'code', 'detail', 'title' found in an
+        embedded JSON error payload; empty when none is present or parseable.
+        """
+        error_msg = str(exception)
+        details: dict[str, str] = {}
+
+        # Try to parse JSON error response if present
+        # Look for JSON in the error message
+        json_start = error_msg.find("{")
+        if json_start != -1:
+            json_part = error_msg[json_start:]
+            try:
+                error_data = cast("dict[str, object]", json.loads(json_part))
+            except json.JSONDecodeError:
+                pass  # JSON parsing failed, continue with text parsing
+            else:
+                # Apple Music API uses JSON:API format
+                errors_raw = error_data.get("errors")
+                if isinstance(errors_raw, list) and errors_raw:
+                    errors_list = cast("list[object]", errors_raw)
+                    first_error = errors_list[0]
+                    if isinstance(first_error, dict):
+                        error_obj = cast("dict[str, object]", first_error)
+                        for field_name in ("code", "detail", "title"):
+                            val = error_obj.get(field_name)
+                            if isinstance(val, str):
+                                details[field_name] = val
+
+        return details

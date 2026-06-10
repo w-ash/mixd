@@ -154,74 +154,7 @@ class MatchAndIdentifyTracksUseCase:
             tracks = command.tracklist.tracks
 
             try:
-                # STEP 1: Get existing identity mappings from database
-                track_identity_service = uow.get_track_identity_service()
-                track_ids = [t.id for t in tracks]
-
-                existing_mappings = (
-                    await track_identity_service.get_existing_identity_mappings(
-                        track_ids, command.connector
-                    )
-                )
-
-                # STEP 2: Find tracks that need new identity resolution
-                tracks_needing_resolution = [
-                    t for t in tracks if t.id not in existing_mappings
-                ]
-
-                if tracks_needing_resolution:
-                    logger.info(
-                        f"Need to resolve {len(tracks_needing_resolution)} new track identities"
-                    )
-
-                    # STEP 3: Get raw matches from infrastructure (no business logic)
-                    raw_matches = await self._fetch_raw_matches_with_progress(
-                        track_identity_service=track_identity_service,
-                        tracks=tracks_needing_resolution,
-                        command=command,
-                    )
-
-                    # STEP 4: Apply ALL business logic through domain service
-                    evaluation = self._evaluation_service.evaluate_raw_matches(
-                        tracks=tracks_needing_resolution,
-                        raw_matches=raw_matches,
-                        connector=command.connector,
-                    )
-
-                    # STEP 5: Persist auto-accepted identity mappings
-                    if evaluation.accepted:
-                        await track_identity_service.persist_identity_mappings(
-                            evaluation.accepted, command.connector
-                        )
-                        logger.info(
-                            f"Persisted {len(evaluation.accepted)} new identity mappings"
-                        )
-
-                    # STEP 5b: Persist review candidates to match_reviews table
-                    if evaluation.review_candidates:
-                        await self._persist_review_candidates(
-                            evaluation.review_candidates, command.connector, uow
-                        )
-
-                    # Combine existing and newly accepted mappings
-                    identity_mappings = {**existing_mappings, **evaluation.accepted}
-                else:
-                    logger.info("All tracks already have identity mappings")
-                    identity_mappings = existing_mappings
-
-                resolved_count = len(identity_mappings)
-
-                logger.info(
-                    f"Successfully resolved {resolved_count} out of {len(tracks)} track identities"
-                )
-
-                return MatchAndIdentifyTracksResult(
-                    identity_mappings=identity_mappings,
-                    track_count=len(command.tracklist.tracks),
-                    resolved_count=resolved_count,
-                    execution_time_ms=timer.stop(),
-                    errors=[],
-                )
+                return await self._resolve_identities(command, uow, tracks, timer)
 
             except Exception as e:
                 error_msg = f"Track identity resolution failed: {e}"
@@ -234,6 +167,83 @@ class MatchAndIdentifyTracksUseCase:
                     execution_time_ms=timer.stop(),
                     errors=[error_msg],
                 )
+
+    async def _resolve_identities(
+        self,
+        command: MatchAndIdentifyTracksCommand,
+        uow: UnitOfWorkProtocol,
+        tracks: list[Track],
+        timer: ExecutionTimer,
+    ) -> MatchAndIdentifyTracksResult:
+        """Run the identity-resolution pipeline and build the success result.
+
+        Extracted from ``execute`` so the protective ``try`` clause stays small;
+        the same statements remain guarded by the caller's broad ``except``.
+        """
+        # STEP 1: Get existing identity mappings from database
+        track_identity_service = uow.get_track_identity_service()
+        track_ids = [t.id for t in tracks]
+
+        existing_mappings = await track_identity_service.get_existing_identity_mappings(
+            track_ids, command.connector
+        )
+
+        # STEP 2: Find tracks that need new identity resolution
+        tracks_needing_resolution = [t for t in tracks if t.id not in existing_mappings]
+
+        if tracks_needing_resolution:
+            logger.info(
+                f"Need to resolve {len(tracks_needing_resolution)} new track identities"
+            )
+
+            # STEP 3: Get raw matches from infrastructure (no business logic)
+            raw_matches = await self._fetch_raw_matches_with_progress(
+                track_identity_service=track_identity_service,
+                tracks=tracks_needing_resolution,
+                command=command,
+            )
+
+            # STEP 4: Apply ALL business logic through domain service
+            evaluation = self._evaluation_service.evaluate_raw_matches(
+                tracks=tracks_needing_resolution,
+                raw_matches=raw_matches,
+                connector=command.connector,
+            )
+
+            # STEP 5: Persist auto-accepted identity mappings
+            if evaluation.accepted:
+                await track_identity_service.persist_identity_mappings(
+                    evaluation.accepted, command.connector
+                )
+                logger.info(
+                    f"Persisted {len(evaluation.accepted)} new identity mappings"
+                )
+
+            # STEP 5b: Persist review candidates to match_reviews table
+            if evaluation.review_candidates:
+                await self._persist_review_candidates(
+                    evaluation.review_candidates, command.connector, uow
+                )
+
+            # Combine existing and newly accepted mappings
+            identity_mappings = {**existing_mappings, **evaluation.accepted}
+        else:
+            logger.info("All tracks already have identity mappings")
+            identity_mappings = existing_mappings
+
+        resolved_count = len(identity_mappings)
+
+        logger.info(
+            f"Successfully resolved {resolved_count} out of {len(tracks)} track identities"
+        )
+
+        return MatchAndIdentifyTracksResult(
+            identity_mappings=identity_mappings,
+            track_count=len(command.tracklist.tracks),
+            resolved_count=resolved_count,
+            execution_time_ms=timer.stop(),
+            errors=[],
+        )
 
     async def _fetch_raw_matches_with_progress(
         self,

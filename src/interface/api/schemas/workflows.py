@@ -51,6 +51,7 @@ class LastRunSchema(BaseModel):
     """Lightweight last-run summary for the workflow list page."""
 
     id: UUID
+    run_number: int
     status: RunStatus
     definition_version: int = 1
     completed_at: datetime | None = None
@@ -194,6 +195,9 @@ class WorkflowRunSummarySchema(BaseModel):
 
     id: UUID
     workflow_id: UUID
+    # Per-workflow sequential number (1-based) — shown to the user instead of the
+    # UUID. The UUID `id` stays the addressable key (URLs, SSE, run detail).
+    run_number: int
     status: RunStatus
     definition_version: int = 1
     operation_id: str | None = None
@@ -279,6 +283,7 @@ def to_workflow_summary(
     if last_run is not None:
         last_run_schema = LastRunSchema(
             id=last_run.id,
+            run_number=last_run.run_number,
             status=last_run.status,
             definition_version=last_run.definition_version,
             completed_at=last_run.completed_at,
@@ -362,6 +367,7 @@ def to_run_summary(run: WorkflowRun) -> WorkflowRunSummarySchema:
     return WorkflowRunSummarySchema(
         id=run.id,
         workflow_id=run.workflow_id,
+        run_number=run.run_number,
         status=run.status,
         definition_version=run.definition_version,
         operation_id=run.operation_id,
@@ -391,6 +397,7 @@ def to_run_detail(run: WorkflowRun) -> WorkflowRunDetailSchema:
     return WorkflowRunDetailSchema(
         id=summary.id,
         workflow_id=summary.workflow_id,
+        run_number=summary.run_number,
         status=summary.status,
         definition_version=summary.definition_version,
         started_at=summary.started_at,

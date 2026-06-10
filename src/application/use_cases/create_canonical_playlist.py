@@ -147,93 +147,7 @@ class CreateCanonicalPlaylistUseCase:
 
         async with uow:
             try:
-                # Step 1: Process ConnectorPlaylist data if present (returns Playlist or TrackList)
-                source_data = command.tracklist
-                if command.connector_playlist is not None:
-                    from src.application.services.connector_playlist_processing_service import (
-                        ConnectorPlaylistProcessingService,
-                    )
-
-                    processing_service = ConnectorPlaylistProcessingService()
-                    source_data = await processing_service.process_connector_playlist(
-                        command.connector_playlist, uow, user_id=command.user_id
-                    )
-
-                # Step 2: Handle both Playlist (with entries) and TrackList (tracks only) inputs
-                if isinstance(source_data, Playlist):
-                    # Processing service returned a Playlist with entries - use it directly
-                    # Persist unsaved tracks and rebuild entries with saved references
-                    persisted_entries = [
-                        PlaylistEntry(
-                            track=entry.track,
-                            added_at=entry.added_at,
-                            added_by=entry.added_by,
-                        )
-                        for entry in source_data.entries
-                    ]
-
-                    # Build final playlist with persisted entries
-                    connector_playlist_identifiers = self._build_connector_identifiers(
-                        command,
-                        existing=source_data.connector_playlist_identifiers,
-                    )
-
-                    playlist = Playlist(
-                        name=command.name,
-                        user_id=command.user_id,
-                        entries=persisted_entries,
-                        description=command.description,
-                        connector_playlist_identifiers=connector_playlist_identifiers,
-                        metadata=dict(command.metadata) if command.metadata else {},
-                    )
-                else:
-                    # TrackList input - convert to Playlist with uniform added_at
-                    connector_playlist_identifiers = self._build_connector_identifiers(
-                        command
-                    )
-
-                    playlist = Playlist.from_tracklist(
-                        name=command.name,
-                        tracklist=source_data,
-                        added_at=command.timestamp,
-                        description=command.description,
-                        connector_playlist_identifiers=connector_playlist_identifiers
-                        or {},
-                    )
-                    playlist = evolve(playlist, user_id=command.user_id)
-                    # Add metadata if provided
-                    if command.metadata:
-                        playlist = evolve(playlist, metadata=dict(command.metadata))
-
-                # Step 3: Persist playlist
-                playlist_repo = uow.get_playlist_repository()
-                saved_playlist = await playlist_repo.save_playlist(playlist)
-
-                # Step 4: Extract metrics from connector metadata (extract tracks from playlist)
-                await self.metrics_service.extract_track_metrics(playlist.tracks, uow)
-
-                # Step 5: Commit transaction
-                await uow.commit()
-
-                # Step 6: Count unique tracks in the final playlist
-                unique_track_count = len({
-                    track.id for track in saved_playlist.tracks if track.id
-                })
-
-                result = CreateCanonicalPlaylistResult(
-                    playlist=saved_playlist,
-                    tracks_created=unique_track_count,
-                    execution_time_ms=timer.stop(),
-                )
-
-                logger.info(
-                    "Canonical playlist creation completed",
-                    playlist_id=saved_playlist.id,
-                    name=saved_playlist.name,
-                    tracks_created=unique_track_count,
-                    execution_time_ms=timer.elapsed_ms,
-                )
-
+                result = await self._create_playlist(command, uow, timer)
             except Exception as e:
                 # Explicit rollback on business logic failure
                 await uow.rollback()
@@ -246,3 +160,96 @@ class CreateCanonicalPlaylistUseCase:
                 raise
             else:
                 return result
+
+    async def _create_playlist(
+        self,
+        command: CreateCanonicalPlaylistCommand,
+        uow: UnitOfWorkProtocol,
+        timer: ExecutionTimer,
+    ) -> CreateCanonicalPlaylistResult:
+        """Builds the playlist from source data, persists it, and builds the result."""
+        # Step 1: Process ConnectorPlaylist data if present (returns Playlist or TrackList)
+        source_data = command.tracklist
+        if command.connector_playlist is not None:
+            from src.application.services.connector_playlist_processing_service import (
+                ConnectorPlaylistProcessingService,
+            )
+
+            processing_service = ConnectorPlaylistProcessingService()
+            source_data = await processing_service.process_connector_playlist(
+                command.connector_playlist, uow, user_id=command.user_id
+            )
+
+        # Step 2: Handle both Playlist (with entries) and TrackList (tracks only) inputs
+        if isinstance(source_data, Playlist):
+            # Processing service returned a Playlist with entries - use it directly
+            # Persist unsaved tracks and rebuild entries with saved references
+            persisted_entries = [
+                PlaylistEntry(
+                    track=entry.track,
+                    added_at=entry.added_at,
+                    added_by=entry.added_by,
+                )
+                for entry in source_data.entries
+            ]
+
+            # Build final playlist with persisted entries
+            connector_playlist_identifiers = self._build_connector_identifiers(
+                command,
+                existing=source_data.connector_playlist_identifiers,
+            )
+
+            playlist = Playlist(
+                name=command.name,
+                user_id=command.user_id,
+                entries=persisted_entries,
+                description=command.description,
+                connector_playlist_identifiers=connector_playlist_identifiers,
+                metadata=dict(command.metadata) if command.metadata else {},
+            )
+        else:
+            # TrackList input - convert to Playlist with uniform added_at
+            connector_playlist_identifiers = self._build_connector_identifiers(command)
+
+            playlist = Playlist.from_tracklist(
+                name=command.name,
+                tracklist=source_data,
+                added_at=command.timestamp,
+                description=command.description,
+                connector_playlist_identifiers=connector_playlist_identifiers or {},
+            )
+            playlist = evolve(playlist, user_id=command.user_id)
+            # Add metadata if provided
+            if command.metadata:
+                playlist = evolve(playlist, metadata=dict(command.metadata))
+
+        # Step 3: Persist playlist
+        playlist_repo = uow.get_playlist_repository()
+        saved_playlist = await playlist_repo.save_playlist(playlist)
+
+        # Step 4: Extract metrics from connector metadata (extract tracks from playlist)
+        await self.metrics_service.extract_track_metrics(playlist.tracks, uow)
+
+        # Step 5: Commit transaction
+        await uow.commit()
+
+        # Step 6: Count unique tracks in the final playlist
+        unique_track_count = len({
+            track.id for track in saved_playlist.tracks if track.id
+        })
+
+        result = CreateCanonicalPlaylistResult(
+            playlist=saved_playlist,
+            tracks_created=unique_track_count,
+            execution_time_ms=timer.stop(),
+        )
+
+        logger.info(
+            "Canonical playlist creation completed",
+            playlist_id=saved_playlist.id,
+            name=saved_playlist.name,
+            tracks_created=unique_track_count,
+            execution_time_ms=timer.elapsed_ms,
+        )
+
+        return result

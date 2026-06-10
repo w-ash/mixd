@@ -267,6 +267,9 @@ class WorkflowRun:
 
     id: UUID = field(factory=uuid7)
     workflow_id: UUID = field(factory=uuid7)
+    # Per-workflow sequential number (1-based) shown to the user instead of the
+    # UUID. 0 marks an unsaved run; the repository assigns the real value on create.
+    run_number: int = 0
     operation_id: str | None = None
     status: RunStatus = "pending"
     definition_snapshot: WorkflowDef = field(

@@ -1,7 +1,7 @@
 """Track mappers for converting between domain and database models."""
 
 from collections.abc import Awaitable, Callable, Mapping, Sequence
-from typing import cast, override
+from typing import override
 from uuid import UUID
 
 from attrs import define
@@ -53,30 +53,6 @@ def extract_db_artist_names(artists: JsonDict) -> list[str]:
     return []
 
 
-def _safe_loaded_list[T](
-    state: object, attr_name: str, item_type: type[T], never_set: object
-) -> list[T]:
-    """Read an eager-loaded relationship list from a SQLAlchemy InstanceState.
-
-    SQLAlchemy's ``state.attrs.get(name).loaded_value`` is untyped (Any) in
-    stubs — this helper narrows it through ``isinstance`` so callers get a
-    typed ``list[T]``. Returns an empty list if the relationship is not loaded
-    (NEVER_SET sentinel) or if the loaded value isn't a list of the expected
-    type. This is the boundary where greenlet-unsafe relationship access
-    becomes safe.
-    """
-    attrs = cast("Mapping[str, object]", getattr(state, "attrs", {}))
-    attr_obj = attrs.get(attr_name)
-    if attr_obj is None:
-        return []
-    loaded = cast("object", getattr(attr_obj, "loaded_value", never_set))
-    if loaded is never_set or not isinstance(loaded, list):
-        return []
-    return [
-        item for item in cast("list[object]", loaded) if isinstance(item, item_type)
-    ]
-
-
 @define(frozen=True, slots=True)
 class TrackMapper(BaseModelMapper[DBTrack, Track]):
     """Bidirectional mapper between DB and domain models for Track."""
@@ -118,18 +94,10 @@ class TrackMapper(BaseModelMapper[DBTrack, Track]):
                 When provided and a connector has no primary mapping, the mapper
                 delegates the write to the caller via this callback.
         """
-        # Use only eager-loaded relationships to avoid greenlet issues.
-        # SQLAlchemy state.attrs.get(...).loaded_value is untyped in stubs —
-        # narrow defensively before iterating.
-        from sqlalchemy import inspect
-        from sqlalchemy.orm.base import NEVER_SET
-
-        state = inspect(db_model)
-
-        active_mappings = _safe_loaded_list(
-            state, "mappings", DBTrackMapping, NEVER_SET
-        )
-        active_likes = _safe_loaded_list(state, "likes", DBTrackLike, NEVER_SET)
+        # Read only eager-loaded relationships (zero I/O) via the typed
+        # loaded_list primitive — a forgotten eager-load degrades to [].
+        active_mappings = db_model.loaded_list(DBTrack.mappings, DBTrackMapping)
+        active_likes = db_model.loaded_list(DBTrack.likes, DBTrackLike)
 
         # Build connector IDs and metadata
         connector_track_identifiers: dict[str, str] = {}
@@ -149,7 +117,9 @@ class TrackMapper(BaseModelMapper[DBTrack, Track]):
         # First pass: collect all primary mappings
         for mapping in active_mappings:
             if mapping.is_primary:
-                conn_track = await TrackMapper._get_connector_track(mapping)
+                conn_track = mapping.loaded_one(
+                    DBTrackMapping.connector_track, DBConnectorTrack
+                )
                 if conn_track:
                     connector_name = conn_track.connector_name
                     # Skip connectors not in filter (if filter is specified)
@@ -167,7 +137,9 @@ class TrackMapper(BaseModelMapper[DBTrack, Track]):
 
         for mapping in active_mappings:
             if not mapping.is_primary:
-                conn_track = await TrackMapper._get_connector_track(mapping)
+                conn_track = mapping.loaded_one(
+                    DBTrackMapping.connector_track, DBConnectorTrack
+                )
                 if conn_track:
                     connector_name = conn_track.connector_name
                     # Skip connectors not in filter (if filter is specified)
@@ -248,38 +220,9 @@ class TrackMapper(BaseModelMapper[DBTrack, Track]):
                 (track_id, connector_name, connector_track_db_id) -> success.
         """
         try:
-            promoted_count = 0
-            log = logger.bind(track_id=track_id)
-
-            for connector_name, mapping in fallback_mappings.items():
-                conn_track = await TrackMapper._get_connector_track(mapping)
-                if conn_track and conn_track.id:
-                    success = await promote_primary_fn(
-                        track_id, connector_name, conn_track.id
-                    )
-                    if success:
-                        promoted_count += 1
-                        log.info(
-                            "Promoted connector mapping to primary",
-                            connector=connector_name,
-                            connector_track_db_id=conn_track.id,
-                            external_id=conn_track.connector_track_identifier,
-                        )
-                    else:
-                        log.warning(
-                            "Failed to promote connector mapping to primary",
-                            connector=connector_name,
-                            connector_track_db_id=conn_track.id,
-                        )
-                else:
-                    log.warning(
-                        "Cannot promote — connector track unavailable",
-                        connector=connector_name,
-                    )
-
-            if promoted_count > 0:
-                log.info(f"Promoted {promoted_count} connector mapping(s) to primary")
-
+            await TrackMapper._promote_fallback_mappings(
+                track_id, fallback_mappings, promote_primary_fn
+            )
         except Exception:
             logger.error(
                 f"Connector mapping promotion failed for track {track_id}",
@@ -288,16 +231,45 @@ class TrackMapper(BaseModelMapper[DBTrack, Track]):
             # Don't re-raise — promotion is best-effort and shouldn't interrupt the read path
 
     @staticmethod
-    async def _get_connector_track(mapping: DBTrackMapping) -> DBConnectorTrack | None:
-        """Safely get connector track using AsyncAttrs.awaitable_attrs pattern."""
-        try:
-            if hasattr(mapping, "awaitable_attrs"):
-                return await mapping.awaitable_attrs.connector_track  # pyright: ignore[reportAny]  # AsyncAttrs dynamic
-            if hasattr(mapping, "connector_track"):
-                return mapping.connector_track
-        except Exception as e:
-            logger.debug(f"Error getting connector track: {e}")
-        return None
+    async def _promote_fallback_mappings(
+        track_id: UUID,
+        fallback_mappings: dict[str, DBTrackMapping],
+        promote_primary_fn: PromotePrimaryMappingFn,
+    ) -> None:
+        """Promote each fallback connector mapping to primary (best-effort body)."""
+        promoted_count = 0
+        log = logger.bind(track_id=track_id)
+
+        for connector_name, mapping in fallback_mappings.items():
+            conn_track = mapping.loaded_one(
+                DBTrackMapping.connector_track, DBConnectorTrack
+            )
+            if conn_track and conn_track.id:
+                success = await promote_primary_fn(
+                    track_id, connector_name, conn_track.id
+                )
+                if success:
+                    promoted_count += 1
+                    log.info(
+                        "Promoted connector mapping to primary",
+                        connector=connector_name,
+                        connector_track_db_id=conn_track.id,
+                        external_id=conn_track.connector_track_identifier,
+                    )
+                else:
+                    log.warning(
+                        "Failed to promote connector mapping to primary",
+                        connector=connector_name,
+                        connector_track_db_id=conn_track.id,
+                    )
+            else:
+                log.warning(
+                    "Cannot promote — connector track unavailable",
+                    connector=connector_name,
+                )
+
+        if promoted_count > 0:
+            log.info(f"Promoted {promoted_count} connector mapping(s) to primary")
 
     @override
     @staticmethod

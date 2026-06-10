@@ -122,7 +122,7 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 15
     container:
-      image: mcr.microsoft.com/playwright:v1.59.1-noble
+      image: mcr.microsoft.com/playwright:v1.60.0-noble
 
     defaults:
       run:
@@ -134,7 +134,7 @@ jobs:
       - name: Enable corepack
         run: |
           corepack enable
-          corepack prepare pnpm@11.0.8 --activate
+          corepack prepare pnpm@11.5.2 --activate
 
       - name: Install dependencies
         run: pnpm install --frozen-lockfile

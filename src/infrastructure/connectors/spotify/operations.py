@@ -120,7 +120,8 @@ class SpotifyOperations:
         progress_callback is forwarded to ``client.get_tracks_concurrent``
         and invoked once per completed request.
         """
-        if early_return := validate_non_empty(track_ids, {}):
+        empty_result: dict[str, SpotifyTrack] = {}
+        if early_return := validate_non_empty(track_ids, empty_result):
             return early_return
 
         logger.info(f"Fetching {len(track_ids)} tracks concurrently")
@@ -278,37 +279,48 @@ class SpotifyOperations:
     ) -> str:
         """Create a new Spotify playlist with tracks using batch processing."""
 
-        def _raise_playlist_creation_error() -> Never:
-            raise ValueError("Failed to create playlist, received None")
-
         try:
-            # Extract Spotify track URIs
-            spotify_track_uris = extract_spotify_track_uris(tracks)
-
-            # Create empty playlist
-            logger.info(
-                f"Creating Spotify playlist: {name} with {len(spotify_track_uris)} tracks"
+            playlist_id = await self._create_playlist_with_tracks(
+                name, tracks, description
             )
-            playlist = await self.client.create_playlist(
-                name=name, description=description or "", public=False
-            )
-
-            if not playlist:
-                _raise_playlist_creation_error()
-
-            playlist_id = playlist.id
-
-            # Add tracks in batches if any
-            if spotify_track_uris:
-                await self._add_tracks_to_playlist_batched(
-                    playlist_id, spotify_track_uris
-                )
-
         except Exception as e:
             logger.error(f"Error creating playlist '{name}': {e}")
             raise
         else:
             return playlist_id
+
+    async def _create_playlist_with_tracks(
+        self,
+        name: str,
+        tracks: list[Track],
+        description: str | None,
+    ) -> str:
+        """Create an empty Spotify playlist and batch-add tracks; return its id."""
+
+        def _raise_playlist_creation_error() -> Never:
+            raise ValueError("Failed to create playlist, received None")
+
+        # Extract Spotify track URIs
+        spotify_track_uris = extract_spotify_track_uris(tracks)
+
+        # Create empty playlist
+        logger.info(
+            f"Creating Spotify playlist: {name} with {len(spotify_track_uris)} tracks"
+        )
+        playlist = await self.client.create_playlist(
+            name=name, description=description or "", public=False
+        )
+
+        if not playlist:
+            _raise_playlist_creation_error()
+
+        playlist_id = playlist.id
+
+        # Add tracks in batches if any
+        if spotify_track_uris:
+            await self._add_tracks_to_playlist_batched(playlist_id, spotify_track_uris)
+
+        return playlist_id
 
     async def update_playlist_content(
         self,

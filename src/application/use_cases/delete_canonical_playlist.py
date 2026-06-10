@@ -21,6 +21,10 @@ from src.domain.repositories import UnitOfWorkProtocol
 logger = get_logger(__name__)
 
 
+def _raise_deletion_failed_error(playlist_id: UUID) -> Never:
+    raise ValueError(f"Failed to delete playlist {playlist_id} - it may not exist")
+
+
 @define(frozen=True, slots=True)
 class DeleteCanonicalPlaylistCommand:
     """Input parameters for playlist deletion operation.
@@ -102,11 +106,6 @@ class DeleteCanonicalPlaylistUseCase:
         """
         timer = ExecutionTimer()
 
-        def _raise_deletion_failed_error(playlist_id: UUID) -> Never:
-            raise ValueError(
-                f"Failed to delete playlist {playlist_id} - it may not exist"
-            )
-
         logger.info(
             "Starting canonical playlist deletion",
             playlist_id=command.playlist_id,
@@ -115,63 +114,7 @@ class DeleteCanonicalPlaylistUseCase:
 
         async with uow:
             try:
-                # Step 1: Get current playlist to ensure it exists and collect metadata
-                playlist = await require_playlist(
-                    command.playlist_id, uow, user_id=command.user_id
-                )
-
-                # Step 2: Check for external connections and warn if needed
-                warnings: list[str] = []
-                if playlist.connector_playlist_identifiers and not command.force_delete:
-                    connected_services = list(
-                        playlist.connector_playlist_identifiers.keys()
-                    )
-                    warnings.append(
-                        f"Playlist is connected to external services: {connected_services}. Use force_delete=True to delete anyway."
-                    )
-
-                    # For now, we'll proceed but log the warning
-                    # In the future, this could be a configurable behavior
-                    logger.warning(
-                        "Deleting playlist with external connections",
-                        playlist_id=playlist.id,
-                        connected_services=connected_services,
-                    )
-
-                # Step 3: Collect metadata before deletion
-                playlist_id = playlist.id
-                playlist_name = playlist.name
-                tracks_count = len(playlist.tracks)
-
-                # Step 4: Delete the playlist
-                # Note: We're not deleting the tracks themselves as they might be used in other playlists
-                playlist_repo = uow.get_playlist_repository()
-                deletion_successful = await playlist_repo.delete_playlist(
-                    playlist_id, user_id=command.user_id
-                )
-
-                if not deletion_successful:
-                    _raise_deletion_failed_error(playlist_id)
-
-                # Step 5: Commit transaction
-                await uow.commit()
-
-                result = DeleteCanonicalPlaylistResult(
-                    deleted_playlist_id=playlist_id or 0,
-                    deleted_playlist_name=playlist_name,
-                    tracks_count=tracks_count,
-                    execution_time_ms=timer.stop(),
-                    warnings=warnings,
-                )
-
-                logger.info(
-                    "Canonical playlist deletion completed",
-                    deleted_playlist_id=playlist_id,
-                    deleted_playlist_name=playlist_name,
-                    tracks_count=tracks_count,
-                    execution_time_ms=timer.elapsed_ms,
-                )
-
+                result = await self._delete_playlist(command, uow, timer)
             except Exception as e:
                 # Explicit rollback on business logic failure
                 await uow.rollback()
@@ -183,3 +126,67 @@ class DeleteCanonicalPlaylistUseCase:
                 raise
             else:
                 return result
+
+    async def _delete_playlist(
+        self,
+        command: DeleteCanonicalPlaylistCommand,
+        uow: UnitOfWorkProtocol,
+        timer: ExecutionTimer,
+    ) -> DeleteCanonicalPlaylistResult:
+        """Validates, deletes the playlist, commits, and builds the result."""
+        # Step 1: Get current playlist to ensure it exists and collect metadata
+        playlist = await require_playlist(
+            command.playlist_id, uow, user_id=command.user_id
+        )
+
+        # Step 2: Check for external connections and warn if needed
+        warnings: list[str] = []
+        if playlist.connector_playlist_identifiers and not command.force_delete:
+            connected_services = list(playlist.connector_playlist_identifiers.keys())
+            warnings.append(
+                f"Playlist is connected to external services: {connected_services}. Use force_delete=True to delete anyway."
+            )
+
+            # For now, we'll proceed but log the warning
+            # In the future, this could be a configurable behavior
+            logger.warning(
+                "Deleting playlist with external connections",
+                playlist_id=playlist.id,
+                connected_services=connected_services,
+            )
+
+        # Step 3: Collect metadata before deletion
+        playlist_id = playlist.id
+        playlist_name = playlist.name
+        tracks_count = len(playlist.tracks)
+
+        # Step 4: Delete the playlist
+        # Note: We're not deleting the tracks themselves as they might be used in other playlists
+        playlist_repo = uow.get_playlist_repository()
+        deletion_successful = await playlist_repo.delete_playlist(
+            playlist_id, user_id=command.user_id
+        )
+
+        if not deletion_successful:
+            _raise_deletion_failed_error(playlist_id)
+
+        # Step 5: Commit transaction
+        await uow.commit()
+
+        result = DeleteCanonicalPlaylistResult(
+            deleted_playlist_id=playlist_id or 0,
+            deleted_playlist_name=playlist_name,
+            tracks_count=tracks_count,
+            execution_time_ms=timer.stop(),
+            warnings=warnings,
+        )
+
+        logger.info(
+            "Canonical playlist deletion completed",
+            deleted_playlist_id=playlist_id,
+            deleted_playlist_name=playlist_name,
+            tracks_count=tracks_count,
+            execution_time_ms=timer.elapsed_ms,
+        )
+
+        return result

@@ -55,6 +55,34 @@ def extract_id_from_uri(uri: str) -> str | None:
     return None
 
 
+async def _classify_track_id(
+    client: SpotifyAPIClient,
+    track_id: str,
+    i: int,
+    total: int,
+    id_metadata: dict[str, tuple[str, str]],
+    alive: list[str],
+    redirected: list[tuple[str, str, str, str]],
+    dead: list[str],
+) -> None:
+    """Fetch one track from the API and append it to the matching bucket."""
+    result = await client.get_track(track_id)
+    if result:
+        if result.id != track_id:
+            artist, title = id_metadata[track_id]
+            redirected.append((track_id, result.id, artist, title))
+            print(
+                f"  REDIRECT [{i}/{total}] {track_id} → {result.id} "
+                f"({artist} - {title})"
+            )
+        else:
+            alive.append(track_id)
+    else:
+        dead.append(track_id)
+        artist, title = id_metadata[track_id]
+        print(f"  DEAD [{i}/{total}] {artist} - {title} (id: {track_id})")
+
+
 async def main() -> None:
     setup_script_logger("diagnose_stale_spotify_ids")
 
@@ -94,28 +122,15 @@ async def main() -> None:
     print(f"\nChecking {len(ids_to_check)} IDs against Spotify API...")
     print("=" * 60)
 
+    total = len(ids_to_check)
     for i, track_id in enumerate(ids_to_check, 1):
         try:
-            result = await client.get_track(track_id)
-            if result:
-                if result.id != track_id:
-                    artist, title = id_metadata[track_id]
-                    redirected.append((track_id, result.id, artist, title))
-                    print(
-                        f"  REDIRECT [{i}/{len(ids_to_check)}] {track_id} → {result.id} "
-                        f"({artist} - {title})"
-                    )
-                else:
-                    alive.append(track_id)
-            else:
-                dead.append(track_id)
-                artist, title = id_metadata[track_id]
-                print(
-                    f"  DEAD [{i}/{len(ids_to_check)}] {artist} - {title} (id: {track_id})"
-                )
+            await _classify_track_id(
+                client, track_id, i, total, id_metadata, alive, redirected, dead
+            )
         except Exception as e:
             errors.append(track_id)
-            print(f"  ERROR [{i}/{len(ids_to_check)}] {track_id}: {e}")
+            print(f"  ERROR [{i}/{total}] {track_id}: {e}")
 
         # Progress indicator every 25 IDs
         if i % 25 == 0 and i < len(ids_to_check):

@@ -6,6 +6,7 @@ plain listing. This avoids two nearly-identical use cases and maps cleanly to
 """
 
 from collections.abc import Sequence
+from datetime import datetime
 from typing import Literal
 from uuid import UUID
 
@@ -71,6 +72,29 @@ class ListTracksResult:
 class ListTracksUseCase:
     """List and search tracks with server-side pagination, filtering, and sorting."""
 
+    @staticmethod
+    def _resolve_cursor(
+        cursor: str, sort_column: str
+    ) -> tuple[str | int | float | datetime | None, UUID | None, bool]:
+        """Decode the cursor and resolve keyset bounds for the active sort.
+
+        Holds the fallible decode/convert so the caller's ``try``/``except
+        ValueError`` stays narrow while still covering both raising calls
+        (``decode_cursor`` and ``cursor_sort_value_to_query``); an invalid
+        cursor raises ``ValueError`` and the caller falls back to offset paging.
+        Returns ``(after_value, after_id, has_cursor)``; a sort-column mismatch
+        yields ``(None, None, False)``.
+        """
+        page_cursor = decode_cursor(cursor)
+        if page_cursor.sort_column != sort_column:
+            logger.debug(
+                "Cursor sort column mismatch: "
+                f"cursor={page_cursor.sort_column}, current={sort_column}"
+            )
+            return None, None, False
+        after_value = cursor_sort_value_to_query(sort_column, page_cursor.sort_value)
+        return after_value, page_cursor.last_id, True
+
     async def execute(
         self, command: ListTracksCommand, uow: UnitOfWorkProtocol
     ) -> ListTracksResult:
@@ -87,18 +111,9 @@ class ListTracksUseCase:
 
         if command.cursor:
             try:
-                page_cursor = decode_cursor(command.cursor)
-                if page_cursor.sort_column == sort_column:
-                    after_value = cursor_sort_value_to_query(
-                        sort_column, page_cursor.sort_value
-                    )
-                    after_id = page_cursor.last_id
-                    has_cursor = True
-                else:
-                    logger.debug(
-                        "Cursor sort column mismatch: "
-                        f"cursor={page_cursor.sort_column}, current={sort_column}"
-                    )
+                after_value, after_id, has_cursor = self._resolve_cursor(
+                    command.cursor, sort_column
+                )
             except ValueError:
                 logger.debug("Invalid cursor, falling back to offset")
 

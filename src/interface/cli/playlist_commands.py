@@ -104,30 +104,34 @@ def delete(
     run_async(_delete_playlist_async(playlist_id, force))
 
 
+async def _list_stored_playlists_impl() -> None:
+    """Fetch and render stored playlists (raising body of the list command)."""
+    from src.application.runner import execute_use_case
+    from src.application.use_cases.list_playlists import (
+        ListPlaylistsCommand,
+        ListPlaylistsUseCase,
+    )
+
+    user_id = get_cli_user_id()
+    result = await execute_use_case(
+        lambda uow: ListPlaylistsUseCase().execute(
+            ListPlaylistsCommand(user_id=user_id), uow
+        ),
+        user_id=user_id,
+    )
+
+    if not result.has_playlists:
+        console.print("[yellow]No playlists found in your database.[/yellow]")
+        return
+
+    # Display Rich table
+    _display_playlists_table(result.playlists)
+
+
 async def _list_stored_playlists() -> None:
     """List all stored playlists with metadata following DDD principles."""
     try:
-        from src.application.runner import execute_use_case
-        from src.application.use_cases.list_playlists import (
-            ListPlaylistsCommand,
-            ListPlaylistsUseCase,
-        )
-
-        user_id = get_cli_user_id()
-        result = await execute_use_case(
-            lambda uow: ListPlaylistsUseCase().execute(
-                ListPlaylistsCommand(user_id=user_id), uow
-            ),
-            user_id=user_id,
-        )
-
-        if not result.has_playlists:
-            console.print("[yellow]No playlists found in your database.[/yellow]")
-            return
-
-        # Display Rich table
-        _display_playlists_table(result.playlists)
-
+        await _list_stored_playlists_impl()
     except Exception as e:
         handle_cli_error(e, "Failed to list playlists")
 
@@ -174,129 +178,177 @@ def _display_playlists_table(playlists: Sequence[Playlist]) -> None:
     console.print(table)
 
 
-async def _delete_playlist_async(playlist_id: str, force: bool) -> None:
-    """Delete a playlist with confirmation unless forced."""
+async def _delete_playlist_impl(playlist_id: str, force: bool) -> None:
+    """Confirm and delete a playlist (raising body of the delete command)."""
+    from src.application.runner import execute_use_case
+    from src.application.use_cases.delete_canonical_playlist import (
+        DeleteCanonicalPlaylistCommand,
+        DeleteCanonicalPlaylistUseCase,
+    )
+    from src.application.use_cases.read_canonical_playlist import (
+        ReadCanonicalPlaylistCommand,
+        ReadCanonicalPlaylistUseCase,
+    )
+
+    user_id = get_cli_user_id()
+
+    # Step 1: Fetch playlist info for confirmation prompt
     try:
-        from src.application.runner import execute_use_case
-        from src.application.use_cases.delete_canonical_playlist import (
-            DeleteCanonicalPlaylistCommand,
-            DeleteCanonicalPlaylistUseCase,
-        )
-        from src.application.use_cases.read_canonical_playlist import (
-            ReadCanonicalPlaylistCommand,
-            ReadCanonicalPlaylistUseCase,
-        )
-
-        user_id = get_cli_user_id()
-
-        # Step 1: Fetch playlist info for confirmation prompt
-        try:
-            read_result = await execute_use_case(
-                lambda uow: ReadCanonicalPlaylistUseCase().execute(
-                    ReadCanonicalPlaylistCommand(
-                        user_id=user_id,
-                        playlist_id=str(playlist_id),
-                    ),
-                    uow,
-                ),
-                user_id=user_id,
-            )
-            playlist = read_result.playlist
-        except Exception as e:
-            err_console.print(
-                f"[red]Error: Playlist with ID {playlist_id} not found.[/red]"
-            )
-            raise typer.Exit(1) from e
-
-        if not playlist:
-            err_console.print(
-                f"[red]Error: Playlist with ID {playlist_id} not found.[/red]"
-            )
-            raise typer.Exit(1)  # noqa: TRY301
-
-        # Step 2: Confirmation unless forced
-        if not force:
-            console.print(
-                Panel.fit(
-                    f"[bold]{playlist.name}[/bold]\n"
-                    + f"[dim]{playlist.description or 'No description'}[/dim]\n"
-                    + f"[cyan]Tracks: [bold]{len(playlist.tracks)}[/bold][/cyan]",
-                    title="[bold red]⚠️  Delete Playlist[/bold red]",
-                    border_style="red",
-                )
-            )
-
-            if not Confirm.ask(
-                "[bold red]Are you sure you want to delete this playlist?[/bold red]\n"
-                + "[dim]This action cannot be undone.[/dim]"
-            ):
-                console.print("[yellow]Delete cancelled.[/yellow]")
-                return
-
-        # Step 3: Delete via use case
-        delete_result = await execute_use_case(
-            lambda uow: DeleteCanonicalPlaylistUseCase().execute(
-                DeleteCanonicalPlaylistCommand(
+        read_result = await execute_use_case(
+            lambda uow: ReadCanonicalPlaylistUseCase().execute(
+                ReadCanonicalPlaylistCommand(
                     user_id=user_id,
                     playlist_id=str(playlist_id),
-                    force_delete=force,
                 ),
                 uow,
             ),
             user_id=user_id,
         )
+        playlist = read_result.playlist
+    except Exception as e:
+        err_console.print(
+            f"[red]Error: Playlist with ID {playlist_id} not found.[/red]"
+        )
+        raise typer.Exit(1) from e
 
+    if not playlist:
+        err_console.print(
+            f"[red]Error: Playlist with ID {playlist_id} not found.[/red]"
+        )
+        raise typer.Exit(1)
+
+    # Step 2: Confirmation unless forced
+    if not force:
         console.print(
             Panel.fit(
-                "[bold green]✓ Playlist Deleted[/bold green]\n"
-                + f"[cyan]Name:[/cyan] {delete_result.deleted_playlist_name}\n"
-                + f"[cyan]ID:[/cyan] {delete_result.deleted_playlist_id}",
-                title="[bold green]🗑️  Deletion Complete[/bold green]",
-                border_style="green",
+                f"[bold]{playlist.name}[/bold]\n"
+                + f"[dim]{playlist.description or 'No description'}[/dim]\n"
+                + f"[cyan]Tracks: [bold]{len(playlist.tracks)}[/bold][/cyan]",
+                title="[bold red]⚠️  Delete Playlist[/bold red]",
+                border_style="red",
             )
         )
 
+        if not Confirm.ask(
+            "[bold red]Are you sure you want to delete this playlist?[/bold red]\n"
+            + "[dim]This action cannot be undone.[/dim]"
+        ):
+            console.print("[yellow]Delete cancelled.[/yellow]")
+            return
+
+    # Step 3: Delete via use case
+    delete_result = await execute_use_case(
+        lambda uow: DeleteCanonicalPlaylistUseCase().execute(
+            DeleteCanonicalPlaylistCommand(
+                user_id=user_id,
+                playlist_id=str(playlist_id),
+                force_delete=force,
+            ),
+            uow,
+        ),
+        user_id=user_id,
+    )
+
+    console.print(
+        Panel.fit(
+            "[bold green]✓ Playlist Deleted[/bold green]\n"
+            + f"[cyan]Name:[/cyan] {delete_result.deleted_playlist_name}\n"
+            + f"[cyan]ID:[/cyan] {delete_result.deleted_playlist_id}",
+            title="[bold green]🗑️  Deletion Complete[/bold green]",
+            border_style="green",
+        )
+    )
+
+
+async def _delete_playlist_async(playlist_id: str, force: bool) -> None:
+    """Delete a playlist with confirmation unless forced."""
+    try:
+        await _delete_playlist_impl(playlist_id, force)
     except typer.Exit:
         raise
     except Exception as e:
         handle_cli_error(e, "Failed to delete playlist")
 
 
+async def _create_playlist_impl(name: str, description: str | None) -> None:
+    """Create an empty playlist (raising body of the create command)."""
+    from src.application.runner import execute_use_case
+    from src.application.use_cases.create_canonical_playlist import (
+        CreateCanonicalPlaylistCommand,
+        CreateCanonicalPlaylistUseCase,
+    )
+    from src.infrastructure.connectors._shared.metric_registry import (
+        MetricConfigProviderImpl,
+    )
+
+    user_id = get_cli_user_id()
+    command = CreateCanonicalPlaylistCommand(
+        user_id=user_id, name=name, description=description
+    )
+    result = await execute_use_case(
+        lambda uow: CreateCanonicalPlaylistUseCase(
+            metric_config=MetricConfigProviderImpl()
+        ).execute(command, uow),
+        user_id=user_id,
+    )
+
+    console.print(
+        Panel.fit(
+            f"[bold green]Playlist Created[/bold green]\n"
+            f"[cyan]ID:[/cyan] {result.playlist.id}\n"
+            f"[cyan]Name:[/cyan] {result.playlist.name}",
+            title="[bold green]Playlist Created[/bold green]",
+            border_style="green",
+        )
+    )
+
+
 async def _create_playlist_async(name: str, description: str | None) -> None:
     """Create a new empty playlist via use case."""
     try:
-        from src.application.runner import execute_use_case
-        from src.application.use_cases.create_canonical_playlist import (
-            CreateCanonicalPlaylistCommand,
-            CreateCanonicalPlaylistUseCase,
-        )
-        from src.infrastructure.connectors._shared.metric_registry import (
-            MetricConfigProviderImpl,
-        )
-
-        user_id = get_cli_user_id()
-        command = CreateCanonicalPlaylistCommand(
-            user_id=user_id, name=name, description=description
-        )
-        result = await execute_use_case(
-            lambda uow: CreateCanonicalPlaylistUseCase(
-                metric_config=MetricConfigProviderImpl()
-            ).execute(command, uow),
-            user_id=user_id,
-        )
-
-        console.print(
-            Panel.fit(
-                f"[bold green]Playlist Created[/bold green]\n"
-                f"[cyan]ID:[/cyan] {result.playlist.id}\n"
-                f"[cyan]Name:[/cyan] {result.playlist.name}",
-                title="[bold green]Playlist Created[/bold green]",
-                border_style="green",
-            )
-        )
-
+        await _create_playlist_impl(name, description)
     except Exception as e:
         handle_cli_error(e, "Failed to create playlist")
+
+
+async def _update_playlist_impl(
+    playlist_id: str, name: str | None, description: str | None
+) -> None:
+    """Update playlist metadata (raising body of the update command)."""
+    from src.application.runner import execute_use_case
+    from src.application.use_cases.update_canonical_playlist import (
+        UpdateCanonicalPlaylistCommand,
+        UpdateCanonicalPlaylistUseCase,
+    )
+    from src.domain.entities.track import TrackList
+    from src.infrastructure.connectors._shared.metric_registry import (
+        MetricConfigProviderImpl,
+    )
+
+    user_id = get_cli_user_id()
+    command = UpdateCanonicalPlaylistCommand(
+        user_id=user_id,
+        playlist_id=str(playlist_id),
+        new_tracklist=TrackList(),
+        playlist_name=name,
+        playlist_description=description,
+    )
+    result = await execute_use_case(
+        lambda uow: UpdateCanonicalPlaylistUseCase(
+            metric_config=MetricConfigProviderImpl()
+        ).execute(command, uow),
+        user_id=user_id,
+    )
+
+    console.print(
+        Panel.fit(
+            f"[bold green]Playlist Updated[/bold green]\n"
+            f"[cyan]ID:[/cyan] {result.playlist.id}\n"
+            f"[cyan]Name:[/cyan] {result.playlist.name}",
+            title="[bold green]Playlist Updated[/bold green]",
+            border_style="green",
+        )
+    )
 
 
 async def _update_playlist_async(
@@ -304,41 +356,7 @@ async def _update_playlist_async(
 ) -> None:
     """Update playlist metadata via use case."""
     try:
-        from src.application.runner import execute_use_case
-        from src.application.use_cases.update_canonical_playlist import (
-            UpdateCanonicalPlaylistCommand,
-            UpdateCanonicalPlaylistUseCase,
-        )
-        from src.domain.entities.track import TrackList
-        from src.infrastructure.connectors._shared.metric_registry import (
-            MetricConfigProviderImpl,
-        )
-
-        user_id = get_cli_user_id()
-        command = UpdateCanonicalPlaylistCommand(
-            user_id=user_id,
-            playlist_id=str(playlist_id),
-            new_tracklist=TrackList(),
-            playlist_name=name,
-            playlist_description=description,
-        )
-        result = await execute_use_case(
-            lambda uow: UpdateCanonicalPlaylistUseCase(
-                metric_config=MetricConfigProviderImpl()
-            ).execute(command, uow),
-            user_id=user_id,
-        )
-
-        console.print(
-            Panel.fit(
-                f"[bold green]Playlist Updated[/bold green]\n"
-                f"[cyan]ID:[/cyan] {result.playlist.id}\n"
-                f"[cyan]Name:[/cyan] {result.playlist.name}",
-                title="[bold green]Playlist Updated[/bold green]",
-                border_style="green",
-            )
-        )
-
+        await _update_playlist_impl(playlist_id, name, description)
     except Exception as e:
         handle_cli_error(e, "Failed to update playlist")
 

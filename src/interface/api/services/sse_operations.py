@@ -121,16 +121,6 @@ async def run_sse_operation(
     _active_operations.add(operation_id)
     try:
         await coro
-        if run_id is not None and user_id is not None:
-            try:
-                await finalize_run(run_id, user_id=user_id, status="complete")
-            except Exception:
-                logger.error(
-                    "Failed to finalize OperationRun row on completion",
-                    operation_id=operation_id,
-                    run_id=str(run_id),
-                    exc_info=True,
-                )
     except Exception as exc:
         logger.error("SSE operation failed", operation_id=operation_id, exc_info=True)
         if run_id is not None and user_id is not None:
@@ -160,6 +150,17 @@ async def run_sse_operation(
                 },
             })
             await queue.put(SSE_SENTINEL)
+    else:
+        if run_id is not None and user_id is not None:
+            try:
+                await finalize_run(run_id, user_id=user_id, status="complete")
+            except Exception:
+                logger.error(
+                    "Failed to finalize OperationRun row on completion",
+                    operation_id=operation_id,
+                    run_id=str(run_id),
+                    exc_info=True,
+                )
     finally:
         _active_operations.discard(operation_id)
         await finalize_sse_operation(operation_id)

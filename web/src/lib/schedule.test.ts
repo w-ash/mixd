@@ -1,6 +1,10 @@
 import { describe, expect, it } from "vitest";
 
-import { describeSchedule, formatClockTime } from "./schedule";
+import {
+  describeSchedule,
+  formatClockTime,
+  isScheduleFailing,
+} from "./schedule";
 
 describe("formatClockTime", () => {
   it("formats morning times in 12-hour clock", () => {
@@ -38,5 +42,27 @@ describe("describeSchedule", () => {
         timezone: "America/Los_Angeles",
       }),
     ).toBe("Weekly on Sunday at 6:00 PM (America/Los_Angeles)");
+  });
+});
+
+describe("isScheduleFailing", () => {
+  it("is true for an enabled schedule with a non-zero streak", () => {
+    expect(
+      isScheduleFailing({ status: "enabled", consecutive_failures: 2 }),
+    ).toBe(true);
+  });
+
+  it("is false for an enabled schedule with no failures", () => {
+    expect(
+      isScheduleFailing({ status: "enabled", consecutive_failures: 0 }),
+    ).toBe(false);
+  });
+
+  it("is false for a disabled schedule even with a stale streak", () => {
+    // A paused schedule can never run to reset the streak — counting it would
+    // pin the dashboard banner / row marker open forever.
+    expect(
+      isScheduleFailing({ status: "disabled", consecutive_failures: 5 }),
+    ).toBe(false);
   });
 });

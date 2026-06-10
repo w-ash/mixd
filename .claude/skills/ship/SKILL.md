@@ -132,6 +132,10 @@ Run backend and frontend checks in parallel where possible (use parallel Bash ca
 **After the above complete:**
 - `uv run basedpyright src/` — strict type checking (slowest check, runs last)
 
+### Verifying results — read actual output, not wrappers
+
+Before calling any check passed, read its real output. If you run a check with Bash `run_in_background`, do **NOT** trust the harness `(exit code 0)` summary — it has reported success for a `pnpm build` that actually ended `[ELIFECYCLE] Command failed with exit code 2`, and that shipped a `tsc` failure to prod. Tail the last ~10 lines of the output file and look for real failure signals (`error TS`, `[ELIFECYCLE]`, `FAILED`, `npm ERR!`, non-empty stderr) before proceeding. Foreground runs surface the real exit code directly, so this applies mainly to backgrounded checks.
+
 ### On failure
 
 If ANY check fails:

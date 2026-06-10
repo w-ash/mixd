@@ -72,6 +72,19 @@ class _BatchState[TItem, TResult]:
 
 
 @define(slots=True)
+class _LaunchCursor:
+    """Mutable launch bookkeeping for the rate limiter loop.
+
+    Holding these as attributes (rather than loop-locals) lets the launch
+    helper mutate them in place, so partial mutations survive an exception
+    exactly as the inline loop body did.
+    """
+
+    next_launch_time: float
+    launch_count: int = 0
+
+
+@define(slots=True)
 class RateLimitedBatchProcessor:
     """Generic queue-based batch processor with rate limiting for any connector.
 
@@ -244,75 +257,11 @@ class RateLimitedBatchProcessor:
             launch_interval_ms=round(self.rate_delay * 1000, 1),
         )
 
-        launch_count = 0
-        next_launch_time = time.time()  # Start immediately
+        cursor = _LaunchCursor(next_launch_time=time.time())  # Start immediately
 
         while not state.shutdown_event.is_set():
             try:
-                # Wait until it's time for the next launch
-                now = time.time()
-                if now < next_launch_time:
-                    sleep_time = next_launch_time - now
-                    await asyncio.sleep(sleep_time)
-
-                # Try to get work item (non-blocking check)
-                try:
-                    work_item = state.work_queue.get_nowait()
-                except asyncio.QueueEmpty:
-                    # No work available, schedule next check and continue
-                    next_launch_time += self.rate_delay
-                    continue
-
-                # Respect concurrent task limit
-                if len(state.running_tasks) >= self.max_concurrent_tasks:
-                    self.logger.warning(
-                        "Rate limiter waiting for task slot",
-                        running_tasks=len(state.running_tasks),
-                        max_concurrent=self.max_concurrent_tasks,
-                    )
-                    # Re-queue the work item and try again next cycle
-                    await state.work_queue.put(work_item)
-                    next_launch_time += self.rate_delay
-                    continue
-
-                # Launch the task immediately
-                launch_count += 1
-                launch_time = time.time()
-
-                task = asyncio.create_task(
-                    self._execute_work_item(state, work_item, process_func),
-                    name=f"{self.connector_name}_task_{work_item.item_id[:8]}",
-                )
-                state.running_tasks.add(task)
-
-                # Clean up completed tasks
-                def remove_completed_task(completed_task: asyncio.Task[None]) -> None:
-                    """Remove task from running_tasks set when completed."""
-                    state.running_tasks.discard(completed_task)
-
-                task.add_done_callback(remove_completed_task)
-
-                self.logger.debug(
-                    f"Launched request {launch_count} for {self.connector_name}",
-                    item_id=work_item.item_id,
-                    launch_count=launch_count,
-                    launch_time=launch_time,
-                    running_tasks=len(state.running_tasks),
-                    queue_size=state.work_queue.qsize(),
-                    milliseconds_since_batch_start=round(
-                        (launch_time - state.batch_start_time) * 1000, 1
-                    ),
-                    actual_interval_ms=round(
-                        (launch_time - (next_launch_time - self.rate_delay)) * 1000, 1
-                    )
-                    if launch_count > 1
-                    else 0,
-                    expected_launch_interval_ms=round(self.rate_delay * 1000, 1),
-                )
-
-                # Schedule next launch (maintain steady rate regardless of task completion time)
-                next_launch_time += self.rate_delay
-
+                await self._launch_next_request(state, process_func, cursor)
             except Exception as e:
                 self.logger.error(
                     f"Rate limiter loop error for {self.connector_name}",
@@ -320,13 +269,89 @@ class RateLimitedBatchProcessor:
                     error_type=type(e).__name__,
                 )
                 # Schedule next launch even on error
-                next_launch_time = time.time() + self.rate_delay
+                cursor.next_launch_time = time.time() + self.rate_delay
 
         self.logger.info(
             f"Rate limiter loop shutdown for {self.connector_name}",
-            total_launches=launch_count,
+            total_launches=cursor.launch_count,
             final_running_tasks=len(state.running_tasks),
         )
+
+    async def _launch_next_request[TItem, TResult](
+        self,
+        state: _BatchState[TItem, TResult],
+        process_func: Callable[[TItem], Awaitable[TResult]],
+        cursor: _LaunchCursor,
+    ) -> None:
+        """Launch (at most) one request, advancing ``cursor`` in place.
+
+        Mirrors a single iteration of the limiter loop: waits for the launch
+        window, pulls a work item, respects the concurrency cap, and schedules
+        the task. Returning early stands in for the original ``continue``.
+        """
+        # Wait until it's time for the next launch
+        now = time.time()
+        if now < cursor.next_launch_time:
+            sleep_time = cursor.next_launch_time - now
+            await asyncio.sleep(sleep_time)
+
+        # Try to get work item (non-blocking check)
+        try:
+            work_item = state.work_queue.get_nowait()
+        except asyncio.QueueEmpty:
+            # No work available, schedule next check and continue
+            cursor.next_launch_time += self.rate_delay
+            return
+
+        # Respect concurrent task limit
+        if len(state.running_tasks) >= self.max_concurrent_tasks:
+            self.logger.warning(
+                "Rate limiter waiting for task slot",
+                running_tasks=len(state.running_tasks),
+                max_concurrent=self.max_concurrent_tasks,
+            )
+            # Re-queue the work item and try again next cycle
+            await state.work_queue.put(work_item)
+            cursor.next_launch_time += self.rate_delay
+            return
+
+        # Launch the task immediately
+        cursor.launch_count += 1
+        launch_time = time.time()
+
+        task = asyncio.create_task(
+            self._execute_work_item(state, work_item, process_func),
+            name=f"{self.connector_name}_task_{work_item.item_id[:8]}",
+        )
+        state.running_tasks.add(task)
+
+        # Clean up completed tasks
+        def remove_completed_task(completed_task: asyncio.Task[None]) -> None:
+            """Remove task from running_tasks set when completed."""
+            state.running_tasks.discard(completed_task)
+
+        task.add_done_callback(remove_completed_task)
+
+        self.logger.debug(
+            f"Launched request {cursor.launch_count} for {self.connector_name}",
+            item_id=work_item.item_id,
+            launch_count=cursor.launch_count,
+            launch_time=launch_time,
+            running_tasks=len(state.running_tasks),
+            queue_size=state.work_queue.qsize(),
+            milliseconds_since_batch_start=round(
+                (launch_time - state.batch_start_time) * 1000, 1
+            ),
+            actual_interval_ms=round(
+                (launch_time - (cursor.next_launch_time - self.rate_delay)) * 1000, 1
+            )
+            if cursor.launch_count > 1
+            else 0,
+            expected_launch_interval_ms=round(self.rate_delay * 1000, 1),
+        )
+
+        # Schedule next launch (maintain steady rate regardless of task completion time)
+        cursor.next_launch_time += self.rate_delay
 
     async def _execute_work_item[TItem, TResult](
         self,
