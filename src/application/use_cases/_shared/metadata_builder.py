@@ -60,11 +60,6 @@ class PlaylistMetadataBuilder:
         self._metadata["validation_passed"] = passed
         return self
 
-    def with_custom(self, key: str, value: JsonValue) -> Self:
-        """Add custom metadata field."""
-        self._metadata[key] = value
-        return self
-
     def build(self) -> ApiMetadata:
         """Build final metadata dictionary."""
         return self._metadata  # pyright: ignore[reportReturnType] — builder accumulates any keys; ApiMetadata is total=False

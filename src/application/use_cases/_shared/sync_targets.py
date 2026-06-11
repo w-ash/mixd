@@ -7,8 +7,6 @@ the validator both derive from it, and the scheduler dispatches through it — s
 adding a connector is a one-line edit here, with no second list to keep in sync.
 """
 
-from __future__ import annotations
-
 from collections.abc import Awaitable, Callable, Mapping
 from typing import Final
 
@@ -27,9 +25,6 @@ SYNC_DISPATCH: Final[Mapping[str, Callable[[str], Awaitable[object]]]] = {
     "spotify:likes": run_spotify_likes_import,
     "lastfm:likes": run_lastfm_likes_export,
 }
-
-# The runtime source of truth for "is this target schedulable?".
-SCHEDULABLE_SYNC_TARGETS: Final[frozenset[str]] = frozenset(SYNC_DISPATCH)
 
 # Friendly display names for each schedulable target — the single source of human
 # labels, consumed by both the API list read-model and the CLI schedule table.

@@ -47,6 +47,27 @@ class SyncCheckpointRepository(BaseRepository[DBSyncCheckpoint, SyncCheckpoint])
             "entity_type": entity_type,
         })
 
+    @db_operation("get_or_create_sync_checkpoint")
+    async def get_or_create_sync_checkpoint(
+        self,
+        user_id: str,
+        service: str,
+        entity_type: Literal["likes", "plays"],
+    ) -> SyncCheckpoint:
+        """Get the checkpoint, or a fresh unsaved one if none exists.
+
+        Non-persisting on miss: the fresh checkpoint is only written when the
+        caller's sync completes and saves it — a row must not exist before the
+        first successful sync (checkpoint-status reads treat row-absence as
+        "never synced").
+        """
+        existing = await self.get_sync_checkpoint(
+            user_id=user_id, service=service, entity_type=entity_type
+        )
+        return existing or SyncCheckpoint(
+            user_id=user_id, service=service, entity_type=entity_type
+        )
+
     @db_operation("save_sync_checkpoint")
     async def save_sync_checkpoint(
         self,

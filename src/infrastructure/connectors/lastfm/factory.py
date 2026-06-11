@@ -5,12 +5,9 @@ Implements clean architecture by providing creation functions for all Last.fm se
 without exposing Last.fm internals to other layers.
 """
 
-from typing import TYPE_CHECKING
-
 from src.domain.repositories import PlayImporterProtocol
 
-if TYPE_CHECKING:
-    from .play_resolver import LastfmConnectorPlayResolver
+from .play_resolver import LastfmConnectorPlayResolver
 
 
 def create_play_importer() -> PlayImporterProtocol:
@@ -38,7 +35,6 @@ def create_play_resolver() -> LastfmConnectorPlayResolver:
         SpotifyCrossDiscoveryProvider,
     )
 
-    from .play_resolver import LastfmConnectorPlayResolver
     from .track_resolution_service import LastfmTrackResolutionService
 
     cross_discovery = SpotifyCrossDiscoveryProvider(

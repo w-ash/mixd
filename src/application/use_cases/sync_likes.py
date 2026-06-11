@@ -38,22 +38,6 @@ logger = get_logger(__name__)
 # -------------------------------------------------------------------------
 
 
-async def get_or_create_checkpoint(
-    user_id: str,
-    service: str,
-    entity_type: Literal["likes", "plays"],
-    uow: UnitOfWorkProtocol,
-) -> SyncCheckpoint:
-    """Get existing checkpoint or create new one."""
-    checkpoint_repo = uow.get_checkpoint_repository()
-    checkpoint = await checkpoint_repo.get_sync_checkpoint(
-        user_id=user_id, service=service, entity_type=entity_type
-    )
-    return checkpoint or SyncCheckpoint(
-        user_id=user_id, service=service, entity_type=entity_type
-    )
-
-
 async def update_checkpoint(
     checkpoint: SyncCheckpoint,
     uow: UnitOfWorkProtocol,
@@ -196,8 +180,10 @@ class ImportSpotifyLikesUseCase:
         from src.domain.entities.progress import create_progress_event
 
         batch_size = command.limit or settings.api.spotify.batch_size
-        checkpoint = await get_or_create_checkpoint(
-            command.user_id, "spotify", "likes", uow
+        checkpoint = (
+            await uow.get_checkpoint_repository().get_or_create_sync_checkpoint(
+                user_id=command.user_id, service="spotify", entity_type="likes"
+            )
         )
 
         imported = 0
@@ -500,8 +486,10 @@ class ExportLastFmLikesUseCase:
         from src.domain.entities.progress import create_progress_event
 
         batch_size = command.batch_size or settings.api.lastfm.batch_size
-        checkpoint = await get_or_create_checkpoint(
-            command.user_id, "lastfm", "likes", uow
+        checkpoint = (
+            await uow.get_checkpoint_repository().get_or_create_sync_checkpoint(
+                user_id=command.user_id, service="lastfm", entity_type="likes"
+            )
         )
 
         # Determine timestamp for filtering

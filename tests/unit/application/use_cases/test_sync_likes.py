@@ -303,7 +303,9 @@ class TestImportSpotifyLikesForceMode:
             cursor="100",  # Resume from offset 100
         )
         checkpoint_repo = mock_uow.get_checkpoint_repository()
-        checkpoint_repo.get_sync_checkpoint = AsyncMock(return_value=saved_checkpoint)
+        checkpoint_repo.get_or_create_sync_checkpoint = AsyncMock(
+            return_value=saved_checkpoint
+        )
 
         new_page = _page_of_tracks(5, 0, cursor=None)
         connector = AsyncMock()

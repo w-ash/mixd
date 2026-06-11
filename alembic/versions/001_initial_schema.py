@@ -1,7 +1,7 @@
 """Initial PostgreSQL schema.
 
 Fresh migration generated from db_models.py for PostgreSQL.
-Replaces the SQLite migration chain (archived in versions_sqlite_archive/).
+Replaces the SQLite migration chain (preserved in git history).
 
 Revision ID: 001_initial
 Revises:

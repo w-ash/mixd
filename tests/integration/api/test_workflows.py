@@ -216,26 +216,6 @@ class TestUpdateWorkflow:
         assert response.status_code == 404
 
 
-class TestDeleteWorkflow:
-    async def test_delete_user_workflow(self, client: httpx.AsyncClient) -> None:
-        create_resp = await client.post(
-            "/api/v1/workflows", json={"definition": _valid_definition()}
-        )
-        wf_id = create_resp.json()["id"]
-
-        response = await client.delete(f"/api/v1/workflows/{wf_id}")
-
-        assert response.status_code == 204
-
-        get_resp = await client.get(f"/api/v1/workflows/{wf_id}")
-        assert get_resp.status_code == 404
-
-    async def test_delete_nonexistent(self, client: httpx.AsyncClient) -> None:
-        response = await client.delete(f"/api/v1/workflows/{nonexistent_id()}")
-
-        assert response.status_code == 404
-
-
 class TestValidateWorkflow:
     async def test_valid_workflow(self, client: httpx.AsyncClient) -> None:
         response = await client.post(

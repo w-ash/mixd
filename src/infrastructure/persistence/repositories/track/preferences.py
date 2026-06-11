@@ -5,7 +5,6 @@ Single-item callers pass a one-element list.
 """
 
 from collections.abc import Sequence
-from datetime import datetime
 from uuid import UUID
 
 from sqlalchemy import delete, func, select
@@ -166,24 +165,3 @@ class TrackPreferenceRepository(BaseRepository[DBTrackPreference, TrackPreferenc
         )
         result = await self.session.execute(stmt)
         return {row[0]: row[1] for row in result.all()}
-
-    @db_operation("list_by_preferred_at")
-    async def list_by_preferred_at(
-        self,
-        *,
-        user_id: str,
-        before: datetime | None = None,
-        after: datetime | None = None,
-        limit: int = 50,
-    ) -> list[TrackPreference]:
-        """List preferences within a date range, ordered by preferred_at desc."""
-        conditions = [self.model_class.user_id == user_id]
-        if before is not None:
-            conditions.append(self.model_class.preferred_at < before)
-        if after is not None:
-            conditions.append(self.model_class.preferred_at >= after)
-        return await self.find_by(
-            conditions,
-            order_by=("preferred_at", False),  # DESC
-            limit=limit,
-        )

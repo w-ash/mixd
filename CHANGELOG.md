@@ -91,6 +91,7 @@ All notable changes to Mixd are documented here.
 
 ### Refactoring
 
+- codebase tighten pass — purge dead code (~7k lines: one-shot scripts, SQLite-era migration archive, test-only methods, dead endpoints/fields/enums), shrink suppression debt, consolidate checkpoint access, extract webhook verification + workflow background execution, fix stale docs/skills
 - split Settings into Integrations + Sync sub-pages with collapsible sidebar nav
 - DRY cleanup across repositories and frontend
 - simplify v0.4.6 per code review

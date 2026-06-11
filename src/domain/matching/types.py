@@ -35,8 +35,6 @@ class MatchFailureReason(Enum):
     API_ERROR = "api_error"  # External service API failure
     NO_RESULTS = "no_results"  # Service found no matching tracks
     INVALID_RESPONSE = "invalid_response"  # Service returned malformed data
-    RATE_LIMITED = "rate_limited"  # Service rate limiting active
-    AUTH_ERROR = "auth_error"  # Service authentication failed
 
 
 @define(frozen=True, slots=True)

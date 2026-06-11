@@ -5,7 +5,7 @@ batch delete, event logging, constraint enforcement — using the db_session
 fixture with testcontainers PostgreSQL.
 """
 
-from datetime import UTC, datetime, timedelta
+from datetime import UTC, datetime
 from uuid import uuid7
 
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -235,33 +235,6 @@ class TestCountByState:
         assert counts.get("star") == 3
         assert counts.get("yah") == 2
         assert counts.get("nah") == 1
-
-
-class TestListByPreferredAt:
-    async def test_ordering_and_boundaries(self, db_session: AsyncSession) -> None:
-        repo = TrackPreferenceRepository(db_session)
-        base = datetime(2025, 6, 1, tzinfo=UTC)
-
-        prefs = []
-        for i in range(5):
-            track = await seed_db_track(db_session)
-            prefs.append(
-                make_track_preference(
-                    track_id=track.id,
-                    state="yah",
-                    preferred_at=base + timedelta(days=i),
-                )
-            )
-        await repo.set_preferences(prefs, user_id="default")
-
-        results = await repo.list_by_preferred_at(
-            user_id="default",
-            after=base + timedelta(days=1),
-            before=base + timedelta(days=4),
-        )
-
-        assert len(results) == 3
-        assert results[0].preferred_at > results[-1].preferred_at
 
 
 class TestAddEvents:

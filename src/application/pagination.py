@@ -27,9 +27,10 @@ type TrackSortBy = Literal[
     "duration_desc",
 ]
 
-# Canonical mapping: sort key → (db_column, direction)
-# Single source of truth consumed by both the use case (cursor encoding)
-# and the repository (ORDER BY construction).
+# Sort key → (db_column, direction), used for cursor encoding and sort-key
+# validation. The track repository owns its own ORDER BY registry
+# (``_SORT_SPECS`` in infrastructure/persistence/repositories/track/core.py)
+# — keep the two in sync.
 TRACK_SORT_COLUMNS: Final[dict[TrackSortBy, tuple[str, str]]] = {
     "title_asc": ("title", "asc"),
     "title_desc": ("title", "desc"),

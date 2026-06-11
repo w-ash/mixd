@@ -6,7 +6,7 @@ request-scoped context from the ASGI scope.
 
 from typing import cast
 
-from starlette.requests import Request
+from fastapi import Request
 
 from src.config.constants import BusinessLimits
 from src.interface.api.auth_gate import JWTClaims

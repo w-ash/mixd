@@ -12,8 +12,6 @@ retrofitted onto it. ``sub_operation_progress`` is deliberately NOT retrofitted:
 it has a different shape (no system UoW, per-operation lifecycle).
 """
 
-from __future__ import annotations
-
 import asyncio
 from collections.abc import Awaitable, Callable
 import time

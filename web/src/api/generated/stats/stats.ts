@@ -24,7 +24,6 @@ import type {
   DashboardStatsSchema,
   GetMatchingHealthApiV1StatsMatchingGetParams,
   HTTPValidationError,
-  IntegrityReportSchema,
   MatchMethodHealthSchema
 } from '../model';
 
@@ -137,119 +136,6 @@ export function useGetDashboardStatsApiV1StatsDashboardGet<TData = Awaited<Retur
  ):  UseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> } {
 
   const queryOptions = getGetDashboardStatsApiV1StatsDashboardGetQueryOptions(options)
-
-  const query = useQuery(queryOptions, queryClient) as  UseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> };
-
-  return { ...query, queryKey: queryOptions.queryKey };
-}
-
-
-
-
-
-
-export type getIntegrityReportApiV1StatsIntegrityGetResponse200 = {
-  data: IntegrityReportSchema
-  status: 200
-}
-
-export type getIntegrityReportApiV1StatsIntegrityGetResponseSuccess = (getIntegrityReportApiV1StatsIntegrityGetResponse200) & {
-  headers: Headers;
-};
-;
-
-export type getIntegrityReportApiV1StatsIntegrityGetResponse = (getIntegrityReportApiV1StatsIntegrityGetResponseSuccess)
-
-export const getGetIntegrityReportApiV1StatsIntegrityGetUrl = () => {
-
-
-
-
-  return `/api/v1/stats/integrity`
-}
-
-/**
- * Run data integrity checks and return the report.
- * @summary Get Integrity Report
- */
-export const getIntegrityReportApiV1StatsIntegrityGet = async ( options?: RequestInit): Promise<getIntegrityReportApiV1StatsIntegrityGetResponse> => {
-
-  return customFetch<getIntegrityReportApiV1StatsIntegrityGetResponse>(getGetIntegrityReportApiV1StatsIntegrityGetUrl(),
-  {
-    ...options,
-    method: 'GET'
-
-
-  }
-);}
-
-
-
-
-
-export const getGetIntegrityReportApiV1StatsIntegrityGetQueryKey = () => {
-    return [
-    `/api/v1/stats/integrity`
-    ] as const;
-    }
-
-
-export const getGetIntegrityReportApiV1StatsIntegrityGetQueryOptions = <TData = Awaited<ReturnType<typeof getIntegrityReportApiV1StatsIntegrityGet>>, TError = unknown>( options?: { query?:Partial<UseQueryOptions<Awaited<ReturnType<typeof getIntegrityReportApiV1StatsIntegrityGet>>, TError, TData>>, request?: SecondParameter<typeof customFetch>}
-) => {
-
-const {query: queryOptions, request: requestOptions} = options ?? {};
-
-  const queryKey =  queryOptions?.queryKey ?? getGetIntegrityReportApiV1StatsIntegrityGetQueryKey();
-
-
-
-    const queryFn: QueryFunction<Awaited<ReturnType<typeof getIntegrityReportApiV1StatsIntegrityGet>>> = ({ signal }) => getIntegrityReportApiV1StatsIntegrityGet({ signal, ...requestOptions });
-
-
-
-
-
-   return  { queryKey, queryFn, ...queryOptions} as UseQueryOptions<Awaited<ReturnType<typeof getIntegrityReportApiV1StatsIntegrityGet>>, TError, TData> & { queryKey: DataTag<QueryKey, TData, TError> }
-}
-
-export type GetIntegrityReportApiV1StatsIntegrityGetQueryResult = NonNullable<Awaited<ReturnType<typeof getIntegrityReportApiV1StatsIntegrityGet>>>
-export type GetIntegrityReportApiV1StatsIntegrityGetQueryError = unknown
-
-
-export function useGetIntegrityReportApiV1StatsIntegrityGet<TData = Awaited<ReturnType<typeof getIntegrityReportApiV1StatsIntegrityGet>>, TError = unknown>(
-  options: { query:Partial<UseQueryOptions<Awaited<ReturnType<typeof getIntegrityReportApiV1StatsIntegrityGet>>, TError, TData>> & Pick<
-        DefinedInitialDataOptions<
-          Awaited<ReturnType<typeof getIntegrityReportApiV1StatsIntegrityGet>>,
-          TError,
-          Awaited<ReturnType<typeof getIntegrityReportApiV1StatsIntegrityGet>>
-        > , 'initialData'
-      >, request?: SecondParameter<typeof customFetch>}
- , queryClient?: QueryClient
-  ):  DefinedUseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> }
-export function useGetIntegrityReportApiV1StatsIntegrityGet<TData = Awaited<ReturnType<typeof getIntegrityReportApiV1StatsIntegrityGet>>, TError = unknown>(
-  options?: { query?:Partial<UseQueryOptions<Awaited<ReturnType<typeof getIntegrityReportApiV1StatsIntegrityGet>>, TError, TData>> & Pick<
-        UndefinedInitialDataOptions<
-          Awaited<ReturnType<typeof getIntegrityReportApiV1StatsIntegrityGet>>,
-          TError,
-          Awaited<ReturnType<typeof getIntegrityReportApiV1StatsIntegrityGet>>
-        > , 'initialData'
-      >, request?: SecondParameter<typeof customFetch>}
- , queryClient?: QueryClient
-  ):  UseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> }
-export function useGetIntegrityReportApiV1StatsIntegrityGet<TData = Awaited<ReturnType<typeof getIntegrityReportApiV1StatsIntegrityGet>>, TError = unknown>(
-  options?: { query?:Partial<UseQueryOptions<Awaited<ReturnType<typeof getIntegrityReportApiV1StatsIntegrityGet>>, TError, TData>>, request?: SecondParameter<typeof customFetch>}
- , queryClient?: QueryClient
-  ):  UseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> }
-/**
- * @summary Get Integrity Report
- */
-
-export function useGetIntegrityReportApiV1StatsIntegrityGet<TData = Awaited<ReturnType<typeof getIntegrityReportApiV1StatsIntegrityGet>>, TError = unknown>(
-  options?: { query?:Partial<UseQueryOptions<Awaited<ReturnType<typeof getIntegrityReportApiV1StatsIntegrityGet>>, TError, TData>>, request?: SecondParameter<typeof customFetch>}
- , queryClient?: QueryClient
- ):  UseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> } {
-
-  const queryOptions = getGetIntegrityReportApiV1StatsIntegrityGetQueryOptions(options)
 
   const query = useQuery(queryOptions, queryClient) as  UseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> };
 

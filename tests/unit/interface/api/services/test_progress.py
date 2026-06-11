@@ -100,20 +100,6 @@ class TestSSEOperationRegistry:
         registry = SSEOperationRegistry()
         await registry.unregister("nonexistent")  # Should not raise
 
-    async def test_get_active_operation_ids(self):
-        registry = SSEOperationRegistry()
-        await registry.register("op-1")
-        await registry.register("op-2")
-
-        ids = await registry.get_active_operation_ids()
-        assert sorted(ids) == ["op-1", "op-2"]
-
-    async def test_get_active_operation_ids_empty(self):
-        registry = SSEOperationRegistry()
-        ids = await registry.get_active_operation_ids()
-
-        assert ids == []
-
 
 # ---------------------------------------------------------------------------
 # SSEProgressSubscriber

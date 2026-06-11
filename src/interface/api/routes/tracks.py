@@ -5,11 +5,12 @@ All filtering, sorting, and pagination is server-side.
 """
 
 from datetime import UTC, datetime
-from typing import Annotated
+from typing import Annotated, Literal
 from uuid import UUID
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Response
 
+from src.application.pagination import TrackSortBy
 from src.application.runner import execute_use_case
 from src.application.use_cases.batch_tag_tracks import (
     BatchTagTracksCommand,
@@ -18,10 +19,6 @@ from src.application.use_cases.batch_tag_tracks import (
 from src.application.use_cases.get_track_details import (
     GetTrackDetailsCommand,
     GetTrackDetailsUseCase,
-)
-from src.application.use_cases.get_track_playlists import (
-    GetTrackPlaylistsCommand,
-    GetTrackPlaylistsUseCase,
 )
 from src.application.use_cases.list_tracks import ListTracksCommand, ListTracksUseCase
 from src.application.use_cases.merge_tracks import (
@@ -58,13 +55,11 @@ from src.interface.api.schemas.tracks import (
     BatchTagResponse,
     MergeTrackRequest,
     PaginatedLibraryTracksResponse,
-    PlaylistBriefSchema,
     RelinkMappingRequest,
     SetPreferenceRequest,
     TrackDetailSchema,
     TrackFacetsSchema,
     UnlinkMappingResponse,
-    playlist_to_brief_schema,
     to_library_track,
     to_track_detail,
 )
@@ -91,19 +86,17 @@ async def list_tracks(
             description="Filter by tag (repeat for multi-tag). Normalized server-side.",
         ),
     ] = None,
-    tag_mode: str = Query(
+    tag_mode: Literal["and", "or"] = Query(
         default="and",
-        pattern="^(and|or)$",
         description="Intersection (and) or union (or) when tag has multiple values.",
     ),
     namespace: str | None = Query(
         default=None, description="Filter to tracks carrying any mood:*/energy:* tag."
     ),
-    sort: str = Query(
-        default="title_asc",
-        description="Sort field and direction",
-        pattern="^(title|artist|added|duration)_(asc|desc)$",
-    ),
+    sort: Annotated[
+        TrackSortBy,
+        Query(description="Sort field and direction"),
+    ] = "title_asc",
     limit: int = Query(default=50, ge=1, le=200),
     offset: int = Query(default=0, ge=0),
     cursor: str | None = Query(
@@ -140,9 +133,9 @@ async def list_tracks(
         connector=connector,
         preference=preference,
         tags=normalized_tags,
-        tag_mode=tag_mode,  # type: ignore[arg-type]  # validated by regex pattern
+        tag_mode=tag_mode,
         namespace=namespace,
-        sort_by=sort,  # type: ignore[arg-type]  # validated by FastAPI regex pattern
+        sort_by=sort,
         limit=limit,
         offset=offset,
         cursor=cursor,
@@ -277,20 +270,6 @@ async def set_primary_mapping(
         user_id=user_id,
     )
     return to_track_detail(result)
-
-
-@router.get("/{track_id}/playlists")
-async def get_track_playlists(
-    track_id: UUID,
-    user_id: str = Depends(get_current_user_id),
-) -> list[PlaylistBriefSchema]:
-    """Get playlists containing a specific track."""
-    command = GetTrackPlaylistsCommand(user_id=user_id, track_id=track_id)
-    result = await execute_use_case(
-        lambda uow: GetTrackPlaylistsUseCase().execute(command, uow),
-        user_id=user_id,
-    )
-    return [playlist_to_brief_schema(p) for p in result.playlists]
 
 
 @router.put("/{track_id}/preference")

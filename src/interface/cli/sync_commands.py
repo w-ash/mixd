@@ -6,7 +6,7 @@ is the sync-side peer of `mixd workflow schedule`; both are thin wrappers over
 the shared ``run_schedule_command`` orchestrator so validation and dispatch live
 in exactly one place.
 
-Schedulable targets come from ``SCHEDULABLE_SYNC_TARGETS`` (e.g. ``lastfm:plays``,
+Schedulable targets are the keys of ``SYNC_DISPATCH`` (e.g. ``lastfm:plays``,
 ``spotify:likes``, ``lastfm:likes``) — ``spotify:plays`` is file-import-only and
 therefore not schedulable.
 """

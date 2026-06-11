@@ -155,25 +155,6 @@ class TestGetTrackDetailEndpoint:
         assert response.status_code == 404
 
 
-class TestGetTrackPlaylistsEndpoint:
-    """GET /api/v1/tracks/{id}/playlists returns playlist memberships."""
-
-    async def test_track_with_no_playlists(self, client: httpx.AsyncClient) -> None:
-        track_id = await _create_track(client, "Lonely Track")
-
-        response = await client.get(f"/api/v1/tracks/{track_id}/playlists")
-
-        assert response.status_code == 200
-        assert response.json() == []
-
-    async def test_nonexistent_track_returns_404(
-        self, client: httpx.AsyncClient
-    ) -> None:
-        response = await client.get(f"/api/v1/tracks/{uuid7()}/playlists")
-
-        assert response.status_code == 404
-
-
 class TestMergeTrackEndpoint:
     """POST /api/v1/tracks/{id}/merge merges a duplicate into the winner."""
 

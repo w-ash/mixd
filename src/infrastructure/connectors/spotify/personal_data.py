@@ -8,6 +8,7 @@ from typing import Self, cast
 from attrs import define
 
 from src.config import get_logger
+from src.domain.entities.operations import TrackContextFields
 from src.domain.entities.shared import JsonDict, json_bool, json_int, json_str
 
 logger = get_logger(__name__)
@@ -43,19 +44,27 @@ class SpotifyPlayRecord:
         """
         return cls(
             timestamp=datetime.fromisoformat(json_str(data["ts"])),
-            track_uri=json_str(data["spotify_track_uri"]),
+            track_uri=json_str(data[TrackContextFields.SPOTIFY_TRACK_URI]),
             track_name=json_str(data["master_metadata_track_name"]),
             artist_name=json_str(data["master_metadata_album_artist_name"]),
             album_name=json_str(data["master_metadata_album_album_name"]),
             ms_played=json_int(data["ms_played"]),
-            platform=json_str(data.get("platform", "unknown"), "unknown"),
+            platform=json_str(
+                data.get(TrackContextFields.PLATFORM, "unknown"), "unknown"
+            ),
             country=json_str(data.get("conn_country", "unknown"), "unknown"),
-            reason_start=json_str(data.get("reason_start", "unknown"), "unknown"),
-            reason_end=json_str(data.get("reason_end", "unknown"), "unknown"),
-            shuffle=json_bool(data.get("shuffle", False)),
+            reason_start=json_str(
+                data.get(TrackContextFields.REASON_START, "unknown"), "unknown"
+            ),
+            reason_end=json_str(
+                data.get(TrackContextFields.REASON_END, "unknown"), "unknown"
+            ),
+            shuffle=json_bool(data.get(TrackContextFields.SHUFFLE, False)),
             skipped=json_bool(data.get("skipped", False)),
-            offline=json_bool(data.get("offline", False)),
-            incognito_mode=json_bool(data.get("incognito_mode", False)),
+            offline=json_bool(data.get(TrackContextFields.OFFLINE, False)),
+            incognito_mode=json_bool(
+                data.get(TrackContextFields.INCOGNITO_MODE, False)
+            ),
         )
 
 

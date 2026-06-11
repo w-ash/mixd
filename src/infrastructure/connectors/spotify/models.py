@@ -71,8 +71,6 @@ class SpotifyExternalIds(SpotifyBaseModel):
     """External identifier block — deprecated in API but still returned."""
 
     isrc: str | None = Field(default=None)
-    ean: str | None = Field(default=None)
-    upc: str | None = Field(default=None)
 
 
 class SpotifyTrack(SpotifyBaseModel):
@@ -120,7 +118,6 @@ class SpotifyPaginatedPlaylistItems(SpotifyBaseModel):
     limit: int = Field(default=20)
     next: str | None = Field(default=None)
     offset: int = Field(default=0)
-    previous: str | None = Field(default=None)
     total: int = Field(default=0)
     items: NullSafeList[SpotifyPlaylistItem] = Field(default_factory=list)
 
@@ -161,6 +158,5 @@ class SpotifyUserPlaylistsResponse(SpotifyBaseModel):
     limit: int = Field(default=20)
     next: str | None = Field(default=None)
     offset: int = Field(default=0)
-    previous: str | None = Field(default=None)
     total: int = Field(default=0)
     items: list[SpotifyPlaylist] = Field(default_factory=list)

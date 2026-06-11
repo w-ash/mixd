@@ -8,24 +8,10 @@ Pure functions.
 import pytest
 
 from src.application.use_cases._shared.sync_targets import (
-    SCHEDULABLE_SYNC_TARGETS,
     sync_result_failed,
     validate_sync_target,
 )
 from src.domain.entities.operations import OperationResult
-
-
-class TestSchedulableSet:
-    def test_expected_targets(self) -> None:
-        assert {
-            "lastfm:plays",
-            "spotify:likes",
-            "lastfm:likes",
-        } == SCHEDULABLE_SYNC_TARGETS
-
-    def test_spotify_plays_excluded(self) -> None:
-        # File-import-only — must never be offered as a background sync.
-        assert "spotify:plays" not in SCHEDULABLE_SYNC_TARGETS
 
 
 class TestValidateSyncTarget:

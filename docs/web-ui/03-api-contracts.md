@@ -164,13 +164,6 @@ GET    /tracks/{id}
 - **Status**: ✅ Implemented (v0.3.2)
 
 ```
-GET    /tracks/{id}/playlists
-       → PlaylistBriefSchema[] (flat array)
-```
-- **Use case**: `GetTrackDetailsUseCase` (reuses same use case, returns playlists subset)
-- **Status**: ✅ Implemented (v0.3.2)
-
-```
 GET    /tracks/{id}/mappings
        → { data: ConnectorTrackMapping[] }
 ```
@@ -483,13 +476,6 @@ PATCH  /workflows/{id}
 - **Use case**: `UpdateWorkflowUseCase`
 - **Status**: ✅ Implemented (v0.4.0)
 - **Notes**: Validates definition if provided.
-
-```
-DELETE /workflows/{id}
-       -> 204
-```
-- **Use case**: `DeleteWorkflowUseCase`
-- **Status**: ✅ Implemented (v0.4.0)
 
 ### Template gallery & cloning (v0.8.x)
 
@@ -1050,9 +1036,8 @@ Fields:
 | `SyncLikesUseCase` | `POST /imports/spotify/likes`, `POST /imports/lastfm/likes` | `routes/imports.py` | v0.3.1 |
 | Checkpoint query | `GET /imports/checkpoints` | `routes/imports.py` | v0.3.1 |
 | SSE progress streaming | `GET /operations/{id}/progress` | `routes/operations.py` | v0.3.1 |
-| Active operations list | `GET /operations` | `routes/operations.py` | v0.3.1 |
 | `ListTracksUseCase` | `GET /tracks` | `routes/tracks.py` | v0.3.2 |
-| `GetTrackDetailsUseCase` | `GET /tracks/{id}`, `GET /tracks/{id}/playlists` | `routes/tracks.py` | v0.3.2 |
+| `GetTrackDetailsUseCase` | `GET /tracks/{id}` | `routes/tracks.py` | v0.3.2 |
 | `RunWorkflowUseCase` | `POST /workflows/{id}/run` | `routes/workflows.py` | v0.4.1 |
 | `GetWorkflowRunsUseCase` | `GET /workflows/{id}/runs`, `GET /workflows/{id}/runs/{run_id}` | `routes/workflows.py` | v0.4.1 |
 | `PreviewWorkflowUseCase` | `POST /workflows/{id}/preview`, `POST /workflows/preview` | `routes/workflows.py` | v0.4.3 |

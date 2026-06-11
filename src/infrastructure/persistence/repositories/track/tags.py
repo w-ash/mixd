@@ -176,27 +176,6 @@ class TrackTagRepository(BaseRepository[DBTrackTag, TrackTag]):
         result = await self.session.execute(stmt)
         return [(row[0], row[1], row[2]) for row in result.all()]
 
-    @db_operation("list_by_tagged_at")
-    async def list_by_tagged_at(
-        self,
-        *,
-        user_id: str,
-        before: datetime | None = None,
-        after: datetime | None = None,
-        limit: int = 50,
-    ) -> list[TrackTag]:
-        """List tags within a date range, ordered by tagged_at desc."""
-        conditions = [self.model_class.user_id == user_id]
-        if before is not None:
-            conditions.append(self.model_class.tagged_at < before)
-        if after is not None:
-            conditions.append(self.model_class.tagged_at >= after)
-        return await self.find_by(
-            conditions,
-            order_by=("tagged_at", False),
-            limit=limit,
-        )
-
     @db_operation("rename_tag")
     async def rename_tag(self, *, user_id: str, source: str, target: str) -> int:
         """Rename ``source`` → ``target`` for one user; idempotent on existing target.

@@ -2,7 +2,7 @@ import { ArrowUp, Bookmark, Heart, Music, X } from "lucide-react";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Link } from "react-router";
 import { useGetConnectorsApiV1ConnectorsGet } from "#/api/generated/connectors/connectors";
-import type { LibraryTrackSchema } from "#/api/generated/model";
+import type { LibraryTrackSchema, TrackSortBy } from "#/api/generated/model";
 import { useListTracksApiV1TracksGet } from "#/api/generated/tracks/tracks";
 import { STALE } from "#/api/query-client";
 import { PageHeader } from "#/components/layout/PageHeader";
@@ -134,7 +134,7 @@ const SORT_LABELS: Record<SortField, string> = {
 };
 
 /** Map column name to API sort param */
-function toSortParam(field: SortField, dir: SortDir): string {
+function toSortParam(field: SortField, dir: SortDir): TrackSortBy {
   return `${field}_${dir}`;
 }
 
@@ -237,8 +237,12 @@ export function Library() {
   const tagParams = searchParams.getAll("tag");
   const tagModeParam: "and" | "or" =
     searchParams.get("tag_mode") === "or" ? "or" : "and";
-  const sortParam = searchParams.get("sort") ?? "title_asc";
-  const { field: sortField, dir: sortDir } = parseSortParam(sortParam);
+  const { field: sortField, dir: sortDir } = parseSortParam(
+    searchParams.get("sort") ?? "title_asc",
+  );
+  // Round-trip through the parser so garbage URL values normalize to a
+  // valid TrackSortBy instead of reaching the API as a raw string.
+  const sortParam = toSortParam(sortField, sortDir);
 
   // Build query params for the API
   const querySearch = deferredSearch.length >= 2 ? deferredSearch : undefined;

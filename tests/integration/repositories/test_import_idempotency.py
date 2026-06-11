@@ -49,7 +49,12 @@ class TestImportIdempotency:
         await plays_repo.bulk_insert_plays([test_play])
         await plays_repo.bulk_insert_plays([test_play])
 
-        all_plays = await plays_repo.get_plays_by_batch(batch_id)
+        all_plays = await plays_repo.find_plays_in_time_range(
+            [saved_track.id],
+            datetime(2023, 1, 15, tzinfo=UTC),
+            datetime(2023, 1, 16, tzinfo=UTC),
+            user_id="default",
+        )
 
         assert len(all_plays) == 1, (
             f"Expected 1 play, got {len(all_plays)}. Import is NOT idempotent!"
@@ -103,10 +108,14 @@ class TestImportIdempotency:
 
         await plays_repo.bulk_insert_plays([play_2])
 
-        all_plays_batch_1 = await plays_repo.get_plays_by_batch(batch_1)
-        all_plays_batch_2 = await plays_repo.get_plays_by_batch(batch_2)
+        all_plays = await plays_repo.find_plays_in_time_range(
+            [saved_track.id],
+            datetime(2023, 2, 10, tzinfo=UTC),
+            datetime(2023, 2, 11, tzinfo=UTC),
+            user_id="default",
+        )
 
         # ON CONFLICT DO NOTHING: the first batch's insert claims the row; the
-        # second batch is a no-op, so its batch_id returns zero plays.
-        assert len(all_plays_batch_1) == 1
-        assert len(all_plays_batch_2) == 0
+        # second batch is a no-op, so only batch_1's play exists.
+        assert len(all_plays) == 1
+        assert all_plays[0].import_batch_id == batch_1

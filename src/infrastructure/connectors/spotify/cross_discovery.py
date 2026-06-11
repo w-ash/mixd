@@ -6,19 +6,15 @@ Last.fm) can discover Spotify mappings without directly importing
 domain protocol, satisfying DDD's dependency rule.
 """
 
-from typing import TYPE_CHECKING
-
 from src.config import create_evaluation_service, get_logger
 from src.config.constants import MatchMethod
 from src.domain.entities import Track
 from src.domain.matching.evaluation_service import TrackMatchEvaluationService
 from src.domain.repositories import UnitOfWorkProtocol
 from src.infrastructure.connectors._shared.isrc import normalize_isrc
+from src.infrastructure.connectors.listenbrainz.lookup import ListenBrainzLookup
 from src.infrastructure.connectors.spotify import SpotifyConnector
 from src.infrastructure.connectors.spotify.utilities import search_and_evaluate_match
-
-if TYPE_CHECKING:
-    from src.infrastructure.connectors.listenbrainz.lookup import ListenBrainzLookup
 
 logger = get_logger(__name__)
 

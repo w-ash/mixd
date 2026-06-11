@@ -416,7 +416,7 @@ def export(
     if all_workflows:
         to_export = workflows
     else:
-        selected = _resolve_workflow(workflows, workflow_id)  # type: ignore[arg-type]
+        selected = _resolve_workflow(workflows, workflow_id)  # pyright: ignore[reportArgumentType]  # mutual-exclusion guards above ensure non-None
         if selected is None:
             err_console.print(f"[red]Error: Workflow '{workflow_id}' not found.[/red]")
             raise typer.Exit(1)

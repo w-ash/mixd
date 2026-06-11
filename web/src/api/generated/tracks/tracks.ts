@@ -33,7 +33,6 @@ import type {
   ListTracksApiV1TracksGetParams,
   MergeTrackRequest,
   PaginatedLibraryTracksResponse,
-  PlaylistBriefSchema,
   RelinkMappingRequest,
   SetPreferenceRequest,
   TrackDetailSchema,
@@ -662,127 +661,7 @@ export const useSetPrimaryMappingApiV1TracksTrackIdMappingsMappingIdPrimaryPatch
       > => {
       return useMutation(getSetPrimaryMappingApiV1TracksTrackIdMappingsMappingIdPrimaryPatchMutationOptions(options), queryClient);
     }
-    export type getTrackPlaylistsApiV1TracksTrackIdPlaylistsGetResponse200 = {
-  data: PlaylistBriefSchema[]
-  status: 200
-}
-
-export type getTrackPlaylistsApiV1TracksTrackIdPlaylistsGetResponse422 = {
-  data: HTTPValidationError
-  status: 422
-}
-
-export type getTrackPlaylistsApiV1TracksTrackIdPlaylistsGetResponseSuccess = (getTrackPlaylistsApiV1TracksTrackIdPlaylistsGetResponse200) & {
-  headers: Headers;
-};
-export type getTrackPlaylistsApiV1TracksTrackIdPlaylistsGetResponseError = (getTrackPlaylistsApiV1TracksTrackIdPlaylistsGetResponse422) & {
-  headers: Headers;
-};
-
-export type getTrackPlaylistsApiV1TracksTrackIdPlaylistsGetResponse = (getTrackPlaylistsApiV1TracksTrackIdPlaylistsGetResponseSuccess | getTrackPlaylistsApiV1TracksTrackIdPlaylistsGetResponseError)
-
-export const getGetTrackPlaylistsApiV1TracksTrackIdPlaylistsGetUrl = (trackId: string,) => {
-
-
-
-
-  return `/api/v1/tracks/${trackId}/playlists`
-}
-
-/**
- * Get playlists containing a specific track.
- * @summary Get Track Playlists
- */
-export const getTrackPlaylistsApiV1TracksTrackIdPlaylistsGet = async (trackId: string, options?: RequestInit): Promise<getTrackPlaylistsApiV1TracksTrackIdPlaylistsGetResponse> => {
-
-  return customFetch<getTrackPlaylistsApiV1TracksTrackIdPlaylistsGetResponse>(getGetTrackPlaylistsApiV1TracksTrackIdPlaylistsGetUrl(trackId),
-  {
-    ...options,
-    method: 'GET'
-
-
-  }
-);}
-
-
-
-
-
-export const getGetTrackPlaylistsApiV1TracksTrackIdPlaylistsGetQueryKey = (trackId: string,) => {
-    return [
-    `/api/v1/tracks/${trackId}/playlists`
-    ] as const;
-    }
-
-
-export const getGetTrackPlaylistsApiV1TracksTrackIdPlaylistsGetQueryOptions = <TData = Awaited<ReturnType<typeof getTrackPlaylistsApiV1TracksTrackIdPlaylistsGet>>, TError = HTTPValidationError>(trackId: string, options?: { query?:Partial<UseQueryOptions<Awaited<ReturnType<typeof getTrackPlaylistsApiV1TracksTrackIdPlaylistsGet>>, TError, TData>>, request?: SecondParameter<typeof customFetch>}
-) => {
-
-const {query: queryOptions, request: requestOptions} = options ?? {};
-
-  const queryKey =  queryOptions?.queryKey ?? getGetTrackPlaylistsApiV1TracksTrackIdPlaylistsGetQueryKey(trackId);
-
-
-
-    const queryFn: QueryFunction<Awaited<ReturnType<typeof getTrackPlaylistsApiV1TracksTrackIdPlaylistsGet>>> = ({ signal }) => getTrackPlaylistsApiV1TracksTrackIdPlaylistsGet(trackId, { signal, ...requestOptions });
-
-
-
-
-
-   return  { queryKey, queryFn, enabled: trackId !== null && trackId !== undefined, ...queryOptions} as UseQueryOptions<Awaited<ReturnType<typeof getTrackPlaylistsApiV1TracksTrackIdPlaylistsGet>>, TError, TData> & { queryKey: DataTag<QueryKey, TData, TError> }
-}
-
-export type GetTrackPlaylistsApiV1TracksTrackIdPlaylistsGetQueryResult = NonNullable<Awaited<ReturnType<typeof getTrackPlaylistsApiV1TracksTrackIdPlaylistsGet>>>
-export type GetTrackPlaylistsApiV1TracksTrackIdPlaylistsGetQueryError = HTTPValidationError
-
-
-export function useGetTrackPlaylistsApiV1TracksTrackIdPlaylistsGet<TData = Awaited<ReturnType<typeof getTrackPlaylistsApiV1TracksTrackIdPlaylistsGet>>, TError = HTTPValidationError>(
- trackId: string, options: { query:Partial<UseQueryOptions<Awaited<ReturnType<typeof getTrackPlaylistsApiV1TracksTrackIdPlaylistsGet>>, TError, TData>> & Pick<
-        DefinedInitialDataOptions<
-          Awaited<ReturnType<typeof getTrackPlaylistsApiV1TracksTrackIdPlaylistsGet>>,
-          TError,
-          Awaited<ReturnType<typeof getTrackPlaylistsApiV1TracksTrackIdPlaylistsGet>>
-        > , 'initialData'
-      >, request?: SecondParameter<typeof customFetch>}
- , queryClient?: QueryClient
-  ):  DefinedUseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> }
-export function useGetTrackPlaylistsApiV1TracksTrackIdPlaylistsGet<TData = Awaited<ReturnType<typeof getTrackPlaylistsApiV1TracksTrackIdPlaylistsGet>>, TError = HTTPValidationError>(
- trackId: string, options?: { query?:Partial<UseQueryOptions<Awaited<ReturnType<typeof getTrackPlaylistsApiV1TracksTrackIdPlaylistsGet>>, TError, TData>> & Pick<
-        UndefinedInitialDataOptions<
-          Awaited<ReturnType<typeof getTrackPlaylistsApiV1TracksTrackIdPlaylistsGet>>,
-          TError,
-          Awaited<ReturnType<typeof getTrackPlaylistsApiV1TracksTrackIdPlaylistsGet>>
-        > , 'initialData'
-      >, request?: SecondParameter<typeof customFetch>}
- , queryClient?: QueryClient
-  ):  UseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> }
-export function useGetTrackPlaylistsApiV1TracksTrackIdPlaylistsGet<TData = Awaited<ReturnType<typeof getTrackPlaylistsApiV1TracksTrackIdPlaylistsGet>>, TError = HTTPValidationError>(
- trackId: string, options?: { query?:Partial<UseQueryOptions<Awaited<ReturnType<typeof getTrackPlaylistsApiV1TracksTrackIdPlaylistsGet>>, TError, TData>>, request?: SecondParameter<typeof customFetch>}
- , queryClient?: QueryClient
-  ):  UseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> }
-/**
- * @summary Get Track Playlists
- */
-
-export function useGetTrackPlaylistsApiV1TracksTrackIdPlaylistsGet<TData = Awaited<ReturnType<typeof getTrackPlaylistsApiV1TracksTrackIdPlaylistsGet>>, TError = HTTPValidationError>(
- trackId: string, options?: { query?:Partial<UseQueryOptions<Awaited<ReturnType<typeof getTrackPlaylistsApiV1TracksTrackIdPlaylistsGet>>, TError, TData>>, request?: SecondParameter<typeof customFetch>}
- , queryClient?: QueryClient
- ):  UseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> } {
-
-  const queryOptions = getGetTrackPlaylistsApiV1TracksTrackIdPlaylistsGetQueryOptions(trackId,options)
-
-  const query = useQuery(queryOptions, queryClient) as  UseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> };
-
-  return { ...query, queryKey: queryOptions.queryKey };
-}
-
-
-
-
-
-
-export type setTrackPreferenceApiV1TracksTrackIdPreferencePutResponse200 = {
+    export type setTrackPreferenceApiV1TracksTrackIdPreferencePutResponse200 = {
   data: SetPreferenceRequest
   status: 200
 }

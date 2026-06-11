@@ -188,15 +188,7 @@ class TestCheckpointEndpoints:
 
 
 class TestOperationEndpoints:
-    """Tests for the operations listing endpoint."""
-
-    async def test_list_operations_empty(self, client: httpx.AsyncClient):
-        response = await client.get("/api/v1/operations")
-
-        assert response.status_code == 200
-        data = response.json()
-        assert "operation_ids" in data
-        assert isinstance(data["operation_ids"], list)
+    """Tests for the operation progress endpoints."""
 
     async def test_unknown_operation_progress_returns_404(
         self, client: httpx.AsyncClient

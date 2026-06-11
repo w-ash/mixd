@@ -16,8 +16,6 @@ Cadence is intentionally minimal (no freeform cron, no sub-daily intervals):
 vs "weekly" is never a separate field that could drift out of sync.
 """
 
-from __future__ import annotations
-
 from datetime import datetime
 from typing import Final, Literal
 from uuid import UUID, uuid7
@@ -29,11 +27,6 @@ from .shared import validate_timezone_aware
 type ScheduleType = Literal["daily", "weekly"]
 type ScheduleStatus = Literal["enabled", "disabled"]
 type ScheduleTargetType = Literal["workflow", "sync"]
-
-SCHEDULE_STATUSES: Final[frozenset[ScheduleStatus]] = frozenset({
-    "enabled",
-    "disabled",
-})
 
 # day_of_week uses the cron convention: 0 = Sunday … 6 = Saturday. Interface
 # layers map a weekday name to this int (and back) for display.

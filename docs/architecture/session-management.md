@@ -1,6 +1,6 @@
 # Database Session Management
 
-How Mixd manages database sessions to handle SQLite's concurrency limitations while maintaining Clean Architecture principles and proper transaction boundary control through the UnitOfWork pattern.
+How Mixd manages PostgreSQL sessions — per-task sessions from the connection pool — while maintaining Clean Architecture principles and proper transaction boundary control through the UnitOfWork pattern.
 
 ## Transaction Management Philosophy
 
@@ -68,7 +68,7 @@ async with get_session() as shared_session:
     }
 ```
 
-**Benefits**: Eliminates SQLite "database is locked" errors, ensures ACID properties across workflow operations, simplifies transaction management.
+**Benefits**: Avoids cross-task session contention (MVCC handles concurrent reads/writes), ensures ACID properties across workflow operations, simplifies transaction management.
 
 ### 2. Session-Per-Operation Pattern
 **Pattern**: Fresh session for each discrete operation

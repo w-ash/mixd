@@ -7,8 +7,6 @@ Following TDD principles - write tests first, then implement domain services.
 from datetime import UTC, datetime
 from uuid import UUID
 
-import pytest
-
 from src.domain.entities.playlist import (
     ConnectorPlaylist,
     ConnectorPlaylistItem,
@@ -91,42 +89,6 @@ class TestPlaylistEntity:
         assert updated_playlist.name == "Test Playlist"  # Other fields preserved
         assert updated_playlist != playlist  # Immutability
         assert playlist.tracks == original_tracks  # Original unchanged
-
-    def test_playlist_with_connector_playlist_id(self):
-        """Test adding connector playlist ID."""
-        playlist = Playlist(name="Test Playlist")
-
-        updated_playlist = playlist.with_connector_playlist_id(
-            "spotify", "37i9dQZF1DXcBWIGoYBM5M"
-        )
-
-        assert (
-            updated_playlist.connector_playlist_identifiers["spotify"]
-            == "37i9dQZF1DXcBWIGoYBM5M"
-        )
-        assert updated_playlist != playlist  # Immutability
-        assert playlist.connector_playlist_identifiers == {}  # Original unchanged
-
-    def test_playlist_with_multiple_connector_ids(self):
-        """Test adding multiple connector IDs."""
-        playlist = Playlist(name="Test Playlist")
-
-        playlist = playlist.with_connector_playlist_id("spotify", "spotify_id")
-        playlist = playlist.with_connector_playlist_id("apple_music", "apple_id")
-
-        assert playlist.connector_playlist_identifiers["spotify"] == "spotify_id"
-        assert playlist.connector_playlist_identifiers["apple_music"] == "apple_id"
-
-    def test_playlist_with_connector_id_validation(self):
-        """Test that internal connector names are rejected."""
-        playlist = Playlist(name="Test Playlist")
-
-        # Should reject internal connector names
-        with pytest.raises(ValueError, match="Cannot use 'db' as connector name"):
-            playlist.with_connector_playlist_id("db", "123")
-
-        with pytest.raises(ValueError, match="Cannot use 'internal' as connector name"):
-            playlist.with_connector_playlist_id("internal", "123")
 
 
 class TestConnectorPlaylistEntity:

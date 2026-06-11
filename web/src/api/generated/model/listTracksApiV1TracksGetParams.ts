@@ -5,6 +5,8 @@
  * Personal music metadata hub
  * OpenAPI spec version: 0.8.4
  */
+import type { ListTracksApiV1TracksGetTagMode } from './listTracksApiV1TracksGetTagMode.ts';
+import type { TrackSortBy } from './trackSortBy.ts';
 
 export type ListTracksApiV1TracksGetParams = {
 /**
@@ -29,18 +31,16 @@ preference?: string | null;
 tag?: string[] | null;
 /**
  * Intersection (and) or union (or) when tag has multiple values.
- * @pattern ^(and|or)$
  */
-tag_mode?: string;
+tag_mode?: ListTracksApiV1TracksGetTagMode;
 /**
  * Filter to tracks carrying any mood:*\/energy:* tag.
  */
 namespace?: string | null;
 /**
  * Sort field and direction
- * @pattern ^(title|artist|added|duration)_(asc|desc)$
  */
-sort?: string;
+sort?: TrackSortBy;
 /**
  * @minimum 1
  * @maximum 200

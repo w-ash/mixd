@@ -6,7 +6,7 @@ user-invocable: false
 
 # Mixd API Contracts Reference
 
-> Condensed from `docs/web-ui/03-api-contracts.md`. Base URL: `/api/v1`. All entity IDs are integers; operation IDs are UUID strings.
+> Condensed from `docs/web-ui/03-api-contracts.md`. Base URL: `/api/v1`. All IDs — entities and operations — are UUID strings.
 
 ## Response Conventions
 
@@ -31,15 +31,14 @@ user-invocable: false
 
 | Method | Path | Use Case | Status |
 |--------|------|----------|--------|
-| GET | `/tracks?q=&connector=&liked=&sort=&limit=&offset=` | `ListTracksUseCase` | Needs impl |
-| GET | `/tracks/{id}` | `GetTrackDetailsUseCase` | Needs impl |
+| GET | `/tracks?q=&connector=&liked=&sort=&limit=&offset=` | `ListTracksUseCase` | Exists |
+| GET | `/tracks/{id}` | `GetTrackDetailsUseCase` | Exists |
 | GET | `/tracks/{id}/mappings` | `GetTrackConnectorMappingsUseCase` | Needs impl |
-| PATCH | `/tracks/{id}/mappings/{mapping_id}` | Manual mapping correction | Needs impl |
-| DELETE | `/tracks/{id}/mappings/{mapping_id}` | Remove mapping | Needs impl |
+| PATCH | `/tracks/{id}/mappings/{mapping_id}` | Manual mapping correction | Exists |
+| DELETE | `/tracks/{id}/mappings/{mapping_id}` | Remove mapping | Exists |
 | POST | `/tracks/{id}/like` | `SyncLikesUseCase` (single-track) | Needs impl |
 | DELETE | `/tracks/{id}/like` | `SyncLikesUseCase` (single-track) | Needs impl |
-| GET | `/tracks/{id}/playlists` | Playlists containing track | Needs impl |
-| POST | `/tracks/rematch` | `MatchAndIdentifyTracksUseCase` | Exists |
+| POST | `/tracks/rematch` | `MatchAndIdentifyTracksUseCase` | Needs impl |
 
 ### Playlists (`/playlists`)
 
@@ -51,36 +50,35 @@ user-invocable: false
 | PATCH | `/playlists/{id}` | `UpdateCanonicalPlaylistUseCase` | Exists |
 | DELETE | `/playlists/{id}` | `DeleteCanonicalPlaylistUseCase` | Exists |
 | GET | `/playlists/{id}/tracks?limit=&offset=` | `ReadCanonicalPlaylistUseCase` | Exists |
-| POST | `/playlists/{id}/tracks` | `UpdateCanonicalPlaylistUseCase` | Exists |
-| DELETE | `/playlists/{id}/tracks/{entry_id}` | `UpdateCanonicalPlaylistUseCase` | Exists |
+| POST | `/playlists/{id}/tracks` | `UpdateCanonicalPlaylistUseCase` | Needs impl |
+| DELETE | `/playlists/{id}/tracks/{entry_id}` | `UpdateCanonicalPlaylistUseCase` | Needs impl |
 | DELETE | `/playlists/{id}/tracks` (batch) | `UpdateCanonicalPlaylistUseCase` | Needs impl |
-| PATCH | `/playlists/{id}/tracks/reorder` | `UpdateCanonicalPlaylistUseCase` | Exists |
+| PATCH | `/playlists/{id}/tracks/reorder` | `UpdateCanonicalPlaylistUseCase` | Needs impl |
 | PATCH | `/playlists/{id}/tracks/move` | `UpdateCanonicalPlaylistUseCase` | Needs impl |
 
 ### Playlist Connector Links
 
 | Method | Path | Use Case | Status |
 |--------|------|----------|--------|
-| GET | `/playlists/{id}/links` | Query mappings | Needs impl |
+| GET | `/playlists/{id}/links` | Query mappings | Exists |
 | POST | `/playlists/{id}/links` | `CreateConnectorPlaylistUseCase` | Exists |
 | PATCH | `/playlists/{id}/links/{link_id}` | `UpdateConnectorPlaylistUseCase` | Exists |
-| DELETE | `/playlists/{id}/links/{link_id}` | Unlink connector | Needs impl |
+| DELETE | `/playlists/{id}/links/{link_id}` | Unlink connector | Exists |
 | POST | `/playlists/{id}/links/{link_id}/sync` | `UpdateConnectorPlaylistUseCase` | Exists |
 
 ### Workflows (`/workflows`)
 
 | Method | Path | Use Case | Status |
 |--------|------|----------|--------|
-| GET | `/workflows` | List workflows | Needs impl |
-| POST | `/workflows` | Create workflow | Needs impl |
-| GET | `/workflows/{id}` | Get workflow | Needs impl |
-| PATCH | `/workflows/{id}` | Update workflow | Needs impl |
-| DELETE | `/workflows/{id}` | Delete workflow | Needs impl |
-| POST | `/workflows/{id}/run` | Execute via Prefect | Needs impl |
-| POST | `/workflows/{id}/preview` | Dry-run (skip writes) | Needs impl |
-| POST | `/workflows/validate` | Validate definition | Needs impl |
-| GET | `/workflows/{id}/runs?limit=&offset=` | List runs | Needs impl |
-| GET | `/workflows/{id}/runs/{run_id}` | Run detail | Needs impl |
+| GET | `/workflows` | List workflows | Exists |
+| POST | `/workflows` | Create workflow | Exists |
+| GET | `/workflows/{id}` | Get workflow | Exists |
+| PATCH | `/workflows/{id}` | Update workflow | Exists |
+| POST | `/workflows/{id}/run` | Execute via Prefect | Exists |
+| POST | `/workflows/{id}/preview` | Dry-run (skip writes) | Exists |
+| POST | `/workflows/validate` | Validate definition | Exists |
+| GET | `/workflows/{id}/runs?limit=&offset=` | List runs | Exists |
+| GET | `/workflows/{id}/runs/{run_id}` | Run detail | Exists |
 
 ### Imports (`/imports`)
 
@@ -89,15 +87,15 @@ user-invocable: false
 | POST | `/imports/lastfm/history` | `ImportPlayHistoryUseCase` | Exists |
 | POST | `/imports/spotify/history` (multipart) | `ImportPlayHistoryUseCase` | Exists |
 | POST | `/imports/spotify/likes` | `SyncLikesUseCase` | Exists |
-| POST | `/imports/lastfm/export-likes` | `SyncLikesUseCase` | Exists |
+| POST | `/imports/lastfm/export-likes` | `SyncLikesUseCase` | Needs impl |
 | GET | `/imports/lastfm/export-likes/preview` | Preview count | Needs impl |
-| GET | `/imports/checkpoints` | Checkpoint query | Needs impl |
+| GET | `/imports/checkpoints` | Checkpoint query | Exists |
 
 ### Stats (`/stats`)
 
 | Method | Path | Use Case | Status |
 |--------|------|----------|--------|
-| GET | `/stats/dashboard` | `GetTrackStatsUseCase` | Needs impl |
+| GET | `/stats/dashboard` | `GetTrackStatsUseCase` | Exists |
 | GET | `/stats/plays?from=&to=&limit=&offset=` | Play history query | Needs impl |
 | GET | `/stats/top-tracks?period_days=30&limit=50` | Top tracks aggregation | Needs impl |
 
@@ -105,23 +103,22 @@ user-invocable: false
 
 | Method | Path | Use Case | Status |
 |--------|------|----------|--------|
-| GET | `/operations/{id}/progress` (SSE) | `SSEProgressProvider` | Needs impl |
-| GET | `/operations/{id}` | Operation snapshot | Needs impl |
+| GET | `/operations/{id}/progress` (SSE) | `SSEProgressProvider` | Exists |
+| GET | `/operations/{id}/snapshot` | Operation snapshot | Exists |
 | POST | `/operations/{id}/cancel` | Cancel operation | Needs impl |
-| GET | `/operations?limit=20` | Recent operations | Needs impl |
 
 ### Connectors (`/connectors`)
 
 | Method | Path | Use Case | Status |
 |--------|------|----------|--------|
-| GET | `/connectors` | Status query | **Built** (v0.3.0) |
-| GET | `/connectors/spotify/auth-url` | OAuth URL | Needs impl |
-| GET | `/auth/spotify/callback` | OAuth exchange → redirect | Needs impl |
-| GET | `/connectors/lastfm/auth-url` | Auth URL | Needs impl |
-| GET | `/auth/lastfm/callback` | Store session key → redirect | Needs impl |
-| DELETE | `/connectors/{connector}/auth` | Disconnect | Needs impl |
+| GET | `/connectors` | Status query | Exists |
+| GET | `/connectors/spotify/auth-url` | OAuth URL | Exists |
+| GET | `/auth/spotify/callback` | OAuth exchange → redirect | Exists |
+| GET | `/connectors/lastfm/auth-url` | Auth URL | Exists |
+| GET | `/auth/lastfm/callback` | Store session key → redirect | Exists |
+| DELETE | `/connectors/{connector}/token` | Disconnect | Exists |
 | GET | `/connectors/{connector}/search?q=&limit=` | Track search | Needs impl |
-| GET | `/connectors/{connector}/playlists?q=&limit=&offset=` | Browse playlists | Needs impl |
+| GET | `/connectors/{connector}/playlists?q=&limit=&offset=` | Browse playlists | Exists |
 
 ## SSE Event Format
 

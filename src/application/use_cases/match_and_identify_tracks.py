@@ -7,14 +7,11 @@ business logic to the domain layer and all infrastructure concerns to the infras
 This replaces MatchTracksUseCase and will become the single way to resolve track identities.
 """
 
-from typing import TYPE_CHECKING
 from uuid import UUID
-
-if TYPE_CHECKING:
-    from src.application.services.progress_manager import AsyncProgressManager
 
 from attrs import define, field
 
+from src.application.services.progress_manager import AsyncProgressManager
 from src.application.utilities.timing import ExecutionTimer
 from src.config import create_evaluation_service, get_logger
 from src.config.logging import logging_context

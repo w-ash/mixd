@@ -7,7 +7,7 @@ parsing, batch processing, and memory optimization logic.
 
 from datetime import datetime
 from pathlib import Path
-from typing import override
+from typing import cast, override
 
 from src.config import get_logger
 from src.domain.entities import ConnectorTrackPlay, OperationResult
@@ -68,7 +68,9 @@ class SpotifyPlayImporter(BasePlayImporter[SpotifyPlayRecord], PlayImporterProto
 
         # Extract common and Spotify-specific parameters using typed approach
         common_params, spotify_params = self._extract_common_params(**params)
-        typed_params: SpotifyImportParams = {**common_params, **spotify_params}  # type: ignore[misc]
+        # One cast at the template-method boundary: the remaining service params
+        # are object-typed; downstream typed accessors define the field shapes.
+        typed_params = cast(SpotifyImportParams, {**common_params, **spotify_params})
 
         file_path = typed_params.get("file_path")
         if not file_path:

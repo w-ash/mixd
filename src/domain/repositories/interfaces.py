@@ -448,6 +448,12 @@ class CheckpointRepositoryProtocol(Protocol):
         """Get sync checkpoint."""
         ...
 
+    def get_or_create_sync_checkpoint(
+        self, user_id: str, service: str, entity_type: Literal["likes", "plays"]
+    ) -> Awaitable[SyncCheckpoint]:
+        """Get the checkpoint, or a fresh unsaved one on miss (non-persisting)."""
+        ...
+
     def save_sync_checkpoint(
         self, checkpoint: SyncCheckpoint
     ) -> Awaitable[SyncCheckpoint]:
@@ -1450,17 +1456,6 @@ class PreferenceRepositoryProtocol(Protocol):
         """Count preferences grouped by state."""
         ...
 
-    def list_by_preferred_at(
-        self,
-        *,
-        user_id: str,
-        before: datetime | None = None,
-        after: datetime | None = None,
-        limit: int = 50,
-    ) -> Awaitable[list[TrackPreference]]:
-        """List preferences within a date range, ordered by preferred_at desc."""
-        ...
-
 
 class TagRepositoryProtocol(Protocol):
     """Repository interface for track tag persistence.
@@ -1530,17 +1525,6 @@ class TagRepositoryProtocol(Protocol):
         ``TrackRepositoryProtocol.list_tracks`` so pagination, sort, and
         hydration happen in one query.
         """
-        ...
-
-    def list_by_tagged_at(
-        self,
-        *,
-        user_id: str,
-        before: datetime | None = None,
-        after: datetime | None = None,
-        limit: int = 50,
-    ) -> Awaitable[list[TrackTag]]:
-        """List tags within a date range, ordered by tagged_at desc."""
         ...
 
     def rename_tag(self, *, user_id: str, source: str, target: str) -> Awaitable[int]:

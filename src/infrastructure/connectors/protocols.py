@@ -17,6 +17,8 @@ from src.domain.entities.shared import JsonValue
 from src.infrastructure.connectors._shared.token_storage import TokenStorage
 
 if TYPE_CHECKING:
+    # fastapi (~160ms import) is used only in annotations here; the guard
+    # keeps it out of the CLI's connector import path.
     from fastapi import Request
 
 # Factory the route handler passes to connector ``build_auth_url`` callables.

@@ -12,6 +12,8 @@ from unittest.mock import AsyncMock, patch
 import pytest
 
 import src.interface.api.routes.webhooks as webhooks_mod
+import src.interface.api.webhook_verification as webhook_verification_mod
+from src.interface.api.webhook_verification import verify_signature
 from tests.fixtures.auth_keys import TEST_JWK_SET, sign_test_webhook
 
 # ---------------------------------------------------------------------------
@@ -33,26 +35,26 @@ def _webhook_body(event_type: str, **user_fields: str) -> bytes:
 class TestSignatureVerification:
     """EdDSA detached JWS signature verification."""
 
-    @patch.object(webhooks_mod, "get_jwk_set", new_callable=AsyncMock)
+    @patch.object(webhook_verification_mod, "get_jwk_set", new_callable=AsyncMock)
     async def test_valid_signature_passes(self, mock_jwks: AsyncMock):
         mock_jwks.return_value = TEST_JWK_SET
         body = b'{"event_type":"user.created","event_data":{"user":{"id":"1"}}}'
         sig, kid, ts = sign_test_webhook(body)
 
-        result = await webhooks_mod._verify_signature(
+        result = await verify_signature(
             body, sig, kid, ts, "https://test.example/.well-known/jwks.json"
         )
 
         assert result is True
 
-    @patch.object(webhooks_mod, "get_jwk_set", new_callable=AsyncMock)
+    @patch.object(webhook_verification_mod, "get_jwk_set", new_callable=AsyncMock)
     async def test_tampered_body_fails(self, mock_jwks: AsyncMock):
         mock_jwks.return_value = TEST_JWK_SET
         body = b'{"event_type":"user.created","event_data":{"user":{"id":"1"}}}'
         sig, kid, ts = sign_test_webhook(body)
 
         # Tamper with the body after signing
-        result = await webhooks_mod._verify_signature(
+        result = await verify_signature(
             b'{"event_type":"user.created","event_data":{"user":{"id":"HACKED"}}}',
             sig,
             kid,
@@ -62,36 +64,36 @@ class TestSignatureVerification:
 
         assert result is False
 
-    @patch.object(webhooks_mod, "get_jwk_set", new_callable=AsyncMock)
+    @patch.object(webhook_verification_mod, "get_jwk_set", new_callable=AsyncMock)
     async def test_expired_timestamp_fails(self, mock_jwks: AsyncMock):
         mock_jwks.return_value = TEST_JWK_SET
         body = b'{"event_type":"user.created","event_data":{}}'
         sig, kid, ts = sign_test_webhook(body, timestamp=int(time.time()) - 600)
 
-        result = await webhooks_mod._verify_signature(
+        result = await verify_signature(
             body, sig, kid, ts, "https://test.example/.well-known/jwks.json"
         )
 
         assert result is False
 
-    @patch.object(webhooks_mod, "get_jwk_set", new_callable=AsyncMock)
+    @patch.object(webhook_verification_mod, "get_jwk_set", new_callable=AsyncMock)
     async def test_unknown_kid_fails(self, mock_jwks: AsyncMock):
         mock_jwks.return_value = TEST_JWK_SET
         body = b'{"event_type":"user.created","event_data":{}}'
         sig, _kid, ts = sign_test_webhook(body)
 
-        result = await webhooks_mod._verify_signature(
+        result = await verify_signature(
             body, sig, "wrong-kid", ts, "https://test.example/.well-known/jwks.json"
         )
 
         assert result is False
 
-    @patch.object(webhooks_mod, "get_jwk_set", new_callable=AsyncMock)
+    @patch.object(webhook_verification_mod, "get_jwk_set", new_callable=AsyncMock)
     async def test_invalid_jws_format_fails(self, mock_jwks: AsyncMock):
         mock_jwks.return_value = TEST_JWK_SET
         body = b'{"event_type":"user.created","event_data":{}}'
 
-        result = await webhooks_mod._verify_signature(
+        result = await verify_signature(
             body,
             "not-a-jws",
             "kid",
@@ -102,7 +104,7 @@ class TestSignatureVerification:
         assert result is False
 
     async def test_non_numeric_timestamp_fails(self):
-        result = await webhooks_mod._verify_signature(
+        result = await verify_signature(
             b"body",
             "h..s",
             "kid",
@@ -196,7 +198,7 @@ def _make_webhook_client():
 class TestWebhookEndpoint:
     """Full endpoint flow: headers → verify → dispatch → response."""
 
-    @patch.object(webhooks_mod, "get_jwk_set", new_callable=AsyncMock)
+    @patch.object(webhook_verification_mod, "get_jwk_set", new_callable=AsyncMock)
     @patch.object(
         webhooks_mod.settings.server, "neon_auth_jwks_url", "https://test.example/jwks"
     )

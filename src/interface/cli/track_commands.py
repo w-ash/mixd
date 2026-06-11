@@ -10,7 +10,11 @@ import typer
 
 from src.domain.exceptions import NotFoundError
 from src.interface.cli.async_runner import run_async
-from src.interface.cli.cli_helpers import get_cli_user_id, handle_cli_error
+from src.interface.cli.cli_helpers import (
+    get_cli_user_id,
+    handle_cli_error,
+    validate_track_sort,
+)
 from src.interface.cli.console import GOLD, get_console, print_brand_title
 
 console = get_console()
@@ -274,7 +278,11 @@ def list_tracks(
     ] = None,
     sort: Annotated[
         str,
-        typer.Option("--sort", "-s", help="Sort order (title_asc, title_desc, recent)"),
+        typer.Option(
+            "--sort",
+            "-s",
+            help="Sort order (e.g. title_asc, artist_desc, added_desc, duration_asc)",
+        ),
     ] = "title_asc",
     limit: Annotated[
         int,
@@ -290,6 +298,9 @@ def list_tracks(
     ] = "table",
 ) -> None:
     """List tracks in your library with optional search and filtering."""
+    # Validate before entering the async body so BadParameter surfaces as a
+    # clean Typer usage error (exit 2) instead of hitting handle_cli_error.
+    sort_by = validate_track_sort(sort)
 
     async def _list_tracks_async():
         import json as json_mod
@@ -308,7 +319,7 @@ def list_tracks(
                     query=query,
                     liked=liked,
                     connector=connector,
-                    sort_by=sort,  # type: ignore[arg-type]  # validated by Typer choices
+                    sort_by=sort_by,
                     limit=limit,
                     offset=offset,
                 ),

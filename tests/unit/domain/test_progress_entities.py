@@ -4,7 +4,6 @@ Validates progress event and operation entities, domain service business logic,
 and proper enforcement of progress tracking invariants.
 """
 
-import asyncio
 from datetime import UTC, datetime, timedelta
 
 import pytest
@@ -25,7 +24,6 @@ class TestProgressStatus:
 
     def test_status_values(self):
         """Test that status enum has expected values."""
-        assert ProgressStatus.STARTED.value == "started"
         assert ProgressStatus.IN_PROGRESS.value == "in_progress"
         assert ProgressStatus.COMPLETED.value == "completed"
         assert ProgressStatus.FAILED.value == "failed"
@@ -227,19 +225,16 @@ class TestProgressOperation:
         running_op = ProgressOperation(
             description="Running", status=OperationStatus.RUNNING
         )
-        assert running_op.is_running
         assert not running_op.is_complete
 
         completed_op = ProgressOperation(
             description="Completed", status=OperationStatus.COMPLETED
         )
-        assert not completed_op.is_running
         assert completed_op.is_complete
 
         failed_op = ProgressOperation(
             description="Failed", status=OperationStatus.FAILED
         )
-        assert not failed_op.is_running
         assert failed_op.is_complete
 
     def test_with_status_immutable_update(self):
@@ -369,11 +364,6 @@ class TestProgressCoordinator:
         assert running_operation.status == OperationStatus.RUNNING
         assert running_operation.operation_id == sample_operation.operation_id
 
-        # Verify operation is tracked
-        retrieved = await coordinator.get_operation(sample_operation.operation_id)
-        assert retrieved is not None
-        assert retrieved.status == OperationStatus.RUNNING
-
     async def test_start_duplicate_operation_fails(self, coordinator, sample_operation):
         """Test that starting duplicate operations fails."""
         await coordinator.start_operation(sample_operation)
@@ -473,56 +463,6 @@ class TestProgressCoordinator:
             await coordinator.complete_operation(
                 "nonexistent", OperationStatus.COMPLETED
             )
-
-    async def test_get_active_operations(self, coordinator):
-        """Test retrieving active operations."""
-        op1 = create_progress_operation(description="Operation 1")
-        op2 = create_progress_operation(description="Operation 2")
-
-        await coordinator.start_operation(op1)
-        await coordinator.start_operation(op2)
-
-        active_ops = await coordinator.get_active_operations()
-        assert len(active_ops) == 2
-
-        operation_ids = [op.operation_id for op in active_ops]
-        assert op1.operation_id in operation_ids
-        assert op2.operation_id in operation_ids
-
-        # Complete one operation
-        await coordinator.complete_operation(
-            op1.operation_id, OperationStatus.COMPLETED
-        )
-
-        active_ops = await coordinator.get_active_operations()
-        assert len(active_ops) == 1
-        assert active_ops[0].operation_id == op2.operation_id
-
-    async def test_cleanup_completed_operations(self, coordinator, sample_operation):
-        """Test cleanup of old completed operations."""
-        await coordinator.start_operation(sample_operation)
-
-        # Complete the operation (it will have a recent end_time)
-        await coordinator.complete_operation(
-            sample_operation.operation_id, OperationStatus.COMPLETED
-        )
-
-        # Cleanup with very short max_age should remove it
-        cleanup_count = await coordinator.cleanup_completed_operations(
-            max_age_seconds=0.001
-        )
-
-        # Give it a moment for the operation to be considered "old"
-        await asyncio.sleep(0.01)
-
-        cleanup_count = await coordinator.cleanup_completed_operations(
-            max_age_seconds=0.001
-        )
-        assert cleanup_count == 1
-
-        # Operation should no longer be found
-        retrieved = await coordinator.get_operation(sample_operation.operation_id)
-        assert retrieved is None
 
 
 class TestTrackedOperation:

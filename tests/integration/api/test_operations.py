@@ -1,7 +1,7 @@
 """Integration tests for the operations API endpoints.
 
-Tests the SSE progress streaming and active operation listing
-through the full request → route → registry → response cycle.
+Tests the SSE progress streaming through the full
+request → route → registry → response cycle.
 """
 
 import httpx
@@ -27,28 +27,6 @@ def _fresh_registry():
     _progress_mod._global_registry = fresh
     yield
     _progress_mod._global_registry = original
-
-
-class TestListActiveOperations:
-    """GET /api/v1/operations — list active operation IDs."""
-
-    async def test_returns_empty_list_when_no_operations(
-        self, client: httpx.AsyncClient
-    ):
-        response = await client.get("/api/v1/operations")
-        assert response.status_code == 200
-        body = response.json()
-        assert body == {"operation_ids": []}
-
-    async def test_returns_active_operation_ids(self, client: httpx.AsyncClient):
-        registry = get_operation_registry()
-        await registry.register("op-aaa")
-        await registry.register("op-bbb")
-
-        response = await client.get("/api/v1/operations")
-        assert response.status_code == 200
-        body = response.json()
-        assert set(body["operation_ids"]) == {"op-aaa", "op-bbb"}
 
 
 class TestStreamOperationProgress:

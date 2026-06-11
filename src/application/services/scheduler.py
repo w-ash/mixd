@@ -43,8 +43,6 @@ A shutdown ``CancelledError`` (external, not the timeout's) releases the claim a
 a skip and propagates, so structured cancellation still tears the loop down.
 """
 
-from __future__ import annotations
-
 import asyncio
 from asyncio import CancelledError
 import contextlib

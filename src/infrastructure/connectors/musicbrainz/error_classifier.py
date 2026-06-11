@@ -9,6 +9,7 @@ The base HTTPErrorClassifier template handles everything else:
 - Text pattern fallback for non-httpx exceptions
 """
 
+from http import HTTPStatus
 from typing import override
 
 import httpx
@@ -39,7 +40,7 @@ class MusicBrainzErrorClassifier(HTTPErrorClassifier):
         """Classify 503 as rate_limit (MusicBrainz rate enforcement)."""
         if (
             isinstance(exception, httpx.HTTPStatusError)
-            and exception.response.status_code == 503  # noqa: PLR2004
+            and exception.response.status_code == HTTPStatus.SERVICE_UNAVAILABLE
         ):
             return ("rate_limit", "503", "Rate limit exceeded (1 req/sec)")
         return None

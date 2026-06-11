@@ -10,16 +10,12 @@ ProgressCoordinator domain service for business rule enforcement.
 import asyncio
 from asyncio import CancelledError
 from collections.abc import Awaitable, Callable
-from typing import TYPE_CHECKING
 from uuid import uuid4
 
 from attrs import define
+from structlog.stdlib import BoundLogger
 
 from src.config import get_logger
-
-if TYPE_CHECKING:
-    from structlog.stdlib import BoundLogger
-
 from src.domain.entities.progress import (
     OperationStatus,
     ProgressEvent,

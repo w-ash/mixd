@@ -152,27 +152,6 @@ class Playlist:
         """Create new playlist with updated entries."""
         return evolve(self, entries=entries)
 
-    def with_connector_playlist_id(
-        self,
-        connector: str,
-        external_id: str,
-    ) -> Self:
-        """Create a new playlist with additional connector identifier.
-
-        Args:
-            connector: The name of the external service ("spotify", "apple_music", etc)
-                       Do not use "db" or "internal" here - use the id field for that.
-            external_id: The ID of this playlist in the external service
-        """
-        if connector in (DB_PSEUDO_CONNECTOR, "internal"):
-            raise ValueError(
-                f"Cannot use '{connector}' as connector name - use the id field instead",
-            )
-
-        # Python 3.13+ dict merge operator
-        new_ids = self.connector_playlist_identifiers | {connector: external_id}
-        return evolve(self, connector_playlist_identifiers=new_ids)
-
     def with_metadata(self, metadata: Mapping[str, JsonValue]) -> Self:
         """Create new playlist with updated metadata.
 

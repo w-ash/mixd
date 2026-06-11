@@ -27,7 +27,6 @@ class TestPlaylistMetadataBuilderChaining:
             .with_snapshot("snap_123")
             .with_track_counts(added=2, removed=1, moved=0)
             .with_validation(True)
-            .with_custom("foo", "bar")
         )
 
         assert result is builder
@@ -41,7 +40,6 @@ class TestPlaylistMetadataBuilderChaining:
         assert builder.with_snapshot("s") is builder
         assert builder.with_track_counts() is builder
         assert builder.with_validation(True) is builder
-        assert builder.with_custom("k", "v") is builder
 
 
 class TestPlaylistMetadataBuilderFields:
@@ -118,11 +116,6 @@ class TestPlaylistMetadataBuilderFields:
             is False
         )
 
-    def test_with_custom_sets_arbitrary_key(self):
-        """with_custom should set any key-value pair."""
-        result = PlaylistMetadataBuilder().with_custom("my_key", [1, 2, 3]).build_dict()
-        assert result["my_key"] == [1, 2, 3]
-
 
 class TestPlaylistMetadataBuilderBuild:
     """Test build() and build_dict() output behavior."""
@@ -142,7 +135,7 @@ class TestPlaylistMetadataBuilderBuild:
 
     def test_build_dict_returns_copy(self):
         """build_dict() should return a copy, not the internal dict."""
-        builder = PlaylistMetadataBuilder().with_custom("key", "value")
+        builder = PlaylistMetadataBuilder().with_snapshot("snap_123")
         dict1 = builder.build_dict()
         dict2 = builder.build_dict()
 

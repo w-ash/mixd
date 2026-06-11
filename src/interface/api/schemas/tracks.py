@@ -18,7 +18,6 @@ from src.application.use_cases.get_track_details import (
     PlaySummary,
     TrackDetailsResult,
 )
-from src.domain.entities import Playlist
 from src.domain.entities.playlist import DB_PSEUDO_CONNECTOR
 from src.domain.entities.preference import PreferenceState
 from src.domain.entities.tag import normalize_tag
@@ -305,13 +304,6 @@ def _to_play_summary_schema(summary: PlaySummary) -> PlaySummarySchema:
 def _to_playlist_brief_schema(summary: PlaylistSummary) -> PlaylistBriefSchema:
     return PlaylistBriefSchema(
         id=summary.id, name=summary.name, description=summary.description
-    )
-
-
-def playlist_to_brief_schema(playlist: Playlist) -> PlaylistBriefSchema:
-    """Convert a domain Playlist entity to PlaylistBriefSchema."""
-    return PlaylistBriefSchema(
-        id=playlist.id, name=playlist.name, description=playlist.description
     )
 
 

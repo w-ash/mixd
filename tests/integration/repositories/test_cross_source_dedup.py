@@ -112,7 +112,12 @@ class TestBulkUpdatePlaySourceServices:
         await plays_repo.bulk_insert_plays([play])
 
         # Fetch the inserted play to get its ID
-        batch_plays = await plays_repo.get_plays_by_batch(batch_id)
+        batch_plays = await plays_repo.find_plays_in_time_range(
+            [track.id],
+            datetime(2024, 10, 1, 20, 0, 0, tzinfo=UTC),
+            datetime(2024, 10, 1, 22, 0, 0, tzinfo=UTC),
+            user_id="default",
+        )
         assert len(batch_plays) == 1
         play_id = batch_plays[0].id
         assert play_id is not None
@@ -131,7 +136,12 @@ class TestBulkUpdatePlaySourceServices:
             ),
         ])
 
-        updated_plays = await plays_repo.get_plays_by_batch(batch_id)
+        updated_plays = await plays_repo.find_plays_in_time_range(
+            [track.id],
+            datetime(2024, 10, 1, 20, 0, 0, tzinfo=UTC),
+            datetime(2024, 10, 1, 22, 0, 0, tzinfo=UTC),
+            user_id="default",
+        )
         assert len(updated_plays) == 1
         updated = updated_plays[0]
         assert updated.source_services == ["spotify", "lastfm"]
@@ -163,7 +173,12 @@ class TestBulkUpdatePlaySourceServices:
         )
         await plays_repo.bulk_insert_plays([play])
 
-        batch_plays = await plays_repo.get_plays_by_batch(batch_id)
+        batch_plays = await plays_repo.find_plays_in_time_range(
+            [track.id],
+            datetime(2024, 10, 1, 20, 0, 0, tzinfo=UTC),
+            datetime(2024, 10, 1, 22, 0, 0, tzinfo=UTC),
+            user_id="default",
+        )
         play_id = batch_plays[0].id
 
         # Backfill ms_played from Spotify match via bulk update
@@ -177,5 +192,10 @@ class TestBulkUpdatePlaySourceServices:
             ),
         ])
 
-        updated_plays = await plays_repo.get_plays_by_batch(batch_id)
+        updated_plays = await plays_repo.find_plays_in_time_range(
+            [track.id],
+            datetime(2024, 10, 1, 20, 0, 0, tzinfo=UTC),
+            datetime(2024, 10, 1, 22, 0, 0, tzinfo=UTC),
+            user_id="default",
+        )
         assert updated_plays[0].ms_played == 240000

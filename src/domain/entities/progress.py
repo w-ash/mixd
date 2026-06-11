@@ -20,7 +20,6 @@ from .shared import JsonValue, empty_json_map, utc_now_factory
 class ProgressStatus(Enum):
     """Status of individual progress events within an operation."""
 
-    STARTED = "started"  # Operation has begun
     IN_PROGRESS = "in_progress"  # Operation is actively running
     COMPLETED = "completed"  # Operation finished successfully
     FAILED = "failed"  # Operation encountered an error
@@ -161,11 +160,6 @@ class ProgressOperation:
         if self.end_time is None:
             return None
         return (self.end_time - self.start_time).total_seconds()
-
-    @property
-    def is_running(self) -> bool:
-        """Check if operation is currently active."""
-        return self.status == OperationStatus.RUNNING
 
     @property
     def is_complete(self) -> bool:

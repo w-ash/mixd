@@ -9,10 +9,8 @@
 # down_revision, branch_labels, depends_on, upgrade, downgrade,
 # do_GET, log_message.
 
-# --- SQLAlchemy (event callbacks, declarative conventions, ORM columns) ---
-connection_record  # required param in event.listen("connect", callback) — only dbapi_connection is used
+# --- SQLAlchemy (declarative conventions) ---
 type_annotation_map  # DeclarativeBase class attribute, read by SQLAlchemy internals
-last_sync_started_at  # DB model column on DBPlaylistLink
 
 # --- Pydantic / TypedDict model fields (serialization, not direct attribute access) ---
 severity  # Pydantic field on WorkflowValidationErrorSchema
@@ -22,13 +20,6 @@ connector_links  # @computed_field on PlaylistDetailSchema
 connector_names  # @computed_field on TrackDetailSchema
 task_count  # @computed_field on WorkflowSummarySchema
 node_types  # @computed_field on WorkflowSummarySchema
-token_type  # Pydantic field on SpotifyTokenResponse
-scope  # Pydantic field on SpotifyTokenResponse
-ean  # Pydantic field on SpotifyExternalIds
-upc  # Pydantic field on SpotifyExternalIds
-previous  # Pydantic field on SpotifyPaginatedResponse
-SPOTIFY_TOKEN_URL  # URL constant, triggers S105 false positive
-database  # MixdSettings nested model field
 last_synced_at  # Pydantic ConnectorMetadataSchema field
 issue_count  # Pydantic field on OperationRunSummarySchema (audit-log list)
 theme_mode  # UserSettingsResponse / UserSettingsPatch Pydantic fields
@@ -48,7 +39,6 @@ async_auth_flow  # @override of httpx.Auth.async_auth_flow
 spa_catchall  # catch-all for SPA routing, registered via app.route
 run_server  # CLI entry point for uvicorn
 main  # Typer entrypoint (registered via project.scripts, not @app.command)
-ErrorResponse  # Referenced in FastAPI response_model declarations
 
 # --- attrs field declarations (used by framework, not direct reference) ---
 total_files  # attrs field on BatchImportResult
@@ -79,10 +69,6 @@ dependencies  # attrs field on connector protocol
 last_event_time  # attrs field on ProgressCoordinator
 lastfm_album_mbid  # attrs field in connector conversion
 lastfm_artist_mbid  # attrs field in connector conversion
-country_code  # attrs field on ISRCValidationResult
-registrant_code  # attrs field on ISRCValidationResult
-year  # attrs field on ISRCValidationResult
-designation_code  # attrs field on ISRCValidationResult
 attribute_name  # attrs field on probabilistic matcher
 batch_result  # attrs field on ImportMetadata
 fallback_resolved  # attrs field on ImportResult
@@ -106,23 +92,6 @@ duration_per_second_penalty  # MatchingConfig field
 title_max_penalty  # MatchingConfig field
 artist_max_penalty  # MatchingConfig field
 
-# --- Enum members (completeness of the enum, used externally or for display) ---
-STARTED  # ProgressStatus enum
-RATE_LIMITED  # MatchOutcome enum
-AUTH_ERROR  # MatchOutcome enum
-TRACK_NAME  # SpotifyExportField enum
-ARTIST_NAME  # SpotifyExportField enum
-ALBUM_NAME  # SpotifyExportField enum
-SPOTIFY_TRACK_URI  # SpotifyExportField enum
-PLATFORM  # SpotifyExportField enum
-COUNTRY  # SpotifyExportField enum
-REASON_START  # SpotifyExportField enum
-REASON_END  # SpotifyExportField enum
-SHUFFLE  # SpotifyExportField enum
-OFFLINE  # SpotifyExportField enum
-INCOGNITO_MODE  # SpotifyExportField enum
-PULL  # SyncDirection enum
-
 # --- Protocol/interface methods (implementations called at runtime) ---
 save_node_record  # WorkflowRunRepositoryProtocol
 get_latest_run_for_workflow  # WorkflowRunRepositoryProtocol
@@ -131,35 +100,8 @@ get_connector_metadata  # ConnectorRepositoryProtocol
 error_classifier  # BaseAPIConnector property — Protocol contract
 enrich_track_with_lastfm_metadata  # LastFMOperations — called by connector
 find_tracks_by_mbids  # TrackRepositoryProtocol — tested, part of public API
-validate_isrc_structure  # Domain matching function — tested, public API
 create_review  # MatchReviewRepositoryProtocol — called by match_and_identify use case
 
 # --- Test-only methods (public API exercised by tests, not yet consumed in prod) ---
-is_display_active  # RichProgressProvider property
-active_operation_count  # RichProgressProvider property
-get_plays_by_batch  # PlaysRepository — tested in integration
-with_custom  # MetadataBuilder — tested
 build_dict  # MetadataBuilder — tested
-with_connector_playlist_id  # Playlist — tested
-is_running  # OperationProgress — tested
-get_operation  # ProgressCoordinator — tested
-get_active_operations  # ProgressCoordinator — tested
-cleanup_completed_operations  # ProgressCoordinator — tested
-get_by_connector  # PlaylistMapper — protocol requirement
-get_playlist_items  # SpotifyAPIClient — used by diagnostic scripts
 get_playlist_with_all_tracks  # SpotifyOperations — tested, called via connector
-get_supported_services  # PlayImportRegistry — public API (unused but logical)
-track_mapper  # ConnectorTrackRepository internal dependency
-
-# --- Rich progress column config ---
-_show_rate  # Rich progress column config
-
-# --- Constants forming complete sets ---
-MAX_PAGE_SIZE  # BusinessLimits — counterpart to DEFAULT_PAGE_SIZE
-RUN_STATUS_CANCELLED  # WorkflowConstants — part of status lifecycle
-
-# --- Kept as documented contract (spec'd but not yet surfaced in a use case) ---
-# Thin date-range primitives retained on purpose; re-promote by deleting when the
-# Dashboard / audit-log consumer lands and becomes the caller.
-list_by_tagged_at  # contract: v0.7.2 tag spec — temporal companion to add_tags
-list_by_preferred_at  # contract: v0.7.0 preference spec — temporal companion to set_preferences

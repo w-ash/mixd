@@ -272,34 +272,6 @@ class SpotifyAPIClient(BaseAPIClient):
         _ = response.raise_for_status()
         return parse_json_response(response)
 
-    async def get_playlist_items(
-        self, playlist_id: str, limit: int = 100, offset: int = 0
-    ) -> SpotifyPaginatedPlaylistItems | None:
-        """Fetch items from a Spotify playlist with pagination."""
-        data = await self._api_call(
-            "get_spotify_playlist_items",
-            self._get_playlist_items_impl,
-            playlist_id,
-            limit,
-            offset,
-        )
-        return SpotifyPaginatedPlaylistItems.model_validate(data) if data else None
-
-    async def _get_playlist_items_impl(
-        self, playlist_id: str, limit: int = 100, offset: int = 0
-    ) -> JsonDict | None:
-        """Pure implementation without retry logic."""
-        response = await self._client.get(
-            f"/playlists/{playlist_id}/items",
-            params={
-                "limit": min(limit, 100),
-                "offset": offset,
-                "market": self.market,
-            },
-        )
-        _ = response.raise_for_status()
-        return parse_json_response(response)
-
     async def get_next_page(
         self, current_page: SpotifyPaginatedPlaylistItems
     ) -> SpotifyPaginatedPlaylistItems | None:

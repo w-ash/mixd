@@ -1,5 +1,6 @@
 """Spotify-specific error classification for retry behavior."""
 
+from http import HTTPStatus
 from typing import override
 
 import httpx
@@ -30,7 +31,7 @@ class SpotifyErrorClassifier(HTTPErrorClassifier):
         """Treat expired-token 401s as temporary (token refresh already triggered)."""
         if (
             isinstance(exception, httpx.HTTPStatusError)
-            and exception.response.status_code == 401  # noqa: PLR2004
+            and exception.response.status_code == HTTPStatus.UNAUTHORIZED
             and "access token expired" in exception.response.text.lower()
         ):
             return ("temporary", "401", "Token expired — refreshing and retrying")

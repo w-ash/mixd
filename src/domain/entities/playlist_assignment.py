@@ -9,8 +9,6 @@ Assignments target the cached connector playlist directly so users can
 declare meaning without forking into a canonical Mixd Playlist.
 """
 
-from __future__ import annotations
-
 from datetime import datetime
 from typing import Final, Literal, cast
 from uuid import UUID, uuid7

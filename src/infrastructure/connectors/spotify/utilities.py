@@ -5,19 +5,15 @@ Contains common functions used across Spotify connectors for:
 - Search → rank → evaluate pipeline shared by cross-discovery and inward resolver
 """
 
-from typing import TYPE_CHECKING
-
 from attrs import define
 
 from src.config.constants import MatchMethod
 from src.domain.entities import Artist, Track
 from src.domain.matching.algorithms import select_best_by_title_similarity
+from src.domain.matching.evaluation_service import TrackMatchEvaluationService
 from src.domain.matching.types import MatchResult, RawProviderMatch
+from src.infrastructure.connectors.spotify import SpotifyConnector
 from src.infrastructure.connectors.spotify.models import SpotifyTrack
-
-if TYPE_CHECKING:
-    from src.domain.matching.evaluation_service import TrackMatchEvaluationService
-    from src.infrastructure.connectors.spotify import SpotifyConnector
 
 
 @define(frozen=True, slots=True)

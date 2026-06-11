@@ -2,7 +2,7 @@
 
 from collections.abc import Mapping, Sequence
 from datetime import UTC, datetime
-from typing import Any, ClassVar, Literal, cast
+from typing import Any, ClassVar, Literal, NamedTuple, cast
 from uuid import UUID
 
 from sqlalchemy import (
@@ -22,7 +22,6 @@ from sqlalchemy import (
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import InstrumentedAttribute
 
-from src.application.pagination import TRACK_SORT_COLUMNS
 from src.config import get_logger
 from src.config.constants import DenormalizedTrackColumns, MappingOrigin
 from src.domain.entities import Track
@@ -209,6 +208,37 @@ _MOVE_REFERENCES_SQL = (
 )
 
 
+# Typed row shapes for the single-row aggregate SELECTs that terminate the
+# raw-SQL merge CTEs below. Field order mirrors the SQL SELECT aliases.
+
+
+class _MoveReferenceCounts(NamedTuple):
+    """Final SELECT of ``_MOVE_REFERENCES_SQL``."""
+
+    playlist_tracks_moved: int
+    plays_moved: int
+    like_conflicts_resolved: int
+    likes_moved: int
+    pref_conflicts_resolved: int
+    prefs_moved: int
+    preference_events_moved: int
+
+
+class _MergeMappingCounts(NamedTuple):
+    """Final SELECT of the ``merge_mappings_to_track`` CTE chain."""
+
+    same_ext_conflicts: int
+    diff_ext_conflicts: int
+    non_conflicts_moved: int
+
+
+class _MergeMetricCounts(NamedTuple):
+    """Final SELECT of the ``merge_metrics_to_track`` CTE chain."""
+
+    conflicts_resolved: int
+    metrics_moved: int
+
+
 class TrackRepository(BaseRepository[DBTrack, Track]):
     """Repository for core track operations."""
 
@@ -223,12 +253,26 @@ class TrackRepository(BaseRepository[DBTrack, Track]):
     # explicit allowlist (security: prevents arbitrary attribute access via
     # ``getattr(DBTrack, sort_field)``) and gives pyright a typed handle on
     # the column for ORDER BY / keyset construction. Keys must match the
-    # values used by ``TRACK_SORT_COLUMNS`` in application/pagination.py.
+    # column names in ``_SORT_SPECS`` below.
     _SORT_COLUMNS: ClassVar[dict[str, InstrumentedAttribute[Any]]] = {  # pyright: ignore[reportExplicitAny]  # InstrumentedAttribute is generic over heterogeneous column types
         "title": DBTrack.title,
         "artists_text": DBTrack.artists_text,
         "created_at": DBTrack.created_at,
         "duration_ms": DBTrack.duration_ms,
+    }
+
+    # Sort key → (db_column, direction). Infrastructure-owned ORDER BY
+    # registry; the cursor-encoding mapping ``TRACK_SORT_COLUMNS`` in
+    # ``src/application/pagination.py`` mirrors it — keep the two in sync.
+    _SORT_SPECS: ClassVar[dict[str, tuple[str, str]]] = {
+        "title_asc": ("title", "asc"),
+        "title_desc": ("title", "desc"),
+        "artist_asc": ("artists_text", "asc"),
+        "artist_desc": ("artists_text", "desc"),
+        "added_desc": ("created_at", "desc"),
+        "added_asc": ("created_at", "asc"),
+        "duration_asc": ("duration_ms", "asc"),
+        "duration_desc": ("duration_ms", "desc"),
     }
 
     def __init__(self, session: AsyncSession) -> None:
@@ -433,7 +477,7 @@ class TrackRepository(BaseRepository[DBTrack, Track]):
         if liked is not None:
             liked_subq = (
                 select(DBTrackLike.track_id)
-                .where(DBTrackLike.is_liked == True, DBTrackLike.user_id == user_id)  # noqa: E712
+                .where(DBTrackLike.is_liked.is_(True), DBTrackLike.user_id == user_id)
                 .distinct()
             )
             if liked:
@@ -515,12 +559,10 @@ class TrackRepository(BaseRepository[DBTrack, Track]):
                     facets=_empty_facets() if include_facets else None,
                 )
 
-        # Resolve sort column from canonical mapping (sort_by validated upstream).
-        # TRACK_SORT_COLUMNS is keyed by Literal TrackSortBy; sort_by arrives as
-        # str at this layer (validated by the API/CLI before reaching here).
-        sort_field, sort_dir = cast(
-            "tuple[str, str]",
-            TRACK_SORT_COLUMNS.get(sort_by, ("title", "asc")),  # pyright: ignore[reportCallIssue, reportArgumentType]  # boundary str → Literal narrowing
+        # Resolve sort column from the registry (sort_by validated upstream;
+        # unknown values fall back to title_asc).
+        sort_field, sort_dir = self._SORT_SPECS.get(
+            sort_by, self._SORT_SPECS["title_asc"]
         )
         col = self._SORT_COLUMNS[sort_field]
 
@@ -694,13 +736,16 @@ class TrackRepository(BaseRepository[DBTrack, Track]):
             text(_MOVE_REFERENCES_SQL),
             {"from_id": from_id, "to_id": to_id, "now": datetime.now(UTC)},
         )
-        counts = result.fetchone()
+        counts = _MoveReferenceCounts._make(result.one())
         logger.debug(
             f"Moved references: {from_id} → {to_id} "
-            f"(playlist_tracks={counts[0]}, plays={counts[1]}, "  # type: ignore[index]
-            f"like_conflicts={counts[2]}, likes_moved={counts[3]}, "  # type: ignore[index]
-            f"pref_conflicts={counts[4]}, prefs_moved={counts[5]}, "  # type: ignore[index]
-            f"preference_events_moved={counts[6]})"  # type: ignore[index]
+            f"(playlist_tracks={counts.playlist_tracks_moved}, "
+            f"plays={counts.plays_moved}, "
+            f"like_conflicts={counts.like_conflicts_resolved}, "
+            f"likes_moved={counts.likes_moved}, "
+            f"pref_conflicts={counts.pref_conflicts_resolved}, "
+            f"prefs_moved={counts.prefs_moved}, "
+            f"preference_events_moved={counts.preference_events_moved})"
         )
 
     @db_operation("merge_mappings_to_track")
@@ -806,12 +851,12 @@ class TrackRepository(BaseRepository[DBTrack, Track]):
                 "manual_override": MappingOrigin.MANUAL_OVERRIDE,
             },
         )
-        counts = result.fetchone()
+        counts = _MergeMappingCounts._make(result.one())
         logger.debug(
             f"Merged track mappings: {from_id} → {to_id} "
-            f"({counts[0]} same external ID, "  # type: ignore[index]
-            f"{counts[1]} different external ID conflicts, "  # type: ignore[index]
-            f"{counts[2]} non-conflicts moved)"  # type: ignore[index]
+            f"({counts.same_ext_conflicts} same external ID, "
+            f"{counts.diff_ext_conflicts} different external ID conflicts, "
+            f"{counts.non_conflicts_moved} non-conflicts moved)"
         )
 
     @db_operation("merge_metrics_to_track")
@@ -869,10 +914,11 @@ class TrackRepository(BaseRepository[DBTrack, Track]):
             """),
             {"from_id": from_id, "to_id": to_id, "now": datetime.now(UTC)},
         )
-        counts = result.fetchone()
+        counts = _MergeMetricCounts._make(result.one())
         logger.debug(
             f"Merged track metrics: {from_id} → {to_id} "
-            f"({counts[0]} conflicts resolved, {counts[1]} moved)"  # type: ignore[index]
+            f"({counts.conflicts_resolved} conflicts resolved, "
+            f"{counts.metrics_moved} moved)"
         )
 
     @db_operation("hard_delete_track")
@@ -989,38 +1035,39 @@ class TrackRepository(BaseRepository[DBTrack, Track]):
         self, *, user_id: str
     ) -> list[dict[str, object]]:
         """Find tracks with identical (title, first_artist, album) tuples."""
-        # JSONB array index → text via .as_string() — SQLAlchemy stub returns Any.
-        first_artist = DBTrack.artists["names"][0].as_string()  # pyright: ignore[reportAny]  # SQLAlchemy JSONB index/cast
+        # JSONB array index → text via .as_string() — SQLAlchemy stub returns Any;
+        # the declared annotation caps the spread to this one boundary line.
+        first_artist: ColumnElement[str] = DBTrack.artists["names"][0].as_string()  # pyright: ignore[reportAny]  # SQLAlchemy JSONB index/cast
         stmt = (
             select(
                 DBTrack.title,
-                first_artist.label("first_artist"),  # pyright: ignore[reportAny]
+                first_artist.label("first_artist"),
                 DBTrack.album,
                 func.count().label("count"),
-                func.string_agg(sa_cast(DBTrack.id, String), ",").label("track_ids"),
+                # type_ declares the (text) result type; emitted SQL is unchanged.
+                func.string_agg(sa_cast(DBTrack.id, String), ",", type_=String).label(
+                    "track_ids"
+                ),
             )
             .where(
                 DBTrack.user_id == user_id,
                 DBTrack.title.isnot(None),
                 func.length(DBTrack.title) > 0,
             )
-            .group_by(DBTrack.title, first_artist, DBTrack.album)  # pyright: ignore[reportAny]
+            .group_by(DBTrack.title, first_artist, DBTrack.album)
             .having(func.count() > 1)
         )
         result = await self.session.execute(stmt)
-        # SQLAlchemy Row[tuple] field access loses column-level typing.
-        duplicates: list[dict[str, object]] = []
-        for row in result.all():
-            duplicates.append(  # noqa: PERF401
-                {
-                    "title": row.title,  # pyright: ignore[reportAny]  # SQLAlchemy Row dynamic field
-                    "artist": row.first_artist,  # pyright: ignore[reportAny]
-                    "album": row.album,  # pyright: ignore[reportAny]
-                    "count": row.count,
-                    "track_ids": [UUID(x) for x in str(row.track_ids).split(",")],  # pyright: ignore[reportAny]
-                }
-            )
-        return duplicates
+        return [
+            {
+                "title": title,
+                "artist": artist,
+                "album": album,
+                "count": count,
+                "track_ids": [UUID(x) for x in track_ids.split(",")],
+            }
+            for title, artist, album, count, track_ids in result.tuples()
+        ]
 
     # -------------------------------------------------------------------------
     # PRIVATE HELPERS

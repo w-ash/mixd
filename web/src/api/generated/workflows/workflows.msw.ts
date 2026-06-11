@@ -240,16 +240,6 @@ export const getUpdateWorkflowApiV1WorkflowsWorkflowIdPatchMockHandler = (overri
   }, options)
 }
 
-export const getDeleteWorkflowApiV1WorkflowsWorkflowIdDeleteMockHandler = (overrideResponse?: void | ((info: Parameters<Parameters<typeof http.delete>[1]>[0]) => Promise<void> | void), options?: RequestHandlerOptions) => {
-  return http.delete('*/api/v1/workflows/:workflowId', async (info: Parameters<Parameters<typeof http.delete>[1]>[0]) => {
-  if (typeof overrideResponse === 'function') {await overrideResponse(info); }
-
-    return new HttpResponse(null,
-      { status: 204
-      })
-  }, options)
-}
-
 export const getRunWorkflowEndpointApiV1WorkflowsWorkflowIdRunPostMockHandler = (overrideResponse?: WorkflowRunStartedResponse | ((info: Parameters<Parameters<typeof http.post>[1]>[0]) => Promise<WorkflowRunStartedResponse> | WorkflowRunStartedResponse), options?: RequestHandlerOptions) => {
   return http.post('*/api/v1/workflows/:workflowId/run', async (info: Parameters<Parameters<typeof http.post>[1]>[0]) => {
 
@@ -380,7 +370,6 @@ export const getWorkflowsMock = () => [
   getPreviewSavedWorkflowApiV1WorkflowsWorkflowIdPreviewPostMockHandler(),
   getGetWorkflowApiV1WorkflowsWorkflowIdGetMockHandler(),
   getUpdateWorkflowApiV1WorkflowsWorkflowIdPatchMockHandler(),
-  getDeleteWorkflowApiV1WorkflowsWorkflowIdDeleteMockHandler(),
   getRunWorkflowEndpointApiV1WorkflowsWorkflowIdRunPostMockHandler(),
   getListWorkflowRunsApiV1WorkflowsWorkflowIdRunsGetMockHandler(),
   getGetWorkflowRunApiV1WorkflowsWorkflowIdRunsRunIdGetMockHandler(),

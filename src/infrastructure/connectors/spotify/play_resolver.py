@@ -9,6 +9,7 @@ from collections.abc import Callable
 from src.config import get_logger, settings
 from src.config.constants import MatchMethod, SpotifyConstants
 from src.domain.entities import ConnectorTrackPlay, Track, TrackPlay
+from src.domain.entities.operations import TrackContextFields
 from src.domain.repositories import UnitOfWorkProtocol
 from src.domain.repositories.interfaces import ResolutionMetrics
 from src.infrastructure.connectors.spotify import SpotifyConnector
@@ -182,20 +183,34 @@ class SpotifyConnectorPlayResolver:
             # Preserve ALL Spotify metadata - this is the valuable behavioral data
             context = {
                 # Core track identification
-                "track_name": connector_play.track_name,
-                "artist_name": connector_play.artist_name,
-                "album_name": connector_play.album_name,
+                TrackContextFields.TRACK_NAME: connector_play.track_name,
+                TrackContextFields.ARTIST_NAME: connector_play.artist_name,
+                TrackContextFields.ALBUM_NAME: connector_play.album_name,
                 # Spotify's rich behavioral metadata
-                "platform": connector_play.service_metadata.get("platform"),
-                "country": connector_play.service_metadata.get("country"),
-                "reason_start": connector_play.service_metadata.get("reason_start"),
-                "reason_end": connector_play.service_metadata.get("reason_end"),
-                "shuffle": connector_play.service_metadata.get("shuffle"),
+                TrackContextFields.PLATFORM: connector_play.service_metadata.get(
+                    "platform"
+                ),
+                TrackContextFields.COUNTRY: connector_play.service_metadata.get(
+                    "country"
+                ),
+                TrackContextFields.REASON_START: connector_play.service_metadata.get(
+                    "reason_start"
+                ),
+                TrackContextFields.REASON_END: connector_play.service_metadata.get(
+                    "reason_end"
+                ),
+                TrackContextFields.SHUFFLE: connector_play.service_metadata.get(
+                    "shuffle"
+                ),
                 "skipped": connector_play.service_metadata.get("skipped"),
-                "offline": connector_play.service_metadata.get("offline"),
-                "incognito_mode": incognito_mode,
+                TrackContextFields.OFFLINE: connector_play.service_metadata.get(
+                    "offline"
+                ),
+                TrackContextFields.INCOGNITO_MODE: incognito_mode,
                 # Spotify identifiers and technical metadata
-                "spotify_track_uri": connector_play.service_metadata.get("track_uri"),
+                TrackContextFields.SPOTIFY_TRACK_URI: connector_play.service_metadata.get(
+                    "track_uri"
+                ),
                 "spotify_track_id": spotify_id,
                 # Resolution tracking
                 "resolution_method": self._inward_resolver.get_resolution_method(
@@ -210,14 +225,14 @@ class SpotifyConnectorPlayResolver:
                     for k, v in connector_play.service_metadata.items()
                     if k
                     not in [
-                        "platform",
-                        "country",
-                        "reason_start",
-                        "reason_end",
-                        "shuffle",
+                        TrackContextFields.PLATFORM,
+                        TrackContextFields.COUNTRY,
+                        TrackContextFields.REASON_START,
+                        TrackContextFields.REASON_END,
+                        TrackContextFields.SHUFFLE,
                         "skipped",
-                        "offline",
-                        "incognito_mode",
+                        TrackContextFields.OFFLINE,
+                        TrackContextFields.INCOGNITO_MODE,
                         "track_uri",
                     ]
                 },

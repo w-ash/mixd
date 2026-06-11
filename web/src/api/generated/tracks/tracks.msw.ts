@@ -24,7 +24,6 @@ import type {
   AddTagResponse,
   BatchTagResponse,
   PaginatedLibraryTracksResponse,
-  PlaylistBriefSchema,
   SetPreferenceRequest,
   TrackDetailSchema,
   UnlinkMappingResponse
@@ -56,8 +55,6 @@ export const getUnlinkMappingApiV1TracksTrackIdMappingsMappingIdDeleteResponseMo
 export const getSetPrimaryMappingApiV1TracksTrackIdMappingsMappingIdPrimaryPatchResponseMock = (overrideResponse: Partial<Extract<TrackDetailSchema, object>> = {}): TrackDetailSchema => ({id: faker.string.uuid(), title: faker.string.alpha({length: {min: 10, max: 20}}), artists: Array.from({ length: faker.number.int({min: 1, max: 10}) }, (_, i) => i + 1).map(() => ({name: faker.string.alpha({length: {min: 10, max: 20}})})), album: faker.helpers.arrayElement([faker.helpers.arrayElement([faker.string.alpha({length: {min: 10, max: 20}}),null,]), undefined]), duration_ms: faker.helpers.arrayElement([faker.helpers.arrayElement([faker.number.int(),null,]), undefined]), release_date: faker.helpers.arrayElement([faker.helpers.arrayElement([faker.date.past().toISOString().slice(0, 19) + 'Z',null,]), undefined]), isrc: faker.helpers.arrayElement([faker.helpers.arrayElement([faker.string.alpha({length: {min: 10, max: 20}}),null,]), undefined]), connector_mappings: Array.from({ length: faker.number.int({min: 1, max: 10}) }, (_, i) => i + 1).map(() => ({mapping_id: faker.string.uuid(), connector_name: faker.string.alpha({length: {min: 10, max: 20}}), connector_track_id: faker.string.alpha({length: {min: 10, max: 20}}), match_method: faker.string.alpha({length: {min: 10, max: 20}}), confidence: faker.number.int(), origin: faker.string.alpha({length: {min: 10, max: 20}}), is_primary: faker.datatype.boolean(), connector_track_title: faker.string.alpha({length: {min: 10, max: 20}}), connector_track_artists: Array.from({ length: faker.number.int({min: 1, max: 10}) }, (_, i) => i + 1).map(() => (faker.string.alpha({length: {min: 10, max: 20}})))})), like_status: {
         [faker.string.alphanumeric(5)]: {is_liked: faker.datatype.boolean(), liked_at: faker.helpers.arrayElement([faker.helpers.arrayElement([faker.date.past().toISOString().slice(0, 19) + 'Z',null,]), undefined])}
       }, play_summary: {total_plays: faker.number.int(), first_played: faker.helpers.arrayElement([faker.helpers.arrayElement([faker.date.past().toISOString().slice(0, 19) + 'Z',null,]), undefined]), last_played: faker.helpers.arrayElement([faker.helpers.arrayElement([faker.date.past().toISOString().slice(0, 19) + 'Z',null,]), undefined])}, playlists: Array.from({ length: faker.number.int({min: 1, max: 10}) }, (_, i) => i + 1).map(() => ({id: faker.string.uuid(), name: faker.string.alpha({length: {min: 10, max: 20}}), description: faker.helpers.arrayElement([faker.helpers.arrayElement([faker.string.alpha({length: {min: 10, max: 20}}),null,]), undefined])})), preference: faker.helpers.arrayElement([faker.helpers.arrayElement([faker.helpers.arrayElement(Object.values(PreferenceState)),null,]), undefined]), tags: faker.helpers.arrayElement([Array.from({ length: faker.number.int({min: 1, max: 10}) }, (_, i) => i + 1).map(() => (faker.string.alpha({length: {min: 10, max: 20}}))), undefined]), ...overrideResponse})
-
-export const getGetTrackPlaylistsApiV1TracksTrackIdPlaylistsGetResponseMock = (): PlaylistBriefSchema[] => (Array.from({ length: faker.number.int({min: 1, max: 10}) }, (_, i) => i + 1).map(() => ({id: faker.string.uuid(), name: faker.string.alpha({length: {min: 10, max: 20}}), description: faker.helpers.arrayElement([faker.helpers.arrayElement([faker.string.alpha({length: {min: 10, max: 20}}),null,]), undefined])})))
 
 export const getSetTrackPreferenceApiV1TracksTrackIdPreferencePutResponseMock = (overrideResponse: Partial<Extract<SetPreferenceRequest, object>> = {}): SetPreferenceRequest => ({state: faker.helpers.arrayElement(Object.values(PreferenceState)), ...overrideResponse})
 
@@ -138,18 +135,6 @@ export const getSetPrimaryMappingApiV1TracksTrackIdMappingsMappingIdPrimaryPatch
   }, options)
 }
 
-export const getGetTrackPlaylistsApiV1TracksTrackIdPlaylistsGetMockHandler = (overrideResponse?: PlaylistBriefSchema[] | ((info: Parameters<Parameters<typeof http.get>[1]>[0]) => Promise<PlaylistBriefSchema[]> | PlaylistBriefSchema[]), options?: RequestHandlerOptions) => {
-  return http.get('*/api/v1/tracks/:trackId/playlists', async (info: Parameters<Parameters<typeof http.get>[1]>[0]) => {
-
-
-    return HttpResponse.json(overrideResponse !== undefined
-    ? (typeof overrideResponse === "function" ? await overrideResponse(info) : overrideResponse)
-    : getGetTrackPlaylistsApiV1TracksTrackIdPlaylistsGetResponseMock(),
-      { status: 200
-      })
-  }, options)
-}
-
 export const getSetTrackPreferenceApiV1TracksTrackIdPreferencePutMockHandler = (overrideResponse?: SetPreferenceRequest | ((info: Parameters<Parameters<typeof http.put>[1]>[0]) => Promise<SetPreferenceRequest> | SetPreferenceRequest), options?: RequestHandlerOptions) => {
   return http.put('*/api/v1/tracks/:trackId/preference', async (info: Parameters<Parameters<typeof http.put>[1]>[0]) => {
 
@@ -212,7 +197,6 @@ export const getTracksMock = () => [
   getRelinkMappingApiV1TracksTrackIdMappingsMappingIdPatchMockHandler(),
   getUnlinkMappingApiV1TracksTrackIdMappingsMappingIdDeleteMockHandler(),
   getSetPrimaryMappingApiV1TracksTrackIdMappingsMappingIdPrimaryPatchMockHandler(),
-  getGetTrackPlaylistsApiV1TracksTrackIdPlaylistsGetMockHandler(),
   getSetTrackPreferenceApiV1TracksTrackIdPreferencePutMockHandler(),
   getDeleteTrackPreferenceApiV1TracksTrackIdPreferenceDeleteMockHandler(),
   getAddTrackTagApiV1TracksTrackIdTagsPostMockHandler(),

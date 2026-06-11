@@ -1,6 +1,6 @@
 """Track mappers for converting between domain and database models."""
 
-from collections.abc import Awaitable, Callable, Mapping, Sequence
+from collections.abc import Awaitable, Callable
 from typing import override
 from uuid import UUID
 
@@ -11,7 +11,7 @@ from sqlalchemy.orm.interfaces import ORMOption
 from src.config import get_logger
 from src.domain.entities import Artist, Track, ensure_utc
 from src.domain.entities.playlist import DB_PSEUDO_CONNECTOR
-from src.domain.entities.shared import JsonDict, JsonValue
+from src.domain.entities.shared import JsonDict
 from src.domain.matching import normalize_for_comparison, strip_parentheticals
 from src.infrastructure.persistence.database.db_models import (
     DBConnectorTrack,
@@ -306,27 +306,6 @@ class TrackMapper(BaseModelMapper[DBTrack, Track]):
             ),
             "artists_text": track.artists_display or None,
         }
-
-    @staticmethod
-    def extract_artist_names(
-        artists_data: Sequence[str | Mapping[str, JsonValue]],
-    ) -> list[str]:
-        """Extract artist names from mixed format artist data.
-
-        External APIs deliver artist lists in two shapes: a list of bare strings
-        (Last.fm) or a list of ``{"name": str, ...}`` dicts (Spotify). This
-        helper accepts either and yields the canonical name list.
-        """
-        names: list[str] = []
-        for artist in artists_data:
-            if isinstance(artist, str):
-                if artist:
-                    names.append(artist)
-                continue
-            name_val = artist.get("name")
-            if isinstance(name_val, str) and name_val:
-                names.append(name_val)
-        return names
 
     @override
     @staticmethod

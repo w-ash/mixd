@@ -108,7 +108,8 @@ class CachingMiddleware:
                     # Final body chunk — compute ETag and send
                     full_body = b"".join(body_parts)
 
-                    etag = f'W/"{hashlib.md5(full_body).hexdigest()}"'  # noqa: S324
+                    md5 = hashlib.md5(full_body, usedforsecurity=False)
+                    etag = f'W/"{md5.hexdigest()}"'
                     response_headers["etag"] = etag
                     response_headers["cache-control"] = _get_cache_policy(path)
                     _add_server_timing(response_headers, start)

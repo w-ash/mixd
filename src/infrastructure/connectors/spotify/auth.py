@@ -37,16 +37,16 @@ from src.infrastructure.connectors._shared.token_storage import (
     StoredToken,
     TokenStorage,
 )
+from src.infrastructure.connectors.protocols import CreateStateFn
 
 if TYPE_CHECKING:
+    # fastapi (~160ms import) is used only in annotations here; the guard
+    # keeps it out of the CLI's connector import path.
     from fastapi import Request
-
-    from src.infrastructure.connectors.protocols import CreateStateFn
 
 logger = get_logger(__name__).bind(service="spotify_auth")
 
 SPOTIFY_AUTHORIZE_URL = "https://accounts.spotify.com/authorize"
-SPOTIFY_TOKEN_URL = "https://accounts.spotify.com/api/token"  # noqa: S105
 
 SPOTIFY_SCOPES = [
     "playlist-modify-public",

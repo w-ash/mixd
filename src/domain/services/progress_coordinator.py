@@ -193,63 +193,6 @@ class ProgressCoordinator:
 
             return completed_operation
 
-    async def get_operation(self, operation_id: str) -> ProgressOperation | None:
-        """Retrieve current state of an operation.
-
-        Args:
-            operation_id: ID of operation to retrieve
-
-        Returns:
-            Current operation state or None if not found
-        """
-        async with self._operation_lock:
-            operation_state = self._operations.get(operation_id)
-            return operation_state.operation if operation_state else None
-
-    async def get_active_operations(self) -> list[ProgressOperation]:
-        """Get all currently active (running) operations.
-
-        Returns:
-            List of operations with RUNNING status
-        """
-        async with self._operation_lock:
-            return [
-                state.operation
-                for state in self._operations.values()
-                if state.is_active
-            ]
-
-    async def cleanup_completed_operations(
-        self, max_age_seconds: float = 3600.0
-    ) -> int:
-        """Remove old completed operations from tracking state.
-
-        Args:
-            max_age_seconds: Maximum age in seconds for completed operations
-
-        Returns:
-            Number of operations cleaned up
-        """
-        cutoff_time = datetime.now(UTC).timestamp() - max_age_seconds
-        cleanup_count = 0
-
-        async with self._operation_lock:
-            operations_to_remove: list[str] = []
-
-            for operation_id, state in self._operations.items():
-                if (
-                    state.operation.is_complete
-                    and state.operation.end_time is not None
-                    and state.operation.end_time.timestamp() < cutoff_time
-                ):
-                    operations_to_remove.append(operation_id)
-
-            for operation_id in operations_to_remove:
-                del self._operations[operation_id]
-                cleanup_count += 1
-
-        return cleanup_count
-
     async def _calculate_derived_metrics(
         self, event: ProgressEvent, operation_state: OperationState
     ) -> dict[str, float | int | None]:

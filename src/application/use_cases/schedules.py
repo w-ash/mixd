@@ -12,8 +12,6 @@ workflow detail page, a ``mixd sync schedule lastfm:plays`` invocation). The
 one-schedule-per-target DB index guarantees the lookup is unambiguous.
 """
 
-from __future__ import annotations
-
 from collections.abc import Mapping
 from datetime import UTC, datetime
 from uuid import UUID

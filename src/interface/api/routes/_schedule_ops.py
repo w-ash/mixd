@@ -8,8 +8,6 @@ shared body so each router stays a thin set of decorated path declarations that
 only supply the target — no business logic duplicated across the two files.
 """
 
-from __future__ import annotations
-
 from uuid import UUID
 
 from fastapi import Response

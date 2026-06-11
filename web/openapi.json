@@ -229,28 +229,6 @@
         }
       }
     },
-    "/api/v1/stats/integrity": {
-      "get": {
-        "tags": [
-          "stats"
-        ],
-        "summary": "Get Integrity Report",
-        "description": "Run data integrity checks and return the report.",
-        "operationId": "get_integrity_report_api_v1_stats_integrity_get",
-        "responses": {
-          "200": {
-            "description": "Successful Response",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/IntegrityReportSchema"
-                }
-              }
-            }
-          }
-        }
-      }
-    },
     "/api/v1/stats/matching": {
       "get": {
         "tags": [
@@ -1193,8 +1171,11 @@
             "in": "query",
             "required": false,
             "schema": {
+              "enum": [
+                "and",
+                "or"
+              ],
               "type": "string",
-              "pattern": "^(and|or)$",
               "description": "Intersection (and) or union (or) when tag has multiple values.",
               "default": "and",
               "title": "Tag Mode"
@@ -1224,11 +1205,9 @@
             "in": "query",
             "required": false,
             "schema": {
-              "type": "string",
-              "pattern": "^(title|artist|added|duration)_(asc|desc)$",
+              "$ref": "#/components/schemas/TrackSortBy",
               "description": "Sort field and direction",
-              "default": "title_asc",
-              "title": "Sort"
+              "default": "title_asc"
             },
             "description": "Sort field and direction"
           },
@@ -1561,54 +1540,6 @@
               "application/json": {
                 "schema": {
                   "$ref": "#/components/schemas/TrackDetailSchema"
-                }
-              }
-            }
-          },
-          "422": {
-            "description": "Validation Error",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/HTTPValidationError"
-                }
-              }
-            }
-          }
-        }
-      }
-    },
-    "/api/v1/tracks/{track_id}/playlists": {
-      "get": {
-        "tags": [
-          "tracks"
-        ],
-        "summary": "Get Track Playlists",
-        "description": "Get playlists containing a specific track.",
-        "operationId": "get_track_playlists_api_v1_tracks__track_id__playlists_get",
-        "parameters": [
-          {
-            "name": "track_id",
-            "in": "path",
-            "required": true,
-            "schema": {
-              "type": "string",
-              "format": "uuid",
-              "title": "Track Id"
-            }
-          }
-        ],
-        "responses": {
-          "200": {
-            "description": "Successful Response",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "type": "array",
-                  "items": {
-                    "$ref": "#/components/schemas/PlaylistBriefSchema"
-                  },
-                  "title": "Response Get Track Playlists Api V1 Tracks  Track Id  Playlists Get"
                 }
               }
             }
@@ -2577,41 +2508,6 @@
             }
           }
         }
-      },
-      "delete": {
-        "tags": [
-          "workflows"
-        ],
-        "summary": "Delete Workflow",
-        "description": "Delete a user workflow. Template workflows cannot be deleted.",
-        "operationId": "delete_workflow_api_v1_workflows__workflow_id__delete",
-        "parameters": [
-          {
-            "name": "workflow_id",
-            "in": "path",
-            "required": true,
-            "schema": {
-              "type": "string",
-              "format": "uuid",
-              "title": "Workflow Id"
-            }
-          }
-        ],
-        "responses": {
-          "204": {
-            "description": "Successful Response"
-          },
-          "422": {
-            "description": "Validation Error",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/HTTPValidationError"
-                }
-              }
-            }
-          }
-        }
       }
     },
     "/api/v1/workflows/{workflow_id}/run": {
@@ -3514,35 +3410,6 @@
               "application/json": {
                 "schema": {
                   "$ref": "#/components/schemas/HTTPValidationError"
-                }
-              }
-            }
-          }
-        }
-      }
-    },
-    "/api/v1/operations": {
-      "get": {
-        "tags": [
-          "operations"
-        ],
-        "summary": "List Active Operations",
-        "description": "List all active operation IDs.",
-        "operationId": "list_active_operations_api_v1_operations_get",
-        "responses": {
-          "200": {
-            "description": "Successful Response",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "additionalProperties": {
-                    "items": {
-                      "type": "string"
-                    },
-                    "type": "array"
-                  },
-                  "type": "object",
-                  "title": "Response List Active Operations Api V1 Operations Get"
                 }
               }
             }
@@ -5179,66 +5046,6 @@
         "type": "object",
         "title": "ImportSpotifyLikesRequest",
         "description": "Request body for triggering a Spotify likes import."
-      },
-      "IntegrityCheckSchema": {
-        "properties": {
-          "name": {
-            "type": "string",
-            "title": "Name"
-          },
-          "status": {
-            "type": "string",
-            "title": "Status"
-          },
-          "count": {
-            "type": "integer",
-            "title": "Count"
-          },
-          "details": {
-            "items": {
-              "additionalProperties": true,
-              "type": "object"
-            },
-            "type": "array",
-            "title": "Details",
-            "default": []
-          }
-        },
-        "type": "object",
-        "required": [
-          "name",
-          "status",
-          "count"
-        ],
-        "title": "IntegrityCheckSchema",
-        "description": "Single integrity check result."
-      },
-      "IntegrityReportSchema": {
-        "properties": {
-          "checks": {
-            "items": {
-              "$ref": "#/components/schemas/IntegrityCheckSchema"
-            },
-            "type": "array",
-            "title": "Checks"
-          },
-          "overall_status": {
-            "type": "string",
-            "title": "Overall Status"
-          },
-          "total_issues": {
-            "type": "integer",
-            "title": "Total Issues"
-          }
-        },
-        "type": "object",
-        "required": [
-          "checks",
-          "overall_status",
-          "total_issues"
-        ],
-        "title": "IntegrityReportSchema",
-        "description": "Full integrity report response."
       },
       "JsonDict": {
         "additionalProperties": {
@@ -7497,6 +7304,19 @@
         ],
         "title": "TrackFacetsSchema",
         "description": "Per-facet counts scoped to the current filter set.\n\nPopulated only when `GET /tracks?include_facets=true`.\nKeys within each dimension: preference \u2208 star/yah/hmm/nah/unrated,\nliked \u2208 true/false, connector \u2208 registered connector names."
+      },
+      "TrackSortBy": {
+        "type": "string",
+        "enum": [
+          "title_asc",
+          "title_desc",
+          "artist_asc",
+          "artist_desc",
+          "added_desc",
+          "added_asc",
+          "duration_asc",
+          "duration_desc"
+        ]
       },
       "TrackSummarySchema": {
         "properties": {

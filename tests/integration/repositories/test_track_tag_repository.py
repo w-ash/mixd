@@ -7,7 +7,7 @@ and ON DELETE CASCADE — using the db_session fixture with testcontainers
 PostgreSQL.
 """
 
-from datetime import UTC, datetime, timedelta
+from datetime import UTC, datetime
 from uuid import uuid7
 
 from sqlalchemy import select
@@ -251,7 +251,7 @@ class TestEventsAndCascade:
 
 
 class TestQueries:
-    """Aggregate and date-range read paths: list_tags / list_by_tagged_at."""
+    """Aggregate read paths: list_tags."""
 
     async def test_list_tags_sorted_by_count_desc(
         self, db_session: AsyncSession
@@ -312,36 +312,6 @@ class TestQueries:
         result = await repo.list_tags(user_id="default")
         last_used = {tag: last for tag, _, last in result}
         assert last_used["mood:chill"] == recent
-
-    async def test_list_by_tagged_at_ordering_and_boundaries(
-        self, db_session: AsyncSession
-    ) -> None:
-        repo = TrackTagRepository(db_session)
-        base = datetime(2025, 6, 1, tzinfo=UTC)
-
-        tags = []
-        for i in range(5):
-            track = await seed_db_track(db_session)
-            tags.append(
-                make_track_tag(
-                    track_id=track.id,
-                    tag=f"context:day-{i}",
-                    tagged_at=base + timedelta(days=i),
-                )
-            )
-        await repo.add_tags(tags, user_id="default")
-
-        result = await repo.list_by_tagged_at(user_id="default", limit=10)
-        assert result[0].tag == "context:day-4"
-        assert result[-1].tag == "context:day-0"
-
-        cutoff = base + timedelta(days=2)
-        after = await repo.list_by_tagged_at(user_id="default", after=cutoff)
-        assert {t.tag for t in after} == {
-            "context:day-2",
-            "context:day-3",
-            "context:day-4",
-        }
 
 
 class TestRenameTag:

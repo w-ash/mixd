@@ -5,14 +5,11 @@ keeping settings.py focused on configuration schema and validation.
 """
 
 import functools
-from typing import TYPE_CHECKING
 
 from src.domain.matching.config import MatchingConfig as DomainMatchingConfig
+from src.domain.matching.evaluation_service import TrackMatchEvaluationService
 
 from .settings import settings
-
-if TYPE_CHECKING:
-    from src.domain.matching.evaluation_service import TrackMatchEvaluationService
 
 
 @functools.cache
@@ -56,8 +53,4 @@ def create_evaluation_service() -> TrackMatchEvaluationService:
     InwardTrackResolver, SpotifyCrossDiscoveryProvider, and
     MatchAndIdentifyTracksUseCase.
     """
-    from src.domain.matching.evaluation_service import (
-        TrackMatchEvaluationService as _Svc,
-    )
-
-    return _Svc(config=create_matching_config())
+    return TrackMatchEvaluationService(config=create_matching_config())

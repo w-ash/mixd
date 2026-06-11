@@ -21,7 +21,7 @@
 
 ## Planned Versions
 
-Each milestone delivers a **vertical slice** — backend API + frontend page together — so every increment is testable end-to-end. Web UI development starts immediately on SQLite; PostgreSQL and deployment arrive when features are validated.
+Each milestone delivers a **vertical slice** — backend API + frontend page together — so every increment is testable end-to-end.
 
 | Version | Goal | Status | Details |
 |---------|------|--------|---------|

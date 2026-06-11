@@ -10,22 +10,23 @@ Processes multiple tracks efficiently in batches.
 from typing import TYPE_CHECKING, Literal, Never, cast
 from uuid import UUID
 
-if TYPE_CHECKING:
-    from src.application.services.progress_manager import AsyncProgressManager
-    from src.application.workflows.protocols import MetricConfigProvider
-
 from attrs import define, field
 
 from src.application.connector_protocols import TrackMetadataConnector
 from src.application.services.metrics_application_service import (
     MetricsApplicationService,
 )
+from src.application.services.progress_manager import AsyncProgressManager
 from src.application.utilities.timing import ExecutionTimer
 from src.config import get_logger
 from src.config.logging import logging_context
 from src.domain.entities.shared import MetricValue
 from src.domain.entities.track import TrackList
 from src.domain.repositories import UnitOfWorkProtocol
+
+if TYPE_CHECKING:
+    # Circular import: src.application.workflows.protocols imports this module.
+    from src.application.workflows.protocols import MetricConfigProvider
 
 logger = get_logger(__name__)
 

@@ -24,6 +24,7 @@ from rich.prompt import Prompt
 from rich.table import Table
 import typer
 
+from src.application.pagination import TRACK_SORT_COLUMNS, TrackSortBy
 from src.config.constants import BusinessLimits
 from src.domain.entities import OperationResult, Playlist, Track
 from src.domain.entities.playlist_assignment import (
@@ -268,6 +269,16 @@ def validate_preference_state(raw: str) -> PreferenceState:
             f"{', '.join(_VALID_PREFERENCE_STATES)}."
         )
     return raw  # runtime-narrowed to PreferenceState
+
+
+def validate_track_sort(raw: str) -> TrackSortBy:
+    """Return a typed ``TrackSortBy`` or raise ``typer.BadParameter``."""
+    if raw not in TRACK_SORT_COLUMNS:
+        raise typer.BadParameter(
+            f"'{raw}' is not a valid sort — expected one of: "
+            f"{', '.join(TRACK_SORT_COLUMNS)}."
+        )
+    return raw  # narrowed to TrackSortBy by the membership check
 
 
 def validate_tag(raw: str) -> str:

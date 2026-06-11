@@ -44,21 +44,30 @@ class StatsRepository:
         user-scoped parent table.
         """
         # --- Query 1: scalar totals via sub-selects --------------------------
+        # ``.scalar_subquery().label()`` is what ``SelectBase.label()`` does
+        # internally (identical SQL) but keeps the ``int`` column typing that
+        # the shorthand collapses to ``Label[Any]``.
         totals_stmt = select(
             select(func.count(DBTrack.id))
             .where(DBTrack.user_id == user_id)
+            .scalar_subquery()
             .label("total_tracks"),
             select(func.count(DBTrackPlay.id))
             .where(DBTrackPlay.user_id == user_id)
+            .scalar_subquery()
             .label("total_plays"),
             select(func.count(DBPlaylist.id))
             .where(DBPlaylist.user_id == user_id)
+            .scalar_subquery()
             .label("total_playlists"),
             select(func.count(distinct(DBTrackLike.track_id)))
             .where(DBTrackLike.is_liked == true(), DBTrackLike.user_id == user_id)
+            .scalar_subquery()
             .label("total_liked"),
         )
-        totals_row = (await self._session.execute(totals_stmt)).one()
+        total_tracks, total_plays, total_playlists, total_liked = (
+            (await self._session.execute(totals_stmt)).tuples().one()
+        )
 
         # --- Query 2: service breakdowns (plays + likes) ---------------------
         plays_by_svc_stmt = (
@@ -141,10 +150,10 @@ class StatsRepository:
         }
 
         return DashboardAggregates(
-            total_tracks=int(totals_row.total_tracks),  # pyright: ignore[reportAny]  # SQLAlchemy Row dynamic field
-            total_plays=int(totals_row.total_plays),  # pyright: ignore[reportAny]
-            total_playlists=int(totals_row.total_playlists),  # pyright: ignore[reportAny]
-            total_liked=int(totals_row.total_liked),  # pyright: ignore[reportAny]
+            total_tracks=total_tracks,
+            total_plays=total_plays,
+            total_playlists=total_playlists,
+            total_liked=total_liked,
             tracks_by_connector=tracks_by_connector,
             liked_by_connector=liked_by_connector,
             plays_by_connector=plays_by_connector,

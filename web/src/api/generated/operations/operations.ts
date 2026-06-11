@@ -22,7 +22,6 @@ import type {
 
 import type {
   HTTPValidationError,
-  ListActiveOperationsApiV1OperationsGet200,
   OperationSnapshotResponse
 } from '../model';
 
@@ -147,119 +146,6 @@ export function useStreamOperationProgressApiV1OperationsOperationIdProgressGet<
  ):  UseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> } {
 
   const queryOptions = getStreamOperationProgressApiV1OperationsOperationIdProgressGetQueryOptions(operationId,options)
-
-  const query = useQuery(queryOptions, queryClient) as  UseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> };
-
-  return { ...query, queryKey: queryOptions.queryKey };
-}
-
-
-
-
-
-
-export type listActiveOperationsApiV1OperationsGetResponse200 = {
-  data: ListActiveOperationsApiV1OperationsGet200
-  status: 200
-}
-
-export type listActiveOperationsApiV1OperationsGetResponseSuccess = (listActiveOperationsApiV1OperationsGetResponse200) & {
-  headers: Headers;
-};
-;
-
-export type listActiveOperationsApiV1OperationsGetResponse = (listActiveOperationsApiV1OperationsGetResponseSuccess)
-
-export const getListActiveOperationsApiV1OperationsGetUrl = () => {
-
-
-
-
-  return `/api/v1/operations`
-}
-
-/**
- * List all active operation IDs.
- * @summary List Active Operations
- */
-export const listActiveOperationsApiV1OperationsGet = async ( options?: RequestInit): Promise<listActiveOperationsApiV1OperationsGetResponse> => {
-
-  return customFetch<listActiveOperationsApiV1OperationsGetResponse>(getListActiveOperationsApiV1OperationsGetUrl(),
-  {
-    ...options,
-    method: 'GET'
-
-
-  }
-);}
-
-
-
-
-
-export const getListActiveOperationsApiV1OperationsGetQueryKey = () => {
-    return [
-    `/api/v1/operations`
-    ] as const;
-    }
-
-
-export const getListActiveOperationsApiV1OperationsGetQueryOptions = <TData = Awaited<ReturnType<typeof listActiveOperationsApiV1OperationsGet>>, TError = unknown>( options?: { query?:Partial<UseQueryOptions<Awaited<ReturnType<typeof listActiveOperationsApiV1OperationsGet>>, TError, TData>>, request?: SecondParameter<typeof customFetch>}
-) => {
-
-const {query: queryOptions, request: requestOptions} = options ?? {};
-
-  const queryKey =  queryOptions?.queryKey ?? getListActiveOperationsApiV1OperationsGetQueryKey();
-
-
-
-    const queryFn: QueryFunction<Awaited<ReturnType<typeof listActiveOperationsApiV1OperationsGet>>> = ({ signal }) => listActiveOperationsApiV1OperationsGet({ signal, ...requestOptions });
-
-
-
-
-
-   return  { queryKey, queryFn, ...queryOptions} as UseQueryOptions<Awaited<ReturnType<typeof listActiveOperationsApiV1OperationsGet>>, TError, TData> & { queryKey: DataTag<QueryKey, TData, TError> }
-}
-
-export type ListActiveOperationsApiV1OperationsGetQueryResult = NonNullable<Awaited<ReturnType<typeof listActiveOperationsApiV1OperationsGet>>>
-export type ListActiveOperationsApiV1OperationsGetQueryError = unknown
-
-
-export function useListActiveOperationsApiV1OperationsGet<TData = Awaited<ReturnType<typeof listActiveOperationsApiV1OperationsGet>>, TError = unknown>(
-  options: { query:Partial<UseQueryOptions<Awaited<ReturnType<typeof listActiveOperationsApiV1OperationsGet>>, TError, TData>> & Pick<
-        DefinedInitialDataOptions<
-          Awaited<ReturnType<typeof listActiveOperationsApiV1OperationsGet>>,
-          TError,
-          Awaited<ReturnType<typeof listActiveOperationsApiV1OperationsGet>>
-        > , 'initialData'
-      >, request?: SecondParameter<typeof customFetch>}
- , queryClient?: QueryClient
-  ):  DefinedUseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> }
-export function useListActiveOperationsApiV1OperationsGet<TData = Awaited<ReturnType<typeof listActiveOperationsApiV1OperationsGet>>, TError = unknown>(
-  options?: { query?:Partial<UseQueryOptions<Awaited<ReturnType<typeof listActiveOperationsApiV1OperationsGet>>, TError, TData>> & Pick<
-        UndefinedInitialDataOptions<
-          Awaited<ReturnType<typeof listActiveOperationsApiV1OperationsGet>>,
-          TError,
-          Awaited<ReturnType<typeof listActiveOperationsApiV1OperationsGet>>
-        > , 'initialData'
-      >, request?: SecondParameter<typeof customFetch>}
- , queryClient?: QueryClient
-  ):  UseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> }
-export function useListActiveOperationsApiV1OperationsGet<TData = Awaited<ReturnType<typeof listActiveOperationsApiV1OperationsGet>>, TError = unknown>(
-  options?: { query?:Partial<UseQueryOptions<Awaited<ReturnType<typeof listActiveOperationsApiV1OperationsGet>>, TError, TData>>, request?: SecondParameter<typeof customFetch>}
- , queryClient?: QueryClient
-  ):  UseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> }
-/**
- * @summary List Active Operations
- */
-
-export function useListActiveOperationsApiV1OperationsGet<TData = Awaited<ReturnType<typeof listActiveOperationsApiV1OperationsGet>>, TError = unknown>(
-  options?: { query?:Partial<UseQueryOptions<Awaited<ReturnType<typeof listActiveOperationsApiV1OperationsGet>>, TError, TData>>, request?: SecondParameter<typeof customFetch>}
- , queryClient?: QueryClient
- ):  UseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> } {
-
-  const queryOptions = getListActiveOperationsApiV1OperationsGetQueryOptions(options)
 
   const query = useQuery(queryOptions, queryClient) as  UseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> };
 

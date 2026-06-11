@@ -12,6 +12,8 @@ from uuid import UUID
 
 from attrs import define
 
+from src.application.connector_protocols import TrackMetadataConnector
+from src.application.services.progress_manager import AsyncProgressManager
 from src.application.services.sub_operation_progress import (
     ThrottledSubOperationEmitter,
     create_throttled_sub_operation,
@@ -23,8 +25,8 @@ from src.domain.entities.track import Track, TrackMetric
 from src.domain.repositories import UnitOfWorkProtocol
 
 if TYPE_CHECKING:
-    from src.application.connector_protocols import TrackMetadataConnector
-    from src.application.services.progress_manager import AsyncProgressManager
+    # Circular import: src.application.workflows.protocols imports use cases
+    # that import this module.
     from src.application.workflows.protocols import MetricConfigProvider
 
 logger = get_logger(__name__)

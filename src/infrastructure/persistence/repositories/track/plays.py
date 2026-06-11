@@ -142,13 +142,6 @@ class TrackPlayRepository(BaseRepository[DBTrackPlay, TrackPlay]):
 
         return (inserted, duplicate_count)
 
-    @db_operation("get_plays_by_batch")
-    async def get_plays_by_batch(self, import_batch_id: str) -> list[TrackPlay]:
-        """Get all plays from a specific import batch."""
-        return await self.find_by([
-            self.model_class.import_batch_id == import_batch_id,
-        ])
-
     @db_operation("get_play_aggregations")
     async def get_play_aggregations(
         self,
@@ -250,8 +243,8 @@ class TrackPlayRepository(BaseRepository[DBTrackPlay, TrackPlay]):
                 )
                 .group_by(DBTrackPlay.track_id)
             )
-            period_rows = (await self.session.execute(period_stmt)).all()
-            result["period_plays"] = {row.track_id: row.total for row in period_rows}  # pyright: ignore[reportAny]  # SQLAlchemy Row dynamic field
+            period_result = await self.session.execute(period_stmt)
+            result["period_plays"] = dict(period_result.tuples())
 
         # Backfill missing track_ids with defaults for each requested metric
         if "total_plays" in result:

@@ -5,6 +5,7 @@ implementing efficient path-based access to nested domain structures.
 This module decouples data access patterns from orchestration logic.
 """
 
+from collections.abc import Mapping
 from typing import cast
 
 from attrs import define
@@ -46,7 +47,10 @@ class NodeContext:
             upstream_id = str(self.data["upstream_task_id"])
             upstream_data = self.data.get(upstream_id)
             if isinstance(upstream_data, dict) and "tracklist" in upstream_data:
-                result: object = upstream_data["tracklist"]  # type: ignore[reportAny]  # dict narrowed from Any
+                # isinstance narrows only to dict[Unknown, Unknown] — widen the
+                # value type to object, then isinstance-narrow the entry itself.
+                upstream_map = cast("Mapping[str, object]", upstream_data)
+                result = upstream_map["tracklist"]
                 if isinstance(result, TrackList):
                     return result
 
@@ -96,10 +100,13 @@ class NodeContext:
         Raises:
             ValueError: If workflow context not found
         """
-        workflow_context: WorkflowContext = self.data.get("workflow_context")  # type: ignore[reportAny]  # executor context dict
-        if not workflow_context:
+        raw = self.data.get("workflow_context")
+        if not raw:
             raise ValueError("Workflow context not found in context")
-        return workflow_context
+        # WorkflowContext is a non-runtime-checkable Protocol, so isinstance
+        # can't narrow it. Cast is safe: the executor always seeds this key
+        # with its WorkflowContext implementation.
+        return cast("WorkflowContext", raw)
 
     def extract_use_cases(self) -> UseCaseProvider:
         """Extract use case provider via workflow context.

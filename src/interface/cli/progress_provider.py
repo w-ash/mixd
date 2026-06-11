@@ -7,7 +7,7 @@ Uses Rich Live Display with Progress for proper stdout/stderr coordination.
 
 import asyncio
 import contextlib
-from typing import TYPE_CHECKING, Self, TypedDict, cast, override
+from typing import Self, TypedDict, cast, override
 
 from attrs import define
 from rich.live import Live
@@ -22,12 +22,9 @@ from rich.progress import (
     TextColumn,
     TimeElapsedColumn,
 )
+from structlog.stdlib import BoundLogger
 
 from src.config import get_logger
-
-if TYPE_CHECKING:
-    from structlog.stdlib import BoundLogger
-
 from src.domain.entities.progress import (
     OperationStatus,
     ProgressEvent,
@@ -99,7 +96,6 @@ class RichProgressProvider:
     - Automatic cleanup of completed operations
     """
 
-    _show_rate: bool
     _progress: Progress
     _live: Live
     _progress_started: bool
@@ -112,8 +108,6 @@ class RichProgressProvider:
         Args:
             show_rate: Whether to show processing rate column
         """
-        self._show_rate = show_rate
-
         # Create Rich progress display with custom columns
         progress_columns: list[ProgressColumn | str] = [
             SpinnerColumn(),
@@ -428,16 +422,6 @@ class RichProgressProvider:
             Rich Console instance from Live Display for unified output
         """
         return self._live.console
-
-    @property
-    def is_display_active(self) -> bool:
-        """Check if progress display is currently active."""
-        return self._progress_started
-
-    @property
-    def active_operation_count(self) -> int:
-        """Get number of currently tracked operations."""
-        return len([task for task in self._operation_tasks.values() if task.is_active])
 
     async def __aenter__(self) -> Self:
         """Async context manager entry - starts Live Display."""

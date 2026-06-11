@@ -116,14 +116,6 @@ async def stream_operation_progress(
         )
 
 
-@router.get("")
-async def list_active_operations() -> dict[str, list[str]]:
-    """List all active operation IDs."""
-    registry = get_operation_registry()
-    ids = await registry.get_active_operation_ids()
-    return {"operation_ids": ids}
-
-
 @router.get("/{operation_id}/snapshot")
 async def get_operation_snapshot(
     operation_id: str,

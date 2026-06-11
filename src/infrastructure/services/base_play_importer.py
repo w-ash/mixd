@@ -413,7 +413,7 @@ class BasePlayImporter[TRawData](ABC):
             (
                 inserted_count,
                 duplicate_count,
-            ) = await plays_repository.bulk_insert_plays(data)  # type: ignore[reportArgumentType]  # Base impl accepts ConnectorTrackPlay; subclasses override
+            ) = await plays_repository.bulk_insert_plays(data)  # pyright: ignore[reportArgumentType]  # Base impl accepts ConnectorTrackPlay; subclasses override
 
             # Log database operation results with visibility
             if inserted_count > 0:

@@ -209,10 +209,6 @@ class DBTrack(BaseEntity):
         back_populates="track",
         cascade="all, delete-orphan",
     )
-    playlist_tracks: Mapped[list[DBPlaylistTrack]] = relationship(
-        back_populates="track",
-        cascade="all, delete-orphan",
-    )
     connector_plays: Mapped[list[DBConnectorPlay]] = relationship(
         back_populates="resolved_track",
         passive_deletes=True,
@@ -699,9 +695,6 @@ class DBPlaylistMapping(BaseEntity):
         String(20), default="never_synced", server_default="never_synced"
     )
     last_sync_error: Mapped[str | None] = mapped_column(default=None)
-    last_sync_started_at: Mapped[datetime | None] = mapped_column(
-        DateTime(timezone=True), default=None
-    )
     last_sync_completed_at: Mapped[datetime | None] = mapped_column(
         DateTime(timezone=True), default=None
     )
@@ -778,7 +771,6 @@ class DBPlaylistTrack(BaseEntity):
         passive_deletes=True,
     )
     track: Mapped[DBTrack] = relationship(
-        back_populates="playlist_tracks",
         passive_deletes=True,
         lazy="raise_on_sql",
     )

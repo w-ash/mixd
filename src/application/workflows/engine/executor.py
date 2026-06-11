@@ -173,8 +173,10 @@ def _get_node_timeout(node_type: str) -> int:
 
     Falls back to TRANSFORM_TIMEOUT_SECONDS for unknown categories.
     """
-    category: NodeType = node_type.split(".", maxsplit=1)[0]  # type: ignore[assignment]  # runtime string from workflow def
-    return _CATEGORY_TIMEOUTS.get(category, WorkflowConstants.TRANSFORM_TIMEOUT_SECONDS)
+    category = node_type.split(".", maxsplit=1)[0]
+    if category in _CATEGORY_TIMEOUTS:
+        return _CATEGORY_TIMEOUTS[category]
+    return WorkflowConstants.TRANSFORM_TIMEOUT_SECONDS
 
 
 # --- Node execution ---

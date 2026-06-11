@@ -100,10 +100,6 @@ class SSEOperationRegistry:
             if removed is not None:
                 logger.debug("SSE queue unregistered", operation_id=operation_id)
 
-    async def get_active_operation_ids(self) -> list[str]:
-        async with self._lock:
-            return list(self._queues.keys())
-
 
 # ---------------------------------------------------------------------------
 # SSEProgressSubscriber

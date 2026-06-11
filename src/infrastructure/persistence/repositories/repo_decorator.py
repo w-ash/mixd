@@ -10,11 +10,10 @@ The decorators help enforce a consistent pattern for all database operations
 while reducing repetitive error-handling code.
 """
 
-from collections.abc import Callable, Coroutine
+from collections.abc import Awaitable, Callable
 import functools
 import inspect
 import time
-from typing import Any
 
 from sqlalchemy.exc import (
     DatabaseError,
@@ -49,8 +48,8 @@ def db_operation(operation_name: str | None = None):
     """
 
     def decorator[**P, T](
-        func: Callable[P, Coroutine[Any, Any, T]],  # pyright: ignore[reportExplicitAny]  # stdlib Coroutine[Any, Any, T] async return idiom
-    ) -> Callable[P, Coroutine[Any, Any, T]]:  # pyright: ignore[reportExplicitAny]  # stdlib Coroutine[Any, Any, T] async return idiom
+        func: Callable[P, Awaitable[T]],
+    ) -> Callable[P, Awaitable[T]]:
         """Wrap an async repository method with logging, timing and error handling."""
         func_name = operation_name or func.__name__
 

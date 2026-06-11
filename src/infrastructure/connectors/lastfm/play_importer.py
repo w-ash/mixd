@@ -6,7 +6,7 @@ chunking, checkpoint management, and boundary-respecting import logic.
 """
 
 from datetime import UTC, date, datetime, time, timedelta
-from typing import override
+from typing import cast, override
 
 from src.config import get_logger, settings
 from src.config.constants import LastFMConstants
@@ -73,7 +73,9 @@ class LastfmPlayImporter(BasePlayImporter[PlayRecord], PlayImporterProtocol):
         """
         # Extract common and Last.fm-specific parameters using typed approach
         common_params, lastfm_params = self._extract_common_params(**params)
-        typed_params: LastFMImportParams = {**common_params, **lastfm_params}  # type: ignore[misc]
+        # One cast at the template-method boundary: the remaining service params
+        # are object-typed; downstream typed accessors define the field shapes.
+        typed_params = cast(LastFMImportParams, {**common_params, **lastfm_params})
 
         logger.info(
             "Starting Last.fm connector play ingestion with unified approach",

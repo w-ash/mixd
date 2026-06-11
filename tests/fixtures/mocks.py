@@ -17,6 +17,7 @@ from collections.abc import Callable, Coroutine
 from typing import Any
 from unittest.mock import AsyncMock, MagicMock
 
+from src.domain.entities import SyncCheckpoint
 from src.domain.entities.progress import ProgressEmitter
 
 
@@ -112,6 +113,13 @@ def make_mock_checkpoint_repo(**overrides) -> AsyncMock:
     repo = AsyncMock()
     repo.get_sync_checkpoint.return_value = overrides.pop("get_sync_checkpoint", None)
     repo.save_sync_checkpoint.return_value = overrides.pop("save_sync_checkpoint", None)
+    # Mirrors the real non-persisting-on-miss semantics: a fresh entity, not None.
+    if "get_or_create_sync_checkpoint" not in overrides:
+        repo.get_or_create_sync_checkpoint = AsyncMock(
+            side_effect=lambda user_id, service, entity_type: SyncCheckpoint(
+                user_id=user_id, service=service, entity_type=entity_type
+            )
+        )
     for k, v in overrides.items():
         setattr(repo, k, v)
     return repo
@@ -212,7 +220,6 @@ def make_mock_preference_repo(**overrides) -> AsyncMock:
     )
     repo.list_by_state.return_value = overrides.pop("list_by_state", [])
     repo.count_by_state.return_value = overrides.pop("count_by_state", {})
-    repo.list_by_preferred_at.return_value = overrides.pop("list_by_preferred_at", [])
     for k, v in overrides.items():
         setattr(repo, k, v)
     return repo
@@ -230,7 +237,6 @@ def make_mock_tag_repo(**overrides) -> AsyncMock:
         "add_events", lambda events, **kw: list(events)
     )
     repo.list_tags.return_value = overrides.pop("list_tags", [])
-    repo.list_by_tagged_at.return_value = overrides.pop("list_by_tagged_at", [])
     for k, v in overrides.items():
         setattr(repo, k, v)
     return repo

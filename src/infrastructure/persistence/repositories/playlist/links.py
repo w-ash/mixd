@@ -160,7 +160,6 @@ class PlaylistLinkRepository:
         }
 
         if status == SyncStatus.SYNCING:
-            values["last_sync_started_at"] = datetime.now(UTC)
             values["last_sync_error"] = None
         elif status == SyncStatus.SYNCED:
             values["last_sync_completed_at"] = datetime.now(UTC)

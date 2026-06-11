@@ -10,8 +10,6 @@ Unlike preferences (one per track), tags are many-per-track. The unique
 key is three-part ``(user_id, track_id, tag)``.
 """
 
-from __future__ import annotations
-
 from datetime import datetime
 import re
 from typing import Final, Literal

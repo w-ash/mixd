@@ -30,15 +30,12 @@ import asyncio
 from collections.abc import AsyncIterator, Awaitable, Callable
 import contextlib
 import time
-from typing import TYPE_CHECKING
 import uuid
 
 from attrs import define, field
+from structlog.stdlib import BoundLogger
 
 from src.config import get_logger
-
-if TYPE_CHECKING:
-    from structlog.stdlib import BoundLogger
 
 logger = get_logger(__name__).bind(service="rate_limited_batch_processor")
 

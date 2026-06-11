@@ -220,7 +220,6 @@ With database-backed credential storage, Settings handles the Last.fm web auth f
 | Like track | `POST /tracks/{id}/like` | `SyncLikesUseCase` (single-track variant) | Needs implementation |
 | Unlike track | `DELETE /tracks/{id}/like` | `SyncLikesUseCase` (single-track variant) | Needs implementation |
 | Add to playlist | `POST /playlists/{id}/tracks` | `UpdateCanonicalPlaylistUseCase` | Exists |
-| Which playlists | `GET /tracks/{id}/playlists` | `GetTrackDetailsUseCase` | ✅ Implemented (v0.3.2) |
 
 **Edge cases**:
 - Track has no connector mappings: Show "Not mapped to any services. This track exists only in your Mixd library."
@@ -479,7 +478,6 @@ With database-backed credential storage, Settings handles the Last.fm web auth f
 | Action | Endpoint | Use Case | Status |
 |--------|----------|----------|--------|
 | List checkpoints | `GET /imports/checkpoints` | Checkpoint query | ✅ Implemented (v0.3.1) |
-| Recent operations | `GET /operations?limit=20` | Operation history query | ✅ Implemented (v0.3.1) |
 
 ---
 
@@ -1051,7 +1049,6 @@ With database-backed credential storage, Settings handles the Last.fm web auth f
 | Stats | `GET /stats/dashboard` | `GetTrackStatsUseCase` | Needs implementation (v0.3.3) |
 | Connector health | `GET /connectors` | Connector status | ✅ Implemented (v0.3.0) |
 | Freshness | `GET /imports/checkpoints` | Checkpoint query | ✅ Implemented (v0.3.1) |
-| Recent activity | `GET /operations?limit=10` | Operation history | ✅ Implemented (v0.3.1) |
 
 ---
 

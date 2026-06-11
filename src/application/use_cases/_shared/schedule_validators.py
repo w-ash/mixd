@@ -10,8 +10,6 @@ These live in the *application* layer (not the domain) because they import
 ``domain/entities/schedule.py``.
 """
 
-from __future__ import annotations
-
 import functools
 from zoneinfo import available_timezones
 

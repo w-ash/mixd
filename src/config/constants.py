@@ -51,7 +51,6 @@ class BusinessLimits:
 
     # API pagination
     DEFAULT_PAGE_SIZE: Final = 50
-    MAX_PAGE_SIZE: Final = 200
     MIN_SEARCH_LENGTH: Final = 2
 
     # Import processing

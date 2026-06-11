@@ -14,8 +14,6 @@ from a stale stored value) and truncated to the whole minute, so the
 repository's optimistic ``next_run_at`` equality claim holds.
 """
 
-from __future__ import annotations
-
 from datetime import UTC, datetime
 from zoneinfo import ZoneInfo
 

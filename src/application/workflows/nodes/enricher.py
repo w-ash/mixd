@@ -25,7 +25,7 @@ logger = get_logger(__name__)
 
 async def enrich_spotify_liked_status(
     context: dict[str, object],
-    config: Mapping[str, JsonValue],  # noqa: ARG001
+    _config: Mapping[str, JsonValue],
 ) -> NodeResult:
     """Check which tracks are saved in the user's Spotify library.
 
@@ -35,7 +35,8 @@ async def enrich_spotify_liked_status(
 
     Args:
         context: Workflow execution context with tracklist and connectors.
-        config: Currently unused; reserved for future options.
+        _config: Currently unused; reserved for future options. The engine
+            calls node functions positionally, so the slot must remain.
 
     Returns:
         NodeResult with tracks annotated with is_liked metadata.

@@ -209,7 +209,6 @@ class TestComprehensiveErrorClassification:
             ("search_by_isrc", ("USRC17607839",), "_search_by_isrc_impl"),
             ("search_track", ("Test Artist", "Test Track"), "_search_track_impl"),
             ("get_playlist", ("test_playlist_id",), "_get_playlist_impl"),
-            ("get_playlist_items", ("test_playlist_id",), "_get_playlist_items_impl"),
             ("create_playlist", ("Test Playlist",), "_create_playlist_impl"),
             ("get_saved_tracks", (), "_get_saved_tracks_impl"),
             ("get_current_user", (), "_get_current_user_impl"),

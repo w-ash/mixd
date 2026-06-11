@@ -15,11 +15,12 @@ from typing import TYPE_CHECKING
 import urllib.parse
 
 from src.config import settings
+from src.infrastructure.connectors.protocols import CreateStateFn
 
 if TYPE_CHECKING:
+    # fastapi (~160ms import) is used only in annotations here; the guard
+    # keeps it out of the CLI's connector import path.
     from fastapi import Request
-
-    from src.infrastructure.connectors.protocols import CreateStateFn
 
 LASTFM_AUTH_URL = "https://www.last.fm/api/auth/"
 

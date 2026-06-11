@@ -47,13 +47,6 @@ class TestProgressIntegration:
         operation_id = await progress_manager.start_operation(operation)
         assert operation_id == operation.operation_id
 
-        # Verify operation was started
-        retrieved_operation = await progress_manager._coordinator.get_operation(
-            operation_id
-        )
-        assert retrieved_operation is not None
-        assert retrieved_operation.status == OperationStatus.RUNNING
-
         # Send progress events
         events = [
             create_progress_event(operation_id, 0, 100, "Starting..."),
@@ -74,13 +67,11 @@ class TestProgressIntegration:
             operation_id, OperationStatus.COMPLETED
         )
 
-        # Verify operation is completed
-        final_operation = await progress_manager._coordinator.get_operation(
-            operation_id
-        )
-        assert final_operation.status == OperationStatus.COMPLETED
-        assert final_operation.duration_seconds is not None
-        assert final_operation.duration_seconds >= 0
+        # Verify operation is completed — completing again must fail
+        with pytest.raises(ValueError, match="already complete"):
+            await progress_manager.complete_operation(
+                operation_id, OperationStatus.COMPLETED
+            )
 
         # Cleanup subscription
         unsubscribed = await progress_manager.unsubscribe(subscription_id)
@@ -105,9 +96,10 @@ class TestProgressIntegration:
             op_id = await progress_manager.start_operation(operation)
             operation_ids.append(op_id)
 
-        # Verify all are active
-        active_operations = await progress_manager._coordinator.get_active_operations()
-        assert len(active_operations) == 3
+        # Verify all are active — restarting a tracked operation must fail
+        for operation in operations:
+            with pytest.raises(ValueError, match="already being tracked"):
+                await progress_manager.start_operation(operation)
 
         # Send progress for all operations
         for i, op_id in enumerate(operation_ids):
@@ -122,9 +114,12 @@ class TestProgressIntegration:
         for op_id in operation_ids:
             await progress_manager.complete_operation(op_id, OperationStatus.COMPLETED)
 
-        # Verify no active operations remain
-        active_operations = await progress_manager._coordinator.get_active_operations()
-        assert len(active_operations) == 0
+        # Verify none remain active — completing again must fail
+        for op_id in operation_ids:
+            with pytest.raises(ValueError, match="already complete"):
+                await progress_manager.complete_operation(
+                    op_id, OperationStatus.COMPLETED
+                )
 
     async def test_indeterminate_progress(self, progress_manager, rich_provider):
         """Test progress tracking for indeterminate operations."""
@@ -155,11 +150,11 @@ class TestProgressIntegration:
             operation_id, OperationStatus.COMPLETED
         )
 
-        # Verify operation completed successfully
-        final_operation = await progress_manager._coordinator.get_operation(
-            operation_id
-        )
-        assert final_operation.status == OperationStatus.COMPLETED
+        # Verify operation completed successfully — completing again must fail
+        with pytest.raises(ValueError, match="already complete"):
+            await progress_manager.complete_operation(
+                operation_id, OperationStatus.COMPLETED
+            )
 
     async def test_operation_failure_handling(self, progress_manager, rich_provider):
         """Test handling of failed operations."""
@@ -179,11 +174,11 @@ class TestProgressIntegration:
         # Fail the operation
         await progress_manager.complete_operation(operation_id, OperationStatus.FAILED)
 
-        # Verify operation failed
-        final_operation = await progress_manager._coordinator.get_operation(
-            operation_id
-        )
-        assert final_operation.status == OperationStatus.FAILED
+        # Verify operation is finalized — completing again must fail
+        with pytest.raises(ValueError, match="already complete"):
+            await progress_manager.complete_operation(
+                operation_id, OperationStatus.FAILED
+            )
 
     async def test_progress_validation_enforcement(self, progress_manager):
         """Test that domain validation rules are enforced."""
@@ -205,11 +200,10 @@ class TestProgressIntegration:
         with pytest.raises(ValueError, match="Progress went backwards"):
             await progress_manager.emit_progress(invalid_event)
 
-        # Operation should still be running after validation failure
-        operation_state = await progress_manager._coordinator.get_operation(
-            operation_id
+        # Operation should still accept valid progress after validation failure
+        await progress_manager.emit_progress(
+            create_progress_event(operation_id, 30, 100, "Still running")
         )
-        assert operation_state.status == OperationStatus.RUNNING
 
     async def test_subscriber_error_isolation(self, progress_manager):
         """Test that subscriber errors don't crash the progress system."""
@@ -240,11 +234,11 @@ class TestProgressIntegration:
             operation_id, OperationStatus.COMPLETED
         )
 
-        # Operation should complete successfully
-        final_operation = await progress_manager._coordinator.get_operation(
-            operation_id
-        )
-        assert final_operation.status == OperationStatus.COMPLETED
+        # Operation should complete successfully — completing again must fail
+        with pytest.raises(ValueError, match="already complete"):
+            await progress_manager.complete_operation(
+                operation_id, OperationStatus.COMPLETED
+            )
 
     async def test_subscriber_cancelled_error_does_not_propagate(
         self, progress_manager
@@ -277,10 +271,10 @@ class TestProgressIntegration:
             operation_id, OperationStatus.COMPLETED
         )
 
-        final_operation = await progress_manager._coordinator.get_operation(
-            operation_id
+        # Completion was broadcast to the (cancelling) subscriber
+        cancelling_subscriber.on_operation_completed.assert_awaited_once_with(
+            operation_id, OperationStatus.COMPLETED
         )
-        assert final_operation.status == OperationStatus.COMPLETED
 
     async def test_external_cancellation_of_gather_is_absorbed(self, progress_manager):
         """External CancelledError at `await gather()` must NOT kill the workflow.
@@ -315,64 +309,6 @@ class TestProgressIntegration:
             await progress_manager.emit_progress(
                 create_progress_event(operation_id, 50, 100, "Progress")
             )
-
-
-class TestRichProgressProvider:
-    """Integration tests specifically for Rich progress provider."""
-
-    @pytest.fixture
-    def rich_provider(self):
-        """Create Rich provider with default console."""
-        return RichProgressProvider()
-
-    async def test_rich_provider_lifecycle(self, rich_provider):
-        """Test Rich provider start/stop lifecycle."""
-        assert not rich_provider.is_display_active
-
-        await rich_provider.start_display()
-        assert rich_provider.is_display_active
-
-        await rich_provider.stop_display()
-        assert not rich_provider.is_display_active
-
-    async def test_rich_provider_context_manager(self, rich_provider):
-        """Test Rich provider as async context manager."""
-        assert not rich_provider.is_display_active
-
-        async with rich_provider:
-            assert rich_provider.is_display_active
-
-        assert not rich_provider.is_display_active
-
-    async def test_rich_provider_operation_tracking(self, rich_provider):
-        """Test Rich provider tracks operations correctly."""
-        # Start display
-        await rich_provider.start_display()
-
-        # Create test operation
-        operation = create_progress_operation(
-            description="Test tracking", total_items=10
-        )
-
-        # Start operation
-        await rich_provider.on_operation_started(operation)
-        assert rich_provider.active_operation_count == 1
-
-        # Send progress events
-        await rich_provider.on_progress_event(
-            create_progress_event(operation.operation_id, 5, 10, "Half done")
-        )
-
-        # Complete operation
-        await rich_provider.on_operation_completed(
-            operation.operation_id, OperationStatus.COMPLETED
-        )
-
-        # Operation should be marked inactive immediately
-        # (cleanup happens after delay)
-        assert rich_provider.active_operation_count == 0
-
-        await rich_provider.stop_display()
 
 
 class TestProgressSystemExample:
@@ -427,12 +363,11 @@ class TestProgressSystemExample:
                 operation_id, OperationStatus.COMPLETED
             )
 
-            # Verify final state
-            final_operation = await progress_manager._coordinator.get_operation(
-                operation_id
-            )
-            assert final_operation.status == OperationStatus.COMPLETED
-            assert final_operation.duration_seconds > 0
+            # Verify final state — completing again must fail
+            with pytest.raises(ValueError, match="already complete"):
+                await progress_manager.complete_operation(
+                    operation_id, OperationStatus.COMPLETED
+                )
 
         # Cleanup
         await progress_manager.unsubscribe(subscriber_id)
