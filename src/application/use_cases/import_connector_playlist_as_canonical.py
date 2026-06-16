@@ -27,7 +27,7 @@ from src.application.services.connector_playlist_sync_service import (
     has_fresh_cache,
 )
 from src.application.services.playlist_upsert import upsert_canonical_playlist
-from src.application.services.progress_manager import AsyncProgressManager
+from src.application.services.progress_broker import ProgressBroker
 from src.application.use_cases.create_canonical_playlist import (
     CreateCanonicalPlaylistResult,
 )
@@ -99,7 +99,8 @@ class ImportConnectorPlaylistsAsCanonicalUseCase:
         command: ImportConnectorPlaylistsAsCanonicalCommand,
         uow: UnitOfWorkProtocol,
         progress_emitter: ProgressEmitter | None = None,
-        progress_manager: AsyncProgressManager | None = None,
+        progress_broker: ProgressBroker | None = None,
+        parent_operation_id: str | None = None,
     ) -> ImportConnectorPlaylistsAsCanonicalResult:
         async with uow:
             link_repo = uow.get_playlist_link_repository()
@@ -133,7 +134,10 @@ class ImportConnectorPlaylistsAsCanonicalUseCase:
             # coordinator collapses to no-ops so unit tests + CLI paths run
             # identically to before.
             top_op_id = await self._start_top_op(
-                progress_emitter, command.connector_name, len(unique_ids)
+                progress_emitter,
+                command.connector_name,
+                len(unique_ids),
+                parent_operation_id=parent_operation_id,
             )
             sub_op_by_cid: dict[str, str] = {}
             playlist_name_by_cid: dict[str, str] = {}
@@ -160,7 +164,7 @@ class ImportConnectorPlaylistsAsCanonicalUseCase:
                 name = _placeholder_name(cached_by_id, cid)
                 playlist_name_by_cid[cid] = name
                 sub_op_id = await self._start_sub_op(
-                    progress_manager,
+                    progress_broker,
                     parent_op_id=top_op_id,
                     name=name,
                     total_tracks=None,
@@ -176,7 +180,7 @@ class ImportConnectorPlaylistsAsCanonicalUseCase:
             for cid in link_skipped:
                 name = playlist_name_by_cid[cid]
                 await self._emit_sub_outcome(
-                    progress_manager,
+                    progress_broker,
                     sub_op_id=sub_op_by_cid.get(cid),
                     cid=cid,
                     name=name,
@@ -193,10 +197,10 @@ class ImportConnectorPlaylistsAsCanonicalUseCase:
             def make_on_page(cid: str) -> PlaylistFetchProgress:
                 async def on_page(fetched: int, total: int) -> None:
                     sub_op_id = sub_op_by_cid.get(cid)
-                    if progress_manager is None or sub_op_id is None:
+                    if progress_broker is None or sub_op_id is None:
                         return
                     name = playlist_name_by_cid[cid]
-                    await progress_manager.emit_progress(
+                    await progress_broker.emit_progress(
                         create_progress_event(
                             operation_id=sub_op_id,
                             current=fetched,
@@ -242,7 +246,7 @@ class ImportConnectorPlaylistsAsCanonicalUseCase:
                     )
                 )
                 await self._emit_sub_outcome(
-                    progress_manager,
+                    progress_broker,
                     sub_op_id=sub_op_by_cid.get(cid),
                     cid=cid,
                     name=name,
@@ -264,7 +268,7 @@ class ImportConnectorPlaylistsAsCanonicalUseCase:
                         cp,
                         command,
                         uow,
-                        progress_manager=progress_manager,
+                        progress_broker=progress_broker,
                         sub_op_by_cid=sub_op_by_cid,
                         existing_by_id=existing_by_id,
                         links_to_create=links_to_create,
@@ -287,7 +291,7 @@ class ImportConnectorPlaylistsAsCanonicalUseCase:
                         )
                     )
                     await self._emit_sub_outcome(
-                        progress_manager,
+                        progress_broker,
                         sub_op_id=sub_op_by_cid.get(cid),
                         cid=cid,
                         name=cp.name,
@@ -310,6 +314,7 @@ class ImportConnectorPlaylistsAsCanonicalUseCase:
                 top_op_id,
                 succeeded_count=len(succeeded),
                 failed_count=len(failed),
+                seam_owned=parent_operation_id is not None,
             )
 
             return ImportConnectorPlaylistsAsCanonicalResult(
@@ -325,7 +330,7 @@ class ImportConnectorPlaylistsAsCanonicalUseCase:
         command: ImportConnectorPlaylistsAsCanonicalCommand,
         uow: UnitOfWorkProtocol,
         *,
-        progress_manager: AsyncProgressManager | None,
+        progress_broker: ProgressBroker | None,
         sub_op_by_cid: dict[str, str],
         existing_by_id: dict[str, PlaylistLink],
         links_to_create: list[PlaylistLink],
@@ -336,8 +341,8 @@ class ImportConnectorPlaylistsAsCanonicalUseCase:
         # Phase transition: fetch → resolve. One lightweight
         # event so the UI updates the message; resolution
         # itself is typically sub-second DB batch work.
-        if progress_manager is not None and cid in sub_op_by_cid:
-            await progress_manager.emit_progress(
+        if progress_broker is not None and cid in sub_op_by_cid:
+            await progress_broker.emit_progress(
                 create_progress_event(
                     operation_id=sub_op_by_cid[cid],
                     current=0,
@@ -393,7 +398,7 @@ class ImportConnectorPlaylistsAsCanonicalUseCase:
             ),
         )
         await self._emit_sub_outcome(
-            progress_manager,
+            progress_broker,
             sub_op_id=sub_op_by_cid.get(cid),
             cid=cid,
             name=cp.name,
@@ -415,7 +420,15 @@ class ImportConnectorPlaylistsAsCanonicalUseCase:
         emitter: ProgressEmitter | None,
         connector_name: str,
         total: int,
+        *,
+        parent_operation_id: str | None = None,
     ) -> str | None:
+        # Web path: the SSE seam already owns a request operation. Use it as the
+        # top op so per-playlist sub-ops are its DIRECT children — the subscriber
+        # routes only one level, so a separate top op would orphan them. The seam
+        # emits the `started` event and the aggregate progress flows to the same op.
+        if parent_operation_id is not None:
+            return parent_operation_id
         if emitter is None:
             return None
         return await emitter.start_operation(
@@ -432,8 +445,12 @@ class ImportConnectorPlaylistsAsCanonicalUseCase:
         *,
         succeeded_count: int,
         failed_count: int,
+        seam_owned: bool = False,
     ) -> None:
-        if emitter is None or top_op_id is None:
+        # When the request op is the top op, the SSE seam owns its completion +
+        # terminal event — completing it here would fail (it lives in the seam's
+        # lifecycle) and pre-empt the seam's terminal event.
+        if seam_owned or emitter is None or top_op_id is None:
             return
         # FAILED only when every playlist failed; partial success stays
         # COMPLETED so the SSE `complete` event fires (UI then inspects
@@ -447,7 +464,7 @@ class ImportConnectorPlaylistsAsCanonicalUseCase:
 
     @staticmethod
     async def _start_sub_op(
-        manager: AsyncProgressManager | None,
+        manager: ProgressBroker | None,
         *,
         parent_op_id: str | None,
         name: str,
@@ -471,7 +488,7 @@ class ImportConnectorPlaylistsAsCanonicalUseCase:
 
     @staticmethod
     async def _emit_sub_outcome(
-        manager: AsyncProgressManager | None,
+        manager: ProgressBroker | None,
         *,
         sub_op_id: str | None,
         cid: str,
@@ -528,13 +545,14 @@ async def run_import_connector_playlists_as_canonical(
     *,
     force: bool = False,
     progress_emitter: ProgressEmitter | None = None,
-    progress_manager: AsyncProgressManager | None = None,
+    progress_broker: ProgressBroker | None = None,
+    parent_operation_id: str | None = None,
 ) -> ImportConnectorPlaylistsAsCanonicalResult:
     """Convenience wrapper for route and CLI handlers.
 
     When called from the REST API, the route passes both the bound emitter
     (for top-level op lifecycle on the pre-assigned operation_id) and the
-    ``AsyncProgressManager`` (for sub-op creation with fresh ids that
+    ``ProgressBroker`` (for sub-op creation with fresh ids that
     inherit the parent queue via metadata). When called from the CLI or
     unit tests, both default to ``None`` and the use case emits zero
     events — keeping the existing CLI + test paths byte-identical.
@@ -559,7 +577,8 @@ async def run_import_connector_playlists_as_canonical(
             command,
             uow,
             progress_emitter=progress_emitter,
-            progress_manager=progress_manager,
+            progress_broker=progress_broker,
+            parent_operation_id=parent_operation_id,
         ),
         user_id=user_id,
     )

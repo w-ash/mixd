@@ -11,7 +11,7 @@ from uuid import UUID
 
 from attrs import define, field
 
-from src.application.services.progress_manager import AsyncProgressManager
+from src.application.services.progress_broker import ProgressBroker
 from src.application.utilities.timing import ExecutionTimer
 from src.config import create_evaluation_service, get_logger
 from src.config.logging import logging_context
@@ -36,7 +36,7 @@ class MatchAndIdentifyTracksCommand:
         connector_instance: API client instance for the service.
         max_age_hours: Cache expiration time. None means use any cached data.
         additional_options: Service-specific configuration parameters.
-        progress_manager: Optional progress manager for sub-operation tracking.
+        progress_broker: Optional progress manager for sub-operation tracking.
         parent_operation_id: Parent operation ID for sub-operation nesting.
     """
 
@@ -46,7 +46,7 @@ class MatchAndIdentifyTracksCommand:
     connector_instance: object  # Dynamic connector — type varies by service
     max_age_hours: float | None = None
     additional_options: dict[str, object] = field(factory=dict)
-    progress_manager: AsyncProgressManager | None = None
+    progress_broker: ProgressBroker | None = None
     parent_operation_id: str | None = None
 
     def __attrs_post_init__(self) -> None:
@@ -271,9 +271,9 @@ class MatchAndIdentifyTracksUseCase:
         progress_callback = None
         sub_op_id: str | None = None
         try:
-            if command.progress_manager and command.parent_operation_id:
+            if command.progress_broker and command.parent_operation_id:
                 sub_op_id, progress_callback = await create_sub_operation(
-                    command.progress_manager,
+                    command.progress_broker,
                     description=f"Matching tracks to {command.connector}",
                     total_items=len(tracks),
                     parent_operation_id=command.parent_operation_id,
@@ -289,12 +289,12 @@ class MatchAndIdentifyTracksUseCase:
                 **command.additional_options,
             )
 
-            if command.progress_manager and sub_op_id:
-                await complete_sub_operation(command.progress_manager, sub_op_id)
+            if command.progress_broker and sub_op_id:
+                await complete_sub_operation(command.progress_broker, sub_op_id)
         except Exception:
-            if command.progress_manager and sub_op_id:
+            if command.progress_broker and sub_op_id:
                 await complete_sub_operation(
-                    command.progress_manager, sub_op_id, OperationStatus.FAILED
+                    command.progress_broker, sub_op_id, OperationStatus.FAILED
                 )
             raise
         else:

@@ -29,7 +29,9 @@ import { Button } from "#/components/ui/button";
 import { DialogHeader, DialogTitle } from "#/components/ui/dialog";
 import { ResponsiveDialog } from "#/components/ui/responsive-dialog";
 import { VersionHistory } from "#/components/workflow/VersionHistory";
+import { useWorkflowExecution } from "#/hooks/useWorkflowExecution";
 import { toasts } from "#/lib/toasts";
+import { cn } from "#/lib/utils";
 import { layoutWorkflow } from "#/lib/workflow-layout";
 import { useEditorStore } from "#/stores/editor-store";
 
@@ -64,6 +66,14 @@ export function EditorToolbar() {
 
   const { mutate: createWorkflow } = createMutation;
   const { mutate: updateWorkflow } = updateMutation;
+
+  // Run executes the *saved* workflow (real side effects) via the same context
+  // hook the workflow list uses, so progress survives navigation. The button is
+  // only shown when workflowId !== null; the empty-string fallback keeps the
+  // hook call unconditional (execute() is never invoked without a real id).
+  const { isExecuting, execute: runWorkflow } = useWorkflowExecution(
+    workflowId ?? "",
+  );
 
   const handleSave = useCallback(() => {
     const def = toWorkflowDef();
@@ -187,18 +197,20 @@ export function EditorToolbar() {
         <span className="text-xs">Preview</span>
       </Button>
 
-      {/* Run — only for saved workflows */}
+      {/* Run — only for saved workflows; executes the persisted definition.
+          Disabled while dirty so it never silently runs the stale saved version
+          behind the user's unsaved canvas edits (Preview honors the canvas). */}
       {workflowId !== null && (
         <Button
           variant="ghost"
           size="sm"
-          onClick={() => {
-            window.dispatchEvent(new CustomEvent("workflow:run"));
-          }}
+          onClick={runWorkflow}
+          disabled={isExecuting || isDirty}
+          title={isDirty ? "Save your changes to run the workflow" : undefined}
           className="gap-1.5"
         >
-          <Play className="size-3.5" />
-          <span className="text-xs">Run</span>
+          <Play className={cn("size-3.5", isExecuting && "animate-spin")} />
+          <span className="text-xs">{isExecuting ? "Running..." : "Run"}</span>
         </Button>
       )}
 

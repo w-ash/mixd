@@ -10,41 +10,41 @@ from unittest.mock import AsyncMock, Mock, patch
 
 import pytest
 
-from src.application.services.progress_manager import AsyncProgressManager
+from src.application.services.progress_broker import ProgressBroker
 from src.domain.entities.progress import (
     OperationStatus,
     ProgressStatus,
     create_progress_event,
     create_progress_operation,
 )
-from src.interface.cli.progress_provider import RichProgressProvider
+from src.interface.cli.progress_subscriber import RichProgressSubscriber
 
 
 class TestProgressIntegration:
     """Integration tests for complete progress tracking system."""
 
     @pytest.fixture
-    def progress_manager(self):
+    def progress_broker(self):
         """Create progress manager for tests."""
-        return AsyncProgressManager()
+        return ProgressBroker()
 
     @pytest.fixture
     def rich_provider(self):
         """Create Rich progress provider with default console."""
         # Use default console for tests - Rich will handle terminal detection
-        return RichProgressProvider()
+        return RichProgressSubscriber()
 
-    async def test_complete_progress_flow(self, progress_manager, rich_provider):
+    async def test_complete_progress_flow(self, progress_broker, rich_provider):
         """Test complete progress flow from operation start to completion."""
         # Subscribe Rich provider to progress manager
-        subscription_id = await progress_manager.subscribe(rich_provider)
+        subscription_id = await progress_broker.subscribe(rich_provider)
 
         # Create and start operation
         operation = create_progress_operation(
             description="Test import operation", total_items=100
         )
 
-        operation_id = await progress_manager.start_operation(operation)
+        operation_id = await progress_broker.start_operation(operation)
         assert operation_id == operation.operation_id
 
         # Send progress events
@@ -59,30 +59,28 @@ class TestProgressIntegration:
         ]
 
         for event in events:
-            await progress_manager.emit_progress(event)
+            await progress_broker.emit_progress(event)
             await asyncio.sleep(0.01)  # Small delay to avoid rate limiting
 
         # Complete the operation
-        await progress_manager.complete_operation(
+        await progress_broker.complete_operation(
             operation_id, OperationStatus.COMPLETED
         )
 
         # Verify operation is completed — completing again must fail
-        with pytest.raises(ValueError, match="already complete"):
-            await progress_manager.complete_operation(
+        with pytest.raises(ValueError, match="No operation found"):
+            await progress_broker.complete_operation(
                 operation_id, OperationStatus.COMPLETED
             )
 
         # Cleanup subscription
-        unsubscribed = await progress_manager.unsubscribe(subscription_id)
+        unsubscribed = await progress_broker.unsubscribe(subscription_id)
         assert unsubscribed is True
 
-    async def test_multiple_concurrent_operations(
-        self, progress_manager, rich_provider
-    ):
+    async def test_multiple_concurrent_operations(self, progress_broker, rich_provider):
         """Test handling multiple concurrent operations."""
         # Subscribe provider
-        await progress_manager.subscribe(rich_provider)
+        await progress_broker.subscribe(rich_provider)
 
         # Create multiple operations
         operations = [
@@ -93,13 +91,13 @@ class TestProgressIntegration:
         # Start all operations
         operation_ids = []
         for operation in operations:
-            op_id = await progress_manager.start_operation(operation)
+            op_id = await progress_broker.start_operation(operation)
             operation_ids.append(op_id)
 
         # Verify all are active — restarting a tracked operation must fail
         for operation in operations:
             with pytest.raises(ValueError, match="already being tracked"):
-                await progress_manager.start_operation(operation)
+                await progress_broker.start_operation(operation)
 
         # Send progress for all operations
         for i, op_id in enumerate(operation_ids):
@@ -107,23 +105,23 @@ class TestProgressIntegration:
                 event = create_progress_event(
                     op_id, current, 50, f"Operation {i} at {current}/50"
                 )
-                await progress_manager.emit_progress(event)
+                await progress_broker.emit_progress(event)
                 await asyncio.sleep(0.01)  # Small delay to avoid rate limiting
 
         # Complete all operations
         for op_id in operation_ids:
-            await progress_manager.complete_operation(op_id, OperationStatus.COMPLETED)
+            await progress_broker.complete_operation(op_id, OperationStatus.COMPLETED)
 
         # Verify none remain active — completing again must fail
         for op_id in operation_ids:
-            with pytest.raises(ValueError, match="already complete"):
-                await progress_manager.complete_operation(
+            with pytest.raises(ValueError, match="No operation found"):
+                await progress_broker.complete_operation(
                     op_id, OperationStatus.COMPLETED
                 )
 
-    async def test_indeterminate_progress(self, progress_manager, rich_provider):
+    async def test_indeterminate_progress(self, progress_broker, rich_provider):
         """Test progress tracking for indeterminate operations."""
-        await progress_manager.subscribe(rich_provider)
+        await progress_broker.subscribe(rich_provider)
 
         # Create indeterminate operation (no total_items)
         operation = create_progress_operation(
@@ -131,7 +129,7 @@ class TestProgressIntegration:
             total_items=None,  # Indeterminate
         )
 
-        operation_id = await progress_manager.start_operation(operation)
+        operation_id = await progress_broker.start_operation(operation)
 
         # Send progress events without total
         events = [
@@ -143,69 +141,71 @@ class TestProgressIntegration:
         ]
 
         for event in events:
-            await progress_manager.emit_progress(event)
+            await progress_broker.emit_progress(event)
             await asyncio.sleep(0.01)  # Small delay to avoid rate limiting
 
-        await progress_manager.complete_operation(
+        await progress_broker.complete_operation(
             operation_id, OperationStatus.COMPLETED
         )
 
         # Verify operation completed successfully — completing again must fail
-        with pytest.raises(ValueError, match="already complete"):
-            await progress_manager.complete_operation(
+        with pytest.raises(ValueError, match="No operation found"):
+            await progress_broker.complete_operation(
                 operation_id, OperationStatus.COMPLETED
             )
 
-    async def test_operation_failure_handling(self, progress_manager, rich_provider):
+    async def test_operation_failure_handling(self, progress_broker, rich_provider):
         """Test handling of failed operations."""
-        await progress_manager.subscribe(rich_provider)
+        await progress_broker.subscribe(rich_provider)
 
         operation = create_progress_operation(
             description="Risky operation", total_items=10
         )
 
-        operation_id = await progress_manager.start_operation(operation)
+        operation_id = await progress_broker.start_operation(operation)
 
         # Make some progress
-        await progress_manager.emit_progress(
+        await progress_broker.emit_progress(
             create_progress_event(operation_id, 5, 10, "Processing...")
         )
 
         # Fail the operation
-        await progress_manager.complete_operation(operation_id, OperationStatus.FAILED)
+        await progress_broker.complete_operation(operation_id, OperationStatus.FAILED)
 
         # Verify operation is finalized — completing again must fail
-        with pytest.raises(ValueError, match="already complete"):
-            await progress_manager.complete_operation(
+        with pytest.raises(ValueError, match="No operation found"):
+            await progress_broker.complete_operation(
                 operation_id, OperationStatus.FAILED
             )
 
-    async def test_progress_validation_enforcement(self, progress_manager):
-        """Test that domain validation rules are enforced."""
+    async def test_invalid_progress_is_dropped_not_raised(self, progress_broker):
+        """Invalid progress is observational telemetry — it is logged and dropped,
+        never raised. A monotonicity violation (e.g. a coarse pipeline meter
+        overlapping a fine sub-meter) must NOT abort the operation it tracks; the
+        re-raise that did exactly that silently failed web imports (v0.8.5)."""
         operation = create_progress_operation(
             description="Validation test", total_items=100
         )
 
-        operation_id = await progress_manager.start_operation(operation)
+        operation_id = await progress_broker.start_operation(operation)
 
         # Valid progress event should work
-        valid_event = create_progress_event(operation_id, 25, 100, "Valid progress")
-        await progress_manager.emit_progress(valid_event)
-
-        # Invalid progress event (backwards progress) should fail
-        invalid_event = create_progress_event(
-            operation_id, 15, 100, "Backwards progress"
+        await progress_broker.emit_progress(
+            create_progress_event(operation_id, 25, 100, "Valid progress")
         )
 
-        with pytest.raises(ValueError, match="Progress went backwards"):
-            await progress_manager.emit_progress(invalid_event)
+        # Backwards progress must NOT raise — it is dropped (the operation's
+        # recorded position stays at 25).
+        await progress_broker.emit_progress(
+            create_progress_event(operation_id, 15, 100, "Backwards progress")
+        )
 
-        # Operation should still accept valid progress after validation failure
-        await progress_manager.emit_progress(
+        # And the operation keeps accepting valid progress afterward.
+        await progress_broker.emit_progress(
             create_progress_event(operation_id, 30, 100, "Still running")
         )
 
-    async def test_subscriber_error_isolation(self, progress_manager):
+    async def test_subscriber_error_isolation(self, progress_broker):
         """Test that subscriber errors don't crash the progress system."""
         # Create a subscriber that always fails
         failing_subscriber = Mock()
@@ -218,31 +218,29 @@ class TestProgressIntegration:
         )
 
         # Subscribe the failing subscriber
-        await progress_manager.subscribe(failing_subscriber)
+        await progress_broker.subscribe(failing_subscriber)
 
         # Operations should still work despite subscriber failures
         operation = create_progress_operation(
             description="Test with failing subscriber"
         )
-        operation_id = await progress_manager.start_operation(operation)
+        operation_id = await progress_broker.start_operation(operation)
 
         # These should not raise exceptions despite subscriber failures
-        await progress_manager.emit_progress(
+        await progress_broker.emit_progress(
             create_progress_event(operation_id, 50, 100, "Progress")
         )
-        await progress_manager.complete_operation(
+        await progress_broker.complete_operation(
             operation_id, OperationStatus.COMPLETED
         )
 
         # Operation should complete successfully — completing again must fail
-        with pytest.raises(ValueError, match="already complete"):
-            await progress_manager.complete_operation(
+        with pytest.raises(ValueError, match="No operation found"):
+            await progress_broker.complete_operation(
                 operation_id, OperationStatus.COMPLETED
             )
 
-    async def test_subscriber_cancelled_error_does_not_propagate(
-        self, progress_manager
-    ):
+    async def test_subscriber_cancelled_error_does_not_propagate(self, progress_broker):
         """CancelledError from a subscriber must not crash the publishing operation.
 
         Regression: TaskGroup propagates BaseException (including CancelledError
@@ -255,19 +253,19 @@ class TestProgressIntegration:
         cancelling_subscriber.on_operation_started = AsyncMock()
         cancelling_subscriber.on_operation_completed = AsyncMock()
 
-        await progress_manager.subscribe(cancelling_subscriber)
+        await progress_broker.subscribe(cancelling_subscriber)
 
         # Operation lifecycle should succeed despite CancelledError in subscriber
         operation = create_progress_operation(
             description="Test with cancelling subscriber"
         )
-        operation_id = await progress_manager.start_operation(operation)
+        operation_id = await progress_broker.start_operation(operation)
 
         # This must NOT raise CancelledError
-        await progress_manager.emit_progress(
+        await progress_broker.emit_progress(
             create_progress_event(operation_id, 50, 100, "Progress")
         )
-        await progress_manager.complete_operation(
+        await progress_broker.complete_operation(
             operation_id, OperationStatus.COMPLETED
         )
 
@@ -276,7 +274,7 @@ class TestProgressIntegration:
             operation_id, OperationStatus.COMPLETED
         )
 
-    async def test_external_cancellation_of_gather_is_absorbed(self, progress_manager):
+    async def test_external_cancellation_of_gather_is_absorbed(self, progress_broker):
         """External CancelledError at `await gather()` must NOT kill the workflow.
 
         Prefect cancel scopes inject CancelledError at the gather() call site
@@ -286,10 +284,10 @@ class TestProgressIntegration:
         task.uncancel() to clear the pending cancel request.
         """
         subscriber = AsyncMock()
-        await progress_manager.subscribe(subscriber)
+        await progress_broker.subscribe(subscriber)
 
         operation = create_progress_operation(description="Test external cancellation")
-        operation_id = await progress_manager.start_operation(operation)
+        operation_id = await progress_broker.start_operation(operation)
 
         # Patch asyncio.gather to raise CancelledError (simulating Prefect
         # cancel scope injected at the await point). The generator expression
@@ -302,11 +300,11 @@ class TestProgressIntegration:
             raise CancelledError()
 
         with patch(
-            "src.application.services.progress_manager.asyncio.gather",
+            "src.application.services.progress_broker.asyncio.gather",
             side_effect=cancel_gather,
         ):
             # Should NOT raise — _broadcast absorbs the CancelledError
-            await progress_manager.emit_progress(
+            await progress_broker.emit_progress(
                 create_progress_event(operation_id, 50, 100, "Progress")
             )
 
@@ -317,13 +315,13 @@ class TestProgressSystemExample:
     async def test_realistic_batch_processing_example(self):
         """Example simulating realistic batch processing with progress tracking."""
         # Setup progress system
-        progress_manager = AsyncProgressManager()
+        progress_broker = ProgressBroker()
 
         # Create Rich provider (in real usage, this would display to terminal)
-        rich_provider = RichProgressProvider()
+        rich_provider = RichProgressSubscriber()
 
         # Subscribe provider to manager
-        subscriber_id = await progress_manager.subscribe(rich_provider)
+        subscriber_id = await progress_broker.subscribe(rich_provider)
 
         async with rich_provider:  # Start progress display
             # Simulate batch processing operation
@@ -334,7 +332,7 @@ class TestProgressSystemExample:
                 batch_size=50,
             )
 
-            operation_id = await progress_manager.start_operation(operation)
+            operation_id = await progress_broker.start_operation(operation)
 
             # Simulate batch processing with progress updates
             batch_size = 50
@@ -344,7 +342,7 @@ class TestProgressSystemExample:
                 batch_end = min(batch_start + batch_size, total_items)
 
                 # Emit progress event for this batch
-                await progress_manager.emit_progress(
+                await progress_broker.emit_progress(
                     create_progress_event(
                         operation_id=operation_id,
                         current=batch_end,
@@ -359,18 +357,18 @@ class TestProgressSystemExample:
                 await asyncio.sleep(0.01)  # Small delay to simulate work
 
             # Complete the operation
-            await progress_manager.complete_operation(
+            await progress_broker.complete_operation(
                 operation_id, OperationStatus.COMPLETED
             )
 
             # Verify final state — completing again must fail
-            with pytest.raises(ValueError, match="already complete"):
-                await progress_manager.complete_operation(
+            with pytest.raises(ValueError, match="No operation found"):
+                await progress_broker.complete_operation(
                     operation_id, OperationStatus.COMPLETED
                 )
 
         # Cleanup
-        await progress_manager.unsubscribe(subscriber_id)
+        await progress_broker.unsubscribe(subscriber_id)
 
         # Verify system cleaned up properly
-        assert len(progress_manager._subscribers) == 0
+        assert len(progress_broker._subscribers) == 0

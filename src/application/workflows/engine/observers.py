@@ -1,7 +1,7 @@
 """Concrete NodeExecutionObserver implementations.
 
 ProgressNodeObserver bridges the node lifecycle protocol to the existing
-AsyncProgressManager, emitting progress events for CLI Rich progress bars.
+ProgressBroker, emitting progress events for CLI Rich progress bars.
 
 RunHistoryObserver persists node execution records to the database AND pushes
 SSE ``node_status`` events for live DAG visualization in the web UI. DB
@@ -21,7 +21,7 @@ from uuid import UUID
 
 from attrs import define
 
-from src.application.services.progress_manager import AsyncProgressManager
+from src.application.services.progress_broker import ProgressBroker
 from src.application.workflows.protocols import (
     NodeExecutionObserver,
     NodeResult,
@@ -153,20 +153,20 @@ class CompositeNodeObserver:
 
 
 class ProgressNodeObserver:
-    """Emits progress events via AsyncProgressManager on node lifecycle transitions.
+    """Emits progress events via ProgressBroker on node lifecycle transitions.
 
     Replaces the inline progress emission that was previously in execute_node().
     """
 
-    _progress_manager: AsyncProgressManager
+    _progress_broker: ProgressBroker
     _workflow_operation_id: str
 
     def __init__(
         self,
-        progress_manager: AsyncProgressManager,
+        progress_broker: ProgressBroker,
         workflow_operation_id: str,
     ) -> None:
-        self._progress_manager = progress_manager
+        self._progress_broker = progress_broker
         self._workflow_operation_id = workflow_operation_id
 
     async def on_node_starting(self, event: NodeExecutionEvent) -> None:
@@ -185,7 +185,7 @@ class ProgressNodeObserver:
             message=f"Completed {display_name}",
             status=ProgressStatus.IN_PROGRESS,
         )
-        await self._progress_manager.emit_progress(progress_event)
+        await self._progress_broker.emit_progress(progress_event)
 
     async def on_node_failed(self, event: NodeExecutionEvent, error: Exception) -> None:
         display_name = _format_node_display_name(event.task_def.type)
@@ -197,7 +197,7 @@ class ProgressNodeObserver:
             message=f"Failed {display_name}: {error}",
             status=ProgressStatus.FAILED,
         )
-        await self._progress_manager.emit_progress(progress_event)
+        await self._progress_broker.emit_progress(progress_event)
 
 
 class PreviewNodeObserver:

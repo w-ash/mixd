@@ -34,7 +34,7 @@ class OperationState:
         return self.operation.status == OperationStatus.RUNNING
 
 
-class ProgressCoordinator:
+class OperationLedger:
     """Domain service for coordinating progress events and operations.
 
     Enforces business rules like progress monotonicity, manages operation lifecycle,
@@ -188,8 +188,12 @@ class ProgressCoordinator:
                 final_status, end_time
             )
 
-            # Update internal state
-            operation_state.operation = completed_operation
+            # Evict the entry so the id is reusable and the map can't grow
+            # unbounded. A long-lived process (the FastAPI worker) reuses a
+            # request operation id across the SSE seam's parent/child lifecycle;
+            # without eviction a completed id stays tracked forever and a later
+            # start_operation on it raises "already being tracked".
+            del self._operations[operation_id]
 
             return completed_operation
 

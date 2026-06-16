@@ -5,6 +5,7 @@ from unittest.mock import AsyncMock, Mock, patch
 
 import pytest
 
+from src.domain.exceptions import LastfmAuthRequiredError
 from src.infrastructure.connectors.lastfm.play_importer import LastfmPlayImporter
 
 
@@ -161,3 +162,52 @@ class TestProgressEmission:
             username="test_user",
         )
         assert len(records) == 1
+
+
+class TestUsernameResolution:
+    """Last.fm username resolution precedence (v0.8.5 cross-tenant leak fix).
+
+    Order: stored-token ``account_name`` for THIS user_id > explicit request
+    username > ``LASTFM_USERNAME`` env. Token-first is the security guarantee — a
+    web user with a connected account can never read env / another tenant's data.
+    """
+
+    @staticmethod
+    def _build(*, env_username=None, token=None):
+        connector = Mock()
+        connector.lastfm_username = env_username
+        storage = AsyncMock()
+        storage.load_token.return_value = token
+        importer = LastfmPlayImporter(lastfm_connector=connector, token_storage=storage)
+        return importer, storage
+
+    async def test_stored_token_account_name_beats_request_and_env(self):
+        # The security assertion: a connected account always wins.
+        importer, storage = self._build(
+            env_username="env_user", token={"account_name": "alice"}
+        )
+        result = await importer._resolve_username("bob", "user-1")
+        assert result == "alice"
+        storage.load_token.assert_awaited_once_with("lastfm", "user-1")
+
+    async def test_request_username_used_when_no_token(self):
+        importer, _ = self._build(env_username="env_user", token=None)
+        assert await importer._resolve_username("bob", "user-1") == "bob"
+
+    async def test_env_used_when_no_token_and_no_request(self):
+        importer, _ = self._build(env_username="env_user", token=None)
+        assert await importer._resolve_username(None, "user-1") == "env_user"
+
+    async def test_no_user_id_never_reads_a_token(self):
+        importer, storage = self._build(env_username="env_user")
+        assert await importer._resolve_username(None, None) == "env_user"
+        storage.load_token.assert_not_awaited()
+
+    async def test_token_without_account_name_falls_through_to_env(self):
+        importer, _ = self._build(env_username="env_user", token={"session_key": "sk"})
+        assert await importer._resolve_username(None, "user-1") == "env_user"
+
+    async def test_raises_when_nothing_resolves(self):
+        importer, _ = self._build(env_username=None, token=None)
+        with pytest.raises(LastfmAuthRequiredError):
+            await importer._resolve_username(None, "user-1")

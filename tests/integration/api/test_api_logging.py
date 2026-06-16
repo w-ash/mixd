@@ -17,7 +17,7 @@ class TestAPILifespanLogging:
         with (
             patch("src.config.setup_logging") as mock_setup,
             patch(
-                "src.application.services.progress_manager.get_progress_manager"
+                "src.application.services.progress_broker.get_progress_broker"
             ) as mock_pm,
             patch(
                 "src.infrastructure.persistence.database.db_connection.get_session",

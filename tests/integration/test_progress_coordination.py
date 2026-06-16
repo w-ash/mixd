@@ -22,7 +22,7 @@ from src.domain.entities.progress import (
     ProgressStatus,
 )
 from src.interface.cli.console import progress_coordination_context
-from src.interface.cli.progress_provider import RichProgressProvider
+from src.interface.cli.progress_subscriber import RichProgressSubscriber
 
 
 class TestProgressConsoleCoordination:
@@ -111,11 +111,11 @@ class TestProgressConsoleCoordination:
         async with progress_coordination_context(show_live=True) as context:
             # Verify context provides the expected interface
             assert hasattr(context, "console")
-            assert hasattr(context, "get_progress_manager")
+            assert hasattr(context, "get_progress_broker")
 
             # Verify we get a progress manager
-            progress_manager = context.get_progress_manager()
-            assert progress_manager is not None
+            progress_broker = context.get_progress_broker()
+            assert progress_broker is not None
 
             # Test that console output is coordinated
             # This should go through Progress.console without interfering with progress bars
@@ -126,18 +126,18 @@ class TestProgressConsoleCoordination:
         async with progress_coordination_context(show_live=False) as context:
             # Verify context provides basic console access
             assert hasattr(context, "console")
-            assert hasattr(context, "get_progress_manager")
+            assert hasattr(context, "get_progress_broker")
 
             # Verify no progress manager when disabled
-            progress_manager = context.get_progress_manager()
-            assert progress_manager is None
+            progress_broker = context.get_progress_broker()
+            assert progress_broker is None
 
             # Test basic console functionality
             context.console.print("Test output without progress coordination")
 
-    async def test_progress_provider_console_coordination(self):
-        """Test that RichProgressProvider properly coordinates with console output."""
-        provider = RichProgressProvider()
+    async def test_progress_subscriber_console_coordination(self):
+        """Test that RichProgressSubscriber properly coordinates with console output."""
+        provider = RichProgressSubscriber()
 
         try:
             # Start the provider to activate coordination
@@ -184,7 +184,7 @@ class TestProgressConsoleCoordination:
 
     async def test_multiple_operations_coordination(self):
         """Test that multiple simultaneous operations coordinate properly."""
-        provider = RichProgressProvider()
+        provider = RichProgressSubscriber()
 
         try:
             await provider.start_display()
@@ -239,7 +239,7 @@ class TestProgressConsoleCoordination:
         # Use coordination context
         async with progress_coordination_context(show_live=True) as context:
             # Verify coordination is active
-            assert context.get_progress_manager() is not None
+            assert context.get_progress_broker() is not None
 
             # Use the coordinated console
             context.console.print("Test message during coordination")

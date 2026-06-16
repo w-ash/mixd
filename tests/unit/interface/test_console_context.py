@@ -20,7 +20,7 @@ class TestSimpleConsoleContext:
         context = SimpleConsoleContext(console)
 
         assert context.console is console
-        assert context.get_progress_manager() is None
+        assert context.get_progress_broker() is None
 
     def test_console_access(self):
         """Test that console can be used for output."""
@@ -31,13 +31,13 @@ class TestSimpleConsoleContext:
         assert hasattr(context.console, "print")
         assert hasattr(context.console, "status")
 
-    def test_no_progress_manager(self):
+    def test_no_progress_broker(self):
         """Test that progress manager is None when not needed."""
         console = Console()
         context = SimpleConsoleContext(console)
 
-        progress_manager = context.get_progress_manager()
-        assert progress_manager is None
+        progress_broker = context.get_progress_broker()
+        assert progress_broker is None
 
 
 class TestProgressDisplayContext:
@@ -54,7 +54,7 @@ class TestProgressDisplayContext:
 
         assert context.provider is mock_provider
         assert context.console is mock_console
-        assert context.progress_manager is mock_manager
+        assert context.progress_broker is mock_manager
 
     def test_console_from_provider(self):
         """Test that console is obtained from provider."""
@@ -69,7 +69,7 @@ class TestProgressDisplayContext:
         mock_provider.get_console.assert_called_once()
         assert context.console is mock_console
 
-    def test_progress_manager_access(self):
+    def test_progress_broker_access(self):
         """Test that progress manager is available."""
         mock_provider = Mock()
         mock_provider.get_console.return_value = Console()
@@ -77,8 +77,8 @@ class TestProgressDisplayContext:
 
         context = ProgressDisplayContext(mock_provider, mock_manager)
 
-        progress_manager = context.get_progress_manager()
-        assert progress_manager is mock_manager
+        progress_broker = context.get_progress_broker()
+        assert progress_broker is mock_manager
 
 
 class TestContextClassComparison:
@@ -98,13 +98,13 @@ class TestContextClassComparison:
         assert hasattr(simple_context, "console")
         assert hasattr(progress_context, "console")
 
-        # Both should have get_progress_manager method
-        assert hasattr(simple_context, "get_progress_manager")
-        assert hasattr(progress_context, "get_progress_manager")
+        # Both should have get_progress_broker method
+        assert hasattr(simple_context, "get_progress_broker")
+        assert hasattr(progress_context, "get_progress_broker")
 
         # But only progress context should have actual progress manager
-        assert simple_context.get_progress_manager() is None
-        assert progress_context.get_progress_manager() is not None
+        assert simple_context.get_progress_broker() is None
+        assert progress_context.get_progress_broker() is not None
 
         # Progress context should have provider reference
         assert hasattr(progress_context, "provider")

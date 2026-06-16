@@ -14,14 +14,19 @@ vi.mock("#/api/sse-client", () => ({
 import { connectToSSE } from "#/api/sse-client";
 import { mockSSEWithEvents } from "#/test/sse-test-utils";
 
-// ─── Mock editor store ──────────────────────────────────────────
+// ─── Mock editor store (mutable so tests can flip isDirty) ──────────
+
+const { mockStoreState } = vi.hoisted(() => ({
+  mockStoreState: {
+    workflowId: 42 as number | null,
+    isDirty: false,
+    toWorkflowDef: () => ({ nodes: [], edges: [] }),
+  },
+}));
 
 vi.mock("#/stores/editor-store", () => ({
   useEditorStore: vi.fn((selector: (s: Record<string, unknown>) => unknown) =>
-    selector({
-      workflowId: 42,
-      toWorkflowDef: () => ({ nodes: [], edges: [] }),
-    }),
+    selector(mockStoreState),
   ),
 }));
 
@@ -64,6 +69,8 @@ describe("useWorkflowPreview", () => {
     vi.restoreAllMocks();
     mutateSaved.mockReset();
     mutateUnsaved.mockReset();
+    mockStoreState.workflowId = 42;
+    mockStoreState.isDirty = false;
   });
 
   it("starts with idle state", () => {
@@ -88,6 +95,26 @@ describe("useWorkflowPreview", () => {
 
     expect(mutateSaved).toHaveBeenCalledWith(
       { workflowId: 42 },
+      expect.objectContaining({ onSuccess: expect.any(Function) }),
+    );
+  });
+
+  it("previews the canvas (not the stale server def) when saved but dirty", () => {
+    mockStoreState.workflowId = 42;
+    mockStoreState.isDirty = true; // pending unsaved canvas edits
+
+    const { result } = renderHook(() => useWorkflowPreview(), {
+      wrapper: createWrapper(),
+    });
+
+    act(() => {
+      result.current.startPreview();
+    });
+
+    // Must send the canvas definition, not just the saved workflowId.
+    expect(mutateSaved).not.toHaveBeenCalled();
+    expect(mutateUnsaved).toHaveBeenCalledWith(
+      { data: { definition: { nodes: [], edges: [] } } },
       expect.objectContaining({ onSuccess: expect.any(Function) }),
     );
   });

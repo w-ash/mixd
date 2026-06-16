@@ -103,7 +103,7 @@ user-invocable: false
 
 | Method | Path | Use Case | Status |
 |--------|------|----------|--------|
-| GET | `/operations/{id}/progress` (SSE) | `SSEProgressProvider` | Exists |
+| GET | `/operations/{id}/progress` (SSE) | `SSEProgressSubscriber` | Exists |
 | GET | `/operations/{id}/snapshot` | Operation snapshot | Exists |
 | POST | `/operations/{id}/cancel` | Cancel operation | Needs impl |
 

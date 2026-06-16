@@ -570,3 +570,51 @@ class TestSourcePlacementValidation:
         wf = _def([WorkflowTaskDef(id="src", type="source.liked_tracks")])
         validate_workflow_def(wf)
         assert validate_workflow_def_detailed(wf) == []
+
+
+class TestValidatorParity:
+    """The save-guard and the editor share one rule set: both must reject
+    duplicate ids AND cycles. Before unification each caught only one — a
+    cyclic workflow could be saved, a duplicate-id workflow passed the editor."""
+
+    def _cycle(self) -> WorkflowDef:
+        # A→B→A with real, config-free nodes so the cycle is the only problem.
+        return _def([
+            WorkflowTaskDef(id="a", type="filter.deduplicate", upstream=["b"]),
+            WorkflowTaskDef(id="b", type="filter.deduplicate", upstream=["a"]),
+        ])
+
+    def _duplicate_ids(self) -> WorkflowDef:
+        return _def([
+            WorkflowTaskDef(id="dup", type="source.liked_tracks"),
+            WorkflowTaskDef(id="dup", type="source.liked_tracks"),
+        ])
+
+    def test_blocking_rejects_cycle(self):
+        # Regression: a cyclic workflow used to pass the save-guard and only
+        # blow up at execution time.
+        with pytest.raises(ValueError, match="Cycle detected"):
+            validate_workflow_def(self._cycle())
+
+    def test_detailed_reports_cycle(self):
+        hits = _errors_for("tasks", validate_workflow_def_detailed(self._cycle()))
+        assert any("Cycle detected" in h["message"] for h in hits)
+
+    def test_detailed_reports_duplicate_task_ids(self):
+        # Regression: a duplicate-id workflow used to pass the editor's validate.
+        hits = _errors_for(
+            "tasks", validate_workflow_def_detailed(self._duplicate_ids())
+        )
+        assert any("Duplicate task IDs" in h["message"] for h in hits)
+
+    def test_blocking_rejects_duplicate_ids(self):
+        with pytest.raises(ValueError, match="Duplicate task IDs"):
+            validate_workflow_def(self._duplicate_ids())
+
+    def test_duplicate_ids_suppress_misleading_cycle_message(self):
+        # With duplicate ids the DAG is ambiguous; we don't also emit a cycle
+        # error that would confuse the editor.
+        hits = _errors_for(
+            "tasks", validate_workflow_def_detailed(self._duplicate_ids())
+        )
+        assert all("Cycle detected" not in h["message"] for h in hits)

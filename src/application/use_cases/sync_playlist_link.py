@@ -212,12 +212,11 @@ class SyncPlaylistLinkUseCase:
                 uow,
             )
 
-            # Count tracks before upsert for diff
+            # Snapshot the canonical playlist before upsert for the diff below
             playlist_repo = uow.get_playlist_repository()
             existing = await playlist_repo.get_playlist_by_id(
                 link.playlist_id, user_id=user_id
             )
-            old_count = len(existing.tracks)
 
             # Upsert canonical playlist from external data
             await upsert_canonical_playlist(
@@ -231,17 +230,16 @@ class SyncPlaylistLinkUseCase:
 
             await uow.commit()
 
-            # Re-fetch for new count
+            # Re-fetch the post-upsert canonical and count real churn via the
+            # same diff engine push/preview use — a 5-for-5 replacement is 5 adds
+            # + 5 removes, not the 0/0 a net size delta would report.
             updated = await playlist_repo.get_playlist_by_id(
                 link.playlist_id, user_id=user_id
             )
-            new_count = len(updated.tracks)
-
-            added = max(0, new_count - old_count)
-            removed = max(0, old_count - new_count)
+            diff = calculate_playlist_diff(existing, updated)
 
             return SyncPlaylistLinkResult(
                 link=link,
-                tracks_added=added,
-                tracks_removed=removed,
+                tracks_added=diff.operation_summary.get("add", 0),
+                tracks_removed=diff.operation_summary.get("remove", 0),
             )

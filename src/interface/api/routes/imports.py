@@ -13,7 +13,10 @@ from fastapi import APIRouter, Depends, HTTPException, UploadFile
 
 from src.config import get_logger
 from src.config.constants import BusinessLimits
-from src.interface.api.deps import get_current_user_id
+from src.interface.api.deps import (
+    get_current_user_id,
+    require_connector_connected,
+)
 from src.interface.api.schemas.imports import (
     CheckpointStatusSchema,
     ExportLastfmLikesRequest,
@@ -38,13 +41,14 @@ router = APIRouter(prefix="/imports", tags=["imports"])
 async def import_lastfm_history(
     body: ImportLastfmHistoryRequest,
     user_id: str = Depends(get_current_user_id),
+    _connected: None = Depends(require_connector_connected("lastfm")),
 ) -> OperationStartedResponse:
     """Trigger a Last.fm listening history import."""
 
-    async def _import(emitter: OperationBoundEmitter) -> None:
+    async def _import(emitter: OperationBoundEmitter) -> object:
         from src.application.use_cases.import_play_history import run_import
 
-        await run_import(
+        return await run_import(
             user_id=user_id,
             service="lastfm",
             mode=body.mode,
@@ -65,13 +69,14 @@ async def import_lastfm_history(
 async def import_spotify_likes(
     body: ImportSpotifyLikesRequest,
     user_id: str = Depends(get_current_user_id),
+    _connected: None = Depends(require_connector_connected("spotify")),
 ) -> OperationStartedResponse:
     """Trigger a Spotify liked tracks import."""
 
-    async def _import(emitter: OperationBoundEmitter) -> None:
+    async def _import(emitter: OperationBoundEmitter) -> object:
         from src.application.use_cases.sync_likes import run_spotify_likes_import
 
-        await run_spotify_likes_import(
+        return await run_spotify_likes_import(
             user_id=user_id,
             limit=body.limit,
             max_imports=body.max_imports,
@@ -90,13 +95,14 @@ async def import_spotify_likes(
 async def export_lastfm_likes(
     body: ExportLastfmLikesRequest,
     user_id: str = Depends(get_current_user_id),
+    _connected: None = Depends(require_connector_connected("lastfm")),
 ) -> OperationStartedResponse:
     """Trigger a Last.fm likes export (love tracks on Last.fm)."""
 
-    async def _export(emitter: OperationBoundEmitter) -> None:
+    async def _export(emitter: OperationBoundEmitter) -> object:
         from src.application.use_cases.sync_likes import run_lastfm_likes_export
 
-        await run_lastfm_likes_export(
+        return await run_lastfm_likes_export(
             user_id=user_id,
             batch_size=body.batch_size,
             max_exports=body.max_exports,
@@ -160,11 +166,11 @@ async def import_spotify_history(
 
     temp_path = Path(temp_name)
 
-    async def _import(emitter: OperationBoundEmitter) -> None:
+    async def _import(emitter: OperationBoundEmitter) -> object:
         from src.application.use_cases.import_play_history import run_import
 
         try:
-            await run_import(
+            return await run_import(
                 user_id=user_id,
                 service="spotify",
                 mode="file",

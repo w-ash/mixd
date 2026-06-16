@@ -133,6 +133,43 @@ class TestSyncPlaylistLinkPull:
             assert result.tracks_added == 5
             mock_pull.assert_called_once()
 
+    @pytest.mark.asyncio
+    async def test_pull_counts_use_diff_not_net_delta(self):
+        """A 5-for-5 replacement reports 5 added + 5 removed (real churn) via the
+        diff engine — not the 0/0 a net size delta produced."""
+        old_tracks = make_tracks(5)
+        new_tracks = make_tracks(5)  # disjoint UUIDs → full swap, same size
+        existing = make_playlist(id=_PLAYLIST_ID, tracks=old_tracks)
+        updated = make_playlist(id=_PLAYLIST_ID, tracks=new_tracks)
+
+        uow = _make_uow_with_link(_make_link(direction=SyncDirection.PULL))
+        uow.get_playlist_repository().get_playlist_by_id.side_effect = [
+            existing,  # ownership check (require_playlist_link)
+            existing,  # _pull_sync: before upsert
+            updated,  # _pull_sync: after upsert
+        ]
+        uow.get_playlist_link_repository().get_link.side_effect = [
+            _make_link(direction=SyncDirection.PULL),  # initial fetch
+            _make_link(direction=SyncDirection.PULL, status=SyncStatus.SYNCED),
+        ]
+
+        with (
+            patch(
+                "src.application.use_cases.sync_playlist_link.sync_connector_playlist",
+                new=AsyncMock(),
+            ),
+            patch(
+                "src.application.use_cases.sync_playlist_link.upsert_canonical_playlist",
+                new=AsyncMock(),
+            ),
+        ):
+            result = await SyncPlaylistLinkUseCase().execute(
+                SyncPlaylistLinkCommand(user_id="test-user", link_id=_LINK_ID), uow
+            )
+
+        assert result.tracks_added == 5
+        assert result.tracks_removed == 5
+
 
 class TestSyncPlaylistLinkErrors:
     """Error handling during sync."""

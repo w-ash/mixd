@@ -17,6 +17,7 @@ from src.application.use_cases.enrich_tracks import (
     EnrichTracksUseCase,
 )
 from src.domain.entities.track import Artist, Track, TrackList
+from src.domain.exceptions import EnrichmentFailedError
 from tests.fixtures.factories import (
     make_track_preference,
     make_track_tag,
@@ -127,7 +128,7 @@ class TestEnrichTracksUseCase:
             metric_names=["explicit_flag"],  # From track_metric_names
             uow=mock_uow,
             connector_instance=external_metadata_config.connector_instance,
-            progress_manager=None,
+            progress_broker=None,
             parent_operation_id=None,
         )
 
@@ -248,16 +249,12 @@ class TestEnrichTracksUseCase:
             enrichment_config=external_metadata_config,
         )
 
-        # Act — patch the stored attribute on the class (slots=True prevents instance patch)
+        # Act / Assert — a total enrichment failure now raises (was swallowed into
+        # a success-shaped empty result) so the workflow executor degrades and the
+        # destination is never overwritten with 0 tracks.
         with patch.object(EnrichTracksUseCase, "metrics_service", mock_metrics_service):
-            result = await use_case.execute(command, mock_uow)
-
-        # Assert
-        # Should return original tracklist with empty metrics when error occurs
-        assert result.metrics_added == {}
-        assert result.enriched_count == 0
-        assert len(result.errors) == 1
-        assert "Track enrichment failed:" in result.errors[0]
+            with pytest.raises(EnrichmentFailedError, match="enrichment failed"):
+                await use_case.execute(command, mock_uow)
 
     async def test_preferences_enrichment_success(self, use_case):
         """Test preferences enrichment attaches preferences to tracklist metadata."""
@@ -404,13 +401,9 @@ class TestEnrichTracksUseCase:
             enrichment_config=invalid_config,
         )
 
-        # Act
-        result = await use_case.execute(command, mock_uow)
-
-        # Assert
-        assert result.enriched_count == 0
-        assert len(result.errors) == 1
-        assert "Unknown enrichment type" in result.errors[0]
+        # Act / Assert — an unknown enrichment type is a total failure → raises.
+        with pytest.raises(EnrichmentFailedError, match="Unknown enrichment type"):
+            await use_case.execute(command, mock_uow)
 
 
 class TestEnrichmentConfig:

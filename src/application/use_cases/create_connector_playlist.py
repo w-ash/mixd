@@ -25,19 +25,24 @@ from src.domain.entities import ConnectorPlaylist, utc_now_factory
 from src.domain.entities.playlist import Playlist
 from src.domain.entities.shared import JsonValue
 from src.domain.entities.track import TrackList
+from src.domain.exceptions import ConnectorSyncError
 from src.domain.repositories import UnitOfWorkProtocol
 
 logger = get_logger(__name__)
 
 
 class _ExternalPlaylistResult(TypedDict):
-    """Internal result shape from external playlist creation API call."""
+    """Internal result shape from a *successful* external playlist creation.
 
-    success: bool
-    playlist_id: str | None
+    A failed API call now raises ``ConnectorSyncError`` rather than returning a
+    success-shaped dict, so a failed push in a workflow's ``destination.create``
+    node fails the run loudly instead of being recorded COMPLETE with no
+    playlist created — mirroring ``update_connector_playlist``.
+    """
+
+    playlist_id: str
     # External API metadata is genuinely dynamic (varies by connector)
     metadata: dict[str, JsonValue]
-    errors: list[str]
 
 
 @define(frozen=True, slots=True)
@@ -114,7 +119,7 @@ class CreateConnectorPlaylistUseCase:
             Results including created playlist, external IDs, and operation metrics.
 
         Raises:
-            ValueError: If the command execution fails.
+            ConnectorSyncError: If the external playlist creation API call fails.
         """
         timer = ExecutionTimer()
 
@@ -149,14 +154,12 @@ class CreateConnectorPlaylistUseCase:
         # Step 1: Create playlist on external service
         external_result = await self._create_external_playlist(command, uow)
 
-        # Step 2: Optimistic internal sync if requested and external succeeded
+        # Step 2: Optimistic internal sync if requested. A failed external
+        # create would have raised in _create_external_playlist, so reaching
+        # here means the connector playlist id is real.
         external_playlist_id = external_result["playlist_id"]
         internal_playlist = None
-        if (
-            external_result["success"]
-            and external_playlist_id is not None
-            and command.create_internal_playlist
-        ):
+        if command.create_internal_playlist:
             internal_playlist = await self._create_internal_playlist_optimistic(
                 command=command,
                 external_playlist_id=external_playlist_id,
@@ -164,37 +167,23 @@ class CreateConnectorPlaylistUseCase:
                 uow=uow,
             )
 
-        # Use internal playlist if created, otherwise create minimal playlist for result
-        if internal_playlist:
-            result_playlist = internal_playlist
-        elif external_playlist_id is not None:
-            # Create minimal playlist entity for result (not persisted)
-            result_playlist = Playlist.from_tracklist(
-                name=command.playlist_name,
-                tracklist=command.tracklist,
-                added_at=datetime.now(UTC),
-                description=command.playlist_description,
-                connector_playlist_identifiers={
-                    command.connector: external_playlist_id
-                },
-            )
-        else:
-            # External creation failed — create result without connector identifiers
-            result_playlist = Playlist.from_tracklist(
-                name=command.playlist_name,
-                tracklist=command.tracklist,
-                added_at=datetime.now(UTC),
-                description=command.playlist_description,
-            )
+        # Use the persisted internal playlist if created, otherwise a minimal
+        # (unpersisted) entity carrying the connector identifier for the result.
+        result_playlist = internal_playlist or Playlist.from_tracklist(
+            name=command.playlist_name,
+            tracklist=command.tracklist,
+            added_at=datetime.now(UTC),
+            description=command.playlist_description,
+            connector_playlist_identifiers={command.connector: external_playlist_id},
+        )
 
         result = CreateConnectorPlaylistResult(
             playlist=result_playlist,
             connector=command.connector,
-            external_playlist_id=external_playlist_id or "",
+            external_playlist_id=external_playlist_id,
             tracks_created=len(command.tracklist.tracks),
             execution_time_ms=timer.stop(),
             external_metadata=external_result["metadata"],
-            errors=external_result.get("errors", []),
         )
 
         logger.info(
@@ -221,7 +210,11 @@ class CreateConnectorPlaylistUseCase:
             uow: Provides access to the connector services.
 
         Returns:
-            Dict with success status, external playlist ID, metadata, and any errors.
+            Dict with the external playlist ID and metadata.
+
+        Raises:
+            ConnectorSyncError: If the external API call fails, so the run fails
+                loudly instead of recording a success-shaped result.
         """
         try:
             # Get appropriate connector service (Spotify, Apple Music, etc.)
@@ -259,24 +252,21 @@ class CreateConnectorPlaylistUseCase:
             )
 
         except Exception as e:
+            # Raise instead of returning a success-shaped result: a failed push
+            # must reach the executor's failure path (destination.create
+            # propagates it), never be recorded as a COMPLETED run with no
+            # playlist created — mirroring update_connector_playlist.
             logger.error(
                 "External playlist creation failed",
                 connector=command.connector,
                 error=str(e),
                 error_type=type(e).__name__,
             )
-            return {
-                "success": False,
-                "playlist_id": None,
-                "metadata": {},
-                "errors": [str(e)],
-            }
+            raise ConnectorSyncError(command.connector, str(e)) from e
         else:
             return {
-                "success": True,
                 "playlist_id": external_playlist_id,
                 "metadata": external_metadata,
-                "errors": [],
             }
 
     async def _create_internal_playlist_optimistic(

@@ -479,7 +479,7 @@ class ExecuteWorkflowRunUseCase:
         the same statements remain guarded by the caller's lifecycle ``except``
         clauses (``CancelledError`` / ``WorkflowCancelledError`` / ``Exception``).
         """
-        from src.application.services.progress_manager import get_progress_manager
+        from src.application.services.progress_broker import get_progress_broker
         from src.application.workflows.engine.executor import run_workflow
         from src.application.workflows.engine.observers import RunHistoryObserver
 
@@ -491,7 +491,7 @@ class ExecuteWorkflowRunUseCase:
         )
 
         # 2. Execute workflow with observer for node-level tracking
-        progress_manager = get_progress_manager()
+        progress_broker = get_progress_broker()
         observer = RunHistoryObserver(
             run_id=run_id,
             update_node_status=self.update_node_status,
@@ -500,7 +500,7 @@ class ExecuteWorkflowRunUseCase:
         logger.info("Calling run_workflow", run_id=str(run_id))
         result = await run_workflow(
             workflow_def,
-            progress_manager=progress_manager,
+            progress_broker=progress_broker,
             observer=observer,
             user_id=user_id,
         )

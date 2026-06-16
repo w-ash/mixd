@@ -17,8 +17,13 @@ from src.domain.entities import (
     SyncCheckpoint,
 )
 from src.domain.entities.progress import ProgressEmitter, create_progress_event
+from src.domain.exceptions import LastfmAuthRequiredError
 from src.domain.repositories import PlayImporterProtocol
 from src.domain.repositories.interfaces import UnitOfWorkProtocol
+from src.infrastructure.connectors._shared.token_storage import (
+    TokenStorage,
+    get_token_storage,
+)
 from src.infrastructure.connectors.lastfm.connector import LastFMConnector
 from src.infrastructure.services.base_play_importer import (
     BasePlayImporter,
@@ -38,20 +43,25 @@ class LastfmPlayImporter(BasePlayImporter[PlayRecord], PlayImporterProtocol):
 
     operation_name: str
     lastfm_connector: LastFMConnector
+    _token_storage: TokenStorage
 
     def __init__(
         self,
         lastfm_connector: LastFMConnector | None = None,
+        token_storage: TokenStorage | None = None,
     ) -> None:
         """Initialize Last.fm play importer for connector-only ingestion pattern.
 
         Args:
             lastfm_connector: Last.fm API connector (optional, will create if None)
+            token_storage: OAuth token store used to resolve the connected Last.fm
+                account name per mixd user (optional, defaults to the DB-backed store)
         """
         # Initialize base class with None since we only do connector ingestion
         super().__init__(None)
         self.operation_name = "Last.fm Connector Play Import"
         self.lastfm_connector = lastfm_connector or LastFMConnector()
+        self._token_storage = token_storage or get_token_storage()
 
     @override
     async def import_plays(
@@ -71,15 +81,27 @@ class LastfmPlayImporter(BasePlayImporter[PlayRecord], PlayImporterProtocol):
         Returns:
             Tuple of (operation_result, connector_plays_list)
         """
+        # Resolve the mixd user_id (web path) before extracting params so it never
+        # leaks downstream into the day-chunk kwargs. None for CLI/local-dev.
+        user_id = cast("str | None", params.pop("user_id", None))
+
         # Extract common and Last.fm-specific parameters using typed approach
         common_params, lastfm_params = self._extract_common_params(**params)
         # One cast at the template-method boundary: the remaining service params
         # are object-typed; downstream typed accessors define the field shapes.
         typed_params = cast(LastFMImportParams, {**common_params, **lastfm_params})
 
+        # Resolve the Last.fm account ONCE, token-first, and pass the concrete name
+        # down so the per-day fetch + checkpoint never fall back to env for a web
+        # user (the cross-tenant leak). Raises LastfmAuthRequiredError if nothing
+        # resolves (web user with no connected account and no env).
+        resolved_username = await self._resolve_username(
+            typed_params.get("username"), user_id
+        )
+
         logger.info(
             "Starting Last.fm connector play ingestion with unified approach",
-            username=typed_params.get("username"),
+            username=resolved_username,
             from_date=typed_params.get("from_date"),
             to_date=typed_params.get("to_date"),
             limit=typed_params.get("limit"),
@@ -90,9 +112,7 @@ class LastfmPlayImporter(BasePlayImporter[PlayRecord], PlayImporterProtocol):
         if (
             limit and limit >= settings.import_settings.full_history_import_threshold
         ):  # Full history import detection
-            await self._reset_checkpoint_for_full_history(
-                typed_params.get("username"), uow
-            )
+            await self._reset_checkpoint_for_full_history(resolved_username, uow)
 
         # Use migrated sophisticated import logic with typed parameters
         result = await self._import_plays_unified(
@@ -101,7 +121,7 @@ class LastfmPlayImporter(BasePlayImporter[PlayRecord], PlayImporterProtocol):
             uow=uow,
             from_date=typed_params.get("from_date"),
             to_date=typed_params.get("to_date"),
-            username=typed_params.get("username"),
+            username=resolved_username,
             # Pass any remaining parameters that aren't in the typed interface
             **{
                 k: v
@@ -120,6 +140,38 @@ class LastfmPlayImporter(BasePlayImporter[PlayRecord], PlayImporterProtocol):
         )
 
         return result, connector_plays
+
+    async def _resolve_username(
+        self, request_username: str | None, user_id: str | None
+    ) -> str:
+        """Resolve the Last.fm account to import, token-first.
+
+        Precedence (2026-canonical user → env, the security crux):
+        1. The connected account: the stored OAuth token's ``account_name`` for
+           THIS mixd ``user_id``. A web user with a token can therefore NEVER read
+           env — the cross-tenant leak this fix closes.
+        2. An explicit request ``username`` (a CLI affordance; the web import route
+           has no username field, so it is unreachable from the web).
+        3. The ``LASTFM_USERNAME`` env fallback (CLI / local-dev only).
+
+        Raises ``LastfmAuthRequiredError`` when nothing resolves (a web user with no
+        connected Last.fm account and no env) — surfaced as a clean terminal error.
+        """
+        if user_id is not None:
+            token = await self._token_storage.load_token("lastfm", user_id)
+            if token is not None:
+                account_name = token.get("account_name")
+                if account_name:
+                    return account_name
+
+        if request_username:
+            return request_username
+
+        env_username = self.lastfm_connector.lastfm_username
+        if env_username:
+            return env_username
+
+        raise LastfmAuthRequiredError()
 
     # === MIGRATED SOPHISTICATED LOGIC FROM ORIGINAL IMPORTER ===
 

@@ -1,7 +1,7 @@
 """Unit tests for the sub-operation progress bridge.
 
 Tests create_sub_operation, complete_sub_operation, and emit_phase_progress
-functions that bridge infrastructure callbacks to AsyncProgressManager.
+functions that bridge infrastructure callbacks to ProgressBroker.
 """
 
 import asyncio
@@ -17,7 +17,7 @@ from src.domain.entities.progress import OperationStatus
 
 
 def _make_mock_manager() -> AsyncMock:
-    """Build a mock AsyncProgressManager with the required methods."""
+    """Build a mock ProgressBroker with the required methods."""
     manager = AsyncMock()
     manager.start_operation = AsyncMock(return_value="sub-op-123")
     manager.emit_progress = AsyncMock()
@@ -32,7 +32,7 @@ class TestCreateSubOperationHappyPath:
         mock_manager = _make_mock_manager()
 
         sub_op_id, _callback = await create_sub_operation(
-            progress_manager=mock_manager,
+            progress_broker=mock_manager,
             description="Fetching lastfm metadata",
             total_items=50,
             parent_operation_id="parent-op-1",
@@ -55,7 +55,7 @@ class TestCreateSubOperationHappyPath:
         mock_manager = _make_mock_manager()
 
         _sub_op_id, callback = await create_sub_operation(
-            progress_manager=mock_manager,
+            progress_broker=mock_manager,
             description="Fetching metadata",
             total_items=10,
             parent_operation_id="parent-1",
@@ -107,7 +107,7 @@ class TestCreateThrottledSubOperation:
         mock_manager = _make_mock_manager()
 
         emitter = await create_throttled_sub_operation(
-            progress_manager=mock_manager,
+            progress_broker=mock_manager,
             description="Fetching lastfm metadata",
             total_items=100,
             parent_operation_id="parent-1",
@@ -124,7 +124,7 @@ class TestCreateThrottledSubOperation:
         mock_manager = _make_mock_manager()
 
         emitter = await create_throttled_sub_operation(
-            progress_manager=mock_manager,
+            progress_broker=mock_manager,
             description="x",
             total_items=10,
             parent_operation_id="p",
@@ -148,7 +148,7 @@ class TestCreateThrottledSubOperation:
         mock_manager = _make_mock_manager()
 
         emitter = await create_throttled_sub_operation(
-            progress_manager=mock_manager,
+            progress_broker=mock_manager,
             description="x",
             total_items=1000,
             parent_operation_id="p",
@@ -181,7 +181,7 @@ class TestCreateThrottledSubOperation:
         mock_manager = _make_mock_manager()
 
         emitter = await create_throttled_sub_operation(
-            progress_manager=mock_manager,
+            progress_broker=mock_manager,
             description="x",
             total_items=100,
             parent_operation_id="p",
@@ -214,7 +214,7 @@ class TestEmitPhaseProgress:
         mock_manager = _make_mock_manager()
 
         await emit_phase_progress(
-            progress_manager=mock_manager,
+            progress_broker=mock_manager,
             parent_operation_id="parent-1",
             phase="fetch",
             node_type="source",

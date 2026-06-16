@@ -29,6 +29,6 @@ paths:
 - Route handler: parse body → build Command → `execute_use_case()` → return updated resource
 
 ## Progress & SSE
-- `SSEProgressProvider` implements the same `ProgressSubscriber` protocol as CLI's `RichProgressProvider`
+- `SSEProgressSubscriber` implements the same `ProgressSubscriber` protocol as CLI's `RichProgressSubscriber`
 - SSE events include `id` field for `Last-Event-ID` reconnection
 - Event types: `progress`, `complete`, `error`, `cancelled`

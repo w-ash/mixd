@@ -72,8 +72,11 @@ class PlayImportOrchestrator:
 
         # Phase 1: Raw data ingestion (connector_plays)
         logger.info("Phase 1: Ingesting raw play data")
+        # Thread the mixd user_id so the importer resolves the *connected* account
+        # (stored-token account_name) rather than falling back to env — the
+        # cross-tenant leak fix. The importer pops it before the day-chunk kwargs.
         ingestion_result, connector_plays = await importer.import_plays(
-            uow, progress_emitter=progress_emitter, **import_params
+            uow, user_id=user_id, progress_emitter=progress_emitter, **import_params
         )
 
         if not connector_plays:
@@ -85,7 +88,7 @@ class PlayImportOrchestrator:
 
         # Phase 2: Deferred resolution (track_plays)
         logger.info(f"Phase 2: Resolving {len(connector_plays)} connector plays")
-        resolution_result = await self._execute_resolution_phase(
+        resolution_result = await self.execute_resolution_phase(
             connector_plays, uow, user_id=user_id, progress_emitter=progress_emitter
         )
 
@@ -110,7 +113,7 @@ class PlayImportOrchestrator:
 
         return combined_result
 
-    async def _execute_resolution_phase(
+    async def execute_resolution_phase(
         self,
         connector_plays: list[ConnectorTrackPlay],
         uow: UnitOfWorkProtocol,

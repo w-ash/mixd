@@ -46,6 +46,14 @@ export function formatApiError(err: unknown): {
           title: "Service unavailable",
           description: err.message,
         };
+      case "CONNECTOR_NOT_CONNECTED":
+        return {
+          title: "Not connected",
+          description: `${err.message} Connect it in Integrations first.`,
+        };
+      case "LASTFM_AUTH_REQUIRED":
+      case "SPOTIFY_AUTH_REQUIRED":
+        return { title: "Not connected", description: err.message };
       case "VALIDATION_ERROR":
       case "VALIDATION_FAILED":
         return { title: "Invalid input", description: err.message };
@@ -108,19 +116,19 @@ function primaryCount(
   operationType: RunOperationType,
   counts: Record<string, unknown>,
 ): number {
-  // Each operation surfaces its primary count under a different key.
-  // Fall back to 0 when the counts payload is empty (e.g., zero-work runs).
+  // Keys are the REAL backend `summary_metrics` names that the seam now emits in
+  // the terminal event's `counts` (from `OperationResult.to_counts()` —
+  // play_import_orchestrator `_combine_phase_results` + sync_likes). The first key
+  // that resolves to a number wins; fall back to 0 for runs that emit no counts
+  // (e.g. connector-playlist import returns a non-OperationResult, so its toast
+  // stays "Import complete").
   const candidates: Record<RunOperationType, string[]> = {
-    import_lastfm_history: [
-      "scrobbles_imported",
-      "plays_imported",
-      "tracks_imported",
-    ],
-    import_spotify_likes: ["likes_imported", "tracks_imported"],
-    export_lastfm_likes: ["loves_exported", "tracks_exported"],
-    import_spotify_history: ["scrobbles_imported", "plays_imported"],
-    import_connector_playlists: ["playlists_imported", "succeeded"],
-    apply_assignments_bulk: ["assignments_processed"],
+    import_lastfm_history: ["track_plays", "connector_plays", "raw_plays"],
+    import_spotify_likes: ["imported", "already_liked", "candidates"],
+    export_lastfm_likes: ["exported", "already_loved", "candidates"],
+    import_spotify_history: ["track_plays", "connector_plays", "raw_plays"],
+    import_connector_playlists: ["succeeded", "imported"],
+    apply_assignments_bulk: ["updated", "assignments_processed"],
   };
   for (const key of candidates[operationType]) {
     const v = counts[key];

@@ -13,7 +13,7 @@ from uuid import UUID
 from attrs import define
 
 from src.application.connector_protocols import TrackMetadataConnector
-from src.application.services.progress_manager import AsyncProgressManager
+from src.application.services.progress_broker import ProgressBroker
 from src.application.services.sub_operation_progress import (
     ThrottledSubOperationEmitter,
     create_throttled_sub_operation,
@@ -97,7 +97,7 @@ class MetricsApplicationService:
         metric_names: list[str],
         uow: UnitOfWorkProtocol,
         connector_instance: TrackMetadataConnector | None = None,
-        progress_manager: AsyncProgressManager | None = None,
+        progress_broker: ProgressBroker | None = None,
         parent_operation_id: str | None = None,
     ) -> tuple[dict[str, dict[UUID, MetricValue]], dict[str, set[UUID]]]:
         """Get track metrics from external APIs using cache-first strategy.
@@ -113,7 +113,7 @@ class MetricsApplicationService:
             metric_names: List of metric names to retrieve (e.g., ['lastfm_global_playcount', 'lastfm_user_playcount']).
             uow: Unit of work for database transaction management.
             connector_instance: Optional connector instance for fresh metadata fetching.
-            progress_manager: Optional progress manager for sub-operation tracking.
+            progress_broker: Optional progress manager for sub-operation tracking.
             parent_operation_id: Parent operation ID for sub-operation nesting.
 
         Returns:
@@ -229,14 +229,14 @@ class MetricsApplicationService:
                     # don't flood the queue or React tree.
                     emitter: ThrottledSubOperationEmitter | None = (
                         await create_throttled_sub_operation(
-                            progress_manager,
+                            progress_broker,
                             description=f"Fetching {connector} metadata",
                             total_items=len(tracks_with_identity),
                             parent_operation_id=parent_operation_id,
                             phase="enrich",
                             node_type="enricher",
                         )
-                        if progress_manager and parent_operation_id
+                        if progress_broker and parent_operation_id
                         else None
                     )
                     teardown_status = OperationStatus.COMPLETED

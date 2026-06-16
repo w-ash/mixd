@@ -29,6 +29,7 @@ from attrs import define, field
 import httpx
 
 from src.config import get_logger, settings
+from src.domain.exceptions import SpotifyAuthRequiredError
 from src.infrastructure.connectors._shared.http_client import (
     make_spotify_auth_client,
     parse_json_response,
@@ -308,7 +309,10 @@ class SpotifyTokenManager:
 
         Raises:
             httpx.HTTPStatusError: If token refresh request fails.
-            RuntimeError: If browser authorization fails.
+            SpotifyAuthRequiredError: If no token is stored. Server-safe: this
+                method never launches the interactive browser flow, so it is
+                callable from the FastAPI worker / per-request auth flow without
+                blocking. Interactive connect runs ``run_browser_auth`` directly.
         """
         async with self._refresh_lock:
             # Load from storage on first call
@@ -323,12 +327,14 @@ class SpotifyTokenManager:
                 )
                 await self._save_to_storage(self._token_info)
 
-            # First-time: browser authorization flow
+            # No token: refuse to launch browser OAuth here. This runs inside the
+            # FastAPI worker and the per-API-request auth flow, where an
+            # HTTPServer on 127.0.0.1:8888 would block forever and leak threads.
+            # Interactive connect (CLI connect command / web OAuth callback)
+            # calls run_browser_auth / exchange_code directly.
             if self._token_info is None:
-                logger.info("No Spotify token found — starting browser authorization")
-                code = await asyncio.to_thread(self.run_browser_auth)
-                self._token_info = await self.exchange_code(code)
-                await self._save_to_storage(self._token_info)
+                logger.info("No Spotify token found — auth required")
+                raise SpotifyAuthRequiredError
 
             return self._token_info["access_token"]
 

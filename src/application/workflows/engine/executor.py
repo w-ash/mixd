@@ -23,7 +23,7 @@ from uuid import UUID
 
 import attrs
 
-from src.application.services.progress_manager import AsyncProgressManager
+from src.application.services.progress_broker import ProgressBroker
 from src.application.workflows.definition.validation import (
     ConnectorNotAvailableError,
     extract_required_connectors,
@@ -90,11 +90,15 @@ async def _safe_emit(
 def _is_failure_recoverable(node_type: str) -> bool:
     """Check if a node failure should degrade rather than kill the workflow.
 
-    Enricher failures are recoverable because:
-    - The upstream tracklist can pass through unchanged
-    - Cached metrics from previous runs may still be available
-    - Missing metrics cause downstream filters to drop tracks (safe degradation)
-      rather than producing incorrect results
+    Enricher failures are recoverable because the upstream tracklist can pass
+    through unchanged and cached metrics from previous runs may still be
+    available — the run completes visibly *degraded* rather than crashing.
+
+    Degrading is not the same as data-safe: if a downstream metric filter then
+    drops every (unenriched) track, the run nets 0 tracks. The destination
+    node's empty-overwrite guard (``EmptyOverwriteError``) is what protects the
+    user's playlist in that case — degrading keeps the run alive and visibly degraded, the
+    guard keeps the data intact.
 
     Source/transform/destination failures remain fatal.
     """
@@ -268,7 +272,7 @@ def build_flow(
     total_nodes = sum(len(level) for level in levels)
 
     async def workflow_flow(
-        workflow_progress_manager: AsyncProgressManager | None = None,
+        workflow_progress_broker: ProgressBroker | None = None,
         workflow_operation_id: str | None = None,
         **parameters: object,
     ) -> dict[str, object]:
@@ -339,7 +343,7 @@ def build_flow(
                     "parameters": parameters,
                     "workflow_context": workflow_context,
                     "workflow_name": flow_name,
-                    "progress_manager": workflow_progress_manager,
+                    "progress_broker": workflow_progress_broker,
                     "workflow_operation_id": workflow_operation_id,
                     "total_tasks": total_nodes,
                     "dry_run": dry_run,
@@ -681,7 +685,7 @@ def extract_workflow_result(
 
 async def run_workflow(
     workflow_def: WorkflowDef,
-    progress_manager: AsyncProgressManager | None = None,
+    progress_broker: ProgressBroker | None = None,
     observer: NodeExecutionObserver | None = None,
     dry_run: bool = False,
     user_id: str = BusinessLimits.DEFAULT_USER_ID,
@@ -695,9 +699,9 @@ async def run_workflow(
 
     Args:
         workflow_def: Typed workflow definition with tasks and dependencies.
-        progress_manager: Optional AsyncProgressManager for CLI progress tracking.
+        progress_broker: Optional ProgressBroker for CLI progress tracking.
         observer: Optional NodeExecutionObserver for node lifecycle events. When
-            progress_manager is provided and no explicit observer, a
+            progress_broker is provided and no explicit observer, a
             ProgressNodeObserver is created automatically.
         dry_run: When True, destination nodes skip external writes.
         user_id: Owner of the run.
@@ -758,20 +762,20 @@ async def run_workflow(
         ):
             # Initialize workflow-level progress tracking
             workflow_operation_id = None
-            if progress_manager:
+            if progress_broker:
                 total_tasks = len(workflow_def.tasks)
 
                 workflow_operation = create_progress_operation(
                     description=f"Executing {workflow_name}", total_items=total_tasks
                 )
-                workflow_operation_id = await progress_manager.start_operation(
+                workflow_operation_id = await progress_broker.start_operation(
                     workflow_operation
                 )
                 logger.info(
                     f"Starting workflow execution: {workflow_name} ({total_tasks} tasks)"
                 )
 
-            # Compose observers: always add ProgressNodeObserver when progress_manager
+            # Compose observers: always add ProgressNodeObserver when progress_broker
             # is active, even if an explicit observer (e.g. RunHistoryObserver) is provided.
             # This enables CLI to get both Rich progress bars AND DB run history.
             from .observers import CompositeNodeObserver
@@ -779,9 +783,9 @@ async def run_workflow(
             typed_observers: list[NodeExecutionObserver] = []
             if observer is not None:
                 typed_observers.append(observer)
-            if progress_manager and workflow_operation_id:
+            if progress_broker and workflow_operation_id:
                 typed_observers.append(
-                    ProgressNodeObserver(progress_manager, workflow_operation_id)
+                    ProgressNodeObserver(progress_broker, workflow_operation_id)
                 )
 
             effective_observer: NodeExecutionObserver | None
@@ -810,7 +814,7 @@ async def run_workflow(
                     user_id=user_id,
                 )
                 context = await workflow_fn(
-                    workflow_progress_manager=progress_manager,
+                    workflow_progress_broker=progress_broker,
                     workflow_operation_id=workflow_operation_id,
                     **parameters,
                 )
@@ -833,8 +837,8 @@ async def run_workflow(
                 )
 
                 # Complete workflow-level progress tracking
-                if progress_manager and workflow_operation_id:
-                    await progress_manager.complete_operation(
+                if progress_broker and workflow_operation_id:
+                    await progress_broker.complete_operation(
                         workflow_operation_id, OperationStatus.COMPLETED
                     )
 
@@ -844,8 +848,8 @@ async def run_workflow(
                 return await _build_and_execute_workflow()
             except Exception:
                 # Mark workflow progress as failed
-                if progress_manager and workflow_operation_id:
-                    await progress_manager.complete_operation(
+                if progress_broker and workflow_operation_id:
+                    await progress_broker.complete_operation(
                         workflow_operation_id, OperationStatus.FAILED
                     )
 

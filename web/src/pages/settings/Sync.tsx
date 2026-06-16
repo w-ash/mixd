@@ -2,6 +2,7 @@ import { AlertTriangle } from "lucide-react";
 import type React from "react";
 import { useEffect, useRef, useState } from "react";
 import { useNavigate } from "react-router";
+import { useGetConnectorsApiV1ConnectorsGet } from "#/api/generated/connectors/connectors";
 import {
   getGetCheckpointsApiV1ImportsCheckpointsGetQueryKey,
   useExportLastfmLikesApiV1ImportsLastfmLikesPost,
@@ -91,6 +92,9 @@ interface OperationCardProps {
   operationId: string | null;
   runId: string | null;
   operationType: RunOperationType;
+  /** When false, the trigger is disabled with a "connect first" hint. Omit for
+   * flows with no live connector (e.g. the Spotify GDPR file upload). */
+  connected?: boolean;
   isPending: boolean;
   onTrigger: () => void;
   triggerLabel?: string;
@@ -108,6 +112,7 @@ function OperationCard({
   operationId,
   runId,
   operationType,
+  connected,
   isPending,
   onTrigger,
   triggerLabel = "Import",
@@ -133,7 +138,7 @@ function OperationCard({
 
     toasts.runCompleted({
       operationType,
-      counts: {},
+      counts: progress.counts ?? {},
       issueCount: 0,
       runId,
       failed: progress.status !== "completed",
@@ -153,13 +158,21 @@ function OperationCard({
         </div>
         <Button
           size="sm"
-          disabled={isPending || isActive || triggerDisabled}
+          disabled={
+            isPending || isActive || triggerDisabled || connected === false
+          }
           onClick={onTrigger}
           className="self-start lg:self-auto"
         >
           {isPending ? "Starting..." : isActive ? "Running..." : triggerLabel}
         </Button>
       </div>
+
+      {connected === false && (
+        <p className="mt-2 text-xs text-text-faint">
+          Connect {connector} in Integrations to enable this.
+        </p>
+      )}
 
       {children && <div className="mt-3">{children}</div>}
 
@@ -210,8 +223,10 @@ function findCheckpoint(
 
 function LastfmHistoryImport({
   checkpoints,
+  connected,
 }: {
   checkpoints: CheckpointStatusSchema[];
+  connected: boolean;
 }) {
   const [operationId, setOperationId] = useState<string | null>(null);
   const [runId, setRunId] = useState<string | null>(null);
@@ -238,6 +253,7 @@ function LastfmHistoryImport({
       operationId={operationId}
       runId={runId}
       operationType="import_lastfm_history"
+      connected={connected}
       isPending={mutation.isPending}
       onTrigger={trigger}
       syncTarget="lastfm:plays"
@@ -289,8 +305,10 @@ function LastfmHistoryImport({
 
 function SpotifyLikesImport({
   checkpoints,
+  connected,
 }: {
   checkpoints: CheckpointStatusSchema[];
+  connected: boolean;
 }) {
   const [operationId, setOperationId] = useState<string | null>(null);
   const [runId, setRunId] = useState<string | null>(null);
@@ -330,6 +348,7 @@ function SpotifyLikesImport({
       operationId={operationId}
       runId={runId}
       operationType="import_spotify_likes"
+      connected={connected}
       isPending={mutation.isPending}
       onTrigger={trigger}
       syncTarget="spotify:likes"
@@ -363,8 +382,10 @@ function SpotifyLikesImport({
 
 function LastfmLikesExport({
   checkpoints,
+  connected,
 }: {
   checkpoints: CheckpointStatusSchema[];
+  connected: boolean;
 }) {
   const [operationId, setOperationId] = useState<string | null>(null);
   const [runId, setRunId] = useState<string | null>(null);
@@ -386,6 +407,7 @@ function LastfmLikesExport({
       operationId={operationId}
       runId={runId}
       operationType="export_lastfm_likes"
+      connected={connected}
       isPending={mutation.isPending}
       triggerLabel="Export"
       onTrigger={trigger}
@@ -454,6 +476,17 @@ export function Sync() {
     useGetCheckpointsApiV1ImportsCheckpointsGet();
   const checkpoints = data?.status === 200 ? data.data : [];
 
+  // Gate the per-connector triggers on connected state (the backend 409s anyway —
+  // this is the friendlier pre-emptive disable). Optimistic during load: default
+  // connected so a slow status query doesn't flicker every button disabled.
+  const { data: connectorsData } = useGetConnectorsApiV1ConnectorsGet();
+  const connectedByName: Record<string, boolean> = {};
+  if (connectorsData?.status === 200) {
+    for (const c of connectorsData.data) connectedByName[c.name] = c.connected;
+  }
+  const lastfmConnected = connectedByName.lastfm ?? true;
+  const spotifyConnected = connectedByName.spotify ?? true;
+
   return (
     <div>
       <title>Sync — Mixd</title>
@@ -490,7 +523,10 @@ export function Sync() {
                   className="animate-fade-up"
                   style={{ animationDelay: "0ms" }}
                 >
-                  <LastfmHistoryImport checkpoints={checkpoints} />
+                  <LastfmHistoryImport
+                    checkpoints={checkpoints}
+                    connected={lastfmConnected}
+                  />
                 </div>
                 <div
                   className="animate-fade-up"
@@ -512,13 +548,19 @@ export function Sync() {
                   className="animate-fade-up"
                   style={{ animationDelay: "0ms" }}
                 >
-                  <SpotifyLikesImport checkpoints={checkpoints} />
+                  <SpotifyLikesImport
+                    checkpoints={checkpoints}
+                    connected={spotifyConnected}
+                  />
                 </div>
                 <div
                   className="animate-fade-up"
                   style={{ animationDelay: "75ms" }}
                 >
-                  <LastfmLikesExport checkpoints={checkpoints} />
+                  <LastfmLikesExport
+                    checkpoints={checkpoints}
+                    connected={lastfmConnected}
+                  />
                 </div>
               </div>
             </section>

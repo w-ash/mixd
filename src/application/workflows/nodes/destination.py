@@ -23,6 +23,7 @@ from src.application.workflows.protocols import NodeResult, WorkflowContext
 from src.config import get_logger
 from src.domain.entities.shared import JsonValue
 from src.domain.entities.track import TrackList
+from src.domain.exceptions import EmptyOverwriteError
 
 from .config_accessors import (
     cfg_bool,
@@ -185,6 +186,17 @@ async def update_playlist(
         return {"tracklist": tracklist}
 
     append = cfg_bool(config, "append")
+
+    # Guard against wiping the user's playlist when the pipeline produced no
+    # tracks (e.g. an enrichment outage degraded, then a metric filter dropped
+    # everything). Only overwrite mode is destructive — append of 0 is a no-op.
+    # Placed after the dry-run early-return so a preview can still show 0 tracks.
+    if not append and not tracklist.tracks:
+        raise EmptyOverwriteError(
+            cfg_str_or_none(config, "playlist_id")
+            or cfg_str_or_none(config, "name")
+            or "playlist"
+        )
 
     ctx = NodeContext(context)
 

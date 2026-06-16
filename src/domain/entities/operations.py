@@ -372,6 +372,28 @@ class OperationResult:
             return default
         return self.metrics.get(metric_name, {}).get(track_id, default)
 
+    @property
+    def is_failure(self) -> bool:
+        """True if this result records a (soft) failure.
+
+        Use cases that handle an error internally record it as an ``errors``
+        summary metric and/or an ``error`` metadata key rather than raising,
+        so a failed scheduled sync is not mistaken for a successful fire (see
+        ``_shared/sync_targets.sync_result_failed``) and the web SSE seam can
+        surface failure the same way the scheduler and CLI already do. This
+        property is the single definition all three surfaces read.
+        """
+        return self.summary_metrics.get("errors", 0) > 0 or "error" in self.metadata
+
+    def to_counts(self) -> dict[str, JsonValue]:
+        """Flatten summary metrics into a ``name -> value`` mapping.
+
+        Used by the SSE seam to populate the terminal event and the
+        ``OperationRun`` audit row's JSONB counts from one source — the same
+        metrics the CLI renders — so web counts can never drift from CLI.
+        """
+        return {m.name: m.value for m in self.summary_metrics.sorted()}
+
     def to_dict(
         self,
     ) -> dict[str, object]:  # JSON serialization boundary — heterogeneous output

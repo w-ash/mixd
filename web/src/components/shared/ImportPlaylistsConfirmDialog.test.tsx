@@ -118,6 +118,7 @@ function progress(
     completionPercentage: 100,
     itemsPerSecond: null,
     etaSeconds: null,
+    counts: null,
     subOperation: null,
     subOperationHistory: {},
     ...overrides,

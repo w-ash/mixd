@@ -449,7 +449,7 @@ With database-backed credential storage, Settings handles the Last.fm web auth f
 
 ## 4. Importing Data & Monitoring Sync
 
-> **Available starting v0.3.1.** Requires `SSEProgressProvider` and import API routes. Import use cases already exist.
+> **Available starting v0.3.1.** Requires `SSEProgressSubscriber` and import API routes. Import use cases already exist.
 
 ### 4.1 Import Center
 

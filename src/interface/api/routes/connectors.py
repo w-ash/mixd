@@ -10,7 +10,7 @@ from datetime import datetime
 from fastapi import APIRouter, Depends, HTTPException, Query
 
 from src.application.runner import execute_use_case
-from src.application.services.progress_manager import get_progress_manager
+from src.application.services.progress_broker import get_progress_broker
 from src.application.use_cases.import_connector_playlist_as_canonical import (
     run_import_connector_playlists_as_canonical,
 )
@@ -185,8 +185,8 @@ async def import_connector_playlists(
     """
     _require_connector(service, capability="playlist_import")
 
-    async def _import(emitter: OperationBoundEmitter) -> None:
-        await run_import_connector_playlists_as_canonical(
+    async def _import(emitter: OperationBoundEmitter) -> object:
+        return await run_import_connector_playlists_as_canonical(
             user_id=user_id,
             connector_name=service,
             connector_playlist_identifiers=[
@@ -196,7 +196,10 @@ async def import_connector_playlists(
             sync_direction=SyncDirection(body.sync_direction),
             force=body.force,
             progress_emitter=emitter,
-            progress_manager=get_progress_manager(),
+            progress_broker=get_progress_broker(),
+            # The request op (owned by run_sse_operation) is the top op; per-playlist
+            # sub-ops parent to it directly so the single-level subscriber routes them.
+            parent_operation_id=emitter.operation_id,
         )
 
     return await launch_sse_operation(

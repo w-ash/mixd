@@ -165,9 +165,9 @@ class TestRunImportWithProgress:
             patch("src.interface.cli.cli_helpers.run_async") as mock_run_async,
         ):
             # Setup mocks
-            mock_progress_manager = MagicMock()
+            mock_progress_broker = MagicMock()
             mock_ctx = MagicMock()
-            mock_ctx.get_progress_manager.return_value = mock_progress_manager
+            mock_ctx.get_progress_broker.return_value = mock_progress_broker
             mock_context.return_value.__aenter__.return_value = mock_ctx
 
             # Mock result
@@ -204,9 +204,9 @@ class TestRunImportWithProgress:
             patch("src.interface.cli.cli_helpers.run_async") as mock_run_async,
         ):
             # Setup mocks
-            mock_progress_manager = MagicMock()
+            mock_progress_broker = MagicMock()
             mock_ctx = MagicMock()
-            mock_ctx.get_progress_manager.return_value = mock_progress_manager
+            mock_ctx.get_progress_broker.return_value = mock_progress_broker
             mock_context.return_value.__aenter__.return_value = mock_ctx
 
             from src.domain.entities import OperationResult

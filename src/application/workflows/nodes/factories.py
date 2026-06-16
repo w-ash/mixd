@@ -319,7 +319,7 @@ def create_enricher_node(
             user_id=ctx.extract_workflow_context().user_id,
             tracklist=tracklist,
             enrichment_config=enrichment_config,
-            progress_manager=ctx.get_progress_manager(),
+            progress_broker=ctx.get_progress_broker(),
             parent_operation_id=ctx.get_workflow_operation_id(),
         )
 
@@ -328,23 +328,14 @@ def create_enricher_node(
             ctx.extract_use_cases().get_enrich_tracks_use_case, command
         )
 
+        # Failure is owned by the use case: EnrichTracksUseCase raises
+        # EnrichmentFailedError on a total failure (the executor then degrades)
+        # and otherwise returns a zero-error result, so reaching here is success.
         metrics_count = sum(len(v) for v in result.metrics_added.values())
-
-        if result.errors and metrics_count == 0:
-            logger.warning(
-                f"{enricher_label} enrichment failed completely — "
-                f"downstream will drop all tracks: {result.errors}"
-            )
-        elif result.errors:
-            logger.warning(
-                f"{enricher_label} enrichment had {len(result.errors)} errors "
-                f"({metrics_count} metrics still added): {result.errors}"
-            )
-        else:
-            logger.info(
-                f"{enricher_label}_enrichment complete",
-                metrics_count=metrics_count,
-            )
+        logger.info(
+            f"{enricher_label}_enrichment complete",
+            metrics_count=metrics_count,
+        )
         return {"tracklist": result.enriched_tracklist}
 
     return node_impl

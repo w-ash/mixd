@@ -14,7 +14,6 @@ from src.domain.entities.progress import (
     create_progress_operation,
 )
 from src.interface.api.services.progress import (
-    SSE_SENTINEL,
     OperationBoundEmitter,
     SSEOperationRegistry,
     SSEProgressSubscriber,
@@ -26,21 +25,47 @@ from src.interface.api.services.progress import (
 
 
 class TestOperationBoundEmitter:
-    """Tests that the emitter wrapper correctly substitutes operation IDs."""
+    """Tests that the emitter parents use-case operations to the request op.
 
-    async def test_start_operation_substitutes_id(self):
+    The emitter used to *rebind* every operation to one request id, collapsing
+    distinct operations (an importer's phases / per-day chunks) onto a single
+    coordinator entry — which raised "already being tracked" / "progress went
+    backwards" and silently failed web imports (the v0.8.5 data-loss bug). It now
+    keeps each operation's own id and injects ``parent_operation_id`` so they route
+    as sub-operations of the request.
+    """
+
+    async def test_start_operation_injects_parent_metadata(self):
         delegate = AsyncMock()
-        delegate.start_operation = AsyncMock(return_value="pre-generated-id")
-        emitter = OperationBoundEmitter(delegate, operation_id="pre-generated-id")
+        delegate.start_operation = AsyncMock(return_value="child-own-id")
+        emitter = OperationBoundEmitter(delegate, operation_id="request-id")
 
         operation = create_progress_operation("Test operation")
         result = await emitter.start_operation(operation)
 
-        assert result == "pre-generated-id"
-        # The delegate received an operation with the pre-generated ID
+        # The delegate returns the child's OWN id — no rebinding.
+        assert result == "child-own-id"
         call_args = delegate.start_operation.call_args[0][0]
-        assert call_args.operation_id == "pre-generated-id"
+        assert call_args.operation_id == operation.operation_id
+        assert call_args.metadata["parent_operation_id"] == "request-id"
         assert call_args.description == "Test operation"
+
+    async def test_start_operation_preserves_existing_parent(self):
+        # An already-parented op (an explicit sub-op) is forwarded untouched so we
+        # never overwrite a deliberate parent or build a child-of-child the
+        # single-level subscriber can't route.
+        delegate = AsyncMock()
+        delegate.start_operation = AsyncMock(return_value="sub-id")
+        emitter = OperationBoundEmitter(delegate, operation_id="request-id")
+
+        operation = ProgressOperation(
+            description="Sub op",
+            metadata={"parent_operation_id": "other-parent"},
+        )
+        await emitter.start_operation(operation)
+
+        call_args = delegate.start_operation.call_args[0][0]
+        assert call_args.metadata["parent_operation_id"] == "other-parent"
 
     async def test_emit_progress_passes_through(self):
         delegate = AsyncMock()
@@ -152,30 +177,24 @@ class TestSSEProgressSubscriber:
         assert sse_event["data"]["message"] == "Halfway"
         assert sse_event["data"]["completion_percentage"] == 50.0
 
-    async def test_on_operation_completed_puts_complete_and_sentinel(self):
+    async def test_completing_top_level_op_emits_nothing(self):
+        # The SSE seam (run_sse_operation) owns the terminal event + sentinel for a
+        # registered top-level op — it carries the OperationResult counts the
+        # subscriber never had. The subscriber must NOT emit them too (double event).
         registry = SSEOperationRegistry()
         queue = await registry.register("op-1")
         subscriber = SSEProgressSubscriber(registry)
 
         await subscriber.on_operation_completed("op-1", OperationStatus.COMPLETED)
+        assert queue.empty()
 
-        complete_event = queue.get_nowait()
-        assert complete_event["event"] == "complete"
-        assert complete_event["data"]["final_status"] == "completed"
-
-        sentinel = queue.get_nowait()
-        assert sentinel is SSE_SENTINEL
-
-    async def test_on_operation_failed_puts_error_event(self):
+    async def test_completing_top_level_failed_op_emits_nothing(self):
         registry = SSEOperationRegistry()
         queue = await registry.register("op-1")
         subscriber = SSEProgressSubscriber(registry)
 
         await subscriber.on_operation_completed("op-1", OperationStatus.FAILED)
-
-        error_event = queue.get_nowait()
-        assert error_event["event"] == "error"
-        assert error_event["data"]["final_status"] == "failed"
+        assert queue.empty()
 
     async def test_ignores_unregistered_operations(self):
         registry = SSEOperationRegistry()

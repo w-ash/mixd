@@ -65,7 +65,7 @@ export function BulkApplyAssignmentsDialog({
 
     toasts.runCompleted({
       operationType: "apply_assignments_bulk",
-      counts: {},
+      counts: progress.counts ?? {},
       issueCount: 0,
       runId,
       failed: progress.status !== "completed",

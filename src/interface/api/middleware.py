@@ -12,10 +12,13 @@ from src.application.workflows.definition.validation import ConnectorNotAvailabl
 from src.config import get_logger
 from src.domain.exceptions import (
     ConfirmationRequiredError,
+    ConnectorNotConnectedError,
+    LastfmAuthRequiredError,
     NotFoundError,
     OptimisticLockError,
     ScheduleAlreadyExistsError,
     ScheduleInvariantError,
+    SpotifyAuthRequiredError,
     WorkflowAlreadyRunningError,
 )
 
@@ -135,6 +138,58 @@ def register_exception_handlers(app: FastAPI) -> None:
                 }
             },
         )
+
+    @app.exception_handler(SpotifyAuthRequiredError)
+    async def spotify_auth_required_handler(  # pyright: ignore[reportUnusedFunction]
+        _request: Request, exc: SpotifyAuthRequiredError
+    ) -> JSONResponse:
+        # Not connected is a precondition the user must resolve (connect Spotify),
+        # not a server fault — surface the connect hint instead of an opaque 500.
+        return JSONResponse(
+            status_code=409,
+            content={
+                "error": {
+                    "code": "SPOTIFY_AUTH_REQUIRED",
+                    "message": str(exc),
+                }
+            },
+        )
+
+    # Registered imperatively (not via the @app.exception_handler decorator) so the
+    # handler is *referenced* as an argument — that keeps the type checker happy
+    # without a reportUnusedFunction suppression.
+    async def lastfm_auth_required_handler(
+        _request: Request, exc: Exception
+    ) -> JSONResponse:
+        return JSONResponse(
+            status_code=409,
+            content={
+                "error": {
+                    "code": "LASTFM_AUTH_REQUIRED",
+                    "message": str(exc),
+                }
+            },
+        )
+
+    async def connector_not_connected_handler(
+        _request: Request, exc: Exception
+    ) -> JSONResponse:
+        connector = exc.connector if isinstance(exc, ConnectorNotConnectedError) else ""
+        return JSONResponse(
+            status_code=409,
+            content={
+                "error": {
+                    "code": "CONNECTOR_NOT_CONNECTED",
+                    "message": str(exc),
+                    "details": {"connector": connector},
+                }
+            },
+        )
+
+    app.add_exception_handler(LastfmAuthRequiredError, lastfm_auth_required_handler)
+    app.add_exception_handler(
+        ConnectorNotConnectedError, connector_not_connected_handler
+    )
 
     @app.exception_handler(ValueError)
     async def value_error_handler(_request: Request, exc: ValueError) -> JSONResponse:  # pyright: ignore[reportUnusedFunction]

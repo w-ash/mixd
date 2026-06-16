@@ -34,7 +34,7 @@ def _make_uow_with_tracks(tracks: dict) -> MagicMock:
 class TestSubOperationProgressIntegration:
     """Tests that MetricsApplicationService wires sub-operation progress correctly."""
 
-    async def test_creates_sub_operation_when_progress_manager_provided(self):
+    async def test_creates_sub_operation_when_progress_broker_provided(self):
         service = _make_service()
         track = make_track(
             id=1,
@@ -46,8 +46,8 @@ class TestSubOperationProgressIntegration:
         mock_connector = AsyncMock()
         mock_connector.get_external_track_data = AsyncMock(return_value={})
 
-        mock_progress_manager = AsyncMock()
-        mock_progress_manager.start_operation = AsyncMock(return_value="sub-op-42")
+        mock_progress_broker = AsyncMock()
+        mock_progress_broker.start_operation = AsyncMock(return_value="sub-op-42")
 
         with patch(
             "src.application.services.metrics_application_service.create_throttled_sub_operation",
@@ -65,7 +65,7 @@ class TestSubOperationProgressIntegration:
                 metric_names=["lastfm_user_playcount"],
                 uow=mock_uow,
                 connector_instance=mock_connector,
-                progress_manager=mock_progress_manager,
+                progress_broker=mock_progress_broker,
                 parent_operation_id="parent-op-1",
             )
 
@@ -83,7 +83,7 @@ class TestSubOperationProgressIntegration:
                 or (call_kwargs[1].get("progress_callback") is fake_emitter)
             )
 
-    async def test_skips_sub_operation_when_no_progress_manager(self):
+    async def test_skips_sub_operation_when_no_progress_broker(self):
         service = _make_service()
         track = make_track(
             id=1,
@@ -101,7 +101,7 @@ class TestSubOperationProgressIntegration:
             metric_names=["lastfm_user_playcount"],
             uow=mock_uow,
             connector_instance=mock_connector,
-            progress_manager=None,
+            progress_broker=None,
             parent_operation_id=None,
         )
 

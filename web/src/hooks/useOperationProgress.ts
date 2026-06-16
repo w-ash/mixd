@@ -48,6 +48,10 @@ export interface OperationProgress {
   completionPercentage: number | null;
   itemsPerSecond: number | null;
   etaSeconds: number | null;
+  /** Per-operation summary counts from the terminal event — the
+   * backend ``summary_metrics`` names (``track_plays``, ``imported``,
+   * ``exported``, ``errors``, …). Null until the operation completes/fails. */
+  counts: Record<string, unknown> | null;
   /** The currently-active sub-operation (if any). Cleared on completion. */
   subOperation: SubOperationProgress | null;
   /** Every completed sub-op keyed by connector_playlist_identifier (or
@@ -82,6 +86,7 @@ const DEFAULT_PROGRESS: Omit<
   completionPercentage: null,
   itemsPerSecond: null,
   etaSeconds: null,
+  counts: null,
   subOperation: null,
 };
 
@@ -195,6 +200,8 @@ export function useOperationProgress(
             subOperationHistory: prev?.subOperationHistory ?? {},
             status: "completed" as const,
             message: "Complete",
+            counts:
+              (d.counts as Record<string, unknown>) ?? prev?.counts ?? null,
           }));
           invalidateQueries();
           disconnect();
@@ -207,6 +214,8 @@ export function useOperationProgress(
             subOperationHistory: prev?.subOperationHistory ?? {},
             status: "failed" as const,
             message: (d.message as string) ?? "Operation failed",
+            counts:
+              (d.counts as Record<string, unknown>) ?? prev?.counts ?? null,
             subOperation: null,
           }));
           invalidateQueries();

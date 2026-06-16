@@ -227,11 +227,11 @@ def run_import_with_progress(
 
         async with progress_coordination_context(show_live=True) as context:
             # Get progress manager from unified context
-            progress_manager = context.get_progress_manager()
+            progress_broker = context.get_progress_broker()
 
             # Prefer context manager, then caller-supplied emitter, then null
             progress_adapter: ProgressEmitter = (
-                progress_manager or progress_emitter or NullProgressEmitter()
+                progress_broker or progress_emitter or NullProgressEmitter()
             )
 
             return await run_import(

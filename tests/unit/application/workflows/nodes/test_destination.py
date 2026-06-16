@@ -157,6 +157,46 @@ class TestUpdatePlaylist:
         assert "tracklist" in result
         mock_context["workflow_context"].execute_use_case.assert_not_called()
 
+    async def test_overwrite_with_zero_tracks_refuses_to_wipe_playlist(
+        self, mock_context
+    ):
+        """Overwrite (append=False) with an empty tracklist raises rather than
+        wiping the playlist — the run fails loudly with data intact."""
+        from src.application.workflows.nodes.destination import update_playlist
+        from src.domain.entities.track import TrackList
+        from src.domain.exceptions import EmptyOverwriteError
+
+        mock_context["src_1"] = {"tracklist": TrackList()}  # 0 tracks
+        config = {"playlist_id": _PLAYLIST_ID}  # append defaults to overwrite
+
+        with pytest.raises(EmptyOverwriteError, match="0 tracks"):
+            await update_playlist(mock_context, config)
+        mock_context["workflow_context"].execute_use_case.assert_not_called()
+
+    async def test_append_with_zero_tracks_is_a_noop_not_an_error(self, mock_context):
+        """Appending nothing is harmless — must not trip the overwrite guard."""
+        from src.application.workflows.nodes.destination import update_playlist
+        from src.domain.entities.track import TrackList
+
+        mock_context["src_1"] = {"tracklist": TrackList()}
+        config = {"playlist_id": _PLAYLIST_ID, "append": True}
+
+        result = await update_playlist(mock_context, config)
+        assert "tracklist" in result
+
+    async def test_empty_overwrite_preview_does_not_raise(self, mock_context):
+        """A dry-run preview of a 0-track overwrite shows the empty result
+        without raising — only a real write is guarded."""
+        from src.application.workflows.nodes.destination import update_playlist
+        from src.domain.entities.track import TrackList
+
+        mock_context["dry_run"] = True
+        mock_context["src_1"] = {"tracklist": TrackList()}
+        config = {"playlist_id": _PLAYLIST_ID}
+
+        result = await update_playlist(mock_context, config)
+        assert "tracklist" in result
+
 
 class TestCreatePlaylistContract:
     """``destination.create_playlist`` always creates a fresh playlist — no

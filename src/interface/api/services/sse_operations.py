@@ -28,16 +28,22 @@ from src.application.services.operation_run_recorder import (
     finalize_run,
     start_run,
 )
-from src.application.services.progress_manager import get_progress_manager
+from src.application.services.progress_broker import get_progress_broker
 from src.config import get_logger
-from src.config.constants import SSEConstants
+from src.config.constants import SSEConstants, WorkflowConstants
+from src.domain.entities.operation_run import OperationStatus
+from src.domain.entities.operations import OperationResult
+from src.domain.entities.progress import (
+    OperationStatus as ProgressOpStatus,
+    ProgressOperation,
+)
+from src.domain.entities.shared import JsonDict
 from src.interface.api.schemas.imports import OperationStartedResponse
 from src.interface.api.services.background import (
     finalize_sse_operation,
     launch_background,
 )
 from src.interface.api.services.progress import (
-    SSE_SENTINEL,
     OperationBoundEmitter,
     get_operation_registry,
 )
@@ -91,9 +97,29 @@ async def prepare_sse_operation_with_emitter(
     run_id = await start_run(user_id=user_id, operation_type=operation_type)
     operation_id, _ = await prepare_sse_operation()
     emitter = OperationBoundEmitter(
-        delegate=get_progress_manager(), operation_id=operation_id
+        delegate=get_progress_broker(), operation_id=operation_id
     )
     return operation_id, run_id, emitter
+
+
+def _audit_outcome(result: object) -> tuple[OperationStatus, JsonDict | None]:
+    """Map a use case's return value to the audit row's terminal status + counts.
+
+    A use case that handled a failure internally returns an ``OperationResult``
+    with ``is_failure`` set — the same soft-failure signal the scheduler reads
+    (``sync_targets.sync_result_failed``) and the CLI renders. The audit row must
+    record that as ``error`` with the run's counts, not a blanket ``complete``.
+
+    This is what makes the cycle's headline acceptance — *"if an overnight run
+    fails, the user sees it the next time they open mixd"* — true on the web: the
+    ``OperationRun`` is the durable, re-attachable record (the live SSE toast is
+    gone once the page unmounts). A non-``OperationResult`` return carries no
+    failure signal and no counts, so it stays ``complete``.
+    """
+    if isinstance(result, OperationResult):
+        status: OperationStatus = "error" if result.is_failure else "complete"
+        return status, result.to_counts()
+    return "complete", None
 
 
 async def run_sse_operation(
@@ -102,6 +128,7 @@ async def run_sse_operation(
     *,
     run_id: UUID | None = None,
     user_id: str | None = None,
+    description: str = "Operation",
 ) -> None:
     """Run a use-case coroutine with full SSE lifecycle cleanup.
 
@@ -112,65 +139,128 @@ async def run_sse_operation(
     sentinel + grace period + unregister cleanup.
 
     When ``run_id`` and ``user_id`` are provided (paired — both or
-    neither), finalizes the matching ``OperationRun`` row on success
-    (``status="complete"``) or exception (``status="error"``). The
-    finalize call is best-effort: a failed audit-write is logged but does
-    not propagate, since the user-visible work has already succeeded.
+    neither), finalizes the matching ``OperationRun`` row AND emits the live
+    terminal SSE event. Both are read from the use case's returned
+    ``OperationResult`` via ``_audit_outcome``: a handled soft failure
+    (``is_failure``) is reported as ``error`` with the run's counts, a clean run
+    as ``complete`` with counts, and an uncaught exception as ``error``.
+
+    The terminal event ownership lives here, not in ``SSEProgressSubscriber``:
+    the use case's own operations are now *children* of this request (they carry
+    ``parent_operation_id``) and only emit ``sub_*`` events, so the subscriber
+    never fires the registered-op ``complete``/``error``. This is what gives the
+    *live* toast its terminal status + counts (the audit row got them from 1a) — the v0.8.5
+    "if a run fails, they see it" fix, mirroring the workflow/preview path that
+    has always pushed its own ``build_terminal_event``. ``finalize_sse_operation``
+    pushes the single sentinel. Audit-finalize is best-effort.
     """
-    registry = get_operation_registry()
     _active_operations.add(operation_id)
+    # Own the request operation: it is the top-level op the SSE client is attached
+    # to, so the `started` event fires before the use case runs and the use case's
+    # own operations route as its children (sub_* events). Best-effort — progress
+    # tracking must never break the operation it observes.
+    await _safe_start_parent(operation_id, description)
+    status: OperationStatus = "complete"
+    counts: JsonDict | None = None
     try:
-        await coro
+        result = await coro
     except Exception as exc:
         logger.error("SSE operation failed", operation_id=operation_id, exc_info=True)
+        status, counts = "error", {"error_message": str(exc)[:500]}
+    else:
+        status, counts = _audit_outcome(result)
+    finally:
         if run_id is not None and user_id is not None:
             try:
                 await finalize_run(
-                    run_id,
-                    user_id=user_id,
-                    status="error",
-                    counts={"error_message": str(exc)[:500]},
+                    run_id, user_id=user_id, status=status, counts=counts
                 )
             except Exception:
                 logger.error(
-                    "Failed to finalize OperationRun row on error",
+                    "Failed to finalize OperationRun row",
                     operation_id=operation_id,
                     run_id=str(run_id),
+                    status=status,
                     exc_info=True,
                 )
-        queue = await registry.get_queue(operation_id)
-        if queue is not None and queue.empty():
-            await queue.put({
-                "event": "error",
-                "data": {
-                    "operation_id": operation_id,
-                    "final_status": "failed",
-                    "message": "Operation failed unexpectedly",
-                    **({"run_id": str(run_id)} if run_id is not None else {}),
-                },
-            })
-            await queue.put(SSE_SENTINEL)
-    else:
-        if run_id is not None and user_id is not None:
-            try:
-                await finalize_run(run_id, user_id=user_id, status="complete")
-            except Exception:
-                logger.error(
-                    "Failed to finalize OperationRun row on completion",
-                    operation_id=operation_id,
-                    run_id=str(run_id),
-                    exc_info=True,
-                )
-    finally:
+        await _push_terminal_event(operation_id, status, counts, run_id)
+        await _safe_complete_parent(operation_id, status)
         _active_operations.discard(operation_id)
         await finalize_sse_operation(operation_id)
+
+
+async def _safe_start_parent(operation_id: str, description: str) -> None:
+    """Start the request (parent) operation; swallow any tracking error."""
+    try:
+        await get_progress_broker().start_operation(
+            ProgressOperation(operation_id=operation_id, description=description)
+        )
+    except Exception:
+        logger.warning(
+            "Failed to start parent operation (continuing)",
+            operation_id=operation_id,
+            exc_info=True,
+        )
+
+
+async def _safe_complete_parent(operation_id: str, status: OperationStatus) -> None:
+    """Complete the request op so the coordinator evicts it; swallow tracking errors.
+
+    The live terminal SSE event is already pushed by ``_push_terminal_event`` — the
+    subscriber no longer emits it for a registered op — so this call exists purely
+    to drive coordinator eviction and a clean lifecycle log.
+    """
+    final = ProgressOpStatus.FAILED if status == "error" else ProgressOpStatus.COMPLETED
+    try:
+        await get_progress_broker().complete_operation(operation_id, final)
+    except Exception:
+        logger.warning(
+            "Failed to complete parent operation (continuing)",
+            operation_id=operation_id,
+            exc_info=True,
+        )
+
+
+async def _push_terminal_event(
+    operation_id: str,
+    status: OperationStatus,
+    counts: JsonDict | None,
+    run_id: UUID | None,
+) -> None:
+    """Push the live terminal SSE event with the run's final status + counts.
+
+    ``complete`` → ``complete`` event; ``error`` → ``error`` event. ``counts`` are
+    spread into the event data so the toast can render the real per-operation
+    numbers (``track_plays``, ``imported``, ``errors``, …). Best-effort: if the
+    queue is already gone the run still finalized via the audit row.
+    """
+    registry = get_operation_registry()
+    queue = await registry.get_queue(operation_id)
+    if queue is None:
+        return
+    event_type = (
+        WorkflowConstants.SSE_EVENT_ERROR
+        if status == "error"
+        else WorkflowConstants.SSE_EVENT_COMPLETE
+    )
+    final_status = "failed" if status == "error" else "completed"
+    await queue.put(
+        build_terminal_event(
+            "evt_final",
+            event_type,
+            operation_id,
+            final_status,
+            run_id=run_id,
+            counts=counts or {},
+        )
+    )
 
 
 async def launch_sse_operation(
     *,
     user_id: str,
     operation_type: str,
-    coro_factory: Callable[[OperationBoundEmitter], Awaitable[None]],
+    coro_factory: Callable[[OperationBoundEmitter], Awaitable[object]],
     name_prefix: str = "import",
 ) -> OperationStartedResponse:
     """Run the standard kickoff → background → return-202 shape.
@@ -179,10 +269,19 @@ async def launch_sse_operation(
     sync/export, connector playlist import, bulk apply-assignments).
     Wrapping it here keeps each route handler at ~3 lines of business
     logic — define the use case call, pass the factory, return.
+
+    The factory MUST ``return`` its use case's result (an ``OperationResult``)
+    so a handled soft failure (``is_failure``) is finalized as ``error`` with
+    real counts. A factory that awaits without returning yields ``None``, which
+    ``_audit_outcome`` can only record as ``complete`` — the dropped-result bug
+    this contract exists to prevent.
     """
     operation_id, run_id, emitter = await prepare_sse_operation_with_emitter(
         user_id=user_id, operation_type=operation_type
     )
+    # Human-readable parent-op description (e.g. "import_lastfm_history" →
+    # "Import Lastfm History") for the top-level `started` event.
+    description = operation_type.replace("_", " ").title()
     # Create the coroutine inside the lambda so a stubbed/no-op
     # ``launch_background`` (e.g., in tests) doesn't leave an unawaited
     # coroutine warning when the factory is never invoked.
@@ -193,6 +292,7 @@ async def launch_sse_operation(
             coro_factory(emitter),
             run_id=run_id,
             user_id=user_id,
+            description=description,
         ),
     )
     return OperationStartedResponse(operation_id=operation_id, run_id=str(run_id))

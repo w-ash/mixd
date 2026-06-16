@@ -24,7 +24,7 @@ def _patch_preview_deps(*, mock_run_return=None):
 
     with (
         patch("src.application.use_cases.workflow_preview.logger") as mock_logger,
-        patch("src.application.services.progress_manager.get_progress_manager"),
+        patch("src.application.services.progress_broker.get_progress_broker"),
         patch(
             "src.application.workflows.engine.observers.PreviewNodeObserver",
             return_value=mock_observer,

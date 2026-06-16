@@ -4,11 +4,14 @@ Provides dependency functions for extracting user identity and other
 request-scoped context from the ASGI scope.
 """
 
+from collections.abc import Awaitable, Callable
 from typing import cast
 
-from fastapi import Request
+from fastapi import Depends, Request
 
 from src.config.constants import BusinessLimits
+from src.domain.exceptions import ConnectorNotConnectedError
+from src.infrastructure.connectors._shared.token_storage import get_token_storage
 from src.interface.api.auth_gate import JWTClaims
 
 
@@ -30,3 +33,20 @@ def get_current_user_id(request: Request) -> str:
         if sub := claims.get("sub"):
             return sub
     return BusinessLimits.DEFAULT_USER_ID
+
+
+def require_connector_connected(service: str) -> Callable[..., Awaitable[None]]:
+    """Build a pre-flight dependency that 409s when ``service`` has no stored token.
+
+    Gates the import/sync routes so a token-less user gets an immediate, actionable
+    ``CONNECTOR_NOT_CONNECTED`` instead of a background operation that starts and
+    then fails. A token-presence check only — refresh/validity is the connector
+    routes' job. Mirrors the connectors route's direct use of ``get_token_storage``
+    (the v0.6.5 OAuth-sharing architecture).
+    """
+
+    async def _dep(user_id: str = Depends(get_current_user_id)) -> None:
+        if await get_token_storage().load_token(service, user_id) is None:
+            raise ConnectorNotConnectedError(service)
+
+    return _dep

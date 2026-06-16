@@ -1,4 +1,4 @@
-"""Test cleanup of async tasks in RichProgressProvider.
+"""Test cleanup of async tasks in RichProgressSubscriber.
 
 TDD test to ensure cleanup tasks don't leak when display is stopped.
 """
@@ -6,11 +6,11 @@ TDD test to ensure cleanup tasks don't leak when display is stopped.
 import asyncio
 
 from src.domain.entities.progress import OperationStatus, ProgressOperation
-from src.interface.cli.progress_provider import RichProgressProvider
+from src.interface.cli.progress_subscriber import RichProgressSubscriber
 
 
-class TestRichProgressProviderCleanup:
-    """Test that RichProgressProvider properly cleans up async tasks."""
+class TestRichProgressSubscriberCleanup:
+    """Test that RichProgressSubscriber properly cleans up async tasks."""
 
     async def test_cleanup_tasks_are_cancelled_on_stop(self):
         """Test that pending cleanup tasks are cancelled when display stops.
@@ -20,7 +20,7 @@ class TestRichProgressProviderCleanup:
         to complain about destroyed pending tasks.
         """
         # Create provider
-        provider = RichProgressProvider(show_rate=False)
+        provider = RichProgressSubscriber(show_rate=False)
 
         # Start display
         await provider.start_display()
@@ -58,7 +58,7 @@ class TestRichProgressProviderCleanup:
 
     async def test_multiple_operations_cleanup_cancelled(self):
         """Test that multiple pending cleanup tasks are all cancelled."""
-        provider = RichProgressProvider(show_rate=False)
+        provider = RichProgressSubscriber(show_rate=False)
         await provider.start_display()
 
         # Create and complete multiple operations

@@ -1,9 +1,9 @@
 # Project Mixd — Planning
 
-**Current Version**: 0.8.4
-**Next**: v0.8.5 Workflow templates & import/export
+**Current Version**: 0.8.5
+**Next**: v0.8.5 Operation & surface reliability (design-debt correctness fixes, pulled ahead of templates/editor)
 
-**v0.8.4 shipped (2026-06-09)** — Background **sync scheduling** + proactive **failure surfaces**, closing the "sync overnight → rebuild in the morning" loop. Daily/weekly schedules for the three sync targets (`lastfm:plays`, `spotify:likes`, `lastfm:likes`) live on their existing Settings›Sync cards via a shared `ScheduleCard` + `useScheduleController` (the bespoke `WorkflowScheduleCard` was refactored onto the same pair — zero new backend; the v0.8.2/8.3 engine already covered it). Two discovery-without-checking surfaces ride the already-fetched `GET /schedules`: a dashboard aggregate `ScheduleFailuresBanner` and an amber "Failing" marker on each workflow row, both self-clearing on the scheduler's success reset (one shared `AlertBanner` primitive behind both the per-schedule and aggregate banners). Also folded in: a human-facing per-workflow `run_number` (migration `027`, shown instead of the UUID), the `loaded_list`/`loaded_one` no-I/O mapper read primitives + a scoped 7-relationship `lazy="raise_on_sql"` guard (down-payment on the v0.8.7 eager-load-hardening epic), and a toolchain/dependency bump pass (SQLAlchemy 2.0.50, uv 0.11, node 24, pnpm 11.5.2, flyctl 1.6, Playwright 1.60).
+**v0.8.4 shipped (2026-06-09)** — Background **sync scheduling** + proactive **failure surfaces**, closing the "sync overnight → rebuild in the morning" loop. Daily/weekly schedules for the three sync targets (`lastfm:plays`, `spotify:likes`, `lastfm:likes`) live on their existing Settings›Sync cards via a shared `ScheduleCard` + `useScheduleController` (the bespoke `WorkflowScheduleCard` was refactored onto the same pair — zero new backend; the v0.8.2/8.3 engine already covered it). Two discovery-without-checking surfaces ride the already-fetched `GET /schedules`: a dashboard aggregate `ScheduleFailuresBanner` and an amber "Failing" marker on each workflow row, both self-clearing on the scheduler's success reset (one shared `AlertBanner` primitive behind both the per-schedule and aggregate banners). Also folded in: a human-facing per-workflow `run_number` (migration `027`, shown instead of the UUID), the `loaded_list`/`loaded_one` no-I/O mapper read primitives + a scoped 7-relationship `lazy="raise_on_sql"` guard (down-payment on the v0.8.6 eager-load-hardening epic), and a toolchain/dependency bump pass (SQLAlchemy 2.0.50, uv 0.11, node 24, pnpm 11.5.2, flyctl 1.6, Playwright 1.60).
 
 **v0.8.3 shipped (2026-06-07)** — Workflow scheduling **web UI** + an unplanned **workflow-page redesign with live-run reconnection**. A timezone-aware `SchedulePicker` (daily/weekly toggle, no cron) sets automation; the workflow list shows a "Next run" column sourced from a single caller-scoped `/schedules` fetch (no N+1). The detail page replaced the loose pipeline strip + `LastRunCard` with one state-aware `WorkflowStatusPanel` (active/idle/never-run) + a dedicated `RunHistoryTable`, and now reconnects to an in-flight run after reload via an app-global active-runs source + DB snapshot adoption. A paired scheduler fix persists an `operation_id` on scheduled runs so they're reconnectable, and the review pass unified schedule advancement into one fresh-read `_release` transaction. **Partial:** only the per-schedule failure badge shipped; the proactive dashboard banner + workflow-list failure indicator are carried to v0.8.4.
 
@@ -13,7 +13,7 @@
 
 **v0.8.0 shipped (2026-05-30)** — Run reliability & validation hardening opened the v0.8.x scheduling cycle: a first-writer-wins terminal-write guard, a distinct `crashed` status (worker died) vs `failed` (logic broke), an OS-thread heartbeat watchdog that survives a blocked event loop, three closed silent-wrong-result validation gaps, and a SIGTERM-shielded connector cleanup.
 
-**Earlier refactor (shipped as 0.7.8.20)**: Workflow "kinds" consolidated — the read-only built-in **template** kind was eliminated in favor of a file-backed template **gallery** + clone-on-use, leaving a single editable `Workflow` entity (migration `023` drops `is_template`/`source_template`, the read-only guards, and shared `user_id IS NULL` rows). Clone-on-use mints a fresh unique slug, and Duplicate runs through a single-transaction `DuplicateWorkflowUseCase`. This delivered most of v0.8.5's template *plumbing* early; v0.8.5 now scopes down to curating the template content + import/export.
+**Earlier refactor (shipped as 0.7.8.20)**: Workflow "kinds" consolidated — the read-only built-in **template** kind was eliminated in favor of a file-backed template **gallery** + clone-on-use, leaving a single editable `Workflow` entity (migration `023` drops `is_template`/`source_template`, the read-only guards, and shared `user_id IS NULL` rows). Clone-on-use mints a fresh unique slug, and Duplicate runs through a single-transaction `DuplicateWorkflowUseCase`. This delivered most of v0.8.7's template *plumbing* early; v0.8.7 now scopes down to curating the template content + import/export.
 
 → [Completed milestones](completed/) | [Unscheduled ideas](unscheduled.md)
 
@@ -76,14 +76,16 @@ Each milestone delivers a **vertical slice** — backend API + frontend page tog
 | **v0.7.6** | Tag maintenance & single-playlist Spotify polish — tag mgmt page, force-refresh, route integration tests | 🚀 Shipped | [details](v0.7.6.md#v076-tag-maintenance--single-playlist-polish) |
 | **v0.7.7** | Operation Run Log — persisted import history + post-run toast | 🚀 Shipped | [details](v0.7.7.md#v077-operation-run-log) |
 | **v0.7.8** | Mobile responsiveness + visual regression baseline (Playwright `toHaveScreenshot`) | 🚀 Shipped | [details](v0.7.8.md#v078-mobile-responsiveness) |
-| **v0.8.0** | Run reliability & validation hardening | 🚀 Shipped | [details](v0.8.x.md#v080-run-reliability--validation-hardening) |
-| **v0.8.1** | Workflow engine swap (Prefect → stdlib asyncio) | 🚀 Shipped | [details](v0.8.x.md#v081-workflow-engine-swap-prefect-to-stdlib-asyncio) |
-| **v0.8.2** | Workflow scheduling — engine & CLI | 🚀 Shipped | [details](v0.8.x.md#v082-workflow-scheduling---engine--cli) |
-| **v0.8.3** | Workflow scheduling — web UI & failure alerts | 🚀 Shipped | [details](v0.8.x.md#v083-workflow-scheduling---web-ui--failure-alerts) |
-| **v0.8.4** | Background sync scheduling | 🚀 Shipped | [details](v0.8.x.md#v084-background-sync-scheduling) |
-| **v0.8.5** | Workflow templates & import/export | 🔜 Not Started | [details](v0.8.x.md#v085-workflow-templates--importexport) |
-| **v0.8.6** | Editor polish — sub-flows & playlist browse | 🔜 Not Started | [details](v0.8.x.md#v086-editor-polish---sub-flows--playlist-browse) |
-| **v0.8.7** | TBD iteration (reserved) | 🔜 Not Started | [details](v0.8.x.md#v087-tbd-iteration) |
+| **v0.8.0** | Run reliability & validation hardening | 🚀 Shipped | [details](v0.8.0-0.8.4.md#v080-run-reliability--validation-hardening) |
+| **v0.8.1** | Workflow engine swap (Prefect → stdlib asyncio) | 🚀 Shipped | [details](v0.8.0-0.8.4.md#v081-workflow-engine-swap-prefect-to-stdlib-asyncio) |
+| **v0.8.2** | Workflow scheduling — engine & CLI | 🚀 Shipped | [details](v0.8.0-0.8.4.md#v082-workflow-scheduling---engine--cli) |
+| **v0.8.3** | Workflow scheduling — web UI & failure alerts | 🚀 Shipped | [details](v0.8.0-0.8.4.md#v083-workflow-scheduling---web-ui--failure-alerts) |
+| **v0.8.4** | Background sync scheduling | 🚀 Shipped | [details](v0.8.0-0.8.4.md#v084-background-sync-scheduling) |
+| **v0.8.5** | Operation & surface reliability (design-debt review) | 🚀 Shipped | [details](v0.8.5-0.8.6.md#v085-operation--surface-reliability) |
+| **v0.8.6** | Cycle hardening & cleanup (design-debt review) | 🔜 Not Started | [details](v0.8.5-0.8.6.md#v086-cycle-hardening--cleanup) |
+| **v0.8.7** | Workflow templates & import/export | 🔜 Not Started | [details](v0.8.7-0.8.8.md#v087-workflow-templates--importexport) |
+| **v0.8.8** | Editor polish — sub-flows & playlist browse | 🔜 Not Started | [details](v0.8.7-0.8.8.md#v088-editor-polish---sub-flows--playlist-browse) |
+| **v0.8.9** | Manual playlist track editing (design-debt review) | 🔜 Not Started | [details](v0.8.9.md#v089-manual-playlist-track-editing) |
 | **v0.9.0** | Workflow assistant — right-panel chat ported from couplefins | 🔜 Not Started | [details](v0.9.x.md#v090-workflow-assistant-right-panel-chat) |
 | **v0.9.1** | MCP server — mixd as a tool surface (shared registry with v0.9.0 chat) | 🔜 Not Started | [details](v0.9.x.md#v091-mcp-server-mixd-as-a-tool-surface) |
 | **v0.10.0** | First-class artists | 🔜 Not Started | [details](v0.10.x.md#v0100-first-class-artists) |

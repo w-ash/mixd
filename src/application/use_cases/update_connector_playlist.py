@@ -34,6 +34,7 @@ from src.domain.entities import ConnectorPlaylist, utc_now_factory
 from src.domain.entities.playlist import ConnectorPlaylistItem, Playlist
 from src.domain.entities.shared import ConnectorPlaylistIdentifier, JsonValue
 from src.domain.entities.track import TrackList
+from src.domain.exceptions import ConnectorSyncError
 from src.domain.playlist import PlaylistOperation, calculate_playlist_diff
 from src.domain.playlist.execution_strategies import get_execution_strategy
 from src.domain.repositories import UnitOfWorkProtocol
@@ -43,13 +44,17 @@ logger = get_logger(__name__)
 
 
 class _ConnectorApiResult(TypedDict):
-    """Result from executing playlist operations against a connector API."""
+    """Result from executing playlist operations against a connector API.
+
+    ``success`` reflects post-execution validation only (e.g. a missing snapshot
+    id); a *failed* API call now raises ``ConnectorSyncError`` rather than
+    returning a success-shaped dict, so the link is never marked SYNCED on a
+    failed push.
+    """
 
     success: bool
     api_calls_made: int
     metadata: dict[str, JsonValue]
-    error: str | None
-    partial_success: bool
 
 
 @define(frozen=True, slots=True)
@@ -172,7 +177,7 @@ class UpdateConnectorPlaylistUseCase:
         connector_playlist_identifier: ConnectorPlaylistIdentifier,
         snapshot_id: str | None,
         operations_count: int,
-    ) -> tuple[bool, bool]:
+    ) -> bool:
         """Validate playlist state after executing operations.
 
         Args:
@@ -182,10 +187,9 @@ class UpdateConnectorPlaylistUseCase:
             operations_count: Number of operations executed
 
         Returns:
-            Tuple of (operation_success, partial_success)
+            ``operation_success`` — False when no snapshot id came back.
         """
         operation_success = True
-        partial_success = False
 
         if snapshot_id is None:
             logger.warning(
@@ -193,7 +197,6 @@ class UpdateConnectorPlaylistUseCase:
                 operations_count=operations_count,
             )
             operation_success = False
-            partial_success = True
 
         # Additional validation: verify playlist state if possible
         try:
@@ -212,7 +215,7 @@ class UpdateConnectorPlaylistUseCase:
             )
             # Don't fail the operation for this, just log the warning
 
-        return operation_success, partial_success
+        return operation_success
 
     async def _get_existing_connector_playlist(
         self,
@@ -641,8 +644,6 @@ class UpdateConnectorPlaylistUseCase:
                 "success": True,
                 "api_calls_made": 0,
                 "metadata": {"operations_applied": 0},
-                "error": None,
-                "partial_success": False,
             }
 
         try:
@@ -662,13 +663,11 @@ class UpdateConnectorPlaylistUseCase:
                 operations_attempted=len(sequenced_operations),
             )
 
-            return {
-                "success": False,
-                "api_calls_made": 0,
-                "metadata": error_classification,
-                "error": str(e),
-                "partial_success": False,
-            }
+            # Raise instead of returning a success-shaped result: a failed push
+            # must reach SyncPlaylistLinkUseCase's ERROR branch (→ SyncStatus.ERROR)
+            # and the workflow destination's failure path, never be marked SYNCED
+            # or printed as "Sync complete".
+            raise ConnectorSyncError(command.connector, str(e)) from e
 
     async def _run_connector_api_operations(
         self,
@@ -709,10 +708,7 @@ class UpdateConnectorPlaylistUseCase:
         )
 
         # Post-execution validation: verify operations actually applied
-        (
-            operation_success,
-            partial_success,
-        ) = await self._validate_playlist_post_execution(
+        operation_success = await self._validate_playlist_post_execution(
             connector,
             command.connector_playlist_identifier,
             final_snapshot_id,
@@ -733,8 +729,6 @@ class UpdateConnectorPlaylistUseCase:
             success=operation_success,
             api_calls_made=len(sequenced_operations),
             metadata=external_metadata,
-            error=None,
-            partial_success=partial_success,
         )
 
     async def _update_connector_playlist_optimistic(

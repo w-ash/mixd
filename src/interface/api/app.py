@@ -63,7 +63,7 @@ async def lifespan(_app: FastAPI) -> AsyncGenerator[None]:
 
     log_startup_warnings()
 
-    from src.application.services.progress_manager import get_progress_manager
+    from src.application.services.progress_broker import get_progress_broker
     from src.interface.api.services.progress import (
         SSEProgressSubscriber,
         get_operation_registry,
@@ -71,7 +71,7 @@ async def lifespan(_app: FastAPI) -> AsyncGenerator[None]:
 
     registry = get_operation_registry()
     subscriber = SSEProgressSubscriber(registry)
-    manager = get_progress_manager()
+    manager = get_progress_broker()
     sub_id = await manager.subscribe(subscriber)
 
     # Run startup tasks in background so the server accepts connections immediately.

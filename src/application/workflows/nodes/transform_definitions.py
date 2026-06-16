@@ -289,7 +289,7 @@ TRANSFORM_REGISTRY: dict[str, dict[str, TransformEntry]] = {
     },
 }
 
-# Combiner registry: honest list[TrackList] → TrackList semantics.
+# Combiner registry: list[TrackList] → TrackList semantics.
 # Upstream tracklists are collected by make_combiner_node(), not by the lambda.
 COMBINER_REGISTRY: dict[str, CombinerEntry] = {
     "merge_playlists": CombinerEntry(

@@ -177,7 +177,7 @@ regardless of the swap** (all three ship in **v0.8.0**, including the cleanup-sh
 - **[adopt] Compute next-run forward from `now`,** never from a stale stored `next_run_at`
   (`scheduler.py:177`) — prevents croniter-iteration explosion after an outage.
 - **[adopt] Anchor interval schedules to a stable grid** (`schedules.py:303-306`) — the plan's
-  recompute-from-now-on-enable (`v0.8.x.md:107`) drifts phase across restarts; anchor keeps "every
+  recompute-from-now-on-enable (`v0.8.0-0.8.4.md` (v0.8.2 scheduling)) drifts phase across restarts; anchor keeps "every
   6h" firing at stable times.
 - **[adopt] Cadence correction:** `sleep(max(0, interval − work_duration))` (`docket/_perpetual.py:130`).
 - **[adopt] Stuck-start reaper** for a dispatch that dies between `mark_schedule_started` and

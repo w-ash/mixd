@@ -3,7 +3,7 @@
  * Do not edit manually.
  * Mixd
  * Personal music metadata hub
- * OpenAPI spec version: 0.8.4
+ * OpenAPI spec version: 0.8.5
  */
 import type { ConnectorLinkBriefSchema } from './connectorLinkBriefSchema.ts';
 import type { PlaylistEntrySchema } from './playlistEntrySchema.ts';

@@ -110,9 +110,9 @@ execute_use_case(λ uow →             execute_use_case(λ uow →
 Both interfaces share the same progress infrastructure:
 
 - **Domain protocols** (`domain/entities/progress.py`): `ProgressEmitter` and `ProgressSubscriber` define the interface
-- **Application hub** (`application/services/progress_manager.py`): `AsyncProgressManager` implements `ProgressEmitter` and fans out to N subscribers
-- **CLI subscriber**: `RichProgressProvider` → Rich progress bars in terminal
-- **Web subscriber**: `SSEProgressProvider` (new, v0.3.1) → Server-Sent Events to browser
+- **Application hub** (`application/services/progress_broker.py`): `ProgressBroker` implements `ProgressEmitter` and fans out to N subscribers
+- **CLI subscriber**: `RichProgressSubscriber` → Rich progress bars in terminal
+- **Web subscriber**: `SSEProgressSubscriber` (new, v0.3.1) → Server-Sent Events to browser
 
 Same use case code emits the same `ProgressEvent` objects — each interface just renders them differently.
 

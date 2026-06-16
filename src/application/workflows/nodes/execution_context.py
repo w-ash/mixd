@@ -10,7 +10,7 @@ from typing import cast
 
 from attrs import define
 
-from src.application.services.progress_manager import AsyncProgressManager
+from src.application.services.progress_broker import ProgressBroker
 from src.application.workflows.protocols import (
     NodeResult,
     UseCaseProvider,
@@ -145,10 +145,10 @@ class NodeContext:
         raw = self.data.get("upstream_task_ids")
         return cast(list[str], raw) if isinstance(raw, list) else []
 
-    def get_progress_manager(self) -> AsyncProgressManager | None:
+    def get_progress_broker(self) -> ProgressBroker | None:
         """Extract progress manager (None outside SSE context)."""
-        pm = self.data.get("progress_manager")
-        return pm if isinstance(pm, AsyncProgressManager) else None
+        pm = self.data.get("progress_broker")
+        return pm if isinstance(pm, ProgressBroker) else None
 
     def get_workflow_operation_id(self) -> str | None:
         """Extract workflow operation ID (None outside SSE context)."""
@@ -160,18 +160,18 @@ class NodeContext:
     ) -> None:
         """Emit a lightweight phase progress event if progress tracking is active.
 
-        No-ops silently when progress_manager or workflow_operation_id are absent
+        No-ops silently when progress_broker or workflow_operation_id are absent
         (e.g., CLI runs without SSE progress).
         """
-        progress_manager = self.get_progress_manager()
+        progress_broker = self.get_progress_broker()
         workflow_operation_id = self.get_workflow_operation_id()
-        if progress_manager and workflow_operation_id:
+        if progress_broker and workflow_operation_id:
             from src.application.services.sub_operation_progress import (
                 emit_phase_progress,
             )
 
             await emit_phase_progress(
-                progress_manager,
+                progress_broker,
                 workflow_operation_id,
                 phase=phase,
                 node_type=node_type,

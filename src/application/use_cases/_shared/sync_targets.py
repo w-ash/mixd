@@ -59,7 +59,9 @@ def sync_result_failed(result: object) -> bool:
     (see ``import_play_history``). The scheduler must read that signal, otherwise a
     failed scheduled sync is recorded as a successful fire. A non-``OperationResult``
     return carries no failure signal and is treated as success.
+
+    Reads ``OperationResult.is_failure`` — the same predicate the web SSE seam
+    uses — so the scheduler, the web UI, and the CLI never disagree on what a
+    failed sync looks like.
     """
-    if not isinstance(result, OperationResult):
-        return False
-    return result.summary_metrics.get("errors", 0) > 0 or "error" in result.metadata
+    return isinstance(result, OperationResult) and result.is_failure

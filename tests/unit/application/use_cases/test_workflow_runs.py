@@ -42,7 +42,7 @@ def _patch_execute_deps(*, mock_run_return=None, observer_persist_failures=0):
 
     with (
         patch("src.application.use_cases.workflow_runs.logger") as mock_logger,
-        patch("src.application.services.progress_manager.get_progress_manager"),
+        patch("src.application.services.progress_broker.get_progress_broker"),
         patch(
             "src.application.workflows.engine.observers.RunHistoryObserver",
             return_value=mock_observer,

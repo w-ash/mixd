@@ -11,7 +11,7 @@ Three components bridge the domain progress system to Server-Sent Events:
 import asyncio
 from typing import Final, override
 
-from attrs import define, evolve, field
+from attrs import define, field
 
 from src.config import get_logger
 from src.config.constants import WorkflowConstants
@@ -38,22 +38,44 @@ SSE_SENTINEL: Final = _SSESentinel()
 
 
 class OperationBoundEmitter(ProgressEmitter):
-    """Wraps a ProgressEmitter, overriding operation_id on start_operation.
+    """Wraps a ProgressEmitter, parenting use-case operations to one request op.
 
-    The API layer pre-generates an operation_id so it can return the ID to
-    the client before the background task begins emitting progress.  All
-    three protocol methods are forwarded to the real emitter; only
-    start_operation substitutes the ID.
+    The API layer pre-generates the request ``operation_id`` (the SSE queue key)
+    and owns its lifecycle in ``run_sse_operation``.  Every operation a use case
+    starts is reparented to that request op — it keeps its *own* id and routes as
+    a sub-operation of the request.
+
+    This replaced an earlier design that *rebound* every ``start_operation`` to the
+    one request id.  Rebinding collapsed distinct operations (e.g. an importer's
+    two phases, or its per-day chunks) onto a single coordinator entry, which then
+    raised "already being tracked" / "progress went backwards" and silently aborted
+    the import — the v0.8.5 SSE-seam data-loss bug.  ``emit_progress`` /
+    ``complete_operation`` were always pass-through and stay so.
     """
 
     def __init__(self, delegate: ProgressEmitter, operation_id: str) -> None:
         self._delegate = delegate
         self._operation_id = operation_id
 
+    @property
+    def operation_id(self) -> str:
+        """The request (parent) operation id this emitter parents children to.
+
+        Exposed so a multi-level flow (connector-playlist import) can parent its
+        per-item sub-operations directly to the request op — the SSE subscriber
+        routes only one level, so the request op must be the single parent.
+        """
+        return self._operation_id
+
     @override
     async def start_operation(self, operation: ProgressOperation) -> str:
-        bound = evolve(operation, operation_id=self._operation_id)
-        return await self._delegate.start_operation(bound)
+        # Already parented (e.g. an explicit sub-op) — forward untouched so we
+        # never overwrite a deliberate parent or create a child-of-child the
+        # single-level SSE subscriber can't route.
+        if operation.metadata.get("parent_operation_id"):
+            return await self._delegate.start_operation(operation)
+        child = operation.with_metadata(parent_operation_id=self._operation_id)
+        return await self._delegate.start_operation(child)
 
     @override
     async def emit_progress(self, event: ProgressEvent) -> None:
@@ -110,7 +132,7 @@ class SSEOperationRegistry:
 class SSEProgressSubscriber:
     """Routes progress events into per-operation SSE queues.
 
-    Subscribed once to AsyncProgressManager at app startup.  When events
+    Subscribed once to ProgressBroker at app startup.  When events
     arrive, looks up the operation_id in the registry and puts structured
     SSE event dicts into the matching queue.  Unknown operation_ids are
     silently ignored (the operation may not have come from the web UI).
@@ -234,7 +256,8 @@ class SSEProgressSubscriber:
         queue = await self._registry.get_queue(operation_id)
 
         if queue is None:
-            # May be a sub-operation completing — route to parent
+            # A sub-operation completing — route to the parent queue. No sentinel:
+            # only the top-level operation closes the stream.
             parent_id = self._sub_op_parents.pop(operation_id, None)
             if parent_id:
                 parent_queue = await self._registry.get_queue(parent_id)
@@ -251,26 +274,12 @@ class SSEProgressSubscriber:
                     })
             return
 
-        event_id = self._next_event_id(operation_id)
-        event_type = (
-            WorkflowConstants.SSE_EVENT_ERROR
-            if final_status == OperationStatus.FAILED
-            else WorkflowConstants.SSE_EVENT_COMPLETE
-        )
-
-        await queue.put({
-            "id": event_id,
-            "event": event_type,
-            "data": {
-                "operation_id": operation_id,
-                "final_status": final_status.value,
-            },
-        })
-
-        # Sentinel tells the SSE generator to close the connection
-        await queue.put(SSE_SENTINEL)
-
-        # Cleanup counter
+        # Top-level (registered) operation: the SSE seam owns the terminal event +
+        # sentinel. ``run_sse_operation`` pushes ``build_terminal_event`` with the
+        # ``OperationResult`` status + counts (the workflow/preview path does
+        # the same directly) and ``finalize_sse_operation`` pushes the sentinel.
+        # Emitting them here too would double the terminal event and counts-less it.
+        # The subscriber only cleans up its per-op counter.
         self._event_counters.pop(operation_id, None)
 
     def _next_event_id(self, operation_id: str) -> str:

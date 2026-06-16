@@ -79,3 +79,45 @@ class TestOperationResultWithSummaryMetrics:
 
         assert result.metrics["similarity"][1] == 0.95
         assert result.metrics["similarity"][2] == 0.87
+
+
+class TestOperationResultFailureSignal:
+    """The shared failure predicate read by the scheduler, web SSE seam, and CLI."""
+
+    def test_clean_result_is_not_a_failure(self):
+        result = OperationResult(operation_name="Import")
+        result.summary_metrics.add("track_plays", 42, "Plays Imported")
+
+        assert result.is_failure is False
+
+    def test_positive_errors_metric_is_a_failure(self):
+        result = OperationResult(operation_name="Import")
+        result.summary_metrics.add("errors", 1, "Errors", significance=1)
+
+        assert result.is_failure is True
+
+    def test_zero_errors_metric_is_not_a_failure(self):
+        result = OperationResult(operation_name="Import")
+        result.summary_metrics.add("errors", 0, "Errors", significance=1)
+
+        assert result.is_failure is False
+
+    def test_error_metadata_key_is_a_failure(self):
+        result = OperationResult(operation_name="Import")
+        result.metadata["error"] = "Last.fm timed out"
+
+        assert result.is_failure is True
+
+
+class TestOperationResultToCounts:
+    """to_counts() flattens summary metrics for the audit row and SSE terminal event."""
+
+    def test_flattens_metric_names_to_values(self):
+        result = OperationResult(operation_name="Likes Import")
+        result.summary_metrics.add("imported", 97, "Likes Imported", significance=1)
+        result.summary_metrics.add("already_liked", 53, "Already Liked", significance=2)
+
+        assert result.to_counts() == {"imported": 97, "already_liked": 53}
+
+    def test_empty_metrics_produce_empty_counts(self):
+        assert OperationResult(operation_name="No-op").to_counts() == {}

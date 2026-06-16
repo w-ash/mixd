@@ -17,6 +17,7 @@ function makeProgress(
     completionPercentage: 50,
     itemsPerSecond: null,
     etaSeconds: null,
+    counts: null,
     subOperation: null,
     subOperationHistory: {},
     ...overrides,

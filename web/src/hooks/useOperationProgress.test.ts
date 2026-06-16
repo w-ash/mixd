@@ -171,6 +171,29 @@ describe("useOperationProgress", () => {
     });
   });
 
+  it("exposes per-operation counts from the terminal complete event", async () => {
+    mockSSEWithEvents([
+      {
+        event: "complete",
+        data: JSON.stringify({
+          final_status: "completed",
+          counts: { track_plays: 42, errors: 0 },
+        }),
+      },
+    ]);
+
+    const { result } = renderHook(() => useOperationProgress("op-123"), {
+      wrapper: createWrapper(),
+    });
+
+    await waitFor(() => {
+      expect(result.current.progress?.counts).toEqual({
+        track_plays: 42,
+        errors: 0,
+      });
+    });
+  });
+
   it("handles error event from server", async () => {
     mockSSEWithEvents([
       {

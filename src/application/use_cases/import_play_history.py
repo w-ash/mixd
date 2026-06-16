@@ -21,6 +21,7 @@ from src.domain.entities.progress import (
     ProgressEmitter,
     ProgressOperation,
 )
+from src.domain.exceptions import LastfmAuthRequiredError, SpotifyAuthRequiredError
 from src.domain.repositories import UnitOfWorkProtocol
 
 logger = get_logger(__name__)
@@ -179,6 +180,13 @@ class ImportTracksUseCase:
                     execution_time_ms=timer.stop(),
                     total_batches=1,
                 )
+
+            except LastfmAuthRequiredError, SpotifyAuthRequiredError:
+                # Connector-not-connected is a clean precondition, not a soft
+                # failure — let it propagate so the SSE seam emits a terminal
+                # error (and the 409 middleware handler maps it for sync callers).
+                # Converting it to an is_failure result would bury the connect hint.
+                raise
 
             except Exception as e:
                 error_msg = f"{command.service} {command.mode} import failed: {e}"

@@ -5,10 +5,13 @@ the execution engine — needed by FastAPI routes and the React Flow editor.
 The pure DAG level/cycle algorithm (``compute_parallel_levels``) lives in the
 domain beside ``WorkflowTaskDef``; this module imports it for cycle detection.
 
-Provides:
-- validate_workflow_def: Structural validation (required fields, upstream refs, node types, config)
+Both entry points share one rule set via ``_collect_validation_items`` so the
+editor's verdict can never diverge from the save path:
+- validate_workflow_def: raises on the first blocking error (guards save/execute)
+- validate_workflow_def_detailed: returns all errors + warnings (React Flow editor)
 """
 
+from collections import Counter
 from collections.abc import Mapping
 
 from src.application.workflows.nodes.config_fields import (
@@ -147,58 +150,116 @@ def _find_result_key_problems(
     return problems
 
 
-def validate_workflow_def(workflow_def: WorkflowDef) -> None:
-    """Validate workflow definition structure before execution.
+def _collect_validation_items(workflow_def: WorkflowDef) -> list[dict[str, str]]:
+    """Single source of truth for workflow-definition validation.
 
-    Catches structural errors early — before any expensive I/O operations run.
-    Checks for: non-empty tasks, valid upstream references, resolvable node
-    types, config completeness, primary_input/result_key correctness, and
-    correct source placement.
-
-    Raises:
-        ValueError: If the workflow definition is structurally invalid.
+    Returns structured ``{task_id, field, message, [severity]}`` items in
+    precedence order — blocking errors first, non-blocking warnings last.
+    ``validate_workflow_def`` raises on the first *error* item; the editor's
+    ``validate_workflow_def_detailed`` returns the whole list. Keeping both
+    surfaces behind one collector is what stops them diverging: before this,
+    only the blocking path caught duplicate ids and only the detailed path
+    caught cycles, so a cyclic workflow could be saved and a duplicate-id
+    workflow passed the editor.
     """
     if not workflow_def.tasks:
-        raise ValueError("Workflow has no tasks")
+        return [{"task_id": "", "field": "tasks", "message": "Workflow has no tasks"}]
 
+    items: list[dict[str, str]] = []
     task_ids = {task.id for task in workflow_def.tasks}
-    if len(task_ids) != len(workflow_def.tasks):
-        from collections import Counter
 
-        counts = Counter(t.id for t in workflow_def.tasks)
-        dupes = [tid for tid, n in counts.items() if n > 1]
-        raise ValueError(f"Duplicate task IDs: {dupes}")
+    # Duplicate task ids must come first: the DAG topology (upstream refs,
+    # cycle detection) is undefined until ids uniquely address a task.
+    duplicate_ids = sorted(
+        tid for tid, n in Counter(t.id for t in workflow_def.tasks).items() if n > 1
+    )
+    if duplicate_ids:
+        items.append({
+            "task_id": "",
+            "field": "tasks",
+            "message": f"Duplicate task IDs: {duplicate_ids}",
+        })
 
-    # Validate upstream references point to existing tasks
+    # Upstream references must point to existing tasks. Track well-formedness so
+    # cycle detection — which assumes every upstream resolves — only runs when
+    # the graph is addressable (a dangling upstream would otherwise KeyError).
+    upstream_well_formed = True
     for task_def in workflow_def.tasks:
         for upstream_id in task_def.upstream:
             if upstream_id not in task_ids:
-                raise ValueError(
-                    f"Task '{task_def.id}' references unknown upstream '{upstream_id}'. Available: {sorted(task_ids)}"
-                )
+                upstream_well_formed = False
+                items.append({
+                    "task_id": task_def.id,
+                    "field": "upstream",
+                    "message": (
+                        f"Task '{task_def.id}' references unknown upstream "
+                        f"'{upstream_id}'. Available: {sorted(task_ids)}"
+                    ),
+                })
 
-    # Resolve each node once and run its per-task structural checks in one pass:
-    # type resolvability, config completeness, and the silent-wrong-result guards
-    # (a primary_input that isn't an upstream, a non-source node with no input).
+    # Per-task: type resolvability, config completeness, and the silent-wrong
+    # guards (primary_input that isn't an upstream, non-source node with no input).
     for task_def in workflow_def.tasks:
         try:
             _, metadata = get_node(task_def.type)
         except KeyError:
-            raise ValueError(
-                f"Task '{task_def.id}' has unknown node type '{task_def.type}'"
-            ) from None
-        _validate_node_config(task_def.type, task_def.config, task_id=task_def.id)
-        for message in (
-            _check_primary_input(task_def),
-            _check_source_placement(task_def, metadata["category"]),
+            items.append({
+                "task_id": task_def.id,
+                "field": "type",
+                "message": f"Task '{task_def.id}' has unknown node type '{task_def.type}'",
+            })
+            continue
+        try:
+            _validate_node_config(task_def.type, task_def.config, task_id=task_def.id)
+        except ValueError as e:
+            items.append({"task_id": task_def.id, "field": "config", "message": str(e)})
+        for error_field, message in (
+            ("config.primary_input", _check_primary_input(task_def)),
+            ("upstream", _check_source_placement(task_def, metadata["category"])),
         ):
             if message:
-                raise ValueError(message)
+                items.append({
+                    "task_id": task_def.id,
+                    "field": error_field,
+                    "message": message,
+                })
 
     # Reject result_key aliases that collide with a task id or duplicate another.
-    result_key_problems = _find_result_key_problems(workflow_def.tasks)
-    if result_key_problems:
-        raise ValueError(result_key_problems[0][1])
+    items.extend(
+        {"task_id": task_id, "field": "result_key", "message": message}
+        for task_id, message in _find_result_key_problems(workflow_def.tasks)
+    )
+
+    # Cycle detection — only meaningful once ids are unique and every upstream
+    # resolves; otherwise the graph is ambiguous and the cycle message would
+    # mislead (and the algorithm would KeyError on a dangling reference).
+    if not duplicate_ids and upstream_well_formed:
+        try:
+            compute_parallel_levels(workflow_def.tasks)
+        except ValueError as e:
+            items.append({"task_id": "", "field": "tasks", "message": str(e)})
+
+    # Enrichment dependency warnings (non-blocking, surfaced to the editor).
+    items.extend(_validate_enrichment_dependencies(workflow_def))
+
+    return items
+
+
+def validate_workflow_def(workflow_def: WorkflowDef) -> None:
+    """Validate workflow definition structure before execution.
+
+    Catches structural errors early — before any expensive I/O operations run.
+    Checks for: non-empty tasks, no duplicate ids, valid upstream references,
+    resolvable node types, config completeness, primary_input/result_key
+    correctness, correct source placement, and acyclicity. Raises on the first
+    blocking error; non-blocking warnings are ignored on this path.
+
+    Raises:
+        ValueError: If the workflow definition is structurally invalid.
+    """
+    for item in _collect_validation_items(workflow_def):
+        if is_validation_error(item):
+            raise ValueError(item["message"])
 
 
 # --- Connector pre-flight validation ---
@@ -344,80 +405,13 @@ def _validate_enrichment_dependencies(
 def validate_workflow_def_detailed(workflow_def: WorkflowDef) -> list[dict[str, str]]:
     """Validate workflow definition returning structured error details.
 
-    Wraps validate_workflow_def() logic, catching ValueError and converting
-    to structured [{task_id, field, message}] dicts. Empty list = valid.
+    Returns the full ``[{task_id, field, message, [severity]}]`` list from the
+    shared collector — blocking errors plus non-blocking enrichment warnings.
+    Empty list = valid (the editor distinguishes errors from warnings via
+    ``is_validation_error``). Shares the exact rule set with
+    ``validate_workflow_def`` so the editor's verdict matches the save path.
     """
-    errors: list[dict[str, str]] = []
-
-    if not workflow_def.tasks:
-        errors.append({
-            "task_id": "",
-            "field": "tasks",
-            "message": "Workflow has no tasks",
-        })
-        return errors
-
-    task_ids = {task.id for task in workflow_def.tasks}
-
-    for task_def in workflow_def.tasks:
-        errors.extend(
-            {
-                "task_id": task_def.id,
-                "field": "upstream",
-                "message": f"References unknown upstream '{upstream_id}'",
-            }
-            for upstream_id in task_def.upstream
-            if upstream_id not in task_ids
-        )
-
-    for task_def in workflow_def.tasks:
-        try:
-            _, metadata = get_node(task_def.type)
-        except KeyError:
-            errors.append({
-                "task_id": task_def.id,
-                "field": "type",
-                "message": f"Unknown node type '{task_def.type}'",
-            })
-            continue
-
-        try:
-            _validate_node_config(task_def.type, task_def.config, task_id=task_def.id)
-        except ValueError as e:
-            errors.append({
-                "task_id": task_def.id,
-                "field": "config",
-                "message": str(e),
-            })
-
-        # Silent-wrong-result checks (type resolved, so category is known).
-        for error_field, message in (
-            ("config.primary_input", _check_primary_input(task_def)),
-            ("upstream", _check_source_placement(task_def, metadata["category"])),
-        ):
-            if message:
-                errors.append({
-                    "task_id": task_def.id,
-                    "field": error_field,
-                    "message": message,
-                })
-
-    # result_key collisions/duplicates, attributed to the offending task
-    errors.extend(
-        {"task_id": task_id, "field": "result_key", "message": message}
-        for task_id, message in _find_result_key_problems(workflow_def.tasks)
-    )
-
-    # Check for cycles
-    try:
-        compute_parallel_levels(workflow_def.tasks)
-    except ValueError as e:
-        errors.append({"task_id": "", "field": "tasks", "message": str(e)})
-
-    # Enrichment dependency warnings (non-blocking but surfaced to the user)
-    errors.extend(_validate_enrichment_dependencies(workflow_def))
-
-    return errors
+    return _collect_validation_items(workflow_def)
 
 
 def is_validation_error(item: dict[str, str]) -> bool:

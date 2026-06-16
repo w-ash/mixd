@@ -32,7 +32,7 @@ from src.domain.entities.progress import (
 )
 from src.interface.cli.console import GOLD
 
-logger = get_logger(__name__).bind(service="rich_progress_provider")
+logger = get_logger(__name__).bind(service="rich_progress_subscriber")
 
 
 class _ProgressUpdateKwargs(TypedDict, total=False):
@@ -82,7 +82,7 @@ class OperationTask:
     is_active: bool = True
 
 
-class RichProgressProvider:
+class RichProgressSubscriber:
     """CLI progress provider using Rich Progress.console for unified terminal output.
 
     Implements ProgressSubscriber protocol using Rich Progress as the single source
@@ -150,7 +150,7 @@ class RichProgressProvider:
         self._logger = logger.bind(provider_type="rich_progress", show_rate=show_rate)
 
         self._logger.info(
-            "RichProgressProvider initialized with Progress.console coordination"
+            "RichProgressSubscriber initialized with Progress.console coordination"
         )
 
     async def start_display(self) -> None:

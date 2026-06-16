@@ -22,6 +22,22 @@ vi.mock("#/lib/workflow-layout", () => ({
   createInitialNodes: vi.fn().mockReturnValue({ nodes: [], edges: [] }),
 }));
 
+// Mock the execution hook so we can assert Run wiring without a live run.
+const { mockExecute } = vi.hoisted(() => ({ mockExecute: vi.fn() }));
+vi.mock("#/hooks/useWorkflowExecution", () => ({
+  useWorkflowExecution: () => ({
+    isExecuting: false,
+    execute: mockExecute,
+    operationId: null,
+    runId: null,
+    nodeStatuses: new Map(),
+    runAccepted: false,
+    subProgress: null,
+    error: null,
+  }),
+}));
+
+import { fireEvent } from "@testing-library/react";
 import { useEditorStore } from "#/stores/editor-store";
 import { renderWithProviders, screen } from "#/test/test-utils";
 
@@ -66,6 +82,36 @@ describe("EditorToolbar", () => {
 
     // Clean up
     useEditorStore.setState({ workflowId: null });
+  });
+
+  it("Run button triggers workflow execution (no dead window event)", () => {
+    mockExecute.mockClear();
+    useEditorStore.setState({
+      workflowId: "019d0000-0000-7000-8000-000000000042",
+    });
+    renderWithProviders(<EditorToolbar />);
+
+    fireEvent.click(screen.getByText("Run"));
+    expect(mockExecute).toHaveBeenCalledTimes(1);
+
+    useEditorStore.setState({ workflowId: null });
+  });
+
+  it("disables Run while the canvas has unsaved edits (isDirty)", () => {
+    // Run executes the SAVED definition; with pending edits it must not
+    // silently run the stale saved version behind the user's back.
+    mockExecute.mockClear();
+    useEditorStore.setState({
+      workflowId: "019d0000-0000-7000-8000-000000000042",
+      isDirty: true,
+    });
+    renderWithProviders(<EditorToolbar />);
+
+    expect(screen.getByText("Run").closest("button")).toBeDisabled();
+    fireEvent.click(screen.getByText("Run"));
+    expect(mockExecute).not.toHaveBeenCalled();
+
+    useEditorStore.setState({ workflowId: null, isDirty: false });
   });
 
   it("hides Run and History buttons for new workflows", () => {

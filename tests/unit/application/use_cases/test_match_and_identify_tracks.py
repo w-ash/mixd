@@ -239,7 +239,7 @@ class TestMatchAndIdentifyTracksUseCase:
 class TestMatchAndIdentifyTracksProgress:
     """Test progress reporting integration in the use case."""
 
-    async def test_creates_sub_operation_when_progress_manager_provided(
+    async def test_creates_sub_operation_when_progress_broker_provided(
         self, mock_uow, mock_connector
     ):
         """Use case creates a matching sub-operation and completes it on success."""
@@ -260,7 +260,7 @@ class TestMatchAndIdentifyTracksProgress:
             tracklist=tracklist,
             connector="spotify",
             connector_instance=mock_connector,
-            progress_manager=mock_progress,
+            progress_broker=mock_progress,
             parent_operation_id="parent-op-1",
         )
 
@@ -290,10 +290,10 @@ class TestMatchAndIdentifyTracksProgress:
         call_kwargs = identity_service.get_raw_external_matches.call_args.kwargs
         assert call_kwargs["progress_callback"] is not None
 
-    async def test_no_sub_operation_without_progress_manager(
+    async def test_no_sub_operation_without_progress_broker(
         self, mock_uow, mock_connector
     ):
-        """Use case does not create sub-operations when progress_manager is None."""
+        """Use case does not create sub-operations when progress_broker is None."""
         tracks = [make_track()]
         tracklist = TrackList(tracks=tracks)
 
@@ -306,7 +306,7 @@ class TestMatchAndIdentifyTracksProgress:
             tracklist=tracklist,
             connector="spotify",
             connector_instance=mock_connector,
-            # No progress_manager or parent_operation_id
+            # No progress_broker or parent_operation_id
         )
 
         evaluation = EvaluationResult(accepted={}, review_candidates={})
@@ -322,7 +322,7 @@ class TestMatchAndIdentifyTracksProgress:
 
         assert not result.errors
 
-        # Verify progress_callback was None (no progress_manager provided)
+        # Verify progress_callback was None (no progress_broker provided)
         call_kwargs = identity_service.get_raw_external_matches.call_args.kwargs
         assert call_kwargs["progress_callback"] is None
 
@@ -349,7 +349,7 @@ class TestMatchAndIdentifyTracksProgress:
             tracklist=tracklist,
             connector="lastfm",
             connector_instance=mock_connector,
-            progress_manager=mock_progress,
+            progress_broker=mock_progress,
             parent_operation_id="parent-op-2",
         )
 
@@ -391,7 +391,7 @@ class TestMatchAndIdentifyTracksProgress:
             tracklist=tracklist,
             connector="spotify",
             connector_instance=mock_connector,
-            progress_manager=mock_progress,
+            progress_broker=mock_progress,
             parent_operation_id="parent-op-3",
         )
 

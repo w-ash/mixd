@@ -16,7 +16,7 @@ from src.domain.entities.progress import (
     create_progress_event,
     create_progress_operation,
 )
-from src.domain.services.progress_coordinator import ProgressCoordinator
+from src.domain.services.operation_ledger import OperationLedger
 
 
 class TestProgressStatus:
@@ -344,13 +344,13 @@ class TestFactoryFunctions:
         assert len(operation.operation_id) > 0  # UUID generated
 
 
-class TestProgressCoordinator:
-    """Test ProgressCoordinator domain service."""
+class TestOperationLedger:
+    """Test OperationLedger domain service."""
 
     @pytest.fixture
     def coordinator(self):
         """Create a progress coordinator for testing."""
-        return ProgressCoordinator()
+        return OperationLedger()
 
     @pytest.fixture
     def sample_operation(self):

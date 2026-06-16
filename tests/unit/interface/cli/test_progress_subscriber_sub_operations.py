@@ -1,4 +1,4 @@
-"""Unit tests for sub-operation display in RichProgressProvider.
+"""Unit tests for sub-operation display in RichProgressSubscriber.
 
 Tests that sub-operations (with parent_operation_id metadata) get indented
 descriptions and faster cleanup delays compared to top-level operations.
@@ -7,14 +7,14 @@ descriptions and faster cleanup delays compared to top-level operations.
 import asyncio
 
 from src.domain.entities.progress import OperationStatus, ProgressOperation
-from src.interface.cli.progress_provider import RichProgressProvider
+from src.interface.cli.progress_subscriber import RichProgressSubscriber
 
 
 class TestSubOperationDisplay:
     """Tests sub-operation visual treatment in Rich progress bars."""
 
     async def test_sub_operation_gets_indented_description(self):
-        provider = RichProgressProvider(show_rate=False)
+        provider = RichProgressSubscriber(show_rate=False)
         await provider.start_display()
 
         try:
@@ -38,7 +38,7 @@ class TestSubOperationDisplay:
             await provider.stop_display()
 
     async def test_top_level_operation_not_indented(self):
-        provider = RichProgressProvider(show_rate=False)
+        provider = RichProgressSubscriber(show_rate=False)
         await provider.start_display()
 
         try:
@@ -59,7 +59,7 @@ class TestSubOperationDisplay:
             await provider.stop_display()
 
     async def test_sub_operation_gets_fast_cleanup(self):
-        provider = RichProgressProvider(show_rate=False)
+        provider = RichProgressSubscriber(show_rate=False)
         await provider.start_display()
 
         try:

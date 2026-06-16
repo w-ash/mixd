@@ -58,6 +58,7 @@ export function useWorkflowPreview(): UseWorkflowPreviewReturn {
   const [mutationError, setMutationError] = useState<Error | null>(null);
 
   const workflowId = useEditorStore((s) => s.workflowId);
+  const isDirty = useEditorStore((s) => s.isDirty);
   const toWorkflowDef = useEditorStore((s) => s.toWorkflowDef);
 
   const unsavedMutation = usePreviewUnsavedWorkflowApiV1WorkflowsPreviewPost();
@@ -99,7 +100,11 @@ export function useWorkflowPreview(): UseWorkflowPreviewReturn {
       toasts.error("Failed to start preview", err);
     };
 
-    if (workflowId !== null) {
+    // Preview the saved server definition only when it's actually on disk and
+    // unchanged. With pending canvas edits (isDirty) — or a never-saved
+    // workflow — preview the canvas itself, so Preview reflects what the user
+    // sees rather than a stale server copy.
+    if (workflowId !== null && !isDirty) {
       savedMutation.mutate(
         { workflowId },
         { onSuccess: handleResponse, onError: handleError },
@@ -113,6 +118,7 @@ export function useWorkflowPreview(): UseWorkflowPreviewReturn {
     }
   }, [
     workflowId,
+    isDirty,
     toWorkflowDef,
     savedMutation.mutate,
     unsavedMutation.mutate,

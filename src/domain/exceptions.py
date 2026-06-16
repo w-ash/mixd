@@ -75,6 +75,111 @@ class ScheduleAlreadyExistsError(DomainError):
         self.target = target
 
 
+class EnrichmentFailedError(DomainError):
+    """Raised when a workflow enricher produces no metrics — a *total* failure
+    (e.g. a Last.fm outage), as opposed to a partial one where some metrics
+    still land.
+
+    Replaces the old swallow-into-a-success-shaped-result behavior that let a
+    COMPLETED run silently overwrite the Curator's playlist with 0 tracks. The
+    executor's degrade path (``_RECOVERABLE_CATEGORIES``) catches it and passes
+    the upstream tracklist through, so the run finishes visibly *degraded*
+    rather than fake-successful. ``enricher`` is the node label for triage.
+    """
+
+    def __init__(self, enricher: str, reason: str) -> None:
+        super().__init__(f"{enricher} enrichment failed: {reason}")
+        self.enricher = enricher
+        self.reason = reason
+
+
+class EmptyOverwriteError(DomainError):
+    """Raised when a destination node is asked to *overwrite* a playlist with an
+    empty tracklist.
+
+    A 0-track overwrite is destructive and almost always an upstream failure
+    (an enrichment outage degraded, then a metric filter dropped every track),
+    not an intentional "clear the playlist". The destination refuses it so the
+    run fails loudly with the playlist intact, instead of silently wiping it.
+    Append mode is unaffected — adding nothing is a harmless no-op.
+    """
+
+    def __init__(self, target: str) -> None:
+        super().__init__(
+            f"Refusing to overwrite '{target}' with 0 tracks — the pipeline "
+            f"produced no tracks (likely an upstream enrichment/filter failure)"
+        )
+        self.target = target
+
+
+class SpotifyAuthRequiredError(DomainError):
+    """Raised when a Spotify access token is needed but none is stored.
+
+    ``SpotifyTokenManager.get_valid_token`` is server-safe by construction: it
+    never launches the interactive browser OAuth flow (an ``HTTPServer`` on
+    127.0.0.1:8888 that would block the FastAPI worker forever and leak threads,
+    since it runs inside the per-request auth flow). Instead it raises this, which
+    the SSE seam surfaces as a clean terminal error and the CLI prints with a
+    connect hint. Interactive connect (CLI ``mixd connector connect spotify`` /
+    the web OAuth callback) calls ``run_browser_auth`` / ``exchange_code`` directly.
+    """
+
+    def __init__(self) -> None:
+        super().__init__(
+            "Spotify is not connected. Connect it in the web UI or run "
+            "`mixd connector connect spotify`."
+        )
+
+
+class LastfmAuthRequiredError(DomainError):
+    """Raised when a Last.fm import is requested but no account is resolvable.
+
+    The Last.fm username is resolved token-first: the stored OAuth token's
+    ``account_name`` for *this* user wins over an explicit request username, which
+    wins over the ``LASTFM_USERNAME`` env fallback (CLI/local-dev only). A web user
+    with no connected Last.fm account and no env must fail cleanly here rather than
+    silently importing whatever ``LASTFM_USERNAME`` points at — a cross-tenant leak.
+    Surfaced as a clean terminal SSE error (via the seam) and a CLI connect hint.
+    """
+
+    def __init__(self) -> None:
+        super().__init__(
+            "Last.fm is not connected. Connect it in the web UI or run "
+            "`mixd connector connect lastfm`."
+        )
+
+
+class ConnectorNotConnectedError(DomainError):
+    """Raised by the import-route pre-flight when a connector has no stored token.
+
+    A token-presence gate (HTTP 409 ``CONNECTOR_NOT_CONNECTED``) so a token-less
+    user gets an immediate, actionable error instead of a background operation that
+    starts and then fails. The frontend also gates the trigger button on connected
+    state; this is the server-side backstop.
+    """
+
+    def __init__(self, connector: str) -> None:
+        super().__init__(f"{connector.title()} is not connected.")
+        self.connector = connector
+
+
+class ConnectorSyncError(DomainError):
+    """Raised when pushing a playlist to an external connector (Spotify/Apple
+    Music) fails at the API layer.
+
+    The push did not land, so the local link must NOT be marked SYNCED.
+    ``SyncPlaylistLinkUseCase``'s ERROR branch catches this and sets
+    ``SyncStatus.ERROR``; the CLI prints the failure and the web surfaces it —
+    replacing the old swallow that returned a success-shaped result and printed
+    "Sync complete" on a failed push. ``connector`` is the service name.
+    """
+
+    def __init__(self, connector: str, reason: str) -> None:
+        super().__init__(f"{connector} playlist sync failed: {reason}")
+        self.connector = connector
+        self.reason = reason
+
+
 class ScheduleInvariantError(DomainError):
     """Raised when a schedule write violates a DB CHECK constraint.
 

@@ -391,7 +391,7 @@ Service A → Mixd (Resolution) → Service B
 
 - **Logging**: structlog with flat JSON file output + colorized console, context propagation via `get_logger(__name__).bind()` and `logging_context()` for async-safe contextvars
 - **Error Handling**: Tenacity retry with exponential backoff, `ErrorClassifier` protocol per connector
-- **Progress**: Rich Live display with coordinated console logging via `RichProgressProvider`
+- **Progress**: Rich Live display with coordinated console logging via `RichProgressSubscriber`
 - **Testing**: Comprehensive test suite (<1min fast suite), `db_session` fixture with isolated temp databases
 - **Database Migrations**: Alembic with SQLAlchemy 2.0 auto-generation
 - **Security**: OAuth 2.0 for service APIs, local-first data storage, env vars for secrets

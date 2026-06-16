@@ -1,7 +1,7 @@
-"""Bridge between infrastructure progress callbacks and AsyncProgressManager sub-operations.
+"""Bridge between infrastructure progress callbacks and ProgressBroker sub-operations.
 
 Creates infrastructure-compatible callbacks (plain async callables) that emit
-progress events as sub-operations on the application's AsyncProgressManager.
+progress events as sub-operations on the application's ProgressBroker.
 This keeps infrastructure free of application imports while enabling granular
 progress tracking for rate-limited batch processing and phased operations.
 """
@@ -20,7 +20,7 @@ from src.domain.entities.progress import (
 )
 from src.domain.matching.types import ProgressCallback
 
-from .progress_manager import AsyncProgressManager
+from .progress_broker import ProgressBroker
 
 logger = get_logger(__name__).bind(service="sub_operation_progress")
 
@@ -29,7 +29,7 @@ _DEFAULT_THROTTLE_INTERVAL_SECONDS = 0.25
 
 
 async def create_sub_operation(
-    progress_manager: AsyncProgressManager,
+    progress_broker: ProgressBroker,
     description: str,
     total_items: int | None,
     parent_operation_id: str,
@@ -43,7 +43,7 @@ async def create_sub_operation(
     to emit progress events.
 
     Args:
-        progress_manager: The application progress manager.
+        progress_broker: The application progress manager.
         description: Human-readable sub-operation description.
         total_items: Expected total (None for indeterminate).
         parent_operation_id: ID of the parent workflow operation.
@@ -63,7 +63,7 @@ async def create_sub_operation(
         },
     )
 
-    sub_op_id = await progress_manager.start_operation(operation)
+    sub_op_id = await progress_broker.start_operation(operation)
 
     async def callback(completed: int, total: int, message: str) -> None:
         event = create_progress_event(
@@ -72,7 +72,7 @@ async def create_sub_operation(
             total=total,
             message=message,
         )
-        await progress_manager.emit_progress(event)
+        await progress_broker.emit_progress(event)
 
     return sub_op_id, callback
 
@@ -96,7 +96,7 @@ class ThrottledSubOperationEmitter:
     """
 
     sub_op_id: str
-    manager: AsyncProgressManager
+    manager: ProgressBroker
     min_interval_seconds: float
     last_emit: float = field(default=0.0, init=False)
     last_seen: tuple[int, int, str] | None = field(default=None, init=False)
@@ -169,7 +169,7 @@ class ThrottledSubOperationEmitter:
 
 
 async def create_throttled_sub_operation(
-    progress_manager: AsyncProgressManager,
+    progress_broker: ProgressBroker,
     description: str,
     total_items: int | None,
     parent_operation_id: str,
@@ -186,8 +186,8 @@ async def create_throttled_sub_operation(
     marking the sub-op complete. The sub-operation id is on the instance
     as ``emitter.sub_op_id`` if a caller needs it.
 
-    Why throttle here and not at ``AsyncProgressManager``: the manager also
-    feeds the CLI's ``RichProgressProvider`` and ``OperationRunRecorder``,
+    Why throttle here and not at ``ProgressBroker``: the manager also
+    feeds the CLI's ``RichProgressSubscriber`` and ``OperationRunRecorder``,
     which want full-fidelity events. The SSE wire is the only consumer with
     a re-render cost, and per-item progress callbacks are the only producer
     that can flood it. This is the right seam.
@@ -202,16 +202,16 @@ async def create_throttled_sub_operation(
         },
     )
 
-    sub_op_id = await progress_manager.start_operation(operation)
+    sub_op_id = await progress_broker.start_operation(operation)
     return ThrottledSubOperationEmitter(
         sub_op_id=sub_op_id,
-        manager=progress_manager,
+        manager=progress_broker,
         min_interval_seconds=min_interval_seconds,
     )
 
 
 async def complete_sub_operation(
-    progress_manager: AsyncProgressManager,
+    progress_broker: ProgressBroker,
     sub_operation_id: str,
     status: OperationStatus = OperationStatus.COMPLETED,
 ) -> None:
@@ -221,11 +221,11 @@ async def complete_sub_operation(
     ``ThrottledSubOperationEmitter.aclose()`` instead, since only the
     emitter knows about its pending tail-flush.
     """
-    await progress_manager.complete_operation(sub_operation_id, status)
+    await progress_broker.complete_operation(sub_operation_id, status)
 
 
 async def emit_phase_progress(
-    progress_manager: AsyncProgressManager,
+    progress_broker: ProgressBroker,
     parent_operation_id: str,
     phase: Phase,
     node_type: NodeType,
@@ -238,7 +238,7 @@ async def emit_phase_progress(
     The sub-operation completes immediately after creation.
 
     Args:
-        progress_manager: The application progress manager.
+        progress_broker: The application progress manager.
         parent_operation_id: ID of the parent workflow operation.
         phase: Phase identifier (e.g., "fetch", "save", "sync").
         node_type: Node type (e.g., "source", "destination").
@@ -254,7 +254,7 @@ async def emit_phase_progress(
         },
     )
 
-    sub_op_id = await progress_manager.start_operation(operation)
+    sub_op_id = await progress_broker.start_operation(operation)
 
     # Emit a single progress event for the phase
     event = create_progress_event(
@@ -263,7 +263,7 @@ async def emit_phase_progress(
         total=None,
         message=message,
     )
-    await progress_manager.emit_progress(event)
+    await progress_broker.emit_progress(event)
 
     # Phase sub-operations complete immediately — they're just signals
-    await progress_manager.complete_operation(sub_op_id, OperationStatus.COMPLETED)
+    await progress_broker.complete_operation(sub_op_id, OperationStatus.COMPLETED)

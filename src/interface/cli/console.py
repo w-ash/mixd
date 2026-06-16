@@ -12,11 +12,11 @@ from typing import TYPE_CHECKING
 from rich.console import Console
 from rich.panel import Panel
 
-from src.application.services.progress_manager import AsyncProgressManager
+from src.application.services.progress_broker import ProgressBroker
 from src.config import get_logger
 
 if TYPE_CHECKING:
-    from .progress_provider import RichProgressProvider
+    from .progress_subscriber import RichProgressSubscriber
 
 logger = get_logger(__name__)
 
@@ -105,7 +105,7 @@ class SimpleConsoleContext:
     def __init__(self, console: Console):
         self.console = console
 
-    def get_progress_manager(self) -> None:
+    def get_progress_broker(self) -> None:
         """No-op: this context doesn't manage progress tracking."""
         return
 
@@ -117,20 +117,20 @@ class ProgressDisplayContext:
     that display progress bars while ensuring logs appear above progress displays.
     """
 
-    provider: RichProgressProvider
+    provider: RichProgressSubscriber
     console: Console
-    progress_manager: AsyncProgressManager
+    progress_broker: ProgressBroker
 
     def __init__(
-        self, provider: RichProgressProvider, manager: AsyncProgressManager
+        self, provider: RichProgressSubscriber, manager: ProgressBroker
     ) -> None:
         self.provider = provider
         self.console = provider.get_console()
-        self.progress_manager = manager
+        self.progress_broker = manager
 
-    def get_progress_manager(self) -> AsyncProgressManager:
+    def get_progress_broker(self) -> ProgressBroker:
         """Return the progress manager for workflow coordination."""
-        return self.progress_manager
+        return self.progress_broker
 
 
 def get_console() -> Console:
@@ -180,14 +180,14 @@ async def progress_coordination_context(
         show_live: Whether to activate Progress display (default: True)
 
     Yields:
-        Context object with console access and progress_manager
+        Context object with console access and progress_broker
 
     Example:
         async with progress_coordination_context(show_live=True) as context:
             # Access console for output
             context.console.print("This appears above progress bars")
             # Access progress manager for workflows
-            progress_manager = context.get_progress_manager()
+            progress_broker = context.get_progress_broker()
     """
     if not show_live:
         console = get_console()
@@ -195,26 +195,26 @@ async def progress_coordination_context(
         yield SimpleConsoleContext(console)
         return
 
-    # Use RichProgressProvider for unified Progress.console coordination
-    from .progress_provider import RichProgressProvider
+    # Use RichProgressSubscriber for unified Progress.console coordination
+    from .progress_subscriber import RichProgressSubscriber
 
-    progress_provider = RichProgressProvider()
+    progress_subscriber = RichProgressSubscriber()
 
-    logger.debug("Starting Progress display context with RichProgressProvider")
+    logger.debug("Starting Progress display context with RichProgressSubscriber")
 
     try:
-        async with progress_provider:
+        async with progress_subscriber:
             # Get the global progress manager and subscribe our provider
-            from src.application.services.progress_manager import get_progress_manager
+            from src.application.services.progress_broker import get_progress_broker
 
-            progress_manager = get_progress_manager()
-            subscription_id = await progress_manager.subscribe(progress_provider)
+            progress_broker = get_progress_broker()
+            subscription_id = await progress_broker.subscribe(progress_subscriber)
 
             try:
-                yield ProgressDisplayContext(progress_provider, progress_manager)
+                yield ProgressDisplayContext(progress_subscriber, progress_broker)
             finally:
                 # Unsubscribe when context exits
                 if subscription_id:
-                    _ = await progress_manager.unsubscribe(subscription_id)
+                    _ = await progress_broker.unsubscribe(subscription_id)
     finally:
         logger.debug("Progress display context completed")

@@ -2,7 +2,7 @@
 
 Orchestrates progress events between domain services and interface providers.
 Handles subscriber management, error isolation, and coordinates with the
-ProgressCoordinator domain service for business rule enforcement.
+OperationLedger domain service for business rule enforcement.
 """
 
 # Legitimate Any: use case results, OperationResult metadata, metric values
@@ -22,9 +22,9 @@ from src.domain.entities.progress import (
     ProgressOperation,
     ProgressSubscriber,
 )
-from src.domain.services.progress_coordinator import ProgressCoordinator
+from src.domain.services.operation_ledger import OperationLedger
 
-logger = get_logger(__name__).bind(service="progress_manager")
+logger = get_logger(__name__).bind(service="progress_broker")
 
 
 @define(slots=True)
@@ -36,7 +36,7 @@ class SubscriberRegistration:
     is_active: bool = True
 
 
-class AsyncProgressManager:
+class ProgressBroker:
     """Application service orchestrating progress tracking across the system.
 
     Implements the ProgressEmitter protocol and manages ProgressSubscriber instances.
@@ -47,20 +47,20 @@ class AsyncProgressManager:
     bridging the domain layer (business rules) with the interface layer (display).
     """
 
-    _coordinator: ProgressCoordinator
+    _coordinator: OperationLedger
     _subscriber_lock: asyncio.Lock
     _logger: BoundLogger
 
     def __init__(self):
         """Initialize progress manager."""
-        self._coordinator = ProgressCoordinator()
+        self._coordinator = OperationLedger()
         self._subscribers: dict[str, SubscriberRegistration] = {}
         self._subscriber_lock = asyncio.Lock()
 
         # Contextual logger
         self._logger = logger.bind(manager_id=str(uuid4())[:8])
 
-        self._logger.info("AsyncProgressManager initialized")
+        self._logger.info("ProgressBroker initialized")
 
     async def subscribe(self, subscriber: ProgressSubscriber) -> str:
         """Register a progress subscriber to receive events.
@@ -128,23 +128,28 @@ class AsyncProgressManager:
         Args:
             event: Progress event to publish
 
-        Raises:
-            ValueError: If event fails domain validation
+        Note:
+            Progress is observational telemetry — a validation failure (e.g. a
+            non-monotonic event from a coarse pipeline meter overlapping a
+            fine-grained sub-meter) must NEVER abort the operation it is tracking.
+            Invalid events are logged and dropped, the same isolation the
+            ``_broadcast`` path already gives subscriber failures. This is the
+            v0.8.5 fix: the re-raise here used to propagate into the importer's
+            pipeline and silently fail web imports.
         """
         try:
             # Validate and record event through domain service
             validated_event = await self._coordinator.record_progress_event(event)
-
-            # Notify all active subscribers
-            await self._broadcast(lambda s: s.on_progress_event(validated_event))
-
         except ValueError as e:
             self._logger.warning(
-                "Progress event validation failed",
+                "Progress event dropped (validation failed)",
                 operation_id=event.operation_id,
                 error=str(e),
             )
-            raise
+            return
+
+        # Notify all active subscribers
+        await self._broadcast(lambda s: s.on_progress_event(validated_event))
 
     async def start_operation(self, operation: ProgressOperation) -> str:
         """Begin tracking a new operation and notify subscribers.
@@ -295,19 +300,19 @@ class AsyncProgressManager:
     # Singleton instance for application-wide progress tracking
 
 
-_global_progress_manager: AsyncProgressManager | None = None
+_global_progress_broker: ProgressBroker | None = None
 
 
-def get_progress_manager() -> AsyncProgressManager:
+def get_progress_broker() -> ProgressBroker:
     """Get the global progress manager instance.
 
     Creates a new instance if none exists. Use this for dependency injection
     in application services and use cases.
 
     Returns:
-        Shared AsyncProgressManager instance
+        Shared ProgressBroker instance
     """
-    global _global_progress_manager
-    if _global_progress_manager is None:
-        _global_progress_manager = AsyncProgressManager()
-    return _global_progress_manager
+    global _global_progress_broker
+    if _global_progress_broker is None:
+        _global_progress_broker = ProgressBroker()
+    return _global_progress_broker

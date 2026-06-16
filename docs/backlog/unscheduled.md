@@ -84,9 +84,13 @@ Deferred from v0.7.6 to keep that sub-version focused on single-playlist prefere
 - **UI-Surfaced Conflict Warnings for Cross-Mapping Conflicts** (M) - When two mappings contradict each other (e.g., a track in Star + Nah), surface the conflict in the UI: pre-import dry-run banner + post-import detail from streamed `conflict` events. New `dry_run: bool = False` mode on `ImportPlaylistMetadataUseCase`; `POST /api/v1/playlist-mappings/import/preview` route. Revisit when users have ≥3 active mappings and report stale-feeling auto-resolves.
 - **Per-Mapping `last_applied_at` for Conflict Tiebreak** (S) - Add `last_applied_at: datetime` to `PlaylistAssignment` so same-state contradictions resolve "most-recently-imported wins" instead of iteration-order luck. Migration adds nullable column + backfills. Depends on UI-Surfaced Conflict Warnings for visibility; revisit together.
 
+## Manual Playlist Track Editing (web flows 3.4–3.6)
+
+→ **Scheduled as [v0.8.9: Manual Playlist Track Editing](v0.8.9.md#v089-manual-playlist-track-editing)** (2026-06-15). Confirmed for build; entry-identity threading first, then add → remove → reorder. Design-space in [design-debt-findings.md](design-debt-findings.md) §4 (F6).
+
 ## Playlist Link Enhancements
 
-- ~~**Browse/Search User's Playlists from Connector**~~ → Scheduled as [v0.8.1: Editor Polish, Templates & Playlist Browse](v0.8.x.md#v081-editor-polish-templates--playlist-browse)
+- ~~**Browse/Search User's Playlists from Connector**~~ → Scheduled as [v0.8.8: Editor Polish — Sub-Flows & Playlist Browse](v0.8.7-0.8.8.md#v088-editor-polish---sub-flows--playlist-browse)
 - **MIRROR Sync Direction** (L) - True bidirectional sync with conflict detection and resolution UI. Currently only push (canonical→external) and pull (external→canonical) are supported.
 - **Sync History Table** (M) - Full audit trail of all sync operations per link, beyond the current last-sync summary. Browsable in the UI.
 - **Scheduled Sync** (M) - Daily/weekly automatic sync of linked playlists via Prefect scheduling. Depends on PAUSED sync state.
@@ -109,10 +113,13 @@ Items explicitly descoped — they serve neither persona or are Data Exploiter t
 - **Multi-Language Support** — Serves neither persona at current scale.
 - **Advanced Analytics Dashboard** — Vague scope, no persona need. If workflow perf metrics are needed, a single metric on the existing dashboard suffices.
 
+## Design Debt (2026-06 review)
+
+→ **Scheduled into the v0.8.x series** (2026-06-15): the user-facing correctness cluster ships first as [v0.8.5 Operation & Surface Reliability](v0.8.5-0.8.6.md#v085-operation--surface-reliability); structural/cleanup items + the two rule-change proposals follow as [v0.8.6 Cycle Hardening & Cleanup](v0.8.5-0.8.6.md#v086-cycle-hardening--cleanup). Full evidence and design-spaces remain in [design-debt-findings.md](design-debt-findings.md).
 ## Deferred Clean Architecture Improvements
 
 - **Domain Layer Logging Abstraction** (S) - Remove infrastructure dependency from domain layer
 
 ## Testing & CI
 
-- **E2E suite hardening — restore mobile + functional coverage** (M) - The `web-e2e` CI job was chronically red (independent of any one feature) for two pre-existing reasons, descoped during the v0.8.1 ship to make the gate honest: (1) `navigation.spec.ts` and `playlist-browse.spec.ts` assert on **live backend data** but the Playwright CI container has no backend (`pnpm dev` can't boot Postgres+API there → `ECONNREFUSED`), violating the documented "mock the API via `page.route()`" pattern (`web-e2e-patterns.md`); (2) the `iphone-15-pro` project's baseline snapshots were never captured/committed (only `chromium` exists → every mobile shot fails "snapshot doesn't exist"). **To restore**: add `page.route()` fixtures to the two functional specs per the `auth-smoke.spec.ts` pass-through pattern, then remove them from `testIgnore` in `playwright.config.ts`; re-add the `iphone-15-pro` project and generate its baselines **in the pinned Playwright Docker image** (`web/e2e/README.md` procedure — local macOS PNGs won't match). Note: the chromium `visual.spec.ts` baselines currently capture *empty-state* pages (no backend), so consider whether visual baselines should be captured against mocked data for meaningful coverage.
+- **E2E suite hardening — restore mobile + functional coverage** (M) - The `web-e2e` CI job was chronically red (independent of any one feature) for two pre-existing reasons, descoped during the v0.8.1 ship to make the gate meaningful: (1) `navigation.spec.ts` and `playlist-browse.spec.ts` assert on **live backend data** but the Playwright CI container has no backend (`pnpm dev` can't boot Postgres+API there → `ECONNREFUSED`), violating the documented "mock the API via `page.route()`" pattern (`web-e2e-patterns.md`); (2) the `iphone-15-pro` project's baseline snapshots were never captured/committed (only `chromium` exists → every mobile shot fails "snapshot doesn't exist"). **To restore**: add `page.route()` fixtures to the two functional specs per the `auth-smoke.spec.ts` pass-through pattern, then remove them from `testIgnore` in `playwright.config.ts`; re-add the `iphone-15-pro` project and generate its baselines **in the pinned Playwright Docker image** (`web/e2e/README.md` procedure — local macOS PNGs won't match). Note: the chromium `visual.spec.ts` baselines currently capture *empty-state* pages (no backend), so consider whether visual baselines should be captured against mocked data for meaningful coverage.

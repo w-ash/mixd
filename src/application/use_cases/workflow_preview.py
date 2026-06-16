@@ -80,16 +80,16 @@ class PreviewWorkflowUseCase:
         Extracted from ``execute`` so the protective ``try`` clause stays small;
         the same statements remain guarded by the caller's broad ``except``.
         """
-        from src.application.services.progress_manager import get_progress_manager
+        from src.application.services.progress_broker import get_progress_broker
         from src.application.workflows.engine.executor import run_workflow
         from src.application.workflows.engine.observers import PreviewNodeObserver
 
-        progress_manager = get_progress_manager()
+        progress_broker = get_progress_broker()
         observer = PreviewNodeObserver(sse_queue=sse_queue)
 
         result = await run_workflow(
             workflow_def,
-            progress_manager=progress_manager,
+            progress_broker=progress_broker,
             observer=observer,
             dry_run=True,
             user_id=user_id,

@@ -6,13 +6,25 @@ isolated test database.
 """
 
 import json
+from unittest.mock import AsyncMock, patch
 
 import httpx
+import pytest
 
+from src.infrastructure.connectors._shared.token_storage import StoredToken
 from src.interface.api.services.progress import (
     SSE_SENTINEL,
     get_operation_registry,
 )
+
+
+def _connected_storage() -> AsyncMock:
+    """A TokenStorage mock that reports a stored token for every service."""
+    storage = AsyncMock()
+    storage.load_token = AsyncMock(
+        return_value=StoredToken(account_name="connected", session_key="sk")
+    )
+    return storage
 
 
 def _parse_sse_events(raw: str) -> list[dict[str, str]]:
@@ -45,6 +57,16 @@ def _parse_sse_events(raw: str) -> list[dict[str, str]]:
 
 class TestImportEndpoints:
     """Tests that import endpoints return operation_id responses."""
+
+    @pytest.fixture(autouse=True)
+    def _connected(self):
+        # The import routes 409 when the connector has no stored token (6c). These
+        # happy-path tests assert the trigger contract, so report a connected state.
+        with patch(
+            "src.interface.api.deps.get_token_storage",
+            return_value=_connected_storage(),
+        ):
+            yield
 
     async def test_import_lastfm_history_returns_operation_id(
         self, client: httpx.AsyncClient
@@ -122,6 +144,117 @@ class TestImportEndpoints:
         assert "operation_id" in response.json()
 
 
+class TestLastfmUsernameResolution:
+    """6b cross-tenant proof: a Last.fm import resolves the CONNECTED account, not env.
+
+    Seeds a real ``oauth_tokens`` row (cleaned up by the ``client`` fixture's
+    truncation) and asserts the importer resolves the stored ``account_name`` scoped
+    to the mixd user — never ``LASTFM_USERNAME`` env, never another tenant's account.
+    """
+
+    async def test_resolves_connected_account_never_env_or_other_tenant(
+        self, client: httpx.AsyncClient, monkeypatch
+    ):
+        from src.config import settings
+        from src.infrastructure.connectors.lastfm.play_importer import (
+            LastfmPlayImporter,
+        )
+        from src.infrastructure.persistence.repositories.token_storage import (
+            DatabaseTokenStorage,
+        )
+
+        # No env username — a web user must never read it.
+        monkeypatch.setattr(settings.credentials, "lastfm_username", "")
+
+        storage = DatabaseTokenStorage()
+        await storage.save_token(
+            "lastfm",
+            "default",
+            StoredToken(session_key="sk-a", token_type="session", account_name="alice"),
+        )
+        await storage.save_token(
+            "lastfm",
+            "other_user",
+            StoredToken(
+                session_key="sk-m", token_type="session", account_name="mallory"
+            ),
+        )
+
+        importer = LastfmPlayImporter(token_storage=DatabaseTokenStorage())
+
+        # Each mixd user resolves THEIR connected account — per-user scoping, no env.
+        assert await importer._resolve_username(None, "default") == "alice"
+        assert await importer._resolve_username(None, "other_user") == "mallory"
+
+    async def test_no_token_and_no_env_raises_clean_error(
+        self, client: httpx.AsyncClient, monkeypatch
+    ):
+        from src.config import settings
+        from src.domain.exceptions import LastfmAuthRequiredError
+        from src.infrastructure.connectors.lastfm.play_importer import (
+            LastfmPlayImporter,
+        )
+        from src.infrastructure.persistence.repositories.token_storage import (
+            DatabaseTokenStorage,
+        )
+
+        monkeypatch.setattr(settings.credentials, "lastfm_username", "")
+        importer = LastfmPlayImporter(token_storage=DatabaseTokenStorage())
+        with pytest.raises(LastfmAuthRequiredError):
+            await importer._resolve_username(None, "user-with-no-token")
+
+
+class TestConnectorConnectPreflight:
+    """6c: import routes 409 when the connector has no stored token."""
+
+    @staticmethod
+    def _disconnected():
+        storage = AsyncMock()
+        storage.load_token = AsyncMock(return_value=None)
+        return patch("src.interface.api.deps.get_token_storage", return_value=storage)
+
+    async def test_lastfm_history_409_when_not_connected(
+        self, client: httpx.AsyncClient
+    ):
+        with self._disconnected():
+            response = await client.post(
+                "/api/v1/imports/lastfm/history", json={"mode": "recent"}
+            )
+        assert response.status_code == 409
+        assert response.json()["error"]["code"] == "CONNECTOR_NOT_CONNECTED"
+        assert response.json()["error"]["details"]["connector"] == "lastfm"
+
+    async def test_spotify_likes_409_when_not_connected(
+        self, client: httpx.AsyncClient
+    ):
+        with self._disconnected():
+            response = await client.post("/api/v1/imports/spotify/likes", json={})
+        assert response.status_code == 409
+        assert response.json()["error"]["details"]["connector"] == "spotify"
+
+    async def test_lastfm_likes_export_409_when_not_connected(
+        self, client: httpx.AsyncClient
+    ):
+        with self._disconnected():
+            response = await client.post("/api/v1/imports/lastfm/likes", json={})
+        assert response.status_code == 409
+
+    async def test_spotify_history_upload_is_not_gated(self, client: httpx.AsyncClient):
+        # The GDPR file upload needs no live token — it must NOT be gated.
+        with self._disconnected():
+            response = await client.post(
+                "/api/v1/imports/spotify/history",
+                files={
+                    "file": (
+                        "history.json",
+                        json.dumps([]).encode(),
+                        "application/json",
+                    )
+                },
+            )
+        assert response.status_code == 200
+
+
 class TestSpotifyHistoryUploadSize:
     """Server-side upload size enforcement rejects oversized files."""
 
@@ -129,7 +262,6 @@ class TestSpotifyHistoryUploadSize:
         self, client: httpx.AsyncClient
     ) -> None:
         """Files exceeding MAX_UPLOAD_BYTES are rejected mid-stream."""
-        from unittest.mock import patch
 
         with patch("src.interface.api.routes.imports.BusinessLimits") as mock_limits:
             mock_limits.MAX_UPLOAD_BYTES = 1024  # 1 KB limit for test

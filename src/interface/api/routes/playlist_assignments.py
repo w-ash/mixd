@@ -102,8 +102,10 @@ async def apply_bulk_assignments(
     Import History page after the run completes.
     """
 
-    async def _apply(emitter: OperationBoundEmitter) -> None:
-        await run_apply_playlist_assignments(user_id=user_id, progress_emitter=emitter)
+    async def _apply(emitter: OperationBoundEmitter) -> object:
+        return await run_apply_playlist_assignments(
+            user_id=user_id, progress_emitter=emitter
+        )
 
     return await launch_sse_operation(
         user_id=user_id,

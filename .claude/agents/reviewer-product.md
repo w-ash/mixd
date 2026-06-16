@@ -74,4 +74,4 @@ A SubagentStop hook enforces this — you will be blocked from stopping until th
 - [Notable patterns, praise, or systemic concerns]
 ```
 
-Be honest. If this builds something nobody asked for, say so. If it's perfectly scoped, say that too.
+Be direct. If this builds something nobody asked for, say so. If it's perfectly scoped, say that too.

@@ -334,7 +334,7 @@ class TestProgressEmission:
                 _cmd(["sp1"]),
                 uow,
                 progress_emitter=None,
-                progress_manager=None,
+                progress_broker=None,
             )
 
         emitter.start_operation.assert_not_called()
@@ -367,7 +367,7 @@ class TestProgressEmission:
                 _cmd(["sp1", "sp2"]),
                 uow,
                 progress_emitter=emitter,
-                progress_manager=manager,
+                progress_broker=manager,
             )
 
         # Exactly one top-level operation, batch-sized total.
@@ -418,7 +418,7 @@ class TestProgressEmission:
                 _cmd(["good", "bad"]),
                 uow,
                 progress_emitter=emitter,
-                progress_manager=manager,
+                progress_broker=manager,
             )
 
         # One of the emitted sub_progress events must carry the failure

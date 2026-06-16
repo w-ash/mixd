@@ -88,6 +88,18 @@ class TestSpotifyTokenManager:
         result = await manager.try_silent_refresh()
         assert result is None
 
+    async def test_get_valid_token_raises_when_no_token_instead_of_browser_auth(
+        self, manager: SpotifyTokenManager, mock_storage: AsyncMock
+    ):
+        """Server-safe: with no stored token, get_valid_token raises rather than
+        launching the blocking browser OAuth flow inside the FastAPI worker."""
+        from src.domain.exceptions import SpotifyAuthRequiredError
+
+        mock_storage.load_token.return_value = None
+
+        with pytest.raises(SpotifyAuthRequiredError):
+            await manager.get_valid_token()
+
     async def test_try_silent_refresh_returns_valid_token(
         self, manager: SpotifyTokenManager, mock_storage: AsyncMock
     ):

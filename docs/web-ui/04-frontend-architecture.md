@@ -42,7 +42,7 @@ Both interfaces call `execute_use_case()` from `src/application/runner.py` — t
 |---------|---------------------------|---------------------------|
 | Input parsing | Typer args/options | FastAPI request body/params |
 | Auth | N/A (local user) | Session/token (v0.3.0: none) |
-| Progress display | `RichProgressProvider` | `SSEProgressProvider` |
+| Progress display | `RichProgressSubscriber` | `SSEProgressSubscriber` |
 | Output rendering | Rich tables/panels | JSON responses |
 | Async bridge | `run_async()` (sync→async) | Native async (no bridge needed) |
 
@@ -57,7 +57,7 @@ Both interfaces call `execute_use_case()` from `src/application/runner.py` — t
 
 ### SSE Progress Provider (v0.3.1)
 
-- `OperationBoundEmitter` implements `ProgressEmitter` protocol (same interface the CLI's `RichProgressProvider` uses)
+- `OperationBoundEmitter` implements `ProgressEmitter` protocol (same interface the CLI's `RichProgressSubscriber` uses)
 - `OperationRegistry` manages per-operation SSE queues with `asyncio.Queue` for event fan-out
 - Background task lifecycle: `_launch_background()` accepts a coroutine *factory* (not a pre-created coroutine) to prevent leaked unawaited coroutine warnings in tests
 - `_active_operations` set tracks logically running imports separately from `_background_tasks` — the 429 concurrency limit checks active operations, not draining tasks

@@ -16,12 +16,13 @@ from src.application.connector_protocols import TrackMetadataConnector
 from src.application.services.metrics_application_service import (
     MetricsApplicationService,
 )
-from src.application.services.progress_manager import AsyncProgressManager
+from src.application.services.progress_broker import ProgressBroker
 from src.application.utilities.timing import ExecutionTimer
 from src.config import get_logger
 from src.config.logging import logging_context
 from src.domain.entities.shared import MetricValue
 from src.domain.entities.track import TrackList
+from src.domain.exceptions import EnrichmentFailedError
 from src.domain.repositories import UnitOfWorkProtocol
 
 if TYPE_CHECKING:
@@ -90,7 +91,7 @@ class EnrichTracksCommand:
     user_id: str
     tracklist: TrackList
     enrichment_config: EnrichmentConfig
-    progress_manager: AsyncProgressManager | None = None
+    progress_broker: ProgressBroker | None = None
     parent_operation_id: str | None = None
 
     def __attrs_post_init__(self) -> None:
@@ -179,18 +180,18 @@ class EnrichTracksUseCase:
                 try:
                     return await self._run_enrichment_strategy(command, uow, timer)
 
+                except EnrichmentFailedError:
+                    raise
                 except Exception as e:
-                    error_msg = f"Track enrichment failed: {e}"
-                    logger.error(error_msg)
-
-                    return EnrichTracksResult(
-                        enriched_tracklist=command.tracklist,
-                        metrics_added={},
-                        track_count=len(command.tracklist.tracks),
-                        enriched_count=0,
-                        execution_time_ms=timer.stop(),
-                        errors=[error_msg],
-                    )
+                    # Don't swallow into a success-shaped result: a total
+                    # enrichment failure must surface so the executor degrades
+                    # (run completes visibly degraded) rather than letting a
+                    # downstream filter silently drop every track. The CLI and
+                    # web both render the resulting FAILED/degraded run.
+                    logger.error(f"Track enrichment failed: {e}")
+                    raise EnrichmentFailedError(
+                        command.enrichment_config.enrichment_type, str(e)
+                    ) from e
 
     async def _run_enrichment_strategy(
         self,
@@ -214,7 +215,7 @@ class EnrichTracksUseCase:
                 command.enrichment_config,
                 uow,
                 user_id=command.user_id,
-                progress_manager=command.progress_manager,
+                progress_broker=command.progress_broker,
                 parent_operation_id=command.parent_operation_id,
             )
         elif command.enrichment_config.enrichment_type == "play_history":
@@ -263,7 +264,7 @@ class EnrichTracksUseCase:
         uow: UnitOfWorkProtocol,
         *,
         user_id: str,
-        progress_manager: AsyncProgressManager | None = None,
+        progress_broker: ProgressBroker | None = None,
         parent_operation_id: str | None = None,
     ) -> tuple[TrackList, dict[str, dict[UUID, MetricValue]]]:
         """Enriches tracks with metadata from external APIs.
@@ -311,7 +312,7 @@ class EnrichTracksUseCase:
             connector_instance=config.connector_instance,
             uow=uow,
             user_id=user_id,
-            progress_manager=progress_manager,
+            progress_broker=progress_broker,
             parent_operation_id=parent_operation_id,
         )
 
@@ -322,7 +323,7 @@ class EnrichTracksUseCase:
             metric_names=metric_names,
             uow=uow,
             connector_instance=config.connector_instance,
-            progress_manager=progress_manager,
+            progress_broker=progress_broker,
             parent_operation_id=parent_operation_id,
         )
 
@@ -474,7 +475,7 @@ class EnrichTracksUseCase:
         uow: UnitOfWorkProtocol,
         *,
         user_id: str,
-        progress_manager: AsyncProgressManager | None = None,
+        progress_broker: ProgressBroker | None = None,
         parent_operation_id: str | None = None,
     ) -> None:
         """Ensure tracks have connector mappings by coordinating with the identity resolution system.
@@ -487,7 +488,7 @@ class EnrichTracksUseCase:
             connector: External service name (e.g., "lastfm").
             connector_instance: Connector instance for API calls.
             uow: Unit of work for database access.
-            progress_manager: Optional progress manager for sub-operation tracking.
+            progress_broker: Optional progress manager for sub-operation tracking.
             parent_operation_id: Parent operation ID for sub-operation nesting.
         """
         logger.info(
@@ -503,7 +504,7 @@ class EnrichTracksUseCase:
                 connector_instance,
                 uow,
                 user_id=user_id,
-                progress_manager=progress_manager,
+                progress_broker=progress_broker,
                 parent_operation_id=parent_operation_id,
             )
 
@@ -523,7 +524,7 @@ class EnrichTracksUseCase:
         uow: UnitOfWorkProtocol,
         *,
         user_id: str,
-        progress_manager: AsyncProgressManager | None = None,
+        progress_broker: ProgressBroker | None = None,
         parent_operation_id: str | None = None,
     ) -> None:
         """Run identity resolution via ``MatchAndIdentifyTracksUseCase``.
@@ -542,7 +543,7 @@ class EnrichTracksUseCase:
             tracklist=tracklist,
             connector=connector,
             connector_instance=connector_instance,
-            progress_manager=progress_manager,
+            progress_broker=progress_broker,
             parent_operation_id=parent_operation_id,
         )
 
