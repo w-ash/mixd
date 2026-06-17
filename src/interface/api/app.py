@@ -254,9 +254,11 @@ def _mount_static(app: FastAPI) -> None:
         app.mount("/assets", StaticFiles(directory=str(assets_dir)), name="assets")
 
     # SPA catch-all: any non-API, non-asset path returns index.html
-    # so React Router can handle client-side routing
-    @app.get("/{path:path}", include_in_schema=False)
-    async def spa_catchall(path: str) -> FileResponse:  # pyright: ignore[reportUnusedFunction]
+    # so React Router can handle client-side routing.
+    # Registered by calling the decorator as a plain function (rather than `@`)
+    # so `spa_catchall` is referenced as an argument — that avoids pyright's
+    # reportUnusedFunction on the inner handler without a suppression.
+    async def spa_catchall(path: str) -> FileResponse:
         # Never intercept API routes — let FastAPI return its own 404/422
         if path.startswith("api/"):
             from fastapi import HTTPException
@@ -273,6 +275,8 @@ def _mount_static(app: FastAPI) -> None:
         ):
             return FileResponse(str(file_path))
         return FileResponse(str(index_html))
+
+    app.get("/{path:path}", include_in_schema=False)(spa_catchall)
 
 
 # Module-level instance for uvicorn CLI: `uvicorn src.interface.api.app:app`

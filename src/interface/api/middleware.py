@@ -2,6 +2,23 @@
 
 Maps Python exceptions to structured JSON error envelopes so the frontend
 always receives a consistent error shape regardless of what goes wrong.
+
+Handlers are registered imperatively via ``app.add_exception_handler`` rather
+than the ``@app.exception_handler`` decorator. Two reasons, both about keeping
+the type checker honest without suppressions:
+
+1. A decorator-captured *inner* function reads as never-referenced to pyright
+   (``reportUnusedFunction``, "as designed"). Passing the handler as an argument
+   to ``add_exception_handler`` references it, so the warning never fires.
+2. Starlette types handlers as ``Callable[[Request, Exception], ...]``. Because
+   ``Callable`` is contravariant in its parameters, a handler annotated with a
+   specific exception subtype is *not* assignable to that alias. So each handler
+   takes ``exc: Exception`` and re-narrows with an ``isinstance`` guard before
+   reading subtype-specific attributes — runtime-checked narrowing pyright can
+   follow, with no cast and no suppression. (A plain ``assert`` would do the same
+   but is stripped under ``python -O`` and banned by ruff S101, so we use an
+   explicit guard that falls back to the generic handler in the — unreachable —
+   event of a type mismatch.)
 """
 
 from fastapi import FastAPI, Request
@@ -28,8 +45,19 @@ logger = get_logger(__name__)
 def register_exception_handlers(app: FastAPI) -> None:
     """Register global exception-to-HTTP-error-envelope handlers."""
 
-    @app.exception_handler(NotFoundError)
-    async def not_found_handler(_request: Request, exc: NotFoundError) -> JSONResponse:  # pyright: ignore[reportUnusedFunction]
+    async def generic_error_handler(_request: Request, exc: Exception) -> JSONResponse:
+        logger.error("Unhandled API error", error=str(exc), exc_info=exc)
+        return JSONResponse(
+            status_code=500,
+            content={
+                "error": {
+                    "code": "INTERNAL_ERROR",
+                    "message": "An internal error occurred",
+                }
+            },
+        )
+
+    async def not_found_handler(_request: Request, exc: Exception) -> JSONResponse:
         return JSONResponse(
             status_code=404,
             content={
@@ -40,10 +68,13 @@ def register_exception_handlers(app: FastAPI) -> None:
             },
         )
 
-    @app.exception_handler(OptimisticLockError)
-    async def optimistic_lock_handler(  # pyright: ignore[reportUnusedFunction]
-        _request: Request, exc: OptimisticLockError
+    async def optimistic_lock_handler(
+        _request: Request, exc: Exception
     ) -> JSONResponse:
+        if not isinstance(
+            exc, OptimisticLockError
+        ):  # pragma: no cover — dispatch guarantees the type
+            return await generic_error_handler(_request, exc)
         return JSONResponse(
             status_code=409,
             content={
@@ -58,10 +89,13 @@ def register_exception_handlers(app: FastAPI) -> None:
             },
         )
 
-    @app.exception_handler(ConfirmationRequiredError)
-    async def confirmation_required_handler(  # pyright: ignore[reportUnusedFunction]
-        _request: Request, exc: ConfirmationRequiredError
+    async def confirmation_required_handler(
+        _request: Request, exc: Exception
     ) -> JSONResponse:
+        if not isinstance(
+            exc, ConfirmationRequiredError
+        ):  # pragma: no cover — dispatch guarantees the type
+            return await generic_error_handler(_request, exc)
         return JSONResponse(
             status_code=409,
             content={
@@ -77,10 +111,13 @@ def register_exception_handlers(app: FastAPI) -> None:
             },
         )
 
-    @app.exception_handler(WorkflowAlreadyRunningError)
-    async def workflow_running_handler(  # pyright: ignore[reportUnusedFunction]
-        _request: Request, exc: WorkflowAlreadyRunningError
+    async def workflow_running_handler(
+        _request: Request, exc: Exception
     ) -> JSONResponse:
+        if not isinstance(
+            exc, WorkflowAlreadyRunningError
+        ):  # pragma: no cover — dispatch guarantees the type
+            return await generic_error_handler(_request, exc)
         return JSONResponse(
             status_code=409,
             content={
@@ -92,10 +129,13 @@ def register_exception_handlers(app: FastAPI) -> None:
             },
         )
 
-    @app.exception_handler(ScheduleAlreadyExistsError)
-    async def schedule_exists_handler(  # pyright: ignore[reportUnusedFunction]
-        _request: Request, exc: ScheduleAlreadyExistsError
+    async def schedule_exists_handler(
+        _request: Request, exc: Exception
     ) -> JSONResponse:
+        if not isinstance(
+            exc, ScheduleAlreadyExistsError
+        ):  # pragma: no cover — dispatch guarantees the type
+            return await generic_error_handler(_request, exc)
         return JSONResponse(
             status_code=409,
             content={
@@ -107,10 +147,13 @@ def register_exception_handlers(app: FastAPI) -> None:
             },
         )
 
-    @app.exception_handler(ScheduleInvariantError)
-    async def schedule_invariant_handler(  # pyright: ignore[reportUnusedFunction]
-        _request: Request, exc: ScheduleInvariantError
+    async def schedule_invariant_handler(
+        _request: Request, exc: Exception
     ) -> JSONResponse:
+        if not isinstance(
+            exc, ScheduleInvariantError
+        ):  # pragma: no cover — dispatch guarantees the type
+            return await generic_error_handler(_request, exc)
         # A malformed schedule that slipped past request validation and tripped a
         # DB CHECK is a validation failure (422), not a server fault (500).
         return JSONResponse(
@@ -124,10 +167,13 @@ def register_exception_handlers(app: FastAPI) -> None:
             },
         )
 
-    @app.exception_handler(ConnectorNotAvailableError)
-    async def connector_not_available_handler(  # pyright: ignore[reportUnusedFunction]
-        _request: Request, exc: ConnectorNotAvailableError
+    async def connector_not_available_handler(
+        _request: Request, exc: Exception
     ) -> JSONResponse:
+        if not isinstance(
+            exc, ConnectorNotAvailableError
+        ):  # pragma: no cover — dispatch guarantees the type
+            return await generic_error_handler(_request, exc)
         return JSONResponse(
             status_code=503,
             content={
@@ -139,9 +185,8 @@ def register_exception_handlers(app: FastAPI) -> None:
             },
         )
 
-    @app.exception_handler(SpotifyAuthRequiredError)
-    async def spotify_auth_required_handler(  # pyright: ignore[reportUnusedFunction]
-        _request: Request, exc: SpotifyAuthRequiredError
+    async def spotify_auth_required_handler(
+        _request: Request, exc: Exception
     ) -> JSONResponse:
         # Not connected is a precondition the user must resolve (connect Spotify),
         # not a server fault — surface the connect hint instead of an opaque 500.
@@ -155,9 +200,6 @@ def register_exception_handlers(app: FastAPI) -> None:
             },
         )
 
-    # Registered imperatively (not via the @app.exception_handler decorator) so the
-    # handler is *referenced* as an argument — that keeps the type checker happy
-    # without a reportUnusedFunction suppression.
     async def lastfm_auth_required_handler(
         _request: Request, exc: Exception
     ) -> JSONResponse:
@@ -174,25 +216,22 @@ def register_exception_handlers(app: FastAPI) -> None:
     async def connector_not_connected_handler(
         _request: Request, exc: Exception
     ) -> JSONResponse:
-        connector = exc.connector if isinstance(exc, ConnectorNotConnectedError) else ""
+        if not isinstance(
+            exc, ConnectorNotConnectedError
+        ):  # pragma: no cover — dispatch guarantees the type
+            return await generic_error_handler(_request, exc)
         return JSONResponse(
             status_code=409,
             content={
                 "error": {
                     "code": "CONNECTOR_NOT_CONNECTED",
                     "message": str(exc),
-                    "details": {"connector": connector},
+                    "details": {"connector": exc.connector},
                 }
             },
         )
 
-    app.add_exception_handler(LastfmAuthRequiredError, lastfm_auth_required_handler)
-    app.add_exception_handler(
-        ConnectorNotConnectedError, connector_not_connected_handler
-    )
-
-    @app.exception_handler(ValueError)
-    async def value_error_handler(_request: Request, exc: ValueError) -> JSONResponse:  # pyright: ignore[reportUnusedFunction]
+    async def value_error_handler(_request: Request, exc: Exception) -> JSONResponse:
         return JSONResponse(
             status_code=400,
             content={
@@ -203,10 +242,7 @@ def register_exception_handlers(app: FastAPI) -> None:
             },
         )
 
-    @app.exception_handler(DatabaseError)
-    async def database_error_handler(  # pyright: ignore[reportUnusedFunction]
-        _request: Request, exc: DatabaseError
-    ) -> JSONResponse:
+    async def database_error_handler(_request: Request, exc: Exception) -> JSONResponse:
         from src.infrastructure.persistence.database.error_classification import (
             classify_database_error,
         )
@@ -229,15 +265,20 @@ def register_exception_handlers(app: FastAPI) -> None:
             },
         )
 
-    @app.exception_handler(Exception)
-    async def generic_error_handler(_request: Request, exc: Exception) -> JSONResponse:  # pyright: ignore[reportUnusedFunction]
-        logger.error("Unhandled API error", error=str(exc), exc_info=exc)
-        return JSONResponse(
-            status_code=500,
-            content={
-                "error": {
-                    "code": "INTERNAL_ERROR",
-                    "message": "An internal error occurred",
-                }
-            },
-        )
+    app.add_exception_handler(NotFoundError, not_found_handler)
+    app.add_exception_handler(OptimisticLockError, optimistic_lock_handler)
+    app.add_exception_handler(ConfirmationRequiredError, confirmation_required_handler)
+    app.add_exception_handler(WorkflowAlreadyRunningError, workflow_running_handler)
+    app.add_exception_handler(ScheduleAlreadyExistsError, schedule_exists_handler)
+    app.add_exception_handler(ScheduleInvariantError, schedule_invariant_handler)
+    app.add_exception_handler(
+        ConnectorNotAvailableError, connector_not_available_handler
+    )
+    app.add_exception_handler(SpotifyAuthRequiredError, spotify_auth_required_handler)
+    app.add_exception_handler(LastfmAuthRequiredError, lastfm_auth_required_handler)
+    app.add_exception_handler(
+        ConnectorNotConnectedError, connector_not_connected_handler
+    )
+    app.add_exception_handler(ValueError, value_error_handler)
+    app.add_exception_handler(DatabaseError, database_error_handler)
+    app.add_exception_handler(Exception, generic_error_handler)
