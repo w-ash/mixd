@@ -8,7 +8,7 @@ confidence levels. Supports a recency window for trend analysis.
 from attrs import define
 
 from src.config.constants import MatchMethod
-from src.domain.repositories.interfaces import UnitOfWorkProtocol
+from src.domain.repositories.uow import UnitOfWorkProtocol
 
 
 @define(frozen=True, slots=True)

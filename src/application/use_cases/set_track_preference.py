@@ -17,7 +17,7 @@ from src.domain.entities.preference import (
     resolve_preference_change,
 )
 from src.domain.entities.sourced_metadata import MetadataSource
-from src.domain.repositories import UnitOfWorkProtocol
+from src.domain.repositories.uow import UnitOfWorkProtocol
 
 logger = get_logger(__name__)
 

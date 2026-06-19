@@ -35,7 +35,7 @@ from src.domain.entities.workflow import (
     WorkflowRunNode,
 )
 from src.domain.exceptions import NotFoundError
-from src.domain.repositories.interfaces import UnitOfWorkProtocol
+from src.domain.repositories.uow import UnitOfWorkProtocol
 
 logger = get_logger(__name__).bind(service="workflow_runs")
 

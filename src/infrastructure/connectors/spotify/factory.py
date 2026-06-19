@@ -5,7 +5,7 @@ Implements clean architecture by providing creation functions for all Spotify se
 without exposing Spotify internals to other layers.
 """
 
-from src.domain.repositories import PlayImporterProtocol
+from src.domain.repositories.play import PlayImporterProtocol
 
 from .play_resolver import SpotifyConnectorPlayResolver
 

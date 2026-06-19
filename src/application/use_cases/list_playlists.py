@@ -7,7 +7,7 @@ and UnitOfWork pattern, without direct infrastructure dependencies.
 from attrs import define
 
 from src.domain.entities import Playlist
-from src.domain.repositories.interfaces import UnitOfWorkProtocol
+from src.domain.repositories.uow import UnitOfWorkProtocol
 
 
 @define(frozen=True, slots=True)

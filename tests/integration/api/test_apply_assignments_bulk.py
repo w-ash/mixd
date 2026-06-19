@@ -16,7 +16,7 @@ import asyncio
 
 import httpx
 
-from src.domain.repositories import UnitOfWorkProtocol
+from src.domain.repositories.uow import UnitOfWorkProtocol
 
 
 class TestBulkApplyAssignmentsRoute:

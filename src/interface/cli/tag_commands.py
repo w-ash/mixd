@@ -135,7 +135,7 @@ def tracks_for_tag(
 ) -> None:
     """List tracks carrying a given tag."""
     from src.application.runner import execute_use_case
-    from src.domain.repositories import UnitOfWorkProtocol
+    from src.domain.repositories.uow import UnitOfWorkProtocol
 
     validated_tag = validate_tag(tag)
     user_id = get_cli_user_id()
@@ -179,7 +179,7 @@ def batch_tag(
     """Apply one tag to every track in a playlist."""
     from src.application.runner import execute_use_case
     from src.application.use_cases.batch_tag_tracks import run_batch_tag_tracks
-    from src.domain.repositories import UnitOfWorkProtocol
+    from src.domain.repositories.uow import UnitOfWorkProtocol
 
     validated_tag = validate_tag(tag)
     user_id = get_cli_user_id()

@@ -16,8 +16,8 @@ from src.config import get_logger
 from src.config.constants import BusinessLimits
 from src.domain.entities import utc_now_factory
 from src.domain.entities.track import TrackList, TrackListMetadata
-from src.domain.repositories import UnitOfWorkProtocol
-from src.domain.repositories.interfaces import PlaySortBy
+from src.domain.repositories.play import PlaySortBy
+from src.domain.repositories.uow import UnitOfWorkProtocol
 
 logger = get_logger(__name__)
 

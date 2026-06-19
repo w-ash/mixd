@@ -94,6 +94,52 @@ class TestSyncPlaylistLinkPush:
             assert result.tracks_removed == 1
             mock_push.assert_called_once()
 
+    @pytest.mark.asyncio
+    async def test_push_surfaces_unmatched_from_metadata(self):
+        """operations_dropped in the push metadata becomes tracks_unmatched and persists.
+
+        Runs the REAL _push_sync (only the connector use case is mocked) so the
+        extraction from external_metadata is exercised end to end.
+        """
+        from src.application.use_cases.update_connector_playlist import (
+            UpdateConnectorPlaylistUseCase,
+        )
+
+        uow = _make_uow_with_link()
+        uow.get_playlist_link_repository().get_link.side_effect = [
+            _make_link(),
+            _make_link(status=SyncStatus.SYNCED),
+        ]
+
+        push_result = UpdateConnectorPlaylistResult(
+            connector_playlist_identifier=ConnectorPlaylistIdentifier("ext123"),
+            connector="spotify",
+            tracks_added=3,
+            tracks_removed=1,
+            external_metadata={"operations_dropped": 2},
+        )
+
+        with patch.object(
+            UpdateConnectorPlaylistUseCase, "execute", new_callable=AsyncMock
+        ) as mock_exec:
+            mock_exec.return_value = push_result
+            result = await SyncPlaylistLinkUseCase().execute(
+                # confirmed=True skips the cached-external safety check
+                SyncPlaylistLinkCommand(
+                    user_id="test-user", link_id=_LINK_ID, confirmed=True
+                ),
+                uow,
+            )
+
+        assert result.tracks_unmatched == 2
+        # The SYNCED status write must carry the unmatched count for persistence.
+        synced_calls = [
+            c
+            for c in uow.get_playlist_link_repository().update_sync_status.call_args_list
+            if c.args[1] == SyncStatus.SYNCED
+        ]
+        assert synced_calls[0].kwargs["tracks_unmatched"] == 2
+
 
 class TestSyncPlaylistLinkPull:
     """Pull sync (external → canonical)."""

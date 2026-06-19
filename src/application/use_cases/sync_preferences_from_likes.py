@@ -22,7 +22,7 @@ from src.domain.entities.preference import (
     TrackPreference,
     resolve_preference_change,
 )
-from src.domain.repositories import UnitOfWorkProtocol
+from src.domain.repositories.uow import UnitOfWorkProtocol
 
 logger = get_logger(__name__)
 

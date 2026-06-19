@@ -7,11 +7,8 @@ needing to know about specific connectors.
 
 from collections.abc import Awaitable, Callable
 
-from src.domain.repositories import (
-    PlayImporterProtocol,
-    PlayResolverProtocol,
-    UnitOfWorkProtocol,
-)
+from src.domain.repositories.play import PlayImporterProtocol, PlayResolverProtocol
+from src.domain.repositories.uow import UnitOfWorkProtocol
 
 # Concrete factory types — eliminates Callable[..., Any]
 type _ImporterFactory = Callable[[UnitOfWorkProtocol], Awaitable[PlayImporterProtocol]]

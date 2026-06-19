@@ -12,8 +12,8 @@ from typing import cast, override
 from src.config import get_logger
 from src.domain.entities import ConnectorTrackPlay, OperationResult
 from src.domain.entities.progress import NullProgressEmitter, ProgressEmitter
-from src.domain.repositories import PlayImporterProtocol
-from src.domain.repositories.interfaces import UnitOfWorkProtocol
+from src.domain.repositories.play import PlayImporterProtocol
+from src.domain.repositories.uow import UnitOfWorkProtocol
 from src.infrastructure.connectors.spotify.personal_data import (
     SpotifyPlayRecord,
     parse_spotify_personal_data,

@@ -9,7 +9,7 @@ from collections.abc import Awaitable, Callable
 from attrs import define
 
 from src.config.constants import BusinessLimits
-from src.domain.repositories import UnitOfWorkProtocol
+from src.domain.repositories.uow import UnitOfWorkProtocol
 
 # Approved infrastructure bridge: context.py is a DI container (like runner.py and
 # executor.py). Infrastructure imports for session creation and SQLAlchemy AsyncSession

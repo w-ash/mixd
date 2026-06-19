@@ -29,7 +29,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 **Layer invariants** (hold even when creating a new file, before the path-scoped rule loads):
 - `domain/`: entities `@define(frozen=True, slots=True)`, pure (no I/O), imports only domain + stdlib
 - each layer imports inward only (Interface → Application → Domain ← Infrastructure); never reach sideways/outward
-- `interface/` data access only via `execute_use_case()`; API route handlers stay 5–10 lines
+- `interface/` data access only via `execute_use_case()` — **exception:** connector OAuth/token management (auth-URL, code exchange, `TokenStorage` read/write) shares infrastructure helpers directly by design (the v0.6.5 Shared OAuth Utilities decision, so CLI + web reuse one `exchange_code`); API route handlers stay 5–10 lines
 - `application/` owns transactions (`async with uow:`); Commands/Results are frozen attrs
 
 Layer-specific rules auto-load from `.claude/rules/` when editing matching files (note: they fire on read/edit, not always on new-file creation — the invariants above are the always-loaded safety net).
@@ -75,7 +75,7 @@ Layer-specific coding patterns (attrs, SQLAlchemy, repository, use cases) live i
 
 ## Planning a Feature
 
-Every feature serves a persona ([docs/personas.md](docs/personas.md)) and a user story ([docs/user-flows.md](docs/user-flows.md)) backed by a backlog spec ([docs/backlog/](docs/backlog/)). Verify the story's Given/When/Then criteria pass after implementing, and propose updates to user-flows.md if development reveals gaps.
+Every feature serves a persona ([docs/personas.md](docs/personas.md)) and a user story ([docs/web-ui/01-user-flows.md](docs/web-ui/01-user-flows.md)) backed by a backlog spec ([docs/backlog/](docs/backlog/)). Verify the story's Given/When/Then criteria pass after implementing, and propose updates to 01-user-flows.md if development reveals gaps.
 
 ## Testing
 

@@ -16,7 +16,7 @@ from src.application.workflows.protocols import NodeResult
 from src.config import get_logger
 from src.domain.entities.shared import JsonValue
 from src.domain.entities.track import TrackList
-from src.domain.repositories import UnitOfWorkProtocol
+from src.domain.repositories.uow import UnitOfWorkProtocol
 
 from .execution_context import NodeContext
 

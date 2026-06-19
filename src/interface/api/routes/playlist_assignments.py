@@ -25,7 +25,7 @@ from src.application.use_cases.delete_playlist_assignment import (
     DeletePlaylistAssignmentCommand,
     DeletePlaylistAssignmentUseCase,
 )
-from src.domain.repositories import UnitOfWorkProtocol
+from src.domain.repositories.uow import UnitOfWorkProtocol
 from src.interface.api.deps import get_current_user_id
 from src.interface.api.schemas.imports import OperationStartedResponse
 from src.interface.api.schemas.playlist_assignments import (

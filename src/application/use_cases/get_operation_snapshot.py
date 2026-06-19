@@ -15,7 +15,7 @@ from attrs import define
 
 from src.domain.entities.workflow import WorkflowRun
 from src.domain.exceptions import NotFoundError
-from src.domain.repositories import UnitOfWorkProtocol
+from src.domain.repositories.uow import UnitOfWorkProtocol
 
 
 @define(frozen=True, slots=True)

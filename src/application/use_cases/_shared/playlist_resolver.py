@@ -10,7 +10,7 @@ from src.config import get_logger
 from src.domain.entities.playlist import Playlist
 from src.domain.entities.playlist_link import PlaylistLink
 from src.domain.exceptions import NotFoundError
-from src.domain.repositories import UnitOfWorkProtocol
+from src.domain.repositories.uow import UnitOfWorkProtocol
 
 logger = get_logger(__name__)
 

@@ -16,7 +16,7 @@ from src.application.workflows.definition.loader import (
 )
 from src.config.logging import get_logger
 from src.domain.entities.workflow import Workflow
-from src.domain.repositories.interfaces import UnitOfWorkProtocol
+from src.domain.repositories.uow import UnitOfWorkProtocol
 
 logger = get_logger(__name__)
 

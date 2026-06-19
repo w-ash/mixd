@@ -10,8 +10,8 @@ from src.config import get_logger, settings
 from src.config.constants import MatchMethod, SpotifyConstants
 from src.domain.entities import ConnectorTrackPlay, Track, TrackPlay
 from src.domain.entities.operations import TrackContextFields
-from src.domain.repositories import UnitOfWorkProtocol
-from src.domain.repositories.interfaces import ResolutionMetrics
+from src.domain.repositories.play import ResolutionMetrics
+from src.domain.repositories.uow import UnitOfWorkProtocol
 from src.infrastructure.connectors.spotify import SpotifyConnector
 from src.infrastructure.connectors.spotify.inward_resolver import (
     FallbackHint,

@@ -28,7 +28,7 @@ from src.config import get_logger
 from src.config.settings import settings
 from src.domain.entities.playlist import ConnectorPlaylist
 from src.domain.entities.shared import ConnectorPlaylistIdentifier
-from src.domain.repositories import UnitOfWorkProtocol
+from src.domain.repositories.uow import UnitOfWorkProtocol
 
 logger = get_logger(__name__)
 

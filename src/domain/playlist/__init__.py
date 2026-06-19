@@ -4,6 +4,7 @@ from .diff_engine import (
     PlaylistDiff,
     PlaylistOperation,
     PlaylistOperationType,
+    PlaylistOpsOutcome,
     calculate_playlist_diff,
     sequence_operations_for_spotify,
 )
@@ -13,6 +14,7 @@ __all__ = [
     "PlaylistDiff",
     "PlaylistOperation",
     "PlaylistOperationType",
+    "PlaylistOpsOutcome",
     "SyncSafetyResult",
     "calculate_playlist_diff",
     "check_sync_safety",

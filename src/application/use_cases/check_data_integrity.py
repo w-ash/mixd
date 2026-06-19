@@ -10,7 +10,7 @@ from attrs import define
 from src.config.constants import IntegrityConstants
 from src.domain.entities import CheckStatus
 from src.domain.entities.integrity import IntegrityCheckResult, IntegrityReport
-from src.domain.repositories import UnitOfWorkProtocol
+from src.domain.repositories.uow import UnitOfWorkProtocol
 
 
 @define(frozen=True, slots=True)

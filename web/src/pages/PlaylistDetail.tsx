@@ -49,6 +49,7 @@ import {
 import { SyncConfirmationDialog } from "#/components/shared/SyncConfirmationDialog";
 import { TableCard } from "#/components/shared/TableCard";
 import { TitleLink } from "#/components/shared/TitleLink";
+import { UnmatchedBadge } from "#/components/shared/UnmatchedBadge";
 import { Button } from "#/components/ui/button";
 import {
   DialogDescription,
@@ -730,6 +731,7 @@ function LinkedServicesSection({ playlistId }: { playlistId: string }) {
                           undefined)
                     }
                   />
+                  <UnmatchedBadge count={link.last_sync_tracks_unmatched} />
                 </div>
               </ConnectorListItem>
             );

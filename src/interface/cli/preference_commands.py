@@ -96,7 +96,7 @@ def list_preferences(
 ) -> None:
     """List tracks with a specific preference."""
     from src.application.runner import execute_use_case
-    from src.domain.repositories import UnitOfWorkProtocol
+    from src.domain.repositories.uow import UnitOfWorkProtocol
 
     validated_state = validate_preference_state(state)
     user_id = get_cli_user_id()

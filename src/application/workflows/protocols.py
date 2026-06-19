@@ -37,7 +37,7 @@ from src.application.use_cases.update_connector_playlist import (
 )
 from src.domain.entities.track import TrackList
 from src.domain.entities.workflow import NodeExecutionEvent, RunStatus
-from src.domain.repositories import UnitOfWorkProtocol
+from src.domain.repositories.uow import UnitOfWorkProtocol
 
 
 class UseCase[TCommand, TResult](Protocol):

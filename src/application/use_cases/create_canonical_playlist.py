@@ -24,7 +24,7 @@ from src.domain.entities import utc_now_factory
 from src.domain.entities.playlist import ConnectorPlaylist, Playlist, PlaylistEntry
 from src.domain.entities.shared import JsonValue, empty_json_map
 from src.domain.entities.track import TrackList
-from src.domain.repositories import UnitOfWorkProtocol
+from src.domain.repositories.uow import UnitOfWorkProtocol
 
 logger = get_logger(__name__)
 

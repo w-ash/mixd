@@ -11,7 +11,7 @@ from src.application.use_cases.list_tracks import (
     ListTracksResult,
     ListTracksUseCase,
 )
-from src.domain.repositories.interfaces import TrackListingPage
+from src.domain.repositories.track import TrackListingPage
 from tests.fixtures import make_tracks
 from tests.fixtures.mocks import make_mock_uow
 

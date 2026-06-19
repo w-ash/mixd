@@ -37,7 +37,7 @@ from src.domain.entities.preference import PREFERENCE_ORDER, PreferenceState
 from src.domain.entities.progress import NullProgressEmitter, ProgressEmitter
 from src.domain.entities.schedule import Schedule, validate_time_of_day
 from src.domain.entities.tag import normalize_tag
-from src.domain.repositories import UnitOfWorkProtocol
+from src.domain.repositories.uow import UnitOfWorkProtocol
 from src.interface.cli.async_runner import run_async
 from src.interface.cli.console import (
     get_console,
@@ -540,6 +540,33 @@ def render_batch_summary(result: BatchOperationResult, *, title: str) -> Table:
     table.add_section()
     table.add_row("Total", str(result.total), style="bold")
     return table
+
+
+def report_connector_batch_outcome(
+    failures: Sequence[tuple[str, str]],
+    *,
+    succeeded: int,
+    skipped: int,
+    title: str,
+) -> None:
+    """Log per-item connector failures to stderr, then print the batch summary.
+
+    Shared by the Spotify ``import``/``refresh`` CLI flows: both render the
+    same ``Failed: <id> — <message>`` lines followed by the three-row
+    summary, differing only in ``title``. Print order matches
+    ``cli-patterns.md`` — failures to stderr first, summary to stdout last.
+
+    ``failures`` is a list of ``(identifier, message)`` pairs so this helper
+    stays decoupled from the connector-specific failure record types.
+    """
+    for identifier, message in failures:
+        err_console.print(f"[red]Failed:[/red] {identifier} — {message}")
+    summary = BatchOperationResult(
+        succeeded=succeeded,
+        skipped=skipped,
+        failed=[f"{identifier}: {message}" for identifier, message in failures],
+    )
+    console.print(render_batch_summary(summary, title=title))
 
 
 # ---------------------------------------------------------------------------

@@ -10,7 +10,7 @@ from src.application.use_cases.get_match_method_health import (
     GetMatchMethodHealthCommand,
     GetMatchMethodHealthUseCase,
 )
-from src.domain.repositories.interfaces import MatchMethodStatRow
+from src.domain.repositories.connector import MatchMethodStatRow
 from tests.fixtures import make_mock_uow
 
 

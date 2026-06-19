@@ -28,7 +28,7 @@ from src.application.use_cases._shared.sync_targets import (
 )
 from src.domain.entities.schedule import Schedule
 from src.domain.exceptions import NotFoundError
-from src.domain.repositories.interfaces import UnitOfWorkProtocol
+from src.domain.repositories.uow import UnitOfWorkProtocol
 
 
 def _require_single_target(workflow_id: UUID | None, sync_target: str | None) -> None:

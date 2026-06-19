@@ -13,7 +13,7 @@ from src.domain.entities.playlist_assignment import (
     AssignmentActionType,
     PlaylistAssignment,
 )
-from src.domain.repositories import UnitOfWorkProtocol
+from src.domain.repositories.uow import UnitOfWorkProtocol
 
 
 @define(frozen=True, slots=True)

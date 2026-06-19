@@ -11,8 +11,8 @@ from src.config import get_logger, settings
 from src.domain.entities.playlist import ConnectorPlaylist, Playlist, PlaylistEntry
 from src.domain.entities.shared import JsonValue
 from src.domain.entities.track import ConnectorTrack, Track
-from src.domain.repositories import UnitOfWorkProtocol
-from src.domain.repositories.interfaces import ConnectorRepositoryProtocol
+from src.domain.repositories.connector import ConnectorRepositoryProtocol
+from src.domain.repositories.uow import UnitOfWorkProtocol
 
 logger = get_logger(__name__)
 

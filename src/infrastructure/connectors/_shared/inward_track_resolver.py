@@ -20,7 +20,7 @@ from src.config.constants import MatchMethod
 from src.domain.entities import Track
 from src.domain.matching.evaluation_service import TrackMatchEvaluationService
 from src.domain.matching.types import RawProviderMatch
-from src.domain.repositories import UnitOfWorkProtocol
+from src.domain.repositories.uow import UnitOfWorkProtocol
 
 logger = get_logger(__name__)
 

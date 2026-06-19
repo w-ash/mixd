@@ -9,7 +9,7 @@ from uuid import UUID
 from attrs import define, evolve
 
 from src.domain.entities.workflow import Workflow, WorkflowVersion
-from src.domain.repositories.interfaces import UnitOfWorkProtocol
+from src.domain.repositories.uow import UnitOfWorkProtocol
 
 # ---------------------------------------------------------------------------
 # List versions

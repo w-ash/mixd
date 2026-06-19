@@ -36,7 +36,7 @@ from src.domain.entities.progress import (
     tracked_operation,
 )
 from src.domain.entities.tag import TagEvent, TrackTag
-from src.domain.repositories import UnitOfWorkProtocol
+from src.domain.repositories.uow import UnitOfWorkProtocol
 
 logger = get_logger(__name__)
 

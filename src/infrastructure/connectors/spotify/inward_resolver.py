@@ -26,7 +26,7 @@ from src.config import get_logger, settings
 from src.config.constants import MatchMethod, SpotifyConstants
 from src.domain.entities import Artist, Track
 from src.domain.matching.evaluation_service import TrackMatchEvaluationService
-from src.domain.repositories import UnitOfWorkProtocol
+from src.domain.repositories.uow import UnitOfWorkProtocol
 from src.infrastructure.connectors._shared.inward_track_resolver import (
     InwardTrackResolver,
     ReuseMetadata,

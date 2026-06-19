@@ -10,9 +10,8 @@ from uuid import UUID
 
 import attrs
 from attrs import define, field
-from attrs.validators import and_, ge, instance_of, le, min_len
+from attrs.validators import min_len
 
-from src.application.connector_protocols import PlaylistConnector
 from src.application.use_cases._shared import (
     AppendOperationResult,
     build_api_execution_metadata,
@@ -24,7 +23,6 @@ from src.application.use_cases._shared import (
     resolve_playlist_connector,
 )
 from src.application.use_cases._shared.command_validators import (
-    api_batch_size_validator,
     non_empty_string,
     validate_tracklist_has_tracks,
 )
@@ -37,8 +35,8 @@ from src.domain.entities.track import TrackList
 from src.domain.exceptions import ConnectorSyncError
 from src.domain.playlist import PlaylistOperation, calculate_playlist_diff
 from src.domain.playlist.execution_strategies import get_execution_strategy
-from src.domain.repositories import UnitOfWorkProtocol
-from src.domain.repositories.interfaces import ConnectorPlaylistRepositoryProtocol
+from src.domain.repositories.connector import ConnectorPlaylistRepositoryProtocol
+from src.domain.repositories.uow import UnitOfWorkProtocol
 
 logger = get_logger(__name__)
 
@@ -75,16 +73,6 @@ class UpdateConnectorPlaylistCommand:
     append_mode: bool = False  # True=append, False=overwrite with preservation
     playlist_name: str | None = None  # Optional name update
     playlist_description: str | None = None  # Optional description update
-    preserve_timestamps: bool = True  # Whether to use proper sequencing
-    batch_size: int = field(
-        default=100,
-        validator=api_batch_size_validator("api.spotify_large_batch_size"),
-    )
-    max_api_calls: int = field(
-        default=50,
-        validator=and_(instance_of(int), ge(1), le(1000)),
-    )
-    metadata: dict[str, JsonValue] = field(factory=dict)
     timestamp: datetime = field(factory=utc_now_factory)
 
 
@@ -136,86 +124,6 @@ class UpdateConnectorPlaylistUseCase:
     Music playlists efficiently. Preserves track timestamps and handles API batching.
     Updates local database after successful external API calls.
     """
-
-    async def _validate_playlist_pre_execution(
-        self,
-        connector: PlaylistConnector,
-        connector_playlist_identifier: ConnectorPlaylistIdentifier,
-    ) -> None:
-        """Validate playlist exists before executing operations.
-
-        Args:
-            connector: Connector instance
-            connector_playlist_identifier: External playlist ID to validate
-
-        Raises:
-            ValueError: If playlist cannot be accessed
-        """
-        try:
-            playlist_details = await connector.get_playlist_details(
-                connector_playlist_identifier
-            )
-            logger.debug(
-                "Pre-execution playlist validation passed",
-                connector_playlist_identifier=connector_playlist_identifier,
-                playlist_name=playlist_details.get("name"),
-            )
-        except Exception as e:
-            logger.error(
-                "Pre-execution playlist validation failed",
-                connector_playlist_identifier=connector_playlist_identifier,
-                error=str(e),
-                error_type=type(e).__name__,
-            )
-            raise ValueError(
-                f"Cannot access playlist {connector_playlist_identifier}: {e}"
-            ) from e
-
-    async def _validate_playlist_post_execution(
-        self,
-        connector: PlaylistConnector,
-        connector_playlist_identifier: ConnectorPlaylistIdentifier,
-        snapshot_id: str | None,
-        operations_count: int,
-    ) -> bool:
-        """Validate playlist state after executing operations.
-
-        Args:
-            connector: Connector instance
-            connector_playlist_identifier: External playlist ID
-            snapshot_id: Snapshot ID from operation execution
-            operations_count: Number of operations executed
-
-        Returns:
-            ``operation_success`` — False when no snapshot id came back.
-        """
-        operation_success = True
-
-        if snapshot_id is None:
-            logger.warning(
-                "Operations completed but no snapshot_id returned",
-                operations_count=operations_count,
-            )
-            operation_success = False
-
-        # Additional validation: verify playlist state if possible
-        try:
-            _ = await connector.get_playlist_details(connector_playlist_identifier)
-            logger.debug(
-                "Post-execution playlist validation completed",
-                connector_playlist_identifier=connector_playlist_identifier,
-                final_snapshot=snapshot_id,
-            )
-        except Exception as e:
-            logger.warning(
-                "Post-execution playlist validation failed",
-                connector_playlist_identifier=connector_playlist_identifier,
-                error=str(e),
-                error_type=type(e).__name__,
-            )
-            # Don't fail the operation for this, just log the warning
-
-        return operation_success
 
     async def _get_existing_connector_playlist(
         self,
@@ -286,31 +194,24 @@ class UpdateConnectorPlaylistUseCase:
             playlist_entity = attrs.evolve(playlist_entity, id=existing_id)
         return playlist_entity
 
-    async def _persist_connector_playlist_with_verification(
+    async def _persist_connector_playlist(
         self,
         connector_repo: ConnectorPlaylistRepositoryProtocol,
         playlist_entity: ConnectorPlaylist,
         command: UpdateConnectorPlaylistCommand,
         updated_items_count: int,
     ) -> None:
-        """Persist connector playlist and verify the update.
+        """Upsert the connector playlist after a successful external push.
 
-        Args:
-            connector_repo: Connector playlist repository
-            playlist_entity: Playlist entity to persist
-            command: Update command for logging
-            updated_items_count: Number of items being persisted
-
-        Raises:
-            RuntimeError: If persistence or verification fails
+        Raises on DB failure: the external API already succeeded, so a DB error
+        here must surface for classification rather than be swallowed. The prior
+        log-only read-back "verification" was removed as no-op ceremony.
         """
         try:
-            await self._upsert_and_verify_connector_playlist(
-                connector_repo, playlist_entity, command, updated_items_count
-            )
+            await connector_repo.upsert_model(playlist_entity)
         except Exception as db_error:
             logger.error(
-                "Database update failed",
+                "Database update failed after successful external push",
                 connector=command.connector,
                 connector_playlist_identifier=command.connector_playlist_identifier,
                 error=str(db_error),
@@ -318,48 +219,12 @@ class UpdateConnectorPlaylistUseCase:
                 items_attempted=updated_items_count,
             )
             raise
-
-    async def _upsert_and_verify_connector_playlist(
-        self,
-        connector_repo: ConnectorPlaylistRepositoryProtocol,
-        playlist_entity: ConnectorPlaylist,
-        command: UpdateConnectorPlaylistCommand,
-        updated_items_count: int,
-    ) -> None:
-        """Upsert the connector playlist and run post-update verification."""
-        await connector_repo.upsert_model(playlist_entity)
         logger.info(
-            "Connector playlist database update completed successfully",
+            "Connector playlist database update completed",
             connector=command.connector,
             connector_playlist_identifier=command.connector_playlist_identifier,
             items_count=updated_items_count,
-            existing_record_updated=True,
         )
-
-        # Post-update verification
-        try:
-            verification_record = await connector_repo.get_by_connector_id(
-                command.connector, command.connector_playlist_identifier
-            )
-            if verification_record:
-                logger.debug(
-                    "Database update verification successful",
-                    record_id=verification_record.id,
-                    record_items=len(verification_record.items)
-                    if verification_record.items
-                    else 0,
-                    last_updated=verification_record.last_updated,
-                )
-            else:
-                logger.error(
-                    "Database update verification failed: record not found after update"
-                )
-        except Exception as verification_error:
-            logger.warning(
-                "Database update verification failed",
-                error=str(verification_error),
-                error_type=type(verification_error).__name__,
-            )
 
     async def execute(
         self, command: UpdateConnectorPlaylistCommand, uow: UnitOfWorkProtocol
@@ -694,39 +559,37 @@ class UpdateConnectorPlaylistUseCase:
             move_ops=counts.moved,
         )
 
-        # Pre-execution validation: check playlist exists
-        await self._validate_playlist_pre_execution(
-            connector, command.connector_playlist_identifier
-        )
-
         # Execute operations with detailed tracking
         track_repo = uow.get_track_repository()
-        final_snapshot_id = await connector.execute_playlist_operations(
+        outcome = await connector.execute_playlist_operations(
             command.connector_playlist_identifier,
             sequenced_operations,
             track_repo=track_repo,
         )
 
-        # Post-execution validation: verify operations actually applied
-        operation_success = await self._validate_playlist_post_execution(
-            connector,
-            command.connector_playlist_identifier,
-            final_snapshot_id,
-            len(sequenced_operations),
-        )
+        # A partial push — some submitted operations did not apply — must NOT be
+        # reported as a clean SYNCED. Raise so the caller routes it to ERROR (the
+        # wrapper converts this into ConnectorSyncError). The snapshot id is
+        # optimistic-concurrency metadata, not the apply verdict (it is
+        # legitimately None on no-op paths), so success keys on ``fully_applied``.
+        if not outcome.fully_applied:
+            raise RuntimeError(
+                f"push only partially applied: {outcome.failed} of "
+                f"{outcome.requested} operations failed"
+            )
 
-        # Build detailed response metadata using builder pattern
         external_metadata = build_api_execution_metadata(
             operations_count=len(sequenced_operations),
-            snapshot_id=final_snapshot_id,
-            tracks_added=counts.added if operation_success else 0,
-            tracks_removed=counts.removed if operation_success else 0,
-            tracks_moved=counts.moved if operation_success else 0,
-            validation_passed=operation_success,
+            snapshot_id=outcome.snapshot_id,
+            tracks_added=counts.added,
+            tracks_removed=counts.removed,
+            tracks_moved=counts.moved,
+            validation_passed=True,
+            operations_dropped=outcome.dropped,
         )
 
         return _ConnectorApiResult(
-            success=operation_success,
+            success=True,
             api_calls_made=len(sequenced_operations),
             metadata=external_metadata,
         )
@@ -826,19 +689,12 @@ class UpdateConnectorPlaylistUseCase:
             connector_repo, command.connector, command.connector_playlist_identifier
         )
 
-        # Build comprehensive metadata including state validation
+        # Persisted metadata: the external-API result plus minimal provenance.
         enhanced_metadata = {
             **api_metadata,
-            "database_update_timestamp": datetime.now(UTC).isoformat(),
             "requested_operations": len(applied_operations),
+            "operations_applied": operations_applied,
             "items_created": len(updated_items),
-            "existing_record_found": existing is not None,
-            "state_consistency_check": {
-                "requested_tracks": len(command.new_tracklist.tracks),
-                "created_items": len(updated_items),
-                "operations_requested": len(applied_operations),
-                "operations_applied": operations_applied,
-            },
         }
 
         # Create updated connector playlist with validation
@@ -856,8 +712,7 @@ class UpdateConnectorPlaylistUseCase:
         if not updated_connector_playlist.connector_playlist_identifier:
             raise ValueError("Connector playlist identifier cannot be empty")
 
-        # Persist with verification
-        await self._persist_connector_playlist_with_verification(
+        await self._persist_connector_playlist(
             connector_repo,
             updated_connector_playlist,
             command,

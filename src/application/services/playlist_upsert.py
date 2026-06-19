@@ -25,7 +25,7 @@ from src.config import get_logger
 from src.domain.entities.playlist import ConnectorPlaylist, Playlist
 from src.domain.entities.track import TrackList
 from src.domain.exceptions import NotFoundError
-from src.domain.repositories import UnitOfWorkProtocol
+from src.domain.repositories.uow import UnitOfWorkProtocol
 
 if TYPE_CHECKING:
     from src.application.workflows.protocols import MetricConfigProvider

@@ -25,7 +25,7 @@ from src.application.services.periodic_loop import run_periodic_background_loop
 from src.config.constants import WorkflowConstants
 from src.config.logging import get_logger
 from src.domain.entities.workflow import WorkflowRun
-from src.domain.repositories.interfaces import UnitOfWorkProtocol
+from src.domain.repositories.uow import UnitOfWorkProtocol
 
 
 def _read_rss_kb() -> int | None:

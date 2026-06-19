@@ -16,7 +16,7 @@ from sqlalchemy import distinct, func, select, true
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.domain.entities.preference import PreferenceState
-from src.domain.repositories.interfaces import DashboardAggregates
+from src.domain.repositories.stats import DashboardAggregates
 from src.infrastructure.persistence.database.db_models import (
     DBPlaylist,
     DBPlaylistMapping,

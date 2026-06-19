@@ -10,7 +10,7 @@ from attrs import define
 
 from src.config import get_logger
 from src.domain.entities import Track
-from src.domain.repositories.interfaces import UnitOfWorkProtocol
+from src.domain.repositories.uow import UnitOfWorkProtocol
 
 logger = get_logger(__name__)
 

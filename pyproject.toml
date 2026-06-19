@@ -1,6 +1,6 @@
 [project]
 name = "mixd"
-version = "0.8.5"
+version = "0.8.6"
 description = "Music metadata integration and playlist management platform"
 authors = [{name = "Ash Wright", email = "a@ashwright.net"}]
 readme = "README.md"
@@ -174,8 +174,11 @@ unfixable = []
     "RUF001",   # Allow unicode characters in test strings (intentional test data)
     "RUF003",   # Allow unicode characters in test comments (readability)
 ]
-"src/domain/repositories/interfaces.py" = [
-    "PLR0904",  # Protocol repository interfaces have many methods by design
+"src/domain/repositories/connector.py" = [
+    "PLR0904",  # ConnectorRepositoryProtocol has many methods by design
+]
+"src/domain/repositories/uow.py" = [
+    "PLR0904",  # UnitOfWorkProtocol exposes all repository accessors — many by design
 ]
 "src/infrastructure/persistence/unit_of_work.py" = [
     "PLR0904",  # UoW exposes all repository accessors — many methods by design

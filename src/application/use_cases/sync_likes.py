@@ -28,7 +28,7 @@ from src.domain.entities import (
 )
 from src.domain.entities.operations import UNSET, Unset
 from src.domain.entities.progress import ProgressEmitter
-from src.domain.repositories import UnitOfWorkProtocol
+from src.domain.repositories.uow import UnitOfWorkProtocol
 
 logger = get_logger(__name__)
 

@@ -29,7 +29,7 @@ from src.domain.entities.preference import PREFERENCE_ORDER
 from src.domain.entities.sourced_metadata import SOURCE_PRIORITY
 from src.domain.exceptions import OptimisticLockError
 from src.domain.matching import normalize_for_comparison, strip_parentheticals
-from src.domain.repositories.interfaces import TrackFacets, TrackListingPage
+from src.domain.repositories.track import TrackFacets, TrackListingPage
 from src.infrastructure.persistence.database.db_models import (
     DBTrack,
     DBTrackLike,

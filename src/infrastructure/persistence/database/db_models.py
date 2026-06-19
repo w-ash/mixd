@@ -199,27 +199,37 @@ class DBTrack(BaseEntity):
     metrics: Mapped[list[DBTrackMetric]] = relationship(
         back_populates="track",
         cascade="all, delete-orphan",
+        passive_deletes=True,
+        lazy="raise_on_sql",
     )
     likes: Mapped[list[DBTrackLike]] = relationship(
         back_populates="track",
         cascade="all, delete-orphan",
         lazy="raise_on_sql",
+        passive_deletes=True,
     )
     plays: Mapped[list[DBTrackPlay]] = relationship(
         back_populates="track",
         cascade="all, delete-orphan",
+        passive_deletes=True,
+        lazy="raise_on_sql",
     )
     connector_plays: Mapped[list[DBConnectorPlay]] = relationship(
         back_populates="resolved_track",
         passive_deletes=True,
+        lazy="raise_on_sql",
     )
     preferences: Mapped[list[DBTrackPreference]] = relationship(
         back_populates="track",
         cascade="all, delete-orphan",
+        passive_deletes=True,
+        lazy="raise_on_sql",
     )
     tags: Mapped[list[DBTrackTag]] = relationship(
         back_populates="track",
         cascade="all, delete-orphan",
+        passive_deletes=True,
+        lazy="raise_on_sql",
     )
 
     # NOTE: pg_trgm GIN indexes (title, album, artists_text) and the JSONB GIN
@@ -267,6 +277,7 @@ class DBConnectorTrack(BaseEntity):
     mappings: Mapped[list[DBTrackMapping]] = relationship(
         back_populates="connector_track",
         passive_deletes=True,
+        lazy="raise_on_sql",
     )
 
     __table_args__: tuple[SchemaItem, ...] = (
@@ -307,6 +318,7 @@ class DBTrackMapping(BaseEntity):
     track: Mapped[DBTrack] = relationship(
         back_populates="mappings",
         passive_deletes=True,
+        lazy="raise_on_sql",
     )
     connector_track: Mapped[DBConnectorTrack] = relationship(
         back_populates="mappings",
@@ -370,8 +382,10 @@ class DBMatchReview(BaseEntity):
     reviewed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
 
     # Relationships
-    track: Mapped[DBTrack] = relationship(passive_deletes=True)
-    connector_track: Mapped[DBConnectorTrack] = relationship(passive_deletes=True)
+    track: Mapped[DBTrack] = relationship(passive_deletes=True, lazy="raise_on_sql")
+    connector_track: Mapped[DBConnectorTrack] = relationship(
+        passive_deletes=True, lazy="raise_on_sql"
+    )
 
     __table_args__: tuple[SchemaItem, ...] = (
         UniqueConstraint(
@@ -418,6 +432,7 @@ class DBTrackMetric(BaseEntity):
     track: Mapped[DBTrack] = relationship(
         back_populates="metrics",
         passive_deletes=True,
+        lazy="raise_on_sql",
     )
 
 
@@ -448,6 +463,7 @@ class DBTrackLike(BaseEntity):
     track: Mapped[DBTrack] = relationship(
         back_populates="likes",
         passive_deletes=True,
+        lazy="raise_on_sql",
     )
 
 
@@ -514,6 +530,7 @@ class DBTrackPlay(BaseEntity):
     track: Mapped[DBTrack] = relationship(
         back_populates="plays",
         passive_deletes=True,
+        lazy="raise_on_sql",
     )
 
 
@@ -565,6 +582,7 @@ class DBConnectorPlay(BaseEntity):
     resolved_track: Mapped[DBTrack | None] = relationship(
         back_populates="connector_plays",
         passive_deletes=True,
+        lazy="raise_on_sql",
     )
 
     __table_args__: tuple[SchemaItem, ...] = (
@@ -608,6 +626,7 @@ class DBPlaylist(BaseEntity):
         back_populates="playlist",
         cascade="all, delete-orphan",
         lazy="raise_on_sql",
+        passive_deletes=True,
     )
     mappings: Mapped[list[DBPlaylistMapping]] = relationship(
         back_populates="playlist",
@@ -644,6 +663,7 @@ class DBConnectorPlaylist(BaseEntity):
     mappings: Mapped[list[DBPlaylistMapping]] = relationship(
         back_populates="connector_playlist",
         passive_deletes=True,
+        lazy="raise_on_sql",
     )
 
     __table_args__: tuple[SchemaItem, ...] = (
@@ -700,11 +720,13 @@ class DBPlaylistMapping(BaseEntity):
     )
     last_sync_tracks_added: Mapped[int | None] = mapped_column(default=None)
     last_sync_tracks_removed: Mapped[int | None] = mapped_column(default=None)
+    last_sync_tracks_unmatched: Mapped[int | None] = mapped_column(default=None)
 
     # Relationships
     playlist: Mapped[DBPlaylist] = relationship(
         back_populates="mappings",
         passive_deletes=True,
+        lazy="raise_on_sql",
     )
     connector_playlist: Mapped[DBConnectorPlaylist] = relationship(
         back_populates="mappings",
@@ -769,6 +791,7 @@ class DBPlaylistTrack(BaseEntity):
     playlist: Mapped[DBPlaylist] = relationship(
         back_populates="tracks",
         passive_deletes=True,
+        lazy="raise_on_sql",
     )
     track: Mapped[DBTrack] = relationship(
         passive_deletes=True,
@@ -813,7 +836,9 @@ class DBWorkflowVersion(DatabaseModel, TimestampMixin):
     change_summary: Mapped[str | None] = mapped_column(String(1000))
 
     # Relationships
-    workflow: Mapped[DBWorkflow] = relationship(passive_deletes=True)
+    workflow: Mapped[DBWorkflow] = relationship(
+        passive_deletes=True, lazy="raise_on_sql"
+    )
 
     __table_args__: tuple[SchemaItem, ...] = (
         UniqueConstraint(
@@ -883,11 +908,14 @@ class DBWorkflowRun(DatabaseModel, TimestampMixin):
     )
 
     # Relationships
-    workflow: Mapped[DBWorkflow] = relationship(passive_deletes=True)
+    workflow: Mapped[DBWorkflow] = relationship(
+        passive_deletes=True, lazy="raise_on_sql"
+    )
     nodes: Mapped[list[DBWorkflowRunNode]] = relationship(
         back_populates="run",
         cascade="all, delete-orphan",
         passive_deletes=True,
+        lazy="raise_on_sql",
     )
 
     __table_args__: tuple[SchemaItem, ...] = (
@@ -941,6 +969,7 @@ class DBWorkflowRunNode(DatabaseModel):
     run: Mapped[DBWorkflowRun] = relationship(
         back_populates="nodes",
         passive_deletes=True,
+        lazy="raise_on_sql",
     )
 
     __table_args__: tuple[SchemaItem, ...] = (
@@ -1079,6 +1108,7 @@ class DBTrackPreference(BaseEntity):
     track: Mapped[DBTrack] = relationship(
         back_populates="preferences",
         passive_deletes=True,
+        lazy="raise_on_sql",
     )
 
 
@@ -1147,6 +1177,7 @@ class DBTrackTag(BaseEntity):
     track: Mapped[DBTrack] = relationship(
         back_populates="tags",
         passive_deletes=True,
+        lazy="raise_on_sql",
     )
 
 
@@ -1221,6 +1252,7 @@ class DBPlaylistAssignment(BaseEntity):
         back_populates="assignment",
         passive_deletes=True,
         cascade="all, delete-orphan",
+        lazy="raise_on_sql",
     )
 
 
@@ -1263,6 +1295,7 @@ class DBPlaylistAssignmentMember(BaseEntity):
     assignment: Mapped[DBPlaylistAssignment] = relationship(
         back_populates="members",
         passive_deletes=True,
+        lazy="raise_on_sql",
     )
 
 

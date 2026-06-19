@@ -12,10 +12,9 @@ from src.domain.entities.playlist import Playlist
 from src.domain.entities.shared import ConnectorPlaylistIdentifier
 from src.interface.cli.async_runner import run_async
 from src.interface.cli.cli_helpers import (
-    BatchOperationResult,
     get_cli_user_id,
     handle_cli_error,
-    render_batch_summary,
+    report_connector_batch_outcome,
     validate_sync_source,
 )
 from src.interface.cli.console import (
@@ -560,10 +559,11 @@ def sync_link(
     except Exception as e:
         handle_cli_error(e, "Sync failed")
 
-    console.print(
-        f"[green]Sync complete[/green] — "
-        f"added: {result.tracks_added}, removed: {result.tracks_removed}"
-    )
+    summary = f"added: {result.tracks_added}, removed: {result.tracks_removed}"
+    if result.tracks_unmatched:
+        # Warm-gold, paired with text (never colour alone) — no connector match.
+        summary += f", [yellow]{result.tracks_unmatched} unmatched[/yellow]"
+    console.print(f"[green]Sync complete[/green] — {summary}")
 
 
 @app.command(name="browse-spotify")
@@ -790,20 +790,12 @@ def import_spotify(
     except Exception as e:
         handle_cli_error(e, "Import failed")
 
-    for failure in result.failed:
-        err_console.print(
-            f"[red]Failed:[/red] {failure.connector_playlist_identifier} — "
-            f"{failure.message}"
-        )
-
-    summary = BatchOperationResult(
+    report_connector_batch_outcome(
+        [(str(f.connector_playlist_identifier), f.message) for f in result.failed],
         succeeded=len(result.succeeded),
         skipped=len(result.skipped_unchanged),
-        failed=[
-            f"{f.connector_playlist_identifier}: {f.message}" for f in result.failed
-        ],
+        title="Spotify Import",
     )
-    console.print(render_batch_summary(summary, title="Spotify Import"))
 
 
 @app.command(name="refresh-spotify")
@@ -874,20 +866,12 @@ def refresh_spotify(
     except Exception as e:
         handle_cli_error(e, "Refresh failed")
 
-    for failure in result.failed:
-        err_console.print(
-            f"[red]Failed:[/red] {failure.connector_playlist_identifier} — "
-            f"{failure.message}"
-        )
-
-    summary = BatchOperationResult(
+    report_connector_batch_outcome(
+        [(str(f.connector_playlist_identifier), f.message) for f in result.failed],
         succeeded=len(result.succeeded),
         skipped=len(result.skipped_unchanged),
-        failed=[
-            f"{f.connector_playlist_identifier}: {f.message}" for f in result.failed
-        ],
+        title="Spotify Refresh",
     )
-    console.print(render_batch_summary(summary, title="Spotify Refresh"))
 
 
 # ---------------------------------------------------------------------------
@@ -997,7 +981,7 @@ def unassign_playlist(
     )
 
     user_id = get_cli_user_id()
-    from src.domain.repositories import UnitOfWorkProtocol
+    from src.domain.repositories.uow import UnitOfWorkProtocol
 
     async def _find_and_delete(uow: UnitOfWorkProtocol) -> tuple[bool, str | None]:
         async with uow:

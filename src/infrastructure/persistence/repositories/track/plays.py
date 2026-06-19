@@ -12,7 +12,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from src.config import get_logger
 from src.domain.entities import TrackPlay, ensure_utc
 from src.domain.entities.shared import JsonDict
-from src.domain.repositories.interfaces import PlayAggregationResult, PlaySortBy
+from src.domain.repositories.play import PlayAggregationResult, PlaySortBy
 from src.infrastructure.persistence.database.db_models import DBTrackPlay
 from src.infrastructure.persistence.repositories.base_repo import (
     BaseModelMapper,

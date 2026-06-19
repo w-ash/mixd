@@ -22,7 +22,7 @@ from src.config import get_logger
 from src.domain.entities.progress import OperationStatus
 from src.domain.entities.shared import JsonValue, MetricValue
 from src.domain.entities.track import Track, TrackMetric
-from src.domain.repositories import UnitOfWorkProtocol
+from src.domain.repositories.uow import UnitOfWorkProtocol
 
 if TYPE_CHECKING:
     # Circular import: src.application.workflows.protocols imports use cases

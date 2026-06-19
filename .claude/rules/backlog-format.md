@@ -2,7 +2,7 @@
 paths:
   - "docs/backlog/**"
   - "docs/completed/**"
-  - "docs/user-flows.md"
+  - "docs/web-ui/01-user-flows.md"
 ---
 # Backlog Format
 
@@ -102,4 +102,4 @@ When the feature closes (`🚀 Shipped` → `✅ Completed`), the epic freezes a
 - **Effort**: XS trivial | S 1-2 areas | M cross-module | L architectural | XL/XXL break down. Never time-based.
 - **Dates**: absolute ("Thursday" → "2026-03-20").
 - **New ideas** land in `unscheduled.md` first.
-- **User flows** (`docs/user-flows.md`): `**US-AREA-N**:` prefix, Given/When/Then, version annotations.
+- **User flows** (`docs/web-ui/01-user-flows.md`): numbered flow sections (`## N. Area` → `### N.M Title`), each with **Trigger / Steps / Backend calls / Edge cases** and a per-endpoint Status token. (Not a `US-AREA-N` prefix.)

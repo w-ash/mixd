@@ -114,12 +114,12 @@ def track_repo(db_session: AsyncSession) -> BaseRepository[DBTrack, Track]:
 
 
 class TestFindByConditionForms:
-    """``find_by`` accepts two different condition shapes — dict (simple
-    equality) and list[ColumnElement] (full SQLAlchemy expressions). Both
-    must return the same results for equivalent queries.
+    """``find_by`` takes ``list[ColumnElement]`` expressions; the string-keyed
+    ``{field: value}`` form lives on ``find_one_by``/``count`` (and the shared
+    ``_apply_conditions`` helper). Both shapes resolve via the same helper.
     """
 
-    async def test_find_by_dict_conditions(
+    async def test_find_one_by_dict_conditions(
         self,
         db_session: AsyncSession,
         track_repo: BaseRepository[DBTrack, Track],
@@ -138,10 +138,10 @@ class TestFindByConditionForms:
         db_session.add(track)
         await db_session.flush()
 
-        results = await track_repo.find_by(
+        result = await track_repo.find_one_by(
             conditions={"title": f"TEST_find_by_dict_{unique}"}
         )
-        assert len(results) == 1
+        assert result is not None
 
     async def test_find_by_list_conditions_returns_same_results(
         self,

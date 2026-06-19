@@ -71,7 +71,7 @@ from src.config.constants import WorkflowConstants
 from src.config.logging import get_logger
 from src.domain.entities.schedule import Schedule
 from src.domain.exceptions import NotFoundError, WorkflowAlreadyRunningError
-from src.domain.repositories.interfaces import UnitOfWorkProtocol
+from src.domain.repositories.uow import UnitOfWorkProtocol
 
 logger = get_logger(__name__).bind(service="workflow_scheduler")
 

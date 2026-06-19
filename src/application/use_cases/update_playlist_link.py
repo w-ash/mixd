@@ -7,7 +7,7 @@ from attrs import define
 from src.application.use_cases._shared.playlist_resolver import require_playlist_link
 from src.domain.entities.playlist_link import PlaylistLink, SyncDirection
 from src.domain.exceptions import NotFoundError
-from src.domain.repositories.interfaces import UnitOfWorkProtocol
+from src.domain.repositories.uow import UnitOfWorkProtocol
 
 
 @define(frozen=True, slots=True)

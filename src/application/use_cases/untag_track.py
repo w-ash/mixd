@@ -12,7 +12,7 @@ from attrs import define
 from src.config import get_logger
 from src.domain.entities.sourced_metadata import MetadataSource
 from src.domain.entities.tag import TagEvent, normalize_tag
-from src.domain.repositories import UnitOfWorkProtocol
+from src.domain.repositories.uow import UnitOfWorkProtocol
 
 logger = get_logger(__name__)
 

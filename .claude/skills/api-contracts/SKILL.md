@@ -60,11 +60,11 @@ user-invocable: false
 
 | Method | Path | Use Case | Status |
 |--------|------|----------|--------|
-| GET | `/playlists/{id}/links` | Query mappings | Exists |
-| POST | `/playlists/{id}/links` | `CreateConnectorPlaylistUseCase` | Exists |
-| PATCH | `/playlists/{id}/links/{link_id}` | `UpdateConnectorPlaylistUseCase` | Exists |
-| DELETE | `/playlists/{id}/links/{link_id}` | Unlink connector | Exists |
-| POST | `/playlists/{id}/links/{link_id}/sync` | `UpdateConnectorPlaylistUseCase` | Exists |
+| GET | `/playlists/{id}/links` | Query connector playlist links | Exists |
+| POST | `/playlists/{id}/links` | `CreatePlaylistLinkUseCase` | Exists |
+| PATCH | `/playlists/{id}/links/{link_id}` | `UpdatePlaylistLinkUseCase` | Exists |
+| DELETE | `/playlists/{id}/links/{link_id}` | `DeletePlaylistLinkUseCase` | Exists |
+| POST | `/playlists/{id}/links/{link_id}/sync` | `SyncPlaylistLinkUseCase` | Exists |
 
 ### Workflows (`/workflows`)
 
@@ -79,6 +79,15 @@ user-invocable: false
 | POST | `/workflows/validate` | Validate definition | Exists |
 | GET | `/workflows/{id}/runs?limit=&offset=` | List runs | Exists |
 | GET | `/workflows/{id}/runs/{run_id}` | Run detail | Exists |
+| GET | `/workflows/active-runs` | List currently-running workflows | Exists |
+| GET | `/workflows/nodes` | Node-type registry introspection | Exists |
+| GET | `/workflows/templates` | List built-in workflow templates | Exists |
+| POST | `/workflows/templates/{template_id}/use` | Instantiate a template as a user workflow | Exists |
+| POST | `/workflows/{id}/duplicate` | Duplicate a workflow | Exists |
+| POST | `/workflows/preview` | Dry-run an unsaved definition | Exists |
+| GET | `/workflows/{id}/versions` | List definition versions | Exists |
+| GET | `/workflows/{id}/versions/{version}` | Version detail | Exists |
+| POST | `/workflows/{id}/versions/{version}/revert` | Revert to a version | Exists |
 
 ### Imports (`/imports`)
 
@@ -87,7 +96,7 @@ user-invocable: false
 | POST | `/imports/lastfm/history` | `ImportPlayHistoryUseCase` | Exists |
 | POST | `/imports/spotify/history` (multipart) | `ImportPlayHistoryUseCase` | Exists |
 | POST | `/imports/spotify/likes` | `SyncLikesUseCase` | Exists |
-| POST | `/imports/lastfm/export-likes` | `SyncLikesUseCase` | Needs impl |
+| POST | `/imports/lastfm/likes` | `SyncLikesUseCase` (Last.fm export) | Exists |
 | GET | `/imports/lastfm/export-likes/preview` | Preview count | Needs impl |
 | GET | `/imports/checkpoints` | Checkpoint query | Exists |
 
@@ -95,7 +104,8 @@ user-invocable: false
 
 | Method | Path | Use Case | Status |
 |--------|------|----------|--------|
-| GET | `/stats/dashboard` | `GetTrackStatsUseCase` | Exists |
+| GET | `/stats/dashboard` | `GetDashboardStatsUseCase` | Exists |
+| GET | `/stats/matching` | Match-method stats | Exists |
 | GET | `/stats/plays?from=&to=&limit=&offset=` | Play history query | Needs impl |
 | GET | `/stats/top-tracks?period_days=30&limit=50` | Top tracks aggregation | Needs impl |
 
@@ -112,13 +122,74 @@ user-invocable: false
 | Method | Path | Use Case | Status |
 |--------|------|----------|--------|
 | GET | `/connectors` | Status query | Exists |
-| GET | `/connectors/spotify/auth-url` | OAuth URL | Exists |
-| GET | `/auth/spotify/callback` | OAuth exchange → redirect | Exists |
-| GET | `/connectors/lastfm/auth-url` | Auth URL | Exists |
-| GET | `/auth/lastfm/callback` | Store session key → redirect | Exists |
+| GET | `/connectors/{service}/auth-url` | OAuth/auth URL (spotify, lastfm) | Exists |
+| GET | `/auth/spotify/callback` | Spotify OAuth exchange → redirect | Exists |
+| GET | `/auth/lastfm/callback` | Last.fm session key → redirect | Exists |
 | DELETE | `/connectors/{connector}/token` | Disconnect | Exists |
 | GET | `/connectors/{connector}/search?q=&limit=` | Track search | Needs impl |
 | GET | `/connectors/{connector}/playlists?q=&limit=&offset=` | Browse playlists | Exists |
+
+### Tags (`/tags`)
+
+| Method | Path | Use Case | Status |
+|--------|------|----------|--------|
+| GET | `/tags` | List tags with track counts | Exists |
+| POST | `/tags/merge` | Merge tags | Exists |
+| PATCH | `/tags/{tag}` | Rename a tag | Exists |
+| DELETE | `/tags/{tag}` | Delete a tag | Exists |
+| POST | `/tracks/{id}/tags` | Add tags to a track | Exists |
+| POST | `/tracks/tags/batch` | Batch-tag tracks | Exists |
+| DELETE | `/tracks/{id}/tags/{tag}` | Remove a tag from a track | Exists |
+
+### Schedules (`/schedules`, `/workflows/{id}/schedule`, `/sync/schedules`)
+
+| Method | Path | Use Case | Status |
+|--------|------|----------|--------|
+| GET | `/schedules` | List all schedules | Exists |
+| GET | `/workflows/{id}/schedule` | Get a workflow's schedule | Exists |
+| PUT | `/workflows/{id}/schedule` | Create/replace a workflow schedule | Exists |
+| PATCH | `/workflows/{id}/schedule` | Update a workflow schedule | Exists |
+| DELETE | `/workflows/{id}/schedule` | Remove a workflow schedule | Exists |
+| GET | `/sync/schedules/{target_id}` | Get a sync-target schedule | Exists |
+| PUT | `/sync/schedules/{target_id}` | Create/replace a sync schedule | Exists |
+| PATCH | `/sync/schedules/{target_id}` | Update a sync schedule | Exists |
+| DELETE | `/sync/schedules/{target_id}` | Remove a sync schedule | Exists |
+
+### Settings (`/settings`)
+
+| Method | Path | Use Case | Status |
+|--------|------|----------|--------|
+| GET | `/settings` | Read user settings | Exists |
+| PATCH | `/settings` | Update user settings | Exists |
+
+### Reviews (`/reviews`)
+
+| Method | Path | Use Case | Status |
+|--------|------|----------|--------|
+| GET | `/reviews` | List match reviews | Exists |
+| POST | `/reviews/{review_id}/resolve` | Resolve a match review | Exists |
+
+### Playlist Assignments (`/playlist-assignments`)
+
+| Method | Path | Use Case | Status |
+|--------|------|----------|--------|
+| POST | `/playlist-assignments` | Create a tag→playlist assignment | Exists |
+| POST | `/playlist-assignments/apply-bulk` | Apply assignments in bulk | Exists |
+| POST | `/playlist-assignments/{assignment_id}/apply` | Apply one assignment | Exists |
+| DELETE | `/playlist-assignments/{assignment_id}` | Delete an assignment | Exists |
+
+### Operation Runs (`/operation-runs`)
+
+| Method | Path | Use Case | Status |
+|--------|------|----------|--------|
+| GET | `/operation-runs?limit=&offset=` | List audit rows for past operations | Exists |
+| GET | `/operation-runs/{run_id}` | Operation-run detail | Exists |
+
+### Webhooks (`/webhooks`)
+
+| Method | Path | Use Case | Status |
+|--------|------|----------|--------|
+| POST | `/webhooks/neon-auth` | Neon Auth user-sync webhook | Exists |
 
 ## SSE Event Format
 

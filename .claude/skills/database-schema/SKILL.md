@@ -131,7 +131,7 @@ Schedule ──→ Workflow (CASCADE); Run tables ──→ Schedule (SET NULL)
 ## Repository Pattern
 
 ```
-Domain:          TrackRepositoryProtocol  (src/domain/repositories/interfaces.py)
+Domain:          TrackRepositoryProtocol  (src/domain/repositories/track.py)
                          ↑
 Infrastructure:  SQLAlchemyTrackRepository  (src/infrastructure/persistence/repositories/)
 ```

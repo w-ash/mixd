@@ -16,7 +16,7 @@ from src.application.use_cases.get_track_details import (
 )
 from src.domain.entities import Playlist, TrackLike
 from src.domain.exceptions import NotFoundError
-from src.domain.repositories.interfaces import FullMappingInfo
+from src.domain.repositories.connector import FullMappingInfo
 from tests.fixtures import make_track
 from tests.fixtures.mocks import make_mock_uow
 

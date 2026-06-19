@@ -8,7 +8,7 @@ fix a typo, merge = consolidate two existing tag families).
 
 from attrs import define
 
-from src.domain.repositories import UnitOfWorkProtocol
+from src.domain.repositories.uow import UnitOfWorkProtocol
 
 
 @define(frozen=True, slots=True)

@@ -19,7 +19,7 @@ from src.domain.entities import Artist, Track
 from src.domain.matching.evaluation_service import TrackMatchEvaluationService
 from src.domain.matching.protocols import CrossDiscoveryProvider
 from src.domain.matching.types import RawProviderMatch
-from src.domain.repositories import UnitOfWorkProtocol
+from src.domain.repositories.uow import UnitOfWorkProtocol
 from src.infrastructure.connectors._shared.inward_track_resolver import (
     InwardTrackResolver,
     ReuseMetadata,

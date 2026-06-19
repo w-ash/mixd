@@ -31,8 +31,8 @@ from src.domain.entities.playlist import ConnectorPlaylist
 from src.domain.entities.preference import PreferenceState
 from src.domain.entities.shared import JsonValue
 from src.domain.entities.track import Track, TrackList
-from src.domain.repositories import UnitOfWorkProtocol
-from src.domain.repositories.interfaces import PlaySortBy
+from src.domain.repositories.play import PlaySortBy
+from src.domain.repositories.uow import UnitOfWorkProtocol
 
 from .config_accessors import (
     cfg_int,

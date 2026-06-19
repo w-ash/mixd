@@ -9,7 +9,7 @@ from uuid import UUID
 from attrs import define
 
 from src.domain.exceptions import NotFoundError
-from src.domain.repositories.interfaces import UnitOfWorkProtocol
+from src.domain.repositories.uow import UnitOfWorkProtocol
 
 
 @define(frozen=True, slots=True)

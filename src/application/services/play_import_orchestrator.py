@@ -26,11 +26,8 @@ from src.domain.matching.play_dedup import (
     compute_dedup_time_range,
     deduplicate_cross_source_plays,
 )
-from src.domain.repositories import (
-    PlayImporterProtocol,
-    PlayResolverProtocol,
-    UnitOfWorkProtocol,
-)
+from src.domain.repositories.play import PlayImporterProtocol, PlayResolverProtocol
+from src.domain.repositories.uow import UnitOfWorkProtocol
 
 logger = get_logger(__name__)
 

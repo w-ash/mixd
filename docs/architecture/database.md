@@ -171,13 +171,13 @@ Infrastructure: SQLAlchemyTrackRepository (current implementation)
 ```
 
 **How it works:**
-- **Domain defines contracts** - `TrackRepositoryProtocol` in `src/domain/repositories/interfaces.py`
+- **Domain defines contracts** - `TrackRepositoryProtocol` in `src/domain/repositories/track.py` (one module per aggregate)
 - **Infrastructure implements** - `SQLAlchemyTrackRepository` in `src/infrastructure/persistence/repositories/`
 - **Application uses contracts** - `def __init__(self, track_repo: TrackRepositoryProtocol)`
 - **UnitOfWork coordinates** - `async with uow:` manages transactions, `await uow.commit()` saves changes
 
 **Key files for database work:**
-- `src/domain/repositories/interfaces.py` - Abstract protocols (never change)
+- `src/domain/repositories/` - Abstract protocols, one module per aggregate (`track.py`, `playlist.py`, `uow.py`, …)
 - `src/infrastructure/persistence/repositories/base_repo.py` - Generic base
 - `src/infrastructure/persistence/repositories/track/core.py` - Track operations
 - **Critical** - Always use `selectinload()` for relationships, UnitOfWork for transactions

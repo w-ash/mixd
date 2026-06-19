@@ -12,7 +12,7 @@ from attrs import define, evolve
 
 from src.domain.entities.workflow import Workflow, WorkflowDef, WorkflowVersion
 from src.domain.exceptions import NotFoundError
-from src.domain.repositories.interfaces import UnitOfWorkProtocol
+from src.domain.repositories.uow import UnitOfWorkProtocol
 
 _SLUG_RE = re.compile(r"[^a-z0-9]+")
 

@@ -13,7 +13,7 @@ from src.application.pagination import (
     encode_cursor,
 )
 from src.domain.entities.operation_run import OperationRun
-from src.domain.repositories import UnitOfWorkProtocol
+from src.domain.repositories.uow import UnitOfWorkProtocol
 
 
 @define(frozen=True, slots=True)

@@ -19,8 +19,8 @@ from src.domain.entities.match_review import MatchReview
 from src.domain.entities.track import Track, TrackList
 from src.domain.matching.evaluation_service import TrackMatchEvaluationService
 from src.domain.matching.types import MatchResultsById, RawProviderMatch
-from src.domain.repositories import UnitOfWorkProtocol
-from src.domain.repositories.interfaces import TrackIdentityServiceProtocol
+from src.domain.repositories.track import TrackIdentityServiceProtocol
+from src.domain.repositories.uow import UnitOfWorkProtocol
 
 logger = get_logger(__name__)
 

@@ -44,7 +44,7 @@ from src.domain.entities.progress import (
     create_progress_operation,
 )
 from src.domain.entities.shared import ConnectorPlaylistIdentifier, JsonValue
-from src.domain.repositories import UnitOfWorkProtocol
+from src.domain.repositories.uow import UnitOfWorkProtocol
 
 logger = get_logger(__name__)
 

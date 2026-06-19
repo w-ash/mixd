@@ -31,7 +31,7 @@ from src.config.logging import logging_context
 from src.domain.entities.playlist import ConnectorPlaylist
 from src.domain.entities.shared import JsonValue, MetricValue
 from src.domain.entities.track import ConnectorTrack
-from src.domain.repositories.interfaces import UnitOfWorkProtocol
+from src.domain.repositories.uow import UnitOfWorkProtocol
 from src.infrastructure.connectors._shared.error_classifier import (
     ErrorClassifier,
     classify_unknown_error,

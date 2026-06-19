@@ -8,7 +8,7 @@ cd "$(dirname "$0")/.."
 BASE_WHITELIST=79
 BASE_NOQA=13
 BASE_TYPE_IGNORE=0
-BASE_PYRIGHT_IGNORE=40
+BASE_PYRIGHT_IGNORE=20
 
 # `|| true`: grep exits 1 on zero matches, which is a ratchet success, not an error.
 whitelist=$(grep -cvE '^\s*(#|$)' vulture_whitelist.py || true)

@@ -30,7 +30,7 @@ from src.config.constants import BusinessLimits, DenormalizedTrackColumns, Mappi
 from src.domain.entities import Artist, ConnectorTrack, Track, TrackMapping
 from src.domain.entities.shared import JsonDict, JsonValue
 from src.domain.exceptions import NotFoundError
-from src.domain.repositories.interfaces import FullMappingInfo, MatchMethodStatRow
+from src.domain.repositories.connector import FullMappingInfo, MatchMethodStatRow
 from src.infrastructure.persistence.database.db_models import (
     DBConnectorTrack,
     DBTrack,

@@ -7,7 +7,7 @@ session and unit-of-work wiring. Both CLI (via run_async) and FastAPI
 
 from collections.abc import Awaitable, Callable
 
-from src.domain.repositories import UnitOfWorkProtocol
+from src.domain.repositories.uow import UnitOfWorkProtocol
 
 
 async def execute_use_case[TResult](

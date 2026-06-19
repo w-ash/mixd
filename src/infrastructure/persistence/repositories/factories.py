@@ -7,7 +7,7 @@ use cases depend only on domain protocols, not these factory functions.
 
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from src.domain.repositories.interfaces import UnitOfWorkProtocol
+from src.domain.repositories.uow import UnitOfWorkProtocol
 from src.infrastructure.persistence.unit_of_work import DatabaseUnitOfWork
 
 

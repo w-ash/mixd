@@ -236,6 +236,26 @@ class TestUpdateSyncStatus:
         assert updated.last_sync_tracks_removed == 2
         assert updated.last_synced is not None
 
+    async def test_synced_persists_unmatched_count(self, db_session):
+        """tracks_unmatched round-trips through the new column and DB→entity mapper."""
+        _playlist_id, _cp_id, mapping_id = await _setup_playlist_with_link(db_session)
+
+        uow = get_unit_of_work(db_session)
+        link_repo = uow.get_playlist_link_repository()
+
+        await link_repo.update_sync_status(
+            mapping_id,
+            SyncStatus.SYNCED,
+            tracks_added=5,
+            tracks_removed=2,
+            tracks_unmatched=3,
+        )
+        await db_session.flush()
+
+        updated = await link_repo.get_link(mapping_id)
+        assert updated is not None
+        assert updated.last_sync_tracks_unmatched == 3
+
 
 class TestDeleteLink:
     """delete_link removes mapping row and returns success flag."""

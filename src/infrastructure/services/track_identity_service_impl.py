@@ -17,8 +17,8 @@ from src.domain.matching.types import (
     ProviderMatchResult,
     RawProviderMatch,
 )
-from src.domain.repositories.interfaces import (
-    ConnectorRepositoryProtocol,
+from src.domain.repositories.connector import ConnectorRepositoryProtocol
+from src.domain.repositories.track import (
     TrackIdentityServiceProtocol,
     TrackRepositoryProtocol,
 )

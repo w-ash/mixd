@@ -11,7 +11,7 @@ from attrs import define
 from src.application.use_cases._shared.playlist_resolver import require_playlist_link
 from src.config import get_logger
 from src.domain.exceptions import NotFoundError
-from src.domain.repositories.interfaces import UnitOfWorkProtocol
+from src.domain.repositories.uow import UnitOfWorkProtocol
 
 logger = get_logger(__name__)
 

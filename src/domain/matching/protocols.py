@@ -7,7 +7,7 @@ external implementations, following the dependency inversion principle.
 from typing import Protocol
 
 from src.domain.entities import Track
-from src.domain.repositories import UnitOfWorkProtocol
+from src.domain.repositories.uow import UnitOfWorkProtocol
 
 from .types import ProgressCallback, ProviderMatchResult
 

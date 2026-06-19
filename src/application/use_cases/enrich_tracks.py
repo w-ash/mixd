@@ -23,7 +23,7 @@ from src.config.logging import logging_context
 from src.domain.entities.shared import MetricValue
 from src.domain.entities.track import TrackList
 from src.domain.exceptions import EnrichmentFailedError
-from src.domain.repositories import UnitOfWorkProtocol
+from src.domain.repositories.uow import UnitOfWorkProtocol
 
 if TYPE_CHECKING:
     # Circular import: src.application.workflows.protocols imports this module.

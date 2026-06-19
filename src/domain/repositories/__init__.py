@@ -1,40 +1,6 @@
-"""Repository interfaces for music data persistence and external service access.
+"""Domain repository protocols, one module per aggregate.
 
-This module defines contracts for storing and retrieving tracks, playlists, likes,
-play history, and synchronization checkpoints. Also includes protocols for mapping
-tracks across music services (Spotify, Last.fm, etc.) and managing transaction
-boundaries. All interfaces are implementation-agnostic to support testing and
-different storage backends.
+Import each protocol from its own module (e.g. ``from src.domain.repositories.track import TrackRepositoryProtocol``,
+``from src.domain.repositories.uow import UnitOfWorkProtocol``). There is no
+re-export layer — one import path per protocol.
 """
-
-from .interfaces import (
-    CheckpointRepositoryProtocol,
-    ConnectorRepositoryProtocol,
-    LikeRepositoryProtocol,
-    MetricsRepositoryProtocol,
-    PlayImporterProtocol,
-    PlaylistLinkRepositoryProtocol,
-    PlaylistRepositoryProtocol,
-    PlayResolverProtocol,
-    PlaysRepositoryProtocol,
-    PreferenceRepositoryProtocol,
-    TrackIdentityServiceProtocol,
-    TrackRepositoryProtocol,
-    UnitOfWorkProtocol,
-)
-
-__all__ = [
-    "CheckpointRepositoryProtocol",
-    "ConnectorRepositoryProtocol",
-    "LikeRepositoryProtocol",
-    "MetricsRepositoryProtocol",
-    "PlayImporterProtocol",
-    "PlayResolverProtocol",
-    "PlaylistLinkRepositoryProtocol",
-    "PlaylistRepositoryProtocol",
-    "PlaysRepositoryProtocol",
-    "PreferenceRepositoryProtocol",
-    "TrackIdentityServiceProtocol",
-    "TrackRepositoryProtocol",
-    "UnitOfWorkProtocol",
-]

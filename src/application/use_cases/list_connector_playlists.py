@@ -24,7 +24,7 @@ from src.config import get_logger
 from src.domain.entities import ConnectorPlaylist
 from src.domain.entities.playlist_assignment import AssignmentActionType
 from src.domain.entities.shared import json_int, json_str
-from src.domain.repositories import UnitOfWorkProtocol
+from src.domain.repositories.uow import UnitOfWorkProtocol
 
 logger = get_logger(__name__)
 

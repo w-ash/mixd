@@ -13,7 +13,9 @@ from uuid import uuid4, uuid7
 
 from typer.testing import CliRunner
 
+from src.application.services.connector_playlist_sync_service import RefreshFailure
 from src.application.use_cases.import_connector_playlist_as_canonical import (
+    CanonicalImportFailure,
     CanonicalImportOutcome,
     ImportConnectorPlaylistsAsCanonicalResult,
 )
@@ -271,6 +273,33 @@ class TestImportSpotifyAllNotImported:
         assert "Skipped" in result.output
         assert "Total" in result.output
 
+    def test_renders_per_item_failures_then_summary(self) -> None:
+        # A failed item surfaces as a "Failed:" line AND is counted in the
+        # summary — the path the shared report_connector_batch_outcome
+        # helper owns (DUP-06 consolidation).
+        views = [_view("sp1", "A")]
+        import_result = ImportConnectorPlaylistsAsCanonicalResult(
+            succeeded=[],
+            skipped_unchanged=[],
+            failed=[
+                CanonicalImportFailure(
+                    connector_playlist_identifier="sp1",
+                    message="connector rejected the push",
+                )
+            ],
+        )
+        with (
+            patch(_LIST_PATCH, AsyncMock(return_value=_listing(views))),
+            patch(_IMPORT_PATCH, AsyncMock(return_value=import_result)),
+        ):
+            result = runner.invoke(app, ["playlist", "import-spotify", "--all"])
+
+        assert result.exit_code == 0, result.output
+        assert "Failed:" in result.output
+        assert "sp1" in result.output
+        assert "connector rejected the push" in result.output
+        assert "Traceback" not in result.output
+
 
 class TestAssignmentValidation:
     """`mixd playlist assign` rejects bad action types + values cleanly."""
@@ -402,6 +431,31 @@ class TestRefreshSpotify:
         assert result.exit_code == 0, result.output
         assert refresh_mock.await_args.kwargs["force"] is True
 
+    def test_renders_per_item_failures_then_summary(self) -> None:
+        # refresh-spotify renders failures through the same shared helper
+        # as import-spotify (DUP-06 consolidation) — identical output shape.
+        views = [_view("sp1", "Chill Vibes")]
+        refresh_result = RefreshConnectorPlaylistsResult(
+            succeeded=[],
+            skipped_unchanged=[],
+            failed=[
+                RefreshFailure(
+                    connector_playlist_identifier="sp1",
+                    message="cache refresh failed",
+                )
+            ],
+        )
+        with (
+            patch(_LIST_PATCH, AsyncMock(return_value=_listing(views))),
+            patch(_REFRESH_PATCH, AsyncMock(return_value=refresh_result)),
+        ):
+            result = runner.invoke(app, ["playlist", "refresh-spotify", "Chill Vibes"])
+
+        assert result.exit_code == 0, result.output
+        assert "Failed:" in result.output
+        assert "cache refresh failed" in result.output
+        assert "Traceback" not in result.output
+
     def test_unknown_ref_exits_with_error(self) -> None:
         views = [_view("sp1", "Chill Vibes")]
 
@@ -422,3 +476,42 @@ class TestRefreshSpotify:
         result = runner.invoke(app, ["playlist", "refresh-spotify"])
         assert result.exit_code == 2  # Typer missing-arg exit
         assert "Traceback" not in result.output
+
+
+class TestSyncLinkOutput:
+    """``sync`` renders the unmatched count only when there is one."""
+
+    @staticmethod
+    def _result(*, unmatched: int):
+        from src.application.use_cases.sync_playlist_link import SyncPlaylistLinkResult
+        from src.domain.entities.playlist_link import PlaylistLink
+
+        link = PlaylistLink(
+            playlist_id=uuid7(),
+            connector_name="spotify",
+            connector_playlist_identifier="ext123",
+        )
+        return SyncPlaylistLinkResult(
+            link=link, tracks_added=5, tracks_removed=2, tracks_unmatched=unmatched
+        )
+
+    def _invoke(self, sync_result):
+        # run_async is the call-site bridge; close the coroutine to avoid an
+        # "unawaited coroutine" warning, then return the canned result.
+        def _fake_run_async(coro):
+            coro.close()
+            return sync_result
+
+        with patch("src.interface.cli.playlist_commands.run_async", _fake_run_async):
+            return runner.invoke(app, ["playlist", "sync", str(uuid4())])
+
+    def test_shows_unmatched_when_present(self) -> None:
+        result = self._invoke(self._result(unmatched=3))
+        assert result.exit_code == 0, result.output
+        assert "3 unmatched" in result.output
+        assert "Traceback" not in result.output
+
+    def test_omits_unmatched_when_zero(self) -> None:
+        result = self._invoke(self._result(unmatched=0))
+        assert result.exit_code == 0, result.output
+        assert "unmatched" not in result.output

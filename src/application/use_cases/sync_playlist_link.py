@@ -29,7 +29,7 @@ from src.domain.entities.shared import ConnectorPlaylistIdentifier
 from src.domain.exceptions import ConfirmationRequiredError, NotFoundError
 from src.domain.playlist.diff_engine import calculate_playlist_diff
 from src.domain.playlist.sync_safety import check_sync_safety
-from src.domain.repositories.interfaces import UnitOfWorkProtocol
+from src.domain.repositories.uow import UnitOfWorkProtocol
 
 logger = get_logger(__name__)
 
@@ -55,6 +55,7 @@ class SyncPlaylistLinkResult:
     link: PlaylistLink
     tracks_added: int = field(default=0)
     tracks_removed: int = field(default=0)
+    tracks_unmatched: int = field(default=0)  # canonical tracks with no connector match
 
 
 @define(slots=True)
@@ -123,6 +124,7 @@ class SyncPlaylistLinkUseCase:
                 SyncStatus.SYNCED,
                 tracks_added=result.tracks_added,
                 tracks_removed=result.tracks_removed,
+                tracks_unmatched=result.tracks_unmatched,
             )
             await uow.commit()
 
@@ -133,6 +135,7 @@ class SyncPlaylistLinkUseCase:
                 link=updated_link,
                 tracks_added=result.tracks_added,
                 tracks_removed=result.tracks_removed,
+                tracks_unmatched=result.tracks_unmatched,
             )
 
     async def _push_sync(
@@ -190,10 +193,17 @@ class SyncPlaylistLinkUseCase:
 
         push_result = await UpdateConnectorPlaylistUseCase().execute(command, uow)
 
+        # Surfaced to the user as "unmatched": canonical tracks dropped before
+        # submission because they have no connector match (the dominant cause of
+        # PlaylistOpsOutcome.dropped, persisted into external_metadata as a JsonValue).
+        raw_unmatched = push_result.external_metadata.get("operations_dropped", 0)
+        unmatched = raw_unmatched if isinstance(raw_unmatched, int) else 0
+
         return SyncPlaylistLinkResult(
             link=link,
             tracks_added=push_result.tracks_added,
             tracks_removed=push_result.tracks_removed,
+            tracks_unmatched=unmatched,
         )
 
     async def _pull_sync(

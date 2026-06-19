@@ -24,7 +24,7 @@ from src.application.use_cases.schedules import (
     UpsertScheduleUseCase,
 )
 from src.domain.exceptions import NotFoundError
-from src.domain.repositories.interfaces import UnitOfWorkProtocol
+from src.domain.repositories.uow import UnitOfWorkProtocol
 from src.interface.api.schemas.schedules import (
     ScheduleResponse,
     ScheduleUpsertRequest,

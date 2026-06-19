@@ -54,6 +54,37 @@ class PlaylistOperation:
 
 
 @define(frozen=True, slots=True)
+class PlaylistOpsOutcome:
+    """Outcome of pushing differential operations to a connector playlist.
+
+    ``snapshot_id`` is the connector's post-write snapshot — optimistic-concurrency
+    metadata that is legitimately ``None`` on several no-op paths, so it is **not**
+    a reliable "did it apply" signal. The success signal is ``fully_applied``:
+    ``failed`` counts operations that were *submitted to the connector API but did
+    not apply* (a partial push), so a caller can route a partial/unconfirmed push
+    to ERROR instead of silently reporting SYNCED.
+
+    ``dropped`` counts operations dropped *before* submission — a track with no
+    connector mapping (URI resolution miss), an op that failed validation, or a
+    move filtered out by bounds. These are a data-quality concern, **not** a sync
+    failure, so they do not flip ``fully_applied`` to False; but they are reported
+    so a caller can surface "3 of 5 synced, 2 unmapped" instead of silently
+    reporting a clean SYNCED. By construction ``requested == submitted + dropped``
+    and ``submitted`` splits into applied + ``failed``.
+    """
+
+    snapshot_id: str | None
+    requested: int = 0
+    failed: int = 0
+    dropped: int = 0
+
+    @property
+    def fully_applied(self) -> bool:
+        """True iff every submitted operation applied (no API-level failures)."""
+        return self.failed == 0
+
+
+@define(frozen=True, slots=True)
 class PlaylistDiff:
     """Result of comparing current and target playlist states.
 

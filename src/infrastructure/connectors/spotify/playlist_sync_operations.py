@@ -13,14 +13,24 @@ from attrs import define, evolve, field
 from src.config import get_logger, settings
 from src.config.constants import BusinessLimits
 from src.domain.entities.shared import JsonDict
-from src.domain.playlist import PlaylistOperation, PlaylistOperationType
-from src.domain.repositories.interfaces import TrackRepositoryProtocol
+from src.domain.playlist import (
+    PlaylistOperation,
+    PlaylistOperationType,
+    PlaylistOpsOutcome,
+)
+from src.domain.repositories.track import TrackRepositoryProtocol
 from src.infrastructure.connectors.spotify.client import SpotifyAPIClient
 
 logger = get_logger(__name__).bind(service="spotify_playlist_sync")
 
+# An executor applies one operation group and returns
+# (snapshot_id, failed_count, attempted_count): how many submitted operations did
+# not apply, and how many were actually submitted (post-validation/bounds). Ops in
+# the group that were never submitted show up as ``attempted < len(group)`` and are
+# accounted as ``dropped`` by the caller.
 type _OperationExecutor = Callable[
-    [str, list[PlaylistOperation], str | None], Awaitable[str | None]
+    [str, list[PlaylistOperation], str | None],
+    Awaitable[tuple[str | None, int, int]],
 ]
 
 
@@ -36,10 +46,11 @@ class SpotifyPlaylistSyncOperations:
         operations: list[PlaylistOperation],
         snapshot_id: str | None = None,
         track_repo: TrackRepositoryProtocol | None = None,
-    ) -> str | None:
+    ) -> PlaylistOpsOutcome:
         """Execute differential playlist operations with URI translation."""
+        requested = len(operations)
         if not operations:
-            return snapshot_id
+            return PlaylistOpsOutcome(snapshot_id, requested=0, failed=0)
 
         logger.info(
             "Executing playlist operations",
@@ -71,31 +82,35 @@ class SpotifyPlaylistSyncOperations:
         )
 
         # Execute in optimal order: remove → move → add
+        groups: tuple[tuple[str, PlaylistOperationType, _OperationExecutor], ...] = (
+            ("remove", PlaylistOperationType.REMOVE, self._execute_remove_operations),
+            ("move", PlaylistOperationType.MOVE, self._execute_move_operations),
+            ("add", PlaylistOperationType.ADD, self._execute_add_operations),
+        )
         current_snapshot = snapshot_id
+        total_failed = 0
+        total_attempted = 0
         try:
-            current_snapshot = await self._execute_operation_group(
-                "remove",
-                playlist_id,
-                ops_by_type[PlaylistOperationType.REMOVE],
-                current_snapshot,
-                self._execute_remove_operations,
+            for name, op_type, executor in groups:
+                (
+                    current_snapshot,
+                    failed,
+                    attempted,
+                ) = await self._execute_operation_group(
+                    name, playlist_id, ops_by_type[op_type], current_snapshot, executor
+                )
+                total_failed += failed
+                total_attempted += attempted
+            # Ops requested but never submitted (URI-resolution misses, validation
+            # or move-bounds filtering) are dropped, not failed — surfaced so the
+            # caller can report "N synced, M unmapped" rather than a silent SYNCED.
+            dropped = requested - total_attempted
+            logger.info(
+                "All operations completed",
+                final_snapshot=current_snapshot,
+                failed=total_failed,
+                dropped=dropped,
             )
-            current_snapshot = await self._execute_operation_group(
-                "move",
-                playlist_id,
-                ops_by_type[PlaylistOperationType.MOVE],
-                current_snapshot,
-                self._execute_move_operations,
-            )
-            current_snapshot = await self._execute_operation_group(
-                "add",
-                playlist_id,
-                ops_by_type[PlaylistOperationType.ADD],
-                current_snapshot,
-                self._execute_add_operations,
-            )
-
-            logger.info("All operations completed", final_snapshot=current_snapshot)
 
         except Exception as e:
             logger.error(
@@ -105,7 +120,12 @@ class SpotifyPlaylistSyncOperations:
             )
             raise
         else:
-            return current_snapshot
+            return PlaylistOpsOutcome(
+                current_snapshot,
+                requested=requested,
+                failed=total_failed,
+                dropped=dropped,
+            )
 
     async def _execute_operation_group(
         self,
@@ -114,14 +134,16 @@ class SpotifyPlaylistSyncOperations:
         operations: list[PlaylistOperation],
         snapshot_id: str | None,
         executor: _OperationExecutor,
-    ) -> str | None:
-        """Execute a group of operations with consistent error handling."""
+    ) -> tuple[str | None, int, int]:
+        """Execute a group of operations; return (snapshot, failed, attempted)."""
         if not operations:
-            return snapshot_id
+            return snapshot_id, 0, 0
 
         logger.info(f"Executing {len(operations)} {operation_name} operations")
         try:
-            new_snapshot = await executor(playlist_id, operations, snapshot_id)
+            new_snapshot, failed, attempted = await executor(
+                playlist_id, operations, snapshot_id
+            )
             logger.info(f"{operation_name.capitalize()} operations completed")
         except Exception as e:
             logger.error(
@@ -131,7 +153,7 @@ class SpotifyPlaylistSyncOperations:
             )
             raise
         else:
-            return new_snapshot
+            return new_snapshot, failed, attempted
 
     async def _resolve_canonical_uris_to_spotify(
         self, operations: list[PlaylistOperation], track_repo: TrackRepositoryProtocol
@@ -255,11 +277,11 @@ class SpotifyPlaylistSyncOperations:
         playlist_id: str,
         remove_ops: list[PlaylistOperation],
         snapshot_id: str | None,
-    ) -> str | None:
-        """Execute remove operations batched by track URI."""
+    ) -> tuple[str | None, int, int]:
+        """Execute remove operations batched by track URI; (snapshot, failed, attempted)."""
         valid_ops = self._validate_operations(remove_ops, PlaylistOperationType.REMOVE)
         if not valid_ops:
-            return snapshot_id
+            return snapshot_id, 0, 0
 
         # Group by URI with positions using defaultdict
         tracks_to_remove: defaultdict[str | None, list[int]] = defaultdict(list)
@@ -279,6 +301,7 @@ class SpotifyPlaylistSyncOperations:
         current_snapshot = snapshot_id
         total_batches = (len(items) + 99) // 100
         failed_batches = 0
+        failed_items = 0
 
         for i in range(0, len(items), 100):
             batch = items[i : i + 100]
@@ -286,10 +309,13 @@ class SpotifyPlaylistSyncOperations:
                 current_snapshot, batch_failed = await self._submit_remove_batch(
                     playlist_id, batch, current_snapshot
                 )
+                if batch_failed:
+                    failed_items += len(batch)
                 failed_batches += batch_failed
 
             except Exception as e:
                 failed_batches += 1
+                failed_items += len(batch)
                 logger.error(
                     f"Remove batch {i // 100 + 1}/{total_batches} failed",
                     error=str(e),
@@ -300,7 +326,7 @@ class SpotifyPlaylistSyncOperations:
                 f"All {total_batches} remove batches failed for playlist {playlist_id}"
             )
 
-        return current_snapshot
+        return current_snapshot, failed_items, len(valid_ops)
 
     async def _submit_remove_batch(
         self,
@@ -328,11 +354,11 @@ class SpotifyPlaylistSyncOperations:
         playlist_id: str,
         add_ops: list[PlaylistOperation],
         snapshot_id: str | None,
-    ) -> str | None:
-        """Execute add operations individually with position tracking."""
+    ) -> tuple[str | None, int, int]:
+        """Execute add operations individually; return (snapshot, failed, attempted)."""
         valid_ops = self._validate_operations(add_ops, PlaylistOperationType.ADD)
         if not valid_ops:
-            return snapshot_id
+            return snapshot_id, 0, 0
 
         successful = 0
         failed = 0
@@ -343,17 +369,28 @@ class SpotifyPlaylistSyncOperations:
                     "BUG: add op passed validation with None spotify_uri"
                 )
             try:
-                _ = await self.client.playlist_add_items(
+                result = await self.client.playlist_add_items(
                     playlist_id=playlist_id,
                     items=[op.spotify_uri],
                     position=op.position,
                 )
-                successful += 1
-                await asyncio.sleep(settings.api.spotify.request_delay)
-
             except Exception as e:
                 failed += 1
                 logger.error(f"Add operation failed: {e}")
+                continue
+
+            # A falsy result means the client suppressed an HTTP/network error
+            # (_api_call returns None for _SUPPRESS_ERRORS) rather than raising —
+            # count it as failed, mirroring remove/move.
+            if result:
+                successful += 1
+            else:
+                failed += 1
+                logger.error(
+                    "Add operation returned no snapshot (suppressed API error)",
+                    spotify_uri=op.spotify_uri,
+                )
+            await asyncio.sleep(settings.api.spotify.request_delay)
 
         # Fetch updated snapshot after successful adds
         if successful > 0:
@@ -366,15 +403,15 @@ class SpotifyPlaylistSyncOperations:
                 f"All {len(valid_ops)} add operations failed for playlist {playlist_id}"
             )
 
-        return snapshot_id
+        return snapshot_id, failed, len(valid_ops)
 
     async def _execute_move_operations(
         self,
         playlist_id: str,
         move_ops: list[PlaylistOperation],
         snapshot_id: str | None,
-    ) -> str | None:
-        """Execute move operations individually with bounds checking."""
+    ) -> tuple[str | None, int, int]:
+        """Execute move operations individually; return (snapshot, failed, attempted)."""
         # Get current playlist size for validation
         try:
             playlist_info = await self.client.get_playlist(playlist_id)
@@ -401,7 +438,7 @@ class SpotifyPlaylistSyncOperations:
             valid_ops.append((i, op))
 
         if not valid_ops:
-            return snapshot_id
+            return snapshot_id, 0, 0
 
         if len(valid_ops) < len(move_ops):
             logger.info(
@@ -439,7 +476,7 @@ class SpotifyPlaylistSyncOperations:
                 f"All {len(valid_ops)} move operations failed for playlist {playlist_id}"
             )
 
-        return current_snapshot
+        return current_snapshot, failed, len(valid_ops)
 
     async def _submit_move_operation(
         self,

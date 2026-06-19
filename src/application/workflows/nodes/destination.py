@@ -216,7 +216,6 @@ async def update_playlist(
             append_mode=append,
             playlist_name=cfg_str_or_none(config, "name"),
             playlist_description=cfg_str_or_none(config, "description"),
-            preserve_timestamps=not append,  # Use preservation for overwrite
         )
         result = await workflow_context.execute_use_case(
             workflow_context.use_cases.get_update_connector_playlist_use_case, command

@@ -418,6 +418,7 @@ async def _execute_sync_background(
                 "COMPLETED",
                 tracks_added=result.tracks_added,
                 tracks_removed=result.tracks_removed,
+                tracks_unmatched=result.tracks_unmatched,
             )
         )
 

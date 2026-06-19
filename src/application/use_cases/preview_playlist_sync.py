@@ -14,7 +14,7 @@ from src.domain.entities.playlist import Playlist
 from src.domain.entities.playlist_link import PlaylistLink, SyncDirection
 from src.domain.playlist.diff_engine import calculate_playlist_diff
 from src.domain.playlist.sync_safety import check_sync_safety
-from src.domain.repositories.interfaces import UnitOfWorkProtocol
+from src.domain.repositories.uow import UnitOfWorkProtocol
 
 logger = get_logger(__name__)
 

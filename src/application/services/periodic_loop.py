@@ -18,7 +18,7 @@ import time
 
 from src.application.runner import execute_use_case
 from src.config.logging import get_logger
-from src.domain.repositories.interfaces import UnitOfWorkProtocol
+from src.domain.repositories.uow import UnitOfWorkProtocol
 
 
 async def run_periodic_background_loop[T](

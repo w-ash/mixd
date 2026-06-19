@@ -26,7 +26,7 @@ from src.domain.entities.playlist import Playlist
 from src.domain.entities.shared import JsonValue
 from src.domain.entities.track import TrackList
 from src.domain.exceptions import ConnectorSyncError
-from src.domain.repositories import UnitOfWorkProtocol
+from src.domain.repositories.uow import UnitOfWorkProtocol
 
 logger = get_logger(__name__)
 

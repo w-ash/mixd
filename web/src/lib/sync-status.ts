@@ -19,7 +19,11 @@ export function getSyncStatusConfig(status: string) {
   );
 }
 
-/** Format last sync results as a compact string: "+12 added · -3 removed" */
+/** Format last sync results as a compact string: "+12 added · -3 removed".
+ *
+ * Unmatched tracks (no connector match) are surfaced separately as a gold
+ * `UnmatchedBadge`, not folded into this neutral added/removed summary.
+ */
 export function formatSyncResults(
   added: number | null | undefined,
   removed: number | null | undefined,

@@ -14,7 +14,7 @@ from src.config import get_logger
 from src.config.constants import BusinessLimits
 from src.domain.entities.preference import PreferenceState
 from src.domain.entities.track import TrackList
-from src.domain.repositories import UnitOfWorkProtocol
+from src.domain.repositories.uow import UnitOfWorkProtocol
 
 logger = get_logger(__name__)
 

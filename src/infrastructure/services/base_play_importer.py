@@ -15,10 +15,8 @@ from src.domain.entities.progress import (
     ProgressStatus,
     create_progress_event,
 )
-from src.domain.repositories.interfaces import (
-    PlaysRepositoryProtocol,
-    UnitOfWorkProtocol,
-)
+from src.domain.repositories.play import PlaysRepositoryProtocol
+from src.domain.repositories.uow import UnitOfWorkProtocol
 from src.domain.results import (
     ImportResultData,
     create_error_result,

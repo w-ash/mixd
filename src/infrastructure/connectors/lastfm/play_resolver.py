@@ -8,8 +8,8 @@ from collections.abc import Callable
 
 from src.config import get_logger
 from src.domain.entities import ConnectorTrackPlay, PlayRecord, TrackPlay
-from src.domain.repositories import UnitOfWorkProtocol
-from src.domain.repositories.interfaces import ResolutionMetrics
+from src.domain.repositories.play import ResolutionMetrics
+from src.domain.repositories.uow import UnitOfWorkProtocol
 
 from .track_resolution_service import LastfmTrackResolutionService
 

@@ -34,8 +34,8 @@ from src.domain.entities import (
     Track,
 )
 from src.domain.entities.shared import JsonValue
-from src.domain.playlist import PlaylistOperation
-from src.domain.repositories.interfaces import TrackRepositoryProtocol
+from src.domain.playlist import PlaylistOperation, PlaylistOpsOutcome
+from src.domain.repositories.track import TrackRepositoryProtocol
 from src.infrastructure.connectors.spotify.client import SpotifyAPIClient
 from src.infrastructure.connectors.spotify.conversions import (
     convert_spotify_playlist_to_connector,
@@ -411,7 +411,7 @@ class SpotifyOperations:
         operations: list[PlaylistOperation],
         snapshot_id: str | None = None,
         track_repo: TrackRepositoryProtocol | None = None,
-    ) -> str | None:
+    ) -> PlaylistOpsOutcome:
         """Execute a list of differential playlist operations.
 
         Delegates to SpotifyPlaylistSyncOperations for complex sync logic

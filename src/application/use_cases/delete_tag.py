@@ -7,7 +7,7 @@ event rows are deleted too. No remove events are written.
 
 from attrs import define
 
-from src.domain.repositories import UnitOfWorkProtocol
+from src.domain.repositories.uow import UnitOfWorkProtocol
 
 
 @define(frozen=True, slots=True)

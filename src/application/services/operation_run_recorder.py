@@ -19,7 +19,7 @@ from uuid import UUID
 from src.application.runner import execute_use_case
 from src.domain.entities.operation_run import OperationRun, OperationStatus
 from src.domain.entities.shared import JsonDict
-from src.domain.repositories import UnitOfWorkProtocol
+from src.domain.repositories.uow import UnitOfWorkProtocol
 
 
 async def start_run(

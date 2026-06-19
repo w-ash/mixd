@@ -50,5 +50,8 @@ class PlaylistLink:
     last_sync_error: str | None = None
     last_sync_tracks_added: int | None = None
     last_sync_tracks_removed: int | None = None
+    last_sync_tracks_unmatched: int | None = (
+        None  # canonical tracks with no connector match
+    )
     created_at: datetime = field(factory=utc_now_factory)
     id: UUID = field(factory=uuid7)

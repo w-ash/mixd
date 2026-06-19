@@ -14,7 +14,7 @@ from src.application.connector_protocols import (
     TrackConversionConnector,
     UserPlaylistsConnector,
 )
-from src.domain.repositories import UnitOfWorkProtocol
+from src.domain.repositories.uow import UnitOfWorkProtocol
 
 
 def resolve_connector(

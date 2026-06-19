@@ -12,11 +12,9 @@ from attrs import define
 from src.config.constants import MappingOrigin
 from src.domain.entities.track import Artist, Track
 from src.domain.exceptions import NotFoundError
-from src.domain.repositories.interfaces import (
-    ConnectorRepositoryProtocol,
-    TrackRepositoryProtocol,
-    UnitOfWorkProtocol,
-)
+from src.domain.repositories.connector import ConnectorRepositoryProtocol
+from src.domain.repositories.track import TrackRepositoryProtocol
+from src.domain.repositories.uow import UnitOfWorkProtocol
 
 
 @define(frozen=True, slots=True)

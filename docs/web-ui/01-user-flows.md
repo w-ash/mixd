@@ -9,6 +9,8 @@ Each flow is organized by **user goal**, not by page. Every flow includes:
 - **Backend calls** -- which API endpoints and use cases are involved
 - **Edge cases** -- what can go wrong and how we handle it
 
+> **Status tokens** (re-trued 2026-06-17 against `web/openapi.json`): **✅ Implemented (vX)** = the endpoint is live in the API; **Needs implementation** = the use case may exist but no REST endpoint is wired yet. (The former bare **"Exists"** token was ambiguous — it meant "the use case exists, endpoint unwired" — and has been resolved into one of the two real states throughout this pass.)
+
 ## Personas
 
 These flows are primarily designed for **The Weekly Curator** (primary persona). Flows specifically serving **The Tinkerer** (secondary) are noted inline. See [personas.md](../personas.md) for full definitions and anti-personas.
@@ -71,8 +73,8 @@ With `DatabaseTokenStorage` and a hosted callback URL, the Settings page handles
 **Backend calls**:
 | Step | Endpoint | Use Case | Status |
 |------|----------|----------|--------|
-| 2 | `GET /connectors/spotify/auth-url` | Generate OAuth URL | Needs implementation (v0.5.0) |
-| 3 | `GET /auth/spotify/callback` | Exchange code, store via `DatabaseTokenStorage` | Needs implementation (v0.5.0) |
+| 2 | `GET /connectors/{service}/auth-url` | Generate OAuth URL | ✅ Implemented (v0.5.x) |
+| 3 | `GET /auth/spotify/callback` | Exchange code, store via `DatabaseTokenStorage` | ✅ Implemented (v0.5.x) |
 | 4 | `GET /connectors` | List connector status | ✅ Implemented (v0.3.0) |
 
 **Edge cases**:
@@ -132,8 +134,8 @@ With database-backed credential storage, Settings handles the Last.fm web auth f
 **Backend calls**:
 | Step | Endpoint | Use Case | Status |
 |------|----------|----------|--------|
-| 2 | `GET /connectors/lastfm/auth-url` | Generate Last.fm auth URL | Needs implementation (v0.5.0) |
-| 3 | `GET /auth/lastfm/callback` | Store session key in database | Needs implementation (v0.5.0) |
+| 2 | `GET /connectors/{service}/auth-url` | Generate Last.fm auth URL | ✅ Implemented (v0.5.x) |
+| 3 | `GET /auth/lastfm/callback` | Store session key in database | ✅ Implemented (v0.5.x) |
 
 **Edge cases**:
 - Last.fm auth fails: redirect with error toast.
@@ -206,6 +208,7 @@ With database-backed credential storage, Settings handles the Last.fm web auth f
    - **Metrics** section: connector-specific metrics
      - Last.fm: user play count, global play count, listener count
 
+   > **⚠ Not yet built (2026-06-17):** the Play History sparkline and the Metrics section are described aspirationally — verify against the live `GET /tracks/{id}` payload before relying on them.
 
 2. **Actions** available on this page:
    - **Like/Unlike**: Toggle like status per service. Calls `POST /tracks/{id}/like` or `DELETE /tracks/{id}/like` with `{ connector: "spotify" }`.
@@ -219,7 +222,7 @@ With database-backed credential storage, Settings handles the Last.fm web auth f
 | Load detail | `GET /tracks/{id}` | `GetTrackDetailsUseCase` | ✅ Implemented (v0.3.2) |
 | Like track | `POST /tracks/{id}/like` | `SyncLikesUseCase` (single-track variant) | Needs implementation |
 | Unlike track | `DELETE /tracks/{id}/like` | `SyncLikesUseCase` (single-track variant) | Needs implementation |
-| Add to playlist | `POST /playlists/{id}/tracks` | `UpdateCanonicalPlaylistUseCase` | Exists |
+| Add to playlist | `POST /playlists/{id}/tracks` | `UpdateCanonicalPlaylistUseCase` | Needs implementation |
 
 **Edge cases**:
 - Track has no connector mappings: Show "Not mapped to any services. This track exists only in your Mixd library."
@@ -256,7 +259,7 @@ With database-backed credential storage, Settings handles the Last.fm web auth f
 | Step | Endpoint | Use Case | Status |
 |------|----------|----------|--------|
 | 1 | `GET /connectors/{connector}/search?q=...` | Connector search | Needs implementation |
-| 4 | `PATCH /tracks/{id}/mappings/{mapping_id}` | Manual mapping correction | Needs implementation |
+| 4 | `PATCH /tracks/{id}/mappings/{mapping_id}` | Manual mapping correction | ✅ Implemented |
 
 **Edge cases**:
 - Connector search API rate limited: Show "Search temporarily unavailable. Try again in a moment."
@@ -319,8 +322,8 @@ With database-backed credential storage, Settings handles the Last.fm web auth f
 |--------|----------|----------|--------|
 | Load detail | `GET /playlists/{id}` | `ReadCanonicalPlaylistUseCase` | ✅ Implemented (v0.3.0) |
 | Load tracks | `GET /playlists/{id}/tracks?limit=50&offset=0` | `ReadCanonicalPlaylistUseCase` | ✅ Implemented (v0.3.0) |
-| Remove track | `DELETE /playlists/{id}/tracks/{entry_id}` | `UpdateCanonicalPlaylistUseCase` | Exists |
-| Reorder | `PATCH /playlists/{id}/tracks/reorder` | `UpdateCanonicalPlaylistUseCase` | Exists |
+| Remove track | `DELETE /playlists/{id}/tracks/{entry_id}` | `UpdateCanonicalPlaylistUseCase` | Needs implementation |
+| Reorder | `PATCH /playlists/{id}/tracks/reorder` | `UpdateCanonicalPlaylistUseCase` | Needs implementation |
 | Edit details | `PATCH /playlists/{id}` | `UpdateCanonicalPlaylistUseCase` | ✅ Implemented (v0.3.0) |
 | Delete | `DELETE /playlists/{id}` | `DeleteCanonicalPlaylistUseCase` | ✅ Implemented (v0.3.0) |
 
@@ -382,7 +385,7 @@ With database-backed credential storage, Settings handles the Last.fm web auth f
 | Step | Endpoint | Use Case | Status |
 |------|----------|----------|--------|
 | 2 | `GET /tracks?q=...` | `ListTracksUseCase` (merged search+list) | ✅ Implemented (v0.3.2) |
-| 3 | `POST /playlists/{id}/tracks` | `UpdateCanonicalPlaylistUseCase` | Exists |
+| 3 | `POST /playlists/{id}/tracks` | `UpdateCanonicalPlaylistUseCase` | Needs implementation |
 
 **Edge cases**:
 - User tries to add a track that's already in the playlist: Backend allows duplicates (some playlists intentionally repeat tracks). UI shows "Already added" badge but doesn't prevent re-adding.
@@ -411,7 +414,7 @@ With database-backed credential storage, Settings handles the Last.fm web auth f
 **Backend calls**:
 | Action | Endpoint | Use Case | Status |
 |--------|----------|----------|--------|
-| Full reorder | `PATCH /playlists/{id}/tracks/reorder` | `UpdateCanonicalPlaylistUseCase` | Exists |
+| Full reorder | `PATCH /playlists/{id}/tracks/reorder` | `UpdateCanonicalPlaylistUseCase` | Needs implementation |
 | Single move | `PATCH /playlists/{id}/tracks/move` | `UpdateCanonicalPlaylistUseCase` | Needs implementation |
 
 **Edge cases**:
@@ -439,7 +442,7 @@ With database-backed credential storage, Settings handles the Last.fm web auth f
 **Backend calls**:
 | Action | Endpoint | Use Case | Status |
 |--------|----------|----------|--------|
-| Single remove | `DELETE /playlists/{id}/tracks/{entry_id}` | `UpdateCanonicalPlaylistUseCase` | Exists |
+| Single remove | `DELETE /playlists/{id}/tracks/{entry_id}` | `UpdateCanonicalPlaylistUseCase` | Needs implementation |
 | Batch remove | `DELETE /playlists/{id}/tracks` (body: entry_ids) | `UpdateCanonicalPlaylistUseCase` | Needs implementation |
 
 **Edge cases**:
@@ -452,6 +455,8 @@ With database-backed credential storage, Settings handles the Last.fm web auth f
 > **Available starting v0.3.1.** Requires `SSEProgressSubscriber` and import API routes. Import use cases already exist.
 
 ### 4.1 Import Center
+
+> **⚠ Superseded IA (re-trued 2026-06-17):** the single "Import Center" page described below was rebuilt as two Settings sub-pages — **`/settings/sync`** (operations + checkpoints) and **`/settings/imports`** (history upload). The endpoint inventory in this section is still accurate; the page layout and the `/imports` route are not.
 
 **Trigger**: User clicks **Imports** in the sidebar.
 
@@ -613,6 +618,8 @@ With database-backed credential storage, Settings handles the Last.fm web auth f
    - **Red** "Stale": exceeds freshness threshold
    - Clicking a stale row navigates to the corresponding Import Center operation card to re-run.
 
+> **⚠ Not yet built (2026-06-17):** configurable green/yellow/red staleness thresholds are aspirational; the checkpoint-list endpoint exists but the freshness-threshold UI does not.
+
 **Backend calls**:
 | Action | Endpoint | Use Case | Status |
 |--------|----------|----------|--------|
@@ -623,6 +630,8 @@ With database-backed credential storage, Settings handles the Last.fm web auth f
 ## 5. Managing Connector Links
 
 > **Available starting v0.4.4.** Requires connector playlist linking use cases and playlist links API routes.
+
+> **⚠ Sync-direction model re-trued 2026-06-17:** flows 5.1–5.3 describe a three-state model (*Mixd Master / Connector Master / Manual*). The shipped `SyncDirection` enum is **two-value — `PUSH` (canonical → external) and `PULL` (external → canonical)**; there is no separate "Manual" state. Read the badges and radio options below as PUSH/PULL.
 
 ### 5.1 Viewing Linked External Playlists
 
@@ -647,7 +656,7 @@ With database-backed credential storage, Settings handles the Last.fm web auth f
 **Backend calls**:
 | Action | Endpoint | Use Case | Status |
 |--------|----------|----------|--------|
-| Load links | `GET /playlists/{id}/links` | Query connector playlist mappings | Needs implementation |
+| Load links | `GET /playlists/{id}/links` | Query connector playlist links | ✅ Implemented (v0.4.4) |
 
 ---
 
@@ -683,9 +692,9 @@ With database-backed credential storage, Settings handles the Last.fm web auth f
 **Backend calls**:
 | Step | Endpoint | Use Case | Status |
 |------|----------|----------|--------|
-| 3 | `GET /connectors/{connector}/playlists` | Browse user's playlists | Needs implementation |
-| 3 | `GET /connectors/{connector}/playlists?q=...` | Search playlists | Needs implementation |
-| 5 | `POST /playlists/{id}/links` | `CreateConnectorPlaylistUseCase` | Exists |
+| 3 | `GET /connectors/{service}/playlists` | Browse user's playlists | ✅ Implemented |
+| 3 | `GET /connectors/{service}/playlists?q=...` | Search playlists (no server-side `q` param yet; filter client-side) | Needs implementation |
+| 5 | `POST /playlists/{id}/links` | `CreatePlaylistLinkUseCase` | ✅ Implemented (v0.4.4) |
 
 **Edge cases**:
 - Spotify playlist already linked to another canonical playlist: Warning "This Spotify playlist is already linked to 'Other Playlist'. Link anyway?" (creates a second link).
@@ -712,7 +721,7 @@ With database-backed credential storage, Settings handles the Last.fm web auth f
 **Backend calls**:
 | Action | Endpoint | Use Case | Status |
 |--------|----------|----------|--------|
-| Update direction | `PATCH /playlists/{id}/links/{link_id}` | `UpdateConnectorPlaylistUseCase` | Exists |
+| Update direction | `PATCH /playlists/{id}/links/{link_id}` | `UpdatePlaylistLinkUseCase` | ✅ Implemented (v0.4.4) |
 
 ---
 
@@ -735,12 +744,17 @@ With database-backed credential storage, Settings handles the Last.fm web auth f
 
 4. Completion summary:
    - "Sync complete. 5 tracks added, 2 removed, 3 reordered on Spotify."
+   - When some canonical tracks have no match on the destination connector, the
+     summary also reports them as **unmatched** (e.g. "+5 added · -2 removed ·
+     2 unmatched"), persisted on the link and shown on reload. Hovering explains:
+     "No matching track found on the destination — they stay in your Mixd
+     playlist." Connector-agnostic wording (not "not on Spotify").
    - Leverages existing `SummaryMetricCollection` for operation result display.
 
 **Backend calls**:
 | Step | Endpoint | Use Case | Status |
 |------|----------|----------|--------|
-| 2 | `POST /playlists/{id}/links/{link_id}/sync` | `UpdateConnectorPlaylistUseCase` | Exists |
+| 2 | `POST /playlists/{id}/links/{link_id}/sync` | `SyncPlaylistLinkUseCase` | ✅ Implemented (v0.4.4) |
 | 3 | `GET /operations/{id}/progress` | SSE stream | ✅ Implemented (v0.3.1) |
 
 **Edge cases**:
@@ -1046,7 +1060,7 @@ With database-backed credential storage, Settings handles the Last.fm web auth f
 **Backend calls**:
 | Section | Endpoint | Use Case | Status |
 |---------|----------|----------|--------|
-| Stats | `GET /stats/dashboard` | `GetTrackStatsUseCase` | Needs implementation (v0.3.3) |
+| Stats | `GET /stats/dashboard` | `GetDashboardStatsUseCase` | ✅ Implemented (v0.3.3) |
 | Connector health | `GET /connectors` | Connector status | ✅ Implemented (v0.3.0) |
 | Freshness | `GET /imports/checkpoints` | Checkpoint query | ✅ Implemented (v0.3.1) |
 
@@ -1077,7 +1091,7 @@ With database-backed credential storage, Settings handles the Last.fm web auth f
 | Action | Endpoint | Use Case | Status |
 |--------|----------|----------|--------|
 | List unmatched | `GET /tracks?unmapped_for=spotify&limit=50` | `GetUnmappedTracksUseCase` | Needs implementation (v0.7.0) |
-| Batch re-match | `POST /tracks/rematch` | `MatchAndIdentifyTracksUseCase` | Exists |
+| Batch re-match | `POST /tracks/rematch` | `MatchAndIdentifyTracksUseCase` | Needs implementation (use case exists; no REST endpoint) |
 
 **Edge cases**:
 - Track genuinely doesn't exist on a service (regional restrictions, removed catalog): Dismissed tracks don't appear in future unmatched lists.

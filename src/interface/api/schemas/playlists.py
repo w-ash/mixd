@@ -69,6 +69,7 @@ class PlaylistLinkSchema(BaseModel):
     last_sync_error: str | None = None
     last_sync_tracks_added: int | None = None
     last_sync_tracks_removed: int | None = None
+    last_sync_tracks_unmatched: int | None = None
 
 
 class CreateLinkRequest(BaseModel):
@@ -203,6 +204,7 @@ def to_link_schema(link: PlaylistLink) -> PlaylistLinkSchema:
         last_sync_error=link.last_sync_error,
         last_sync_tracks_added=link.last_sync_tracks_added,
         last_sync_tracks_removed=link.last_sync_tracks_removed,
+        last_sync_tracks_unmatched=link.last_sync_tracks_unmatched,
     )
 
 

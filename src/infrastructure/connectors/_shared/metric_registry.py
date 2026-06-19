@@ -18,7 +18,7 @@ from typing import ClassVar, Protocol, runtime_checkable
 
 from src.config import get_logger
 from src.domain.entities.shared import MetricValue
-from src.domain.repositories.interfaces import UnitOfWorkProtocol
+from src.domain.repositories.uow import UnitOfWorkProtocol
 
 logger = get_logger(__name__).bind(service="connectors")
 

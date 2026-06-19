@@ -13,11 +13,9 @@ from attrs import Factory, define, field
 from src.config.constants import MappingOrigin
 from src.domain.entities import Playlist, Track, TrackLike
 from src.domain.entities.preference import PreferenceState
-from src.domain.repositories.interfaces import (
-    FullMappingInfo,
-    PlayAggregationResult,
-    UnitOfWorkProtocol,
-)
+from src.domain.repositories.connector import FullMappingInfo
+from src.domain.repositories.play import PlayAggregationResult
+from src.domain.repositories.uow import UnitOfWorkProtocol
 
 
 @define(frozen=True, slots=True)

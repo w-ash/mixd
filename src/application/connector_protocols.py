@@ -17,8 +17,8 @@ from uuid import UUID
 from src.domain.entities import ConnectorPlaylist, ConnectorTrack
 from src.domain.entities.shared import JsonValue
 from src.domain.entities.track import Track
-from src.domain.playlist.diff_engine import PlaylistOperation
-from src.domain.repositories.interfaces import TrackRepositoryProtocol
+from src.domain.playlist.diff_engine import PlaylistOperation, PlaylistOpsOutcome
+from src.domain.repositories.track import TrackRepositoryProtocol
 
 
 class TrackConversionConnector(Protocol):
@@ -135,7 +135,7 @@ class PlaylistConnector(Protocol):
         operations: list[PlaylistOperation],
         snapshot_id: str | None = None,
         track_repo: TrackRepositoryProtocol | None = None,
-    ) -> str | None: ...
+    ) -> PlaylistOpsOutcome: ...
     async def append_tracks_to_playlist(
         self,
         playlist_id: str,

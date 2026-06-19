@@ -42,6 +42,7 @@ def _to_link(db: DBPlaylistMapping, cp: DBConnectorPlaylist) -> PlaylistLink:
         last_sync_error=db.last_sync_error,
         last_sync_tracks_added=db.last_sync_tracks_added,
         last_sync_tracks_removed=db.last_sync_tracks_removed,
+        last_sync_tracks_unmatched=db.last_sync_tracks_unmatched,
         created_at=db.created_at,
     )
 
@@ -153,6 +154,7 @@ class PlaylistLinkRepository:
         error: str | None = None,
         tracks_added: int | None = None,
         tracks_removed: int | None = None,
+        tracks_unmatched: int | None = None,
     ) -> None:
         """Update sync status and optional metrics for a link."""
         values: dict[str, object] = {
@@ -168,6 +170,8 @@ class PlaylistLinkRepository:
                 values["last_sync_tracks_added"] = tracks_added
             if tracks_removed is not None:
                 values["last_sync_tracks_removed"] = tracks_removed
+            if tracks_unmatched is not None:
+                values["last_sync_tracks_unmatched"] = tracks_unmatched
         elif status == SyncStatus.ERROR:
             values["last_sync_error"] = error
 

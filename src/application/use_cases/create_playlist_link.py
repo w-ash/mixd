@@ -22,7 +22,7 @@ from src.application.use_cases._shared.playlist_resolver import require_playlist
 from src.config import get_logger
 from src.domain.entities.playlist_link import PlaylistLink, SyncDirection, SyncStatus
 from src.domain.entities.shared import ConnectorPlaylistIdentifier
-from src.domain.repositories.interfaces import UnitOfWorkProtocol
+from src.domain.repositories.uow import UnitOfWorkProtocol
 
 logger = get_logger(__name__)
 

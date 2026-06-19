@@ -22,7 +22,7 @@ from src.application.use_cases.match_and_identify_tracks import (
 )
 from src.config import get_logger, setup_script_logger
 from src.domain.entities.track import Track, TrackList
-from src.domain.repositories.interfaces import UnitOfWorkProtocol
+from src.domain.repositories.uow import UnitOfWorkProtocol
 from src.infrastructure.connectors.lastfm import LastFMConnector
 from src.infrastructure.persistence.database.db_connection import get_session
 from src.infrastructure.persistence.repositories.factories import get_unit_of_work

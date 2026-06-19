@@ -3,7 +3,7 @@
  * Do not edit manually.
  * Mixd
  * Personal music metadata hub
- * OpenAPI spec version: 0.8.5
+ * OpenAPI spec version: 0.8.6
  */
 
 /**
@@ -20,4 +20,5 @@ export interface PlaylistLinkSchema {
   last_sync_error?: string | null;
   last_sync_tracks_added?: number | null;
   last_sync_tracks_removed?: number | null;
+  last_sync_tracks_unmatched?: number | null;
 }

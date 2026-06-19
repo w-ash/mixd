@@ -10,27 +10,35 @@ from typing import Self
 
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from src.domain.repositories.interfaces import (
-    CheckpointRepositoryProtocol,
+from src.domain.repositories.checkpoint import CheckpointRepositoryProtocol
+from src.domain.repositories.connector import (
     ConnectorPlaylistRepositoryProtocol,
-    ConnectorPlayRepositoryProtocol,
     ConnectorRepositoryProtocol,
-    LikeRepositoryProtocol,
-    MatchReviewRepositoryProtocol,
-    MetricsRepositoryProtocol,
-    OperationRunRepositoryProtocol,
+    ServiceConnectorProvider,
+)
+from src.domain.repositories.like import LikeRepositoryProtocol
+from src.domain.repositories.match_review import MatchReviewRepositoryProtocol
+from src.domain.repositories.metric import MetricsRepositoryProtocol
+from src.domain.repositories.operation_run import OperationRunRepositoryProtocol
+from src.domain.repositories.play import (
+    ConnectorPlayRepositoryProtocol,
+    PlaysRepositoryProtocol,
+)
+from src.domain.repositories.playlist import (
     PlaylistAssignmentRepositoryProtocol,
     PlaylistLinkRepositoryProtocol,
     PlaylistRepositoryProtocol,
-    PlaysRepositoryProtocol,
-    PreferenceRepositoryProtocol,
-    ScheduleRepositoryProtocol,
-    ServiceConnectorProvider,
-    StatsRepositoryProtocol,
-    TagRepositoryProtocol,
+)
+from src.domain.repositories.preference import PreferenceRepositoryProtocol
+from src.domain.repositories.schedule import ScheduleRepositoryProtocol
+from src.domain.repositories.stats import StatsRepositoryProtocol
+from src.domain.repositories.tag import TagRepositoryProtocol
+from src.domain.repositories.track import (
     TrackIdentityServiceProtocol,
     TrackMergeServiceProtocol,
     TrackRepositoryProtocol,
+)
+from src.domain.repositories.workflow import (
     WorkflowRepositoryProtocol,
     WorkflowRunRepositoryProtocol,
     WorkflowVersionRepositoryProtocol,

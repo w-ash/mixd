@@ -36,7 +36,7 @@ from src.domain.playlist.execution_strategies import (
     execute_with_strategy,
     get_execution_strategy,
 )
-from src.domain.repositories import UnitOfWorkProtocol
+from src.domain.repositories.uow import UnitOfWorkProtocol
 
 logger = get_logger(__name__)
 

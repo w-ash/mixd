@@ -18,8 +18,8 @@ from src.domain.entities import (
 )
 from src.domain.entities.progress import ProgressEmitter, create_progress_event
 from src.domain.exceptions import LastfmAuthRequiredError
-from src.domain.repositories import PlayImporterProtocol
-from src.domain.repositories.interfaces import UnitOfWorkProtocol
+from src.domain.repositories.play import PlayImporterProtocol
+from src.domain.repositories.uow import UnitOfWorkProtocol
 from src.infrastructure.connectors._shared.token_storage import (
     TokenStorage,
     get_token_storage,

@@ -18,7 +18,7 @@ from src.application.services.connector_playlist_sync_service import (
     ensure_connector_playlist_cache,
 )
 from src.domain.entities.shared import ConnectorPlaylistIdentifier
-from src.domain.repositories import UnitOfWorkProtocol
+from src.domain.repositories.uow import UnitOfWorkProtocol
 
 
 @define(frozen=True, slots=True)

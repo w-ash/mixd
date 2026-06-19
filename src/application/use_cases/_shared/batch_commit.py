@@ -7,7 +7,7 @@ batch semantics.
 
 from typing import Protocol, runtime_checkable
 
-from src.domain.repositories import UnitOfWorkProtocol
+from src.domain.repositories.uow import UnitOfWorkProtocol
 
 
 @runtime_checkable

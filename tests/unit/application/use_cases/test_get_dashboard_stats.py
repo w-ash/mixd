@@ -11,7 +11,7 @@ from src.application.use_cases.get_dashboard_stats import (
     GetDashboardStatsCommand,
     GetDashboardStatsUseCase,
 )
-from src.domain.repositories.interfaces import DashboardAggregates
+from src.domain.repositories.stats import DashboardAggregates
 from tests.fixtures import make_mock_uow
 
 

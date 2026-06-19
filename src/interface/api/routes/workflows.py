@@ -56,7 +56,7 @@ from src.config import get_logger
 from src.config.constants import WorkflowConstants
 from src.domain.entities.workflow import WorkflowDef, WorkflowRun
 from src.domain.exceptions import NotFoundError
-from src.domain.repositories import UnitOfWorkProtocol
+from src.domain.repositories.uow import UnitOfWorkProtocol
 from src.interface.api.deps import get_current_user_id
 from src.interface.api.routes._schedule_ops import (
     delete_schedule,

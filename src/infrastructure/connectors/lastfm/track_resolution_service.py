@@ -11,7 +11,7 @@ from collections.abc import Callable
 from src.config import get_logger
 from src.domain.entities import PlayRecord, Track
 from src.domain.matching.protocols import CrossDiscoveryProvider
-from src.domain.repositories import UnitOfWorkProtocol
+from src.domain.repositories.uow import UnitOfWorkProtocol
 from src.infrastructure.connectors.lastfm.client import LastFMAPIClient
 from src.infrastructure.connectors.lastfm.identifiers import make_lastfm_identifier
 from src.infrastructure.connectors.lastfm.inward_resolver import (

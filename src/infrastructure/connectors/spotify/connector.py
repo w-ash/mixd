@@ -20,8 +20,8 @@ from src.domain.entities import (
     Track,
 )
 from src.domain.entities.shared import JsonValue
-from src.domain.playlist.diff_engine import PlaylistOperation
-from src.domain.repositories.interfaces import TrackRepositoryProtocol
+from src.domain.playlist.diff_engine import PlaylistOperation, PlaylistOpsOutcome
+from src.domain.repositories.track import TrackRepositoryProtocol
 from src.infrastructure.connectors.base import (
     BaseAPIConnector,
     BaseMetricResolver,
@@ -178,7 +178,7 @@ class SpotifyConnector(BaseAPIConnector):
         operations: list[PlaylistOperation],
         snapshot_id: str | None = None,
         track_repo: TrackRepositoryProtocol | None = None,
-    ) -> str | None:
+    ) -> PlaylistOpsOutcome:
         """Execute a list of differential playlist operations."""
         return await self._operations.execute_playlist_operations(
             playlist_id, operations, snapshot_id, track_repo

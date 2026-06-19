@@ -12,7 +12,6 @@ from sqlalchemy import (
     CursorResult,
     Result,
     Select,
-    delete,
     func,
     insert,
     inspect,
@@ -371,24 +370,9 @@ class BaseRepository[TDBModel: DatabaseModel, TDomainModel]:
     # SELECT STATEMENT BUILDERS
     # -------------------------------------------------------------------------
 
-    @overload
-    def select(self) -> Select[tuple[TDBModel]]: ...
-
-    @overload
-    def select(
-        self,
-        *columns: ColumnElement[Any],  # pyright: ignore[reportExplicitAny]  # column heterogeneity
-    ) -> Select[tuple[Any, ...]]: ...  # pyright: ignore[reportExplicitAny]  # row shape unknown until query executes
-
-    def select(self, *columns: ColumnElement[Any]) -> Select[Any]:  # pyright: ignore[reportExplicitAny]  # union of overload return types
-        """Create select statement for records.
-
-        With no arguments, returns ``Select[tuple[TDBModel]]`` so callers can
-        consume ``result.scalars().all()`` with full ORM typing. With explicit
-        columns, returns ``Select[tuple[Any, ...]]`` because the column types
-        are heterogeneous.
-        """
-        return select(*columns) if columns else select(self.model_class)
+    def select(self) -> Select[tuple[TDBModel]]:
+        """Create a select statement for this repository's records."""
+        return select(self.model_class)
 
     def select_by_id(self, id_: UUID) -> Select[tuple[TDBModel]]:
         """Create select statement for a record by ID."""
@@ -400,13 +384,6 @@ class BaseRepository[TDBModel: DatabaseModel, TDomainModel]:
             # Return empty result statement
             return select(self.model_class).where(func.false())
         return select(self.model_class).where(self.model_class.id.in_(ids))
-
-    def order_by(
-        self, stmt: Select[tuple[TDBModel]], field: str, ascending: bool = True
-    ) -> Select[tuple[TDBModel]]:
-        """Add ordering to a select statement."""
-        order_col = getattr(self.model_class, field)  # pyright: ignore[reportAny]  # SQLAlchemy column reflection
-        return stmt.order_by(order_col if ascending else order_col.desc())  # pyright: ignore[reportAny]  # SQLAlchemy column reflection
 
     def with_relationship(
         self,
@@ -442,22 +419,35 @@ class BaseRepository[TDBModel: DatabaseModel, TDomainModel]:
             return stmt
         return self.with_relationship(stmt, *rels)
 
+    def _apply_conditions[Row: tuple[object, ...]](
+        self,
+        stmt: Select[Row],
+        conditions: Mapping[str, object] | Sequence[ColumnElement[bool]],
+    ) -> Select[Row]:
+        """Apply WHERE conditions to a statement.
+
+        Accepts either a ``{field: value}`` mapping (string-keyed equality) or a
+        sequence of pre-built column expressions. This is the single home for
+        string-keyed column reflection (``getattr`` on the mapped class) — the
+        one place that suppression lives. Callers that already hold
+        ``ColumnElement`` expressions should pass the sequence form.
+        """
+        if isinstance(conditions, Mapping):
+            for field, value in conditions.items():
+                stmt = stmt.where(getattr(self.model_class, field) == value)  # pyright: ignore[reportAny]  # SQLAlchemy column reflection
+            return stmt
+        for condition in conditions:
+            stmt = stmt.where(condition)
+        return stmt
+
     def count(
         self,
         conditions: Mapping[str, object] | Sequence[ColumnElement[bool]] | None = None,
     ) -> Select[tuple[int]]:
         """Create a count statement for records matching conditions."""
         stmt = select(func.count(self.model_class.id))
-
-        # Apply additional conditions
         if conditions is not None:
-            if isinstance(conditions, Mapping):
-                for field, value in conditions.items():
-                    stmt = stmt.where(getattr(self.model_class, field) == value)  # pyright: ignore[reportAny]  # SQLAlchemy column reflection
-            else:
-                for condition in conditions:
-                    stmt = stmt.where(condition)
-
+            stmt = self._apply_conditions(stmt, conditions)
         return stmt
 
     # -------------------------------------------------------------------------
@@ -556,22 +546,13 @@ class BaseRepository[TDBModel: DatabaseModel, TDomainModel]:
     @db_operation("find_by")
     async def find_by(
         self,
-        conditions: Mapping[str, object] | Sequence[ColumnElement[bool]],
+        conditions: Sequence[ColumnElement[bool]],
         load_relationships: list[str] | None = None,
         limit: int | None = None,
         order_by: tuple[str, bool] | None = None,
     ) -> list[TDomainModel]:
-        """Find entities matching conditions."""
-        # Build the query directly with SQLAlchemy 2.0 syntax
-        stmt = select(self.model_class)
-
-        # Apply conditions — Mapping for simple equality, Sequence for full expressions
-        if isinstance(conditions, Mapping):
-            for field, value in conditions.items():
-                stmt = stmt.where(getattr(self.model_class, field) == value)  # pyright: ignore[reportAny]  # SQLAlchemy column reflection
-        else:
-            for condition in conditions:
-                stmt = stmt.where(condition)
+        """Find entities matching the given column expressions."""
+        stmt = self._apply_conditions(select(self.model_class), conditions)
 
         # Apply relationship loading via _build_relationship_options which
         # handles both string names and pre-built selectinload chains.
@@ -631,15 +612,7 @@ class BaseRepository[TDBModel: DatabaseModel, TDomainModel]:
             return await self._map_to_domain(db_entity)
 
         # For other conditions, use a query
-        stmt = select(self.model_class)
-
-        # Apply conditions — Mapping for simple equality, Sequence for full expressions
-        if isinstance(conditions, Mapping):
-            for field, value in conditions.items():
-                stmt = stmt.where(getattr(self.model_class, field) == value)  # pyright: ignore[reportAny]  # SQLAlchemy column reflection
-        else:
-            for condition in conditions:
-                stmt = stmt.where(condition)
+        stmt = self._apply_conditions(select(self.model_class), conditions)
 
         # Load relationships via _build_relationship_options which handles
         # both string names and pre-built selectinload chains.
@@ -714,28 +687,9 @@ class BaseRepository[TDBModel: DatabaseModel, TDomainModel]:
 
         return await self._map_to_domain(updated_entity)
 
-    @db_operation("delete")
-    async def delete(self, id_: UUID) -> int:
-        """Delete entity with ORM-enabled DELETE."""
-        stmt = (
-            delete(self.model_class)
-            .where(self.model_class.id == id_)
-            .returning(self.model_class.id)
-            .execution_options(synchronize_session=False)
-        )
-
-        result = await self.session.execute(stmt)
-        deleted_ids = result.scalars().all()
-
-        if not deleted_ids:
-            raise NotFoundError(f"Entity with ID {id_} not found")
-
-        return len(deleted_ids)
-
     # -------------------------------------------------------------------------
     # RELATIONSHIP LOADING OPTIMIZATION
     # -------------------------------------------------------------------------
-
     async def _load_relationships_via_identity_map(
         self,
         db_entities: list[TDBModel],
@@ -869,10 +823,7 @@ class BaseRepository[TDBModel: DatabaseModel, TDomainModel]:
         lookup_query = select(self.model_class.id)
 
         # Add lookup conditions
-        for field, value in lookup_attrs.items():
-            lookup_query = lookup_query.where(
-                getattr(self.model_class, field) == value  # pyright: ignore[reportAny]  # SQLAlchemy column reflection
-            )
+        lookup_query = self._apply_conditions(lookup_query, lookup_attrs)
 
         # Execute query to get ID only
         result = await self.session.execute(lookup_query)

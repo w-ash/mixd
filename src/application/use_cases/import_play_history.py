@@ -22,7 +22,7 @@ from src.domain.entities.progress import (
     ProgressOperation,
 )
 from src.domain.exceptions import LastfmAuthRequiredError, SpotifyAuthRequiredError
-from src.domain.repositories import UnitOfWorkProtocol
+from src.domain.repositories.uow import UnitOfWorkProtocol
 
 logger = get_logger(__name__)
 
