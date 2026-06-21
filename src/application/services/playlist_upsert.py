@@ -5,8 +5,7 @@ different execution models (direct UoW vs. workflow context) while each
 caller retains its own transaction boundary.
 """
 
-from typing import TYPE_CHECKING
-
+from src.application.use_cases._shared.metric_config import MetricConfigProvider
 from src.application.use_cases.create_canonical_playlist import (
     CreateCanonicalPlaylistCommand,
     CreateCanonicalPlaylistResult,
@@ -26,9 +25,6 @@ from src.domain.entities.playlist import ConnectorPlaylist, Playlist
 from src.domain.entities.track import TrackList
 from src.domain.exceptions import NotFoundError
 from src.domain.repositories.uow import UnitOfWorkProtocol
-
-if TYPE_CHECKING:
-    from src.application.workflows.protocols import MetricConfigProvider
 
 logger = get_logger(__name__)
 

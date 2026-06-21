@@ -23,6 +23,7 @@ from src.domain.repositories.playlist import (
     PlaylistAssignmentRepositoryProtocol,
     PlaylistLinkRepositoryProtocol,
     PlaylistRepositoryProtocol,
+    PlaylistSyncBaseRepositoryProtocol,
 )
 from src.domain.repositories.preference import PreferenceRepositoryProtocol
 from src.domain.repositories.schedule import ScheduleRepositoryProtocol
@@ -108,6 +109,12 @@ class UnitOfWorkProtocol(Protocol):
 
     def get_playlist_link_repository(self) -> PlaylistLinkRepositoryProtocol:
         """Get playlist link repository for managing canonical-to-external playlist mappings."""
+        ...
+
+    def get_playlist_sync_base_repository(
+        self,
+    ) -> PlaylistSyncBaseRepositoryProtocol:
+        """Get the per-link sync base repository (last-reconciled external snapshot)."""
         ...
 
     def get_connector_playlist_repository(

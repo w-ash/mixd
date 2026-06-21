@@ -190,6 +190,16 @@ def make_mock_playlist_link_repo(**overrides) -> AsyncMock:
     return repo
 
 
+def make_mock_sync_base_repo(**overrides) -> AsyncMock:
+    """Build an ``AsyncMock`` mimicking :class:`PlaylistSyncBaseRepositoryProtocol`."""
+    repo = AsyncMock()
+    repo.get_for_link.return_value = overrides.pop("get_for_link", None)
+    repo.upsert.side_effect = overrides.pop("upsert", lambda base: base)
+    for k, v in overrides.items():
+        setattr(repo, k, v)
+    return repo
+
+
 def make_mock_match_review_repo(**overrides) -> AsyncMock:
     """Build an ``AsyncMock`` mimicking :class:`MatchReviewRepositoryProtocol`."""
     repo = AsyncMock()
@@ -412,6 +422,9 @@ def make_mock_uow(**repo_overrides) -> MagicMock:
         return_value=repo_overrides.get(
             "playlist_link_repo", make_mock_playlist_link_repo()
         )
+    )
+    uow.get_playlist_sync_base_repository = MagicMock(
+        return_value=repo_overrides.get("sync_base_repo", make_mock_sync_base_repo())
     )
     uow.get_connector_playlist_repository = MagicMock(
         return_value=repo_overrides.get(

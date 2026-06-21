@@ -10,9 +10,6 @@ from src.application.use_cases._shared.connector_resolver import (
     resolve_playlist_connector,
     resolve_user_playlists_connector,
 )
-from src.application.use_cases._shared.metadata_builder import (
-    build_api_execution_metadata,
-)
 from src.application.use_cases._shared.operation_counters import (
     count_operation_types,
 )
@@ -21,24 +18,13 @@ from src.application.use_cases._shared.playlist_resolver import (
     resolve_playlist,
 )
 from src.application.use_cases._shared.playlist_results import (
-    ApiMetadata,
-    AppendOperationResult,
     OperationCounts,
     build_playlist_changes,
 )
-from src.application.use_cases._shared.playlist_validator import (
-    classify_connector_api_error,
-    classify_db_error_for_logging,
-)
 
 __all__ = [
-    "ApiMetadata",
-    "AppendOperationResult",
     "OperationCounts",
-    "build_api_execution_metadata",
     "build_playlist_changes",
-    "classify_connector_api_error",
-    "classify_db_error_for_logging",
     "count_operation_types",
     "create_connector_playlist_items_from_tracks",
     "require_playlist_link",

@@ -1,896 +1,93 @@
-"""Synchronizes Spotify/Apple Music playlists with local track collections.
+"""Push a track collection to an external playlist (Spotify/Apple Music).
 
-Calculates minimal track changes (add/remove/move) to update external service
-playlists while preserving track timestamps and minimizing API calls.
+A thin wrapper over the shared ``push_tracklist_to_connector`` primitive (fetch
+the real external state → diff/append → execute → metadata). Kept as a use case
+so the workflow destination node's DI wiring and Command/Result contract stay
+stable; all the diff/execute/persist logic — and the fix for the old bug that
+diffed the canonical against itself — lives in ``connector_push``.
 """
 
-from datetime import UTC, datetime
-from typing import TypedDict
-from uuid import UUID
-
-import attrs
 from attrs import define, field
 from attrs.validators import min_len
 
-from src.application.use_cases._shared import (
-    AppendOperationResult,
-    build_api_execution_metadata,
-    build_playlist_changes,
-    classify_connector_api_error,
-    classify_db_error_for_logging,
-    count_operation_types,
-    create_connector_playlist_items_from_tracks,
-    resolve_playlist_connector,
-)
+from src.application.services.connector_push import push_tracklist_to_connector
 from src.application.use_cases._shared.command_validators import (
     non_empty_string,
     validate_tracklist_has_tracks,
 )
-from src.application.utilities.timing import ExecutionTimer
 from src.config import get_logger
-from src.domain.entities import ConnectorPlaylist, utc_now_factory
-from src.domain.entities.playlist import ConnectorPlaylistItem, Playlist
-from src.domain.entities.shared import ConnectorPlaylistIdentifier, JsonValue
+from src.domain.entities.shared import ConnectorPlaylistIdentifier
 from src.domain.entities.track import TrackList
-from src.domain.exceptions import ConnectorSyncError
-from src.domain.playlist import PlaylistOperation, calculate_playlist_diff
-from src.domain.playlist.execution_strategies import get_execution_strategy
-from src.domain.repositories.connector import ConnectorPlaylistRepositoryProtocol
 from src.domain.repositories.uow import UnitOfWorkProtocol
 
 logger = get_logger(__name__)
 
 
-class _ConnectorApiResult(TypedDict):
-    """Result from executing playlist operations against a connector API.
-
-    ``success`` reflects post-execution validation only (e.g. a missing snapshot
-    id); a *failed* API call now raises ``ConnectorSyncError`` rather than
-    returning a success-shaped dict, so the link is never marked SYNCED on a
-    failed push.
-    """
-
-    success: bool
-    api_calls_made: int
-    metadata: dict[str, JsonValue]
-
-
 @define(frozen=True, slots=True)
 class UpdateConnectorPlaylistCommand:
-    """Input parameters for updating a Spotify/Apple Music playlist.
-
-    Contains the target playlist ID, desired track list, and update options
-    like append-only mode vs full synchronization.
-    """
+    """Input for pushing a track collection to an external playlist."""
 
     user_id: str
     connector_playlist_identifier: ConnectorPlaylistIdentifier = field(
         validator=min_len(1)
     )
     new_tracklist: TrackList = field(validator=validate_tracklist_has_tracks)
-    connector: str = field(validator=non_empty_string)  # "spotify", "apple_music", etc.
-    dry_run: bool = False
-    append_mode: bool = False  # True=append, False=overwrite with preservation
-    playlist_name: str | None = None  # Optional name update
-    playlist_description: str | None = None  # Optional description update
-    timestamp: datetime = field(factory=utc_now_factory)
+    connector: str = field(validator=non_empty_string)  # "spotify", "apple_music", …
+    append_mode: bool = False  # True=append new tracks, False=overwrite to match
+    playlist_name: str | None = None  # optional name update
+    playlist_description: str | None = None  # optional description update
 
 
 @define(frozen=True, slots=True)
 class UpdateConnectorPlaylistResult:
-    """Playlist update outcome with operation counts and timing metrics.
-
-    Reports how many tracks were added/removed/moved, API calls made,
-    and execution time for monitoring playlist sync performance.
-    """
+    """Push outcome with operation counts + per-track change evidence."""
 
     connector_playlist_identifier: ConnectorPlaylistIdentifier
     connector: str
     operations_performed: int = 0
-    api_calls_made: int = 0
     tracks_added: int = 0
     tracks_removed: int = 0
     tracks_moved: int = 0
-    execution_time_ms: int = 0
-    confidence_score: float = 1.0
-    external_metadata: dict[str, JsonValue] = field(
-        factory=dict
-    )  # e.g., Spotify snapshot_id
     playlist_changes: dict[str, object] = field(factory=dict)
-    errors: list[str] = field(factory=list)
-
-    @property
-    def operation_summary(self) -> dict[str, JsonValue]:
-        """Dictionary of operation counts and success status for logging."""
-        return {
-            "connector_playlist_identifier": self.connector_playlist_identifier,
-            "connector": self.connector,
-            "operations_performed": self.operations_performed,
-            "api_calls_made": self.api_calls_made,
-            "added": self.tracks_added,
-            "removed": self.tracks_removed,
-            "moved": self.tracks_moved,
-            "execution_time_ms": self.execution_time_ms,
-            "confidence_score": self.confidence_score,
-            "success": not self.errors,
-        }
 
 
 @define(slots=True)
 class UpdateConnectorPlaylistUseCase:
-    """Synchronizes external music service playlists with local track data.
-
-    Calculates minimal changes (remove→add→move operations) to update Spotify/Apple
-    Music playlists efficiently. Preserves track timestamps and handles API batching.
-    Updates local database after successful external API calls.
-    """
-
-    async def _get_existing_connector_playlist(
-        self,
-        connector_repo: ConnectorPlaylistRepositoryProtocol,
-        connector_name: str,
-        connector_playlist_identifier: ConnectorPlaylistIdentifier,
-    ) -> ConnectorPlaylist | None:
-        """Retrieve existing connector playlist record if it exists.
-
-        Args:
-            connector_repo: Connector playlist repository
-            connector_name: Name of the connector
-            connector_playlist_identifier: External playlist ID
-
-        Returns:
-            Existing ConnectorPlaylist or None
-        """
-        try:
-            existing = await connector_repo.get_by_connector_id(
-                connector_name, connector_playlist_identifier
-            )
-            if existing:
-                logger.debug(
-                    "Found existing connector playlist record",
-                    existing_id=existing.id,
-                    existing_items=len(existing.items) if existing.items else 0,
-                )
-        except Exception as e:
-            logger.warning(
-                "Failed to retrieve existing connector playlist record",
-                error=str(e),
-                error_type=type(e).__name__,
-            )
-            return None
-        else:
-            return existing
-
-    def _build_connector_playlist_entity(
-        self,
-        current_playlist: Playlist,
-        command: UpdateConnectorPlaylistCommand,
-        updated_items: list[ConnectorPlaylistItem],
-        enhanced_metadata: dict[str, JsonValue],
-        existing_id: UUID | None,
-    ) -> ConnectorPlaylist:
-        """Build ConnectorPlaylist entity for database update.
-
-        Args:
-            current_playlist: Current playlist state
-            command: Update command with playlist info
-            updated_items: Updated playlist items
-            enhanced_metadata: Comprehensive metadata dict
-            existing_id: ID of existing record if any
-
-        Returns:
-            ConnectorPlaylist ready for persistence
-        """
-        playlist_entity = ConnectorPlaylist(
-            connector_name=command.connector,
-            connector_playlist_identifier=command.connector_playlist_identifier,
-            name=current_playlist.name,
-            description=current_playlist.description,
-            items=updated_items,
-            raw_metadata=enhanced_metadata,
-            last_updated=datetime.now(UTC),
-        )
-        if existing_id is not None:
-            playlist_entity = attrs.evolve(playlist_entity, id=existing_id)
-        return playlist_entity
-
-    async def _persist_connector_playlist(
-        self,
-        connector_repo: ConnectorPlaylistRepositoryProtocol,
-        playlist_entity: ConnectorPlaylist,
-        command: UpdateConnectorPlaylistCommand,
-        updated_items_count: int,
-    ) -> None:
-        """Upsert the connector playlist after a successful external push.
-
-        Raises on DB failure: the external API already succeeded, so a DB error
-        here must surface for classification rather than be swallowed. The prior
-        log-only read-back "verification" was removed as no-op ceremony.
-        """
-        try:
-            await connector_repo.upsert_model(playlist_entity)
-        except Exception as db_error:
-            logger.error(
-                "Database update failed after successful external push",
-                connector=command.connector,
-                connector_playlist_identifier=command.connector_playlist_identifier,
-                error=str(db_error),
-                error_type=type(db_error).__name__,
-                items_attempted=updated_items_count,
-            )
-            raise
-        logger.info(
-            "Connector playlist database update completed",
-            connector=command.connector,
-            connector_playlist_identifier=command.connector_playlist_identifier,
-            items_count=updated_items_count,
-        )
+    """Push a track collection to an external playlist via the shared primitive."""
 
     async def execute(
         self, command: UpdateConnectorPlaylistCommand, uow: UnitOfWorkProtocol
     ) -> UpdateConnectorPlaylistResult:
-        """Updates Spotify/Apple Music playlist with new track collection.
-
-        Calculates minimal changes between current and desired playlists,
-        executes API operations in optimal order, and updates local database.
-
-        Args:
-            command: Playlist update parameters and options.
-            uow: Database transaction manager and repository access.
-
-        Returns:
-            Operation results with counts, timing, and success status.
-
-        Raises:
-            ValueError: If command execution fails.
-        """
-        timer = ExecutionTimer()
-
-        logger.info(
-            "Starting connector playlist update",
-            connector_playlist_identifier=command.connector_playlist_identifier,
-            connector=command.connector,
-            track_count=len(command.new_tracklist.tracks),
-            dry_run=command.dry_run,
-        )
-
         async with uow:
-            try:
-                result = await self._plan_and_execute_update(command, uow, timer)
-            except Exception as e:
-                logger.error(
-                    "Connector playlist update failed",
-                    error=str(e),
-                    connector_playlist_identifier=command.connector_playlist_identifier,
-                    connector=command.connector,
-                )
-                raise
-            else:
-                return result
-
-    async def _plan_and_execute_update(
-        self,
-        command: UpdateConnectorPlaylistCommand,
-        uow: UnitOfWorkProtocol,
-        timer: ExecutionTimer,
-    ) -> UpdateConnectorPlaylistResult:
-        """Plan and execute the playlist update, returning the built result.
-
-        Holds the multi-step update body so the caller's protective ``try`` clause
-        stays narrow. Behaviour is identical to the inlined body: the no-changes
-        branch returns early, and all other paths build and return the result.
-        """
-        # Step 1: Get current playlist state (from internal database)
-        current_playlist = await self._get_current_playlist(
-            command.connector_playlist_identifier,
-            command.connector,
-            uow,
-            user_id=command.user_id,
-        )
-
-        # Step 2: Handle track updates based on mode
-        playlist_changes: dict[str, object] = {}
-
-        if command.append_mode:
-            # Append mode: add new tracks to end of external playlist
-            append_result = await self._append_tracks_to_connector(
-                current_playlist, command, uow
+            push = await push_tracklist_to_connector(
+                command.connector,
+                command.connector_playlist_identifier,
+                command.new_tracklist,
+                uow,
+                user_id=command.user_id,
+                append_mode=command.append_mode,
+                name=command.playlist_name,
+                description=command.playlist_description,
             )
-            api_calls_made = append_result.api_calls_made
-            external_metadata = append_result.metadata
-            operations_performed = append_result.operations_performed
-            tracks_added = append_result.tracks_added
-            tracks_removed = 0
-            tracks_moved = 0
-            confidence_score = 1.0  # High confidence for simple append
-        else:
-            # Overwrite mode: use diff engine with preservation
-            diff = calculate_playlist_diff(current_playlist, command.new_tracklist)
-
-            if not diff.has_changes:
-                logger.info(
-                    "No changes detected, connector playlist already up to date"
-                )
-                return UpdateConnectorPlaylistResult(
-                    connector_playlist_identifier=command.connector_playlist_identifier,
-                    connector=command.connector,
-                    execution_time_ms=timer.stop(),
-                    confidence_score=diff.confidence_score,
-                )
-
-            # Step 3: Use unified execution strategy for API operations
-            api_strategy = get_execution_strategy("api")
-            execution_plan = api_strategy.plan_operations(diff)
-            sequenced_operations = execution_plan.operations
-
-            counts = count_operation_types(sequenced_operations)
-            logger.debug(
-                f"Planned {len(sequenced_operations)} operations for {command.connector}",
-                remove_ops=counts.removed,
-                add_ops=counts.added,
-                move_ops=counts.moved,
-                execution_metadata=execution_plan.execution_metadata,
-            )
-
-            # Step 4: Execute operations against external service (if not dry run)
-            api_calls_made = 0
-            external_metadata = {}
-            operations_performed = 0
-            tracks_added = 0
-            tracks_removed = 0
-            tracks_moved = 0
-
-            if not command.dry_run:
-                (
-                    api_calls_made,
-                    external_metadata,
-                    operations_performed,
-                    tracks_added,
-                    tracks_removed,
-                    tracks_moved,
-                ) = await self._execute_external_operations(
-                    current_playlist, sequenced_operations, command, uow
-                )
-            confidence_score = diff.confidence_score
-            playlist_changes = build_playlist_changes(
-                diff, command.connector_playlist_identifier, command.connector
-            )
-
-        # Handle metadata updates if specified
-        if command.playlist_name or command.playlist_description:
-            await self._update_connector_playlist_metadata(
-                command.connector_playlist_identifier, command, uow
-            )
-
-        result = UpdateConnectorPlaylistResult(
-            connector_playlist_identifier=command.connector_playlist_identifier,
-            connector=command.connector,
-            operations_performed=operations_performed,
-            api_calls_made=api_calls_made,
-            tracks_added=tracks_added,
-            tracks_removed=tracks_removed,
-            tracks_moved=tracks_moved,
-            execution_time_ms=timer.stop(),
-            confidence_score=confidence_score,
-            external_metadata=external_metadata,
-            playlist_changes=playlist_changes,
-        )
+            await uow.commit()
 
         logger.info(
             "Connector playlist update completed",
-            connector_playlist_identifier=command.connector_playlist_identifier,
-            connector=command.connector,
-            operations_performed=operations_performed,
-            api_calls_made=api_calls_made,
-            execution_time_ms=timer.elapsed_ms,
-            dry_run=command.dry_run,
-        )
-
-        return result
-
-    async def _get_current_playlist(
-        self,
-        connector_playlist_identifier: ConnectorPlaylistIdentifier,
-        connector: str,
-        uow: UnitOfWorkProtocol,
-        *,
-        user_id: str,
-    ) -> Playlist:
-        """Retrieves playlist from local database using external service ID.
-
-        Resolves Spotify/Apple Music playlist ID to internal playlist record.
-        Auto-creates local playlist if it doesn't exist.
-
-        Args:
-            connector_playlist_identifier: External service playlist ID.
-            connector: Service name ("spotify", "apple_music").
-            uow: Database access manager.
-
-        Returns:
-            Local playlist entity with current track list.
-        """
-        playlist_repo = uow.get_playlist_repository()
-
-        # Resolve connector ID to canonical playlist
-        playlist = await playlist_repo.get_playlist_by_connector(
-            connector,
-            connector_playlist_identifier,
-            user_id=user_id,
-            raise_if_not_found=False,
-        )
-
-        if playlist is None:
-            # Auto-create canonical playlist if it doesn't exist
-            logger.info(
-                f"Creating canonical playlist for {connector} playlist {connector_playlist_identifier}"
-            )
-            playlist = await self._create_canonical_for_connector_playlist(
-                connector_playlist_identifier, connector, uow
-            )
-
-        return playlist
-
-    async def _execute_external_operations(
-        self,
-        current_playlist: Playlist,
-        sequenced_operations: list[PlaylistOperation],
-        command: UpdateConnectorPlaylistCommand,
-        uow: UnitOfWorkProtocol,
-    ) -> tuple[int, dict[str, JsonValue], int, int, int, int]:
-        """Executes playlist changes on external service then updates local database.
-
-        Applies remove/add/move operations to Spotify/Apple Music playlist via API,
-        then immediately updates local database with the new state for consistency.
-
-        Args:
-            current_playlist: Current playlist state before changes.
-            sequenced_operations: Ordered remove→add→move operations to apply.
-            command: Update parameters and configuration.
-            uow: Database access manager.
-
-        Returns:
-            Tuple of (api_calls_made, external_metadata, operations_performed,
-                     tracks_added, tracks_removed, tracks_moved).
-        """
-        logger.debug(
-            f"Executing {len(sequenced_operations)} operations against {command.connector}"
-        )
-
-        # Count operations by type using shared utility
-        counts = count_operation_types(sequenced_operations)
-
-        # Step 1: Execute operations against external API
-        api_response = await self._execute_connector_api_operations(
-            current_playlist, sequenced_operations, command, uow
-        )
-
-        # Step 2: Optimistic database update if API succeeded
-        if api_response["success"]:
-            await self._update_connector_playlist_optimistic(
-                current_playlist=current_playlist,
-                applied_operations=sequenced_operations,
-                api_metadata=api_response["metadata"],
-                command=command,
-                uow=uow,
-            )
-
-        logger.info(
-            "External operations completed with connector_playlist table update",
-            connector=command.connector,
-            operations=len(sequenced_operations),
-            api_calls=api_response["api_calls_made"],
-            add_ops=counts.added,
-            remove_ops=counts.removed,
-            move_ops=counts.moved,
-            success=api_response["success"],
-        )
-
-        return (
-            api_response["api_calls_made"],
-            api_response["metadata"],
-            len(sequenced_operations) if api_response["success"] else 0,
-            counts.added if api_response["success"] else 0,
-            counts.removed if api_response["success"] else 0,
-            counts.moved if api_response["success"] else 0,
-        )
-
-    async def _execute_connector_api_operations(
-        self,
-        _current_playlist: Playlist,
-        sequenced_operations: list[PlaylistOperation],
-        command: UpdateConnectorPlaylistCommand,
-        uow: UnitOfWorkProtocol,
-    ) -> _ConnectorApiResult:
-        """Executes playlist operations via connector with enhanced state validation."""
-        # Pre-execution state validation
-        if not sequenced_operations:
-            logger.warning("No operations to execute")
-            return {
-                "success": True,
-                "api_calls_made": 0,
-                "metadata": {"operations_applied": 0},
-            }
-
-        try:
-            return await self._run_connector_api_operations(
-                sequenced_operations, command, uow
-            )
-        except Exception as e:
-            # Classify error using pattern matching utility
-            error_classification = classify_connector_api_error(e)
-
-            logger.error(
-                "External playlist update failed",
-                connector=command.connector,
-                connector_playlist_identifier=command.connector_playlist_identifier,
-                error=str(e),
-                **error_classification,
-                operations_attempted=len(sequenced_operations),
-            )
-
-            # Raise instead of returning a success-shaped result: a failed push
-            # must reach SyncPlaylistLinkUseCase's ERROR branch (→ SyncStatus.ERROR)
-            # and the workflow destination's failure path, never be marked SYNCED
-            # or printed as "Sync complete".
-            raise ConnectorSyncError(command.connector, str(e)) from e
-
-    async def _run_connector_api_operations(
-        self,
-        sequenced_operations: list[PlaylistOperation],
-        command: UpdateConnectorPlaylistCommand,
-        uow: UnitOfWorkProtocol,
-    ) -> _ConnectorApiResult:
-        """Run the differential operations against the external connector.
-
-        Holds the connector-execution body so the caller's protective ``try``
-        clause stays narrow; the success result is returned unchanged.
-        """
-        # Get connector and validate it supports playlist operations
-        connector = resolve_playlist_connector(command.connector, uow)
-        counts = count_operation_types(sequenced_operations)
-
-        logger.info(
-            "Executing differential operations on external playlist",
             connector=command.connector,
             connector_playlist_identifier=command.connector_playlist_identifier,
-            operations_count=len(sequenced_operations),
-            remove_ops=counts.removed,
-            add_ops=counts.added,
-            move_ops=counts.moved,
+            append_mode=command.append_mode,
+            tracks_added=push.tracks_added,
+            tracks_removed=push.tracks_removed,
+            tracks_moved=push.tracks_moved,
         )
-
-        # Execute operations with detailed tracking
-        track_repo = uow.get_track_repository()
-        outcome = await connector.execute_playlist_operations(
-            command.connector_playlist_identifier,
-            sequenced_operations,
-            track_repo=track_repo,
+        return UpdateConnectorPlaylistResult(
+            connector_playlist_identifier=command.connector_playlist_identifier,
+            connector=command.connector,
+            operations_performed=push.tracks_added
+            + push.tracks_removed
+            + push.tracks_moved,
+            tracks_added=push.tracks_added,
+            tracks_removed=push.tracks_removed,
+            tracks_moved=push.tracks_moved,
+            playlist_changes=push.playlist_changes,
         )
-
-        # A partial push — some submitted operations did not apply — must NOT be
-        # reported as a clean SYNCED. Raise so the caller routes it to ERROR (the
-        # wrapper converts this into ConnectorSyncError). The snapshot id is
-        # optimistic-concurrency metadata, not the apply verdict (it is
-        # legitimately None on no-op paths), so success keys on ``fully_applied``.
-        if not outcome.fully_applied:
-            raise RuntimeError(
-                f"push only partially applied: {outcome.failed} of "
-                f"{outcome.requested} operations failed"
-            )
-
-        external_metadata = build_api_execution_metadata(
-            operations_count=len(sequenced_operations),
-            snapshot_id=outcome.snapshot_id,
-            tracks_added=counts.added,
-            tracks_removed=counts.removed,
-            tracks_moved=counts.moved,
-            validation_passed=True,
-            operations_dropped=outcome.dropped,
-        )
-
-        return _ConnectorApiResult(
-            success=True,
-            api_calls_made=len(sequenced_operations),
-            metadata=external_metadata,
-        )
-
-    async def _update_connector_playlist_optimistic(
-        self,
-        current_playlist: Playlist,
-        applied_operations: list[PlaylistOperation],
-        api_metadata: dict[str, JsonValue],
-        command: UpdateConnectorPlaylistCommand,
-        uow: UnitOfWorkProtocol,
-    ) -> None:
-        """Updates local database after external API calls with enhanced validation."""
-        # Pre-validation: check if we should even attempt the update
-        operations_applied = api_metadata.get("operations_applied", 0)
-        validation_passed = api_metadata.get("validation_passed", True)
-
-        if operations_applied == 0 and applied_operations:
-            logger.warning(
-                "Skipping database update: no operations were successfully applied",
-                connector=command.connector,
-                connector_playlist_identifier=command.connector_playlist_identifier,
-                requested_operations=len(applied_operations),
-                applied_operations=operations_applied,
-            )
-            return
-
-        if not validation_passed:
-            logger.warning(
-                "Proceeding with database update despite validation issues",
-                connector=command.connector,
-                connector_playlist_identifier=command.connector_playlist_identifier,
-                validation_passed=validation_passed,
-            )
-
-        try:
-            await self._persist_optimistic_update(
-                current_playlist,
-                applied_operations,
-                api_metadata,
-                command,
-                uow,
-                operations_applied,
-            )
-        except Exception as e:
-            # Classify database error using utility
-            db_error_classification = classify_db_error_for_logging(e)
-
-            logger.error(
-                "Failed to update connector_playlist table after external API success",
-                connector=command.connector,
-                connector_playlist_identifier=command.connector_playlist_identifier,
-                error=str(e),
-                **db_error_classification,
-                operations_applied=operations_applied,
-                api_metadata_snapshot=api_metadata.get("snapshot_id"),
-            )
-
-            # Re-raise to maintain error propagation for critical database failures
-            raise RuntimeError(
-                f"Database consistency error: API operations succeeded but database update failed: {e}"
-            ) from e
-
-    async def _persist_optimistic_update(
-        self,
-        current_playlist: Playlist,
-        applied_operations: list[PlaylistOperation],
-        api_metadata: dict[str, JsonValue],
-        command: UpdateConnectorPlaylistCommand,
-        uow: UnitOfWorkProtocol,
-        operations_applied: JsonValue,
-    ) -> None:
-        """Build and persist the optimistic local update after external success.
-
-        Holds the database-update body so the caller's protective ``try`` clause
-        stays narrow; raises propagate to the caller for classification.
-        """
-        connector_repo = uow.get_connector_playlist_repository()
-
-        # Validate repository is available
-        if not connector_repo:
-            raise RuntimeError("Connector playlist repository not available")
-
-        # Create playlist items from final desired state
-        updated_items = self._create_playlist_items_from_tracklist(command)
-
-        # Validate created items
-        if not updated_items and command.new_tracklist.tracks:
-            logger.warning(
-                "No playlist items created despite tracks in command",
-                command_tracks=len(command.new_tracklist.tracks),
-                connector=command.connector,
-            )
-
-        # Get existing connector playlist for ID continuity
-        existing = await self._get_existing_connector_playlist(
-            connector_repo, command.connector, command.connector_playlist_identifier
-        )
-
-        # Persisted metadata: the external-API result plus minimal provenance.
-        enhanced_metadata = {
-            **api_metadata,
-            "requested_operations": len(applied_operations),
-            "operations_applied": operations_applied,
-            "items_created": len(updated_items),
-        }
-
-        # Create updated connector playlist with validation
-        updated_connector_playlist = self._build_connector_playlist_entity(
-            current_playlist,
-            command,
-            updated_items,
-            enhanced_metadata,
-            existing.id if existing else None,
-        )
-
-        # Validate the playlist before saving
-        if not updated_connector_playlist.connector_name:
-            raise ValueError("Connector name cannot be empty")
-        if not updated_connector_playlist.connector_playlist_identifier:
-            raise ValueError("Connector playlist identifier cannot be empty")
-
-        await self._persist_connector_playlist(
-            connector_repo,
-            updated_connector_playlist,
-            command,
-            len(updated_items),
-        )
-
-    def _create_playlist_items_from_tracklist(
-        self, command: UpdateConnectorPlaylistCommand
-    ) -> list[ConnectorPlaylistItem]:
-        """Creates playlist items from target track list using factory."""
-        return create_connector_playlist_items_from_tracks(
-            tracks=command.new_tracklist.tracks,
-            connector_name=command.connector,
-        )
-
-    async def _append_tracks_to_connector(
-        self,
-        current_playlist: Playlist,
-        command: UpdateConnectorPlaylistCommand,
-        uow: UnitOfWorkProtocol,
-    ) -> AppendOperationResult:
-        """Adds new tracks to end of external playlist without removing existing ones.
-
-        Filters out duplicate tracks and appends only new ones to preserve
-        existing playlist content and user-added tracks.
-
-        Args:
-            current_playlist: Current playlist state.
-            command: Update command with new tracks and configuration.
-            uow: Database access manager.
-
-        Returns:
-            AppendOperationResult with operation counts and metadata.
-        """
-        # Filter out tracks that already exist to avoid duplicates
-        existing_track_ids = {track.id for track in current_playlist.tracks if track.id}
-        new_tracks = [
-            track
-            for track in command.new_tracklist.tracks
-            if not track.id or track.id not in existing_track_ids
-        ]
-
-        if not new_tracks:
-            logger.info("No new tracks to append to connector playlist")
-            return AppendOperationResult(
-                api_calls_made=0,
-                metadata={},
-                operations_performed=0,
-                tracks_added=0,
-            )
-
-        logger.info(
-            f"Appending {len(new_tracks)} new tracks to {command.connector} playlist"
-        )
-
-        if command.dry_run:
-            # For dry run, estimate API calls without executing
-            estimated_api_calls = (len(new_tracks) + 99) // 100
-            return AppendOperationResult(
-                api_calls_made=estimated_api_calls,
-                metadata={},
-                operations_performed=len(new_tracks),
-                tracks_added=len(new_tracks),
-            )
-
-        # Execute append operation via connector
-        connector_instance = resolve_playlist_connector(command.connector, uow)
-
-        # Append tracks to external playlist
-        api_metadata = await connector_instance.append_tracks_to_playlist(
-            command.connector_playlist_identifier, new_tracks
-        )
-
-        # Update connector_playlist table optimistically
-        await self._update_connector_playlist_optimistic(
-            current_playlist, [], api_metadata, command, uow
-        )
-
-        return AppendOperationResult(
-            api_calls_made=1,  # Typically one API call for batch append
-            metadata=api_metadata,
-            operations_performed=len(new_tracks),
-            tracks_added=len(new_tracks),
-        )
-
-    async def _update_connector_playlist_metadata(
-        self,
-        connector_playlist_identifier: ConnectorPlaylistIdentifier,
-        command: UpdateConnectorPlaylistCommand,
-        uow: UnitOfWorkProtocol,
-    ) -> None:
-        """Updates playlist name and description on external service.
-
-        Args:
-            connector_playlist_identifier: External playlist ID.
-            command: Command with metadata updates.
-            uow: Database access manager.
-        """
-        if command.dry_run:
-            logger.info("Skipping metadata update in dry run mode")
-            return
-
-        connector_instance = resolve_playlist_connector(command.connector, uow)
-
-        metadata_updates: dict[str, str] = {}
-        if command.playlist_name:
-            metadata_updates["name"] = command.playlist_name
-        if command.playlist_description:
-            metadata_updates["description"] = command.playlist_description
-
-        if metadata_updates:
-            logger.info(
-                f"Updating {command.connector} playlist metadata",
-                connector_playlist_identifier=connector_playlist_identifier,
-                updates=metadata_updates,
-            )
-            await connector_instance.update_playlist_metadata(
-                connector_playlist_identifier, metadata_updates
-            )
-
-    async def _create_canonical_for_connector_playlist(
-        self,
-        connector_playlist_identifier: ConnectorPlaylistIdentifier,
-        connector: str,
-        uow: UnitOfWorkProtocol,
-    ) -> Playlist:
-        """Creates local playlist record for external service playlist.
-
-        Fetches playlist metadata from Spotify/Apple Music and creates
-        corresponding local database record for tracking and synchronization.
-
-        Args:
-            connector_playlist_identifier: External service playlist ID.
-            connector: Service name ("spotify", "apple_music").
-            uow: Database access manager.
-
-        Returns:
-            Newly created local playlist entity.
-        """
-        # Get connector instance to fetch playlist details
-        connector_instance = resolve_playlist_connector(connector, uow)
-
-        # Fetch playlist metadata from external service
-        connector_playlist_info = await connector_instance.get_playlist_details(
-            connector_playlist_identifier
-        )
-
-        # Narrow values from external metadata dict to str
-        name_raw = connector_playlist_info.get("name")
-        description_raw = connector_playlist_info.get("description")
-        playlist_name = (
-            name_raw if isinstance(name_raw, str) else f"{connector.title()} Playlist"
-        )
-        playlist_description = (
-            description_raw
-            if isinstance(description_raw, str)
-            else f"Imported from {connector.title()}"
-        )
-
-        # Create canonical playlist with fetched info
-        canonical_playlist = Playlist(
-            name=playlist_name,
-            description=playlist_description,
-            entries=[],  # Will be populated separately if needed
-            connector_playlist_identifiers={connector: connector_playlist_identifier},
-            metadata={
-                "created_from_connector": connector,
-                "original_connector_id": connector_playlist_identifier,
-                "auto_created": True,
-            },
-        )
-
-        # Save to database
-        playlist_repo = uow.get_playlist_repository()
-        saved_playlist = await playlist_repo.save_playlist(canonical_playlist)
-
-        logger.info(
-            f"Auto-created canonical playlist {saved_playlist.id} for {connector} playlist {connector_playlist_identifier}"
-        )
-
-        return saved_playlist

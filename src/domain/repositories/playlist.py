@@ -10,6 +10,7 @@ from uuid import UUID
 from src.domain.entities import (
     Playlist,
     PlaylistLink,
+    PlaylistSyncBase,
 )
 from src.domain.entities.playlist_assignment import (
     PlaylistAssignment,
@@ -141,6 +142,22 @@ class PlaylistLinkRepositoryProtocol(Protocol):
 
     def delete_link(self, link_id: UUID) -> Awaitable[bool]:
         """Delete a playlist link. Returns True if deleted."""
+        ...
+
+
+class PlaylistSyncBaseRepositoryProtocol(Protocol):
+    """Repository interface for per-link sync bases.
+
+    The base is the external item set + snapshot id a link last reconciled to —
+    the trustworthy diff base for safe sync. One base per link.
+    """
+
+    def get_for_link(self, link_id: UUID) -> Awaitable[PlaylistSyncBase | None]:
+        """Return the base for a link, or None if it has never synced."""
+        ...
+
+    def upsert(self, base: PlaylistSyncBase) -> Awaitable[PlaylistSyncBase]:
+        """Insert or replace the base for a link (one base per link)."""
         ...
 
 

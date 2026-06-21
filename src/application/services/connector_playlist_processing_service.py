@@ -7,8 +7,13 @@ duplicate preservation, and performance optimization across create and update us
 
 from datetime import datetime
 
-from src.config import get_logger, settings
-from src.domain.entities.playlist import ConnectorPlaylist, Playlist, PlaylistEntry
+from src.config import get_logger
+from src.domain.entities.playlist import (
+    ConnectorPlaylist,
+    ConnectorTrackRef,
+    Playlist,
+    PlaylistEntry,
+)
 from src.domain.entities.shared import JsonValue
 from src.domain.entities.track import ConnectorTrack, Track
 from src.domain.repositories.connector import ConnectorRepositoryProtocol
@@ -96,9 +101,12 @@ class ConnectorPlaylistProcessingService:
 
         connector_instance = resolve_track_conversion_connector(connector_name, uow)
 
-        # Collect unique tracks while preserving the data we already have
+        # Collect unique tracks while preserving the data we already have.
+        # ``connector_track_by_id`` keeps each source track's display data so an
+        # unmatched position can still be rendered ("Couldn't match: …").
         seen_track_ids: set[str] = set()
         unique_connector_tracks: list[ConnectorTrack] = []
+        connector_track_by_id: dict[str, ConnectorTrack] = {}
 
         # First pass: collect unique track data from playlist items
         for item in playlist_items:
@@ -129,6 +137,9 @@ class ConnectorPlaylistProcessingService:
                     track_data
                 )
                 unique_connector_tracks.append(connector_track)
+                connector_track_by_id[connector_track.connector_track_identifier] = (
+                    connector_track
+                )
 
         logger.debug(
             f"Retrieved {len(unique_connector_tracks)} unique tracks from playlist items (no API calls needed)"
@@ -201,82 +212,52 @@ class ConnectorPlaylistProcessingService:
                         )
                         # Continue processing other tracks
 
-        # Debug: Check if we have all expected tracks
-        expected_track_count = len(unique_connector_tracks)
-        actual_track_count = len(track_id_to_domain_track)
-
-        if expected_track_count != actual_track_count:
-            missing_track_ids = [
-                connector_track.connector_track_identifier
-                for connector_track in unique_connector_tracks
-                if connector_track.connector_track_identifier
-                not in track_id_to_domain_track
-            ]
-
-            logger.warning(
-                f"Track mapping incomplete: expected {expected_track_count}, got {actual_track_count}. "
-                + f"Missing from domain mapping: {missing_track_ids[: settings.batch.truncation_limit]}{'...' if len(missing_track_ids) > settings.batch.truncation_limit else ''}"
-            )
-
         logger.info(
-            f"Track processing complete: {len(track_id_to_domain_track)} unique tracks available",
+            f"Track processing complete: {len(track_id_to_domain_track)} unique tracks resolved",
             existing=len(existing_tracks_map),
             created=len(new_connector_tracks),
         )
 
-        # Step 4: Create PlaylistEntry for each position, preserving duplicates and metadata
-        # CLEAN ARCHITECTURE: PlaylistEntry properly models "track membership in playlist"
-        # by combining track identity with position-specific metadata (added_at, added_by).
+        # Step 4: One PlaylistEntry per source position — resolved when the track
+        # ingested, UNRESOLVED otherwise. A position is never skipped: the
+        # imported playlist stays complete (right count + order), and unmatched
+        # positions (ingest failures, local/unavailable tracks) are preserved
+        # with their display data for the UI and later re-resolution.
         playlist_entries: list[PlaylistEntry] = []
-        missing_tracks: list[tuple[int, str]] = []
+        unresolved_count = 0
 
         for position, playlist_item in enumerate(playlist_items):
-            if playlist_item.connector_track_identifier in track_id_to_domain_track:
-                domain_track = track_id_to_domain_track[
-                    playlist_item.connector_track_identifier
-                ]
-
-                # Parse added_at timestamp (ISO format from Spotify)
-                added_at = None
-                if playlist_item.added_at:
-                    try:
-                        added_at = datetime.fromisoformat(playlist_item.added_at)
-                    except (ValueError, TypeError) as e:
-                        logger.warning(
-                            f"Invalid added_at timestamp for position {position}: {playlist_item.added_at}",
-                            error=str(e),
-                        )
-
-                # Create PlaylistEntry with track + position metadata
-                entry = PlaylistEntry(
-                    track=domain_track,
-                    added_at=added_at,
-                    added_by=playlist_item.added_by_id,
+            cid = playlist_item.connector_track_identifier
+            added_at = self._parse_added_at(playlist_item.added_at, position)
+            domain_track = track_id_to_domain_track.get(cid)
+            if domain_track is not None:
+                playlist_entries.append(
+                    PlaylistEntry(
+                        track=domain_track,
+                        added_at=added_at,
+                        added_by=playlist_item.added_by_id,
+                    )
                 )
-                playlist_entries.append(entry)
             else:
-                missing_tracks.append((
-                    position,
-                    playlist_item.connector_track_identifier,
-                ))
-                # Better error message - track was missing from our domain mapping, not API
-                logger.warning(
-                    f"Position {position}: Track {playlist_item.connector_track_identifier} missing from domain track mapping "
-                    + f"(was in API response: {playlist_item.connector_track_identifier in [t.connector_track_identifier for t in unique_connector_tracks]})"
+                unresolved_count += 1
+                playlist_entries.append(
+                    PlaylistEntry(
+                        track=None,
+                        added_at=added_at,
+                        added_by=playlist_item.added_by_id,
+                        connector_track_ref=self._connector_ref(
+                            connector_name, cid, connector_track_by_id.get(cid)
+                        ),
+                    )
                 )
-
-        if missing_tracks:
-            logger.warning(
-                f"Skipped {len(missing_tracks)} playlist positions due to missing track data",
-                missing_count=len(missing_tracks),
-                total_positions=len(playlist_items),
-            )
 
         logger.info(
-            f"Created playlist structure: {len(playlist_entries)} entries preserved",
+            "Created playlist structure: %d positions (%d resolved, %d unresolved)",
+            len(playlist_entries),
+            len(playlist_entries) - unresolved_count,
+            unresolved_count,
             original_count=len(playlist_items),
-            preserved_count=len(playlist_entries),
-            duplicates_preserved=len(playlist_entries) - len(track_id_to_domain_track),
+            unresolved=unresolved_count,
         )
 
         # Return Playlist with PlaylistEntry objects (track + position metadata)
@@ -291,8 +272,35 @@ class ConnectorPlaylistProcessingService:
                 "connector_playlist_processed": True,
                 "original_item_count": len(playlist_items),
                 "preserved_entry_count": len(playlist_entries),
+                "unresolved_count": unresolved_count,
                 "unique_tracks": len(track_id_to_domain_track),
             },
+        )
+
+    @staticmethod
+    def _parse_added_at(raw: str | None, position: int) -> datetime | None:
+        """Parse an ISO ``added_at`` timestamp, tolerating malformed values."""
+        if not raw:
+            return None
+        try:
+            return datetime.fromisoformat(raw)
+        except (ValueError, TypeError) as e:
+            logger.warning(
+                f"Invalid added_at timestamp for position {position}: {raw}",
+                error=str(e),
+            )
+            return None
+
+    @staticmethod
+    def _connector_ref(
+        connector_name: str, identifier: str, source: ConnectorTrack | None
+    ) -> ConnectorTrackRef:
+        """Build the display/re-resolution ref for an unresolved position."""
+        return ConnectorTrackRef(
+            connector_name=connector_name,
+            connector_track_identifier=identifier,
+            title=source.title if source is not None else None,
+            artists=tuple(a.name for a in source.artists) if source is not None else (),
         )
 
     async def _ingest_single_track(

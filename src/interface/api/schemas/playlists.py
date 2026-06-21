@@ -36,13 +36,20 @@ class TrackSummarySchema(BaseModel):
 
 
 class PlaylistEntrySchema(BaseModel):
-    """A track's membership in a playlist with position metadata."""
+    """A track's membership in a playlist with position metadata.
+
+    ``is_resolved`` is False for an unresolved entry — a source position whose
+    connector track has no canonical match yet. Its ``track`` then carries the
+    display snapshot (title/artists) with ``id=None`` so the UI can render it
+    ("Couldn't match: …") and offer a repair action without losing the slot.
+    """
 
     model_config = ConfigDict(from_attributes=True)
 
     position: int
     track: TrackSummarySchema
     added_at: datetime | None = None
+    is_resolved: bool = True
 
 
 # --- Playlist link schemas ---
@@ -175,10 +182,25 @@ def _to_track_summary(track: Track) -> TrackSummarySchema:
 
 
 def to_playlist_entry(entry: PlaylistEntry, position: int) -> PlaylistEntrySchema:
+    if entry.track is not None:
+        return PlaylistEntrySchema(
+            position=position + 1,
+            track=_to_track_summary(entry.track),
+            added_at=entry.added_at,
+            is_resolved=True,
+        )
+    # Unresolved: synthesize a summary from the connector ref so the position
+    # still renders (with id=None marking it unresolved).
+    ref = entry.connector_track_ref
     return PlaylistEntrySchema(
         position=position + 1,
-        track=_to_track_summary(entry.track),
+        track=TrackSummarySchema(
+            id=None,
+            title=entry.display_title,
+            artists=[ArtistSchema(name=a) for a in (ref.artists if ref else ())],
+        ),
         added_at=entry.added_at,
+        is_resolved=False,
     )
 
 

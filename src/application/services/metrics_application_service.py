@@ -7,7 +7,7 @@ formats, and persisting results for future use.
 
 from collections.abc import Mapping
 from datetime import UTC, datetime
-from typing import TYPE_CHECKING, cast
+from typing import cast
 from uuid import UUID
 
 from attrs import define
@@ -18,16 +18,12 @@ from src.application.services.sub_operation_progress import (
     ThrottledSubOperationEmitter,
     create_throttled_sub_operation,
 )
+from src.application.use_cases._shared.metric_config import MetricConfigProvider
 from src.config import get_logger
 from src.domain.entities.progress import OperationStatus
 from src.domain.entities.shared import JsonValue, MetricValue
 from src.domain.entities.track import Track, TrackMetric
 from src.domain.repositories.uow import UnitOfWorkProtocol
-
-if TYPE_CHECKING:
-    # Circular import: src.application.workflows.protocols imports use cases
-    # that import this module.
-    from src.application.workflows.protocols import MetricConfigProvider
 
 logger = get_logger(__name__)
 

@@ -28,10 +28,10 @@ from src.application.services.connector_playlist_sync_service import (
 )
 from src.application.services.playlist_upsert import upsert_canonical_playlist
 from src.application.services.progress_broker import ProgressBroker
+from src.application.use_cases._shared.metric_config import MetricConfigProvider
 from src.application.use_cases.create_canonical_playlist import (
     CreateCanonicalPlaylistResult,
 )
-from src.application.workflows.protocols import MetricConfigProvider
 from src.config import get_logger
 from src.domain.entities import ConnectorPlaylist
 from src.domain.entities.playlist_link import PlaylistLink, SyncDirection, SyncStatus

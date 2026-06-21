@@ -28,6 +28,7 @@ from src.domain.repositories.playlist import (
     PlaylistAssignmentRepositoryProtocol,
     PlaylistLinkRepositoryProtocol,
     PlaylistRepositoryProtocol,
+    PlaylistSyncBaseRepositoryProtocol,
 )
 from src.domain.repositories.preference import PreferenceRepositoryProtocol
 from src.domain.repositories.schedule import ScheduleRepositoryProtocol
@@ -171,6 +172,16 @@ class DatabaseUnitOfWork:
         )
 
         return PlaylistLinkRepository(self._session)
+
+    def get_playlist_sync_base_repository(
+        self,
+    ) -> PlaylistSyncBaseRepositoryProtocol:
+        """Get the per-link sync base repository (last-reconciled external snapshot)."""
+        from src.infrastructure.persistence.repositories.playlist.sync_base import (
+            PlaylistSyncBaseRepository,
+        )
+
+        return PlaylistSyncBaseRepository(self._session)
 
     def get_connector_playlist_repository(self) -> ConnectorPlaylistRepositoryProtocol:
         """Get connector playlist repository using this unit of work's transaction."""

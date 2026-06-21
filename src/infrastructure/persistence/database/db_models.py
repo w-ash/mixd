@@ -21,6 +21,7 @@ import uuid as uuid_mod
 
 from sqlalchemy import (
     Boolean,
+    CheckConstraint,
     DateTime,
     ForeignKey,
     Index,
@@ -771,15 +772,47 @@ class DBPlaylistTrack(BaseEntity):
     """
 
     __tablename__: str = "playlist_tracks"
-    __table_args__: tuple[SchemaItem, ...] = (Index(None, "playlist_id", "sort_key"),)
+    __table_args__: tuple[SchemaItem, ...] = (
+        Index(None, "playlist_id", "sort_key"),
+        # Every membership row is either RESOLVED (track_id set) or UNRESOLVED
+        # with a display snapshot (unresolved_metadata set). A position can never
+        # be a pure hole — this is the structural guarantee that an imported
+        # playlist is always complete (right count + order), even for Spotify
+        # local/unavailable tracks that have no connector_tracks row to point at.
+        # connector_track_id is a best-effort re-resolution FK, hence not required.
+        CheckConstraint(
+            "track_id IS NOT NULL OR unresolved_metadata IS NOT NULL",
+            name="resolved_or_source",
+        ),
+        # Cheap lookup for the "N unresolved" badge and the re-resolution pass.
+        Index(
+            "ix_playlist_tracks_unresolved",
+            "playlist_id",
+            postgresql_where=text("track_id IS NULL"),
+        ),
+    )
 
     playlist_id: Mapped[UuidType] = mapped_column(
         PgUuidCol(as_uuid=True),
         ForeignKey("playlists.id", ondelete="CASCADE"),
     )
-    track_id: Mapped[UuidType] = mapped_column(
+    # Nullable: NULL marks an UNRESOLVED membership — a source playlist position
+    # whose connector track could not be matched/ingested to a canonical track.
+    track_id: Mapped[UuidType | None] = mapped_column(
         PgUuidCol(as_uuid=True), ForeignKey("tracks.id", ondelete="CASCADE")
     )
+    # Set on unresolved rows (and optionally on resolved rows as provenance):
+    # the connector track this position came from. Drives re-resolution — a
+    # query against track_mappings by (connector, connector_track_id) — without
+    # parsing JSON. ON DELETE SET NULL so pruning a connector track never
+    # orphans a playlist position.
+    connector_track_id: Mapped[UuidType | None] = mapped_column(
+        PgUuidCol(as_uuid=True),
+        ForeignKey("connector_tracks.id", ondelete="SET NULL"),
+    )
+    # Display snapshot for unresolved rows (title/artists/connector identifier)
+    # so the UI can render "Couldn't match: <title> — <artist>" with no join.
+    unresolved_metadata: Mapped[JsonDict | None] = mapped_column(PgJsonb)
     sort_key: Mapped[str] = mapped_column(String(32))
     added_at: Mapped[datetime | None] = mapped_column(
         DateTime(timezone=True),
@@ -793,10 +826,43 @@ class DBPlaylistTrack(BaseEntity):
         passive_deletes=True,
         lazy="raise_on_sql",
     )
-    track: Mapped[DBTrack] = relationship(
+    track: Mapped[DBTrack | None] = relationship(
         passive_deletes=True,
         lazy="raise_on_sql",
     )
+
+
+class DBPlaylistSyncBase(BaseEntity):
+    """Per-link snapshot id a playlist link last reconciled to.
+
+    User/link-scoped (unlike the global ``connector_playlists`` cache, which is
+    shared across users and overwritten on any fetch), so it cannot leak across
+    tenants. Recorded on every apply; the foundation for a future snapshot
+    fast-skip and 3-way (bidirectional) merge.
+
+    One row per link (``uq_playlist_sync_bases_link``).
+    """
+
+    __tablename__: str = "playlist_sync_bases"
+    __table_args__: tuple[SchemaItem, ...] = (
+        UniqueConstraint("link_id", name="uq_playlist_sync_bases_link"),
+        Index("ix_playlist_sync_bases_user", "user_id"),
+    )
+
+    user_id: Mapped[str] = mapped_column(
+        String(), nullable=False, default="default", server_default="default"
+    )
+    link_id: Mapped[UuidType] = mapped_column(
+        PgUuidCol(as_uuid=True),
+        ForeignKey("playlist_mappings.id", ondelete="CASCADE"),
+    )
+    connector_name: Mapped[str] = mapped_column(String(32))
+    connector_playlist_identifier: Mapped[str] = mapped_column(String())
+    # The connector snapshot id at the moment this base was recorded. When the
+    # next fetch returns the same snapshot id, nothing changed remotely → the
+    # apply is a no-op (the idempotency the old snapshot_id was never used for).
+    base_snapshot_id: Mapped[str | None] = mapped_column(String(64), default=None)
+    base_taken_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))
 
 
 class DBWorkflow(BaseEntity):

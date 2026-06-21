@@ -206,7 +206,10 @@ def batch_tag(
 
         full_playlist = run_async(execute_use_case(_load_with_entries, user_id=user_id))
 
-    track_ids = [entry.track.id for entry in full_playlist.entries]
+    # Tagging applies to resolved tracks only; unresolved entries have no track.
+    track_ids = [
+        entry.track.id for entry in full_playlist.entries if entry.track is not None
+    ]
 
     with brand_status(f"Tagging {len(track_ids)} tracks..."):
         result = run_async(

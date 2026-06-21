@@ -9,16 +9,22 @@ from datetime import UTC, datetime
 from uuid import UUID
 
 import attrs
-from sqlalchemy import Select, delete, insert, select, update
+from sqlalchemy import Select, delete, insert, select, tuple_, update
 from sqlalchemy.dialects.postgresql import insert as pg_insert
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
 from src.config import get_logger
 from src.config.constants import ConnectorPriority
-from src.domain.entities import ConnectorTrack, Playlist, PlaylistEntry, Track
+from src.domain.entities import (
+    ConnectorTrack,
+    Playlist,
+    PlaylistEntry,
+    Track,
+)
 from src.infrastructure.persistence.database.db_models import (
     DBConnectorPlaylist,
+    DBConnectorTrack,
     DBPlaylist,
     DBPlaylistMapping,
     DBPlaylistTrack,
@@ -234,27 +240,21 @@ class PlaylistRepository(BaseRepository[DBPlaylist, Playlist]):
             return
 
         now = datetime.now(UTC)
+        connector_id_by_ref = await self._resolve_connector_track_ids(entries)
 
-        # Bulk insert entries with sort keys and added_at timestamps from PlaylistEntry
-        values: list[dict[str, object]] = []
-        for idx, entry in enumerate(entries):
-            # Direct access to added_at from PlaylistEntry - clean architecture!
-            added_at = entry.added_at
-            if added_at:
-                logger.debug(
-                    "Using added_at from PlaylistEntry for create operation",
-                    track_id=entry.track.id,
-                    added_at=added_at,
+        # Build one row per entry — resolved (track_id) OR unresolved
+        # (connector_track_id + unresolved_metadata). Every source position
+        # becomes a row, so the playlist is always complete.
+        values = [
+            row
+            for idx, entry in enumerate(entries)
+            if (
+                row := self._build_track_values(
+                    playlist_id, entry, idx, connector_id_by_ref, now
                 )
-
-            values.append({
-                "playlist_id": playlist_id,
-                "track_id": entry.track.id,
-                "sort_key": self._generate_sort_key(idx),
-                "added_at": added_at,
-                "created_at": now,
-                "updated_at": now,
-            })
+            )
+            is not None
+        ]
 
         if values:
             _ = await self.session.execute(insert(DBPlaylistTrack).values(values))
@@ -296,52 +296,61 @@ class PlaylistRepository(BaseRepository[DBPlaylist, Playlist]):
         result = await self.session.scalars(stmt)
         existing_records = list(result.all())
 
-        # Build consumption pool: track_id → list of available records
-        # This allows handling duplicate tracks (same track_id, multiple records)
-        available_records: defaultdict[UUID, list[DBPlaylistTrack]] = defaultdict(list)
+        connector_id_by_ref = await self._resolve_connector_track_ids(entries)
+
+        # Two consumption views over the same records:
+        # - records_by_id: address one exact membership record when the entry
+        #   carries its DB id (identity-preserving reorder/remove).
+        # - available_records: FIFO pool per membership key for entries with no
+        #   id match. The key is "t:<track_id>" for resolved rows and
+        #   "c:<connector>:<identifier>" for unresolved ones, so an unresolved
+        #   position keeps its slot (and added_at) across re-pulls too.
+        records_by_id: dict[UUID, DBPlaylistTrack] = {
+            record.id: record for record in existing_records
+        }
+        available_records: defaultdict[str, list[DBPlaylistTrack]] = defaultdict(list)
         for record in existing_records:
-            available_records[record.track_id].append(record)
+            key = self._record_key(record)
+            if key is not None:
+                available_records[key].append(record)
 
         logger.debug(
             f"Playlist update: {len(existing_records)} existing records, "
-            + f"{len(available_records)} unique tracks, "
+            + f"{len(available_records)} unique memberships, "
             + f"{len(entries)} target entries"
         )
 
+        consumed_ids: set[UUID] = set()
         records_to_update: list[DBPlaylistTrack] = []
         records_to_create: list[DBPlaylistTrack] = []
 
         # Consume records for each target position
         for idx, entry in enumerate(entries):
-            sort_key = self._generate_sort_key(idx)
-
-            if available_records[entry.track.id]:
-                # CONSUME one existing record for this track
-                # This preserves the record's id and added_at metadata
-                record = available_records[entry.track.id].pop(0)
-                record.sort_key = sort_key  # Update position only
+            key = self._entry_key(entry)
+            record = self._consume_record_for_entry(
+                entry.id, key, records_by_id, available_records, consumed_ids
+            )
+            if record is not None:
+                # CONSUME the matched record — preserves its id and added_at,
+                # updating position (sort_key) only.
+                consumed_ids.add(record.id)
+                record.sort_key = self._generate_sort_key(idx)
                 record.updated_at = now
                 records_to_update.append(record)
             else:
-                # No existing record for this track - create new membership instance
-                # Direct access to added_at from PlaylistEntry - clean architecture!
-                added_at = entry.added_at
-
-                records_to_create.append(
-                    DBPlaylistTrack(
-                        playlist_id=playlist_id,
-                        track_id=entry.track.id,
-                        sort_key=sort_key,
-                        added_at=added_at,
-                        created_at=now,
-                        updated_at=now,
-                    )
+                # No existing record for this membership — create one (resolved
+                # or unresolved). May be None only when an unresolved entry's
+                # connector track can't be located (logged, see _build_track_values).
+                new_values = self._build_track_values(
+                    playlist_id, entry, idx, connector_id_by_ref, now
                 )
+                if new_values is not None:
+                    records_to_create.append(DBPlaylistTrack(**new_values))
 
-        # Collect unconsumed records (tracks removed from playlist)
-        records_to_delete: list[DBPlaylistTrack] = []
-        for remaining_records in available_records.values():
-            records_to_delete.extend(remaining_records)
+        # Any record not consumed (by id or by FIFO) was removed from the playlist
+        records_to_delete: list[DBPlaylistTrack] = [
+            record for record in existing_records if record.id not in consumed_ids
+        ]
 
         logger.debug(
             f"Playlist sync: {len(records_to_update)} reused, {len(records_to_create)} created, {len(records_to_delete)} deleted"
@@ -597,6 +606,156 @@ class PlaylistRepository(BaseRepository[DBPlaylist, Playlist]):
     # -------------------------------------------------------------------------
 
     @staticmethod
+    def _record_key(record: DBPlaylistTrack) -> str | None:
+        """Membership key for a stored row, by canonical or external identity.
+
+        Resolved rows key on the canonical track id; unresolved rows key on the
+        external ``connector:identifier`` read from their display snapshot — so an
+        unresolved position keeps its slot across re-pulls without depending on
+        the optional ``connector_track_id`` FK (which may be NULL).
+        """
+        if record.track_id is not None:
+            return f"t:{record.track_id}"
+        meta = record.unresolved_metadata
+        if isinstance(meta, dict):
+            name = meta.get("connector_name")
+            identifier = meta.get("connector_track_identifier")
+            if isinstance(name, str) and isinstance(identifier, str):
+                return f"c:{name}:{identifier}"
+        return None
+
+    @staticmethod
+    def _entry_key(entry: PlaylistEntry) -> str | None:
+        """Membership key for an incoming entry, mirroring ``_record_key``."""
+        if entry.track is not None:
+            return f"t:{entry.track.id}"
+        ref = entry.connector_track_ref
+        if ref is not None:
+            return f"c:{ref.connector_name}:{ref.connector_track_identifier}"
+        return None
+
+    @staticmethod
+    def _consume_record_for_entry(
+        entry_id: UUID,
+        key: str | None,
+        records_by_id: dict[UUID, DBPlaylistTrack],
+        available_records: defaultdict[str, list[DBPlaylistTrack]],
+        consumed_ids: set[UUID],
+    ) -> DBPlaylistTrack | None:
+        """Pick the existing membership record this entry should reuse.
+
+        Entry-identity first: if the entry carries the id of an existing record
+        with the same membership key, reuse that exact record — this is what
+        makes reorder/remove preserve record id + added_at when the caller
+        passes loaded entries. Otherwise fall back to FIFO consumption from the
+        membership-key pool (entries built in memory or sourced from a TrackList
+        carry fresh ids that never match a DB record). Returns None when nothing
+        is available, signalling the caller to create a new membership record.
+        """
+        # 1. Precise membership match by id (same membership key only).
+        candidate = records_by_id.get(entry_id)
+        if (
+            candidate is not None
+            and candidate.id not in consumed_ids
+            and PlaylistRepository._record_key(candidate) == key
+        ):
+            return candidate
+
+        # 2. FIFO fallback within the membership-key pool, skipping consumed.
+        if key is None:
+            return None
+        pool = available_records[key]
+        while pool:
+            candidate = pool.pop(0)
+            if candidate.id not in consumed_ids:
+                return candidate
+        return None
+
+    async def _resolve_connector_track_ids(
+        self, entries: list[PlaylistEntry]
+    ) -> dict[tuple[str, str], UUID]:
+        """Best-effort map of each unresolved entry's connector ref → DBConnectorTrack id.
+
+        Populates the optional ``connector_track_id`` FK for efficient
+        re-resolution. The domain ref carries only the external
+        ``(connector_name, identifier)``, so resolve the FK ids in one batch
+        query. A miss is fine — the position still persists via
+        ``unresolved_metadata`` with a NULL FK (e.g. Spotify local/unavailable
+        tracks that have no ``connector_tracks`` row at all).
+        """
+        refs = {
+            (
+                entry.connector_track_ref.connector_name,
+                entry.connector_track_ref.connector_track_identifier,
+            )
+            for entry in entries
+            if entry.track is None and entry.connector_track_ref is not None
+        }
+        if not refs:
+            return {}
+        stmt = select(DBConnectorTrack).where(
+            tuple_(
+                DBConnectorTrack.connector_name,
+                DBConnectorTrack.connector_track_identifier,
+            ).in_(list(refs))
+        )
+        rows = (await self.session.scalars(stmt)).all()
+        return {
+            (row.connector_name, row.connector_track_identifier): row.id for row in rows
+        }
+
+    def _build_track_values(
+        self,
+        playlist_id: UUID,
+        entry: PlaylistEntry,
+        idx: int,
+        connector_id_by_ref: dict[tuple[str, str], UUID],
+        now: datetime,
+    ) -> dict[str, object] | None:
+        """Build the column values for one playlist_tracks row.
+
+        Resolved entry → ``track_id`` set. Unresolved entry → ``track_id`` NULL
+        with the always-present ``unresolved_metadata`` snapshot and a best-effort
+        ``connector_track_id`` FK (NULL when no connector_tracks row exists). The
+        unresolved row therefore always persists — never a silent drop. Returns
+        None only for a malformed entry that is neither resolved nor carries a
+        connector ref (a programming error that can't satisfy the CHECK).
+        """
+        # Keep all rows homogeneous (same keys) so a bulk insert — which derives
+        # its column set from the first dict — never drops the unresolved columns.
+        base: dict[str, object] = {
+            "playlist_id": playlist_id,
+            "sort_key": self._generate_sort_key(idx),
+            "added_at": entry.added_at,
+            "created_at": now,
+            "updated_at": now,
+            "track_id": None,
+            "connector_track_id": None,
+            "unresolved_metadata": None,
+        }
+        if entry.track is not None:
+            return {**base, "track_id": entry.track.id}
+
+        ref = entry.connector_track_ref
+        if ref is None:
+            logger.error(
+                "Playlist entry is neither resolved nor carries a connector ref; "
+                "skipping position",
+                playlist_id=playlist_id,
+                position=idx,
+            )
+            return None
+        return {
+            **base,
+            # FK is best-effort: NULL when the connector track has no DB row.
+            "connector_track_id": connector_id_by_ref.get((
+                ref.connector_name,
+                ref.connector_track_identifier,
+            )),
+            "unresolved_metadata": ref.to_metadata(),
+        }
+
+    @staticmethod
     def _generate_sort_key(position: int) -> str:
         """Generate lexicographic sort key for track ordering."""
         return f"a{position:08d}"
@@ -776,23 +935,35 @@ class PlaylistRepository(BaseRepository[DBPlaylist, Playlist]):
         existing = await self.execute_select_one(self.select_by_id(playlist.id))
         is_update = existing is not None
 
-        # Save tracks first with source connector for proper mappings
-        # Extract tracks from entries for persistence
-        tracks_to_save = [entry.track for entry in playlist.entries]
+        # Save tracks first with source connector for proper mappings. Only
+        # RESOLVED entries carry a canonical track to persist; unresolved
+        # positions are carried through untouched (track stays None).
+        resolved_positions = [
+            i for i, e in enumerate(playlist.entries) if e.track is not None
+        ]
+        tracks_to_save = [
+            track
+            for i in resolved_positions
+            if (track := playlist.entries[i].track) is not None
+        ]
         updated_tracks = await self._save_new_tracks(
             tracks_to_save,
             connector=source_connector,
             user_id=playlist.user_id,
         )
+        position_to_saved_track = {
+            pos: updated_tracks[j] for j, pos in enumerate(resolved_positions)
+        }
 
-        # Rebuild entries with persisted tracks (preserving added_at metadata)
+        # Rebuild entries with persisted tracks (preserving added_at metadata
+        # AND the membership id, so entry-identity matching in
+        # _update_playlist_tracks can address the existing DB record directly).
+        # Unresolved entries pass through unchanged so their position is kept.
         updated_entries = [
-            PlaylistEntry(
-                track=updated_tracks[idx],
-                added_at=playlist.entries[idx].added_at,
-                added_by=playlist.entries[idx].added_by,
-            )
-            for idx in range(len(playlist.entries))
+            attrs.evolve(entry, track=position_to_saved_track[idx])
+            if idx in position_to_saved_track
+            else entry
+            for idx, entry in enumerate(playlist.entries)
         ]
 
         # Create or update the playlist DB entity

@@ -8,6 +8,8 @@ from collections.abc import Awaitable, Callable
 
 from attrs import define
 
+# Repository factory functions will be imported locally where needed
+from src.application.use_cases._shared.metric_config import MetricConfigProvider
 from src.config.constants import BusinessLimits
 from src.domain.repositories.uow import UnitOfWorkProtocol
 
@@ -17,10 +19,8 @@ from src.domain.repositories.uow import UnitOfWorkProtocol
 from src.infrastructure.connectors.protocols import ConnectorConfig
 from src.infrastructure.persistence.database.db_connection import get_session
 
-# Repository factory functions will be imported locally where needed
 from .protocols import (
     ConnectorRegistry,
-    MetricConfigProvider,
     UseCase,
     UseCaseProvider,
     WorkflowContext,

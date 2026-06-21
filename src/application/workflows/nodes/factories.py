@@ -20,12 +20,13 @@ from typing import TypedDict, cast
 
 # Import for enrichment functionality
 from src.application.connector_protocols import TrackMetadataConnector
+from src.application.use_cases._shared.metric_config import MetricConfigProvider
 from src.application.use_cases.enrich_tracks import (
     ConnectorType,
     EnrichmentConfig,
     EnrichTracksCommand,
 )
-from src.application.workflows.protocols import MetricConfigProvider, NodeResult
+from src.application.workflows.protocols import NodeResult
 from src.config import get_logger
 from src.domain.entities.shared import JsonValue
 from src.domain.entities.track import TrackList

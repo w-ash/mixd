@@ -29,10 +29,12 @@ from .playlist import (
     DB_PSEUDO_CONNECTOR,
     ConnectorPlaylist,
     ConnectorPlaylistItem,
+    ConnectorTrackRef,
     Playlist,
     PlaylistEntry,
 )
 from .playlist_link import PlaylistLink, SyncDirection, SyncStatus
+from .playlist_sync_base import PlaylistSyncBase
 
 # Preference entities
 from .preference import (
@@ -104,6 +106,7 @@ __all__ = [
     "ConnectorTrack",
     "ConnectorTrackMapping",
     "ConnectorTrackPlay",
+    "ConnectorTrackRef",
     "IntegrityCheckResult",
     "IntegrityReport",
     "MetadataKey",
@@ -114,6 +117,7 @@ __all__ = [
     "Playlist",
     "PlaylistEntry",
     "PlaylistLink",
+    "PlaylistSyncBase",
     "PreferenceEvent",
     "PreferenceState",
     "Schedule",

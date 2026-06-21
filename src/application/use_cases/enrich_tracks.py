@@ -7,7 +7,7 @@ Supports two types of enrichment:
 Processes multiple tracks efficiently in batches.
 """
 
-from typing import TYPE_CHECKING, Literal, Never, cast
+from typing import Literal, Never, cast
 from uuid import UUID
 
 from attrs import define, field
@@ -17,6 +17,7 @@ from src.application.services.metrics_application_service import (
     MetricsApplicationService,
 )
 from src.application.services.progress_broker import ProgressBroker
+from src.application.use_cases._shared.metric_config import MetricConfigProvider
 from src.application.utilities.timing import ExecutionTimer
 from src.config import get_logger
 from src.config.logging import logging_context
@@ -24,10 +25,6 @@ from src.domain.entities.shared import MetricValue
 from src.domain.entities.track import TrackList
 from src.domain.exceptions import EnrichmentFailedError
 from src.domain.repositories.uow import UnitOfWorkProtocol
-
-if TYPE_CHECKING:
-    # Circular import: src.application.workflows.protocols imports this module.
-    from src.application.workflows.protocols import MetricConfigProvider
 
 logger = get_logger(__name__)
 

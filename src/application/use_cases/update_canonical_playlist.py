@@ -6,22 +6,19 @@ mode (calculate minimal changes to transform current playlist into target state)
 """
 
 from datetime import UTC, datetime
-from typing import TYPE_CHECKING
 
 from attrs import define, evolve, field
 
 from src.application.services.metrics_application_service import (
     MetricsApplicationService,
 )
-
-if TYPE_CHECKING:
-    from src.application.workflows.protocols import MetricConfigProvider
 from src.application.use_cases._shared import (
     OperationCounts,
     build_playlist_changes,
     count_operation_types,
 )
 from src.application.use_cases._shared.command_validators import non_empty_string
+from src.application.use_cases._shared.metric_config import MetricConfigProvider
 from src.application.use_cases._shared.playlist_resolver import require_playlist
 from src.application.utilities.timing import ExecutionTimer
 from src.config import get_logger
@@ -344,14 +341,18 @@ class UpdateCanonicalPlaylistUseCase:
             execution_metadata=execution_metadata,
         )
 
-        # Preserve added_at for existing tracks, use target's added_at for new tracks
+        # Preserve added_at for existing tracks, use target's added_at for new
+        # tracks. Keyed by canonical track id, so unresolved entries (no track)
+        # are naturally excluded — this diff path operates on resolved tracks.
         track_to_target_entry = {
-            entry.track.id: entry for entry in target_playlist.entries if entry.track.id
+            entry.track.id: entry
+            for entry in target_playlist.entries
+            if entry.track is not None and entry.track.id
         }
         track_to_current_entry = {
             entry.track.id: entry
             for entry in current_playlist.entries
-            if entry.track.id
+            if entry.track is not None and entry.track.id
         }
 
         updated_entries: list[PlaylistEntry] = []
@@ -444,14 +445,20 @@ class UpdateCanonicalPlaylistUseCase:
         Returns:
             Tuple of (updated_playlist, operations_performed, operation_counts)
         """
-        # Filter out entries for tracks that already exist to avoid duplicates
+        # Filter out entries for tracks that already exist to avoid duplicates.
+        # Unresolved entries (no canonical track) are kept — they can't collide
+        # on a track id and carry distinct source positions.
         existing_track_ids = {
-            entry.track.id for entry in current_playlist.entries if entry.track.id
+            entry.track.id
+            for entry in current_playlist.entries
+            if entry.track is not None and entry.track.id
         }
         new_entries = [
             entry
             for entry in new_playlist.entries
-            if not entry.track.id or entry.track.id not in existing_track_ids
+            if entry.track is None
+            or not entry.track.id
+            or entry.track.id not in existing_track_ids
         ]
 
         if not new_entries:

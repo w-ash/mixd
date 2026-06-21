@@ -7,17 +7,14 @@ the transaction. Returns operational metrics for monitoring.
 
 from collections.abc import Mapping
 from datetime import datetime
-from typing import TYPE_CHECKING
 
 from attrs import define, evolve, field
 
 from src.application.services.metrics_application_service import (
     MetricsApplicationService,
 )
-
-if TYPE_CHECKING:
-    from src.application.workflows.protocols import MetricConfigProvider
 from src.application.use_cases._shared.command_validators import non_empty_string
+from src.application.use_cases._shared.metric_config import MetricConfigProvider
 from src.application.utilities.timing import ExecutionTimer
 from src.config import get_logger
 from src.domain.entities import utc_now_factory

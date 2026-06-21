@@ -1,34 +1,22 @@
 """Sync a playlist link — push canonical→external or pull external→canonical.
 
-Reuses existing infrastructure:
-- Push: UpdateConnectorPlaylistUseCase (diff engine + Spotify API operations)
-- Pull: sync_connector_playlist() + upsert_canonical_playlist() (backup pattern)
-
-The sync direction is determined by the link's configured direction, with an
-optional one-time override.
+A thin status-lifecycle wrapper over ``PlaylistReconciliationEngine``: it owns the
+link's SYNCING → SYNCED / ERROR transitions; the engine does the real work
+(fresh fetch → diff vs base → safety gate → atomic apply → record base). The
+direction is the link's configured direction, with an optional one-time override.
 """
-
-# Legitimate Any: use case result union types
 
 from typing import Never
 from uuid import UUID
 
 from attrs import define, field
 
-from src.application.services.connector_playlist_sync_service import (
-    sync_connector_playlist,
-)
-from src.application.services.playlist_upsert import upsert_canonical_playlist
-from src.application.use_cases.update_connector_playlist import (
-    UpdateConnectorPlaylistCommand,
-    UpdateConnectorPlaylistUseCase,
+from src.application.services.playlist_reconciliation_engine import (
+    PlaylistReconciliationEngine,
 )
 from src.config import get_logger
 from src.domain.entities.playlist_link import PlaylistLink, SyncDirection, SyncStatus
-from src.domain.entities.shared import ConnectorPlaylistIdentifier
 from src.domain.exceptions import ConfirmationRequiredError, NotFoundError
-from src.domain.playlist.diff_engine import calculate_playlist_diff
-from src.domain.playlist.sync_safety import check_sync_safety
 from src.domain.repositories.uow import UnitOfWorkProtocol
 
 logger = get_logger(__name__)
@@ -55,201 +43,95 @@ class SyncPlaylistLinkResult:
     link: PlaylistLink
     tracks_added: int = field(default=0)
     tracks_removed: int = field(default=0)
-    tracks_unmatched: int = field(default=0)  # canonical tracks with no connector match
+    tracks_unmatched: int = field(default=0)  # tracks with no match this sync
 
 
 @define(slots=True)
 class SyncPlaylistLinkUseCase:
-    """Sync a playlist link bidirectionally. Push: canonical → external.
-    Pull: external → canonical."""
+    """Sync a playlist link. Push: canonical → external. Pull: external → canonical."""
 
     async def execute(
         self, command: SyncPlaylistLinkCommand, uow: UnitOfWorkProtocol
     ) -> SyncPlaylistLinkResult:
-        async with uow:
-            # Verify ownership before mutating sync status
-            from src.application.use_cases._shared.playlist_resolver import (
-                require_playlist_link,
-            )
+        from src.application.use_cases._shared.playlist_resolver import (
+            require_playlist_link,
+        )
+        from src.infrastructure.connectors._shared.metric_registry import (
+            MetricConfigProviderImpl,
+        )
 
+        async with uow:
             link = await require_playlist_link(
                 command.link_id, uow, user_id=command.user_id
             )
-
-            link_id: UUID = link.id
+            link_id = link.id
             direction = command.direction_override or link.sync_direction
-
-            # Mark as syncing (only after ownership is confirmed)
-            link_repo = uow.get_playlist_link_repository()
-            await link_repo.update_sync_status(link_id, SyncStatus.SYNCING)
+            original_status = link.sync_status
+            await uow.get_playlist_link_repository().update_sync_status(
+                link_id, SyncStatus.SYNCING
+            )
             await uow.commit()
 
-        # Run sync outside the initial transaction — push/pull create their own
+        engine = PlaylistReconciliationEngine(metric_config=MetricConfigProviderImpl())
         try:
-            return await self._run_sync(command, uow, direction, link, link_id)
-
+            return await self._apply(engine, command, uow, link, direction, link_id)
+        except ConfirmationRequiredError:
+            # The safety gate fired before any change. Restore the prior status so
+            # the link isn't stranded in SYNCING, then surface for the confirm flow.
+            await self._set_status(uow, link_id, original_status)
+            raise
         except Exception as e:
-            # Update status to error
-            async with uow:
-                link_repo = uow.get_playlist_link_repository()
-                await link_repo.update_sync_status(
-                    link_id,
-                    SyncStatus.ERROR,
-                    error=str(e)[:500],
-                )
-                await uow.commit()
+            await self._set_status(uow, link_id, SyncStatus.ERROR, error=str(e)[:500])
             raise
 
-    async def _run_sync(
-        self,
+    @staticmethod
+    async def _apply(
+        engine: PlaylistReconciliationEngine,
         command: SyncPlaylistLinkCommand,
         uow: UnitOfWorkProtocol,
-        direction: SyncDirection,
         link: PlaylistLink,
+        direction: SyncDirection,
         link_id: UUID,
     ) -> SyncPlaylistLinkResult:
-        """Runs the push/pull sync and persists the synced status."""
-        if direction == SyncDirection.PUSH:
-            result = await self._push_sync(
-                link, uow, user_id=command.user_id, confirmed=command.confirmed
-            )
-        else:
-            result = await self._pull_sync(link, uow, user_id=command.user_id)
-
-        # Update status to synced and re-fetch for fresh state
+        """Run the engine apply, mark SYNCED, and return the refreshed link."""
         async with uow:
+            result = await engine.apply(
+                link,
+                direction,
+                uow,
+                user_id=command.user_id,
+                confirmed=command.confirmed,
+            )
             link_repo = uow.get_playlist_link_repository()
             await link_repo.update_sync_status(
                 link_id,
                 SyncStatus.SYNCED,
                 tracks_added=result.tracks_added,
                 tracks_removed=result.tracks_removed,
-                tracks_unmatched=result.tracks_unmatched,
+                tracks_unmatched=result.unmatched,
             )
             await uow.commit()
+            updated_link = await link_repo.get_link(link_id)
 
-            updated_link = await link_repo.get_link(command.link_id)
-            if updated_link is None:
-                _raise_disappeared(command.link_id)
-            return SyncPlaylistLinkResult(
-                link=updated_link,
-                tracks_added=result.tracks_added,
-                tracks_removed=result.tracks_removed,
-                tracks_unmatched=result.tracks_unmatched,
-            )
-
-    async def _push_sync(
-        self,
-        link: PlaylistLink,
-        uow: UnitOfWorkProtocol,
-        *,
-        user_id: str,
-        confirmed: bool = False,
-    ) -> SyncPlaylistLinkResult:
-        """Push canonical playlist to external service.
-
-        When ``confirmed`` is False, runs a safety check against the cached
-        external playlist. If the diff would remove a destructive number of
-        tracks, raises ``ConfirmationRequiredError`` instead of proceeding.
-        """
-        async with uow:
-            playlist_repo = uow.get_playlist_repository()
-            playlist = await playlist_repo.get_playlist_by_id(
-                link.playlist_id, user_id=user_id
-            )
-
-            # Safety check against cached external playlist (no API call)
-            if not confirmed:
-                external = await playlist_repo.get_playlist_by_connector(
-                    link.connector_name,
-                    link.connector_playlist_identifier,
-                    user_id=user_id,
-                    raise_if_not_found=False,
-                )
-                if external is not None:
-                    diff = calculate_playlist_diff(external, playlist)
-                    removes = diff.operation_summary.get("remove", 0)
-                    safety = check_sync_safety(
-                        removals=removes, total_current=len(external.tracks)
-                    )
-                    if safety.flagged:
-                        raise ConfirmationRequiredError(
-                            safety.reason or "Destructive sync requires confirmation",
-                            removals=safety.removals,
-                            total=safety.total_current,
-                            remaining=safety.remaining_after_sync,
-                        )
-
-        tracklist = playlist.to_tracklist()
-
-        command = UpdateConnectorPlaylistCommand(
-            user_id=user_id,
-            connector_playlist_identifier=ConnectorPlaylistIdentifier(
-                link.connector_playlist_identifier
-            ),
-            new_tracklist=tracklist,
-            connector=link.connector_name,
-        )
-
-        push_result = await UpdateConnectorPlaylistUseCase().execute(command, uow)
-
-        # Surfaced to the user as "unmatched": canonical tracks dropped before
-        # submission because they have no connector match (the dominant cause of
-        # PlaylistOpsOutcome.dropped, persisted into external_metadata as a JsonValue).
-        raw_unmatched = push_result.external_metadata.get("operations_dropped", 0)
-        unmatched = raw_unmatched if isinstance(raw_unmatched, int) else 0
-
+        if updated_link is None:
+            _raise_disappeared(link_id)
         return SyncPlaylistLinkResult(
-            link=link,
-            tracks_added=push_result.tracks_added,
-            tracks_removed=push_result.tracks_removed,
-            tracks_unmatched=unmatched,
+            link=updated_link,
+            tracks_added=result.tracks_added,
+            tracks_removed=result.tracks_removed,
+            tracks_unmatched=result.unmatched,
         )
 
-    async def _pull_sync(
-        self, link: PlaylistLink, uow: UnitOfWorkProtocol, *, user_id: str
-    ) -> SyncPlaylistLinkResult:
-        """Pull external playlist into canonical playlist."""
-        from src.infrastructure.connectors._shared.metric_registry import (
-            MetricConfigProviderImpl,
-        )
-
+    @staticmethod
+    async def _set_status(
+        uow: UnitOfWorkProtocol,
+        link_id: UUID,
+        status: SyncStatus,
+        *,
+        error: str | None = None,
+    ) -> None:
         async with uow:
-            # Fetch + cache external playlist
-            connector_playlist = await sync_connector_playlist(
-                link.connector_name,
-                ConnectorPlaylistIdentifier(link.connector_playlist_identifier),
-                uow,
+            await uow.get_playlist_link_repository().update_sync_status(
+                link_id, status, error=error
             )
-
-            # Snapshot the canonical playlist before upsert for the diff below
-            playlist_repo = uow.get_playlist_repository()
-            existing = await playlist_repo.get_playlist_by_id(
-                link.playlist_id, user_id=user_id
-            )
-
-            # Upsert canonical playlist from external data
-            await upsert_canonical_playlist(
-                connector_playlist,
-                link.connector_name,
-                link.connector_playlist_identifier,
-                uow,
-                metric_config=MetricConfigProviderImpl(),
-                user_id=user_id,
-            )
-
             await uow.commit()
-
-            # Re-fetch the post-upsert canonical and count real churn via the
-            # same diff engine push/preview use — a 5-for-5 replacement is 5 adds
-            # + 5 removes, not the 0/0 a net size delta would report.
-            updated = await playlist_repo.get_playlist_by_id(
-                link.playlist_id, user_id=user_id
-            )
-            diff = calculate_playlist_diff(existing, updated)
-
-            return SyncPlaylistLinkResult(
-                link=link,
-                tracks_added=diff.operation_summary.get("add", 0),
-                tracks_removed=diff.operation_summary.get("remove", 0),
-            )

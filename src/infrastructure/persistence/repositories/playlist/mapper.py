@@ -12,6 +12,7 @@ from src.domain.entities import (
     Artist,
     ConnectorPlaylist,
     ConnectorPlaylistItem,
+    ConnectorTrackRef,
     Playlist,
     PlaylistEntry,
     Track,
@@ -77,6 +78,22 @@ class PlaylistMapper(BaseModelMapper[DBPlaylist, Playlist]):
             db_model.loaded_list(DBPlaylist.tracks, DBPlaylistTrack),
             key=lambda pt: pt.sort_key,
         ):
+            # Unresolved membership (track_id NULL): preserve the position from
+            # its display snapshot rather than dropping it. This is the read-side
+            # half of "an imported playlist is always complete".
+            if pt.track_id is None:
+                ref = ConnectorTrackRef.from_metadata(pt.unresolved_metadata)
+                if ref is not None:
+                    playlist_entries.append(
+                        PlaylistEntry(
+                            id=pt.id,
+                            track=None,
+                            connector_track_ref=ref,
+                            added_at=pt.added_at,
+                        )
+                    )
+                continue
+
             track = pt.loaded_one(DBPlaylistTrack.track, DBTrack)
             if track is None:
                 continue
@@ -110,8 +127,15 @@ class PlaylistMapper(BaseModelMapper[DBPlaylist, Playlist]):
             )
 
             # Only added_at is persisted; added_by would require a schema change.
+            # Carry the DBPlaylistTrack PK as the entry's stable membership id so
+            # identity-preserving reorder/remove can address this exact record.
             playlist_entries.append(
-                PlaylistEntry(track=domain_track, added_at=pt.added_at, added_by=None)
+                PlaylistEntry(
+                    id=pt.id,
+                    track=domain_track,
+                    added_at=pt.added_at,
+                    added_by=None,
+                )
             )
 
         # Build connector_playlist_identifiers from the playlist's connector mappings.
@@ -143,7 +167,8 @@ class PlaylistMapper(BaseModelMapper[DBPlaylist, Playlist]):
         playlist.user_id = domain_model.user_id
         playlist.name = domain_model.name
         playlist.description = domain_model.description
-        playlist.track_count = len(domain_model.tracks) if domain_model.tracks else 0
+        # Complete count (resolved + unresolved) — the denormalized list-view count.
+        playlist.track_count = len(domain_model.entries)
         return playlist
 
 
