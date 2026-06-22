@@ -11,8 +11,21 @@ from uuid import UUID
 from pydantic import BaseModel, ConfigDict
 
 from src.domain.entities.playlist import Playlist, PlaylistEntry
-from src.domain.entities.playlist_link import PlaylistLink
+from src.domain.entities.playlist_link import PlaylistLink, SyncDirection
 from src.domain.entities.track import Artist, Track
+
+
+def direction_label(sync_direction: str, connector_name: str) -> str:
+    """The one user-facing sync-direction phrase, leading with what gets overwritten.
+
+    Single source of truth for the wording so CLI, web, and API all agree
+    (the v0.8.7 direction-vocabulary unification). ``pull`` = the connector is the
+    source of truth and Mixd is replaced; ``push`` = Mixd is the source of truth.
+    """
+    connector = connector_name.replace("_", " ").title()
+    if sync_direction == SyncDirection.PUSH.value:
+        return f"Mixd → {connector} (replaces {connector})"
+    return f"{connector} → Mixd (replaces Mixd)"
 
 
 class ArtistSchema(BaseModel):
@@ -71,6 +84,9 @@ class PlaylistLinkSchema(BaseModel):
     connector_playlist_identifier: str
     connector_playlist_name: str | None = None
     sync_direction: str
+    # Unified user-facing phrase for ``sync_direction`` (one vocabulary across
+    # surfaces) — e.g. "Spotify → Mixd (replaces Mixd)".
+    direction_label: str
     sync_status: str
     last_synced: datetime | None = None
     last_sync_error: str | None = None
@@ -84,20 +100,33 @@ class CreateLinkRequest(BaseModel):
 
     connector: str
     connector_playlist_identifier: str  # Accepts Spotify URI, URL, or raw ID
-    sync_direction: str = "push"
+    # PULL by default — a freshly linked playlist keeps pulling from the connector.
+    sync_direction: str = "pull"
 
 
 class SyncLinkRequest(BaseModel):
-    """Request body for POST /playlists/{id}/links/{link_id}/sync."""
+    """Request body for POST /playlists/{id}/links/{link_id}/sync.
+
+    ``confirm_token`` is the staleness token from a prior preview, echoed back to
+    proceed with a destructive sync. Omit it for a normal (non-destructive) sync;
+    a destructive one without a matching token returns 409 CONFIRMATION_REQUIRED.
+    """
 
     direction_override: str | None = None
-    confirmed: bool = False
+    confirm_token: str | None = None
 
 
 class UpdateLinkRequest(BaseModel):
     """Request body for PATCH /playlists/{id}/links/{link_id}."""
 
     sync_direction: str
+
+
+class RepairUnresolvedResponse(BaseModel):
+    """Result of re-resolving a playlist's unresolved entries."""
+
+    repaired: int
+    still_unresolved: int
 
 
 class SyncPreviewResponse(BaseModel):
@@ -111,17 +140,16 @@ class SyncPreviewResponse(BaseModel):
     tracks_to_remove: int
     tracks_unchanged: int
     direction: str
+    direction_label: str = ""
     connector_name: str
     playlist_name: str
     has_comparison_data: bool = True
     safety_flagged: bool = False
     safety_message: str | None = None
-
-
-class SyncStartedResponse(BaseModel):
-    """Response for sync operations that run in the background."""
-
-    operation_id: str
+    safety_removals: int = 0
+    safety_total: int = 0
+    safety_remaining: int = 0
+    confirm_token: str = ""
 
 
 # --- Playlist summary/detail schemas ---
@@ -221,6 +249,7 @@ def to_link_schema(link: PlaylistLink) -> PlaylistLinkSchema:
         connector_playlist_identifier=link.connector_playlist_identifier,
         connector_playlist_name=link.connector_playlist_name,
         sync_direction=link.sync_direction.value,
+        direction_label=direction_label(link.sync_direction.value, link.connector_name),
         sync_status=link.sync_status.value,
         last_synced=link.last_synced,
         last_sync_error=link.last_sync_error,

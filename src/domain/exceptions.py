@@ -36,12 +36,21 @@ class ConfirmationRequiredError(DomainError):
     """Raised when a destructive operation requires explicit user confirmation."""
 
     def __init__(
-        self, message: str, *, removals: int, total: int, remaining: int
+        self,
+        message: str,
+        *,
+        removals: int,
+        total: int,
+        remaining: int,
+        confirm_token: str | None = None,
     ) -> None:
         super().__init__(message)
         self.removals = removals
         self.total = total
         self.remaining = remaining
+        # The freshly-computed staleness token the client must echo back to
+        # proceed — pins the exact plan this confirmation is for.
+        self.confirm_token = confirm_token
 
 
 class WorkflowAlreadyRunningError(DomainError):
@@ -176,23 +185,6 @@ class ConnectorSyncError(DomainError):
 
     def __init__(self, connector: str, reason: str) -> None:
         super().__init__(f"{connector} playlist sync failed: {reason}")
-        self.connector = connector
-        self.reason = reason
-
-
-class SyncDivergenceError(DomainError):
-    """Raised when a connector push succeeded but the local DB write then failed.
-
-    The external playlist moved but our base/canonical did not, so the two sides
-    have diverged. The link must be marked ERROR (never SYNCED) and the divergence
-    surfaced — re-syncing from a stale base could otherwise re-apply or undo the
-    change. ``connector`` is the service name; ``reason`` is the DB failure.
-    """
-
-    def __init__(self, connector: str, reason: str) -> None:
-        super().__init__(
-            f"{connector} push applied but local update failed (state diverged): {reason}"
-        )
         self.connector = connector
         self.reason = reason
 

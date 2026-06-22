@@ -193,3 +193,60 @@ class TestCreateCanonicalPlaylistUseCase:
         result = await use_case.execute(command, mock_uow)
 
         assert result.execution_time_ms >= 0
+
+
+class TestCreateCanonicalPlaylistUnresolved:
+    """First import must persist unresolved positions, not drop them.
+
+    Guards the use-case seam (not just ``repo.save_playlist``): the connector
+    path used to rebuild entries and strip ``connector_track_ref``, silently
+    losing every unmatched position.
+    """
+
+    async def test_unresolved_entries_reach_save_playlist(self, mock_uow):
+        from unittest.mock import AsyncMock, patch
+
+        from src.application.services.connector_playlist_processing_service import (
+            ConnectorPlaylistProcessingService,
+        )
+        from src.domain.entities.playlist import (
+            ConnectorTrackRef,
+            Playlist,
+            PlaylistEntry,
+        )
+        from tests.fixtures import make_connector_playlist
+
+        processed = Playlist(
+            name="Imported",
+            entries=[
+                PlaylistEntry(track=make_track(title="Resolved")),
+                PlaylistEntry(
+                    track=None,
+                    connector_track_ref=ConnectorTrackRef(
+                        "spotify", "local1", title="Ghost"
+                    ),
+                ),
+            ],
+        )
+        command = CreateCanonicalPlaylistCommand(
+            user_id="test-user",
+            name="Imported",
+            connector_playlist=make_connector_playlist(),
+            connector_name="spotify",
+            connector_id="pl1",
+        )
+        use_case = CreateCanonicalPlaylistUseCase(metric_config=_MOCK_METRIC_CONFIG)
+
+        with patch.object(
+            ConnectorPlaylistProcessingService,
+            "process_connector_playlist",
+            new=AsyncMock(return_value=processed),
+        ):
+            await use_case.execute(command, mock_uow)
+
+        saved = mock_uow.get_playlist_repository().save_playlist.call_args[0][0]
+        assert len(saved.entries) == 2
+        assert saved.unresolved_count == 1
+        ref = saved.unresolved_entries[0].connector_track_ref
+        assert ref is not None
+        assert ref.connector_track_identifier == "local1"

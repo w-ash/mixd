@@ -18,7 +18,7 @@ from src.application.use_cases._shared.metric_config import MetricConfigProvider
 from src.application.utilities.timing import ExecutionTimer
 from src.config import get_logger
 from src.domain.entities import utc_now_factory
-from src.domain.entities.playlist import ConnectorPlaylist, Playlist, PlaylistEntry
+from src.domain.entities.playlist import ConnectorPlaylist, Playlist
 from src.domain.entities.shared import JsonValue, empty_json_map
 from src.domain.entities.track import TrackList
 from src.domain.repositories.uow import UnitOfWorkProtocol
@@ -179,18 +179,10 @@ class CreateCanonicalPlaylistUseCase:
 
         # Step 2: Handle both Playlist (with entries) and TrackList (tracks only) inputs
         if isinstance(source_data, Playlist):
-            # Processing service returned a Playlist with entries - use it directly
-            # Persist unsaved tracks and rebuild entries with saved references
-            persisted_entries = [
-                PlaylistEntry(
-                    track=entry.track,
-                    added_at=entry.added_at,
-                    added_by=entry.added_by,
-                )
-                for entry in source_data.entries
-            ]
-
-            # Build final playlist with persisted entries
+            # The processing service already ingested tracks and built the
+            # complete ordered entries — resolved tracks AND unresolved positions
+            # carrying their connector ref. Use them as-is; a rebuild here would
+            # drop the ref and lose every unmatched position.
             connector_playlist_identifiers = self._build_connector_identifiers(
                 command,
                 existing=source_data.connector_playlist_identifiers,
@@ -199,7 +191,7 @@ class CreateCanonicalPlaylistUseCase:
             playlist = Playlist(
                 name=command.name,
                 user_id=command.user_id,
-                entries=persisted_entries,
+                entries=source_data.entries,
                 description=command.description,
                 connector_playlist_identifiers=connector_playlist_identifiers,
                 metadata=dict(command.metadata) if command.metadata else {},

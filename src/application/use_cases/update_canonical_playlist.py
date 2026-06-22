@@ -23,15 +23,11 @@ from src.application.use_cases._shared.playlist_resolver import require_playlist
 from src.application.utilities.timing import ExecutionTimer
 from src.config import get_logger
 from src.domain.entities import utc_now_factory
-from src.domain.entities.playlist import ConnectorPlaylist, Playlist, PlaylistEntry
+from src.domain.entities.playlist import ConnectorPlaylist, Playlist
 from src.domain.entities.track import TrackList
 from src.domain.playlist import (
     PlaylistDiff,
     calculate_playlist_diff,
-)
-from src.domain.playlist.execution_strategies import (
-    execute_with_strategy,
-    get_execution_strategy,
 )
 from src.domain.repositories.uow import UnitOfWorkProtocol
 
@@ -246,10 +242,13 @@ class UpdateCanonicalPlaylistUseCase:
                     processed_playlist.tracks, uow
                 )
         else:
-            # Overwrite mode: use diff engine with preservation
+            # Overwrite mode: diff resolved tracks for the operation counts.
             diff = calculate_playlist_diff(current_playlist, processed_playlist)
 
-            if not diff.has_changes:
+            # Complete no-op test: same positions (resolved AND unresolved) in
+            # the same order. A resolved-only `diff.has_changes` would miss an
+            # unresolved-only change or a resolved/unresolved reorder.
+            if current_playlist.membership_keys == processed_playlist.membership_keys:
                 logger.info("No changes detected, playlist already up to date")
                 return UpdateCanonicalPlaylistResult(
                     playlist=current_playlist,
@@ -309,11 +308,17 @@ class UpdateCanonicalPlaylistUseCase:
         target_playlist: Playlist,
         uow: UnitOfWorkProtocol,
     ) -> tuple[Playlist, int, OperationCounts]:
-        """Applies calculated add/remove operations to transform playlist.
+        """Persists the target membership, preserving identity for unchanged rows.
+
+        Hands the repository the COMPLETE desired entry list — resolved AND
+        unresolved positions, in source order — and lets its membership matching
+        compute the minimal row delta (preserving record id + added_at for tracks
+        already present). ``diff`` supplies only the operation counts; the
+        repository, not a resolved-only reorder, owns what actually changes.
 
         Args:
             current_playlist: Playlist before changes
-            diff: Calculated operations to apply (adds and removes)
+            diff: Calculated operations (used for counts/metrics)
             target_playlist: Target playlist state (with entries)
             uow: Database transaction manager
 
@@ -321,63 +326,13 @@ class UpdateCanonicalPlaylistUseCase:
             Tuple of (updated_playlist, operations_performed, operation_counts)
         """
         logger.debug(f"Executing {len(diff.operations)} operations")
-
-        # Count operations by type using shared utility
         operation_counts = count_operation_types(diff.operations)
 
-        # Use unified execution strategy for canonical playlists
-        # This provides consistent behavior with mathematical guarantees from LIS algorithm
-        canonical_strategy = get_execution_strategy("canonical")
-
-        # Convert target playlist to tracklist for execution strategy
-        target_tracklist = target_playlist.to_tracklist()
-
-        updated_tracks, execution_metadata = execute_with_strategy(
-            canonical_strategy, current_playlist, target_tracklist, diff
-        )
-
-        logger.debug(
-            "Applied canonical execution strategy",
-            execution_metadata=execution_metadata,
-        )
-
-        # Preserve added_at for existing tracks, use target's added_at for new
-        # tracks. Keyed by canonical track id, so unresolved entries (no track)
-        # are naturally excluded — this diff path operates on resolved tracks.
-        track_to_target_entry = {
-            entry.track.id: entry
-            for entry in target_playlist.entries
-            if entry.track is not None and entry.track.id
-        }
-        track_to_current_entry = {
-            entry.track.id: entry
-            for entry in current_playlist.entries
-            if entry.track is not None and entry.track.id
-        }
-
-        updated_entries: list[PlaylistEntry] = []
-        for track in updated_tracks:
-            if track.id in track_to_current_entry:
-                # Existing track - preserve its added_at
-                updated_entries.append(track_to_current_entry[track.id])
-            elif track.id in track_to_target_entry:
-                # New track from target - use target's added_at
-                updated_entries.append(track_to_target_entry[track.id])
-            else:
-                # Fallback: create entry with current timestamp
-                updated_entries.append(
-                    PlaylistEntry(track=track, added_at=datetime.now(UTC))
-                )
-
-        # Create updated playlist with preserved metadata
+        updated_entries = current_playlist.reconcile_entries_from(target_playlist)
         updated_playlist = current_playlist.with_entries(updated_entries).with_metadata({
             **current_playlist.metadata,
             "last_updated": datetime.now(UTC).isoformat(),
-            "update_operations": len(diff.operations),
-            "execution_strategy": execution_metadata,
         })
-
-        # Persist updated playlist using update_playlist for existing playlists
 
         playlist_repo = uow.get_playlist_repository()
         saved_playlist = await playlist_repo.save_playlist(updated_playlist)

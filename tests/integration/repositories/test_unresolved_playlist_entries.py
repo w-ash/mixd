@@ -9,6 +9,7 @@ re-save with a stable membership id.
 
 from datetime import UTC, datetime
 
+import attrs
 from sqlalchemy import select
 
 from src.domain.entities.playlist import (
@@ -134,3 +135,48 @@ class TestUnresolvedRoundTrip:
 
         after = (await db_session.scalars(stmt)).one()
         assert after.id == original_id  # same membership record reused, not replaced
+
+    async def test_unresolved_entry_hydrates_on_resave(self, db_session):
+        """Repair's persistence path: re-saving the loaded playlist with the
+        middle (unresolved) entry now carrying a track resolves that position —
+        track_id set, no unresolved rows left, order + count preserved.
+
+        This is the transition RepairUnresolvedEntriesUseCase relies on (it reuses
+        ``update_playlist`` rather than a bespoke hydrate query). The membership
+        row is reissued (the resolved/unresolved membership key differs), but the
+        position and the entry's ``added_at`` ride on the entry, so the user-facing
+        result is correct.
+        """
+        uow = get_unit_of_work(db_session)
+        repo = uow.get_playlist_repository()
+
+        saved = await repo.save_playlist(_mixed_playlist())
+
+        # Reload, then hydrate the middle (unresolved) entry to a real track.
+        loaded = await repo.get_playlist_by_id(saved.id, user_id="default")
+        entries = list(loaded.entries)
+        assert not entries[1].is_resolved
+        entries[1] = attrs.evolve(
+            entries[1], track=make_track(title="Now Matched"), connector_track_ref=None
+        )
+        await repo.update_playlist(
+            saved.id, attrs.evolve(loaded, entries=entries), user_id="default"
+        )
+
+        reloaded = await repo.get_playlist_by_id(saved.id, user_id="default")
+        assert reloaded.unresolved_count == 0
+        assert len(reloaded.entries) == 3
+        assert [e.is_resolved for e in reloaded.entries] == [True, True, True]
+        assert reloaded.entries[1].track is not None
+        assert reloaded.entries[1].track.title == "Now Matched"
+
+        # No unresolved rows remain in the DB for this playlist.
+        leftover = list(
+            await db_session.scalars(
+                select(DBPlaylistTrack).where(
+                    DBPlaylistTrack.playlist_id == saved.id,
+                    DBPlaylistTrack.track_id.is_(None),
+                )
+            )
+        )
+        assert leftover == []

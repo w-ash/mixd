@@ -51,6 +51,7 @@ class OperationRunRepository(BaseRepository[DBOperationRun, OperationRun]):
             status=run.status,
             counts=dict(run.counts),
             issues=list(run.issues),
+            operation_id=run.operation_id,
             triggered_by_schedule_id=run.triggered_by_schedule_id,
         )
         self.session.add(db_row)
@@ -137,16 +138,22 @@ class OperationRunRepository(BaseRepository[DBOperationRun, OperationRun]):
         after_started_at: datetime | None = None,
         after_id: UUID | None = None,
         operation_types: Sequence[str] | None = None,
+        status: OperationStatus | None = None,
     ) -> tuple[list[OperationRun], tuple[datetime, UUID] | None]:
         """List runs newest-first, keyset-paginated by ``(started_at, id)``.
 
         Returns ``(rows, next_page_key)`` where ``next_page_key`` is None
         on the last page. Fetches ``limit + 1`` rows to detect "more".
+        ``status`` filters to a single lifecycle state — e.g. ``"running"`` for
+        the "what's in flight now" operation-awareness query.
         """
         stmt = select(self.model_class).where(self.model_class.user_id == user_id)
 
         if operation_types is not None:
             stmt = stmt.where(self.model_class.operation_type.in_(operation_types))
+
+        if status is not None:
+            stmt = stmt.where(self.model_class.status == status)
 
         if after_started_at is not None and after_id is not None:
             # Keyset paginate by (started_at, id) descending. The OR form is

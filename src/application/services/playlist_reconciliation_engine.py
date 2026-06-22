@@ -18,6 +18,10 @@ upsert_canonical_playlist, the shared connector_push primitives, the diff/safety
 engines) rather than re-implementing them.
 """
 
+from collections.abc import Hashable, Sequence
+import hashlib
+from uuid import UUID
+
 from attrs import define
 
 from src.application.services.connector_playlist_sync_service import (
@@ -49,7 +53,10 @@ class ReconcileResult:
     direction: SyncDirection
     tracks_added: int = 0
     tracks_removed: int = 0
+    tracks_moved: int = 0  # push: tracks reordered in place (a reorder-only push
+    # is a real change even though added/removed are both 0)
     unresolved: int = 0  # pull: canonical positions still unresolved after ingest
+    resolved: int = 0  # pull: canonical positions resolved to a track after ingest
     tracks_dropped: int = 0  # push: canonical tracks with no connector match
     skipped: bool = False  # remote already in sync — nothing applied
 
@@ -57,6 +64,36 @@ class ReconcileResult:
     def unmatched(self) -> int:
         """Tracks this sync couldn't place: unresolved (pull) or dropped (push)."""
         return self.unresolved + self.tracks_dropped
+
+
+@define(frozen=True, slots=True)
+class SyncPreview:
+    """Read-only preview: the plan plus a staleness token for the confirm flow."""
+
+    plan: SyncPlan
+    confirm_token: str
+
+
+def compute_confirm_token(
+    *,
+    link_id: UUID,
+    direction: SyncDirection,
+    snapshot_id: str | None,
+    plan: SyncPlan,
+) -> str:
+    """Secret-less staleness hash for the destructive-sync confirm round-trip.
+
+    NOT an anti-forgery token — the user can already self-confirm and RLS scopes
+    their own data. It only proves the plan being confirmed is the plan that was
+    previewed: it changes when the remote changes (``snapshot_id``) or the diff
+    changes (adds / removes / no-op), so a stale confirmation is rejected and the
+    user re-confirms against current reality.
+    """
+    raw = (
+        f"{link_id}|{direction.value}|{snapshot_id}|"
+        f"{plan.tracks_to_add}|{plan.tracks_to_remove}|{plan.is_noop}"
+    )
+    return hashlib.sha256(raw.encode()).hexdigest()[:32]
 
 
 @define(slots=True)
@@ -72,17 +109,27 @@ class PlaylistReconciliationEngine:
         uow: UnitOfWorkProtocol,
         *,
         user_id: str,
-    ) -> SyncPlan:
-        """Read-only: fetch fresh remote, return what a sync would change.
+    ) -> SyncPreview:
+        """Read-only: fetch fresh remote, return what a sync would change + token.
 
         Pure identifier comparison — no track resolution or ingest — so a preview
-        never mutates the user's data.
+        never mutates the user's data. The ``confirm_token`` pins this exact plan
+        for the destructive-sync confirm round-trip.
         """
         canonical = await uow.get_playlist_repository().get_playlist_by_id(
             link.playlist_id, user_id=user_id
         )
         remote_cp = await self._fetch_remote(link, uow)
-        return self._build_plan(direction, canonical, remote_cp)
+        plan = await self._build_plan(
+            direction, canonical, remote_cp, uow, user_id=user_id
+        )
+        token = compute_confirm_token(
+            link_id=link.id,
+            direction=direction,
+            snapshot_id=remote_cp.snapshot_id,
+            plan=plan,
+        )
+        return SyncPreview(plan=plan, confirm_token=token)
 
     async def apply(
         self,
@@ -104,7 +151,9 @@ class PlaylistReconciliationEngine:
         )
         remote_cp = await self._fetch_remote(link, uow)
         base_repo = uow.get_playlist_sync_base_repository()
-        plan = self._build_plan(direction, canonical, remote_cp)
+        plan = await self._build_plan(
+            direction, canonical, remote_cp, uow, user_id=user_id
+        )
 
         if plan.requires_confirmation and not confirmed:
             raise ConfirmationRequiredError(
@@ -150,29 +199,38 @@ class PlaylistReconciliationEngine:
         )
 
     @staticmethod
-    def _build_plan(
+    async def _build_plan(
         direction: SyncDirection,
         canonical: Playlist,
         remote_cp: ConnectorPlaylist,
+        uow: UnitOfWorkProtocol,
+        *,
+        user_id: str,
     ) -> SyncPlan:
         # Compare connector identifiers (not canonical track ids), so a pull's
         # not-yet-ingested remote tracks are counted as adds rather than skipped.
-        remote_ids = [item.connector_track_identifier for item in remote_cp.items]
+        current_ids: Sequence[Hashable]
+        target_ids: Sequence[Hashable]
         if direction == SyncDirection.PUSH:
-            # A push can only move RESOLVED canonical tracks, so the target is
-            # resolved-only — matching what the executor (overwrite_external_playlist,
-            # which diffs canonical.tracks) actually performs. Including an
-            # unresolved entry's source id here would let an id that has since
-            # become globally resolvable mask a removal the executor still makes.
-            current_ids = remote_ids
-            target_ids = _canonical_connector_ids(
-                canonical, remote_cp.connector_name, resolved_only=True
-            )
+            # Diff the SAME sets the executor does. overwrite_external_playlist
+            # diffs the RESOLVED remote (external_as_playlist drops unmatched
+            # remote tracks from `.tracks`, so the push never touches them) against
+            # the resolved canonical. Counting raw remote ids on the current side
+            # would report phantom removals for local/unavailable remote tracks the
+            # push leaves in place — inflating the count and tripping the
+            # destructive gate. Both sides are resolved-only. (The apply re-resolves
+            # for the actual diff; threading one Playlist through preview+apply would
+            # need lint-forbidden narrowing, so each path resolves what it needs.)
+            external = await external_as_playlist(remote_cp, uow, user_id=user_id)
+            current_ids = _resolved_connector_ids(external, remote_cp.connector_name)
+            target_ids = _resolved_connector_ids(canonical, remote_cp.connector_name)
         else:
-            # A pull overwrites the canonical; include unresolved positions' source
-            # ids so re-pulling an unchanged-but-unresolvable remote is a no-op.
-            current_ids = _canonical_connector_ids(canonical, remote_cp.connector_name)
-            target_ids = remote_ids
+            # A pull overwrites the canonical. Every canonical position counts
+            # toward the size and (if absent from the remote) as a removal — incl.
+            # cross-matched tracks with no id on this connector — so the
+            # destructive-pull gate can't be diluted by positions it would drop.
+            current_ids = _canonical_pull_ids(canonical, remote_cp.connector_name)
+            target_ids = [item.connector_track_identifier for item in remote_cp.items]
         return build_sync_plan(
             direction=direction, current_ids=current_ids, target_ids=target_ids
         )
@@ -208,6 +266,7 @@ class PlaylistReconciliationEngine:
             tracks_added=plan.tracks_to_add,
             tracks_removed=plan.tracks_to_remove,
             unresolved=updated.unresolved_count,
+            resolved=len(updated.tracks),
         )
         return result, remote_cp.snapshot_id
 
@@ -237,6 +296,7 @@ class PlaylistReconciliationEngine:
             direction=SyncDirection.PUSH,
             tracks_added=push.tracks_added,
             tracks_removed=push.tracks_removed,
+            tracks_moved=push.tracks_moved,
             tracks_dropped=push.tracks_dropped,
         )
         return result, push.snapshot_id
@@ -266,26 +326,43 @@ class PlaylistReconciliationEngine:
         )
 
 
-def _canonical_connector_ids(
-    canonical: Playlist, connector_name: str, *, resolved_only: bool = False
-) -> list[str]:
-    """The complete ordered list of this connector's identifiers in the canonical.
+def _resolved_connector_ids(playlist: Playlist, connector_name: str) -> list[str]:
+    """Ordered connector ids of the playlist's RESOLVED tracks for this connector.
 
-    Always includes resolved tracks' connector ids. Unless ``resolved_only``, also
-    includes unresolved positions' source ids — so re-pulling an unchanged remote
-    (with a still-unresolved track) is a no-op. The push target sets
-    ``resolved_only`` because only resolved tracks can actually be pushed.
+    Only resolved tracks carry a connector id and only they can be pushed, so both
+    sides of a PUSH diff use this — matching the executor, which ignores unresolved
+    positions. A resolved track with no id for this connector can't be pushed and
+    is omitted.
     """
     ids: list[str] = []
-    for entry in canonical.entries:
+    for entry in playlist.entries:
         if entry.track is not None:
             cid = entry.track.connector_track_identifiers.get(connector_name)
             if cid:
                 ids.append(cid)
+    return ids
+
+
+def _canonical_pull_ids(canonical: Playlist, connector_name: str) -> list[Hashable]:
+    """Per-position identity of the canonical for a PULL diff against the remote.
+
+    Each position contributes the id that could match a remote item — a resolved
+    track's connector id, or an unresolved entry's source id — or, when it has no
+    id on this connector (a cross-matched track or a foreign unresolved ref), its
+    own entry id (a UUID, which can never equal a connector-id string). The
+    fallback keeps such a position counted toward the canonical size AND seen as a
+    removal (it can't appear in the remote), so the destructive-pull gate can't be
+    diluted by positions the pull would silently drop.
+    """
+    ids: list[Hashable] = []
+    for entry in canonical.entries:
+        if entry.track is not None:
+            cid = entry.track.connector_track_identifiers.get(connector_name)
+            ids.append(cid or entry.id)
         elif (
-            not resolved_only
-            and (ref := entry.connector_track_ref) is not None
-            and ref.connector_name == connector_name
-        ):
+            ref := entry.connector_track_ref
+        ) is not None and ref.connector_name == connector_name:
             ids.append(ref.connector_track_identifier)
+        else:
+            ids.append(entry.id)
     return ids

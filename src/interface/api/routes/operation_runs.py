@@ -21,6 +21,7 @@ from src.application.use_cases.list_operation_runs import (
     ListOperationRunsCommand,
     ListOperationRunsUseCase,
 )
+from src.domain.entities.operation_run import OperationStatus
 from src.interface.api.deps import get_current_user_id
 from src.interface.api.schemas.operation_runs import (
     OperationRunDetailSchema,
@@ -50,11 +51,14 @@ async def list_operation_runs(
     limit: int = Query(20, ge=1, le=100),
     cursor: str | None = Query(None),
     type_filter: Annotated[str, Query(alias="type")] = "imports",
+    status: Annotated[OperationStatus | None, Query()] = None,
 ) -> OperationRunListResponse:
     """List the user's audit-log rows newest-first, keyset-paginated.
 
     ``type=imports`` (default) restricts to import/sync/apply runs that
     surface in the Import History UI. ``type=all`` returns every row.
+    ``status=running`` powers operation-awareness: the in-flight rows the
+    frontend re-attaches to (each carries its ``operation_id`` SSE handle).
     """
     operation_types: Sequence[str] | None = (
         list(_IMPORT_LIKE_TYPES) if type_filter != "all" else None
@@ -65,6 +69,7 @@ async def list_operation_runs(
         limit=limit,
         encoded_cursor=cursor,
         operation_types=operation_types,
+        status=status,
     )
     result = await execute_use_case(
         lambda uow: ListOperationRunsUseCase().execute(command, uow),
@@ -74,6 +79,7 @@ async def list_operation_runs(
         data=[
             OperationRunSummarySchema(
                 id=r.id,
+                operation_id=r.operation_id,
                 operation_type=r.operation_type,
                 started_at=r.started_at,
                 ended_at=r.ended_at,
@@ -108,6 +114,7 @@ async def get_operation_run(
         raise HTTPException(status_code=404, detail="Operation run not found")
     return OperationRunDetailSchema(
         id=run.id,
+        operation_id=run.operation_id,
         operation_type=run.operation_type,
         started_at=run.started_at,
         ended_at=run.ended_at,

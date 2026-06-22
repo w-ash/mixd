@@ -19,7 +19,6 @@ from src.infrastructure.persistence.database.db_connection import (
 )
 from src.infrastructure.persistence.unit_of_work import DatabaseUnitOfWork
 from src.interface.api.app import create_app
-import src.interface.api.routes.playlists as _playlists_mod
 import src.interface.api.routes.workflows as _workflows_mod
 import src.interface.api.services.sse_operations as _sse_operations_mod
 
@@ -37,9 +36,9 @@ def _stub_launch_background(*modules: Any) -> Generator[None]:
     module's own binding at every usage site, not the source module.
 
     The seam-level helper ``launch_sse_operation`` in ``sse_operations``
-    fronts the imports / connectors / playlist-assignments routes, so
-    stubbing there covers all six SSE-emitter routes at once. Direct
-    callers (``playlists``, ``workflows``) still need their own stub.
+    fronts the imports / connectors / playlist-assignments / playlist-sync
+    routes, so stubbing there covers them all at once. ``workflows`` is the
+    only remaining direct caller and still needs its own stub.
     """
     originals = [(m, m.launch_background) for m in modules]
     for m, _ in originals:
@@ -146,9 +145,7 @@ async def client(
     with _test_db_env(postgres_url):
         await _truncate_all_tables()
 
-        with _stub_launch_background(
-            _sse_operations_mod, _playlists_mod, _workflows_mod
-        ):
+        with _stub_launch_background(_sse_operations_mod, _workflows_mod):
             app = create_app()
             transport = httpx.ASGITransport(app=app)
             async with httpx.AsyncClient(

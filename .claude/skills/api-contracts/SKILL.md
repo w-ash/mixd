@@ -61,10 +61,15 @@ user-invocable: false
 | Method | Path | Use Case | Status |
 |--------|------|----------|--------|
 | GET | `/playlists/{id}/links` | Query connector playlist links | Exists |
-| POST | `/playlists/{id}/links` | `CreatePlaylistLinkUseCase` | Exists |
+| POST | `/playlists/{id}/links` | `CreatePlaylistLinkUseCase` (sync_direction default **pull**) | Exists |
 | PATCH | `/playlists/{id}/links/{link_id}` | `UpdatePlaylistLinkUseCase` | Exists |
 | DELETE | `/playlists/{id}/links/{link_id}` | `DeletePlaylistLinkUseCase` | Exists |
-| POST | `/playlists/{id}/links/{link_id}/sync` | `SyncPlaylistLinkUseCase` | Exists |
+| GET | `/playlists/{id}/links/{link_id}/sync/preview` | `PreviewPlaylistSyncUseCase` → diff + safety + `confirm_token` | Exists |
+| POST | `/playlists/{id}/links/{link_id}/sync` | `SyncPlaylistLinkUseCase` → `{operation_id, run_id}`; body `{direction_override?, confirm_token?}`; **409 CONFIRMATION_REQUIRED** (details carry a fresh `confirm_token`) for a destructive unconfirmed sync | Exists |
+| POST | `/playlists/{id}/repair` | `RepairUnresolvedEntriesUseCase` → `{repaired, still_unresolved}` (DB-only re-resolution of unresolved entries) | Exists |
+
+Link/preview responses carry `direction_label` (one user-facing vocabulary,
+leads with what gets overwritten — e.g. "Spotify → Mixd (replaces Mixd)").
 
 ### Workflows (`/workflows`)
 
@@ -182,8 +187,8 @@ user-invocable: false
 
 | Method | Path | Use Case | Status |
 |--------|------|----------|--------|
-| GET | `/operation-runs?limit=&offset=` | List audit rows for past operations | Exists |
-| GET | `/operation-runs/{run_id}` | Operation-run detail | Exists |
+| GET | `/operation-runs?limit=&cursor=&type=&status=` | List audit rows; `status=running` is the operation-awareness query (in-flight runs to re-attach). Rows carry `operation_id` (SSE handle) | Exists |
+| GET | `/operation-runs/{run_id}` | Operation-run detail (snapshot for re-attach; carries `operation_id`) | Exists |
 
 ### Webhooks (`/webhooks`)
 

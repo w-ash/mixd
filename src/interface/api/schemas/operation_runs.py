@@ -22,6 +22,9 @@ class OperationRunSummarySchema(BaseModel):
     model_config = ConfigDict(from_attributes=True)
 
     id: UUID
+    # SSE queue key — lets the operation-awareness UI re-attach the live stream
+    # (GET /operations/{operation_id}/progress) for a still-running row.
+    operation_id: str | None
     operation_type: str
     started_at: datetime
     ended_at: datetime | None
@@ -36,6 +39,7 @@ class OperationRunDetailSchema(BaseModel):
     model_config = ConfigDict(from_attributes=True)
 
     id: UUID
+    operation_id: str | None
     operation_type: str
     started_at: datetime
     ended_at: datetime | None

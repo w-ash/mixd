@@ -1,19 +1,26 @@
 """Import connector playlists into Mixd as canonical Playlists.
 
-Composes the CQS ``get_current_connector_playlists`` query (cache refresh +
-network fetch on miss) with ``upsert_canonical_playlist`` (CREATE-or-UPDATE)
-plus ``PlaylistLink`` creation. The full "fork into Mixd" flow.
+Two paths, one batch:
 
-When a ``progress_emitter`` is passed, the use case emits:
+- **First import** (no link yet) — fetch the connector playlist (cache
+  read-through, with per-page progress) and CREATE the canonical Playlist +
+  ``PlaylistLink``. ``upsert_canonical_playlist`` preserves unresolved positions.
+- **Re-import** (a link already exists) — delegate to
+  ``PlaylistReconciliationEngine.apply(PULL)``, which fetches the *live* remote
+  fresh and reconciles the canonical against it. This is the durability fix: the
+  old code short-circuited a re-import to a no-op whenever the cache held a
+  snapshot, so a canonical that had diverged from the remote never reconciled.
+  The engine always fetches fresh and diffs, so a real change is applied and a
+  genuine no-op is reported as ``skipped_unchanged``.
 
-- one top-level operation for the batch with the playlist count as total
-- one sub-operation per playlist with ``phase`` / ``outcome`` / per-page
-  track counts in the event metadata, so the UI can render per-playlist
-  progress (``4,300 of 8,000 tracks from Spotify``) plus a per-row outcome
-  list
+The import *action* is always a pull (external → canonical); the link's standing
+``sync_direction`` (used by later interactive syncs) is stamped only on links
+created here and never mutated on re-import.
 
-Zero events fire when no emitter is passed, preserving every existing CLI
-and unit-test path unchanged.
+When a ``progress_emitter`` is passed, the use case emits one top-level operation
+for the batch plus one sub-operation per playlist (phase / outcome / per-page
+counts in event metadata). Zero events fire when no emitter is passed, preserving
+every existing CLI and unit-test path unchanged.
 """
 
 from collections.abc import Awaitable, Callable, Sequence
@@ -24,7 +31,10 @@ from attrs import define
 from src.application.connector_protocols import PlaylistFetchProgress
 from src.application.services.connector_playlist_sync_service import (
     get_current_connector_playlists,
-    has_fresh_cache,
+)
+from src.application.services.operation_run_recorder import append_run_issue
+from src.application.services.playlist_reconciliation_engine import (
+    PlaylistReconciliationEngine,
 )
 from src.application.services.playlist_upsert import upsert_canonical_playlist
 from src.application.services.progress_broker import ProgressBroker
@@ -34,6 +44,7 @@ from src.application.use_cases.create_canonical_playlist import (
 )
 from src.config import get_logger
 from src.domain.entities import ConnectorPlaylist
+from src.domain.entities.operations import OperationResult
 from src.domain.entities.playlist_link import PlaylistLink, SyncDirection, SyncStatus
 from src.domain.entities.progress import (
     OperationStatus,
@@ -44,6 +55,7 @@ from src.domain.entities.progress import (
     create_progress_operation,
 )
 from src.domain.entities.shared import ConnectorPlaylistIdentifier, JsonValue
+from src.domain.entities.summary_metrics import SummaryMetricCollection
 from src.domain.repositories.uow import UnitOfWorkProtocol
 
 logger = get_logger(__name__)
@@ -55,6 +67,10 @@ class CanonicalImportOutcome:
     canonical_playlist_id: UUID
     resolved: int
     unresolved: int
+    # True when this import CREATED the canonical + link (first import); False
+    # when it reconciled an existing link (re-import). Splits the audit row's
+    # ``imported`` vs ``updated`` counts; the CLI ignores it.
+    was_created: bool = True
 
 
 @define(frozen=True, slots=True)
@@ -68,12 +84,13 @@ class ImportConnectorPlaylistsAsCanonicalCommand:
     user_id: str
     connector_name: str
     connector_playlist_identifiers: Sequence[ConnectorPlaylistIdentifier]
+    # The standing direction stamped on *newly created* links (the import action
+    # itself is always a pull). Defaults to PULL: a freshly imported playlist
+    # most-likely wants to keep pulling from the connector.
     sync_direction: SyncDirection = SyncDirection.PULL
-    # When True, bypass the snapshot-fresh + already-linked short-circuit
-    # and re-fetch every requested id. Backs the
-    # ``import-spotify --refresh`` CLI flag and the web "Force re-fetch"
-    # toggle so a known-stale playlist can be re-imported in one step
-    # without the user dropping into the link-based ``sync`` mental model.
+    # When True, bypass the cache for first imports and fetch fresh. Backs the
+    # ``import-spotify --refresh`` CLI flag / web "Force re-fetch" toggle.
+    # Re-imports always fetch fresh via the engine regardless of this flag.
     force: bool = False
 
 
@@ -84,10 +101,38 @@ class ImportConnectorPlaylistsAsCanonicalResult:
     failed: Sequence[CanonicalImportFailure]
 
 
-def _placeholder_name(cached: dict[str, ConnectorPlaylist], cid: str) -> str:
-    """Best-guess display name before the fetch resolves real metadata."""
-    cp = cached.get(cid)
-    return cp.name if cp is not None else f"Playlist {cid[:8]}"
+def to_operation_result(
+    result: ImportConnectorPlaylistsAsCanonicalResult,
+) -> OperationResult:
+    """Map the native import result onto an ``OperationResult`` for the SSE seam.
+
+    ``launch_sse_operation`` finalizes the ``OperationRun`` audit row + terminal
+    event from the use case's returned ``OperationResult`` (``_audit_outcome``).
+    Adding an ``errors`` metric on any failure makes ``is_failure`` true — the
+    same convention the likes/history imports already use — so a failed import is
+    durably recorded as ``error`` with the run's counts.
+    """
+    imported = sum(1 for o in result.succeeded if o.was_created)
+    updated = sum(1 for o in result.succeeded if not o.was_created)
+    unresolved = sum(o.unresolved for o in result.succeeded)
+    skipped = len(result.skipped_unchanged)
+    errors = len(result.failed)
+
+    metrics = SummaryMetricCollection()
+    metrics.add("imported", imported, "Playlists Imported", significance=1)
+    if updated:
+        metrics.add("updated", updated, "Playlists Updated", significance=2)
+    if skipped:
+        metrics.add("skipped", skipped, "Skipped (Unchanged)", significance=3)
+    if unresolved:
+        metrics.add("unresolved", unresolved, "Tracks Unresolved", significance=4)
+    if errors:
+        metrics.add("errors", errors, "Errors", significance=5)
+
+    return OperationResult(
+        operation_name="import_connector_playlists",
+        summary_metrics=metrics,
+    )
 
 
 @define(slots=True)
@@ -101,7 +146,12 @@ class ImportConnectorPlaylistsAsCanonicalUseCase:
         progress_emitter: ProgressEmitter | None = None,
         progress_broker: ProgressBroker | None = None,
         parent_operation_id: str | None = None,
+        run_id: UUID | None = None,
     ) -> ImportConnectorPlaylistsAsCanonicalResult:
+        succeeded: list[CanonicalImportOutcome] = []
+        skipped_unchanged: list[ConnectorPlaylistIdentifier] = []
+        failed: list[CanonicalImportFailure] = []
+
         async with uow:
             link_repo = uow.get_playlist_link_repository()
             cp_repo = uow.get_connector_playlist_repository()
@@ -118,21 +168,11 @@ class ImportConnectorPlaylistsAsCanonicalUseCase:
             }
 
             unique_ids = list(dict.fromkeys(command.connector_playlist_identifiers))
-            link_skipped: list[ConnectorPlaylistIdentifier] = []
-            to_refresh: list[ConnectorPlaylistIdentifier] = []
-            for cid in unique_ids:
-                if (
-                    not command.force
-                    and cid in existing_by_id
-                    and has_fresh_cache(cached_by_id, cid)
-                ):
-                    link_skipped.append(cid)
-                else:
-                    to_refresh.append(cid)
+            new_ids = [c for c in unique_ids if c not in existing_by_id]
+            existing_ids = [c for c in unique_ids if c in existing_by_id]
 
-            # Progress emission is optional: when no emitter is passed the
-            # coordinator collapses to no-ops so unit tests + CLI paths run
-            # identically to before.
+            # Progress emission is optional: with no emitter the coordinator
+            # collapses to no-ops so unit tests + CLI paths run identically.
             top_op_id = await self._start_top_op(
                 progress_emitter,
                 command.connector_name,
@@ -157,11 +197,11 @@ class ImportConnectorPlaylistsAsCanonicalUseCase:
                     )
                 )
 
-            # Pre-announce every playlist as a sub-op. The real name may not
-            # be known yet for fetch-required ids — placeholder fills in and
-            # the first sub_progress event carries the real name.
-            for cid in link_skipped + to_refresh:
-                name = _placeholder_name(cached_by_id, cid)
+            # Pre-announce every playlist as a sub-op (new imports first, then
+            # re-imports). The real name may not be known yet — placeholder fills
+            # in and the first sub_progress event carries the real name.
+            for cid in new_ids + existing_ids:
+                name = self._announce_name(cid, cached_by_id, existing_by_id)
                 playlist_name_by_cid[cid] = name
                 sub_op_id = await self._start_sub_op(
                     progress_broker,
@@ -174,26 +214,7 @@ class ImportConnectorPlaylistsAsCanonicalUseCase:
                 if sub_op_id is not None:
                     sub_op_by_cid[cid] = sub_op_id
 
-            # Instant completion for link-skipped playlists — the cache is
-            # fresh AND the canonical link already exists. Emit a terminal
-            # sub_progress with outcome=skipped_unchanged, then complete.
-            for cid in link_skipped:
-                name = playlist_name_by_cid[cid]
-                await self._emit_sub_outcome(
-                    progress_broker,
-                    sub_op_id=sub_op_by_cid.get(cid),
-                    cid=cid,
-                    name=name,
-                    outcome="skipped_unchanged",
-                    message=f"'{name}' is already up to date",
-                    phase="done",
-                    final_status=OperationStatus.COMPLETED,
-                )
-                await _tick_top(f"Skipped '{name}'")
-
-            # Build the per-page factory — emits `sub_progress` with current
-            # track count + playlist name + phase=fetch so the UI can render
-            # a filling bar inside the active sub-op row.
+            # ── First imports: fetch (with per-page progress) + create ──────────
             def make_on_page(cid: str) -> PlaylistFetchProgress:
                 async def on_page(fetched: int, total: int) -> None:
                     sub_op_id = sub_op_by_cid.get(cid)
@@ -220,22 +241,15 @@ class ImportConnectorPlaylistsAsCanonicalUseCase:
             def on_page_factory(cid: str) -> PlaylistFetchProgress | None:
                 return make_on_page(cid) if cid in sub_op_by_cid else None
 
-            # Query: resolve every id past the link-skip filter to its
-            # current ConnectorPlaylist — cache-hit or network-fetched, same
-            # contract. Per-page progress emits via the factory above.
             resolved, resolve_failed = await get_current_connector_playlists(
                 command.connector_name,
-                to_refresh,
+                new_ids,
                 uow,
                 cached_by_id=cached_by_id,
                 on_page_factory=on_page_factory,
                 force=command.force,
             )
 
-            succeeded: list[CanonicalImportOutcome] = []
-            failed: list[CanonicalImportFailure] = []
-
-            # Fetch-phase failures (404 on the connector, network error).
             for f in resolve_failed:
                 cid = f.connector_playlist_identifier
                 name = playlist_name_by_cid.get(cid, cid)
@@ -260,7 +274,6 @@ class ImportConnectorPlaylistsAsCanonicalUseCase:
 
             links_to_create: list[PlaylistLink] = []
             for cid, cp in resolved.items():
-                # Update the stored name now that we have real metadata.
                 playlist_name_by_cid[cid] = cp.name
                 try:
                     await self._import_one(
@@ -270,7 +283,6 @@ class ImportConnectorPlaylistsAsCanonicalUseCase:
                         uow,
                         progress_broker=progress_broker,
                         sub_op_by_cid=sub_op_by_cid,
-                        existing_by_id=existing_by_id,
                         links_to_create=links_to_create,
                         succeeded=succeeded,
                         tick_top=_tick_top,
@@ -306,22 +318,77 @@ class ImportConnectorPlaylistsAsCanonicalUseCase:
             if links_to_create:
                 await link_repo.create_links_batch(links_to_create)
 
-            if succeeded:
+            # ── Re-imports: reconcile each existing link against fresh remote ───
+            engine = PlaylistReconciliationEngine(metric_config=self.metric_config)
+            for cid in existing_ids:
+                link = existing_by_id[cid]
+                name = playlist_name_by_cid[cid]
+                try:
+                    await self._reimport_one(
+                        cid,
+                        link,
+                        name,
+                        command,
+                        uow,
+                        engine,
+                        progress_broker=progress_broker,
+                        sub_op_by_cid=sub_op_by_cid,
+                        succeeded=succeeded,
+                        skipped_unchanged=skipped_unchanged,
+                        tick_top=_tick_top,
+                    )
+                except Exception as exc:
+                    logger.warning(
+                        "Failed to re-import (reconcile) connector playlist",
+                        connector=command.connector_name,
+                        connector_playlist_identifier=cid,
+                        exc_info=True,
+                    )
+                    failed.append(
+                        CanonicalImportFailure(
+                            connector_playlist_identifier=ConnectorPlaylistIdentifier(
+                                cid
+                            ),
+                            message=str(exc),
+                        )
+                    )
+                    await self._emit_sub_outcome(
+                        progress_broker,
+                        sub_op_id=sub_op_by_cid.get(cid),
+                        cid=cid,
+                        name=name,
+                        outcome="failed",
+                        message=f"Failed to update '{name}': {exc}",
+                        phase="resolve",
+                        error_message=str(exc),
+                        final_status=OperationStatus.FAILED,
+                    )
+                    await _tick_top(f"Failed '{name}'")
+
+            # Commit when anything was processed without failing — a re-import
+            # no-op still records a fresh base snapshot (a write), so
+            # skipped_unchanged must also drive the commit.
+            if succeeded or skipped_unchanged:
                 await uow.commit()
 
             await self._complete_top_op(
                 progress_emitter,
                 top_op_id,
-                succeeded_count=len(succeeded),
+                succeeded_count=len(succeeded) + len(skipped_unchanged),
                 failed_count=len(failed),
                 seam_owned=parent_operation_id is not None,
             )
 
-            return ImportConnectorPlaylistsAsCanonicalResult(
-                succeeded=succeeded,
-                skipped_unchanged=link_skipped,
-                failed=failed,
-            )
+        # Record per-playlist failures on the durable audit row in their own
+        # transaction (so they survive even if the batch did not commit), after
+        # the batch UoW has closed. No-op when no audit row exists (CLI/tests).
+        await self._record_issues(run_id, failed, command.user_id)
+
+        return ImportConnectorPlaylistsAsCanonicalResult(
+            succeeded=succeeded,
+            skipped_unchanged=skipped_unchanged,
+            failed=failed,
+        )
 
     async def _import_one(
         self,
@@ -332,15 +399,11 @@ class ImportConnectorPlaylistsAsCanonicalUseCase:
         *,
         progress_broker: ProgressBroker | None,
         sub_op_by_cid: dict[str, str],
-        existing_by_id: dict[str, PlaylistLink],
         links_to_create: list[PlaylistLink],
         succeeded: list[CanonicalImportOutcome],
         tick_top: Callable[[str], Awaitable[None]],
     ) -> None:
-        """Resolves and upserts one connector playlist, recording its outcome."""
-        # Phase transition: fetch → resolve. One lightweight
-        # event so the UI updates the message; resolution
-        # itself is typically sub-second DB batch work.
+        """CREATE the canonical Playlist + link for a first import."""
         if progress_broker is not None and cid in sub_op_by_cid:
             await progress_broker.emit_progress(
                 create_progress_event(
@@ -363,17 +426,16 @@ class ImportConnectorPlaylistsAsCanonicalUseCase:
             user_id=command.user_id,
         )
 
-        if cid not in existing_by_id:
-            links_to_create.append(
-                PlaylistLink(
-                    playlist_id=upsert_result.playlist.id,
-                    connector_name=command.connector_name,
-                    connector_playlist_identifier=cid,
-                    connector_playlist_name=cp.name,
-                    sync_direction=command.sync_direction,
-                    sync_status=SyncStatus.NEVER_SYNCED,
-                )
+        links_to_create.append(
+            PlaylistLink(
+                playlist_id=upsert_result.playlist.id,
+                connector_name=command.connector_name,
+                connector_playlist_identifier=cid,
+                connector_playlist_name=cp.name,
+                sync_direction=command.sync_direction,
+                sync_status=SyncStatus.NEVER_SYNCED,
             )
+        )
 
         resolved_count = len(upsert_result.playlist.tracks)
         unresolved_count = max(len(cp.items) - resolved_count, 0)
@@ -383,6 +445,7 @@ class ImportConnectorPlaylistsAsCanonicalUseCase:
                 canonical_playlist_id=upsert_result.playlist.id,
                 resolved=resolved_count,
                 unresolved=unresolved_count,
+                was_created=True,
             )
         )
         logger.info(
@@ -414,6 +477,134 @@ class ImportConnectorPlaylistsAsCanonicalUseCase:
             final_status=OperationStatus.COMPLETED,
         )
         await tick_top(f"Imported '{cp.name}'")
+
+    async def _reimport_one(
+        self,
+        cid: str,
+        link: PlaylistLink,
+        name: str,
+        command: ImportConnectorPlaylistsAsCanonicalCommand,
+        uow: UnitOfWorkProtocol,
+        engine: PlaylistReconciliationEngine,
+        *,
+        progress_broker: ProgressBroker | None,
+        sub_op_by_cid: dict[str, str],
+        succeeded: list[CanonicalImportOutcome],
+        skipped_unchanged: list[ConnectorPlaylistIdentifier],
+        tick_top: Callable[[str], Awaitable[None]],
+    ) -> None:
+        """Reconcile an existing link against fresh remote via the engine (PULL).
+
+        The engine fetches the live remote, diffs, and overwrites the canonical.
+        ``confirmed=True``: a re-import is an explicit "mirror the external"
+        action — the destructive guard belongs to interactive sync, not import.
+        """
+        if progress_broker is not None and cid in sub_op_by_cid:
+            await progress_broker.emit_progress(
+                create_progress_event(
+                    operation_id=sub_op_by_cid[cid],
+                    current=0,
+                    total=None,
+                    message=f"Reconciling '{name}' with {command.connector_name}...",
+                    phase="fetch",
+                    connector_playlist_identifier=cid,
+                    playlist_name=name,
+                )
+            )
+
+        result = await engine.apply(
+            link,
+            SyncDirection.PULL,
+            uow,
+            user_id=command.user_id,
+            confirmed=True,
+        )
+
+        if result.skipped:
+            skipped_unchanged.append(ConnectorPlaylistIdentifier(cid))
+            await self._emit_sub_outcome(
+                progress_broker,
+                sub_op_id=sub_op_by_cid.get(cid),
+                cid=cid,
+                name=name,
+                outcome="skipped_unchanged",
+                message=f"'{name}' is already up to date",
+                phase="done",
+                final_status=OperationStatus.COMPLETED,
+            )
+            await tick_top(f"Skipped '{name}'")
+            return
+
+        succeeded.append(
+            CanonicalImportOutcome(
+                connector_playlist_identifier=ConnectorPlaylistIdentifier(cid),
+                canonical_playlist_id=link.playlist_id,
+                resolved=result.resolved,
+                unresolved=result.unresolved,
+                was_created=False,
+            )
+        )
+        logger.info(
+            "Re-imported connector playlist (reconciled)",
+            connector=command.connector_name,
+            connector_playlist_identifier=cid,
+            playlist_id=link.playlist_id,
+            tracks_added=result.tracks_added,
+            tracks_removed=result.tracks_removed,
+        )
+        message = (
+            f"Updated '{name}' — {result.tracks_added} added, "
+            f"{result.tracks_removed} removed"
+            + (f", {result.unresolved} unresolved" if result.unresolved else "")
+        )
+        await self._emit_sub_outcome(
+            progress_broker,
+            sub_op_id=sub_op_by_cid.get(cid),
+            cid=cid,
+            name=name,
+            outcome="succeeded",
+            message=message,
+            phase="done",
+            resolved=result.resolved,
+            unresolved=result.unresolved,
+            canonical_playlist_id=str(link.playlist_id),
+            final_status=OperationStatus.COMPLETED,
+        )
+        await tick_top(f"Updated '{name}'")
+
+    @staticmethod
+    async def _record_issues(
+        run_id: UUID | None,
+        failed: Sequence[CanonicalImportFailure],
+        user_id: str,
+    ) -> None:
+        """Append each per-playlist failure to the durable ``OperationRun`` row."""
+        if run_id is None or not failed:
+            return
+        for f in failed:
+            await append_run_issue(
+                run_id,
+                user_id=user_id,
+                issue={
+                    "connector_playlist_identifier": str(
+                        f.connector_playlist_identifier
+                    ),
+                    "message": f.message,
+                },
+            )
+
+    @staticmethod
+    def _announce_name(
+        cid: str,
+        cached: dict[str, ConnectorPlaylist],
+        existing: dict[str, PlaylistLink],
+    ) -> str:
+        """Best-guess display name before the fetch resolves real metadata."""
+        link = existing.get(cid)
+        if link is not None and link.connector_playlist_name:
+            return link.connector_playlist_name
+        cp = cached.get(cid)
+        return cp.name if cp is not None else f"Playlist {cid[:8]}"
 
     @staticmethod
     async def _start_top_op(
@@ -547,15 +738,15 @@ async def run_import_connector_playlists_as_canonical(
     progress_emitter: ProgressEmitter | None = None,
     progress_broker: ProgressBroker | None = None,
     parent_operation_id: str | None = None,
+    run_id: UUID | None = None,
 ) -> ImportConnectorPlaylistsAsCanonicalResult:
     """Convenience wrapper for route and CLI handlers.
 
-    When called from the REST API, the route passes both the bound emitter
-    (for top-level op lifecycle on the pre-assigned operation_id) and the
-    ``ProgressBroker`` (for sub-op creation with fresh ids that
-    inherit the parent queue via metadata). When called from the CLI or
-    unit tests, both default to ``None`` and the use case emits zero
-    events — keeping the existing CLI + test paths byte-identical.
+    When called from the REST API, the route passes the bound emitter (for
+    top-level op lifecycle), the ``ProgressBroker`` (for sub-op creation), and
+    the ``run_id`` (so per-playlist failures land on the audit row). When called
+    from the CLI or unit tests, all default to ``None`` and the use case emits
+    zero events / records no issues — keeping the existing paths byte-identical.
     """
     from src.application.runner import execute_use_case
     from src.infrastructure.connectors._shared.metric_registry import (
@@ -579,6 +770,7 @@ async def run_import_connector_playlists_as_canonical(
             progress_emitter=progress_emitter,
             progress_broker=progress_broker,
             parent_operation_id=parent_operation_id,
+            run_id=run_id,
         ),
         user_id=user_id,
     )

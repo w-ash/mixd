@@ -86,11 +86,11 @@ Deferred from v0.7.6 to keep that sub-version focused on single-playlist prefere
 
 ## Manual Playlist Track Editing (web flows 3.4–3.6)
 
-→ **Scheduled as [v0.8.9: Manual Playlist Track Editing](v0.8.9.md#v089-manual-playlist-track-editing)** (2026-06-15). Confirmed for build; entry-identity threading first, then add → remove → reorder. Design-space in [design-debt-findings.md](design-debt-findings.md) §4 (F6).
+→ **Scheduled as [v0.8.11: Manual Playlist Track Editing](v0.8.11.md#v0811-manual-playlist-track-editing)** (2026-06-15). Confirmed for build; entry-identity threading already shipped in v0.8.7, then add → remove → reorder. Design-space in [design-debt-findings.md](design-debt-findings.md) §4 (F6).
 
 ## Playlist Link Enhancements
 
-- ~~**Browse/Search User's Playlists from Connector**~~ → Scheduled as [v0.8.8: Editor Polish — Sub-Flows & Playlist Browse](v0.8.7-0.8.8.md#v088-editor-polish---sub-flows--playlist-browse)
+- ~~**Browse/Search User's Playlists from Connector**~~ → Scheduled as [v0.8.10: Editor Polish — Sub-Flows & Playlist Browse](v0.8.9-0.8.10.md#v0810-editor-polish---sub-flows--playlist-browse)
 - **MIRROR Sync Direction** (L) - True bidirectional sync with conflict detection and resolution UI. Currently only push (canonical→external) and pull (external→canonical) are supported.
 - **Sync History Table** (M) - Full audit trail of all sync operations per link, beyond the current last-sync summary. Browsable in the UI.
 - **Scheduled Sync** (M) - Daily/weekly automatic sync of linked playlists via Prefect scheduling. Depends on PAUSED sync state.

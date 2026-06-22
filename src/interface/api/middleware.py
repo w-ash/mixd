@@ -106,6 +106,7 @@ def register_exception_handlers(app: FastAPI) -> None:
                         "removals": exc.removals,
                         "total": exc.total,
                         "remaining": exc.remaining,
+                        "confirm_token": exc.confirm_token,
                     },
                 }
             },

@@ -1,23 +1,34 @@
 """Unit tests for ImportConnectorPlaylistsAsCanonicalUseCase.
 
-Verifies skip-when-linked, create path (refresh + canonical + link),
-update path on legacy backup state, failure isolation across phases.
+Verifies the first-import create path (refresh + canonical + link), the
+re-import path (routes through PlaylistReconciliationEngine.apply: reconcile or
+no-op), force-bypass on first import, failure isolation across phases, the
+OperationResult mapper, and per-playlist issue recording on the audit row.
 """
 
 from unittest.mock import AsyncMock, patch
 from uuid import uuid7
 
+from src.application.services.playlist_reconciliation_engine import (
+    PlaylistReconciliationEngine,
+    ReconcileResult,
+)
 from src.application.use_cases.create_canonical_playlist import (
     CreateCanonicalPlaylistResult,
 )
 from src.application.use_cases.import_connector_playlist_as_canonical import (
+    CanonicalImportFailure,
+    CanonicalImportOutcome,
     ImportConnectorPlaylistsAsCanonicalCommand,
+    ImportConnectorPlaylistsAsCanonicalResult,
     ImportConnectorPlaylistsAsCanonicalUseCase,
+    to_operation_result,
 )
 from src.application.use_cases.update_canonical_playlist import (
     UpdateCanonicalPlaylistResult,
 )
 from src.domain.entities.playlist_link import PlaylistLink, SyncDirection
+from src.domain.entities.shared import ConnectorPlaylistIdentifier
 from tests.fixtures import (
     make_connector_playlist,
     make_mock_metric_config,
@@ -81,11 +92,19 @@ _UPSERT_PATCH = (
     "src.application.use_cases.import_connector_playlist_as_canonical."
     "upsert_canonical_playlist"
 )
+_ISSUE_PATCH = (
+    "src.application.use_cases.import_connector_playlist_as_canonical.append_run_issue"
+)
 
 
-class TestSkipWhenLinked:
-    async def test_link_and_snapshot_fully_skip(self) -> None:
-        uow, connector = make_mock_uow_with_connector()
+class TestReimportRoutesThroughEngine:
+    """A re-import (link already exists) reconciles against the fresh remote via
+    the engine — never a cache short-circuit (the durability fix for bug #2)."""
+
+    async def test_linked_reimport_noop_is_skipped_unchanged(self) -> None:
+        """A re-import whose engine diff is a no-op lands in skipped_unchanged —
+        based on a REAL fresh diff, and still commits the refreshed base."""
+        uow, _ = make_mock_uow_with_connector()
         uow.get_playlist_link_repository().list_by_user_connector.return_value = [
             _link("sp1")
         ]
@@ -93,15 +112,78 @@ class TestSkipWhenLinked:
             _cp("sp1", snapshot_id="cached-snap")
         ]
 
-        with patch(_UPSERT_PATCH, new=AsyncMock()) as upsert_mock:
+        apply_mock = AsyncMock(
+            return_value=ReconcileResult(direction=SyncDirection.PULL, skipped=True)
+        )
+        with (
+            patch.object(PlaylistReconciliationEngine, "apply", apply_mock),
+            patch(_UPSERT_PATCH, new=AsyncMock()) as upsert_mock,
+        ):
             result = await _use_case().execute(_cmd(["sp1"]), uow)
 
-        connector.get_playlist.assert_not_called()
+        apply_mock.assert_awaited_once()
         upsert_mock.assert_not_called()
         uow.get_playlist_link_repository().create_links_batch.assert_not_called()
         assert list(result.skipped_unchanged) == ["sp1"]
         assert len(result.succeeded) == 0
-        uow.commit.assert_not_called()
+        # The no-op still records a fresh base snapshot, so the batch commits.
+        uow.commit.assert_awaited_once()
+
+    async def test_linked_reimport_reconciles_as_update(self) -> None:
+        """A re-import with a real diff lands in succeeded as an update."""
+        uow, _ = make_mock_uow_with_connector()
+        uow.get_playlist_link_repository().list_by_user_connector.return_value = [
+            _link("sp1")
+        ]
+        uow.get_connector_playlist_repository().list_by_connector.return_value = [
+            _cp("sp1", snapshot_id="cached-snap")
+        ]
+
+        apply_mock = AsyncMock(
+            return_value=ReconcileResult(
+                direction=SyncDirection.PULL,
+                tracks_added=3,
+                tracks_removed=1,
+                resolved=10,
+                unresolved=2,
+            )
+        )
+        with patch.object(PlaylistReconciliationEngine, "apply", apply_mock):
+            result = await _use_case().execute(_cmd(["sp1"]), uow)
+
+        apply_mock.assert_awaited_once()
+        # Import always pulls, and confirms (mirror semantics — no destructive gate).
+        assert apply_mock.await_args.args[1] == SyncDirection.PULL
+        assert apply_mock.await_args.kwargs["confirmed"] is True
+        assert list(result.skipped_unchanged) == []
+        assert len(result.succeeded) == 1
+        outcome = result.succeeded[0]
+        assert outcome.connector_playlist_identifier == "sp1"
+        assert outcome.was_created is False
+        assert outcome.resolved == 10
+        assert outcome.unresolved == 2
+        uow.commit.assert_awaited_once()
+
+    async def test_reimport_failure_isolated_from_first_import(self) -> None:
+        """One link's engine failure is captured; a sibling new import still lands."""
+        cp = _cp("new1", name="Fresh")
+        uow, connector = make_mock_uow_with_connector(get_playlist_return=cp)
+        uow.get_playlist_link_repository().list_by_user_connector.return_value = [
+            _link("sp1")
+        ]
+
+        apply_mock = AsyncMock(side_effect=RuntimeError("engine blew up"))
+        with (
+            patch.object(PlaylistReconciliationEngine, "apply", apply_mock),
+            patch(_UPSERT_PATCH, new=AsyncMock(return_value=_create_result("Fresh"))),
+        ):
+            result = await _use_case().execute(_cmd(["new1", "sp1"]), uow)
+
+        assert len(result.succeeded) == 1
+        assert result.succeeded[0].connector_playlist_identifier == "new1"
+        assert len(result.failed) == 1
+        assert result.failed[0].connector_playlist_identifier == "sp1"
+        assert "engine blew up" in result.failed[0].message
 
     async def test_fresh_cache_no_link_still_creates_canonical(self) -> None:
         """Regression: fresh connector_playlists cache + no existing
@@ -143,15 +225,16 @@ class TestSkipWhenLinked:
 
 
 class TestForce:
-    """``force=True`` re-fetches even when the link + cache would normally skip."""
+    """``force`` controls cache bypass on a *first* import (no link yet).
 
-    async def test_force_bypasses_link_and_snapshot_short_circuit(self) -> None:
-        """Pre-existing link + fresh cache: force=True should still re-fetch."""
+    Re-imports always fetch fresh via the engine regardless of this flag, so
+    force only affects the create path's cache read-through.
+    """
+
+    async def test_force_bypasses_cache_for_first_import(self) -> None:
+        """No link + fresh cache + force=True → fetch fresh from the connector."""
         cp = _cp("sp1", snapshot_id="fresh")
         uow, connector = make_mock_uow_with_connector(get_playlist_return=cp)
-        uow.get_playlist_link_repository().list_by_user_connector.return_value = [
-            _link("sp1")
-        ]
         uow.get_connector_playlist_repository().list_by_connector.return_value = [
             _cp("sp1", snapshot_id="cached-snap")
         ]
@@ -163,22 +246,19 @@ class TestForce:
         assert len(result.succeeded) == 1
         assert list(result.skipped_unchanged) == []
 
-    async def test_force_false_preserves_existing_skip_behavior(self) -> None:
-        """Default force=False keeps the v0.7.5 skip semantics intact."""
+    async def test_no_force_uses_fresh_cache_for_first_import(self) -> None:
+        """No link + fresh cache + force=False → use cache (no network), still create."""
         uow, connector = make_mock_uow_with_connector()
-        uow.get_playlist_link_repository().list_by_user_connector.return_value = [
-            _link("sp1")
-        ]
         uow.get_connector_playlist_repository().list_by_connector.return_value = [
             _cp("sp1", snapshot_id="cached-snap")
         ]
 
-        with patch(_UPSERT_PATCH, new=AsyncMock()) as upsert_mock:
+        with patch(_UPSERT_PATCH, new=AsyncMock(return_value=_create_result())):
             result = await _use_case().execute(_cmd(["sp1"], force=False), uow)
 
         connector.get_playlist.assert_not_called()
-        upsert_mock.assert_not_called()
-        assert list(result.skipped_unchanged) == ["sp1"]
+        assert len(result.succeeded) == 1
+        uow.get_playlist_link_repository().create_links_batch.assert_awaited_once()
 
 
 class TestCreatePath:
@@ -434,3 +514,96 @@ class TestProgressEmission:
         assert failure.metadata["error_message"] == "404 on bad"
         assert failure.metadata["phase"] == "fetch"
         assert failure.status == ProgressStatus.FAILED
+
+
+class TestRunIssueRecording:
+    """Per-playlist failures land on the durable OperationRun audit row when a
+    run_id is threaded (web/SSE path), and are skipped without one (CLI/tests)."""
+
+    async def test_failure_records_issue_when_run_id_present(self) -> None:
+        async def fake_get_playlist(pid: str, **_kwargs):
+            raise RuntimeError("boom")
+
+        uow, connector = make_mock_uow_with_connector()
+        connector.get_playlist.side_effect = fake_get_playlist
+        run_id = uuid7()
+
+        with patch(_ISSUE_PATCH, new=AsyncMock()) as issue_mock:
+            result = await _use_case().execute(_cmd(["sp1"]), uow, run_id=run_id)
+
+        assert len(result.failed) == 1
+        issue_mock.assert_awaited_once()
+        assert issue_mock.await_args.args[0] == run_id
+
+    async def test_no_issue_recorded_when_run_id_none(self) -> None:
+        async def fake_get_playlist(pid: str, **_kwargs):
+            raise RuntimeError("boom")
+
+        uow, connector = make_mock_uow_with_connector()
+        connector.get_playlist.side_effect = fake_get_playlist
+
+        with patch(_ISSUE_PATCH, new=AsyncMock()) as issue_mock:
+            result = await _use_case().execute(_cmd(["sp1"]), uow)
+
+        assert len(result.failed) == 1
+        issue_mock.assert_not_called()
+
+
+class TestToOperationResult:
+    """The SSE-seam mapper flattens the native result into audit counts."""
+
+    def test_maps_imported_updated_skipped_unresolved_errors(self) -> None:
+        result = ImportConnectorPlaylistsAsCanonicalResult(
+            succeeded=[
+                CanonicalImportOutcome(
+                    ConnectorPlaylistIdentifier("a"),
+                    uuid7(),
+                    resolved=5,
+                    unresolved=1,
+                    was_created=True,
+                ),
+                CanonicalImportOutcome(
+                    ConnectorPlaylistIdentifier("b"),
+                    uuid7(),
+                    resolved=3,
+                    unresolved=2,
+                    was_created=False,
+                ),
+            ],
+            skipped_unchanged=["c"],
+            failed=[CanonicalImportFailure(ConnectorPlaylistIdentifier("d"), "boom")],
+        )
+
+        counts = to_operation_result(result).to_counts()
+
+        assert counts["imported"] == 1
+        assert counts["updated"] == 1
+        assert counts["skipped"] == 1
+        assert counts["unresolved"] == 3
+        assert counts["errors"] == 1
+
+    def test_any_failure_marks_is_failure(self) -> None:
+        result = ImportConnectorPlaylistsAsCanonicalResult(
+            succeeded=[],
+            skipped_unchanged=[],
+            failed=[CanonicalImportFailure(ConnectorPlaylistIdentifier("d"), "boom")],
+        )
+        assert to_operation_result(result).is_failure is True
+
+    def test_clean_run_is_not_failure_and_omits_errors(self) -> None:
+        result = ImportConnectorPlaylistsAsCanonicalResult(
+            succeeded=[
+                CanonicalImportOutcome(
+                    ConnectorPlaylistIdentifier("a"),
+                    uuid7(),
+                    resolved=5,
+                    unresolved=0,
+                    was_created=True,
+                )
+            ],
+            skipped_unchanged=[],
+            failed=[],
+        )
+        op = to_operation_result(result)
+        assert op.is_failure is False
+        assert "errors" not in op.to_counts()

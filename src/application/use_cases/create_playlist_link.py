@@ -37,7 +37,9 @@ class CreatePlaylistLinkCommand:
     connector_playlist_identifier: ConnectorPlaylistIdentifier = field(
         validator=min_len(1)
     )
-    sync_direction: SyncDirection = SyncDirection.PUSH
+    # PULL by default — see PlaylistLink.sync_direction (keep pulling from the
+    # connector the user just linked, not overwrite it with an empty canonical).
+    sync_direction: SyncDirection = SyncDirection.PULL
 
 
 @define(frozen=True, slots=True)

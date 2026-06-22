@@ -47,7 +47,9 @@ class TestPlaylistLink:
         assert link.playlist_id == pid
         assert link.connector_name == "spotify"
         assert link.connector_playlist_identifier == "abc123"
-        assert link.sync_direction == SyncDirection.PUSH
+        # Default PULL (v0.8.7): a freshly linked playlist keeps pulling from the
+        # connector rather than overwriting it with a near-empty canonical.
+        assert link.sync_direction == SyncDirection.PULL
         assert link.sync_status == SyncStatus.NEVER_SYNCED
         assert link.last_synced is None
         assert link.last_sync_error is None

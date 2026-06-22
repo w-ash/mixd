@@ -25,7 +25,7 @@ Pure domain: stdlib + domain only.
 """
 
 from collections import Counter
-from collections.abc import Sequence
+from collections.abc import Hashable, Sequence
 
 from attrs import define, field
 
@@ -59,16 +59,19 @@ class SyncPlan:
 def build_sync_plan(
     *,
     direction: SyncDirection,
-    current_ids: Sequence[str],
-    target_ids: Sequence[str],
+    current_ids: Sequence[Hashable],
+    target_ids: Sequence[Hashable],
 ) -> SyncPlan:
-    """Build the plan from the current/target connector-identifier lists.
+    """Build the plan from the current/target position-identity lists.
 
     ``current``/``target`` are already oriented by the caller (see the module
-    docstring). Adds/removes/unchanged are **multiset** deltas and ``is_noop`` is
-    the ordered-list comparison; the safety gate keys off the *current*
-    (about-to-be-mutated) side's row count, so duplicate tracks can't dilute the
-    destructive-removal ratio.
+    docstring). Each element is a position's identity — usually a connector
+    identifier, but the caller may use any hashable that can't collide with a
+    connector id (e.g. a UUID) for a position with no id on this connector, so it
+    still counts toward the size and shows up as a removal. Adds/removes/unchanged
+    are **multiset** deltas and ``is_noop`` is the ordered-list comparison; the
+    safety gate keys off the *current* (about-to-be-mutated) side's row count, so
+    duplicate tracks can't dilute the destructive-removal ratio.
     """
     current = Counter(current_ids)
     target = Counter(target_ids)

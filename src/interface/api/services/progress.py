@@ -10,6 +10,7 @@ Three components bridge the domain progress system to Server-Sent Events:
 
 import asyncio
 from typing import Final, override
+from uuid import UUID
 
 from attrs import define, field
 
@@ -53,9 +54,15 @@ class OperationBoundEmitter(ProgressEmitter):
     ``complete_operation`` were always pass-through and stay so.
     """
 
-    def __init__(self, delegate: ProgressEmitter, operation_id: str) -> None:
+    def __init__(
+        self,
+        delegate: ProgressEmitter,
+        operation_id: str,
+        run_id: UUID | None = None,
+    ) -> None:
         self._delegate = delegate
         self._operation_id = operation_id
+        self._run_id = run_id
 
     @property
     def operation_id(self) -> str:
@@ -66,6 +73,16 @@ class OperationBoundEmitter(ProgressEmitter):
         routes only one level, so the request op must be the single parent.
         """
         return self._operation_id
+
+    @property
+    def run_id(self) -> UUID | None:
+        """The ``OperationRun`` audit-row id for this request, when one exists.
+
+        Threaded so a use case can record per-item issues (``append_run_issue``)
+        against the durable audit row. ``None`` on paths that don't write a row
+        (CLI, tests), so issue recording is simply skipped there.
+        """
+        return self._run_id
 
     @override
     async def start_operation(self, operation: ProgressOperation) -> str:

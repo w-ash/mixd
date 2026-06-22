@@ -12,7 +12,7 @@ from src.application.pagination import (
     decode_cursor,
     encode_cursor,
 )
-from src.domain.entities.operation_run import OperationRun
+from src.domain.entities.operation_run import OperationRun, OperationStatus
 from src.domain.repositories.uow import UnitOfWorkProtocol
 
 
@@ -22,6 +22,7 @@ class ListOperationRunsCommand:
     limit: int = 20
     encoded_cursor: str | None = None
     operation_types: Sequence[str] | None = None
+    status: OperationStatus | None = None
 
 
 @define(frozen=True, slots=True)
@@ -55,6 +56,7 @@ class ListOperationRunsUseCase:
                 after_started_at=after_started_at,
                 after_id=after_id,
                 operation_types=command.operation_types,
+                status=command.status,
             )
 
         next_cursor: str | None = None

@@ -97,6 +97,28 @@ class TestListPlaylistLinks:
         assert link["connector_playlist_name"].startswith("My Spotify Playlist")
         assert link["last_sync_tracks_added"] == 5
         assert link["last_sync_tracks_removed"] == 1
+        # Unified direction vocabulary (push = Mixd is source, external overwritten).
+        assert link["direction_label"] == "Mixd → Spotify (replaces Spotify)"
+
+
+class TestRepairUnresolved:
+    """POST /api/v1/playlists/{id}/repair — re-resolve unresolved entries."""
+
+    async def test_repair_noop_when_no_unresolved(
+        self, client: httpx.AsyncClient
+    ) -> None:
+        playlist_id, _link_id = await _seed_link(client)
+
+        response = await client.post(f"/api/v1/playlists/{playlist_id}/repair")
+
+        assert response.status_code == 200
+        assert response.json() == {"repaired": 0, "still_unresolved": 0}
+
+    async def test_repair_unknown_playlist_returns_404(
+        self, client: httpx.AsyncClient
+    ) -> None:
+        response = await client.post(f"/api/v1/playlists/{nonexistent_id()}/repair")
+        assert response.status_code == 404
 
 
 class TestDeletePlaylistLink:

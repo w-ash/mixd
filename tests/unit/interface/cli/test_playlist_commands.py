@@ -159,56 +159,28 @@ class TestImportSpotifyResolution:
         assert "Traceback" not in result.output
 
 
-class TestImportSpotifySource:
-    """--source flag maps to SyncDirection, with clean errors for typos."""
+class TestImportSpotifyDirection:
+    """Import always pulls (external → canonical); ``--source`` was removed."""
 
-    def test_source_spotify_maps_to_pull(self) -> None:
+    def test_import_relies_on_pull_default(self) -> None:
         views = [_view("sp1", "A")]
         import_mock = AsyncMock(return_value=_empty_import_result())
         with (
-            patch(
-                _LIST_PATCH,
-                AsyncMock(return_value=_listing(views)),
-            ),
-            patch(
-                _IMPORT_PATCH,
-                import_mock,
-            ),
+            patch(_LIST_PATCH, AsyncMock(return_value=_listing(views))),
+            patch(_IMPORT_PATCH, import_mock),
         ):
-            result = runner.invoke(
-                app, ["playlist", "import-spotify", "sp1", "--source", "spotify"]
-            )
+            result = runner.invoke(app, ["playlist", "import-spotify", "sp1"])
 
         assert result.exit_code == 0, result.output
-        assert import_mock.await_args.kwargs["sync_direction"] == SyncDirection.PULL
+        # Import never passes a direction — it relies on the wrapper's PULL default.
+        assert "sync_direction" not in import_mock.await_args.kwargs
 
-    def test_source_mixd_maps_to_push(self) -> None:
-        views = [_view("sp1", "A")]
-        import_mock = AsyncMock(return_value=_empty_import_result())
-        with (
-            patch(
-                _LIST_PATCH,
-                AsyncMock(return_value=_listing(views)),
-            ),
-            patch(
-                _IMPORT_PATCH,
-                import_mock,
-            ),
-        ):
-            result = runner.invoke(
-                app, ["playlist", "import-spotify", "sp1", "--source", "mixd"]
-            )
-
-        assert result.exit_code == 0, result.output
-        assert import_mock.await_args.kwargs["sync_direction"] == SyncDirection.PUSH
-
-    def test_invalid_source_raises_bad_parameter(self) -> None:
+    def test_source_flag_no_longer_accepted(self) -> None:
+        # The incoherent "import --source mixd" (push during import) path is gone.
         result = runner.invoke(
-            app, ["playlist", "import-spotify", "sp1", "--source", "apple_music"]
+            app, ["playlist", "import-spotify", "sp1", "--source", "mixd"]
         )
-
-        assert result.exit_code == 2
-        assert "not a valid source" in result.output
+        assert result.exit_code == 2  # unknown option
         assert "Traceback" not in result.output
 
 
@@ -515,3 +487,177 @@ class TestSyncLinkOutput:
         result = self._invoke(self._result(unmatched=0))
         assert result.exit_code == 0, result.output
         assert "unmatched" not in result.output
+
+
+def _sync_result(*, added: int = 1, removed: int = 0, unmatched: int = 0):
+    from src.application.use_cases.sync_playlist_link import SyncPlaylistLinkResult
+    from src.domain.entities.playlist_link import PlaylistLink
+
+    link = PlaylistLink(
+        playlist_id=uuid7(), connector_name="spotify", connector_playlist_identifier="x"
+    )
+    return SyncPlaylistLinkResult(
+        link=link,
+        tracks_added=added,
+        tracks_removed=removed,
+        tracks_unmatched=unmatched,
+    )
+
+
+def _invoke_sync_capturing(args: list[str], *, result=None, raises=None):
+    """Run ``playlist sync`` with the use case mocked, capturing the built command.
+
+    Patches the use-case ``execute`` + the runner so the real command body runs
+    (flag → Command mapping) without a DB. Returns ``(invoke_result, captured)``.
+    """
+    from src.application.use_cases.sync_playlist_link import SyncPlaylistLinkUseCase
+
+    captured: dict[str, object] = {}
+
+    async def _fake_execute(_self, command, _uow):
+        captured["command"] = command
+        if raises is not None:
+            raise raises
+        return result if result is not None else _sync_result()
+
+    async def _fake_euc(factory, user_id=None):
+        return await factory(AsyncMock())
+
+    with (
+        patch.object(SyncPlaylistLinkUseCase, "execute", _fake_execute),
+        patch("src.application.runner.execute_use_case", _fake_euc),
+    ):
+        invoke_result = runner.invoke(app, ["playlist", "sync", *args])
+    return invoke_result, captured
+
+
+class TestSyncSource:
+    """``--source {spotify,mixd}`` maps to a one-time direction override."""
+
+    def test_source_spotify_maps_to_pull(self) -> None:
+        result, captured = _invoke_sync_capturing([str(uuid4()), "--source", "spotify"])
+        assert result.exit_code == 0, result.output
+        assert captured["command"].direction_override == SyncDirection.PULL
+
+    def test_source_mixd_maps_to_push(self) -> None:
+        result, captured = _invoke_sync_capturing([str(uuid4()), "--source", "mixd"])
+        assert result.exit_code == 0, result.output
+        assert captured["command"].direction_override == SyncDirection.PUSH
+
+    def test_no_source_leaves_override_none(self) -> None:
+        result, captured = _invoke_sync_capturing([str(uuid4())])
+        assert result.exit_code == 0, result.output
+        assert captured["command"].direction_override is None
+
+    def test_invalid_source_exits_2(self) -> None:
+        result = runner.invoke(
+            app, ["playlist", "sync", str(uuid4()), "--source", "apple"]
+        )
+        assert result.exit_code == 2
+        assert "Traceback" not in result.output
+
+
+class TestSyncConfirm:
+    """``--confirm`` and the destructive two-step (the CLI's 409 equivalent)."""
+
+    def test_confirm_flag_sets_confirmed_true(self) -> None:
+        result, captured = _invoke_sync_capturing([str(uuid4()), "--confirm"])
+        assert result.exit_code == 0, result.output
+        assert captured["command"].confirmed is True
+
+    def test_without_confirm_is_false(self) -> None:
+        _result, captured = _invoke_sync_capturing([str(uuid4())])
+        assert captured["command"].confirmed is False
+
+    def test_destructive_renders_warning_and_exits_1(self) -> None:
+        from src.domain.exceptions import ConfirmationRequiredError
+
+        exc = ConfirmationRequiredError(
+            "This will remove 40 of 50 tracks. 10 will remain.",
+            removals=40,
+            total=50,
+            remaining=10,
+        )
+        result, _captured = _invoke_sync_capturing([str(uuid4())], raises=exc)
+
+        assert result.exit_code == 1
+        assert "Destructive Sync" in result.output
+        assert "40" in result.output
+        assert "--confirm" in result.output  # the re-run hint
+        assert "Traceback" not in result.output
+
+
+class TestSyncPreviewRender:
+    """``sync-preview`` renders the diff and surfaces the destructive warning."""
+
+    @staticmethod
+    def _preview(*, flagged: bool = False):
+        from src.application.use_cases.preview_playlist_sync import (
+            PreviewPlaylistSyncResult,
+        )
+
+        return PreviewPlaylistSyncResult(
+            tracks_to_add=4,
+            tracks_to_remove=40 if flagged else 1,
+            tracks_unchanged=20,
+            direction=SyncDirection.PULL,
+            safety_flagged=flagged,
+            safety_message="This will remove 40 of 50 tracks." if flagged else None,
+        )
+
+    def _invoke(self, preview, args: list[str]):
+        def _fake_run_async(coro):
+            coro.close()
+            return preview
+
+        with patch("src.interface.cli.playlist_commands.run_async", _fake_run_async):
+            return runner.invoke(app, ["playlist", "sync-preview", *args])
+
+    def test_renders_diff(self) -> None:
+        result = self._invoke(self._preview(), [str(uuid4())])
+        assert result.exit_code == 0, result.output
+        assert "To add:" in result.output
+        assert "Direction:" in result.output
+
+    def test_renders_safety_warning_when_flagged(self) -> None:
+        result = self._invoke(self._preview(flagged=True), [str(uuid4())])
+        assert result.exit_code == 0, result.output
+        assert "remove 40 of 50" in result.output
+        assert "--confirm" in result.output
+
+
+class TestRepair:
+    """``repair`` renders resolved / still-unresolved counts."""
+
+    def _invoke(self, repaired: int, still_unresolved: int):
+        from types import SimpleNamespace
+
+        from src.application.use_cases.repair_unresolved_entries import (
+            RepairUnresolvedEntriesResult,
+        )
+
+        def _fake_run_async(coro):
+            coro.close()
+            return RepairUnresolvedEntriesResult(
+                repaired=repaired, still_unresolved=still_unresolved
+            )
+
+        with (
+            patch(
+                "src.interface.cli.playlist_commands.resolve_playlist_ref",
+                return_value=SimpleNamespace(id=uuid7()),
+            ),
+            patch("src.interface.cli.playlist_commands.run_async", _fake_run_async),
+        ):
+            return runner.invoke(app, ["playlist", "repair", "My Playlist"])
+
+    def test_nothing_to_repair(self) -> None:
+        result = self._invoke(repaired=0, still_unresolved=0)
+        assert result.exit_code == 0, result.output
+        assert "Nothing to repair" in result.output
+
+    def test_reports_repaired_and_remaining(self) -> None:
+        result = self._invoke(repaired=3, still_unresolved=2)
+        assert result.exit_code == 0, result.output
+        assert "Repaired 3" in result.output
+        assert "2 still unresolved" in result.output

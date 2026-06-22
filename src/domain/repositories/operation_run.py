@@ -73,11 +73,13 @@ class OperationRunRepositoryProtocol(Protocol):
         after_started_at: datetime | None = None,
         after_id: UUID | None = None,
         operation_types: Sequence[str] | None = None,
+        status: OperationStatus | None = None,
     ) -> Awaitable[tuple[list[OperationRun], tuple[datetime, UUID] | None]]:
         """List runs newest-first, keyset-paginated.
 
         ``(after_started_at, after_id)`` is the decoded cursor — both must
         be passed together. Returns ``(rows, next_page_key)`` where
-        ``next_page_key`` is ``None`` on the last page.
+        ``next_page_key`` is ``None`` on the last page. ``status`` filters to a
+        single lifecycle state (e.g. ``"running"`` for operation-awareness).
         """
         ...

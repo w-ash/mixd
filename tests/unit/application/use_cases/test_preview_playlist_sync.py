@@ -10,6 +10,7 @@ from uuid import uuid7
 
 from src.application.services.playlist_reconciliation_engine import (
     PlaylistReconciliationEngine,
+    SyncPreview,
 )
 from src.application.use_cases.preview_playlist_sync import (
     PreviewPlaylistSyncCommand,
@@ -47,10 +48,12 @@ async def test_preview_maps_plan_to_result():
         is_noop=False,
     )
 
+    preview = SyncPreview(plan=plan, confirm_token="tok-123")
+
     with (
         patch(_RESOLVER, AsyncMock(return_value=link)),
         patch.object(
-            PlaylistReconciliationEngine, "preview", AsyncMock(return_value=plan)
+            PlaylistReconciliationEngine, "preview", AsyncMock(return_value=preview)
         ),
     ):
         result = await PreviewPlaylistSyncUseCase().execute(
@@ -65,3 +68,4 @@ async def test_preview_maps_plan_to_result():
     assert result.playlist_name == "My Playlist"
     assert result.safety_flagged is False
     assert result.has_comparison_data is True
+    assert result.confirm_token == "tok-123"

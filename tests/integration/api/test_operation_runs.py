@@ -23,6 +23,7 @@ async def _seed_run(
     status: str = "complete",
     counts: dict | None = None,
     issues: list | None = None,
+    operation_id: str | None = None,
 ) -> OperationRun:
     """Persist one OperationRun row and return the saved domain entity."""
     run = make_operation_run(
@@ -32,6 +33,7 @@ async def _seed_run(
         status=status,
         counts=counts,
         issues=issues,
+        operation_id=operation_id,
     )
 
     async def _do(uow):
@@ -130,6 +132,46 @@ class TestListOperationRuns:
         row = response.json()["data"][0]
         assert "issues" not in row
         assert row["issue_count"] == 2
+
+
+class TestActiveOperationAwareness:
+    """GET /api/v1/operation-runs?status=running — the operation-awareness query.
+
+    Reuses the audit list (DRY): the frontend re-attaches to in-flight runs by
+    filtering on status and streaming each row's ``operation_id``.
+    """
+
+    async def test_status_running_filters_to_in_flight(
+        self, client: httpx.AsyncClient
+    ) -> None:
+        await _seed_run(status="running", operation_id="op-live")
+        await _seed_run(status="complete")
+        await _seed_run(status="error")
+
+        response = await client.get("/api/v1/operation-runs?status=running&type=all")
+        assert response.status_code == 200
+        rows = response.json()["data"]
+        assert len(rows) == 1
+        assert rows[0]["status"] == "running"
+
+    async def test_rows_expose_operation_id_for_reattach(
+        self, client: httpx.AsyncClient
+    ) -> None:
+        await _seed_run(status="running", operation_id="op-reattach")
+
+        rows = (
+            await client.get("/api/v1/operation-runs?status=running&type=all")
+        ).json()["data"]
+        # The SSE handle the frontend needs to re-open GET /operations/{id}/progress.
+        assert rows[0]["operation_id"] == "op-reattach"
+
+    async def test_detail_also_exposes_operation_id(
+        self, client: httpx.AsyncClient
+    ) -> None:
+        run = await _seed_run(operation_id="op-detail")
+
+        body = (await client.get(f"/api/v1/operation-runs/{run.id}")).json()
+        assert body["operation_id"] == "op-detail"
 
 
 class TestGetOperationRun:

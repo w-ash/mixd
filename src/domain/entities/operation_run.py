@@ -37,6 +37,9 @@ class OperationRun:
     ended_at: datetime | None = None
     counts: JsonDict = field(factory=empty_json_map)
     issues: list[JsonDict] = field(factory=_empty_issues)
+    # The SSE queue key for this run, when launched via the SSE seam. Lets the
+    # snapshot / active-operations endpoints resolve it and re-attach the stream.
+    operation_id: str | None = None
     # Provenance: the schedule that fired this run, if any (None for runs the
     # user kicked off directly). ON DELETE SET NULL preserves history.
     triggered_by_schedule_id: UUID | None = None

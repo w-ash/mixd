@@ -348,3 +348,61 @@ class TestUpdateCanonicalPlaylistUseCase:
         saved = mock_uow.get_playlist_repository().save_playlist.call_args_list[0][0][0]
         assert saved.name == "New Name"
         assert saved.description == "Keep this"
+
+
+class TestUpdateCanonicalPlaylistUnresolved:
+    """A re-pull (overwrite from a connector playlist) must keep unresolved rows.
+
+    The overwrite path used to rebuild entries from resolved tracks only, so an
+    unmatched position present in the fresh remote was dropped on every re-pull.
+    """
+
+    async def test_repull_preserves_unresolved_entries(self, mock_uow):
+        from unittest.mock import AsyncMock, patch
+
+        from src.application.services.connector_playlist_processing_service import (
+            ConnectorPlaylistProcessingService,
+        )
+        from src.domain.entities.playlist import (
+            ConnectorTrackRef,
+            Playlist,
+            PlaylistEntry,
+        )
+        from tests.fixtures import make_connector_playlist
+
+        kept = make_track(title="A")
+        current = Playlist(name="P", entries=[PlaylistEntry(track=kept)])
+        mock_uow.get_playlist_repository().get_playlist_by_id.return_value = current
+
+        # Fresh remote: same resolved track plus a newly-unmatched position.
+        processed = Playlist(
+            name="P",
+            entries=[
+                PlaylistEntry(track=kept),
+                PlaylistEntry(
+                    track=None,
+                    connector_track_ref=ConnectorTrackRef(
+                        "spotify", "local1", title="Ghost"
+                    ),
+                ),
+            ],
+        )
+        command = UpdateCanonicalPlaylistCommand(
+            user_id="test-user",
+            playlist_id=str(current.id),
+            connector_playlist=make_connector_playlist(),
+        )
+        use_case = UpdateCanonicalPlaylistUseCase(metric_config=_MOCK_METRIC_CONFIG)
+
+        with patch.object(
+            ConnectorPlaylistProcessingService,
+            "process_connector_playlist",
+            new=AsyncMock(return_value=processed),
+        ):
+            await use_case.execute(command, mock_uow)
+
+        saved = mock_uow.get_playlist_repository().save_playlist.call_args_list[0][0][0]
+        assert [e.is_resolved for e in saved.entries] == [True, False]
+        assert saved.unresolved_count == 1
+        # The kept track reuses its existing membership identity.
+        assert saved.entries[0].id == current.entries[0].id

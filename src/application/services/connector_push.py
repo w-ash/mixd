@@ -137,12 +137,16 @@ async def overwrite_external_playlist(
     current: Playlist,
     target: Playlist | TrackList,
     uow: UnitOfWorkProtocol,
+    *,
+    include_changes: bool = False,
 ) -> PushResult:
     """Execute the minimal ops to make the external playlist match ``target``.
 
     Diffs ``target`` against ``current`` (the real, freshly-fetched external
     state) — the single overwrite-push implementation behind both the link-sync
-    engine and the workflow destination.
+    engine and the workflow destination. ``include_changes`` builds the
+    per-track ``playlist_changes`` evidence (only the workflow run-history path
+    reads it); the link-sync engine leaves it off to skip the wasted dict.
     """
     diff = calculate_playlist_diff(current, target)
     if not diff.has_changes:
@@ -160,7 +164,9 @@ async def overwrite_external_playlist(
         snapshot_id=outcome.snapshot_id,
         playlist_changes=build_playlist_changes(
             diff, connector_playlist_identifier, connector_name
-        ),
+        )
+        if include_changes
+        else {},
     )
 
 
@@ -192,7 +198,12 @@ async def push_tracklist_to_connector(
         )
     else:
         result = await overwrite_external_playlist(
-            connector_name, connector_playlist_identifier, current, target, uow
+            connector_name,
+            connector_playlist_identifier,
+            current,
+            target,
+            uow,
+            include_changes=True,
         )
 
     await _update_metadata(

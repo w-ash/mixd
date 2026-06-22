@@ -81,22 +81,23 @@ clean · migration `030` re-verified up/down/up (no `base_items` column).
 | 2 | Data model + migration `030` (sync base + unresolved entries) | ✅ done, migration verified up/down/up |
 | 3 | Domain reconciliation + entities + repo persistence of unresolved | ✅ done, green |
 | 4 | Reconciliation engine, processing rewrite, push unification, hardening | ✅ done, green |
-| 5 | Import use case → engine, REST API, direction model, op-awareness backend, repair-unresolved use case | ⬜ **not started** |
+| 5 | Import use case → engine, REST API, direction model, op-awareness backend, repair-unresolved use case | ✅ **done — all of Phase 5 = v0.8.7** (one version, internal slices): Slice 1 (import→engine + audit + sync-route migration); Slice 2 (confirm-token, repair use case + endpoint, operation-awareness via `/operation-runs?status=running` + `operation_id` (migration 031), PULL-default + `direction_label` vocab); Slice 3 (CLI parity — unified `--source {spotify,mixd}` vocab, import always-pull, sync 409 two-step, `repair` command). Notes: ops-awareness reused the existing `/operation-runs` surface (DRY, not new `/operations/*`); CLI unified on the existing `--source` vocab (not the plan's `--overwrite`, DRY); Orval regen + frontend are **v0.8.8** (Phase 6). |
 | 6 | Frontend rebuild (wizard, sync panel, direction indicator, op awareness) | ⬜ **not started** |
 
 **Current state: fully green, code-review remediation applied (§0a).** `uv run pytest`
 → 3160 passed. `uv run basedpyright src/` → clean. `uv run ruff check .` → clean.
 Migration `030` verified on real Postgres.
 
-> ⚠️ **CRITICAL CAVEAT — import is NOT yet on the engine.** Sync (push/pull) and
-> preview now route through the engine; the **import** use case
-> (`import_connector_playlist_as_canonical.py`) still uses the OLD path
-> (`upsert_canonical_playlist` + the `has_fresh_cache`/`snapshot_id is not None`
-> short-circuit). So **bug #2 (import is a no-op once a link exists with a fresh
-> snapshot) is STILL LIVE for the import flow** until Phase 5 step 1 rewires it.
-> The silent-loss fix (#1) *does* apply to import already (the processing-service
-> rewrite is shared). Rewiring import to `engine.apply(PULL)` is the single most
-> important Phase 5 task.
+> ✅ **RESOLVED in Phase 5 Slice 1 (v0.8.7).** Import now routes re-imports
+> through `engine.apply(PULL)` (first imports keep the CREATE path: fetch +
+> `upsert_canonical_playlist` + link, since the engine needs an existing link +
+> canonical). The `has_fresh_cache` short-circuit is deleted — bug #2 is no longer
+> live for import. Import + sync both return an `OperationResult` so the SSE audit
+> row records real status/counts, and per-playlist failures land via
+> `append_run_issue`. The bespoke sync route was migrated onto `launch_sse_operation`
+> (audit row + run_id + 429 cap) with a synchronous 409 pre-flight for unconfirmed
+> destructive syncs. Unit-green (2440 passed); integration tests (sync route 409 +
+> audit row, engine round-trip, preservation-bugs-v2) need Docker to run.
 
 ---
 
@@ -127,7 +128,8 @@ Migration `030` verified on real Postgres.
   `display_title`; `Playlist.tracks`/`to_tracklist` filter to resolved;
   `resolved_entries`/`unresolved_entries`/`unresolved_count`.
 - `src/domain/entities/__init__.py` — export `ConnectorTrackRef`, `PlaylistSyncBase`.
-- `src/domain/exceptions.py` — `SyncDivergenceError` (declared; see §6 open item).
+- `src/domain/exceptions.py` — (no net change; the declared-but-unused
+  `SyncDivergenceError` was removed in remediation — see §6).
 - `src/infrastructure/persistence/database/db_models.py` — `DBPlaylistSyncBase`;
   `playlist_tracks` nullable `track_id` + `connector_track_id` + `unresolved_metadata`
   + CHECK `ck_playlist_tracks_resolved_or_source` + partial index.
@@ -263,9 +265,11 @@ docker rm -f mig
 
 ## 6. Known open items / decisions already made
 
-- **`SyncDivergenceError`** is declared but the engine relies on the use case's
-  generic `except → ERROR` for the API-succeeded-then-DB-failed case. Decide
-  whether to wire explicit divergence handling in `apply` or leave the ERROR net.
+- **`SyncDivergenceError`** — RESOLVED (deleted). It was never raised and the
+  divergence-from-stale-base concern isn't live (the base snapshot isn't read for
+  planning yet), so the use case's generic `except → ERROR` already covers the
+  API-succeeded-then-DB-failed case without a false SYNCED. Re-introduce a typed
+  divergence error when Phase 5 wires base-reading and has a concrete consumer.
 - **Repair-unresolved-entries use case** is NOT built yet (deferred to Phase 5 —
   it needs an API/CLI surface). The schema supports it (`ix_playlist_tracks_unresolved`
   partial index; `connector_track_id` FK for re-resolution lookup). Coordinate
@@ -340,6 +344,17 @@ changed (judgment calls / adjacent):
    global `snapshot_id` is still needed anywhere.
 6. **`_shared/playlist_results.py`** now holds just `OperationCounts` +
    `build_playlist_changes`; could fold into `operation_counters.py`. Minor.
+7. **Sync gate double-fetch (DEFERRED to v0.8.8).** A web sync fetches the remote
+   twice — once in the route's synchronous `_ensure_sync_confirmed` preview (so the
+   destructive-sync 409 is reachable before backgrounding) and again in the
+   background `engine.apply`. Consolidating to one fetch needs the pre-fetched
+   remote threaded from the synchronous gate into the background apply (across two
+   UoW sessions: preview use case → engine → route → sync use case). The gating is
+   already correct and the residual gate→apply TOCTOU window is negligible, so this
+   is an efficiency/altitude cleanup — do it **with the v0.8.8 sync panel**, which
+   rebuilds this flow. Until then the engine's own `requires_confirmation` gate is
+   the live one for CLI/direct callers; the web route hardcodes `confirmed=True`
+   after its synchronous pre-gate passes.
 
 Don't bundle these into Phase 5 feature work blindly — each is a small, separate,
 test-backed cleanup. Apply the project's clean-break rule (no compat shims).

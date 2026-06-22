@@ -44,7 +44,11 @@ class PlaylistLink:
     connector_name: str
     connector_playlist_identifier: str  # External service's playlist ID
     connector_playlist_name: str | None = None  # Denormalized for display
-    sync_direction: SyncDirection = SyncDirection.PUSH
+    # Default PULL: a freshly linked external playlist almost always wants to keep
+    # pulling from the connector (the source the user just adopted). Defaulting to
+    # PUSH risked a first sync overwriting a populated external with a near-empty
+    # canonical — exactly what the destructive guard exists to stop.
+    sync_direction: SyncDirection = SyncDirection.PULL
     sync_status: SyncStatus = SyncStatus.NEVER_SYNCED
     last_synced: datetime | None = None
     last_sync_error: str | None = None

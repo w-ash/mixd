@@ -15,6 +15,7 @@ import pytest
 
 from src.application.services.playlist_reconciliation_engine import (
     PlaylistReconciliationEngine,
+    compute_confirm_token,
 )
 from src.domain.entities.playlist import (
     ConnectorPlaylist,
@@ -25,6 +26,7 @@ from src.domain.entities.playlist import (
 from src.domain.entities.playlist_link import PlaylistLink, SyncDirection
 from src.domain.exceptions import ConfirmationRequiredError, ConnectorSyncError
 from src.domain.playlist.diff_engine import PlaylistOpsOutcome
+from src.domain.playlist.reconciliation import SyncPlan
 from tests.fixtures import (
     make_connector_playlist,
     make_connector_playlist_item,
@@ -84,12 +86,17 @@ def _uow_with(canonical: Playlist, resolve_map: dict | None = None, *, base=None
 
 class TestSafetyAgainstFreshRemote:
     async def test_destructive_push_flags_against_fetched_remote(self):
-        # Canonical has 5 tracks; the FRESH remote has 150. Pushing canonical
-        # would remove 145 from the remote → flagged. (The old code diffed
-        # canonical-vs-itself and never flagged this.)
-        canonical = _canonical(_tracks(5))
-        remote = _remote([f"s{i}" for i in range(150)])
-        uow = _uow_with(canonical)
+        # Canonical has 5 tracks; the FRESH remote has 150 — all resolvable, so
+        # the executor (which diffs the RESOLVED remote against canonical) would
+        # remove 145. The gate must count those same 145 (not raw remote ids,
+        # which would over-count tracks the executor can't place).
+        all_tracks = _tracks(150)
+        canonical = _canonical(all_tracks[:5])
+        remote = _remote([t.connector_track_identifiers["spotify"] for t in all_tracks])
+        resolve_map = {
+            ("spotify", t.connector_track_identifiers["spotify"]): t for t in all_tracks
+        }
+        uow = _uow_with(canonical, resolve_map)
 
         with patch(
             f"{_ENGINE_MOD}.sync_connector_playlist", AsyncMock(return_value=remote)
@@ -136,15 +143,21 @@ class TestSafetyAgainstFreshRemote:
 
 class TestPushTargetResolvedOnly:
     """A PUSH gate counts removals against RESOLVED canonical tracks only — matching
-    what the executor can place. An unresolved canonical entry's source id must not
-    mask a removal the push would perform (the gate/execution divergence fix)."""
+    what the executor can place. An unresolved canonical entry whose source id has
+    since become resolvable on the remote must not mask the removal the executor
+    performs (the gate/execution divergence fix)."""
 
     async def test_unresolved_entries_do_not_mask_push_removals(self):
-        # Canonical: 1 resolved track (s0) + 12 UNRESOLVED entries (x0..x11), all on
-        # the remote. A push can only place the resolved track, so it would remove
-        # the other 12 — the gate must flag that, not treat the unresolved source
-        # ids as "kept" (which would yield 0 removals and a silent destructive push).
+        # Canonical: 1 resolved track (s0) + 12 entries still UNRESOLVED locally
+        # (x0..x11). On the remote those 12 ids have since become resolvable, so the
+        # executor — diffing the resolved remote (13) against the resolved canonical
+        # (just s0) — would remove 12. The gate must flag that, not treat the still-
+        # unresolved canonical refs as "kept" (0 removals → silent destructive push).
         resolved = _tracks(1)[0]
+        now_resolvable = [
+            make_track(title=f"X{i}", connector_track_identifiers={"spotify": f"x{i}"})
+            for i in range(12)
+        ]
         unresolved = [
             PlaylistEntry(
                 track=None,
@@ -158,7 +171,10 @@ class TestPushTargetResolvedOnly:
             name="Canon", entries=[PlaylistEntry(track=resolved), *unresolved]
         )
         remote = _remote(["s0", *(f"x{i}" for i in range(12))])
-        uow = _uow_with(canonical)
+        resolve_map = {("spotify", "s0"): resolved} | {
+            ("spotify", f"x{i}"): now_resolvable[i] for i in range(12)
+        }
+        uow = _uow_with(canonical, resolve_map)
 
         with patch(
             f"{_ENGINE_MOD}.sync_connector_playlist", AsyncMock(return_value=remote)
@@ -172,6 +188,43 @@ class TestPushTargetResolvedOnly:
                     confirmed=False,
                 )
         assert exc.value.removals == 12
+
+
+class TestPullSafetyDenominator:
+    """A PULL gate counts EVERY canonical position, incl. cross-matched tracks
+    with no id on this connector — they're removed by the pull, so they can't be
+    invisible to the destructive gate (which would let it silently wipe them)."""
+
+    async def test_pull_counts_tracks_without_this_connector_id(self):
+        # Canonical: 1 spotify track (s0) + 12 cross-matched tracks with NO spotify
+        # id. The remote has only s0, so a pull would remove the 12 — the gate must
+        # see 12 removals over 13, not 0 over 1 (which the old id-only count gave).
+        on_spotify = make_track(
+            title="S", connector_track_identifiers={"spotify": "s0"}
+        )
+        no_spotify = [
+            make_track(
+                title=f"MB{i}", connector_track_identifiers={"musicbrainz": f"mb{i}"}
+            )
+            for i in range(12)
+        ]
+        canonical = _canonical([on_spotify, *no_spotify])
+        remote = _remote(["s0"])
+        uow = _uow_with(canonical)
+
+        with patch(
+            f"{_ENGINE_MOD}.sync_connector_playlist", AsyncMock(return_value=remote)
+        ):
+            with pytest.raises(ConfirmationRequiredError) as exc:
+                await _engine().apply(
+                    _link(SyncDirection.PULL),
+                    SyncDirection.PULL,
+                    uow,
+                    user_id="u",
+                    confirmed=False,
+                )
+        assert exc.value.removals == 12
+        assert exc.value.total == 13
 
 
 class TestIdempotency:
@@ -238,3 +291,54 @@ class TestPullApply:
         assert result.skipped is False
         assert result.direction == SyncDirection.PULL
         assert result.tracks_added == 2
+
+
+class TestConfirmToken:
+    """The secret-less staleness hash for the destructive-sync confirm flow."""
+
+    @staticmethod
+    def _plan(*, add: int = 0, remove: int = 0, noop: bool = False) -> SyncPlan:
+        return SyncPlan(
+            direction=SyncDirection.PUSH,
+            tracks_to_add=add,
+            tracks_to_remove=remove,
+            is_noop=noop,
+        )
+
+    def test_stable_for_same_inputs(self) -> None:
+        link_id = uuid7()
+        plan = self._plan(remove=40)
+        a = compute_confirm_token(
+            link_id=link_id, direction=SyncDirection.PUSH, snapshot_id="s1", plan=plan
+        )
+        b = compute_confirm_token(
+            link_id=link_id, direction=SyncDirection.PUSH, snapshot_id="s1", plan=plan
+        )
+        assert a == b
+
+    def test_changes_when_remote_snapshot_changes(self) -> None:
+        link_id = uuid7()
+        plan = self._plan(remove=40)
+        a = compute_confirm_token(
+            link_id=link_id, direction=SyncDirection.PUSH, snapshot_id="s1", plan=plan
+        )
+        b = compute_confirm_token(
+            link_id=link_id, direction=SyncDirection.PUSH, snapshot_id="s2", plan=plan
+        )
+        assert a != b
+
+    def test_changes_when_plan_changes(self) -> None:
+        link_id = uuid7()
+        a = compute_confirm_token(
+            link_id=link_id,
+            direction=SyncDirection.PUSH,
+            snapshot_id="s1",
+            plan=self._plan(remove=40),
+        )
+        b = compute_confirm_token(
+            link_id=link_id,
+            direction=SyncDirection.PUSH,
+            snapshot_id="s1",
+            plan=self._plan(remove=41),
+        )
+        assert a != b

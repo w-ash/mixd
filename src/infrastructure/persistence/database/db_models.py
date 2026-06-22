@@ -1384,6 +1384,12 @@ class DBOperationRun(BaseEntity):
         String(), nullable=False, default="default", server_default="default"
     )
     operation_type: Mapped[str] = mapped_column(String(64), nullable=False)
+    # SSE registry's queue key — lets /operations/{id}/run-snapshot and
+    # /operations/active resolve operation_id -> audit row (and hand the
+    # frontend an operation_id to re-attach the live stream). Migration 031.
+    operation_id: Mapped[str | None] = mapped_column(
+        String(36), unique=True, index=True, nullable=True
+    )
     started_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), nullable=False
     )

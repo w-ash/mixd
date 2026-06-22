@@ -266,6 +266,49 @@ class Playlist:
         """
         return evolve(self, metadata=metadata)
 
+    @property
+    def membership_keys(self) -> list[UUID | tuple[str, str] | None]:
+        """Ordered position identities — the complete no-op test for an overwrite.
+
+        Each position is keyed by its identity (resolved → canonical track id;
+        unresolved → the connector ``(name, identifier)``), ignoring volatile
+        metadata like ``added_at``. Equal lists ⇒ the same content in the same
+        order, counting unresolved positions and reorders that a resolved-track
+        diff can't see. A ``UUID`` and a ``tuple`` are never equal, so the two
+        kinds can't collide — no string encoding needed.
+        """
+        return [
+            entry.track.id
+            if entry.track is not None
+            else (
+                (ref.connector_name, ref.connector_track_identifier)
+                if (ref := entry.connector_track_ref) is not None
+                else None
+            )
+            for entry in self.entries
+        ]
+
+    def reconcile_entries_from(self, processed: Playlist) -> list[PlaylistEntry]:
+        """Adopt ``processed`` as the new desired membership, preserving identity.
+
+        Every source position in ``processed`` is kept in order — resolved AND
+        unresolved — so an overwrite/re-pull never drops an unmatched position
+        (the "always complete" invariant). A resolved track already present in
+        ``self`` keeps its existing membership (``added_at`` + record id) so an
+        unchanged row isn't churned; new and unresolved positions are taken from
+        ``processed`` as-is. The persistence layer computes the minimal row delta
+        from the returned list.
+        """
+        current_by_track = {
+            entry.track.id: entry for entry in self.entries if entry.track is not None
+        }
+        return [
+            current_by_track.get(entry.track.id, entry)
+            if entry.track is not None
+            else entry
+            for entry in processed.entries
+        ]
+
 
 @define(frozen=True, slots=True)
 class ConnectorPlaylist:

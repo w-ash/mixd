@@ -91,13 +91,18 @@ async def prepare_sse_operation_with_emitter(
             detail="Too many concurrent operations. Please wait for a running operation to finish.",
             headers={"Retry-After": str(SSEConstants.GRACE_PERIOD_SECONDS)},
         )
-    # Write the audit row before allocating the SSE queue so a failed
-    # audit-write doesn't leave an orphan queue in the registry. The
-    # 429 check above guarantees we never write a row we can't service.
-    run_id = await start_run(user_id=user_id, operation_type=operation_type)
-    operation_id, _ = await prepare_sse_operation()
+    # Mint the operation_id first (without registering the queue), write the
+    # audit row WITH it, then register the queue. This preserves the "audit row
+    # before queue" guarantee (a failed audit-write leaves no orphan queue)
+    # while persisting operation_id so snapshot / active-operations endpoints can
+    # resolve the row and a re-attaching client can stream from the same id.
+    operation_id = str(uuid4())
+    run_id = await start_run(
+        user_id=user_id, operation_type=operation_type, operation_id=operation_id
+    )
+    await get_operation_registry().register(operation_id)
     emitter = OperationBoundEmitter(
-        delegate=get_progress_broker(), operation_id=operation_id
+        delegate=get_progress_broker(), operation_id=operation_id, run_id=run_id
     )
     return operation_id, run_id, emitter
 

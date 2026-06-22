@@ -42,6 +42,15 @@ class PreviewPlaylistSyncResult:
     has_comparison_data: bool = field(default=True)
     safety_flagged: bool = field(default=False)
     safety_message: str | None = field(default=None)
+    # The destructive-guard numbers behind ``safety_flagged`` — surfaced so the
+    # sync route can build a 409 ``ConfirmationRequiredError`` payload and the
+    # web confirm dialog can show "remove N of M (K remain)".
+    safety_removals: int = field(default=0)
+    safety_total: int = field(default=0)
+    safety_remaining: int = field(default=0)
+    # Staleness token pinning this exact plan; the client echoes it back on the
+    # confirmed sync so a plan that changed since preview is rejected.
+    confirm_token: str = field(default="")
 
 
 @define(slots=True)
@@ -70,8 +79,11 @@ class PreviewPlaylistSyncUseCase:
             engine = PlaylistReconciliationEngine(
                 metric_config=MetricConfigProviderImpl()
             )
-            plan = await engine.preview(link, direction, uow, user_id=command.user_id)
+            preview = await engine.preview(
+                link, direction, uow, user_id=command.user_id
+            )
 
+        plan = preview.plan
         return PreviewPlaylistSyncResult(
             tracks_to_add=plan.tracks_to_add,
             tracks_to_remove=plan.tracks_to_remove,
@@ -82,4 +94,8 @@ class PreviewPlaylistSyncUseCase:
             has_comparison_data=True,
             safety_flagged=plan.requires_confirmation,
             safety_message=plan.safety.reason,
+            safety_removals=plan.safety.removals,
+            safety_total=plan.safety.total_current,
+            safety_remaining=plan.safety.remaining_after_sync,
+            confirm_token=preview.confirm_token,
         )

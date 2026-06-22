@@ -13,6 +13,7 @@ from src.application.runner import execute_use_case
 from src.application.services.progress_broker import get_progress_broker
 from src.application.use_cases.import_connector_playlist_as_canonical import (
     run_import_connector_playlists_as_canonical,
+    to_operation_result,
 )
 from src.application.use_cases.list_connector_playlists import (
     ListConnectorPlaylistsCommand,
@@ -186,7 +187,7 @@ async def import_connector_playlists(
     _require_connector(service, capability="playlist_import")
 
     async def _import(emitter: OperationBoundEmitter) -> object:
-        return await run_import_connector_playlists_as_canonical(
+        result = await run_import_connector_playlists_as_canonical(
             user_id=user_id,
             connector_name=service,
             connector_playlist_identifiers=[
@@ -200,7 +201,11 @@ async def import_connector_playlists(
             # The request op (owned by run_sse_operation) is the top op; per-playlist
             # sub-ops parent to it directly so the single-level subscriber routes them.
             parent_operation_id=emitter.operation_id,
+            run_id=emitter.run_id,
         )
+        # Return an OperationResult so the SSE seam records real status + counts
+        # on the audit row + terminal event (the durability fix).
+        return to_operation_result(result)
 
     return await launch_sse_operation(
         user_id=user_id,

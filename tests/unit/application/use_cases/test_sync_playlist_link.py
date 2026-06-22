@@ -17,7 +17,9 @@ from src.application.services.playlist_reconciliation_engine import (
 )
 from src.application.use_cases.sync_playlist_link import (
     SyncPlaylistLinkCommand,
+    SyncPlaylistLinkResult,
     SyncPlaylistLinkUseCase,
+    to_operation_result,
 )
 from src.domain.entities.playlist_link import PlaylistLink, SyncDirection, SyncStatus
 from src.domain.exceptions import ConfirmationRequiredError, ConnectorSyncError
@@ -114,3 +116,27 @@ class TestStatusLifecycle:
         # Restored to the prior status, never marked ERROR for a confirmation.
         assert SyncStatus.SYNCED in statuses
         assert SyncStatus.ERROR not in statuses
+
+
+class TestToOperationResult:
+    """The SSE-seam mapper flattens a successful sync into audit counts."""
+
+    def test_maps_added_removed_unmatched(self):
+        counts = to_operation_result(
+            SyncPlaylistLinkResult(
+                link=_link(),
+                tracks_added=4,
+                tracks_removed=1,
+                tracks_unmatched=2,
+            )
+        ).to_counts()
+        assert counts["tracks_added"] == 4
+        assert counts["tracks_removed"] == 1
+        assert counts["tracks_unmatched"] == 2
+
+    def test_omits_unmatched_when_zero_and_not_failure(self):
+        op = to_operation_result(
+            SyncPlaylistLinkResult(link=_link(), tracks_added=2, tracks_removed=0)
+        )
+        assert "tracks_unmatched" not in op.to_counts()
+        assert op.is_failure is False

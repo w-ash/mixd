@@ -15,7 +15,9 @@ from src.application.services.playlist_reconciliation_engine import (
     PlaylistReconciliationEngine,
 )
 from src.config import get_logger
+from src.domain.entities.operations import OperationResult
 from src.domain.entities.playlist_link import PlaylistLink, SyncDirection, SyncStatus
+from src.domain.entities.summary_metrics import SummaryMetricCollection
 from src.domain.exceptions import ConfirmationRequiredError, NotFoundError
 from src.domain.repositories.uow import UnitOfWorkProtocol
 
@@ -24,6 +26,27 @@ logger = get_logger(__name__)
 
 def _raise_disappeared(link_id: UUID) -> Never:
     raise NotFoundError(f"Playlist link {link_id} disappeared during sync")
+
+
+def to_operation_result(result: SyncPlaylistLinkResult) -> OperationResult:
+    """Map a successful sync onto an ``OperationResult`` for the SSE seam.
+
+    Only the success path is mapped — the use case *raises* on failure
+    (``ConnectorSyncError`` / ``ConfirmationRequiredError``), which
+    ``run_sse_operation`` records as ``error`` directly.
+    """
+    metrics = SummaryMetricCollection()
+    metrics.add("tracks_added", result.tracks_added, "Tracks Added", significance=1)
+    metrics.add(
+        "tracks_removed", result.tracks_removed, "Tracks Removed", significance=2
+    )
+    if result.tracks_moved:
+        metrics.add("tracks_moved", result.tracks_moved, "Tracks Moved", significance=3)
+    if result.tracks_unmatched:
+        metrics.add(
+            "tracks_unmatched", result.tracks_unmatched, "Unmatched", significance=4
+        )
+    return OperationResult(operation_name="sync_playlist_link", summary_metrics=metrics)
 
 
 @define(frozen=True, slots=True)
@@ -43,6 +66,7 @@ class SyncPlaylistLinkResult:
     link: PlaylistLink
     tracks_added: int = field(default=0)
     tracks_removed: int = field(default=0)
+    tracks_moved: int = field(default=0)  # push: tracks reordered in place
     tracks_unmatched: int = field(default=0)  # tracks with no match this sync
 
 
@@ -119,6 +143,7 @@ class SyncPlaylistLinkUseCase:
             link=updated_link,
             tracks_added=result.tracks_added,
             tracks_removed=result.tracks_removed,
+            tracks_moved=result.tracks_moved,
             tracks_unmatched=result.unmatched,
         )
 

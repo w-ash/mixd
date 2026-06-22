@@ -4,7 +4,6 @@ Each handler is 5-10 lines: parse request -> build Command -> execute_use_case()
 All business logic lives in the use cases — this is pure HTTP translation.
 """
 
-import asyncio
 from uuid import UUID
 
 from fastapi import APIRouter, Depends, Query
@@ -43,9 +42,14 @@ from src.application.use_cases.read_canonical_playlist import (
     ReadCanonicalPlaylistCommand,
     ReadCanonicalPlaylistUseCase,
 )
+from src.application.use_cases.repair_unresolved_entries import (
+    RepairUnresolvedEntriesCommand,
+    RepairUnresolvedEntriesUseCase,
+)
 from src.application.use_cases.sync_playlist_link import (
     SyncPlaylistLinkCommand,
     SyncPlaylistLinkUseCase,
+    to_operation_result as sync_to_operation_result,
 )
 from src.application.use_cases.update_canonical_playlist import (
     UpdateCanonicalPlaylistCommand,
@@ -59,12 +63,13 @@ from src.config import get_logger
 from src.domain.entities.playlist_link import SyncDirection
 from src.domain.entities.shared import ConnectorPlaylistIdentifier
 from src.domain.entities.track import TrackList
-from src.domain.exceptions import NotFoundError
+from src.domain.exceptions import ConfirmationRequiredError, NotFoundError
 from src.infrastructure.connectors._shared.metric_registry import (
     MetricConfigProviderImpl,
 )
 from src.interface.api.deps import get_current_user_id
 from src.interface.api.schemas.common import PaginatedResponse
+from src.interface.api.schemas.imports import OperationStartedResponse
 from src.interface.api.schemas.playlists import (
     CreateLinkRequest,
     CreatePlaylistRequest,
@@ -72,23 +77,18 @@ from src.interface.api.schemas.playlists import (
     PlaylistEntrySchema,
     PlaylistLinkSchema,
     PlaylistSummarySchema,
+    RepairUnresolvedResponse,
     SyncLinkRequest,
     SyncPreviewResponse,
-    SyncStartedResponse,
     UpdateLinkRequest,
     UpdatePlaylistRequest,
+    direction_label,
     to_link_schema,
     to_playlist_detail,
     to_playlist_summary,
 )
-from src.interface.api.services.background import (
-    finalize_sse_operation,
-    launch_background,
-)
-from src.interface.api.services.sse_operations import (
-    build_terminal_event,
-    prepare_sse_operation,
-)
+from src.interface.api.services.progress import OperationBoundEmitter
+from src.interface.api.services.sse_operations import launch_sse_operation
 
 logger = get_logger(__name__).bind(service="playlists_api")
 
@@ -341,11 +341,16 @@ async def preview_playlist_sync(
         tracks_to_remove=result.tracks_to_remove,
         tracks_unchanged=result.tracks_unchanged,
         direction=result.direction.value,
+        direction_label=direction_label(result.direction.value, result.connector_name),
         connector_name=result.connector_name,
         playlist_name=result.playlist_name,
         has_comparison_data=result.has_comparison_data,
         safety_flagged=result.safety_flagged,
         safety_message=result.safety_message,
+        safety_removals=result.safety_removals,
+        safety_total=result.safety_total,
+        safety_remaining=result.safety_remaining,
+        confirm_token=result.confirm_token,
     )
 
 
@@ -355,85 +360,93 @@ async def sync_playlist_link(
     link_id: UUID,
     body: SyncLinkRequest | None = None,
     user_id: str = Depends(get_current_user_id),
-) -> SyncStartedResponse:
-    """Start a sync operation for a playlist link.
+) -> OperationStartedResponse:
+    """Start a playlist-link sync, tracked via SSE with a durable audit row.
 
-    Returns immediately with an operation_id. Progress streams via
-    GET /operations/{operation_id}/progress (existing SSE endpoint).
+    Returns immediately with ``{operation_id, run_id}``; progress streams via
+    GET /operations/{operation_id}/progress. A destructive sync whose
+    ``confirm_token`` is missing or stale returns HTTP 409 (CONFIRMATION_REQUIRED)
+    *synchronously* — before any background work — with a fresh token + the
+    removal counts, so the client can show the confirm dialog and retry.
     """
-    direction_override = None
-    confirmed = False
-    if body:
-        if body.direction_override:
-            direction_override = SyncDirection(body.direction_override)
-        confirmed = body.confirmed
-
-    operation_id, sse_queue = await prepare_sse_operation()
-
-    launch_background(
-        f"playlist_sync_{operation_id}",
-        lambda: _execute_sync_background(
-            operation_id,
-            link_id,
-            direction_override,
-            sse_queue,
-            user_id,
-            confirmed=confirmed,
-        ),
+    direction_override = (
+        SyncDirection(body.direction_override)
+        if body and body.direction_override
+        else None
     )
+    confirm_token = body.confirm_token if body else None
 
-    return SyncStartedResponse(operation_id=operation_id)
+    await _ensure_sync_confirmed(link_id, direction_override, user_id, confirm_token)
 
-
-async def _execute_sync_background(
-    operation_id: str,
-    link_id: UUID,
-    direction_override: SyncDirection | None,
-    sse_queue: asyncio.Queue[object],
-    user_id: str,
-    *,
-    confirmed: bool = False,
-) -> None:
-    """Execute playlist link sync in background, pushing SSE events."""
-    from asyncio import CancelledError
-    import contextlib
-
-    try:
+    async def _sync(emitter: OperationBoundEmitter) -> object:  # noqa: ARG001
         command = SyncPlaylistLinkCommand(
             user_id=user_id,
             link_id=link_id,
             direction_override=direction_override,
-            confirmed=confirmed,
+            confirmed=True,
         )
         result = await execute_use_case(
             lambda uow: SyncPlaylistLinkUseCase().execute(command, uow),
             user_id=user_id,
         )
+        return sync_to_operation_result(result)
 
-        await sse_queue.put(
-            build_terminal_event(
-                "evt_final",
-                "complete",
-                operation_id,
-                "COMPLETED",
-                tracks_added=result.tracks_added,
-                tracks_removed=result.tracks_removed,
-                tracks_unmatched=result.tracks_unmatched,
-            )
+    return await launch_sse_operation(
+        user_id=user_id,
+        operation_type="sync_playlist_link",
+        coro_factory=_sync,
+        name_prefix="playlist_sync",
+    )
+
+
+@router.post("/{playlist_id}/repair")
+async def repair_playlist_unresolved(
+    playlist_id: UUID,
+    user_id: str = Depends(get_current_user_id),
+) -> RepairUnresolvedResponse:
+    """Re-resolve the playlist's unresolved entries against existing mappings.
+
+    DB-only and idempotent: hydrates rows that now have a track mapping without
+    re-fetching the remote or changing membership. 404 if the playlist is
+    missing or not owned by the caller.
+    """
+    command = RepairUnresolvedEntriesCommand(user_id=user_id, playlist_id=playlist_id)
+    result = await execute_use_case(
+        lambda uow: RepairUnresolvedEntriesUseCase().execute(command, uow),
+        user_id=user_id,
+    )
+    return RepairUnresolvedResponse(
+        repaired=result.repaired, still_unresolved=result.still_unresolved
+    )
+
+
+async def _ensure_sync_confirmed(
+    link_id: UUID,
+    direction_override: SyncDirection | None,
+    user_id: str,
+    confirm_token: str | None,
+) -> None:
+    """Raise ConfirmationRequiredError (→ 409) for an unconfirmed destructive sync.
+
+    Runs the read-only preview synchronously so the destructive-guard 409 is
+    reachable at request time — the old background path swallowed it into a
+    generic error SSE event the client never saw. Compares the caller's
+    ``confirm_token`` against the freshly-minted one: a missing or *stale* token
+    (the plan changed since the user previewed it) re-prompts with the fresh
+    token + counts; a matching token (or a non-destructive plan) proceeds.
+    """
+    command = PreviewPlaylistSyncCommand(
+        user_id=user_id, link_id=link_id, direction_override=direction_override
+    )
+    preview = await execute_use_case(
+        lambda uow: PreviewPlaylistSyncUseCase().execute(command, uow),
+        user_id=user_id,
+    )
+    if preview.safety_flagged and confirm_token != preview.confirm_token:
+        raise ConfirmationRequiredError(
+            preview.safety_message or "Destructive sync requires confirmation",
+            removals=preview.safety_removals,
+            total=preview.safety_total,
+            remaining=preview.safety_remaining,
+            confirm_token=preview.confirm_token,
         )
-
-    except (CancelledError, Exception) as e:
-        error_msg = str(e)[:500] if not isinstance(e, CancelledError) else "Cancelled"
-        with contextlib.suppress(CancelledError, Exception):
-            await sse_queue.put(
-                build_terminal_event(
-                    "evt_error",
-                    "error",
-                    operation_id,
-                    "FAILED",
-                    error_message=error_msg,
-                )
-            )
-
-    finally:
-        await finalize_sse_operation(operation_id)

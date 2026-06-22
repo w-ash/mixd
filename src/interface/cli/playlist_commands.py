@@ -15,6 +15,7 @@ from src.interface.cli.cli_helpers import (
     get_cli_user_id,
     handle_cli_error,
     report_connector_batch_outcome,
+    resolve_playlist_ref,
     validate_sync_source,
 )
 from src.interface.cli.console import (
@@ -365,15 +366,6 @@ async def _update_playlist_async(
 # ---------------------------------------------------------------------------
 
 
-def _parse_sync_direction(value: str | None):
-    """Parse optional sync direction string to SyncDirection enum."""
-    if not value:
-        return None
-    from src.domain.entities.playlist_link import SyncDirection
-
-    return SyncDirection(value)
-
-
 @app.command(name="links")
 def list_links(
     playlist_id: Annotated[str, typer.Argument(help="Playlist UUID")],
@@ -438,16 +430,22 @@ def create_link(
     external_id: Annotated[
         str, typer.Option("--playlist-id", help="External playlist ID")
     ],
-    direction: Annotated[
-        str, typer.Option("--direction", "-d", help="push or pull")
-    ] = "push",
+    source: Annotated[
+        str | None,
+        typer.Option(
+            "--source",
+            "-s",
+            help="Standing direction: 'spotify' (pull) or 'mixd' (push). "
+            "Default: pull from the connector.",
+        ),
+    ] = None,
 ) -> None:
     """Link a playlist to an external connector playlist."""
     from uuid import UUID
 
     from src.domain.entities.playlist_link import SyncDirection
 
-    sync_dir = SyncDirection(direction)
+    sync_dir = validate_sync_source(source) if source else SyncDirection.PULL
 
     async def _create():
         from src.application.runner import execute_use_case
@@ -480,7 +478,7 @@ def create_link(
 
     console.print(
         f"[green]Linked[/green] playlist {playlist_id} to {connector}:{external_id} "
-        f"(direction: {direction}, link ID: {result.link.id})"
+        f"(direction: {sync_dir.value}, link ID: {result.link.id})"
     )
 
 
@@ -518,20 +516,28 @@ def delete_link(
 @app.command(name="sync")
 def sync_link(
     link_id: Annotated[str, typer.Argument(help="Link UUID to sync")],
-    direction_override: Annotated[
+    source: Annotated[
         str | None,
         typer.Option(
-            "--direction-override", help="Override sync direction (push or pull)"
+            "--source",
+            help="Which side wins this sync: 'spotify' (pull) or 'mixd' (push). "
+            "Omit to use the link's configured direction.",
         ),
     ] = None,
     confirm: Annotated[
-        bool, typer.Option("--confirm", help="Skip confirmation")
+        bool,
+        typer.Option(
+            "--confirm",
+            help="Confirm a destructive sync (one that removes many tracks)",
+        ),
     ] = False,
 ) -> None:
     """Sync a linked playlist with its external connector."""
     from uuid import UUID
 
-    dir_override = _parse_sync_direction(direction_override)
+    from src.domain.exceptions import ConfirmationRequiredError
+
+    dir_override = validate_sync_source(source) if source else None
 
     async def _sync():
         from src.application.runner import execute_use_case
@@ -556,6 +562,10 @@ def sync_link(
 
     try:
         result = run_async(_sync())
+    except ConfirmationRequiredError as e:
+        # Two-step destructive confirm: show what would be removed + how to proceed.
+        _render_destructive_sync_warning(e, link_id, source)
+        raise typer.Exit(1) from e
     except Exception as e:
         handle_cli_error(e, "Sync failed")
 
@@ -564,6 +574,28 @@ def sync_link(
         # Warm-gold, paired with text (never colour alone) — no connector match.
         summary += f", [yellow]{result.tracks_unmatched} unmatched[/yellow]"
     console.print(f"[green]Sync complete[/green] — {summary}")
+
+
+def _render_destructive_sync_warning(
+    exc: object, link_id: str, source: str | None
+) -> None:
+    """Render the destructive-sync confirmation prompt (the CLI's 409 equivalent)."""
+    removals = getattr(exc, "removals", 0)
+    total = getattr(exc, "total", 0)
+    remaining = getattr(exc, "remaining", 0)
+    rerun = f"mixd playlist sync {link_id}"
+    if source:
+        rerun += f" --source {source}"
+    rerun += " --confirm"
+    console.print(
+        Panel.fit(
+            f"This sync would remove [bold]{removals}[/bold] of {total} tracks "
+            f"({remaining} would remain).\n\n{exc}\n\n"
+            f"[dim]Re-run to proceed:[/dim] [cyan]{rerun}[/cyan]",
+            title="[bold red]⚠️  Destructive Sync[/bold red]",
+            border_style="red",
+        )
+    )
 
 
 @app.command(name="browse-spotify")
@@ -684,13 +716,6 @@ def import_spotify(
         list[str] | None,
         typer.Argument(help="Spotify playlist IDs or names (omit with --all)"),
     ] = None,
-    source: Annotated[
-        str,
-        typer.Option(
-            "--source",
-            help="Which side is the source of truth: 'spotify' (pull) or 'mixd' (push)",
-        ),
-    ] = "spotify",
     all_not_imported: Annotated[
         bool,
         typer.Option(
@@ -718,12 +743,13 @@ def import_spotify(
     Examples:
         mixd playlist import-spotify 37i9dQZF1DX0XUsuxWHRQd
         mixd playlist import-spotify "Chill Vibes"
-        mixd playlist import-spotify "Chill" "Workout" --source spotify
+        mixd playlist import-spotify "Chill" "Workout"
         mixd playlist import-spotify --all --not-imported
         mixd playlist import-spotify "Chill Vibes" --refresh
-    """
-    sync_direction = validate_sync_source(source)
 
+    Import always pulls from Spotify into Mixd. To push Mixd → Spotify, link the
+    playlist (``mixd playlist link``) and ``mixd playlist sync --source mixd``.
+    """
     if not all_not_imported and not refs:
         raise typer.BadParameter(
             "Provide one or more playlist IDs/names, or pass --all"
@@ -783,7 +809,8 @@ def import_spotify(
                 user_id=get_cli_user_id(),
                 connector_name=SPOTIFY_CONNECTOR,
                 connector_playlist_identifiers=typed_resolved_ids,
-                sync_direction=sync_direction,
+                # Import always pulls (external → canonical); the link's standing
+                # direction governs later syncs. Wrapper default is PULL.
                 force=refresh,
             )
         )
@@ -1100,17 +1127,19 @@ def _resolve_connector_playlist_id(ref: str):
 @app.command(name="sync-preview")
 def sync_preview(
     link_id: Annotated[str, typer.Argument(help="Link UUID to preview")],
-    direction_override: Annotated[
+    source: Annotated[
         str | None,
         typer.Option(
-            "--direction-override", help="Override sync direction (push or pull)"
+            "--source",
+            help="Preview a specific direction: 'spotify' (pull) or 'mixd' (push). "
+            "Omit to use the link's configured direction.",
         ),
     ] = None,
 ) -> None:
     """Preview what a sync would do without making changes."""
     from uuid import UUID
 
-    dir_override = _parse_sync_direction(direction_override)
+    dir_override = validate_sync_source(source) if source else None
 
     async def _preview():
         from src.application.runner import execute_use_case
@@ -1137,12 +1166,64 @@ def sync_preview(
     except Exception as e:
         handle_cli_error(e, "Preview failed")
 
-    console.print(
-        Panel.fit(
-            f"[cyan]Direction:[/cyan] {result.direction.value}\n"
-            f"[cyan]To add:[/cyan] {result.tracks_to_add}\n"
-            f"[cyan]To remove:[/cyan] {result.tracks_to_remove}\n"
-            f"[cyan]Unchanged:[/cyan] {result.tracks_unchanged}",
-            title="[bold]Sync Preview[/bold]",
-        )
+    body = (
+        f"[cyan]Direction:[/cyan] {result.direction.value}\n"
+        f"[cyan]To add:[/cyan] {result.tracks_to_add}\n"
+        f"[cyan]To remove:[/cyan] {result.tracks_to_remove}\n"
+        f"[cyan]Unchanged:[/cyan] {result.tracks_unchanged}"
     )
+    if result.safety_flagged:
+        # Surface the destructive-guard warning so preview and the sync gate agree.
+        body += f"\n\n[bold red]⚠️  {result.safety_message}[/bold red]"
+        body += "\n[dim]Run sync with --confirm to proceed.[/dim]"
+    console.print(Panel.fit(body, title="[bold]Sync Preview[/bold]"))
+
+
+@app.command(name="repair")
+def repair_unresolved(
+    playlist_ref: Annotated[
+        str, typer.Argument(help="Playlist UUID or name with unresolved tracks")
+    ],
+) -> None:
+    """Re-resolve a playlist's unresolved tracks against newly-available mappings.
+
+    DB-only and idempotent: fills in tracks that now have a match (e.g. after a
+    match-review or metadata enrichment) without re-fetching from the connector.
+    """
+    from uuid import UUID
+
+    async def _repair(playlist_id: UUID):
+        from src.application.runner import execute_use_case
+        from src.application.use_cases.repair_unresolved_entries import (
+            RepairUnresolvedEntriesCommand,
+            RepairUnresolvedEntriesUseCase,
+        )
+
+        user_id = get_cli_user_id()
+        return await execute_use_case(
+            lambda uow: RepairUnresolvedEntriesUseCase().execute(
+                RepairUnresolvedEntriesCommand(
+                    user_id=user_id, playlist_id=playlist_id
+                ),
+                uow,
+            ),
+            user_id=user_id,
+        )
+
+    try:
+        playlist = resolve_playlist_ref(playlist_ref, user_id=get_cli_user_id())
+        result = run_async(_repair(playlist.id))
+    except typer.BadParameter:
+        raise  # Typer renders the clean one-liner (exit 2).
+    except Exception as e:
+        handle_cli_error(e, "Repair failed")
+
+    if result.repaired == 0 and result.still_unresolved == 0:
+        console.print("[green]Nothing to repair — all tracks resolved.[/green]")
+        return
+
+    parts = [f"[green]Repaired {result.repaired}[/green] track(s)"]
+    if result.still_unresolved:
+        # Warm-gold, paired with text — still no mapping for these.
+        parts.append(f"[yellow]{result.still_unresolved} still unresolved[/yellow]")
+    console.print(" · ".join(parts))
