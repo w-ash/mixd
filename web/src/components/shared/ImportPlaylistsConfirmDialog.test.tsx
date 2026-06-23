@@ -145,10 +145,10 @@ describe("ImportPlaylistsConfirmDialog", () => {
       expect(screen.getByText("Workout Mix")).toBeInTheDocument();
     });
 
-    it("defaults to Spotify-managed (pull) direction", async () => {
+    it("defaults to pull (Spotify → Mixd) direction", async () => {
       setup();
       expect(
-        screen.getByRole("radio", { name: /Spotify-managed/ }),
+        screen.getByRole("radio", { name: /Spotify → Mixd/ }),
       ).toBeChecked();
     });
 
@@ -177,54 +177,21 @@ describe("ImportPlaylistsConfirmDialog", () => {
       expect(onOpenChange).toHaveBeenCalledWith(false);
     });
 
-    it("renders the Force re-fetch toggle off by default", async () => {
+    it("does not render a Force re-fetch toggle", () => {
       setup();
-      const toggle = await screen.findByRole("switch", {
-        name: "Force re-fetch from connector",
-      });
-      expect(toggle).toHaveAttribute("aria-checked", "false");
+      expect(
+        screen.queryByRole("switch", { name: /force re-fetch/i }),
+      ).not.toBeInTheDocument();
     });
 
-    it("forwards force=true in the import request when toggle is on", async () => {
+    it("imports with only ids + direction (no force field)", async () => {
       const importBody = vi.fn();
       server.use(
         http.post(
           "*/api/v1/connectors/spotify/playlists/import",
           async ({ request }) => {
             importBody(await request.json());
-            return HttpResponse.json(
-              { operation_id: "op-force" },
-              { status: 202 },
-            );
-          },
-        ),
-      );
-
-      setup();
-      await userEvent.click(
-        await screen.findByRole("switch", {
-          name: "Force re-fetch from connector",
-        }),
-      );
-      await userEvent.click(
-        screen.getByRole("button", { name: "Import 2 playlists" }),
-      );
-
-      await waitFor(() => expect(importBody).toHaveBeenCalled());
-      expect(importBody.mock.calls[0][0]).toMatchObject({ force: true });
-    });
-
-    it("defaults to force=false when the toggle is left off", async () => {
-      const importBody = vi.fn();
-      server.use(
-        http.post(
-          "*/api/v1/connectors/spotify/playlists/import",
-          async ({ request }) => {
-            importBody(await request.json());
-            return HttpResponse.json(
-              { operation_id: "op-default" },
-              { status: 202 },
-            );
+            return HttpResponse.json({ operation_id: "op-x" }, { status: 202 });
           },
         ),
       );
@@ -235,7 +202,9 @@ describe("ImportPlaylistsConfirmDialog", () => {
       );
 
       await waitFor(() => expect(importBody).toHaveBeenCalled());
-      expect(importBody.mock.calls[0][0]).toMatchObject({ force: false });
+      const body = importBody.mock.calls[0][0];
+      expect(body).not.toHaveProperty("force");
+      expect(body).toMatchObject({ sync_direction: "pull" });
     });
   });
 

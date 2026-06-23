@@ -1,19 +1,19 @@
 /**
- * Shared SSE lifecycle hook for workflow execution and preview.
+ * Workflow-execution view over the shared `useOperationSSE` core.
  *
- * Composes useNodeStatuses + useSSEConnection internally and handles
- * the common event dispatch (node_status, error, completion). Consumers
- * configure which events signal completion and provide callbacks for
- * domain-specific side effects.
+ * Adds the workflow-specific reductions — a `node_status` Map (`useNodeStatuses`),
+ * `runAccepted`, the latest `sub_progress`, and the `final_status==="cancelled"`
+ * graceful-terminal rule — while the core owns the SSE transport, the terminal
+ * idempotency latch, and the re-attach/stall recovery gate.
  *
- * When the SSE watchdog flips state to "stalled" (45 s without any
- * frame), the hook polls GET /operations/{id}/snapshot and reconciles
- * persisted run state into nodeStatuses. Terminal snapshots fire the
- * configured completion callbacks with idempotency so a delayed SSE
- * terminal event in the same render tick doesn't double-fire.
+ * Recovery source: `GET /operations/{id}/snapshot` (workflow_runs + nodes). On
+ * adopt() or a 45 s SSE stall the core opens `recovery.active`; this wrapper
+ * enables the snapshot query on it, merges persisted node state, and reports a
+ * terminal snapshot back through `core.reportTerminal()` (so a delayed live SSE
+ * terminal in the same tick can't double-fire).
  */
 
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 
 import { useNodeStatuses } from "#/hooks/useNodeStatuses";
 import {
@@ -21,7 +21,7 @@ import {
   type OperationSnapshot,
   useOperationSnapshot,
 } from "#/hooks/useOperationSnapshot";
-import { useSSEConnection } from "#/hooks/useSSEConnection";
+import { useOperationSSE } from "#/hooks/useOperationSSE";
 import { type NodeStatus, SSE_EVENT, type SSEState } from "#/lib/sse-types";
 
 const DEFAULT_COMPLETION_EVENTS: ReadonlySet<string> = new Set(["complete"]);
@@ -82,22 +82,11 @@ export function useWorkflowSSE(
     errorFallbackMessage = "Operation failed",
   } = options;
 
-  const [operationId, setOperationId] = useState<string | null>(null);
-  const [isRunning, setIsRunning] = useState(false);
   const [domainError, setDomainError] = useState<Error | null>(null);
   const [runAccepted, setRunAccepted] = useState(false);
   const [subProgress, setSubProgress] = useState<SubProgressUpdate | null>(
     null,
   );
-  // True between an adopt() and the first snapshot seed. Keeps the snapshot
-  // query enabled immediately on reconnect (not only after a 45s SSE stall) so
-  // a reloaded page paints the real current state at once.
-  const [seedFromSnapshot, setSeedFromSnapshot] = useState(false);
-
-  // Idempotency guard: terminal events can race between SSE delivery and
-  // the snapshot poll. The first one to fire wins; subsequent terminal
-  // signals are no-ops.
-  const terminalEmittedRef = useRef(false);
 
   const {
     nodeStatuses,
@@ -106,52 +95,37 @@ export function useWorkflowSSE(
     resetNodeStatuses,
   } = useNodeStatuses();
 
-  // Hold the latest user callbacks in refs so the SSE/snapshot effects
-  // don't need to depend on them (and re-trigger if the parent re-renders).
+  // Hold caller config/callbacks in refs so the core's event handler (called
+  // during SSE delivery, after render) reads the latest without re-subscribing.
   const onCompleteRef = useRef(onComplete);
   onCompleteRef.current = onComplete;
   const onErrorRef = useRef(onError);
   onErrorRef.current = onError;
+  const completionEventsRef = useRef(completionEvents);
+  completionEventsRef.current = completionEvents;
+  const errorFallbackRef = useRef(errorFallbackMessage);
+  errorFallbackRef.current = errorFallbackMessage;
 
-  const fireTerminalComplete = useCallback(
-    (eventType: string, data: unknown) => {
-      if (terminalEmittedRef.current) return;
-      terminalEmittedRef.current = true;
-      setIsRunning(false);
-      onCompleteRef.current?.(eventType, data);
+  const core = useOperationSSE({
+    onReset: () => {
+      setDomainError(null);
+      setRunAccepted(false);
+      setSubProgress(null);
+      resetNodeStatuses();
     },
-    [],
-  );
-
-  const fireTerminalError = useCallback((errorMessage: string) => {
-    if (terminalEmittedRef.current) return;
-    terminalEmittedRef.current = true;
-    setDomainError(new Error(errorMessage));
-    setIsRunning(false);
-    onErrorRef.current?.();
-  }, []);
-
-  const {
-    error: sseError,
-    disconnect,
-    state: sseState,
-    lastEventAt,
-  } = useSSEConnection(operationId, {
-    onEvent(eventType, data) {
+    onDomainEvent(eventType, d, reportTerminal) {
       switch (eventType) {
         case SSE_EVENT.RUN_ACCEPTED: {
           setRunAccepted(true);
           return;
         }
         case SSE_EVENT.NODE_STATUS: {
-          handleNodeStatusEvent(data);
+          handleNodeStatusEvent(d);
           return;
         }
         case SSE_EVENT.SUB_PROGRESS: {
-          const d = data as Record<string, unknown>;
           const subOperationId = String(d.operation_id ?? "");
           if (!subOperationId) return;
-
           setSubProgress({
             subOperationId,
             current: (d.current as number) ?? 0,
@@ -164,7 +138,6 @@ export function useWorkflowSSE(
           return;
         }
         case SSE_EVENT.SUB_OPERATION_COMPLETED: {
-          const d = data as Record<string, unknown>;
           const subOperationId = String(d.operation_id ?? "");
           setSubProgress((prev) =>
             prev?.subOperationId === subOperationId ? null : prev,
@@ -172,52 +145,52 @@ export function useWorkflowSSE(
           return;
         }
         case SSE_EVENT.ERROR: {
-          const d = data as Record<string, unknown>;
           // The terminal event carries the real run status (final_status). A
           // `cancelled` run is a graceful, orderly stop (e.g. SIGTERM drain on
           // deploy/autoscale), not a failure — resolve it as a terminal
-          // completion so the UI shows the neutral "Cancelled" badge rather
-          // than a spurious error. failed/crashed remain errors.
+          // completion so the UI shows a neutral "Cancelled" badge rather than a
+          // spurious error. failed/crashed remain errors.
           const finalStatus = d.final_status as string | undefined;
           if (finalStatus === "cancelled") {
-            fireTerminalComplete(finalStatus, data);
-          } else {
-            const errorMessage =
-              (d.error_message as string) ?? errorFallbackMessage;
-            fireTerminalError(errorMessage);
+            if (reportTerminal()) onCompleteRef.current?.("cancelled", d);
+          } else if (reportTerminal()) {
+            setDomainError(
+              new Error(
+                (d.error_message as string) ?? errorFallbackRef.current,
+              ),
+            );
+            onErrorRef.current?.();
           }
-          disconnect();
           return;
         }
         default: {
-          if (completionEvents.has(eventType)) {
-            fireTerminalComplete(eventType, data);
-            disconnect();
+          if (completionEventsRef.current.has(eventType) && reportTerminal()) {
+            onCompleteRef.current?.(eventType, d);
           }
         }
       }
     },
   });
 
-  // REST-based fallback: poll the snapshot endpoint while the SSE
-  // watchdog reports stalled. Stops automatically when SSE recovers.
-  const snapshotQuery = useOperationSnapshot(operationId, {
-    enabled:
-      (sseState.kind === "stalled" || seedFromSnapshot) &&
-      !terminalEmittedRef.current,
+  // REST-based recovery: poll the snapshot endpoint while the core's recovery
+  // gate is open (seed-on-adopt, then stall-only). Stops automatically once a
+  // seed is consumed and SSE is healthy.
+  const { reportTerminal } = core;
+  const { active: recoveryActive, markSeeded } = core.recovery;
+  const snapshotQuery = useOperationSnapshot(core.operationId, {
+    enabled: recoveryActive,
   });
 
   useEffect(() => {
     const snapshot: OperationSnapshot | undefined = snapshotQuery.data;
     if (!snapshot) return;
 
-    // First snapshot after an adopt() is the reconnect seed — once it's merged
-    // we have the real current state, so drop back to stall-only polling.
-    setSeedFromSnapshot(false);
+    // First snapshot after an adopt() is the reconnect seed — once merged we
+    // have the real current state, so drop the gate back to stall-only.
+    markSeeded();
 
     // Reconcile persisted node states into the in-memory map in a single
-    // setState call — keeps the pipeline strip in sync after a stall
-    // without paying N intermediate Map allocations.
+    // setState call — no N intermediate Map allocations.
     const totalNodes = snapshot.nodes.length;
     mergeNodeStatusEvents(
       snapshot.nodes.map((node) => ({
@@ -234,72 +207,34 @@ export function useWorkflowSSE(
     );
 
     if (isTerminalSnapshot(snapshot)) {
-      // Sweeper-marked runs surface here when the SSE terminal event was
-      // lost: the heartbeat sweeper marks a silent row "crashed" server-side
-      // after the stale threshold. "failed" (logic error) resolves to a
-      // terminal error. "cancelled" is an orderly stop, not a failure, so it
-      // resolves as a terminal completion (neutral badge) — matching the live
-      // ERROR path above.
+      // Sweeper-marked runs surface here when the SSE terminal event was lost.
+      // "failed"/"crashed" resolve to a terminal error; "cancelled" is an
+      // orderly stop (neutral badge) — matching the live ERROR path above.
       if (snapshot.status === "failed" || snapshot.status === "crashed") {
-        fireTerminalError(snapshot.error_message ?? errorFallbackMessage);
-      } else {
-        fireTerminalComplete(snapshot.status, snapshot);
+        if (reportTerminal()) {
+          setDomainError(
+            new Error(snapshot.error_message ?? errorFallbackRef.current),
+          );
+          onErrorRef.current?.();
+        }
+      } else if (reportTerminal()) {
+        onCompleteRef.current?.(snapshot.status, snapshot);
       }
-      disconnect();
     }
-  }, [
-    snapshotQuery.data,
-    mergeNodeStatusEvents,
-    fireTerminalComplete,
-    fireTerminalError,
-    disconnect,
-    errorFallbackMessage,
-  ]);
-
-  const begin = useCallback(
-    (opId: string, seed: boolean) => {
-      setDomainError(null);
-      resetNodeStatuses();
-      setRunAccepted(false);
-      setSubProgress(null);
-      setSeedFromSnapshot(seed);
-      terminalEmittedRef.current = false;
-      setOperationId(opId);
-      setIsRunning(true);
-    },
-    [resetNodeStatuses],
-  );
-
-  // Fresh run started in this tab — no seed needed; SSE delivers from frame one.
-  const start = useCallback((opId: string) => begin(opId, false), [begin]);
-
-  // Re-attach to a run already in flight — seed current state from the snapshot.
-  const adopt = useCallback((opId: string) => begin(opId, true), [begin]);
-
-  const reset = useCallback(() => {
-    disconnect();
-    setDomainError(null);
-    resetNodeStatuses();
-    setRunAccepted(false);
-    setSubProgress(null);
-    setSeedFromSnapshot(false);
-    terminalEmittedRef.current = false;
-    setOperationId(null);
-    setIsRunning(false);
-  }, [disconnect, resetNodeStatuses]);
+  }, [snapshotQuery.data, mergeNodeStatusEvents, reportTerminal, markSeeded]);
 
   return {
-    operationId,
-    isRunning,
+    operationId: core.operationId,
+    isRunning: core.isRunning,
     nodeStatuses,
     runAccepted,
     subProgress,
-    error: domainError ?? sseError,
-    sseState,
-    lastEventAt,
-    start,
-    adopt,
-    reset,
-    disconnect,
+    error: domainError ?? core.error,
+    sseState: core.sseState,
+    lastEventAt: core.lastEventAt,
+    start: core.start,
+    adopt: core.adopt,
+    reset: core.reset,
+    disconnect: core.disconnect,
   };
 }

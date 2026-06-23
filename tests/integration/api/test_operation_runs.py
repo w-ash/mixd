@@ -24,6 +24,7 @@ async def _seed_run(
     counts: dict | None = None,
     issues: list | None = None,
     operation_id: str | None = None,
+    request_params: dict | None = None,
 ) -> OperationRun:
     """Persist one OperationRun row and return the saved domain entity."""
     run = make_operation_run(
@@ -34,6 +35,7 @@ async def _seed_run(
         counts=counts,
         issues=issues,
         operation_id=operation_id,
+        request_params=request_params if request_params is not None else {},
     )
 
     async def _do(uow):
@@ -206,3 +208,109 @@ class TestGetOperationRun:
         # alice's run is not visible to it.
         response = await client.get(f"/api/v1/operation-runs/{run.id}")
         assert response.status_code == 404
+
+
+class TestRetryFailed:
+    """POST /api/v1/operation-runs/{run_id}/retry-failed."""
+
+    @staticmethod
+    def _failed_import_run(**overrides):
+        """An import run with two failed playlists, ready to retry."""
+        overrides.setdefault("status", "error")
+        return _seed_run(
+            operation_type="import_connector_playlists",
+            issues=[
+                {"connector_playlist_identifier": "plA", "message": "boom"},
+                {"connector_playlist_identifier": "plC", "message": "boom"},
+            ],
+            request_params={"connector_name": "spotify", "sync_direction": "pull"},
+            **overrides,
+        )
+
+    async def test_missing_run_returns_404(self, client: httpx.AsyncClient) -> None:
+        from uuid import uuid7
+
+        response = await client.post(f"/api/v1/operation-runs/{uuid7()}/retry-failed")
+        assert response.status_code == 404
+
+    async def test_still_running_returns_409(self, client: httpx.AsyncClient) -> None:
+        run = await self._failed_import_run(status="running")
+        response = await client.post(f"/api/v1/operation-runs/{run.id}/retry-failed")
+        assert response.status_code == 409
+
+    async def test_no_failed_items_returns_409(self, client: httpx.AsyncClient) -> None:
+        run = await _seed_run(
+            operation_type="import_connector_playlists",
+            status="error",
+            issues=[],
+            request_params={"connector_name": "spotify", "sync_direction": "pull"},
+        )
+        response = await client.post(f"/api/v1/operation-runs/{run.id}/retry-failed")
+        assert response.status_code == 409
+
+    async def test_non_import_type_returns_409(self, client: httpx.AsyncClient) -> None:
+        run = await _seed_run(
+            operation_type="import_lastfm_history",
+            status="error",
+            issues=[{"connector_playlist_identifier": "plA", "message": "boom"}],
+            request_params={"connector_name": "spotify", "sync_direction": "pull"},
+        )
+        response = await client.post(f"/api/v1/operation-runs/{run.id}/retry-failed")
+        assert response.status_code == 409
+
+    async def test_happy_path_returns_202(self, client: httpx.AsyncClient) -> None:
+        """A failed import run with stored params + failed ids is retryable.
+
+        The conftest no-ops the background spawner, so this exercises the
+        validation + 202 contract without running the real import.
+        """
+        run = await self._failed_import_run()
+        response = await client.post(f"/api/v1/operation-runs/{run.id}/retry-failed")
+        assert response.status_code == 202
+        body = response.json()
+        assert isinstance(body.get("operation_id"), str)
+        assert body["operation_id"]
+
+    async def test_reinvokes_use_case_with_failed_subset_and_auth_owner(
+        self, client: httpx.AsyncClient
+    ) -> None:
+        """The retry rebuilds the call from the run: only failed ids, stored
+        connector + direction, and the owner from auth (never stored data)."""
+        from types import SimpleNamespace
+        from unittest.mock import AsyncMock, patch
+        from uuid import uuid7
+
+        from src.domain.entities.playlist_link import SyncDirection
+        import src.interface.api.routes.operation_runs as ops_route
+        from src.interface.api.schemas.imports import OperationStartedResponse
+
+        run = await self._failed_import_run()
+        mock_import = AsyncMock(return_value=object())
+
+        async def fake_launch(*, coro_factory, **_kwargs) -> OperationStartedResponse:
+            await coro_factory(SimpleNamespace(operation_id="op-new", run_id=uuid7()))
+            return OperationStartedResponse(operation_id="op-new", run_id="run-new")
+
+        with (
+            patch.object(
+                ops_route,
+                "run_import_connector_playlists_as_canonical",
+                new=mock_import,
+            ),
+            patch.object(ops_route, "to_operation_result", new=lambda r: r),
+            patch.object(ops_route, "launch_sse_operation", new=fake_launch),
+        ):
+            response = await client.post(
+                f"/api/v1/operation-runs/{run.id}/retry-failed"
+            )
+
+        assert response.status_code == 202
+        mock_import.assert_awaited_once()
+        kwargs = mock_import.await_args.kwargs
+        assert kwargs["user_id"] == "default"
+        assert kwargs["connector_name"] == "spotify"
+        assert kwargs["sync_direction"] == SyncDirection.PULL
+        assert [str(x) for x in kwargs["connector_playlist_identifiers"]] == [
+            "plA",
+            "plC",
+        ]

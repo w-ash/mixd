@@ -8,7 +8,12 @@ import type {
 } from "#/api/generated/model";
 import { makePlaylistDetail, makePlaylistEntries } from "#/test/factories";
 import { server } from "#/test/setup";
-import { renderWithProviders, screen, waitFor } from "#/test/test-utils";
+import {
+  renderWithProviders,
+  screen,
+  userEvent,
+  waitFor,
+} from "#/test/test-utils";
 
 import { PlaylistDetail } from "./PlaylistDetail";
 
@@ -30,6 +35,12 @@ function setupHandlers(
         },
         { status: 200 },
       );
+    }),
+    // Deterministic empty links — avoids the faker default rendering an
+    // UnmatchedBadge tooltip (which would need a TooltipProvider the test
+    // harness doesn't mount).
+    http.get("*/api/v1/playlists/:playlistId/links", () => {
+      return HttpResponse.json([], { status: 200 });
     }),
   );
 }
@@ -227,5 +238,91 @@ describe("PlaylistDetail", () => {
     // No duration stat when there are no entries
     expect(screen.queryByText(/min/)).not.toBeInTheDocument();
     expect(screen.queryByText(/hr/)).not.toBeInTheDocument();
+  });
+});
+
+describe("PlaylistDetail — unresolved tracks + repair", () => {
+  function entriesWithUnresolved(): PlaylistEntrySchema[] {
+    return [
+      {
+        position: 1,
+        track: {
+          id: "019d0000-0000-7000-8000-000000000101",
+          title: "Resolved Song",
+          artists: [{ name: "Artist A" }],
+          album: null,
+          duration_ms: 180_000,
+        },
+        added_at: null,
+        is_resolved: true,
+      },
+      {
+        position: 2,
+        track: {
+          id: "019d0000-0000-7000-8000-000000000102",
+          title: "Mystery Song",
+          artists: [{ name: "Artist B" }],
+          album: null,
+          duration_ms: null,
+        },
+        added_at: null,
+        is_resolved: false,
+      },
+    ];
+  }
+
+  it("surfaces unresolved entries with a roll-up repair badge", async () => {
+    setupHandlers(
+      makePlaylistDetail({ track_count: 2 }),
+      entriesWithUnresolved(),
+    );
+    renderPlaylistDetail();
+
+    expect(
+      await screen.findByRole("button", { name: /Repair unresolved \(1\)/ }),
+    ).toBeInTheDocument();
+    // The unmatched entry is first-class (visible) with an explicit status.
+    // ResponsiveTable renders both a card and a table copy, so allow duplicates.
+    expect(screen.getAllByText("Mystery Song").length).toBeGreaterThan(0);
+    expect(screen.getAllByText("Unresolved").length).toBeGreaterThan(0);
+  });
+
+  it("hides the repair badge when every entry is resolved", async () => {
+    const entries = entriesWithUnresolved().map((e) => ({
+      ...e,
+      is_resolved: true,
+    }));
+    setupHandlers(makePlaylistDetail({ track_count: 2 }), entries);
+    renderPlaylistDetail();
+
+    await screen.findAllByText("Resolved Song");
+    expect(
+      screen.queryByRole("button", { name: /Repair unresolved/ }),
+    ).not.toBeInTheDocument();
+  });
+
+  it("posts to the repair endpoint when the badge is clicked", async () => {
+    let repairCalled = false;
+    setupHandlers(
+      makePlaylistDetail({ track_count: 2 }),
+      entriesWithUnresolved(),
+    );
+    server.use(
+      http.post("*/api/v1/playlists/:playlistId/repair", () => {
+        repairCalled = true;
+        return HttpResponse.json(
+          { repaired: 1, still_unresolved: 0 },
+          { status: 200 },
+        );
+      }),
+    );
+    renderPlaylistDetail();
+
+    const btn = await screen.findByRole("button", {
+      name: /Repair unresolved \(1\)/,
+    });
+    await userEvent.click(btn);
+
+    await waitFor(() => expect(repairCalled).toBe(true));
   });
 });

@@ -6,16 +6,20 @@
  * OpenAPI spec version: 0.8.6
  */
 import {
+  useMutation,
   useQuery
 } from '@tanstack/react-query';
 import type {
   DataTag,
   DefinedInitialDataOptions,
   DefinedUseQueryResult,
+  MutationFunction,
   QueryClient,
   QueryFunction,
   QueryKey,
   UndefinedInitialDataOptions,
+  UseMutationOptions,
+  UseMutationResult,
   UseQueryOptions,
   UseQueryResult
 } from '@tanstack/react-query';
@@ -24,7 +28,8 @@ import type {
   HTTPValidationError,
   ListOperationRunsApiV1OperationRunsGetParams,
   OperationRunDetailSchema,
-  OperationRunListResponse
+  OperationRunListResponse,
+  OperationStartedResponse
 } from '../model';
 
 import { customFetch } from '../../client';
@@ -290,3 +295,99 @@ export function useGetOperationRunApiV1OperationRunsRunIdGet<TData = Awaited<Ret
 
 
 
+export type retryFailedOperationApiV1OperationRunsRunIdRetryFailedPostResponse202 = {
+  data: OperationStartedResponse
+  status: 202
+}
+
+export type retryFailedOperationApiV1OperationRunsRunIdRetryFailedPostResponse422 = {
+  data: HTTPValidationError
+  status: 422
+}
+
+export type retryFailedOperationApiV1OperationRunsRunIdRetryFailedPostResponseSuccess = (retryFailedOperationApiV1OperationRunsRunIdRetryFailedPostResponse202) & {
+  headers: Headers;
+};
+export type retryFailedOperationApiV1OperationRunsRunIdRetryFailedPostResponseError = (retryFailedOperationApiV1OperationRunsRunIdRetryFailedPostResponse422) & {
+  headers: Headers;
+};
+
+export type retryFailedOperationApiV1OperationRunsRunIdRetryFailedPostResponse = (retryFailedOperationApiV1OperationRunsRunIdRetryFailedPostResponseSuccess | retryFailedOperationApiV1OperationRunsRunIdRetryFailedPostResponseError)
+
+export const getRetryFailedOperationApiV1OperationRunsRunIdRetryFailedPostUrl = (runId: string,) => {
+
+
+
+
+  return `/api/v1/operation-runs/${runId}/retry-failed`
+}
+
+/**
+ * Re-run only the failed items of a terminal import run.
+ *
+ * Server-reconstructed: the failed connector-playlist ids come from the run's
+ * ``issues`` and the connector + direction from its ``request_params``. The
+ * owner is taken from auth, never from stored data. Re-invokes the *same*
+ * import use case with the failed subset as a fresh ``OperationRun`` — no new
+ * orchestration. Returns 409 when there's nothing retryable (so the caller can
+ * fall back to "View log").
+ * @summary Retry Failed Operation
+ */
+export const retryFailedOperationApiV1OperationRunsRunIdRetryFailedPost = async (runId: string, options?: RequestInit): Promise<retryFailedOperationApiV1OperationRunsRunIdRetryFailedPostResponse> => {
+
+  return customFetch<retryFailedOperationApiV1OperationRunsRunIdRetryFailedPostResponse>(getRetryFailedOperationApiV1OperationRunsRunIdRetryFailedPostUrl(runId),
+  {
+    ...options,
+    method: 'POST'
+
+
+  }
+);}
+
+
+
+
+export const getRetryFailedOperationApiV1OperationRunsRunIdRetryFailedPostMutationOptions = <TError = HTTPValidationError,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof retryFailedOperationApiV1OperationRunsRunIdRetryFailedPost>>, TError,{runId: string}, TContext>, request?: SecondParameter<typeof customFetch>}
+): UseMutationOptions<Awaited<ReturnType<typeof retryFailedOperationApiV1OperationRunsRunIdRetryFailedPost>>, TError,{runId: string}, TContext> => {
+
+const mutationKey = ['retryFailedOperationApiV1OperationRunsRunIdRetryFailedPost'];
+const {mutation: mutationOptions, request: requestOptions} = options ?
+      options.mutation && 'mutationKey' in options.mutation && options.mutation.mutationKey ?
+      options
+      : {...options, mutation: {...options.mutation, mutationKey}}
+      : {mutation: { mutationKey, }, request: undefined};
+
+
+
+
+      const mutationFn: MutationFunction<Awaited<ReturnType<typeof retryFailedOperationApiV1OperationRunsRunIdRetryFailedPost>>, {runId: string}> = (props) => {
+          const {runId} = props ?? {};
+
+          return  retryFailedOperationApiV1OperationRunsRunIdRetryFailedPost(runId,requestOptions)
+        }
+
+
+
+
+
+
+  return  { mutationFn, ...mutationOptions }}
+
+    export type RetryFailedOperationApiV1OperationRunsRunIdRetryFailedPostMutationResult = NonNullable<Awaited<ReturnType<typeof retryFailedOperationApiV1OperationRunsRunIdRetryFailedPost>>>
+
+    export type RetryFailedOperationApiV1OperationRunsRunIdRetryFailedPostMutationError = HTTPValidationError
+
+    /**
+ * @summary Retry Failed Operation
+ */
+export const useRetryFailedOperationApiV1OperationRunsRunIdRetryFailedPost = <TError = HTTPValidationError,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof retryFailedOperationApiV1OperationRunsRunIdRetryFailedPost>>, TError,{runId: string}, TContext>, request?: SecondParameter<typeof customFetch>}
+ , queryClient?: QueryClient): UseMutationResult<
+        Awaited<ReturnType<typeof retryFailedOperationApiV1OperationRunsRunIdRetryFailedPost>>,
+        TError,
+        {runId: string},
+        TContext
+      > => {
+      return useMutation(getRetryFailedOperationApiV1OperationRunsRunIdRetryFailedPostMutationOptions(options), queryClient);
+    }

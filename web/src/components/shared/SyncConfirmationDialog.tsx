@@ -1,13 +1,22 @@
 import { AlertTriangle, Info, Loader2 } from "lucide-react";
-import { useState } from "react";
+import { useEffect, useState } from "react";
 
-import type { SyncPreviewResponse } from "#/api/generated/model";
-import { usePreviewPlaylistSyncApiV1PlaylistsPlaylistIdLinksLinkIdSyncPreviewGet } from "#/api/generated/playlists/playlists";
+import { ApiError } from "#/api/client";
+import type {
+  OperationStartedResponse,
+  SyncPreviewResponse,
+} from "#/api/generated/model";
+import {
+  usePreviewPlaylistSyncApiV1PlaylistsPlaylistIdLinksLinkIdSyncPreviewGet,
+  useSyncPlaylistLinkApiV1PlaylistsPlaylistIdLinksLinkIdSyncPost,
+} from "#/api/generated/playlists/playlists";
 import { ConfirmationDialog } from "#/components/shared/ConfirmationDialog";
 import { ConnectorIcon } from "#/components/shared/ConnectorIcon";
-import { Button } from "#/components/ui/button";
+import { DirectionChooser } from "#/components/shared/DirectionChooser";
 import { getConnectorLabel } from "#/lib/connector-brand";
 import { pluralize } from "#/lib/pluralize";
+import type { SyncDirection } from "#/lib/sync-direction";
+import { formatApiError, toasts } from "#/lib/toasts";
 
 interface SyncConfirmationDialogProps {
   open: boolean;
@@ -17,8 +26,15 @@ interface SyncConfirmationDialogProps {
   connectorName: string;
   playlistName: string;
   currentDirection: string;
-  isPending: boolean;
-  onConfirm: (directionOverride?: string) => void;
+  /** Called with the new operation_id once a sync is accepted (202). */
+  onStarted: (operationId: string) => void;
+}
+
+/** Counts driving the destructive gate — from the preview, or refreshed by a
+ *  stale-token 409 when the remote moved since the preview. */
+interface DestructiveCounts {
+  removals: number;
+  total: number;
 }
 
 function PreviewContent({ preview }: { preview: SyncPreviewResponse }) {
@@ -56,7 +72,7 @@ function PreviewContent({ preview }: { preview: SyncPreviewResponse }) {
         )}
         {preview.tracks_unchanged > 0 && (
           <p className="text-text-faint">
-            {preview.tracks_unchanged} tracks unchanged
+            {preview.tracks_unchanged} unchanged tracks hidden
           </p>
         )}
       </div>
@@ -97,11 +113,10 @@ function FirstSyncContent({
 }
 
 /**
- * Confirmation dialog for playlist sync operations.
- *
- * Fetches a preview of what the sync would change, displays it,
- * and lets the user confirm or cancel. For never-synced links,
- * shows a first-sync message instead of diff counts.
+ * Confirmation dialog for a playlist sync. Fetches a preview of the diff, gates
+ * a destructive sync behind a real `confirm_token` round-trip (the engine flags
+ * destructiveness; a stale token re-prompts via 409 with fresh counts), and
+ * owns the sync mutation so the dialog can stay open through a 409 or an error.
  */
 export function SyncConfirmationDialog({
   open,
@@ -111,13 +126,21 @@ export function SyncConfirmationDialog({
   connectorName,
   playlistName,
   currentDirection,
-  isPending,
-  onConfirm,
+  onStarted,
 }: SyncConfirmationDialogProps) {
   const [directionOverride, setDirectionOverride] = useState<string | null>(
     null,
   );
+  // Token sent with the sync POST: seeded from the preview, refreshed by a 409.
+  const [confirmToken, setConfirmToken] = useState<string | undefined>();
+  // Fresh counts from a stale-token 409 (remote moved since the preview).
+  const [staleCounts, setStaleCounts] = useState<DestructiveCounts | null>(
+    null,
+  );
+  const [syncError, setSyncError] = useState<string | null>(null);
+
   const effectiveDirection = directionOverride ?? currentDirection;
+  const label = getConnectorLabel(connectorName);
 
   const {
     data: previewData,
@@ -127,24 +150,78 @@ export function SyncConfirmationDialog({
     playlistId,
     linkId,
     { direction_override: directionOverride ?? undefined },
-    {
-      query: {
-        enabled: open,
-        staleTime: 30_000,
-      },
-    },
+    { query: { enabled: open, staleTime: 30_000 } },
   );
 
   const preview: SyncPreviewResponse | undefined =
     previewData?.status === 200 ? previewData.data : undefined;
 
-  const label = getConnectorLabel(connectorName);
+  // Seed the confirm token from the preview; a new direction → new preview → new
+  // token. A 409 overwrites this with the server's fresh token.
+  useEffect(() => {
+    if (preview?.confirm_token) setConfirmToken(preview.confirm_token);
+  }, [preview?.confirm_token]);
+
+  const reset = () => {
+    setDirectionOverride(null);
+    setConfirmToken(undefined);
+    setStaleCounts(null);
+    setSyncError(null);
+  };
+
+  const syncMut =
+    useSyncPlaylistLinkApiV1PlaylistsPlaylistIdLinksLinkIdSyncPost({
+      mutation: {
+        onSuccess: (res) => {
+          if (res.status !== 202) return;
+          onStarted((res.data as OperationStartedResponse).operation_id);
+          toasts.success(successMessage);
+          onOpenChange(false);
+          reset();
+        },
+        onError: (err) => {
+          // Stale/absent token on a destructive sync: re-prompt with fresh
+          // counts + token rather than failing. The dialog stays open.
+          if (
+            err instanceof ApiError &&
+            err.status === 409 &&
+            err.code === "CONFIRMATION_REQUIRED"
+          ) {
+            const d = err.details ?? {};
+            if (d.confirm_token) setConfirmToken(d.confirm_token);
+            setStaleCounts({
+              removals: Number(d.removals ?? 0),
+              total: Number(d.total ?? 0),
+            });
+            setSyncError(
+              "The playlist changed since the preview — review the updated changes and confirm again.",
+            );
+            return;
+          }
+          // Any other error keeps the dialog up so the user sees it (BK-9).
+          setSyncError(formatApiError(err).description ?? "Sync failed");
+        },
+      },
+    });
+
   const hasComparisonData = preview?.has_comparison_data !== false;
-  const isSafetyFlagged = preview?.safety_flagged === true;
+  const isSafetyFlagged =
+    preview?.safety_flagged === true || staleCounts !== null;
   const hasChanges =
     preview &&
     hasComparisonData &&
     (preview.tracks_to_add > 0 || preview.tracks_to_remove > 0);
+
+  const removals =
+    staleCounts?.removals ??
+    preview?.safety_removals ??
+    preview?.tracks_to_remove ??
+    0;
+  const total = staleCounts?.total ?? preview?.safety_total ?? 0;
+
+  const successMessage = isSafetyFlagged
+    ? `Removing ${pluralize(removals, "track")}…`
+    : "Sync started";
 
   const confirmLabel = (() => {
     if (!preview) return "Sync";
@@ -153,12 +230,12 @@ export function SyncConfirmationDialog({
         ? `Sync to ${label}`
         : `Sync from ${label}`;
     }
+    if (isSafetyFlagged) return `Remove ${pluralize(removals, "track")}`;
     if (!hasChanges) return "Already in sync";
     const count = preview.tracks_to_add + preview.tracks_to_remove;
-    const tracksLabel = pluralize(count, "track");
     return effectiveDirection === "push"
-      ? `Sync ${tracksLabel} to ${label}`
-      : `Sync ${tracksLabel} from ${label}`;
+      ? `Sync ${pluralize(count, "track")} to ${label}`
+      : `Sync ${pluralize(count, "track")} from ${label}`;
   })();
 
   return (
@@ -166,46 +243,34 @@ export function SyncConfirmationDialog({
       open={open}
       onOpenChange={(isOpen) => {
         onOpenChange(isOpen);
-        if (!isOpen) setDirectionOverride(null);
+        if (!isOpen) reset();
       }}
-      title="Sync Preview"
+      title={isSafetyFlagged ? "Remove tracks" : "Sync Preview"}
       description={`Review what will change before syncing ${playlistName}.`}
       confirmLabel={confirmLabel}
       destructive={isSafetyFlagged}
-      isPending={isPending}
+      isPending={syncMut.isPending}
       disabled={
         previewLoading || (hasComparisonData && !hasChanges && !previewError)
       }
-      onConfirm={() => onConfirm(directionOverride ?? undefined)}
+      onConfirm={() => {
+        setSyncError(null);
+        syncMut.mutate({
+          playlistId,
+          linkId,
+          data: {
+            direction_override: directionOverride ?? undefined,
+            confirm_token: confirmToken,
+          },
+        });
+      }}
     >
-      {/* Direction toggle */}
-      <div className="flex items-center gap-2 text-sm">
-        <span className="text-text-muted">Direction:</span>
-        <div className="flex gap-1">
-          <Button
-            variant={effectiveDirection === "push" ? "default" : "outline"}
-            size="sm"
-            className="h-7 text-xs"
-            onClick={() =>
-              setDirectionOverride(currentDirection === "push" ? null : "push")
-            }
-          >
-            Local &rarr; {label}
-          </Button>
-          <Button
-            variant={effectiveDirection === "pull" ? "default" : "outline"}
-            size="sm"
-            className="h-7 text-xs"
-            onClick={() =>
-              setDirectionOverride(currentDirection === "pull" ? null : "pull")
-            }
-          >
-            {label} &rarr; Local
-          </Button>
-        </div>
-      </div>
+      <DirectionChooser
+        value={effectiveDirection as SyncDirection}
+        onChange={(d) => setDirectionOverride(d)}
+        connectorLabel={label}
+      />
 
-      {/* Preview content */}
       {previewLoading && (
         <div className="flex items-center justify-center gap-2 py-6 text-text-muted">
           <Loader2 className="size-4 animate-spin" />
@@ -225,18 +290,16 @@ export function SyncConfirmationDialog({
           <>
             <PreviewContent preview={preview} />
             {isSafetyFlagged && (
-              <div className="flex items-start gap-2 rounded-md border border-red-500/30 bg-red-500/10 p-3 text-sm text-red-400">
+              <div className="flex items-start gap-2 rounded-md border-l-2 border-red-500 bg-red-500/10 p-4 text-sm text-red-400">
                 <AlertTriangle className="mt-0.5 size-4 shrink-0" />
                 <div>
-                  <p className="font-medium">Destructive sync detected</p>
-                  <p className="mt-1 text-red-400/80">
-                    {preview.safety_message}
+                  <p className="font-medium text-text">
+                    This sync will remove {pluralize(removals, "track")}
+                    {total > 0 ? ` of ${total}` : ""} from "{playlistName}".
                   </p>
                   <p className="mt-1 text-red-400/80">
-                    Direction:{" "}
-                    {effectiveDirection === "push"
-                      ? `Local \u2192 ${label}`
-                      : `${label} \u2192 Local`}
+                    {preview.safety_message ??
+                      "Removing these tracks can't be undone."}
                   </p>
                 </div>
               </div>
@@ -249,6 +312,13 @@ export function SyncConfirmationDialog({
             direction={effectiveDirection}
           />
         ))}
+
+      {syncError && (
+        <div className="flex items-start gap-2 rounded-md bg-amber-500/10 p-3 text-sm text-amber-400">
+          <AlertTriangle className="mt-0.5 size-4 shrink-0" />
+          <span>{syncError}</span>
+        </div>
+      )}
     </ConfirmationDialog>
   );
 }

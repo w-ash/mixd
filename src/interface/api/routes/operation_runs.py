@@ -13,21 +13,35 @@ from uuid import UUID
 from fastapi import APIRouter, Depends, HTTPException, Query
 
 from src.application.runner import execute_use_case
+from src.application.services.progress_broker import get_progress_broker
 from src.application.use_cases.get_operation_run import (
     GetOperationRunCommand,
     GetOperationRunUseCase,
+)
+from src.application.use_cases.import_connector_playlist_as_canonical import (
+    run_import_connector_playlists_as_canonical,
+    to_operation_result,
 )
 from src.application.use_cases.list_operation_runs import (
     ListOperationRunsCommand,
     ListOperationRunsUseCase,
 )
 from src.domain.entities.operation_run import OperationStatus
+from src.domain.entities.playlist_link import SyncDirection
+from src.domain.entities.shared import ConnectorPlaylistIdentifier
 from src.interface.api.deps import get_current_user_id
+from src.interface.api.schemas.imports import OperationStartedResponse
 from src.interface.api.schemas.operation_runs import (
     OperationRunDetailSchema,
     OperationRunListResponse,
     OperationRunSummarySchema,
 )
+from src.interface.api.services.progress import OperationBoundEmitter
+from src.interface.api.services.sse_operations import launch_sse_operation
+
+# Only import runs carry the connector config + per-playlist issues that make a
+# targeted "retry the failed ones" reconstructable from the audit row alone.
+_RETRYABLE_OPERATION_TYPE = "import_connector_playlists"
 
 router = APIRouter(prefix="/operation-runs", tags=["operation-runs"])
 
@@ -121,4 +135,72 @@ async def get_operation_run(
         status=run.status,
         counts=dict(run.counts),
         issues=list(run.issues),
+    )
+
+
+@router.post("/{run_id}/retry-failed", status_code=202)
+async def retry_failed_operation(
+    run_id: UUID,
+    user_id: Annotated[str, Depends(get_current_user_id)],
+) -> OperationStartedResponse:
+    """Re-run only the failed items of a terminal import run.
+
+    Server-reconstructed: the failed connector-playlist ids come from the run's
+    ``issues`` and the connector + direction from its ``request_params``. The
+    owner is taken from auth, never from stored data. Re-invokes the *same*
+    import use case with the failed subset as a fresh ``OperationRun`` — no new
+    orchestration. Returns 409 when there's nothing retryable (so the caller can
+    fall back to "View log").
+    """
+    command = GetOperationRunCommand(user_id=user_id, run_id=run_id)
+    run = await execute_use_case(
+        lambda uow: GetOperationRunUseCase().execute(command, uow),
+        user_id=user_id,
+    )
+    if run is None:
+        raise HTTPException(status_code=404, detail="Operation run not found")
+    if run.status == "running":
+        raise HTTPException(status_code=409, detail="Operation is still running")
+    if run.operation_type != _RETRYABLE_OPERATION_TYPE:
+        raise HTTPException(
+            status_code=409, detail="This operation type can't be retried"
+        )
+
+    connector_name = run.request_params.get("connector_name")
+    sync_direction = run.request_params.get("sync_direction")
+    failed_ids = [
+        str(issue["connector_playlist_identifier"])
+        for issue in run.issues
+        if issue.get("connector_playlist_identifier")
+    ]
+    if not connector_name or not sync_direction or not failed_ids:
+        raise HTTPException(status_code=409, detail="Nothing to retry for this run")
+
+    connector = str(connector_name)
+    direction = str(sync_direction)
+
+    async def _retry(emitter: OperationBoundEmitter) -> object:
+        result = await run_import_connector_playlists_as_canonical(
+            user_id=user_id,
+            connector_name=connector,
+            connector_playlist_identifiers=[
+                ConnectorPlaylistIdentifier(x) for x in failed_ids
+            ],
+            sync_direction=SyncDirection(direction),
+            progress_emitter=emitter,
+            progress_broker=get_progress_broker(),
+            parent_operation_id=emitter.operation_id,
+            run_id=emitter.run_id,
+        )
+        return to_operation_result(result)
+
+    return await launch_sse_operation(
+        user_id=user_id,
+        operation_type=_RETRYABLE_OPERATION_TYPE,
+        coro_factory=_retry,
+        # Persist config so a retry-of-a-retry stays reconstructable.
+        request_params={
+            "connector_name": connector,
+            "sync_direction": direction,
+        },
     )

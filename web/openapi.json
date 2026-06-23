@@ -3636,6 +3636,50 @@
         }
       }
     },
+    "/api/v1/operation-runs/{run_id}/retry-failed": {
+      "post": {
+        "tags": [
+          "operation-runs"
+        ],
+        "summary": "Retry Failed Operation",
+        "description": "Re-run only the failed items of a terminal import run.\n\nServer-reconstructed: the failed connector-playlist ids come from the run's\n``issues`` and the connector + direction from its ``request_params``. The\nowner is taken from auth, never from stored data. Re-invokes the *same*\nimport use case with the failed subset as a fresh ``OperationRun`` \u2014 no new\norchestration. Returns 409 when there's nothing retryable (so the caller can\nfall back to \"View log\").",
+        "operationId": "retry_failed_operation_api_v1_operation_runs__run_id__retry_failed_post",
+        "parameters": [
+          {
+            "name": "run_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid",
+              "title": "Run Id"
+            }
+          }
+        ],
+        "responses": {
+          "202": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/OperationStartedResponse"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/api/v1/reviews": {
       "get": {
         "tags": [
@@ -5006,11 +5050,6 @@
               "push"
             ],
             "title": "Sync Direction"
-          },
-          "force": {
-            "type": "boolean",
-            "title": "Force",
-            "default": false
           }
         },
         "type": "object",
@@ -5019,7 +5058,7 @@
           "sync_direction"
         ],
         "title": "ImportConnectorPlaylistsRequest",
-        "description": "Body for POST /connectors/{service}/playlists/import.\n\nEach ID is a provider-native playlist ID (not a Mixd UUID). The whole\nbatch shares one ``sync_direction`` \u2014 per-playlist direction overrides\ncan be added later if a workflow demands it.\n\nThe endpoint returns ``OperationStartedResponse``; per-playlist outcomes\n(succeeded / skipped_unchanged / failed with track counts and failure\nmessages) stream as SSE sub-operation events on\n``GET /api/v1/operations/{operation_id}/progress``.\n\nWhen ``force`` is true the import bypasses the \"already linked + cache\nfresh\" short-circuit and re-fetches every requested playlist. Defaults\nto false to preserve API quota on routine re-runs; the web UI exposes\nthis via the per-row \"Force re-fetch\" toggle."
+        "description": "Body for POST /connectors/{service}/playlists/import.\n\nEach ID is a provider-native playlist ID (not a Mixd UUID). The whole\nbatch shares one ``sync_direction`` \u2014 per-playlist direction overrides\ncan be added later if a workflow demands it.\n\nThe endpoint returns ``OperationStartedResponse``; per-playlist outcomes\n(succeeded / skipped_unchanged / failed with track counts and failure\nmessages) stream as SSE sub-operation events on\n``GET /api/v1/operations/{operation_id}/progress``."
       },
       "ImportLastfmHistoryRequest": {
         "properties": {

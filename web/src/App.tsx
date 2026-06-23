@@ -16,6 +16,7 @@ import { PageLayout } from "./components/layout/PageLayout";
 import { Skeleton } from "./components/ui/skeleton";
 import { Toaster } from "./components/ui/sonner";
 import { TooltipProvider } from "./components/ui/tooltip";
+import { OperationsProvider } from "./contexts/OperationsContext";
 import { WorkflowExecutionProvider } from "./contexts/WorkflowExecutionContext";
 
 const Login = lazy(() =>
@@ -124,167 +125,169 @@ export function App() {
         <WorkflowExecutionProvider>
           <BrowserRouter>
             <AuthProvider>
-              <Routes>
-                {authEnabled && (
-                  <>
-                    <Route
-                      path="login"
-                      element={<Navigate to="/auth/sign-in" replace />}
-                    />
-                    <Route
-                      path="auth/:pathname"
-                      element={
-                        <Suspense fallback={<PageSkeleton />}>
-                          <Login />
-                        </Suspense>
-                      }
-                    />
-                  </>
-                )}
-                <Route
-                  element={
-                    authEnabled ? (
-                      <AuthGuard>
-                        <PageLayout />
-                      </AuthGuard>
-                    ) : (
-                      <PageLayout />
-                    )
-                  }
-                >
-                  <Route
-                    index
-                    element={
-                      <Suspense fallback={<PageSkeleton />}>
-                        <Dashboard />
-                      </Suspense>
-                    }
-                  />
-                  <Route
-                    path="imports"
-                    element={<Navigate to="/settings/sync" replace />}
-                  />
-                  <Route
-                    path="playlists"
-                    element={
-                      <Suspense fallback={<PageSkeleton />}>
-                        <Playlists />
-                      </Suspense>
-                    }
-                  />
-                  <Route
-                    path="playlists/:id"
-                    element={
-                      <Suspense fallback={<PageSkeleton />}>
-                        <PlaylistDetail />
-                      </Suspense>
-                    }
-                  />
-                  <Route
-                    path="workflows"
-                    element={
-                      <Suspense fallback={<PageSkeleton />}>
-                        <Workflows />
-                      </Suspense>
-                    }
-                  />
-                  <Route
-                    path="workflows/new"
-                    element={
-                      <Suspense fallback={<PageSkeleton />}>
-                        <WorkflowEditor />
-                      </Suspense>
-                    }
-                  />
-                  <Route
-                    path="workflows/:id/edit"
-                    element={
-                      <Suspense fallback={<PageSkeleton />}>
-                        <WorkflowEditor />
-                      </Suspense>
-                    }
-                  />
-                  <Route
-                    path="workflows/:id"
-                    element={
-                      <Suspense fallback={<PageSkeleton />}>
-                        <WorkflowDetail />
-                      </Suspense>
-                    }
-                  />
-                  <Route
-                    path="workflows/:id/runs/:runId"
-                    element={
-                      <Suspense fallback={<PageSkeleton />}>
-                        <WorkflowRunDetail />
-                      </Suspense>
-                    }
-                  />
-                  <Route
-                    path="library"
-                    element={
-                      <Suspense fallback={<PageSkeleton />}>
-                        <Library />
-                      </Suspense>
-                    }
-                  />
-                  <Route
-                    path="library/:id"
-                    element={
-                      <Suspense fallback={<PageSkeleton />}>
-                        <TrackDetail />
-                      </Suspense>
-                    }
-                  />
-                  <Route
-                    path="settings"
-                    element={<Navigate to="integrations" replace />}
-                  />
-                  <Route
-                    path="settings/integrations"
-                    element={
-                      <Suspense fallback={<PageSkeleton />}>
-                        <Integrations />
-                      </Suspense>
-                    }
-                  />
-                  <Route
-                    path="settings/sync"
-                    element={
-                      <Suspense fallback={<PageSkeleton />}>
-                        <Sync />
-                      </Suspense>
-                    }
-                  />
-                  <Route
-                    path="settings/tags"
-                    element={
-                      <Suspense fallback={<PageSkeleton />}>
-                        <Tags />
-                      </Suspense>
-                    }
-                  />
-                  <Route
-                    path="settings/imports"
-                    element={
-                      <Suspense fallback={<PageSkeleton />}>
-                        <ImportHistoryPage />
-                      </Suspense>
-                    }
-                  />
+              <OperationsProvider>
+                <Routes>
                   {authEnabled && (
+                    <>
+                      <Route
+                        path="login"
+                        element={<Navigate to="/auth/sign-in" replace />}
+                      />
+                      <Route
+                        path="auth/:pathname"
+                        element={
+                          <Suspense fallback={<PageSkeleton />}>
+                            <Login />
+                          </Suspense>
+                        }
+                      />
+                    </>
+                  )}
+                  <Route
+                    element={
+                      authEnabled ? (
+                        <AuthGuard>
+                          <PageLayout />
+                        </AuthGuard>
+                      ) : (
+                        <PageLayout />
+                      )
+                    }
+                  >
                     <Route
-                      path="settings/account"
+                      index
                       element={
                         <Suspense fallback={<PageSkeleton />}>
-                          <Account />
+                          <Dashboard />
                         </Suspense>
                       }
                     />
-                  )}
-                  <Route path="*" element={<Navigate to="/" replace />} />
-                </Route>
-              </Routes>
+                    <Route
+                      path="imports"
+                      element={<Navigate to="/settings/sync" replace />}
+                    />
+                    <Route
+                      path="playlists"
+                      element={
+                        <Suspense fallback={<PageSkeleton />}>
+                          <Playlists />
+                        </Suspense>
+                      }
+                    />
+                    <Route
+                      path="playlists/:id"
+                      element={
+                        <Suspense fallback={<PageSkeleton />}>
+                          <PlaylistDetail />
+                        </Suspense>
+                      }
+                    />
+                    <Route
+                      path="workflows"
+                      element={
+                        <Suspense fallback={<PageSkeleton />}>
+                          <Workflows />
+                        </Suspense>
+                      }
+                    />
+                    <Route
+                      path="workflows/new"
+                      element={
+                        <Suspense fallback={<PageSkeleton />}>
+                          <WorkflowEditor />
+                        </Suspense>
+                      }
+                    />
+                    <Route
+                      path="workflows/:id/edit"
+                      element={
+                        <Suspense fallback={<PageSkeleton />}>
+                          <WorkflowEditor />
+                        </Suspense>
+                      }
+                    />
+                    <Route
+                      path="workflows/:id"
+                      element={
+                        <Suspense fallback={<PageSkeleton />}>
+                          <WorkflowDetail />
+                        </Suspense>
+                      }
+                    />
+                    <Route
+                      path="workflows/:id/runs/:runId"
+                      element={
+                        <Suspense fallback={<PageSkeleton />}>
+                          <WorkflowRunDetail />
+                        </Suspense>
+                      }
+                    />
+                    <Route
+                      path="library"
+                      element={
+                        <Suspense fallback={<PageSkeleton />}>
+                          <Library />
+                        </Suspense>
+                      }
+                    />
+                    <Route
+                      path="library/:id"
+                      element={
+                        <Suspense fallback={<PageSkeleton />}>
+                          <TrackDetail />
+                        </Suspense>
+                      }
+                    />
+                    <Route
+                      path="settings"
+                      element={<Navigate to="integrations" replace />}
+                    />
+                    <Route
+                      path="settings/integrations"
+                      element={
+                        <Suspense fallback={<PageSkeleton />}>
+                          <Integrations />
+                        </Suspense>
+                      }
+                    />
+                    <Route
+                      path="settings/sync"
+                      element={
+                        <Suspense fallback={<PageSkeleton />}>
+                          <Sync />
+                        </Suspense>
+                      }
+                    />
+                    <Route
+                      path="settings/tags"
+                      element={
+                        <Suspense fallback={<PageSkeleton />}>
+                          <Tags />
+                        </Suspense>
+                      }
+                    />
+                    <Route
+                      path="settings/imports"
+                      element={
+                        <Suspense fallback={<PageSkeleton />}>
+                          <ImportHistoryPage />
+                        </Suspense>
+                      }
+                    />
+                    {authEnabled && (
+                      <Route
+                        path="settings/account"
+                        element={
+                          <Suspense fallback={<PageSkeleton />}>
+                            <Account />
+                          </Suspense>
+                        }
+                      />
+                    )}
+                    <Route path="*" element={<Navigate to="/" replace />} />
+                  </Route>
+                </Routes>
+              </OperationsProvider>
               <Toaster />
             </AuthProvider>
           </BrowserRouter>

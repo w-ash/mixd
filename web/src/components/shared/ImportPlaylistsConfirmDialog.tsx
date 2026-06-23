@@ -10,17 +10,17 @@ import type {
   OperationStartedResponse,
 } from "#/api/generated/model";
 import { getListPlaylistsApiV1PlaylistsGetQueryKey } from "#/api/generated/playlists/playlists";
-import { Switch } from "#/components/ui/switch";
 import { useOperationProgress } from "#/hooks/useOperationProgress";
+import { claimRunToast } from "#/lib/operation-toast-ledger";
 import { pluralize } from "#/lib/pluralize";
+import type { SyncDirection } from "#/lib/sync-direction";
 import { toasts } from "#/lib/toasts";
 
 import { ConfirmationDialog } from "./ConfirmationDialog";
 import type { PickedPlaylist } from "./ConnectorPlaylistPickerDialog";
+import { DirectionChooser } from "./DirectionChooser";
 import { ImportPlaylistResultRow } from "./ImportPlaylistResultRow";
 import { OperationProgress } from "./OperationProgress";
-
-type SyncDirection = "pull" | "push";
 
 interface ImportPlaylistsConfirmDialogProps {
   open: boolean;
@@ -56,7 +56,6 @@ export function ImportPlaylistsConfirmDialog({
   onImported,
 }: ImportPlaylistsConfirmDialogProps) {
   const [direction, setDirection] = useState<SyncDirection>("pull");
-  const [forceRefetch, setForceRefetch] = useState(false);
   const [operationId, setOperationId] = useState<string | null>(null);
   const [runId, setRunId] = useState<string | null>(null);
   const queryClient = useQueryClient();
@@ -113,6 +112,9 @@ export function ImportPlaylistsConfirmDialog({
     if (!isTerminal || !operationId || progress === null) return;
     if (toastedForOpIdRef.current === operationId) return;
     toastedForOpIdRef.current = operationId;
+    // Claim the shared ledger so the global operations provider doesn't also
+    // toast this run's failure (this foreground card owns its announcement).
+    if (runId !== null) claimRunToast(runId);
 
     const { succeeded, skippedUnchanged, failed } = summary;
     const history = progress.subOperationHistory;
@@ -202,7 +204,6 @@ export function ImportPlaylistsConfirmDialog({
           data: {
             connector_playlist_identifiers: playlists.map((p) => p.id),
             sync_direction: direction,
-            force: forceRefetch,
           },
         });
       }}
@@ -210,69 +211,11 @@ export function ImportPlaylistsConfirmDialog({
       {/* Phase 1 — Compose: direction toggle + playlist list */}
       {!operationId && (
         <div className="space-y-4">
-          <fieldset className="space-y-2">
-            <legend className="font-display text-sm font-medium text-text">
-              Sync direction
-            </legend>
-            <label className="flex cursor-pointer items-start gap-3 rounded-md border p-3 hover:bg-accent/30">
-              <input
-                type="radio"
-                name="sync-direction"
-                value="pull"
-                checked={direction === "pull"}
-                onChange={() => setDirection("pull")}
-                className="mt-1"
-              />
-              <span>
-                <span className="block font-medium text-text">
-                  {label}-managed
-                </span>
-                <span className="block text-xs text-text-muted">
-                  Mixd reads from {label}. Good for reference or bootstrap
-                  playlists you'll keep editing in {label}.
-                </span>
-              </span>
-            </label>
-            <label className="flex cursor-pointer items-start gap-3 rounded-md border p-3 hover:bg-accent/30">
-              <input
-                type="radio"
-                name="sync-direction"
-                value="push"
-                checked={direction === "push"}
-                onChange={() => setDirection("push")}
-                className="mt-1"
-              />
-              <span>
-                <span className="block font-medium text-text">
-                  Mixd-managed
-                </span>
-                <span className="block text-xs text-text-muted">
-                  Mixd owns the truth and pushes changes to {label}. Good for
-                  workflow output playlists.
-                </span>
-              </span>
-            </label>
-          </fieldset>
-
-          <div className="flex items-start justify-between gap-3 rounded-md border p-3 hover:bg-accent/30">
-            <label htmlFor="import-force-refetch" className="cursor-pointer">
-              <span className="block font-medium text-text">
-                Force re-fetch
-              </span>
-              <span className="block text-xs text-text-muted">
-                Bypass the snapshot-fresh short-circuit and re-fetch from{" "}
-                {label}. Use when you know the {label} playlist changed and the
-                cached snapshot is stale.
-              </span>
-            </label>
-            <Switch
-              id="import-force-refetch"
-              checked={forceRefetch}
-              onCheckedChange={setForceRefetch}
-              aria-label="Force re-fetch from connector"
-              className="mt-1"
-            />
-          </div>
+          <DirectionChooser
+            value={direction}
+            onChange={setDirection}
+            connectorLabel={label}
+          />
 
           {displayedNames.length > 0 && (
             <div>

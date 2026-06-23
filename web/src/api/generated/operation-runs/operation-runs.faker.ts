@@ -11,7 +11,8 @@ import {
 
 import type {
   OperationRunDetailSchema,
-  OperationRunListResponse
+  OperationRunListResponse,
+  OperationStartedResponse
 } from '../model';
 
 
@@ -24,4 +25,6 @@ export const getGetOperationRunApiV1OperationRunsRunIdGetResponseMock = (overrid
       }, issues: Array.from({ length: faker.number.int({min: 1, max: 10}) }, (_, i) => i + 1).map(() => ({
         [faker.string.alphanumeric(5)]: faker.helpers.arrayElement([faker.string.alpha({length: {min: 10, max: 20}}),faker.number.int(),faker.number.float({fractionDigits: 2}),faker.datatype.boolean(),[],null,])
       })), ...overrideResponse})
+
+export const getRetryFailedOperationApiV1OperationRunsRunIdRetryFailedPostResponseMock = (overrideResponse: Partial<Extract<OperationStartedResponse, object>> = {}): OperationStartedResponse => ({operation_id: faker.string.alpha({length: {min: 10, max: 20}}), run_id: faker.helpers.arrayElement([faker.helpers.arrayElement([faker.string.alpha({length: {min: 10, max: 20}}),null,]), undefined]), ...overrideResponse})
 

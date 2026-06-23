@@ -1,5 +1,6 @@
 import { useQueryClient } from "@tanstack/react-query";
 import {
+  AlertTriangle,
   ArrowDownLeft,
   ArrowRight,
   ArrowUpRight,
@@ -13,7 +14,6 @@ import { useEffect, useState } from "react";
 import { Link, useNavigate, useParams } from "react-router";
 import { useGetConnectorsApiV1ConnectorsGet } from "#/api/generated/connectors/connectors";
 import type {
-  OperationStartedResponse,
   PlaylistEntrySchema,
   PlaylistLinkSchema,
 } from "#/api/generated/model";
@@ -28,7 +28,7 @@ import {
   useGetPlaylistApiV1PlaylistsPlaylistIdGet,
   useGetPlaylistTracksApiV1PlaylistsPlaylistIdTracksGet,
   useListPlaylistLinksApiV1PlaylistsPlaylistIdLinksGet,
-  useSyncPlaylistLinkApiV1PlaylistsPlaylistIdLinksLinkIdSyncPost,
+  useRepairPlaylistUnresolvedApiV1PlaylistsPlaylistIdRepairPost,
   useUpdatePlaylistApiV1PlaylistsPlaylistIdPatch,
   useUpdatePlaylistLinkApiV1PlaylistsPlaylistIdLinksLinkIdPatch,
 } from "#/api/generated/playlists/playlists";
@@ -38,6 +38,7 @@ import { BackLink } from "#/components/shared/BackLink";
 import { ConfirmationDialog } from "#/components/shared/ConfirmationDialog";
 import { ConnectorIcon } from "#/components/shared/ConnectorIcon";
 import { ConnectorListItem } from "#/components/shared/ConnectorListItem";
+import { DirectionChooser } from "#/components/shared/DirectionChooser";
 import { EmptyState } from "#/components/shared/EmptyState";
 import { OperationProgress } from "#/components/shared/OperationProgress";
 import { ResponsiveTable } from "#/components/shared/ResponsiveTable";
@@ -86,6 +87,7 @@ import {
   formatTotalDuration,
 } from "#/lib/format";
 import { pluralize } from "#/lib/pluralize";
+import type { SyncDirection } from "#/lib/sync-direction";
 import { formatSyncResults, getSyncStatusConfig } from "#/lib/sync-status";
 import { toasts } from "#/lib/toasts";
 
@@ -125,9 +127,16 @@ function PlaylistTrackCard({ entry }: { entry: PlaylistEntrySchema }) {
         </span>
       }
     >
-      <TitleLink to={`/library/${entry.track.id}`}>
-        {entry.track.title}
-      </TitleLink>
+      {entry.is_resolved === false ? (
+        <div className="flex flex-col gap-0.5">
+          <span className="font-medium text-text">{entry.track.title}</span>
+          <UnresolvedTag />
+        </div>
+      ) : (
+        <TitleLink to={`/library/${entry.track.id}`}>
+          {entry.track.title}
+        </TitleLink>
+      )}
       <p className="truncate text-sm text-text-muted">
         {formatArtists(entry.track.artists)}
       </p>
@@ -352,7 +361,7 @@ function invalidateLinkQueries(
 function LinkPlaylistDialog({ playlistId }: { playlistId: string }) {
   const [open, setOpen] = useState(false);
   const [playlistInput, setPlaylistInput] = useState("");
-  const [direction, setDirection] = useState("push");
+  const [direction, setDirection] = useState<SyncDirection>("push");
   const queryClient = useQueryClient();
 
   const { data: connectorsData } = useGetConnectorsApiV1ConnectorsGet({
@@ -475,32 +484,12 @@ function LinkPlaylistDialog({ playlistId }: { playlistId: string }) {
               validated immediately.
             </p>
           </div>
-          <div className="space-y-2">
-            <label
-              htmlFor="link-direction"
-              className="text-sm font-medium text-text"
-            >
-              Sync Direction
-            </label>
-            <Select value={direction} onValueChange={setDirection}>
-              <SelectTrigger id="link-direction">
-                <SelectValue />
-              </SelectTrigger>
-              <SelectContent>
-                <SelectItem value="push">
-                  Push — Mixd controls, syncs to {getConnectorLabel(connector)}
-                </SelectItem>
-                <SelectItem value="pull">
-                  Pull — {getConnectorLabel(connector)} controls, syncs to Mixd
-                </SelectItem>
-              </SelectContent>
-            </Select>
-            <p className="text-xs text-text-faint font-body">
-              {direction === "push"
-                ? "Your local playlist is the source of truth. Changes here push to the external service."
-                : "The external playlist is the source of truth. Changes there pull into your library."}
-            </p>
-          </div>
+          <DirectionChooser
+            value={direction}
+            onChange={setDirection}
+            connectorLabel={getConnectorLabel(connector)}
+            legend="Sync Direction"
+          />
         </div>
 
         <DialogFooter className="mt-6">
@@ -581,22 +570,6 @@ function LinkedServicesSection({ playlistId }: { playlistId: string }) {
       },
     });
 
-  const syncMutation =
-    useSyncPlaylistLinkApiV1PlaylistsPlaylistIdLinksLinkIdSyncPost({
-      mutation: {
-        onSuccess: (res) => {
-          if (res.status === 202) {
-            setSyncOperationId(
-              (res.data as OperationStartedResponse).operation_id,
-            );
-            toasts.success("Sync started");
-          }
-          invalidateLinkQueries(queryClient, playlistId);
-        },
-        meta: { errorLabel: "Sync failed" },
-      },
-    });
-
   const updateLinkMutation =
     useUpdatePlaylistLinkApiV1PlaylistsPlaylistIdLinksLinkIdPatch({
       mutation: {
@@ -660,16 +633,10 @@ function LinkedServicesSection({ playlistId }: { playlistId: string }) {
                       variant="ghost"
                       size="sm"
                       className="h-7 px-2 text-xs text-text-muted hover:text-text"
-                      disabled={
-                        syncMutation.isPending ||
-                        isSyncing ||
-                        link.sync_status === "syncing"
-                      }
+                      disabled={isSyncing || link.sync_status === "syncing"}
                       onClick={() => setSyncDialogLink(link)}
                     >
-                      {link.sync_status === "syncing" ||
-                      syncMutation.isPending ||
-                      isSyncing ? (
+                      {link.sync_status === "syncing" || isSyncing ? (
                         <Loader2 className="mr-1 size-3 animate-spin" />
                       ) : link.sync_direction === "push" ? (
                         <ArrowUpRight className="mr-1 size-3" />
@@ -753,13 +720,9 @@ function LinkedServicesSection({ playlistId }: { playlistId: string }) {
             syncDialogLink.connector_playlist_identifier
           }
           currentDirection={syncDialogLink.sync_direction}
-          isPending={syncMutation.isPending}
-          onConfirm={(directionOverride) => {
-            syncMutation.mutate({
-              playlistId,
-              linkId: syncDialogLink.id,
-              data: { direction_override: directionOverride },
-            });
+          onStarted={(operationId) => {
+            setSyncOperationId(operationId);
+            invalidateLinkQueries(queryClient, playlistId);
             setSyncDialogLink(null);
           }}
         />
@@ -769,6 +732,77 @@ function LinkedServicesSection({ playlistId }: { playlistId: string }) {
 }
 
 // ─── Main Page ───────────────────────────────────────────────────────────────
+
+/** Status mark for an entry that couldn't be matched to a known track. */
+function UnresolvedTag() {
+  return (
+    <span className="inline-flex items-center gap-1 text-xs text-status-expired">
+      <AlertTriangle className="size-3 shrink-0" aria-hidden="true" />
+      Unresolved
+    </span>
+  );
+}
+
+/** Roll-up + bulk repair for a playlist's unresolved entries. Silent at zero. */
+function RepairUnresolvedBar({
+  playlistId,
+  count,
+}: {
+  playlistId: string;
+  count: number;
+}) {
+  const queryClient = useQueryClient();
+  const repairMut =
+    useRepairPlaylistUnresolvedApiV1PlaylistsPlaylistIdRepairPost({
+      mutation: {
+        onSuccess: (res) => {
+          if (res.status !== 200) return;
+          const { repaired, still_unresolved } = res.data;
+          if (repaired === 0) {
+            toasts.info("No new matches found yet");
+          } else if (still_unresolved === 0) {
+            toasts.success(`Repaired ${pluralize(repaired, "track")}`);
+          } else {
+            toasts.success(
+              `Repaired ${repaired} · ${still_unresolved} still unresolved`,
+            );
+          }
+          queryClient.invalidateQueries({
+            queryKey:
+              getGetPlaylistTracksApiV1PlaylistsPlaylistIdTracksGetQueryKey(
+                playlistId,
+              ),
+          });
+        },
+        meta: { errorLabel: "Repair failed" },
+      },
+    });
+
+  if (count === 0) return null;
+
+  return (
+    <div className="mb-6 flex flex-wrap items-center justify-between gap-3 rounded-md border-l-2 border-status-expired bg-surface-inset px-4 py-3">
+      <div className="flex items-center gap-2 text-sm text-text-muted">
+        <AlertTriangle
+          className="size-4 shrink-0 text-status-expired"
+          aria-hidden="true"
+        />
+        <span>{pluralize(count, "track")} couldn't be matched.</span>
+      </div>
+      <Button
+        variant="outline"
+        size="sm"
+        disabled={repairMut.isPending}
+        onClick={() => repairMut.mutate({ playlistId })}
+      >
+        {repairMut.isPending && (
+          <Loader2 className="mr-1 size-3 animate-spin" />
+        )}
+        Repair unresolved ({count})
+      </Button>
+    </div>
+  );
+}
 
 export function PlaylistDetail() {
   const { id } = useParams<{ id: string }>();
@@ -809,6 +843,7 @@ export function PlaylistDetail() {
   const tracksResponse =
     tracksData?.status === 200 ? tracksData.data : undefined;
   const entries = tracksResponse?.data ?? [];
+  const unresolvedCount = entries.filter((e) => e.is_resolved === false).length;
 
   return (
     <div>
@@ -869,6 +904,9 @@ export function PlaylistDetail() {
       {/* Linked Services */}
       <LinkedServicesSection playlistId={playlistId} />
 
+      {/* Unresolved tracks — first-class, with bulk repair */}
+      <RepairUnresolvedBar playlistId={playlistId} count={unresolvedCount} />
+
       {tracksLoading && (
         <div className="space-y-3">
           {Array.from({ length: 5 }).map((_, i) => (
@@ -920,12 +958,21 @@ export function PlaylistDetail() {
                       {entry.position}
                     </TableCell>
                     <TableCell>
-                      <Link
-                        to={`/library/${entry.track.id}`}
-                        className="font-medium text-text hover:text-primary transition-colors"
-                      >
-                        {entry.track.title}
-                      </Link>
+                      {entry.is_resolved === false ? (
+                        <div className="flex flex-col gap-0.5">
+                          <span className="font-medium text-text">
+                            {entry.track.title}
+                          </span>
+                          <UnresolvedTag />
+                        </div>
+                      ) : (
+                        <Link
+                          to={`/library/${entry.track.id}`}
+                          className="font-medium text-text hover:text-primary transition-colors"
+                        >
+                          {entry.track.title}
+                        </Link>
+                      )}
                     </TableCell>
                     <TableCell className="text-text-muted">
                       {formatArtists(entry.track.artists)}

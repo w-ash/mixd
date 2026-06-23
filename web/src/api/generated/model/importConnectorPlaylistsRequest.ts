@@ -18,15 +18,9 @@ import type { ImportConnectorPlaylistsRequestSyncDirection } from './importConne
  * (succeeded / skipped_unchanged / failed with track counts and failure
  * messages) stream as SSE sub-operation events on
  * ``GET /api/v1/operations/{operation_id}/progress``.
- *
- * When ``force`` is true the import bypasses the "already linked + cache
- * fresh" short-circuit and re-fetches every requested playlist. Defaults
- * to false to preserve API quota on routine re-runs; the web UI exposes
- * this via the per-row "Force re-fetch" toggle.
  */
 export interface ImportConnectorPlaylistsRequest {
   /** @minItems 1 */
   connector_playlist_identifiers: string[];
   sync_direction: ImportConnectorPlaylistsRequestSyncDirection;
-  force?: boolean;
 }

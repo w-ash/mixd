@@ -19,7 +19,8 @@ import type {
 
 import type {
   OperationRunDetailSchema,
-  OperationRunListResponse
+  OperationRunListResponse,
+  OperationStartedResponse
 } from '../model';
 
 
@@ -32,6 +33,8 @@ export const getGetOperationRunApiV1OperationRunsRunIdGetResponseMock = (overrid
       }, issues: Array.from({ length: faker.number.int({min: 1, max: 10}) }, (_, i) => i + 1).map(() => ({
         [faker.string.alphanumeric(5)]: faker.helpers.arrayElement([faker.string.alpha({length: {min: 10, max: 20}}),faker.number.int(),faker.number.float({fractionDigits: 2}),faker.datatype.boolean(),[],null,])
       })), ...overrideResponse})
+
+export const getRetryFailedOperationApiV1OperationRunsRunIdRetryFailedPostResponseMock = (overrideResponse: Partial<Extract<OperationStartedResponse, object>> = {}): OperationStartedResponse => ({operation_id: faker.string.alpha({length: {min: 10, max: 20}}), run_id: faker.helpers.arrayElement([faker.helpers.arrayElement([faker.string.alpha({length: {min: 10, max: 20}}),null,]), undefined]), ...overrideResponse})
 
 
 export const getListOperationRunsApiV1OperationRunsGetMockHandler = (overrideResponse?: OperationRunListResponse | ((info: Parameters<Parameters<typeof http.get>[1]>[0]) => Promise<OperationRunListResponse> | OperationRunListResponse), options?: RequestHandlerOptions) => {
@@ -57,7 +60,20 @@ export const getGetOperationRunApiV1OperationRunsRunIdGetMockHandler = (override
       })
   }, options)
 }
+
+export const getRetryFailedOperationApiV1OperationRunsRunIdRetryFailedPostMockHandler = (overrideResponse?: OperationStartedResponse | ((info: Parameters<Parameters<typeof http.post>[1]>[0]) => Promise<OperationStartedResponse> | OperationStartedResponse), options?: RequestHandlerOptions) => {
+  return http.post('*/api/v1/operation-runs/:runId/retry-failed', async (info: Parameters<Parameters<typeof http.post>[1]>[0]) => {
+
+
+    return HttpResponse.json(overrideResponse !== undefined
+    ? (typeof overrideResponse === "function" ? await overrideResponse(info) : overrideResponse)
+    : getRetryFailedOperationApiV1OperationRunsRunIdRetryFailedPostResponseMock(),
+      { status: 202
+      })
+  }, options)
+}
 export const getOperationRunsMock = () => [
   getListOperationRunsApiV1OperationRunsGetMockHandler(),
-  getGetOperationRunApiV1OperationRunsRunIdGetMockHandler()
+  getGetOperationRunApiV1OperationRunsRunIdGetMockHandler(),
+  getRetryFailedOperationApiV1OperationRunsRunIdRetryFailedPostMockHandler()
 ]

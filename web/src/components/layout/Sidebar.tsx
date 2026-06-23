@@ -17,6 +17,7 @@ import { NavLink, useLocation } from "react-router";
 import { authEnabled } from "#/api/auth";
 import { useHealthCheckApiV1HealthGet } from "#/api/generated/health/health";
 import { ThemeToggle } from "#/components/layout/ThemeToggle";
+import { ActiveOperationsBadge } from "#/components/shared/ActiveOperationsBadge";
 import { MixdLogo } from "#/components/shared/MixdLogo";
 import { cn } from "#/lib/utils";
 
@@ -169,6 +170,9 @@ export function Sidebar() {
           ),
         )}
       </ul>
+
+      {/* Running operations — silent at zero */}
+      <ActiveOperationsBadge className="mx-2 mb-2" />
 
       {/* Footer */}
       <div className="flex items-center justify-between px-5 py-4">

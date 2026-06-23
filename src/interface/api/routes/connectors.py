@@ -195,7 +195,6 @@ async def import_connector_playlists(
                 for x in body.connector_playlist_identifiers
             ],
             sync_direction=SyncDirection(body.sync_direction),
-            force=body.force,
             progress_emitter=emitter,
             progress_broker=get_progress_broker(),
             # The request op (owned by run_sse_operation) is the top op; per-playlist
