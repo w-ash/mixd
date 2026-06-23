@@ -157,16 +157,44 @@ def match_tracks_with_db_lookup(
     return matched, unmatched_current, unmatched_target
 
 
+def _positions_by_track_id(tracks: list[Track]) -> dict[UUID, list[int]]:
+    """Index playlist positions by canonical ``track.id``, one list per id.
+
+    Holds a *list* of positions per id, consumed one at a time by the caller, so a
+    track that occupies several slots yields a distinct operation per occurrence
+    instead of collapsing to the last position. Keyed by ``track.id`` (the
+    canonical UUIDv7) to match ``match_tracks_with_db_lookup`` and the reorder
+    path — the engine is canonical-id space throughout, and ``track.id`` is the
+    stable domain key. (Object identity would key identically on today's inputs,
+    since ``external_as_playlist`` shares one ``Track`` instance per canonical id,
+    but it is an ephemeral, non-serializable address — not a domain identity.)
+    """
+    index: dict[UUID, list[int]] = {}
+    for idx, track in enumerate(tracks):
+        index.setdefault(track.id, []).append(idx)
+    return index
+
+
 def calculate_remove_operations(
     unmatched_current_tracks: list[Track], current_tracks: list[Track]
 ) -> list[PlaylistOperation]:
-    """Generate REMOVE operations for tracks in current but not target playlist."""
+    """Generate REMOVE operations for tracks in current but not target playlist.
+
+    Maps each unmatched track back to its slot in ``current_tracks`` by canonical
+    ``track.id`` (see ``_positions_by_track_id``). The index holds a *list* of
+    positions per id, consumed one at a time, so a track occupying several
+    positions yields a distinct REMOVE per occurrence — exactly the duplicate case
+    ``external_as_playlist`` produces when repeated remote ids resolve to one
+    canonical ``Track``; a single-position-per-key index would silently drop the
+    other copies.
+    """
     operations: list[PlaylistOperation] = []
-    position_index = {id(track): idx for idx, track in enumerate(current_tracks)}
+    positions_by_id = _positions_by_track_id(current_tracks)
 
     for track in unmatched_current_tracks:
-        position = position_index.get(id(track))
-        if position is not None:
+        positions = positions_by_id.get(track.id)
+        if positions:
+            position = positions.pop(0)
             operations.append(
                 PlaylistOperation(
                     operation_type=PlaylistOperationType.REMOVE,
@@ -187,14 +215,21 @@ def calculate_remove_operations(
 def calculate_add_operations(
     unmatched_target_tracks: list[Track], target_tracks: list[Track]
 ) -> list[PlaylistOperation]:
-    """Generate ADD operations for tracks in target but not current playlist."""
+    """Generate ADD operations for tracks in target but not current playlist.
+
+    Same multiplicity handling as the remove path: positions are indexed by
+    canonical ``track.id`` as a *list* (see ``_positions_by_track_id``), so a track
+    appearing at several target positions yields one ADD per occurrence instead of
+    collapsing to the last.
+    """
     operations: list[PlaylistOperation] = []
 
-    position_index = {id(track): idx for idx, track in enumerate(target_tracks)}
+    positions_by_id = _positions_by_track_id(target_tracks)
 
     for track in unmatched_target_tracks:
-        target_position = position_index.get(id(track))
-        if target_position is not None:
+        positions = positions_by_id.get(track.id)
+        if positions:
+            target_position = positions.pop(0)
             operations.append(
                 PlaylistOperation(
                     operation_type=PlaylistOperationType.ADD,

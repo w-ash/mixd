@@ -45,6 +45,7 @@ import { getAuthMock } from "#/api/generated/auth/auth.msw";
 import { getConnectorsMock } from "#/api/generated/connectors/connectors.msw";
 import { getHealthMock } from "#/api/generated/health/health.msw";
 import { getImportsMock } from "#/api/generated/imports/imports.msw";
+import { getOperationRunsMock } from "#/api/generated/operation-runs/operation-runs.msw";
 import { getOperationsMock } from "#/api/generated/operations/operations.msw";
 import { getPlaylistAssignmentsMock } from "#/api/generated/playlist-assignments/playlist-assignments.msw";
 import { getPlaylistsMock } from "#/api/generated/playlists/playlists.msw";
@@ -60,6 +61,7 @@ export const server = setupServer(
   ...getConnectorsMock(),
   ...getHealthMock(),
   ...getImportsMock(),
+  ...getOperationRunsMock(),
   ...getOperationsMock(),
   ...getPlaylistAssignmentsMock(),
   ...getSettingsMock(),

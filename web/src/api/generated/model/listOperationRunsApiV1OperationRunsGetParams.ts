@@ -5,6 +5,7 @@
  * Personal music metadata hub
  * OpenAPI spec version: 0.8.6
  */
+import type { OperationStatus } from './operationStatus.ts';
 
 export type ListOperationRunsApiV1OperationRunsGetParams = {
 /**
@@ -14,4 +15,5 @@ export type ListOperationRunsApiV1OperationRunsGetParams = {
 limit?: number;
 cursor?: string | null;
 type?: string;
+status?: OperationStatus | null;
 };

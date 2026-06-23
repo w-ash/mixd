@@ -4,15 +4,18 @@ Tests validate 100% first-pass accuracy, minimal moves, and proper duplicate han
 Critical for ensuring the three-layer architecture meets success criteria.
 """
 
+from attrs import evolve
 import pytest
 
 from src.domain.entities.playlist import Playlist
 from src.domain.entities.track import Artist, Track, TrackList
 from src.domain.playlist.diff_engine import (
     PlaylistOperationType,
+    calculate_add_operations,
     calculate_lis_reorder_operations,
     calculate_longest_increasing_subsequence,
     calculate_playlist_diff,
+    calculate_remove_operations,
 )
 
 
@@ -340,3 +343,113 @@ class TestPlaylistDiffIntegration:
             if op.operation_type == PlaylistOperationType.MOVE
         ]
         assert len(move_ops) == 99
+
+
+class TestDuplicateSharedInstanceDiff:
+    """A single ``Track`` instance at several positions must yield one op per
+    position, not collapse to the last.
+
+    The PUSH path's ``external_as_playlist`` resolves duplicate remote ids to one
+    shared canonical ``Track``, so the same object lands at multiple slots. The
+    old ``{id(track): idx}`` index kept only the last slot, mis-targeting or
+    dropping the duplicate removes/adds. These are regression guards for that.
+    """
+
+    def test_remove_collapsed_duplicates_targets_distinct_positions(self):
+        """``[X, X] -> [Y]``: both X copies removed at their own positions."""
+        x = Track(title="X", artists=[Artist(name="A")])
+        y = Track(title="Y", artists=[Artist(name="B")])
+        current = Playlist.from_tracklist(name="dup", tracklist=[x, x])
+        # Sanity: the entries genuinely share one instance.
+        assert current.tracks[0] is current.tracks[1]
+
+        diff = calculate_playlist_diff(current, TrackList(tracks=[y]))
+
+        remove_ops = [
+            op
+            for op in diff.operations
+            if op.operation_type == PlaylistOperationType.REMOVE
+        ]
+        assert sorted(op.position for op in remove_ops) == [0, 1]
+        add_ops = [
+            op
+            for op in diff.operations
+            if op.operation_type == PlaylistOperationType.ADD
+        ]
+        assert [op.position for op in add_ops] == [0]
+        assert all(op.track.id == y.id for op in add_ops)
+
+    def test_remove_interleaved_duplicate_keeps_distinct_positions(self):
+        """``[X, Y, X] -> [Y]``: both X copies removed at positions 0 and 2."""
+        x = Track(title="X", artists=[Artist(name="A")])
+        y = Track(title="Y", artists=[Artist(name="B")])
+        current = Playlist.from_tracklist(name="dup", tracklist=[x, y, x])
+
+        diff = calculate_playlist_diff(current, TrackList(tracks=[y]))
+
+        remove_ops = [
+            op
+            for op in diff.operations
+            if op.operation_type == PlaylistOperationType.REMOVE
+        ]
+        assert sorted(op.position for op in remove_ops) == [0, 2]
+
+    def test_add_collapsed_duplicates_targets_distinct_positions(self):
+        """``[Y] -> [X, X]``: both X copies added at their own positions."""
+        x = Track(title="X", artists=[Artist(name="A")])
+        y = Track(title="Y", artists=[Artist(name="B")])
+        current = Playlist.from_tracklist(name="dup", tracklist=[y])
+
+        diff = calculate_playlist_diff(current, TrackList(tracks=[x, x]))
+
+        add_ops = [
+            op
+            for op in diff.operations
+            if op.operation_type == PlaylistOperationType.ADD
+        ]
+        assert sorted(op.position for op in add_ops) == [0, 1]
+
+    def test_remove_helper_consumes_each_shared_position_once(self):
+        """Direct unit check: the remove helper consumes one slot per occurrence."""
+        x = Track(title="X", artists=[Artist(name="A")])
+        ops = calculate_remove_operations([x, x], [x, x])
+        assert sorted(op.position for op in ops) == [0, 1]
+
+    def test_add_helper_consumes_each_shared_position_once(self):
+        """Direct unit check: the add helper consumes one slot per occurrence."""
+        x = Track(title="X", artists=[Artist(name="A")])
+        ops = calculate_add_operations([x, x], [x, x])
+        assert sorted(op.position for op in ops) == [0, 1]
+
+
+class TestKeyedByCanonicalTrackId:
+    """The position index keys by canonical ``track.id``, not Python object
+    identity (``id(track)``).
+
+    ``external_as_playlist`` happens to share one ``Track`` instance per canonical
+    id today, so object identity would key identically on real inputs — but
+    ``id(track)`` is an ephemeral, non-serializable address, not a domain key. These
+    guards pass distinct-but-equal instances (same ``track.id``, different objects)
+    so they hold only when keying is by ``track.id``; an ``id(track)`` index would
+    miss the lookup and silently drop the operation.
+    """
+
+    def test_remove_matches_distinct_instance_with_same_track_id(self):
+        x = Track(title="X", artists=[Artist(name="A")])
+        x_copy = evolve(x)  # same track.id, distinct object
+        assert x_copy is not x
+        assert x_copy.id == x.id
+
+        ops = calculate_remove_operations([x_copy], [x])
+
+        assert [op.position for op in ops] == [0]
+
+    def test_add_matches_distinct_instance_with_same_track_id(self):
+        x = Track(title="X", artists=[Artist(name="A")])
+        x_copy = evolve(x)  # same track.id, distinct object
+        assert x_copy is not x
+        assert x_copy.id == x.id
+
+        ops = calculate_add_operations([x_copy], [x])
+
+        assert [op.position for op in ops] == [0]

@@ -17,9 +17,14 @@ export interface SyncPreviewResponse {
   tracks_to_remove: number;
   tracks_unchanged: number;
   direction: string;
+  direction_label?: string;
   connector_name: string;
   playlist_name: string;
   has_comparison_data?: boolean;
   safety_flagged?: boolean;
   safety_message?: string | null;
+  safety_removals?: number;
+  safety_total?: number;
+  safety_remaining?: number;
+  confirm_token?: string;
 }

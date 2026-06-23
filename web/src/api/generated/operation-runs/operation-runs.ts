@@ -73,6 +73,8 @@ export const getListOperationRunsApiV1OperationRunsGetUrl = (params?: ListOperat
  *
  * ``type=imports`` (default) restricts to import/sync/apply runs that
  * surface in the Import History UI. ``type=all`` returns every row.
+ * ``status=running`` powers operation-awareness: the in-flight rows the
+ * frontend re-attaches to (each carries its ``operation_id`` SSE handle).
  * @summary List Operation Runs
  */
 export const listOperationRunsApiV1OperationRunsGet = async (params?: ListOperationRunsApiV1OperationRunsGetParams, options?: RequestInit): Promise<listOperationRunsApiV1OperationRunsGetResponse> => {

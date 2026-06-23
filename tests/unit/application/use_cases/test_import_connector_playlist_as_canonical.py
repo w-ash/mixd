@@ -127,7 +127,7 @@ class TestReimportRoutesThroughEngine:
         assert list(result.skipped_unchanged) == ["sp1"]
         assert len(result.succeeded) == 0
         # The no-op still records a fresh base snapshot, so the batch commits.
-        uow.commit.assert_awaited_once()
+        uow.commit_batch.assert_awaited_once()
 
     async def test_linked_reimport_reconciles_as_update(self) -> None:
         """A re-import with a real diff lands in succeeded as an update."""
@@ -162,7 +162,7 @@ class TestReimportRoutesThroughEngine:
         assert outcome.was_created is False
         assert outcome.resolved == 10
         assert outcome.unresolved == 2
-        uow.commit.assert_awaited_once()
+        uow.commit_batch.assert_awaited_once()
 
     async def test_reimport_failure_isolated_from_first_import(self) -> None:
         """One link's engine failure is captured; a sibling new import still lands."""
@@ -214,14 +214,13 @@ class TestReimportRoutesThroughEngine:
         assert len(result.failed) == 0
 
         link_repo = uow.get_playlist_link_repository()
-        link_repo.create_links_batch.assert_awaited_once()
-        created_links = link_repo.create_links_batch.call_args.args[0]
-        assert [link.connector_playlist_identifier for link in created_links] == [
-            "sp1",
-            "sp2",
-            "sp3",
+        assert link_repo.create_link.await_count == 3
+        created_ids = [
+            c.args[0].connector_playlist_identifier
+            for c in link_repo.create_link.await_args_list
         ]
-        uow.commit.assert_awaited_once()
+        assert created_ids == ["sp1", "sp2", "sp3"]
+        uow.commit_batch.assert_awaited()
 
 
 class TestForce:
@@ -258,7 +257,7 @@ class TestForce:
 
         connector.get_playlist.assert_not_called()
         assert len(result.succeeded) == 1
-        uow.get_playlist_link_repository().create_links_batch.assert_awaited_once()
+        uow.get_playlist_link_repository().create_link.assert_awaited_once()
 
 
 class TestCreatePath:
@@ -275,17 +274,15 @@ class TestCreatePath:
         assert outcome.connector_playlist_identifier == "sp1"
         assert outcome.resolved == 1
 
-        uow.get_playlist_link_repository().create_links_batch.assert_awaited_once()
-        created_links = (
-            uow.get_playlist_link_repository().create_links_batch.call_args.args[0]
-        )
-        assert len(created_links) == 1
-        link = created_links[0]
+        link_repo = uow.get_playlist_link_repository()
+        link_repo.create_link.assert_awaited_once()
+        link = link_repo.create_link.call_args.args[0]
         assert link.connector_name == "spotify"
         assert link.connector_playlist_identifier == "sp1"
         assert link.sync_direction == SyncDirection.PULL
 
-        uow.commit.assert_awaited_once()
+        # Canonical + link commit together, per item.
+        uow.commit_batch.assert_awaited()
 
 
 class TestUpdatePath:
@@ -303,12 +300,12 @@ class TestUpdatePath:
 
         connector.get_playlist.assert_awaited_once()
         assert len(result.succeeded) == 1
-        uow.get_playlist_link_repository().create_links_batch.assert_awaited_once()
-        uow.commit.assert_awaited_once()
+        uow.get_playlist_link_repository().create_link.assert_awaited_once()
+        uow.commit_batch.assert_awaited()
 
 
-class TestBatchedLinkCreation:
-    async def test_two_new_playlists_one_create_links_batch_call(self) -> None:
+class TestPerItemLinkCreation:
+    async def test_two_new_playlists_create_one_link_each(self) -> None:
         cp1 = _cp("sp1", name="A")
         cp2 = _cp("sp2", name="B")
 
@@ -322,10 +319,14 @@ class TestBatchedLinkCreation:
             result = await _use_case().execute(_cmd(["sp1", "sp2"]), uow)
 
         assert len(result.succeeded) == 2
-        # Single round-trip for both new links.
+        # One link created per item — per-item atomic, not a single batch.
         link_repo = uow.get_playlist_link_repository()
-        link_repo.create_links_batch.assert_awaited_once()
-        assert len(link_repo.create_links_batch.call_args.args[0]) == 2
+        assert link_repo.create_link.await_count == 2
+        created_ids = [
+            c.args[0].connector_playlist_identifier
+            for c in link_repo.create_link.await_args_list
+        ]
+        assert created_ids == ["sp1", "sp2"]
 
 
 class TestFailureIsolation:
@@ -359,8 +360,68 @@ class TestFailureIsolation:
         assert len(result.succeeded) == 0
         assert len(result.failed) == 1
         assert "canonical blew up" in result.failed[0].message
-        uow.get_playlist_link_repository().create_links_batch.assert_not_called()
-        uow.commit.assert_not_called()
+        # Upsert failed before the link existed; the item rolled back its own work
+        # so nothing half-written lands.
+        uow.get_playlist_link_repository().create_link.assert_not_called()
+        uow.rollback.assert_awaited()
+
+
+class TestPerItemAtomicity:
+    """Each item commits in its own transaction: a failure mid-batch rolls back
+    only the failing item, while earlier items stay committed and the failed one
+    is never left half-written (no orphan canonical)."""
+
+    async def test_second_item_failure_rolls_back_only_itself(self) -> None:
+        cp1 = _cp("sp1", name="A")
+        cp2 = _cp("sp2", name="B")
+
+        async def fake_get_playlist(pid: str):
+            return cp1 if pid == "sp1" else cp2
+
+        uow, connector = make_mock_uow_with_connector()
+        connector.get_playlist.side_effect = fake_get_playlist
+
+        # Item A's link lands; item B's create_link fails *after* A committed —
+        # the "fails after a prior item's commit" path the rearchitecture targets.
+        link_repo = uow.get_playlist_link_repository()
+        link_repo.create_link = AsyncMock(
+            side_effect=[None, RuntimeError("link insert failed")]
+        )
+
+        with patch(_UPSERT_PATCH, new=AsyncMock(return_value=_create_result())):
+            result = await _use_case().execute(_cmd(["sp1", "sp2"]), uow)
+
+        # A succeeded (committed); B captured as failed — partial success holds.
+        assert [o.connector_playlist_identifier for o in result.succeeded] == ["sp1"]
+        assert [f.connector_playlist_identifier for f in result.failed] == ["sp2"]
+        # Only B rolled back; A's commit (plus the pre-loop cache commit) landed.
+        uow.rollback.assert_awaited_once()
+        assert uow.commit_batch.await_count >= 2
+
+    async def test_post_commit_emit_failure_does_not_double_count(self) -> None:
+        """A progress-emit failure *after* an item committed must not re-record it
+        as failed: the item is durable, so it stays in succeeded only (not in both
+        succeeded and failed), and the committed item is never rolled back."""
+        cp = _cp("sp1", name="A")
+        uow, _ = make_mock_uow_with_connector(get_playlist_return=cp)
+
+        # The post-commit terminal emission blows up (e.g. SSE/broker hiccup).
+        emit_boom = AsyncMock(side_effect=RuntimeError("SSE broker down"))
+        with (
+            patch(_UPSERT_PATCH, new=AsyncMock(return_value=_create_result())),
+            patch.object(
+                ImportConnectorPlaylistsAsCanonicalUseCase,
+                "_emit_sub_outcome",
+                emit_boom,
+            ),
+        ):
+            result = await _use_case().execute(_cmd(["sp1"]), uow)
+
+        assert [o.connector_playlist_identifier for o in result.succeeded] == ["sp1"]
+        assert len(result.failed) == 0
+        emit_boom.assert_awaited()  # the success emit was attempted and raised
+        uow.commit_batch.assert_awaited()  # the item committed
+        uow.rollback.assert_not_awaited()  # a committed item is never rolled back
 
 
 class TestConnectorThreading:
@@ -384,7 +445,7 @@ class TestNoWork:
         connector.get_playlist.assert_not_called()
         upsert_mock.assert_not_called()
         assert len(result.succeeded) == 0
-        uow.commit.assert_not_called()
+        uow.commit_batch.assert_not_called()
 
 
 class TestProgressEmission:

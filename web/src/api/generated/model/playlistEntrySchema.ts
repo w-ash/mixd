@@ -9,9 +9,15 @@ import type { TrackSummarySchema } from './trackSummarySchema.ts';
 
 /**
  * A track's membership in a playlist with position metadata.
+ *
+ * ``is_resolved`` is False for an unresolved entry — a source position whose
+ * connector track has no canonical match yet. Its ``track`` then carries the
+ * display snapshot (title/artists) with ``id=None`` so the UI can render it
+ * ("Couldn't match: …") and offer a repair action without losing the slot.
  */
 export interface PlaylistEntrySchema {
   position: number;
   track: TrackSummarySchema;
   added_at?: string | null;
+  is_resolved?: boolean;
 }

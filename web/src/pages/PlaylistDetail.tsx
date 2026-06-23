@@ -13,9 +13,9 @@ import { useEffect, useState } from "react";
 import { Link, useNavigate, useParams } from "react-router";
 import { useGetConnectorsApiV1ConnectorsGet } from "#/api/generated/connectors/connectors";
 import type {
+  OperationStartedResponse,
   PlaylistEntrySchema,
   PlaylistLinkSchema,
-  SyncStartedResponse,
 } from "#/api/generated/model";
 import {
   getGetPlaylistApiV1PlaylistsPlaylistIdGetQueryKey,
@@ -586,7 +586,9 @@ function LinkedServicesSection({ playlistId }: { playlistId: string }) {
       mutation: {
         onSuccess: (res) => {
           if (res.status === 202) {
-            setSyncOperationId((res.data as SyncStartedResponse).operation_id);
+            setSyncOperationId(
+              (res.data as OperationStartedResponse).operation_id,
+            );
             toasts.success("Sync started");
           }
           invalidateLinkQueries(queryClient, playlistId);
@@ -756,7 +758,7 @@ function LinkedServicesSection({ playlistId }: { playlistId: string }) {
             syncMutation.mutate({
               playlistId,
               linkId: syncDialogLink.id,
-              data: { direction_override: directionOverride, confirmed: true },
+              data: { direction_override: directionOverride },
             });
             setSyncDialogLink(null);
           }}

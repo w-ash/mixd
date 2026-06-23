@@ -30,14 +30,15 @@ import type {
   GetPlaylistTracksApiV1PlaylistsPlaylistIdTracksGetParams,
   HTTPValidationError,
   ListPlaylistsApiV1PlaylistsGetParams,
+  OperationStartedResponse,
   PaginatedResponsePlaylistEntrySchema,
   PaginatedResponsePlaylistSummarySchema,
   PlaylistDetailSchema,
   PlaylistLinkSchema,
   PreviewPlaylistSyncApiV1PlaylistsPlaylistIdLinksLinkIdSyncPreviewGetParams,
+  RepairUnresolvedResponse,
   SyncLinkRequest,
   SyncPreviewResponse,
-  SyncStartedResponse,
   UpdateLinkRequest,
   UpdatePlaylistRequest
 } from '../model';
@@ -1239,7 +1240,7 @@ export function usePreviewPlaylistSyncApiV1PlaylistsPlaylistIdLinksLinkIdSyncPre
 
 
 export type syncPlaylistLinkApiV1PlaylistsPlaylistIdLinksLinkIdSyncPostResponse202 = {
-  data: SyncStartedResponse
+  data: OperationStartedResponse
   status: 202
 }
 
@@ -1267,10 +1268,13 @@ export const getSyncPlaylistLinkApiV1PlaylistsPlaylistIdLinksLinkIdSyncPostUrl =
 }
 
 /**
- * Start a sync operation for a playlist link.
+ * Start a playlist-link sync, tracked via SSE with a durable audit row.
  *
- * Returns immediately with an operation_id. Progress streams via
- * GET /operations/{operation_id}/progress (existing SSE endpoint).
+ * Returns immediately with ``{operation_id, run_id}``; progress streams via
+ * GET /operations/{operation_id}/progress. A destructive sync whose
+ * ``confirm_token`` is missing or stale returns HTTP 409 (CONFIRMATION_REQUIRED)
+ * *synchronously* — before any background work — with a fresh token + the
+ * removal counts, so the client can show the confirm dialog and retry.
  * @summary Sync Playlist Link
  */
 export const syncPlaylistLinkApiV1PlaylistsPlaylistIdLinksLinkIdSyncPost = async (playlistId: string,
@@ -1332,4 +1336,97 @@ export const useSyncPlaylistLinkApiV1PlaylistsPlaylistIdLinksLinkIdSyncPost = <T
         TContext
       > => {
       return useMutation(getSyncPlaylistLinkApiV1PlaylistsPlaylistIdLinksLinkIdSyncPostMutationOptions(options), queryClient);
+    }
+    export type repairPlaylistUnresolvedApiV1PlaylistsPlaylistIdRepairPostResponse200 = {
+  data: RepairUnresolvedResponse
+  status: 200
+}
+
+export type repairPlaylistUnresolvedApiV1PlaylistsPlaylistIdRepairPostResponse422 = {
+  data: HTTPValidationError
+  status: 422
+}
+
+export type repairPlaylistUnresolvedApiV1PlaylistsPlaylistIdRepairPostResponseSuccess = (repairPlaylistUnresolvedApiV1PlaylistsPlaylistIdRepairPostResponse200) & {
+  headers: Headers;
+};
+export type repairPlaylistUnresolvedApiV1PlaylistsPlaylistIdRepairPostResponseError = (repairPlaylistUnresolvedApiV1PlaylistsPlaylistIdRepairPostResponse422) & {
+  headers: Headers;
+};
+
+export type repairPlaylistUnresolvedApiV1PlaylistsPlaylistIdRepairPostResponse = (repairPlaylistUnresolvedApiV1PlaylistsPlaylistIdRepairPostResponseSuccess | repairPlaylistUnresolvedApiV1PlaylistsPlaylistIdRepairPostResponseError)
+
+export const getRepairPlaylistUnresolvedApiV1PlaylistsPlaylistIdRepairPostUrl = (playlistId: string,) => {
+
+
+
+
+  return `/api/v1/playlists/${playlistId}/repair`
+}
+
+/**
+ * Re-resolve the playlist's unresolved entries against existing mappings.
+ *
+ * DB-only and idempotent: hydrates rows that now have a track mapping without
+ * re-fetching the remote or changing membership. 404 if the playlist is
+ * missing or not owned by the caller.
+ * @summary Repair Playlist Unresolved
+ */
+export const repairPlaylistUnresolvedApiV1PlaylistsPlaylistIdRepairPost = async (playlistId: string, options?: RequestInit): Promise<repairPlaylistUnresolvedApiV1PlaylistsPlaylistIdRepairPostResponse> => {
+
+  return customFetch<repairPlaylistUnresolvedApiV1PlaylistsPlaylistIdRepairPostResponse>(getRepairPlaylistUnresolvedApiV1PlaylistsPlaylistIdRepairPostUrl(playlistId),
+  {
+    ...options,
+    method: 'POST'
+
+
+  }
+);}
+
+
+
+
+export const getRepairPlaylistUnresolvedApiV1PlaylistsPlaylistIdRepairPostMutationOptions = <TError = HTTPValidationError,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof repairPlaylistUnresolvedApiV1PlaylistsPlaylistIdRepairPost>>, TError,{playlistId: string}, TContext>, request?: SecondParameter<typeof customFetch>}
+): UseMutationOptions<Awaited<ReturnType<typeof repairPlaylistUnresolvedApiV1PlaylistsPlaylistIdRepairPost>>, TError,{playlistId: string}, TContext> => {
+
+const mutationKey = ['repairPlaylistUnresolvedApiV1PlaylistsPlaylistIdRepairPost'];
+const {mutation: mutationOptions, request: requestOptions} = options ?
+      options.mutation && 'mutationKey' in options.mutation && options.mutation.mutationKey ?
+      options
+      : {...options, mutation: {...options.mutation, mutationKey}}
+      : {mutation: { mutationKey, }, request: undefined};
+
+
+
+
+      const mutationFn: MutationFunction<Awaited<ReturnType<typeof repairPlaylistUnresolvedApiV1PlaylistsPlaylistIdRepairPost>>, {playlistId: string}> = (props) => {
+          const {playlistId} = props ?? {};
+
+          return  repairPlaylistUnresolvedApiV1PlaylistsPlaylistIdRepairPost(playlistId,requestOptions)
+        }
+
+
+
+
+
+
+  return  { mutationFn, ...mutationOptions }}
+
+    export type RepairPlaylistUnresolvedApiV1PlaylistsPlaylistIdRepairPostMutationResult = NonNullable<Awaited<ReturnType<typeof repairPlaylistUnresolvedApiV1PlaylistsPlaylistIdRepairPost>>>
+
+    export type RepairPlaylistUnresolvedApiV1PlaylistsPlaylistIdRepairPostMutationError = HTTPValidationError
+
+    /**
+ * @summary Repair Playlist Unresolved
+ */
+export const useRepairPlaylistUnresolvedApiV1PlaylistsPlaylistIdRepairPost = <TError = HTTPValidationError,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof repairPlaylistUnresolvedApiV1PlaylistsPlaylistIdRepairPost>>, TError,{playlistId: string}, TContext>, request?: SecondParameter<typeof customFetch>}
+ , queryClient?: QueryClient): UseMutationResult<
+        Awaited<ReturnType<typeof repairPlaylistUnresolvedApiV1PlaylistsPlaylistIdRepairPost>>,
+        TError,
+        {playlistId: string},
+        TContext
+      > => {
+      return useMutation(getRepairPlaylistUnresolvedApiV1PlaylistsPlaylistIdRepairPostMutationOptions(options), queryClient);
     }

@@ -8,8 +8,12 @@
 
 /**
  * Request body for POST /playlists/{id}/links/{link_id}/sync.
+ *
+ * ``confirm_token`` is the staleness token from a prior preview, echoed back to
+ * proceed with a destructive sync. Omit it for a normal (non-destructive) sync;
+ * a destructive one without a matching token returns 409 CONFIRMATION_REQUIRED.
  */
 export interface SyncLinkRequest {
   direction_override?: string | null;
-  confirmed?: boolean;
+  confirm_token?: string | null;
 }

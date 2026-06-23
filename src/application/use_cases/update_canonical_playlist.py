@@ -130,7 +130,11 @@ class UpdateCanonicalPlaylistUseCase:
         )
 
     async def execute(
-        self, command: UpdateCanonicalPlaylistCommand, uow: UnitOfWorkProtocol
+        self,
+        command: UpdateCanonicalPlaylistCommand,
+        uow: UnitOfWorkProtocol,
+        *,
+        commit: bool = True,
     ) -> UpdateCanonicalPlaylistResult:
         """Updates a playlist with new tracks and optionally new metadata.
 
@@ -153,6 +157,9 @@ class UpdateCanonicalPlaylistUseCase:
             dry_run=command.dry_run,
         )
 
+        if not commit:
+            return await self._update_playlist(command, uow, timer, commit=False)
+
         async with uow:
             try:
                 result = await self._update_playlist(command, uow, timer)
@@ -173,6 +180,8 @@ class UpdateCanonicalPlaylistUseCase:
         command: UpdateCanonicalPlaylistCommand,
         uow: UnitOfWorkProtocol,
         timer: ExecutionTimer,
+        *,
+        commit: bool = True,
     ) -> UpdateCanonicalPlaylistResult:
         """Applies the requested metadata/track updates and builds the result."""
         # Step 1: Get current playlist state
@@ -216,7 +225,7 @@ class UpdateCanonicalPlaylistUseCase:
         has_tracks = bool(command.new_tracklist.tracks)
         has_connector = command.connector_playlist is not None
         if not has_tracks and not has_connector:
-            if not command.dry_run:
+            if commit and not command.dry_run:
                 await uow.commit()
             return UpdateCanonicalPlaylistResult(
                 playlist=current_playlist,
@@ -278,8 +287,8 @@ class UpdateCanonicalPlaylistUseCase:
                     processed_playlist.tracks, uow
                 )
 
-        # Commit changes if not dry run
-        if not command.dry_run:
+        # Commit changes if not dry run (caller owns the boundary when commit=False)
+        if commit and not command.dry_run:
             await uow.commit()
 
         result = UpdateCanonicalPlaylistResult(

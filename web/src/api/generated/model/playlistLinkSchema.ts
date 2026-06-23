@@ -15,6 +15,7 @@ export interface PlaylistLinkSchema {
   connector_playlist_identifier: string;
   connector_playlist_name?: string | null;
   sync_direction: string;
+  direction_label: string;
   sync_status: string;
   last_synced?: string | null;
   last_sync_error?: string | null;

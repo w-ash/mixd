@@ -38,6 +38,7 @@ from src.application.services.playlist_reconciliation_engine import (
 )
 from src.application.services.playlist_upsert import upsert_canonical_playlist
 from src.application.services.progress_broker import ProgressBroker
+from src.application.use_cases._shared.batch_commit import commit_batch
 from src.application.use_cases._shared.metric_config import MetricConfigProvider
 from src.application.use_cases.create_canonical_playlist import (
     CreateCanonicalPlaylistResult,
@@ -272,7 +273,17 @@ class ImportConnectorPlaylistsAsCanonicalUseCase:
                 )
                 await _tick_top(f"Failed '{name}'")
 
-            links_to_create: list[PlaylistLink] = []
+            # Commit the freshly-fetched connector-playlist cache before the
+            # per-item loop — only when there are first imports to process. It's
+            # idempotent reference data each item reads (``create_link`` resolves
+            # the DBConnectorPlaylist FK), so a later item's per-item rollback
+            # must not discard it. Re-imports fetch their own remote and never
+            # touch this cache, so an all-re-import batch skips this commit.
+            # ``commit_batch`` (not ``commit``) keeps the UoW's ``__aexit__``
+            # auto-commit safety net armed for the rest of the batch.
+            if resolved:
+                await commit_batch(uow)
+
             for cid, cp in resolved.items():
                 playlist_name_by_cid[cid] = cp.name
                 try:
@@ -283,11 +294,13 @@ class ImportConnectorPlaylistsAsCanonicalUseCase:
                         uow,
                         progress_broker=progress_broker,
                         sub_op_by_cid=sub_op_by_cid,
-                        links_to_create=links_to_create,
                         succeeded=succeeded,
                         tick_top=_tick_top,
                     )
                 except Exception as exc:
+                    # Discard only this item's uncommitted work; items already
+                    # committed (and the cache above) survive.
+                    await uow.rollback()
                     logger.warning(
                         "Failed to create canonical playlist from connector",
                         connector=command.connector_name,
@@ -315,9 +328,6 @@ class ImportConnectorPlaylistsAsCanonicalUseCase:
                     )
                     await _tick_top(f"Failed '{cp.name}'")
 
-            if links_to_create:
-                await link_repo.create_links_batch(links_to_create)
-
             # ── Re-imports: reconcile each existing link against fresh remote ───
             engine = PlaylistReconciliationEngine(metric_config=self.metric_config)
             for cid in existing_ids:
@@ -338,6 +348,9 @@ class ImportConnectorPlaylistsAsCanonicalUseCase:
                         tick_top=_tick_top,
                     )
                 except Exception as exc:
+                    # Discard only this item's uncommitted work; items already
+                    # committed survive.
+                    await uow.rollback()
                     logger.warning(
                         "Failed to re-import (reconcile) connector playlist",
                         connector=command.connector_name,
@@ -365,11 +378,11 @@ class ImportConnectorPlaylistsAsCanonicalUseCase:
                     )
                     await _tick_top(f"Failed '{name}'")
 
-            # Commit when anything was processed without failing — a re-import
-            # no-op still records a fresh base snapshot (a write), so
-            # skipped_unchanged must also drive the commit.
-            if succeeded or skipped_unchanged:
-                await uow.commit()
+            # No batch-level commit: each item already committed its own work
+            # (canonical + link for a first import, or the reconcile + base for a
+            # re-import) in its own transaction above. A failed item rolled back
+            # only itself, so partial-success semantics hold without cross-item
+            # bleed and a "failed" item is never left half-written.
 
             await self._complete_top_op(
                 progress_emitter,
@@ -399,11 +412,14 @@ class ImportConnectorPlaylistsAsCanonicalUseCase:
         *,
         progress_broker: ProgressBroker | None,
         sub_op_by_cid: dict[str, str],
-        links_to_create: list[PlaylistLink],
         succeeded: list[CanonicalImportOutcome],
         tick_top: Callable[[str], Awaitable[None]],
     ) -> None:
-        """CREATE the canonical Playlist + link for a first import."""
+        """CREATE the canonical Playlist + link for a first import.
+
+        Canonical and link commit together in this item's own transaction, so a
+        failure can't leave an orphan canonical committed without its link.
+        """
         if progress_broker is not None and cid in sub_op_by_cid:
             await progress_broker.emit_progress(
                 create_progress_event(
@@ -424,9 +440,11 @@ class ImportConnectorPlaylistsAsCanonicalUseCase:
             uow,
             metric_config=self.metric_config,
             user_id=command.user_id,
+            commit=False,
         )
 
-        links_to_create.append(
+        link_repo = uow.get_playlist_link_repository()
+        await link_repo.create_link(
             PlaylistLink(
                 playlist_id=upsert_result.playlist.id,
                 connector_name=command.connector_name,
@@ -436,6 +454,10 @@ class ImportConnectorPlaylistsAsCanonicalUseCase:
                 sync_status=SyncStatus.NEVER_SYNCED,
             )
         )
+        # Atomic per item: canonical + link land together (or not at all).
+        # ``commit_batch`` (not ``commit``) keeps the UoW's ``__aexit__``
+        # auto-commit safety net armed for the rest of the batch.
+        await commit_batch(uow)
 
         resolved_count = len(upsert_result.playlist.tracks)
         unresolved_count = max(len(cp.items) - resolved_count, 0)
@@ -460,23 +482,28 @@ class ImportConnectorPlaylistsAsCanonicalUseCase:
                 else "updated"
             ),
         )
-        await self._emit_sub_outcome(
-            progress_broker,
-            sub_op_id=sub_op_by_cid.get(cid),
-            cid=cid,
-            name=cp.name,
-            outcome="succeeded",
-            message=(
-                f"Imported '{cp.name}' — {resolved_count} resolved"
-                + (f", {unresolved_count} unresolved" if unresolved_count else "")
-            ),
-            phase="done",
-            resolved=resolved_count,
-            unresolved=unresolved_count,
-            canonical_playlist_id=str(upsert_result.playlist.id),
-            final_status=OperationStatus.COMPLETED,
-        )
-        await tick_top(f"Imported '{cp.name}'")
+        # Post-commit: the item is durable, so progress emission is best-effort —
+        # a broker/SSE failure here must not reach the per-item rollback handler.
+        try:
+            await self._emit_sub_outcome(
+                progress_broker,
+                sub_op_id=sub_op_by_cid.get(cid),
+                cid=cid,
+                name=cp.name,
+                outcome="succeeded",
+                message=(
+                    f"Imported '{cp.name}' — {resolved_count} resolved"
+                    + (f", {unresolved_count} unresolved" if unresolved_count else "")
+                ),
+                phase="done",
+                resolved=resolved_count,
+                unresolved=unresolved_count,
+                canonical_playlist_id=str(upsert_result.playlist.id),
+                final_status=OperationStatus.COMPLETED,
+            )
+            await tick_top(f"Imported '{cp.name}'")
+        except Exception as exc:
+            self._warn_post_commit_emit_failed(command.connector_name, cid, exc)
 
     async def _reimport_one(
         self,
@@ -519,20 +546,29 @@ class ImportConnectorPlaylistsAsCanonicalUseCase:
             user_id=command.user_id,
             confirmed=True,
         )
+        # Atomic per item: engine.apply leaves the reconcile (canonical + base)
+        # pending; commit it on its own so a later item's failure can't roll it
+        # back. A skip still records a fresh base snapshot, so commit either way.
+        # ``commit_batch`` (not ``commit``) keeps the ``__aexit__`` safety net armed.
+        await commit_batch(uow)
 
         if result.skipped:
             skipped_unchanged.append(ConnectorPlaylistIdentifier(cid))
-            await self._emit_sub_outcome(
-                progress_broker,
-                sub_op_id=sub_op_by_cid.get(cid),
-                cid=cid,
-                name=name,
-                outcome="skipped_unchanged",
-                message=f"'{name}' is already up to date",
-                phase="done",
-                final_status=OperationStatus.COMPLETED,
-            )
-            await tick_top(f"Skipped '{name}'")
+            # Post-commit progress emission is best-effort (see _import_one).
+            try:
+                await self._emit_sub_outcome(
+                    progress_broker,
+                    sub_op_id=sub_op_by_cid.get(cid),
+                    cid=cid,
+                    name=name,
+                    outcome="skipped_unchanged",
+                    message=f"'{name}' is already up to date",
+                    phase="done",
+                    final_status=OperationStatus.COMPLETED,
+                )
+                await tick_top(f"Skipped '{name}'")
+            except Exception as exc:
+                self._warn_post_commit_emit_failed(command.connector_name, cid, exc)
             return
 
         succeeded.append(
@@ -557,20 +593,24 @@ class ImportConnectorPlaylistsAsCanonicalUseCase:
             f"{result.tracks_removed} removed"
             + (f", {result.unresolved} unresolved" if result.unresolved else "")
         )
-        await self._emit_sub_outcome(
-            progress_broker,
-            sub_op_id=sub_op_by_cid.get(cid),
-            cid=cid,
-            name=name,
-            outcome="succeeded",
-            message=message,
-            phase="done",
-            resolved=result.resolved,
-            unresolved=result.unresolved,
-            canonical_playlist_id=str(link.playlist_id),
-            final_status=OperationStatus.COMPLETED,
-        )
-        await tick_top(f"Updated '{name}'")
+        # Post-commit progress emission is best-effort (see _import_one).
+        try:
+            await self._emit_sub_outcome(
+                progress_broker,
+                sub_op_id=sub_op_by_cid.get(cid),
+                cid=cid,
+                name=name,
+                outcome="succeeded",
+                message=message,
+                phase="done",
+                resolved=result.resolved,
+                unresolved=result.unresolved,
+                canonical_playlist_id=str(link.playlist_id),
+                final_status=OperationStatus.COMPLETED,
+            )
+            await tick_top(f"Updated '{name}'")
+        except Exception as exc:
+            self._warn_post_commit_emit_failed(command.connector_name, cid, exc)
 
     @staticmethod
     async def _record_issues(
@@ -726,6 +766,21 @@ class ImportConnectorPlaylistsAsCanonicalUseCase:
             )
         )
         await manager.complete_operation(sub_op_id, final_status)
+
+    @staticmethod
+    def _warn_post_commit_emit_failed(connector: str, cid: str, exc: Exception) -> None:
+        """A progress-emission failure *after* a per-item commit is non-fatal.
+
+        The item is already durable; re-raising would route it into the per-item
+        rollback handler, which would re-record this committed item as failed too
+        (so it lands in both ``succeeded`` and ``failed``). Log and move on.
+        """
+        logger.warning(
+            "Post-commit progress emission failed; item already committed",
+            connector=connector,
+            connector_playlist_identifier=cid,
+            error=repr(exc),
+        )
 
 
 async def run_import_connector_playlists_as_canonical(

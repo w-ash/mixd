@@ -13,6 +13,7 @@ import type { OperationRunDetailSchemaStatus } from './operationRunDetailSchemaS
  */
 export interface OperationRunDetailSchema {
   id: string;
+  operation_id: string | null;
   operation_type: string;
   started_at: string;
   ended_at: string | null;

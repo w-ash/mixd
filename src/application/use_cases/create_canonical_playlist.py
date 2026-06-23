@@ -119,13 +119,24 @@ class CreateCanonicalPlaylistUseCase:
         return identifiers
 
     async def execute(
-        self, command: CreateCanonicalPlaylistCommand, uow: UnitOfWorkProtocol
+        self,
+        command: CreateCanonicalPlaylistCommand,
+        uow: UnitOfWorkProtocol,
+        *,
+        commit: bool = True,
     ) -> CreateCanonicalPlaylistResult:
         """Create playlist with tracks and persist to database.
 
         Args:
             command: Playlist creation parameters and track data
             uow: Transaction manager and repository provider
+            commit: When True (default) this use case owns a complete
+                transaction — opens its own UoW context and commits. A batch
+                caller (import) passes ``commit=False`` to fold this write into
+                its own per-item transaction: no nested ``async with`` (which
+                would auto-commit the shared session on exit) and no commit, so
+                the boundary — including rollback on failure — stays with the
+                caller.
 
         Returns:
             Result containing created playlist and operation metrics
@@ -141,6 +152,9 @@ class CreateCanonicalPlaylistUseCase:
             track_count=len(command.tracklist.tracks),
             has_connector_playlist=command.connector_playlist is not None,
         )
+
+        if not commit:
+            return await self._create_playlist(command, uow, timer, commit=False)
 
         async with uow:
             try:
@@ -163,6 +177,8 @@ class CreateCanonicalPlaylistUseCase:
         command: CreateCanonicalPlaylistCommand,
         uow: UnitOfWorkProtocol,
         timer: ExecutionTimer,
+        *,
+        commit: bool = True,
     ) -> CreateCanonicalPlaylistResult:
         """Builds the playlist from source data, persists it, and builds the result."""
         # Step 1: Process ConnectorPlaylist data if present (returns Playlist or TrackList)
@@ -219,8 +235,9 @@ class CreateCanonicalPlaylistUseCase:
         # Step 4: Extract metrics from connector metadata (extract tracks from playlist)
         await self.metrics_service.extract_track_metrics(playlist.tracks, uow)
 
-        # Step 5: Commit transaction
-        await uow.commit()
+        # Step 5: Commit transaction (caller owns the boundary when commit=False)
+        if commit:
+            await uow.commit()
 
         # Step 6: Count unique tracks in the final playlist
         unique_track_count = len({

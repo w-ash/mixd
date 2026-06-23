@@ -16,6 +16,7 @@ function makeSummary(
 ): OperationRunSummarySchema {
   return {
     id: "00000000-0000-0000-0000-000000000001",
+    operation_id: null,
     operation_type: "import_lastfm_history",
     started_at: "2026-04-26T10:00:00Z",
     ended_at: "2026-04-26T10:01:00Z",
@@ -86,6 +87,7 @@ describe("ImportHistoryPage", () => {
     setupListMock([makeSummary({ id: targetId, issue_count: 1 })]);
     setupDetailMock({
       id: targetId,
+      operation_id: null,
       operation_type: "import_lastfm_history",
       started_at: "2026-04-26T10:00:00Z",
       ended_at: "2026-04-26T10:01:00Z",

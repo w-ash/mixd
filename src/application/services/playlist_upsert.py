@@ -75,9 +75,17 @@ async def upsert_canonical_playlist(
     metric_config: MetricConfigProvider,
     *,
     user_id: str,
+    commit: bool = True,
 ) -> CreateCanonicalPlaylistResult | UpdateCanonicalPlaylistResult:
     """CREATE or UPDATE the canonical Playlist that mirrors the connector
-    playlist. Caller owns the UoW and the commit boundary."""
+    playlist.
+
+    ``commit`` defaults to True so a standalone caller gets a complete
+    transaction. A batch caller (import) passes ``commit=False`` to fold this
+    write into its own per-item transaction — the canonical, its link, and its
+    base snapshot then commit (or roll back) together, so a mid-batch failure
+    can't leave an orphan canonical committed without its link.
+    """
     # Check if playlist already exists locally
     existing_playlist = None
     read_use_case = ReadCanonicalPlaylistUseCase()
@@ -103,7 +111,7 @@ async def upsert_canonical_playlist(
         )
         result = await UpdateCanonicalPlaylistUseCase(
             metric_config=metric_config
-        ).execute(command, uow)
+        ).execute(command, uow, commit=commit)
         logger.info(
             "Updated existing playlist",
             playlist_id=result.playlist.id,
@@ -116,7 +124,7 @@ async def upsert_canonical_playlist(
         connector_playlist, connector_name, playlist_id, user_id=user_id
     )
     result = await CreateCanonicalPlaylistUseCase(metric_config=metric_config).execute(
-        command, uow
+        command, uow, commit=commit
     )
     logger.info(
         "Created new playlist",

@@ -853,7 +853,7 @@
           "playlists"
         ],
         "summary": "Sync Playlist Link",
-        "description": "Start a sync operation for a playlist link.\n\nReturns immediately with an operation_id. Progress streams via\nGET /operations/{operation_id}/progress (existing SSE endpoint).",
+        "description": "Start a playlist-link sync, tracked via SSE with a durable audit row.\n\nReturns immediately with ``{operation_id, run_id}``; progress streams via\nGET /operations/{operation_id}/progress. A destructive sync whose\n``confirm_token`` is missing or stale returns HTTP 409 (CONFIRMATION_REQUIRED)\n*synchronously* \u2014 before any background work \u2014 with a fresh token + the\nremoval counts, so the client can show the confirm dialog and retry.",
         "operationId": "sync_playlist_link_api_v1_playlists__playlist_id__links__link_id__sync_post",
         "parameters": [
           {
@@ -900,7 +900,51 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/SyncStartedResponse"
+                  "$ref": "#/components/schemas/OperationStartedResponse"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/playlists/{playlist_id}/repair": {
+      "post": {
+        "tags": [
+          "playlists"
+        ],
+        "summary": "Repair Playlist Unresolved",
+        "description": "Re-resolve the playlist's unresolved entries against existing mappings.\n\nDB-only and idempotent: hydrates rows that now have a track mapping without\nre-fetching the remote or changing membership. 404 if the playlist is\nmissing or not owned by the caller.",
+        "operationId": "repair_playlist_unresolved_api_v1_playlists__playlist_id__repair_post",
+        "parameters": [
+          {
+            "name": "playlist_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid",
+              "title": "Playlist Id"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/RepairUnresolvedResponse"
                 }
               }
             }
@@ -3466,7 +3510,7 @@
           "operation-runs"
         ],
         "summary": "List Operation Runs",
-        "description": "List the user's audit-log rows newest-first, keyset-paginated.\n\n``type=imports`` (default) restricts to import/sync/apply runs that\nsurface in the Import History UI. ``type=all`` returns every row.",
+        "description": "List the user's audit-log rows newest-first, keyset-paginated.\n\n``type=imports`` (default) restricts to import/sync/apply runs that\nsurface in the Import History UI. ``type=all`` returns every row.\n``status=running`` powers operation-awareness: the in-flight rows the\nfrontend re-attaches to (each carries its ``operation_id`` SSE handle).",
         "operationId": "list_operation_runs_api_v1_operation_runs_get",
         "parameters": [
           {
@@ -3505,6 +3549,22 @@
               "type": "string",
               "default": "imports",
               "title": "Type"
+            }
+          },
+          {
+            "name": "status",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "$ref": "#/components/schemas/OperationStatus"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Status"
             }
           }
         ],
@@ -4761,7 +4821,7 @@
           "sync_direction": {
             "type": "string",
             "title": "Sync Direction",
-            "default": "push"
+            "default": "pull"
           }
         },
         "type": "object",
@@ -5618,6 +5678,17 @@
             "format": "uuid",
             "title": "Id"
           },
+          "operation_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Operation Id"
+          },
           "operation_type": {
             "type": "string",
             "title": "Operation Type"
@@ -5663,6 +5734,7 @@
         "type": "object",
         "required": [
           "id",
+          "operation_id",
           "operation_type",
           "started_at",
           "ended_at",
@@ -5714,6 +5786,17 @@
             "format": "uuid",
             "title": "Id"
           },
+          "operation_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Operation Id"
+          },
           "operation_type": {
             "type": "string",
             "title": "Operation Type"
@@ -5756,6 +5839,7 @@
         "type": "object",
         "required": [
           "id",
+          "operation_id",
           "operation_type",
           "started_at",
           "ended_at",
@@ -5945,6 +6029,15 @@
         ],
         "title": "OperationStartedResponse",
         "description": "Returned immediately when a long-running operation is launched.\n\n``run_id`` is the persistent ``OperationRun`` audit-log row id, present\nwhen the route writes one via the seam-level recorder. The frontend\ncaches it alongside ``operation_id`` so the post-run toast can deep-\nlink to ``/settings/imports?run=<run_id>`` without a second round trip."
+      },
+      "OperationStatus": {
+        "type": "string",
+        "enum": [
+          "running",
+          "complete",
+          "error",
+          "cancelled"
+        ]
       },
       "PaginatedLibraryTracksResponse": {
         "properties": {
@@ -6350,6 +6443,11 @@
               }
             ],
             "title": "Added At"
+          },
+          "is_resolved": {
+            "type": "boolean",
+            "title": "Is Resolved",
+            "default": true
           }
         },
         "type": "object",
@@ -6358,7 +6456,7 @@
           "track"
         ],
         "title": "PlaylistEntrySchema",
-        "description": "A track's membership in a playlist with position metadata."
+        "description": "A track's membership in a playlist with position metadata.\n\n``is_resolved`` is False for an unresolved entry \u2014 a source position whose\nconnector track has no canonical match yet. Its ``track`` then carries the\ndisplay snapshot (title/artists) with ``id=None`` so the UI can render it\n(\"Couldn't match: \u2026\") and offer a repair action without losing the slot."
       },
       "PlaylistLinkSchema": {
         "properties": {
@@ -6389,6 +6487,10 @@
           "sync_direction": {
             "type": "string",
             "title": "Sync Direction"
+          },
+          "direction_label": {
+            "type": "string",
+            "title": "Direction Label"
           },
           "sync_status": {
             "type": "string",
@@ -6457,6 +6559,7 @@
           "connector_name",
           "connector_playlist_identifier",
           "sync_direction",
+          "direction_label",
           "sync_status"
         ],
         "title": "PlaylistLinkSchema",
@@ -6568,6 +6671,25 @@
         ],
         "title": "RenameTagRequest",
         "description": "Body for PATCH /api/v1/tags/{tag}. ``new_tag`` is normalized client-side."
+      },
+      "RepairUnresolvedResponse": {
+        "properties": {
+          "repaired": {
+            "type": "integer",
+            "title": "Repaired"
+          },
+          "still_unresolved": {
+            "type": "integer",
+            "title": "Still Unresolved"
+          }
+        },
+        "type": "object",
+        "required": [
+          "repaired",
+          "still_unresolved"
+        ],
+        "title": "RepairUnresolvedResponse",
+        "description": "Result of re-resolving a playlist's unresolved entries."
       },
       "ResolveReviewRequest": {
         "properties": {
@@ -7025,15 +7147,21 @@
             ],
             "title": "Direction Override"
           },
-          "confirmed": {
-            "type": "boolean",
-            "title": "Confirmed",
-            "default": false
+          "confirm_token": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Confirm Token"
           }
         },
         "type": "object",
         "title": "SyncLinkRequest",
-        "description": "Request body for POST /playlists/{id}/links/{link_id}/sync."
+        "description": "Request body for POST /playlists/{id}/links/{link_id}/sync.\n\n``confirm_token`` is the staleness token from a prior preview, echoed back to\nproceed with a destructive sync. Omit it for a normal (non-destructive) sync;\na destructive one without a matching token returns 409 CONFIRMATION_REQUIRED."
       },
       "SyncPreviewResponse": {
         "properties": {
@@ -7052,6 +7180,11 @@
           "direction": {
             "type": "string",
             "title": "Direction"
+          },
+          "direction_label": {
+            "type": "string",
+            "title": "Direction Label",
+            "default": ""
           },
           "connector_name": {
             "type": "string",
@@ -7081,6 +7214,26 @@
               }
             ],
             "title": "Safety Message"
+          },
+          "safety_removals": {
+            "type": "integer",
+            "title": "Safety Removals",
+            "default": 0
+          },
+          "safety_total": {
+            "type": "integer",
+            "title": "Safety Total",
+            "default": 0
+          },
+          "safety_remaining": {
+            "type": "integer",
+            "title": "Safety Remaining",
+            "default": 0
+          },
+          "confirm_token": {
+            "type": "string",
+            "title": "Confirm Token",
+            "default": ""
           }
         },
         "type": "object",
@@ -7094,20 +7247,6 @@
         ],
         "title": "SyncPreviewResponse",
         "description": "Preview of what a sync operation would change (read-only).\n\nWhen ``has_comparison_data`` is False, the link has never been synced\nand no locally-cached external playlist exists for diffing."
-      },
-      "SyncStartedResponse": {
-        "properties": {
-          "operation_id": {
-            "type": "string",
-            "title": "Operation Id"
-          }
-        },
-        "type": "object",
-        "required": [
-          "operation_id"
-        ],
-        "title": "SyncStartedResponse",
-        "description": "Response for sync operations that run in the background."
       },
       "TagOperationResult": {
         "properties": {
