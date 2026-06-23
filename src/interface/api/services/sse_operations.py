@@ -73,6 +73,7 @@ async def prepare_sse_operation_with_emitter(
     *,
     user_id: str,
     operation_type: str,
+    request_params: JsonDict | None = None,
 ) -> tuple[str, UUID, OperationBoundEmitter]:
     """Pre-generate operation_id, register SSE queue, build a bound emitter,
     and write the ``OperationRun`` audit row at kickoff.
@@ -98,7 +99,10 @@ async def prepare_sse_operation_with_emitter(
     # resolve the row and a re-attaching client can stream from the same id.
     operation_id = str(uuid4())
     run_id = await start_run(
-        user_id=user_id, operation_type=operation_type, operation_id=operation_id
+        user_id=user_id,
+        operation_type=operation_type,
+        operation_id=operation_id,
+        request_params=request_params,
     )
     await get_operation_registry().register(operation_id)
     emitter = OperationBoundEmitter(
@@ -267,6 +271,7 @@ async def launch_sse_operation(
     operation_type: str,
     coro_factory: Callable[[OperationBoundEmitter], Awaitable[object]],
     name_prefix: str = "import",
+    request_params: JsonDict | None = None,
 ) -> OperationStartedResponse:
     """Run the standard kickoff → background → return-202 shape.
 
@@ -280,9 +285,14 @@ async def launch_sse_operation(
     real counts. A factory that awaits without returning yields ``None``, which
     ``_audit_outcome`` can only record as ``complete`` — the dropped-result bug
     this contract exists to prevent.
+
+    ``request_params`` is persisted on the audit row so a retryable operation can
+    be re-invoked from the run alone — connector config strings only.
     """
     operation_id, run_id, emitter = await prepare_sse_operation_with_emitter(
-        user_id=user_id, operation_type=operation_type
+        user_id=user_id,
+        operation_type=operation_type,
+        request_params=request_params,
     )
     # Human-readable parent-op description (e.g. "import_lastfm_history" →
     # "Import Lastfm History") for the top-level `started` event.

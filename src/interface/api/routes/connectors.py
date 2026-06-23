@@ -211,4 +211,11 @@ async def import_connector_playlists(
         user_id=user_id,
         operation_type="import_connector_playlists",
         coro_factory=_import,
+        # Persist how to re-invoke this import so "Retry failed only" can rebuild
+        # the call from the run alone (failed ids come from the audit issues).
+        # Connector config strings only — never ids or user_id.
+        request_params={
+            "connector_name": service,
+            "sync_direction": body.sync_direction,
+        },
     )

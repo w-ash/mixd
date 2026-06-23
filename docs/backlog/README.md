@@ -86,7 +86,7 @@ Each milestone delivers a **vertical slice** — backend API + frontend page tog
 | **v0.8.5** | Operation & surface reliability (design-debt review) | 🚀 Shipped | [details](v0.8.5-0.8.6.md#v085-operation--surface-reliability) |
 | **v0.8.6** | Cycle hardening & cleanup (design-debt review) | 🚀 Shipped | [details](v0.8.5-0.8.6.md#v086-cycle-hardening--cleanup) |
 | **v0.8.7** | Import/sync reconciliation — reliability (backend + CLI) | 🔨 In Progress | [details](v0.8.7-0.8.8.md#v087-importsync-reliability-backend--cli) |
-| **v0.8.8** | Import/sync reconciliation — web UI | 🔜 Not Started | [details](v0.8.7-0.8.8.md#v088-importsync-web-ui) |
+| **v0.8.8** | Import/sync reconciliation — web UI | 🔨 In Progress | [details](v0.8.7-0.8.8.md#v088-importsync-web-ui) |
 | **v0.8.9** | Workflow templates & import/export | 🔜 Not Started | [details](v0.8.9-0.8.10.md#v089-workflow-templates--importexport) |
 | **v0.8.10** | Editor polish — sub-flows & playlist browse | 🔜 Not Started | [details](v0.8.9-0.8.10.md#v0810-editor-polish---sub-flows--playlist-browse) |
 | **v0.8.11** | Manual playlist track editing (design-debt review) | 🔜 Not Started | [details](v0.8.11.md#v0811-manual-playlist-track-editing) |

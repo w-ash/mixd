@@ -260,3 +260,34 @@ class TestLaunchSseOperationThreadsResult:
 
         # A factory that awaited-without-returning would put None here.
         assert seen_result == [failed]
+
+    async def test_request_params_threaded_to_start_run(self):
+        """request_params reaches the kickoff audit-row write, so a retryable
+        operation can be re-invoked from the run alone (connector config only)."""
+
+        async def _factory(_emitter: OperationBoundEmitter) -> object:
+            return OperationResult(operation_name="Import")
+
+        start_run_mock = AsyncMock(return_value=uuid4())
+        with (
+            patch.object(sse_operations, "start_run", new=start_run_mock),
+            patch.object(
+                sse_operations, "launch_background", new=lambda _name, _factory: None
+            ),
+            patch.object(sse_operations, "get_progress_broker", new=MagicMock()),
+        ):
+            await sse_operations.launch_sse_operation(
+                user_id="u1",
+                operation_type="import_connector_playlists",
+                coro_factory=_factory,
+                request_params={
+                    "connector_name": "spotify",
+                    "sync_direction": "pull",
+                },
+            )
+
+        start_run_mock.assert_awaited_once()
+        assert start_run_mock.await_args.kwargs["request_params"] == {
+            "connector_name": "spotify",
+            "sync_direction": "pull",
+        }

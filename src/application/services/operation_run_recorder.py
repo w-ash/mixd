@@ -28,6 +28,7 @@ async def start_run(
     operation_type: str,
     operation_id: str | None = None,
     triggered_by_schedule_id: UUID | None = None,
+    request_params: JsonDict | None = None,
 ) -> UUID:
     """Insert an ``OperationRun`` row at operation kickoff.
 
@@ -36,7 +37,9 @@ async def start_run(
     SSE queue key (set by the seam so snapshot / active-operations endpoints can
     resolve the row). ``triggered_by_schedule_id`` is set by the scheduler so a
     scheduled sync's audit row traces back to its schedule (None for
-    user-initiated operations).
+    user-initiated operations). ``request_params`` records how to re-invoke the
+    operation (connector config) so "Retry failed only" can rebuild the call from
+    the row — connector strings only, never ids or user_id.
     """
 
     async def _create(uow: UnitOfWorkProtocol) -> UUID:
@@ -47,6 +50,7 @@ async def start_run(
             status="running",
             operation_id=operation_id,
             triggered_by_schedule_id=triggered_by_schedule_id,
+            request_params=request_params or {},
         )
         async with uow:
             repo = uow.get_operation_run_repository()

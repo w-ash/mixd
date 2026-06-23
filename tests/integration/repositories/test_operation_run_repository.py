@@ -29,6 +29,7 @@ class TestCreateAndRead:
             operation_type="import_spotify_playlists",
             counts={"playlists": 3, "tracks": 200},
             issues=[{"track_id": "abc", "reason": "region_locked"}],
+            request_params={"connector_name": "spotify", "sync_direction": "pull"},
         )
 
         created = await repo.create(run)
@@ -38,6 +39,11 @@ class TestCreateAndRead:
         assert created.status == "running"
         assert created.counts == {"playlists": 3, "tracks": 200}
         assert created.issues == [{"track_id": "abc", "reason": "region_locked"}]
+        # request_params round-trips so retry can re-invoke from the row alone.
+        assert created.request_params == {
+            "connector_name": "spotify",
+            "sync_direction": "pull",
+        }
 
     async def test_create_default_jsonb_shapes(self, db_session: AsyncSession) -> None:
         """No-arg run gets empty dict for counts and empty list for issues."""
@@ -48,6 +54,7 @@ class TestCreateAndRead:
 
         assert created.counts == {}
         assert created.issues == []
+        assert created.request_params == {}
 
     async def test_get_by_id_for_user_returns_match(
         self, db_session: AsyncSession

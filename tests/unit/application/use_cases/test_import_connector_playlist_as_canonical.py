@@ -423,6 +423,33 @@ class TestPerItemAtomicity:
         uow.commit_batch.assert_awaited()  # the item committed
         uow.rollback.assert_not_awaited()  # a committed item is never rolled back
 
+    async def test_failure_path_emit_error_does_not_abort_batch(self) -> None:
+        """A failing item whose *failure*-path emit ALSO raises must not abort the
+        batch: the failure is already recorded, so execute returns a partial result
+        instead of letting the emit error escape past _complete_top_op/_record_issues."""
+        cp = _cp("sp1", name="A")
+        uow, _ = make_mock_uow_with_connector(get_playlist_return=cp)
+
+        async def bad_upsert(*args: object, **kwargs: object):
+            raise RuntimeError("canonical blew up")
+
+        emit_boom = AsyncMock(side_effect=RuntimeError("SSE broker down"))
+        with (
+            patch(_UPSERT_PATCH, new=AsyncMock(side_effect=bad_upsert)),
+            patch.object(
+                ImportConnectorPlaylistsAsCanonicalUseCase,
+                "_emit_sub_outcome",
+                emit_boom,
+            ),
+        ):
+            # Must NOT raise: without best-effort emit, the failure-path emit would
+            # propagate out of execute and skip the failed-item accounting.
+            result = await _use_case().execute(_cmd(["sp1"]), uow)
+
+        assert [f.connector_playlist_identifier for f in result.failed] == ["sp1"]
+        assert len(result.succeeded) == 0
+        emit_boom.assert_awaited()  # the failure emit was attempted and raised
+
 
 class TestConnectorThreading:
     async def test_connector_name_resolves_to_provider(self) -> None:

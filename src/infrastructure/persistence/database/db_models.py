@@ -1403,6 +1403,13 @@ class DBOperationRun(BaseEntity):
     issues: Mapped[list[JsonDict]] = mapped_column(
         PgJsonb, nullable=False, server_default=text("'[]'::jsonb"), default=list
     )
+    # Parameters needed to re-invoke this operation — connector_name +
+    # sync_direction for an import — so "Retry failed only" can reconstruct the
+    # call server-side from the row alone (failed item ids come from issues).
+    # Connector config only (strings), never ids or user_id. Migration 032.
+    request_params: Mapped[JsonDict] = mapped_column(
+        PgJsonb, nullable=False, server_default=text("'{}'::jsonb"), default=dict
+    )
     # Provenance: the schedule that fired this sync, if any. ON DELETE SET NULL
     # so deleting a schedule preserves its historical runs (migration 026).
     triggered_by_schedule_id: Mapped[UuidType | None] = mapped_column(

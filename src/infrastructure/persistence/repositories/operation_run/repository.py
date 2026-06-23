@@ -51,6 +51,7 @@ class OperationRunRepository(BaseRepository[DBOperationRun, OperationRun]):
             status=run.status,
             counts=dict(run.counts),
             issues=list(run.issues),
+            request_params=dict(run.request_params),
             operation_id=run.operation_id,
             triggered_by_schedule_id=run.triggered_by_schedule_id,
         )

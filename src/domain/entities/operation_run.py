@@ -37,6 +37,11 @@ class OperationRun:
     ended_at: datetime | None = None
     counts: JsonDict = field(factory=empty_json_map)
     issues: list[JsonDict] = field(factory=_empty_issues)
+    # Parameters to re-invoke this operation (connector_name + sync_direction for
+    # an import), so "Retry failed only" can rebuild the call from the row. Failed
+    # item identifiers come from ``issues``; this carries only connector config
+    # (strings) — never UUIDs or user_id (the retry route re-derives the owner).
+    request_params: JsonDict = field(factory=empty_json_map)
     # The SSE queue key for this run, when launched via the SSE seam. Lets the
     # snapshot / active-operations endpoints resolve it and re-attach the stream.
     operation_id: str | None = None
