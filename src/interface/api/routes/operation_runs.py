@@ -100,6 +100,7 @@ async def list_operation_runs(
                 status=r.status,
                 counts=dict(r.counts),
                 issue_count=len(r.issues),
+                retryable=r.is_retryable,
             )
             for r in result.runs
         ],
@@ -135,6 +136,7 @@ async def get_operation_run(
         status=run.status,
         counts=dict(run.counts),
         issues=list(run.issues),
+        retryable=run.is_retryable,
     )
 
 
@@ -161,23 +163,15 @@ async def retry_failed_operation(
         raise HTTPException(status_code=404, detail="Operation run not found")
     if run.status == "running":
         raise HTTPException(status_code=409, detail="Operation is still running")
-    if run.operation_type != _RETRYABLE_OPERATION_TYPE:
-        raise HTTPException(
-            status_code=409, detail="This operation type can't be retried"
-        )
-
-    connector_name = run.request_params.get("connector_name")
-    sync_direction = run.request_params.get("sync_direction")
-    failed_ids = [
-        str(issue["connector_playlist_identifier"])
-        for issue in run.issues
-        if issue.get("connector_playlist_identifier")
-    ]
-    if not connector_name or not sync_direction or not failed_ids:
+    # The domain entity owns "what is retryable, reconstructed from this row" —
+    # status, type, connector config, and a non-empty failed subset (see
+    # OperationRun.is_retryable / failed_connector_identifiers).
+    if not run.is_retryable:
         raise HTTPException(status_code=409, detail="Nothing to retry for this run")
 
-    connector = str(connector_name)
-    direction = str(sync_direction)
+    connector = str(run.request_params["connector_name"])
+    direction = str(run.request_params["sync_direction"])
+    failed_ids = run.failed_connector_identifiers
 
     async def _retry(emitter: OperationBoundEmitter) -> object:
         result = await run_import_connector_playlists_as_canonical(

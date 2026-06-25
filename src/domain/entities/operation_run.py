@@ -11,7 +11,7 @@ skip). Normalize when a third consumer needs to query across types.
 """
 
 from datetime import datetime
-from typing import Literal
+from typing import Final, Literal
 from uuid import UUID, uuid7
 
 from attrs import define, field
@@ -19,6 +19,14 @@ from attrs import define, field
 from .shared import JsonDict, empty_json_map, utc_now_factory
 
 type OperationStatus = Literal["running", "complete", "error", "cancelled"]
+
+# Operation types whose audit row carries enough to reconstruct a targeted
+# "retry the failed items" run — connector config in ``request_params`` plus
+# per-playlist ids in ``issues``. Domain business rule (per domain-purity): the
+# single place that decides what is retryable.
+_RETRYABLE_OPERATION_TYPES: Final[frozenset[str]] = frozenset({
+    "import_connector_playlists"
+})
 
 
 def _empty_issues() -> list[JsonDict]:
@@ -51,3 +59,33 @@ class OperationRun:
     created_at: datetime = field(factory=utc_now_factory)
     updated_at: datetime = field(factory=utc_now_factory)
     id: UUID = field(factory=uuid7)
+
+    @property
+    def failed_connector_identifiers(self) -> list[str]:
+        """Connector-playlist ids of the failed items, read from ``issues``.
+
+        The retry path re-invokes the import with exactly this subset.
+        """
+        return [
+            str(issue["connector_playlist_identifier"])
+            for issue in self.issues
+            if issue.get("connector_playlist_identifier")
+        ]
+
+    @property
+    def is_retryable(self) -> bool:
+        """Whether a targeted "retry the failed items" run can be rebuilt from
+        this row alone.
+
+        True only for a *failed* run of a retryable type whose
+        ``request_params`` carry the connector config and whose ``issues`` name
+        at least one failed connector playlist. Single source of truth for both
+        the retry route's 409 gate and the ``retryable`` flag the UI reads.
+        """
+        return (
+            self.status == "error"
+            and self.operation_type in _RETRYABLE_OPERATION_TYPES
+            and bool(self.request_params.get("connector_name"))
+            and bool(self.request_params.get("sync_direction"))
+            and bool(self.failed_connector_identifiers)
+        )

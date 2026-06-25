@@ -31,6 +31,10 @@ class OperationRunSummarySchema(BaseModel):
     status: OperationStatusLiteral
     counts: JsonDict
     issue_count: int
+    # Server truth for "offer a Retry failed only action" — derived from the
+    # domain entity (status + type + reconstructable failed subset), so the UI
+    # never re-decides retryability from operation_type.
+    retryable: bool
 
 
 class OperationRunDetailSchema(BaseModel):
@@ -46,6 +50,7 @@ class OperationRunDetailSchema(BaseModel):
     status: OperationStatusLiteral
     counts: JsonDict
     issues: list[JsonDict]
+    retryable: bool
 
 
 class OperationRunListResponse(BaseModel):
