@@ -237,17 +237,13 @@ export function SyncConfirmationDialog({
 
   const confirmLabel = (() => {
     if (!preview) return "Sync";
-    if (!hasComparisonData) {
-      return effectiveDirection === "push"
-        ? `Sync to ${label}`
-        : `Sync from ${label}`;
-    }
+    // Direction is owned by the DirectionChooser above; the button is the verb
+    // (+ the count, the consequence). No "to/from {connector}" duplication.
+    if (!hasComparisonData) return "Sync";
     if (isSafetyFlagged) return `Remove ${pluralize(removals, "track")}`;
     if (!hasChanges) return "Already in sync";
     const count = preview.tracks_to_add + preview.tracks_to_remove;
-    return effectiveDirection === "push"
-      ? `Sync ${pluralize(count, "track")} to ${label}`
-      : `Sync ${pluralize(count, "track")} from ${label}`;
+    return `Sync ${pluralize(count, "track")}`;
   })();
 
   return (

@@ -1,13 +1,12 @@
 import { useQueryClient } from "@tanstack/react-query";
 import {
   AlertTriangle,
-  ArrowDownLeft,
   ArrowLeftRight,
-  ArrowUpRight,
   HelpCircle,
   Link2,
   Loader2,
   Music,
+  RefreshCw,
   Unlink,
 } from "lucide-react";
 import { useEffect, useState } from "react";
@@ -614,10 +613,6 @@ function LinkedServicesSection({ playlistId }: { playlistId: string }) {
               link.sync_direction === "push"
                 ? `Mixd \u2192 ${label}`
                 : `${label} \u2192 Mixd`;
-            const syncButtonLabel =
-              link.sync_direction === "push"
-                ? `Sync to ${label}`
-                : `Sync from ${label}`;
             const syncResults = formatSyncResults(
               link.last_sync_tracks_added,
               link.last_sync_tracks_removed,
@@ -638,12 +633,10 @@ function LinkedServicesSection({ playlistId }: { playlistId: string }) {
                     >
                       {link.sync_status === "syncing" || isSyncing ? (
                         <Loader2 className="mr-1 size-3 animate-spin" />
-                      ) : link.sync_direction === "push" ? (
-                        <ArrowUpRight className="mr-1 size-3" />
                       ) : (
-                        <ArrowDownLeft className="mr-1 size-3" />
+                        <RefreshCw className="mr-1 size-3" />
                       )}
-                      {syncButtonLabel}
+                      Sync
                     </Button>
                     <Button
                       variant="ghost"
@@ -672,7 +665,7 @@ function LinkedServicesSection({ playlistId }: { playlistId: string }) {
                   </span>
                   <button
                     type="button"
-                    className="flex items-center gap-1 rounded px-1.5 py-0.5 text-xs text-text-muted transition-colors hover:bg-surface-elevated hover:text-text"
+                    className="flex items-center gap-1 rounded px-1.5 py-0.5 text-xs text-text-muted transition-colors hover:bg-surface-elevated hover:text-text focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/50"
                     title={`Click to switch to ${link.sync_direction === "push" ? "pull" : "push"}`}
                     disabled={updateLinkMutation.isPending}
                     onClick={() =>
@@ -687,20 +680,30 @@ function LinkedServicesSection({ playlistId }: { playlistId: string }) {
                     }
                   >
                     <ArrowLeftRight className="size-3 shrink-0" />
-                    <span className="text-[11px]">{directionLabel}</span>
+                    <span className="whitespace-nowrap text-[11px]">
+                      {directionLabel}
+                    </span>
                   </button>
-                  <StatusIndicator
-                    variant={syncStatusVariant(link.sync_status)}
-                    label={getSyncStatusConfig(link.sync_status).label}
-                    detail={
-                      link.sync_status === "error"
-                        ? (link.last_sync_error ?? undefined)
-                        : (syncResults ??
-                          (link.last_synced
-                            ? formatRelativeTime(link.last_synced)
-                            : undefined))
-                    }
-                  />
+                  {link.sync_status === "never_synced" ? (
+                    // "Never synced" is an absence, not a status — muted text,
+                    // no icon. Icon+color+text is reserved for synced/syncing/error.
+                    <span className="font-body text-xs text-text-muted">
+                      Never synced
+                    </span>
+                  ) : (
+                    <StatusIndicator
+                      variant={syncStatusVariant(link.sync_status)}
+                      label={getSyncStatusConfig(link.sync_status).label}
+                      detail={
+                        link.sync_status === "error"
+                          ? (link.last_sync_error ?? undefined)
+                          : (syncResults ??
+                            (link.last_synced
+                              ? formatRelativeTime(link.last_synced)
+                              : undefined))
+                      }
+                    />
+                  )}
                   <UnmatchedBadge count={link.last_sync_tracks_unmatched} />
                 </div>
               </ConnectorListItem>

@@ -10,6 +10,8 @@ When iterating on UI — fixing padding, alignment, color, layout, or responsive
 
 The CI visual-regression suite (`web/e2e/visual.spec.ts`) is a guard against regressions after-the-fact. The MCP loop is the **dev-time feedback** that produces clean changes before commit. They're complementary.
 
+For a **deterministic full-state inventory** — every state of a page (loading/empty/error/populated, each status × direction, dialogs) side by side across viewport and theme — the MCP loop can't help: it runs against `pnpm dev` with no seeded data, so it can't reach the populated/unresolved/error states. Use the **fixture-driven visual-audit harness** instead (route-mocked, `pnpm --prefix web test:e2e:audit` → screenshots in `web/e2e/__audit__/`). Worked example + how to add a new page: `.claude/rules/web-e2e-patterns.md` § *Visual-audit harness*.
+
 ## The loop
 
 1. Make the code change.

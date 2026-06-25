@@ -8,7 +8,9 @@ export default defineConfig({
   // no backend to serve (ECONNREFUSED). Tracked in docs/backlog/unscheduled.md
   // ("E2E suite hardening"). visual.spec.ts (chromium) stays — it is the working
   // static visual-regression gate.
-  testIgnore: /(auth-.+|navigation|playlist-browse)\.spec\.ts/,
+  // `*.audit.spec.ts` are local visual-inspection harnesses (they write
+  // screenshots, make no assertions); they never run in CI.
+  testIgnore: /(auth-.+|navigation|playlist-browse|.*\.audit)\.spec\.ts/,
   fullyParallel: true,
   forbidOnly: !!process.env.CI,
   retries: process.env.CI ? 2 : 0,

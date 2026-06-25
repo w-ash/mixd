@@ -193,8 +193,9 @@ describe("SyncConfirmationDialog", () => {
     const onStarted = vi.fn();
     renderDialog({ onStarted });
 
+    // Count-bearing, direction-free: the DirectionChooser owns direction.
     const btn = await screen.findByRole("button", {
-      name: /Sync .* to Spotify/,
+      name: "Sync 5 tracks",
     });
     await userEvent.click(btn);
 

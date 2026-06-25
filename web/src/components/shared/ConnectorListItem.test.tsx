@@ -79,8 +79,8 @@ describe("ConnectorListItem", () => {
 
     // The outer div has the connector icon div and the content div, but no actions div
     const outerDiv = container.firstElementChild;
-    // ConnectorIcon span + content div = 2 children (no actions div)
-    expect(outerDiv?.children).toHaveLength(2);
+    // icon+content wrapper only, no actions div
+    expect(outerDiv?.children).toHaveLength(1);
   });
 
   it("renders with connector icon SVG", () => {

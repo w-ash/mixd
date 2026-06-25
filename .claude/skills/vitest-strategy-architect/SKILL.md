@@ -177,6 +177,8 @@ test('displays error message on fetch failure', async () => {
 
 ## Playwright E2E Patterns
 
+> For **visual audits** (drive a page into every state via route-mocked fixtures and capture screenshots for review — distinct from flow tests and from the `visual.spec.ts` baseline gate), use the fixture-driven audit harness: `pnpm --prefix web test:e2e:audit`. Worked example + how to extend it to a new page live in `.claude/rules/web-e2e-patterns.md` § *Visual-audit harness* (auto-loads when editing `web/e2e/**`).
+
 ### Critical User Flows (Chromium Only, Desktop)
 
 **Playlist CRUD Flow**:

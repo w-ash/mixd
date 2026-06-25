@@ -326,3 +326,75 @@ describe("PlaylistDetail — unresolved tracks + repair", () => {
     await waitFor(() => expect(repairCalled).toBe(true));
   });
 });
+
+describe("PlaylistDetail — linked services row", () => {
+  function makeLink(overrides: Record<string, unknown> = {}) {
+    return {
+      id: "lnk_1",
+      connector_name: "spotify",
+      connector_playlist_identifier: "spfy_123",
+      connector_playlist_name: "Roadtrip Mix",
+      sync_direction: "pull",
+      direction_label: "Spotify → Mixd (replaces Mixd)",
+      sync_status: "never_synced",
+      last_synced: null,
+      last_sync_error: null,
+      last_sync_tracks_added: null,
+      last_sync_tracks_removed: null,
+      // 0 keeps the UnmatchedBadge (and its tooltip) out of the harness.
+      last_sync_tracks_unmatched: 0,
+      ...overrides,
+    };
+  }
+
+  function renderWithLink(overrides: Record<string, unknown> = {}) {
+    setupHandlers(makePlaylistDetail(), []);
+    server.use(
+      http.get("*/api/v1/playlists/:playlistId/links", () =>
+        HttpResponse.json([makeLink(overrides)], { status: 200 }),
+      ),
+    );
+    return renderPlaylistDetail();
+  }
+
+  it("renders a single direction-free 'Sync' action (direction lives in the chip)", async () => {
+    renderWithLink({ sync_direction: "pull" });
+
+    // The action button is just the verb; no "Sync to/from {connector}".
+    expect(
+      await screen.findByRole("button", { name: "Sync" }),
+    ).toBeInTheDocument();
+    expect(
+      screen.queryByRole("button", { name: /Sync (to|from)/i }),
+    ).not.toBeInTheDocument();
+  });
+
+  it("keeps the direction toggle visible at rest", async () => {
+    renderWithLink({ sync_direction: "pull" });
+
+    // Always-visible (muted) toggle — not hover-gated.
+    expect(await screen.findByTitle(/Click to switch to push/)).toBeVisible();
+  });
+
+  it("renders 'Never synced' as muted text, not an icon+color status", async () => {
+    renderWithLink({ sync_status: "never_synced" });
+
+    const label = await screen.findByText("Never synced");
+    // A plain muted span — not the StatusIndicator (whose label span sits beside
+    // an icon and carries no color class of its own).
+    expect(label.tagName).toBe("SPAN");
+    expect(label.className).toContain("text-text-muted");
+    expect(label.querySelector("svg")).toBeNull();
+  });
+
+  it("still renders icon+color+text for a meaningful (error) status", async () => {
+    renderWithLink({
+      sync_status: "error",
+      last_sync_error: "Auth token expired.",
+    });
+
+    const label = await screen.findByText("Sync failed");
+    // StatusIndicator: the label sits next to an icon svg in the same wrapper.
+    expect(label.parentElement?.querySelector("svg")).not.toBeNull();
+  });
+});
