@@ -2,7 +2,7 @@ import { useQueryClient } from "@tanstack/react-query";
 import {
   AlertTriangle,
   ArrowDownLeft,
-  ArrowRight,
+  ArrowLeftRight,
   ArrowUpRight,
   HelpCircle,
   Link2,
@@ -612,8 +612,8 @@ function LinkedServicesSection({ playlistId }: { playlistId: string }) {
             const label = getConnectorLabel(link.connector_name);
             const directionLabel =
               link.sync_direction === "push"
-                ? `Local \u2192 ${label}`
-                : `${label} \u2192 Local`;
+                ? `Mixd \u2192 ${label}`
+                : `${label} \u2192 Mixd`;
             const syncButtonLabel =
               link.sync_direction === "push"
                 ? `Sync to ${label}`
@@ -686,7 +686,7 @@ function LinkedServicesSection({ playlistId }: { playlistId: string }) {
                       })
                     }
                   >
-                    <ArrowRight className="size-3.5" />
+                    <ArrowLeftRight className="size-3 shrink-0" />
                     <span className="text-[11px]">{directionLabel}</span>
                   </button>
                   <StatusIndicator
@@ -696,8 +696,9 @@ function LinkedServicesSection({ playlistId }: { playlistId: string }) {
                       link.sync_status === "error"
                         ? (link.last_sync_error ?? undefined)
                         : (syncResults ??
-                          formatRelativeTime(link.last_synced) ??
-                          undefined)
+                          (link.last_synced
+                            ? formatRelativeTime(link.last_synced)
+                            : undefined))
                     }
                   />
                   <UnmatchedBadge count={link.last_sync_tracks_unmatched} />
