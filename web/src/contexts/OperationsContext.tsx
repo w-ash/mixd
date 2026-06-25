@@ -113,9 +113,9 @@ function OperationsWatcher({
     [navigate, retryFailed],
   );
 
-  // Diff the running set across polls. A run that *left* the set → resolve its
-  // terminal status. Seeded on the first poll so a pre-existing terminal run
-  // (predating mount) never retro-toasts.
+  // Diff the running set across polls: a run that left the set is terminal →
+  // surface it. Seeded on the first poll so a failure predating mount never
+  // retro-toasts.
   const prevRunningRef = useRef<Set<string> | null>(null);
   const resolvedRef = useRef<Set<string>>(new Set());
 
@@ -123,7 +123,7 @@ function OperationsWatcher({
     const running = new Set(activeOperations.map((r) => r.id));
     const prev = prevRunningRef.current;
     prevRunningRef.current = running;
-    if (prev === null) return; // first poll: seed only
+    if (prev === null) return;
 
     for (const id of prev) {
       if (running.has(id) || resolvedRef.current.has(id)) continue;

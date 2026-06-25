@@ -163,9 +163,8 @@ async def retry_failed_operation(
         raise HTTPException(status_code=404, detail="Operation run not found")
     if run.status == "running":
         raise HTTPException(status_code=409, detail="Operation is still running")
-    # The domain entity owns "what is retryable, reconstructed from this row" —
-    # status, type, connector config, and a non-empty failed subset (see
-    # OperationRun.is_retryable / failed_connector_identifiers).
+    # Retryability is reconstructed from the row by the domain entity
+    # (see OperationRun.is_retryable), not re-derived here.
     if not run.is_retryable:
         raise HTTPException(status_code=409, detail="Nothing to retry for this run")
 

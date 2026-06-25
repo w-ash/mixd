@@ -184,9 +184,8 @@ export function useWorkflowSSE(
   // seed is consumed and SSE is healthy.
   const { reportTerminal } = core;
   const { active: recoveryActive, markSeeded } = core.recovery;
-  // Reconcile on adopt/stall (recoveryActive) OR a terminal-less stream close
-  // (streamEnded) while still running. `core.isRunning` gates the latter so a
-  // resolved snapshot's reportTerminal stops the poll.
+  // `core.isRunning` gates the streamEnded path so the resolved snapshot's
+  // reportTerminal (which clears isRunning) stops the poll.
   const snapshotQuery = useOperationSnapshot(core.operationId, {
     enabled: recoveryActive || (streamEnded && core.isRunning),
   });

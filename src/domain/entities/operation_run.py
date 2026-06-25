@@ -75,12 +75,8 @@ class OperationRun:
     @property
     def is_retryable(self) -> bool:
         """Whether a targeted "retry the failed items" run can be rebuilt from
-        this row alone.
-
-        True only for a *failed* run of a retryable type whose
-        ``request_params`` carry the connector config and whose ``issues`` name
-        at least one failed connector playlist. Single source of truth for both
-        the retry route's 409 gate and the ``retryable`` flag the UI reads.
+        this row alone — the single source of truth for both the retry route's
+        409 gate and the ``retryable`` flag the UI reads.
         """
         return (
             self.status == "error"

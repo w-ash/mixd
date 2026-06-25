@@ -114,8 +114,7 @@ export function ImportPlaylistsConfirmDialog({
     toastedForOpIdRef.current = operationId;
     // Claim the shared ledger; if the global operations watcher already
     // announced this run (it won the poll race), back off our toast — but still
-    // run onImported so the picker refreshes either way. Honouring the claim
-    // result is what keeps the run announced exactly once.
+    // run onImported so the picker refreshes either way.
     const claimed = runId === null || claimRunToast(runId);
 
     const { succeeded, skippedUnchanged, failed } = summary;
