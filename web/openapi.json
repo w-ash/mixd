@@ -5768,6 +5768,10 @@
             },
             "type": "array",
             "title": "Issues"
+          },
+          "retryable": {
+            "type": "boolean",
+            "title": "Retryable"
           }
         },
         "type": "object",
@@ -5779,7 +5783,8 @@
           "ended_at",
           "status",
           "counts",
-          "issues"
+          "issues",
+          "retryable"
         ],
         "title": "OperationRunDetailSchema",
         "description": "Full audit-log row including the issues array."
@@ -5873,6 +5878,10 @@
           "issue_count": {
             "type": "integer",
             "title": "Issue Count"
+          },
+          "retryable": {
+            "type": "boolean",
+            "title": "Retryable"
           }
         },
         "type": "object",
@@ -5884,7 +5893,8 @@
           "ended_at",
           "status",
           "counts",
-          "issue_count"
+          "issue_count",
+          "retryable"
         ],
         "title": "OperationRunSummarySchema",
         "description": "Lightweight row for the list view (no full ``issues`` payload).\n\nThe list endpoint returns this shape; full ``issues`` come back from\nthe per-run detail endpoint so a 100-issue run doesn't bloat the\nlist response."

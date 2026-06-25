@@ -162,11 +162,23 @@ export function SyncConfirmationDialog({
     if (preview?.confirm_token) setConfirmToken(preview.confirm_token);
   }, [preview?.confirm_token]);
 
-  const reset = () => {
-    setDirectionOverride(null);
+  // Per-direction sync state: the confirm token plus any 409-derived destructive
+  // counts/error. Cleared on a full reset and whenever the direction switches
+  // (a new direction loads a fresh preview + token, so the old gate must drop).
+  const clearSyncState = () => {
     setConfirmToken(undefined);
     setStaleCounts(null);
     setSyncError(null);
+  };
+
+  const reset = () => {
+    clearSyncState();
+    setDirectionOverride(null);
+  };
+
+  const handleDirectionChange = (direction: SyncDirection) => {
+    clearSyncState();
+    setDirectionOverride(direction);
   };
 
   const syncMut =
@@ -267,7 +279,7 @@ export function SyncConfirmationDialog({
     >
       <DirectionChooser
         value={effectiveDirection as SyncDirection}
-        onChange={(d) => setDirectionOverride(d)}
+        onChange={handleDirectionChange}
         connectorLabel={label}
       />
 

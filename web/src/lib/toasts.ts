@@ -88,53 +88,71 @@ export type RunOperationType =
   | "import_connector_playlists"
   | "apply_assignments_bulk";
 
-const RUN_TITLES: Record<RunOperationType, (count: number) => string> = {
-  import_lastfm_history: (n) =>
-    n > 0
-      ? `Imported ${n} ${n === 1 ? "scrobble" : "scrobbles"}`
-      : "Import complete",
-  import_spotify_likes: (n) =>
-    n > 0 ? `Imported ${n} ${n === 1 ? "like" : "likes"}` : "Import complete",
-  export_lastfm_likes: (n) =>
-    n > 0 ? `Exported ${n} ${n === 1 ? "love" : "loves"}` : "Export complete",
-  import_spotify_history: (n) =>
-    n > 0
-      ? `Imported ${n} ${n === 1 ? "scrobble" : "scrobbles"}`
-      : "Import complete",
-  import_connector_playlists: (n) =>
-    n > 0
-      ? `Imported ${n} ${n === 1 ? "playlist" : "playlists"}`
-      : "Import complete",
-  apply_assignments_bulk: (n) =>
-    n > 0
-      ? `Applied ${n} ${n === 1 ? "assignment" : "assignments"}`
-      : "Apply complete",
+/**
+ * Per-run-type terminal-toast spec: the count keys that feed the title and the
+ * title itself. `countKeys` are the REAL backend `summary_metrics` names emitted
+ * in the terminal event's `counts` (from `OperationResult.to_counts()`); the
+ * first that resolves to a number wins, else 0 → the bare "… complete" title.
+ */
+const RUN_TYPES: Record<
+  RunOperationType,
+  { countKeys: readonly string[]; title: (count: number) => string }
+> = {
+  import_lastfm_history: {
+    countKeys: ["track_plays", "connector_plays", "raw_plays"],
+    title: (n) =>
+      n > 0
+        ? `Imported ${n} ${n === 1 ? "scrobble" : "scrobbles"}`
+        : "Import complete",
+  },
+  import_spotify_likes: {
+    countKeys: ["imported", "already_liked", "candidates"],
+    title: (n) =>
+      n > 0 ? `Imported ${n} ${n === 1 ? "like" : "likes"}` : "Import complete",
+  },
+  export_lastfm_likes: {
+    countKeys: ["exported", "already_loved", "candidates"],
+    title: (n) =>
+      n > 0 ? `Exported ${n} ${n === 1 ? "love" : "loves"}` : "Export complete",
+  },
+  import_spotify_history: {
+    countKeys: ["track_plays", "connector_plays", "raw_plays"],
+    title: (n) =>
+      n > 0
+        ? `Imported ${n} ${n === 1 ? "scrobble" : "scrobbles"}`
+        : "Import complete",
+  },
+  import_connector_playlists: {
+    countKeys: ["succeeded", "imported"],
+    title: (n) =>
+      n > 0
+        ? `Imported ${n} ${n === 1 ? "playlist" : "playlists"}`
+        : "Import complete",
+  },
+  apply_assignments_bulk: {
+    countKeys: ["updated", "assignments_processed"],
+    title: (n) =>
+      n > 0
+        ? `Applied ${n} ${n === 1 ? "assignment" : "assignments"}`
+        : "Apply complete",
+  },
 };
 
-/** Pick the most relevant count from an OperationRun's counts payload. */
-function primaryCount(
-  operationType: RunOperationType,
+/** Run-terminal toast title from its counts, with a generic fallback for
+ *  operation types that have no dedicated spec (so announce-all never crashes
+ *  on an unknown type). */
+function runTitle(
+  operationType: string,
   counts: Record<string, unknown>,
-): number {
-  // Keys are the REAL backend `summary_metrics` names that the seam now emits in
-  // the terminal event's `counts` (from `OperationResult.to_counts()` —
-  // play_import_orchestrator `_combine_phase_results` + sync_likes). The first key
-  // that resolves to a number wins; fall back to 0 for runs that emit no counts
-  // (e.g. connector-playlist import returns a non-OperationResult, so its toast
-  // stays "Import complete").
-  const candidates: Record<RunOperationType, string[]> = {
-    import_lastfm_history: ["track_plays", "connector_plays", "raw_plays"],
-    import_spotify_likes: ["imported", "already_liked", "candidates"],
-    export_lastfm_likes: ["exported", "already_loved", "candidates"],
-    import_spotify_history: ["track_plays", "connector_plays", "raw_plays"],
-    import_connector_playlists: ["succeeded", "imported"],
-    apply_assignments_bulk: ["updated", "assignments_processed"],
-  };
-  for (const key of candidates[operationType]) {
+  failed: boolean,
+): string {
+  const spec = RUN_TYPES[operationType as RunOperationType];
+  if (!spec) return failed ? "Operation failed" : "Operation complete";
+  for (const key of spec.countKeys) {
     const v = counts[key];
-    if (typeof v === "number") return v;
+    if (typeof v === "number") return spec.title(v);
   }
-  return 0;
+  return spec.title(0);
 }
 
 export const toasts = {
@@ -186,8 +204,13 @@ export const toasts = {
    *   to /settings/imports?run=<runId>
    * - error → error toast with the same action
    *
-   * The action is omitted when ``runId`` is null (e.g., the audit row
-   * couldn't be persisted) so the toast doesn't deep-link nowhere.
+   * The default "View log" action is omitted when ``runId`` is null (e.g., the
+   * audit row couldn't be persisted) so the toast doesn't deep-link nowhere.
+   * Pass ``action`` to override it (e.g. "Retry failed only").
+   *
+   * ``operationType`` is a plain string: known types get a tailored title from
+   * {@link RUN_TITLES}; anything else falls back to a generic phrase, so the
+   * global operations watcher can announce any run.
    */
   runCompleted({
     operationType,
@@ -196,28 +219,30 @@ export const toasts = {
     runId,
     failed = false,
     onNavigate,
+    action: actionOverride,
   }: {
-    operationType: RunOperationType;
+    operationType: string;
     counts: Record<string, unknown>;
     issueCount: number;
     runId: string | null;
     failed?: boolean;
     onNavigate: (path: string) => void;
+    /** Replaces the default "View log" action when provided. */
+    action?: ToastAction;
   }) {
-    const title = RUN_TITLES[operationType](
-      primaryCount(operationType, counts),
-    );
+    const title = runTitle(operationType, counts, failed);
     const description =
       issueCount > 0
         ? `${issueCount} ${issueCount === 1 ? "item" : "items"} had issues`
         : undefined;
-    const action: ToastAction | undefined =
+    const defaultAction: ToastAction | undefined =
       runId !== null && (issueCount > 0 || failed)
         ? {
             label: "View log",
             onClick: () => onNavigate(`/settings/imports?run=${runId}`),
           }
         : undefined;
+    const action = actionOverride ?? defaultAction;
 
     if (failed) {
       toast.error(title, { description, action });

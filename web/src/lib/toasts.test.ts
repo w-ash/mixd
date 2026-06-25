@@ -85,4 +85,38 @@ describe("toasts.runCompleted — primaryCount key reconciliation", () => {
       expect.anything(),
     );
   });
+
+  it("uses a generic title for an operation type with no dedicated title", () => {
+    toasts.runCompleted({
+      operationType: "some_future_operation",
+      counts: {},
+      issueCount: 0,
+      runId: "run-1",
+      failed: true,
+      onNavigate: noop,
+    });
+    expect(toast.error).toHaveBeenCalledWith(
+      "Operation failed",
+      expect.anything(),
+    );
+  });
+
+  it("uses the supplied action override instead of the default View log", () => {
+    const onRetry = vi.fn();
+    toasts.runCompleted({
+      operationType: "import_connector_playlists",
+      counts: {},
+      issueCount: 2,
+      runId: "run-1",
+      failed: true,
+      onNavigate: noop,
+      action: { label: "Retry failed only", onClick: onRetry },
+    });
+    expect(toast.error).toHaveBeenCalledWith(
+      expect.anything(),
+      expect.objectContaining({
+        action: expect.objectContaining({ label: "Retry failed only" }),
+      }),
+    );
+  });
 });

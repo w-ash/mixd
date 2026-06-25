@@ -24,4 +24,5 @@ export interface OperationRunSummarySchema {
   status: OperationRunSummarySchemaStatus;
   counts: JsonDict;
   issue_count: number;
+  retryable: boolean;
 }

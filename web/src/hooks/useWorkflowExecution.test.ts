@@ -4,7 +4,7 @@ import { createElement, type ReactNode } from "react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 import { WorkflowExecutionProvider } from "#/contexts/WorkflowExecutionContext";
-import { mockSSEWithEvents } from "#/test/sse-test-utils";
+import { mockSSEOpenStream, mockSSEWithEvents } from "#/test/sse-test-utils";
 import { createTestQueryClient } from "#/test/test-utils";
 
 import { useWorkflowExecution } from "./useWorkflowExecution";
@@ -51,8 +51,10 @@ describe("useWorkflowExecution", () => {
   });
 
   it("execute triggers mutation and sets executing state", async () => {
-    // The default MSW handler returns 202 with { operation_id, run_id }
-    mockSSEWithEvents([]);
+    // The default MSW handler returns 202 with { operation_id, run_id }.
+    // Keep the stream OPEN: an in-flight run's SSE doesn't close until terminal,
+    // and a clean close without a terminal now triggers a snapshot reconcile.
+    mockSSEOpenStream([]);
 
     const { result } = renderHook(
       () => useWorkflowExecution("019d0000-0000-7000-8000-000000000001"),
@@ -147,8 +149,9 @@ describe("useWorkflowExecution", () => {
       expect(result.current.error).not.toBeNull();
     });
 
-    // Second execution should reset error and nodeStatuses
-    mockSSEWithEvents([]);
+    // Second execution should reset error and nodeStatuses. Keep the stream open
+    // so the still-running run doesn't trigger a stream-end snapshot reconcile.
+    mockSSEOpenStream([]);
 
     act(() => {
       result.current.execute();

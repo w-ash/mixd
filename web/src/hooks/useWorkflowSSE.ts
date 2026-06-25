@@ -87,6 +87,11 @@ export function useWorkflowSSE(
   const [subProgress, setSubProgress] = useState<SubProgressUpdate | null>(
     null,
   );
+  // Set when the SSE stream closes WITHOUT a terminal frame (server crash, proxy
+  // drop). Opens the snapshot reconcile below to learn the run's real terminal
+  // state via REST — a clean close doesn't fire the watchdog's `stalled`, so the
+  // recovery gate wouldn't otherwise open.
+  const [streamEnded, setStreamEnded] = useState(false);
 
   const {
     nodeStatuses,
@@ -111,8 +116,10 @@ export function useWorkflowSSE(
       setDomainError(null);
       setRunAccepted(false);
       setSubProgress(null);
+      setStreamEnded(false);
       resetNodeStatuses();
     },
+    onStreamEnd: () => setStreamEnded(true),
     onDomainEvent(eventType, d, reportTerminal) {
       switch (eventType) {
         case SSE_EVENT.RUN_ACCEPTED: {
@@ -177,8 +184,11 @@ export function useWorkflowSSE(
   // seed is consumed and SSE is healthy.
   const { reportTerminal } = core;
   const { active: recoveryActive, markSeeded } = core.recovery;
+  // Reconcile on adopt/stall (recoveryActive) OR a terminal-less stream close
+  // (streamEnded) while still running. `core.isRunning` gates the latter so a
+  // resolved snapshot's reportTerminal stops the poll.
   const snapshotQuery = useOperationSnapshot(core.operationId, {
-    enabled: recoveryActive,
+    enabled: recoveryActive || (streamEnded && core.isRunning),
   });
 
   useEffect(() => {

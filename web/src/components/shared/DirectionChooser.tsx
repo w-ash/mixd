@@ -23,8 +23,7 @@ const DIRECTIONS: readonly SyncDirection[] = ["pull", "push"];
 /**
  * Interactive push/pull picker — the one direction control across the import,
  * link, and sync flows. Each option leads with its `direction_label` (what gets
- * overwritten) plus a plain-language line on which side wins. Read-only display
- * uses {@link SyncDirectionIndicator}.
+ * overwritten) plus a plain-language line on which side wins.
  */
 export function DirectionChooser({
   value,

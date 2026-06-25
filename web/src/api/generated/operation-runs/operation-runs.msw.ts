@@ -26,13 +26,13 @@ import type {
 
 export const getListOperationRunsApiV1OperationRunsGetResponseMock = (overrideResponse: Partial<Extract<OperationRunListResponse, object>> = {}): OperationRunListResponse => ({data: Array.from({ length: faker.number.int({min: 1, max: 10}) }, (_, i) => i + 1).map(() => ({id: faker.string.uuid(), operation_id: faker.helpers.arrayElement([faker.string.alpha({length: {min: 10, max: 20}}),null,]), operation_type: faker.string.alpha({length: {min: 10, max: 20}}), started_at: faker.date.past().toISOString().slice(0, 19) + 'Z', ended_at: faker.helpers.arrayElement([faker.date.past().toISOString().slice(0, 19) + 'Z',null,]), status: faker.helpers.arrayElement(['running','complete','error','cancelled'] as const), counts: {
         [faker.string.alphanumeric(5)]: faker.helpers.arrayElement([faker.string.alpha({length: {min: 10, max: 20}}),faker.number.int(),faker.number.float({fractionDigits: 2}),faker.datatype.boolean(),[],null,])
-      }, issue_count: faker.number.int()})), limit: faker.number.int(), next_cursor: faker.helpers.arrayElement([faker.string.alpha({length: {min: 10, max: 20}}),null,]), ...overrideResponse})
+      }, issue_count: faker.number.int(), retryable: faker.datatype.boolean()})), limit: faker.number.int(), next_cursor: faker.helpers.arrayElement([faker.string.alpha({length: {min: 10, max: 20}}),null,]), ...overrideResponse})
 
 export const getGetOperationRunApiV1OperationRunsRunIdGetResponseMock = (overrideResponse: Partial<Extract<OperationRunDetailSchema, object>> = {}): OperationRunDetailSchema => ({id: faker.string.uuid(), operation_id: faker.helpers.arrayElement([faker.string.alpha({length: {min: 10, max: 20}}),null,]), operation_type: faker.string.alpha({length: {min: 10, max: 20}}), started_at: faker.date.past().toISOString().slice(0, 19) + 'Z', ended_at: faker.helpers.arrayElement([faker.date.past().toISOString().slice(0, 19) + 'Z',null,]), status: faker.helpers.arrayElement(['running','complete','error','cancelled'] as const), counts: {
         [faker.string.alphanumeric(5)]: faker.helpers.arrayElement([faker.string.alpha({length: {min: 10, max: 20}}),faker.number.int(),faker.number.float({fractionDigits: 2}),faker.datatype.boolean(),[],null,])
       }, issues: Array.from({ length: faker.number.int({min: 1, max: 10}) }, (_, i) => i + 1).map(() => ({
         [faker.string.alphanumeric(5)]: faker.helpers.arrayElement([faker.string.alpha({length: {min: 10, max: 20}}),faker.number.int(),faker.number.float({fractionDigits: 2}),faker.datatype.boolean(),[],null,])
-      })), ...overrideResponse})
+      })), retryable: faker.datatype.boolean(), ...overrideResponse})
 
 export const getRetryFailedOperationApiV1OperationRunsRunIdRetryFailedPostResponseMock = (overrideResponse: Partial<Extract<OperationStartedResponse, object>> = {}): OperationStartedResponse => ({operation_id: faker.string.alpha({length: {min: 10, max: 20}}), run_id: faker.helpers.arrayElement([faker.helpers.arrayElement([faker.string.alpha({length: {min: 10, max: 20}}),null,]), undefined]), ...overrideResponse})
 

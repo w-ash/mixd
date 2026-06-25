@@ -1,6 +1,6 @@
 /**
- * Mirrors useActiveRuns: pins the data-shaping the sidebar badge and the
- * operations provider both depend on. Adaptive polling is wiring behaviour.
+ * Pins the data-shaping the sidebar badge and the operations watcher both
+ * depend on (the adaptive-polling wiring itself lives in useAdaptivePollingList).
  */
 
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
@@ -14,7 +14,7 @@ vi.mock("#/api/client", () => ({
 
 import { customFetch } from "#/api/client";
 
-import { useActiveOperation, useActiveOperations } from "./useActiveOperations";
+import { useActiveOperations } from "./useActiveOperations";
 
 function createWrapper() {
   const client = new QueryClient({
@@ -37,6 +37,7 @@ const ROW = {
   status: "running",
   counts: {},
   issue_count: 0,
+  retryable: false,
 };
 
 function mockOk(rows: object[]) {
@@ -59,14 +60,6 @@ describe("useActiveOperations", () => {
     });
     await waitFor(() => expect(result.current.data).toHaveLength(1));
     expect(result.current.data?.[0].operation_id).toBe("op-1");
-  });
-
-  it("selects a single op by operation_id", async () => {
-    mockOk([ROW]);
-    const { result } = renderHook(() => useActiveOperation("op-1"), {
-      wrapper: createWrapper(),
-    });
-    await waitFor(() => expect(result.current.data?.id).toBe("run-1"));
   });
 
   it("returns an empty list on a non-200 response", async () => {

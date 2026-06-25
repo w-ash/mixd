@@ -1,27 +1,18 @@
 /**
  * App-global "which imports/syncs are running right now" source.
  *
- * Mirrors {@link useActiveRuns} (the workflow-run equivalent): one DB-backed
- * query (`GET /operation-runs?status=running`) is the single source of truth,
- * shared across every consumer via the same cache entry — the sidebar badge and
- * the operations provider both read it with their own `select`, so there is
- * exactly one request and one poll regardless of how many subscribe.
- *
- * Polling is adaptive: fast while something is in flight, slow when idle.
+ * Backed by the shared {@link useAdaptivePollingList}: one DB-backed query
+ * (`GET /operation-runs?status=running`) is the single source of truth, shared
+ * across the sidebar badge and the operations watcher via the same cache entry
+ * — one request and one poll regardless of how many subscribe.
  */
-
-import { useQuery } from "@tanstack/react-query";
 
 import type { OperationRunSummarySchema } from "#/api/generated/model";
 import {
   getListOperationRunsApiV1OperationRunsGetQueryKey,
   listOperationRunsApiV1OperationRunsGet,
 } from "#/api/generated/operation-runs/operation-runs";
-
-/** Poll cadence while at least one operation is active. */
-const ACTIVE_POLL_MS = 5_000;
-/** Poll cadence when nothing is running — just enough to notice cross-tab starts. */
-const IDLE_POLL_MS = 25_000;
+import { useAdaptivePollingList } from "#/hooks/useAdaptivePollingList";
 
 // `type: "all"` so syncs/applies count toward awareness, not just imports.
 const RUNNING_PARAMS = { status: "running", type: "all" } as const;
@@ -38,34 +29,16 @@ function operationsFromResponse(
 }
 
 /**
- * Shared base query. Both public hooks call this with their own `select`, so
- * they observe the same cache entry (same queryKey) — one fetch, one poll.
+ * All of the user's in-flight import/sync operations. Pass `enabled: false`
+ * (e.g. while unauthenticated) to suspend polling.
  */
-function useActiveOperationsQuery<TData>(
-  select: (ops: OperationRunSummarySchema[]) => TData,
-) {
-  return useQuery({
+export function useActiveOperations(enabled = true) {
+  return useAdaptivePollingList({
     queryKey: getListOperationRunsApiV1OperationRunsGetQueryKey(RUNNING_PARAMS),
-    queryFn: () => listOperationRunsApiV1OperationRunsGet(RUNNING_PARAMS),
-    select: (resp: OperationRunsResponse) =>
-      select(operationsFromResponse(resp)),
-    staleTime: 0,
-    refetchIntervalInBackground: true,
-    refetchInterval: (query) =>
-      operationsFromResponse(query.state.data).length > 0
-        ? ACTIVE_POLL_MS
-        : IDLE_POLL_MS,
+    queryFn: async () =>
+      operationsFromResponse(
+        await listOperationRunsApiV1OperationRunsGet(RUNNING_PARAMS),
+      ),
+    enabled,
   });
-}
-
-/** All of the user's in-flight import/sync operations. */
-export function useActiveOperations() {
-  return useActiveOperationsQuery((ops) => ops);
-}
-
-/** The single in-flight operation matching `operationId`, or null. */
-export function useActiveOperation(operationId: string) {
-  return useActiveOperationsQuery(
-    (ops) => ops.find((o) => o.operation_id === operationId) ?? null,
-  );
 }

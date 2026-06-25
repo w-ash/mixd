@@ -1,11 +1,10 @@
 /**
- * Verifies the app-global active-runs source:
- *   - useActiveRuns returns the full in-flight run list
- *   - useActiveRun selects the single run for one workflow, or null
+ * Verifies the app-global active-runs source: useActiveRun selects the single
+ * run for one workflow, or null.
  *
  * The adaptive polling cadence and execution-context invalidation are behaviour
- * of the surrounding wiring; here we pin the data-shaping the detail page and a
- * future sidebar both depend on.
+ * of the surrounding wiring; here we pin the data-shaping the detail page
+ * depends on.
  */
 
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
@@ -18,7 +17,7 @@ vi.mock("#/api/client", () => ({
 }));
 
 import { customFetch } from "#/api/client";
-import { useActiveRun, useActiveRuns } from "./useActiveRuns";
+import { useActiveRun } from "./useActiveRuns";
 
 function createWrapper() {
   const client = new QueryClient({
@@ -48,26 +47,6 @@ function mockActiveRuns(runs: ReturnType<typeof run>[]) {
     headers: new Headers(),
   });
 }
-
-describe("useActiveRuns", () => {
-  beforeEach(() => {
-    vi.restoreAllMocks();
-  });
-
-  it("returns the full active-run list", async () => {
-    mockActiveRuns([run("wf-1", "op-1"), run("wf-2", "op-2")]);
-
-    const { result } = renderHook(() => useActiveRuns(), {
-      wrapper: createWrapper(),
-    });
-
-    await waitFor(() => expect(result.current.data).toHaveLength(2));
-    expect(result.current.data?.map((r) => r.workflow_id)).toEqual([
-      "wf-1",
-      "wf-2",
-    ]);
-  });
-});
 
 describe("useActiveRun", () => {
   beforeEach(() => {

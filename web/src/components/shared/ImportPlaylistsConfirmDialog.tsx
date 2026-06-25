@@ -112,9 +112,11 @@ export function ImportPlaylistsConfirmDialog({
     if (!isTerminal || !operationId || progress === null) return;
     if (toastedForOpIdRef.current === operationId) return;
     toastedForOpIdRef.current = operationId;
-    // Claim the shared ledger so the global operations provider doesn't also
-    // toast this run's failure (this foreground card owns its announcement).
-    if (runId !== null) claimRunToast(runId);
+    // Claim the shared ledger; if the global operations watcher already
+    // announced this run (it won the poll race), back off our toast — but still
+    // run onImported so the picker refreshes either way. Honouring the claim
+    // result is what keeps the run announced exactly once.
+    const claimed = runId === null || claimRunToast(runId);
 
     const { succeeded, skippedUnchanged, failed } = summary;
     const history = progress.subOperationHistory;
@@ -127,25 +129,29 @@ export function ImportPlaylistsConfirmDialog({
             onClick: () => navigate(`/settings/imports?run=${runId}`),
           }
         : undefined;
-    if (failed > 0) {
-      const firstFailures = Object.values(history)
-        .filter((r) => r.outcome === "failed")
-        .slice(0, 3)
-        .map((r) => `${r.playlistName ?? "Unknown"} — ${r.errorMessage ?? ""}`)
-        .join("\n");
-      toasts.message("Import had errors", {
-        description: firstFailures || undefined,
-        action: logAction,
-      });
-    } else if (succeeded > 0) {
-      const parts = [`Imported ${pluralize(succeeded, "playlist")}`];
-      if (skippedUnchanged > 0)
-        parts.push(`${skippedUnchanged} already up to date`);
-      toasts.success(parts.join(" · "), { action: logAction });
-    } else if (skippedUnchanged > 0) {
-      toasts.info(
-        `${pluralize(skippedUnchanged, "playlist")} already up to date`,
-      );
+    if (claimed) {
+      if (failed > 0) {
+        const firstFailures = Object.values(history)
+          .filter((r) => r.outcome === "failed")
+          .slice(0, 3)
+          .map(
+            (r) => `${r.playlistName ?? "Unknown"} — ${r.errorMessage ?? ""}`,
+          )
+          .join("\n");
+        toasts.message("Import had errors", {
+          description: firstFailures || undefined,
+          action: logAction,
+        });
+      } else if (succeeded > 0) {
+        const parts = [`Imported ${pluralize(succeeded, "playlist")}`];
+        if (skippedUnchanged > 0)
+          parts.push(`${skippedUnchanged} already up to date`);
+        toasts.success(parts.join(" · "), { action: logAction });
+      } else if (skippedUnchanged > 0) {
+        toasts.info(
+          `${pluralize(skippedUnchanged, "playlist")} already up to date`,
+        );
+      }
     }
     onImported?.();
   }, [isTerminal, operationId, progress, summary, onImported, runId, navigate]);

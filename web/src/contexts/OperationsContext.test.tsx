@@ -15,10 +15,15 @@ import { OperationsProvider } from "./OperationsContext";
 let mockActiveOps: OperationRunSummarySchema[] = [];
 vi.mock("#/hooks/useActiveOperations", () => ({
   useActiveOperations: () => ({ data: mockActiveOps }),
-  useActiveOperation: () => ({ data: null }),
 }));
 
-const mockToastMessage = vi.fn();
+// Auth gate is bypassed in tests (truthy session → polling on); the build-time
+// `authEnabled` is false in the test env anyway, so this is belt-and-braces.
+vi.mock("@neondatabase/auth/react/ui", () => ({
+  useAuthenticate: () => ({ data: { user: { id: "u" } } }),
+}));
+
+const mockRunCompleted = vi.fn();
 vi.mock("#/lib/toasts", async () => {
   const actual =
     await vi.importActual<typeof import("#/lib/toasts")>("#/lib/toasts");
@@ -26,7 +31,7 @@ vi.mock("#/lib/toasts", async () => {
     ...actual,
     toasts: {
       ...actual.toasts,
-      message: (...a: unknown[]) => mockToastMessage(...a),
+      runCompleted: (...a: unknown[]) => mockRunCompleted(...a),
     },
   };
 });
@@ -44,11 +49,19 @@ function runningRow(
     status: "running",
     counts: {},
     issue_count: 0,
+    retryable: false,
   };
 }
 
 /** Stub the per-run detail endpoint with a given terminal status. */
-function stubDetail(runId: string, status: string, issues: object[] = []) {
+function stubDetail(
+  runId: string,
+  status: string,
+  {
+    issues = [],
+    retryable = false,
+  }: { issues?: object[]; retryable?: boolean } = {},
+) {
   server.use(
     http.get(`*/api/v1/operation-runs/${runId}`, () =>
       HttpResponse.json({
@@ -60,6 +73,7 @@ function stubDetail(runId: string, status: string, issues: object[] = []) {
         status,
         counts: {},
         issues,
+        retryable,
       }),
     ),
   );
@@ -67,26 +81,29 @@ function stubDetail(runId: string, status: string, issues: object[] = []) {
 
 beforeEach(() => {
   mockActiveOps = [];
-  mockToastMessage.mockReset();
+  mockRunCompleted.mockReset();
   __resetRunToastLedger();
 });
 afterEach(() => {
   vi.restoreAllMocks();
 });
 
-describe("OperationsProvider failure surfacing", () => {
-  it("does not retro-toast a failure that predates mount", async () => {
-    // No running ops at mount: a pre-existing terminal failure is simply absent
-    // from the running set, so it can never be diffed into a toast.
+describe("OperationsProvider terminal surfacing", () => {
+  it("does not retro-toast a run that predates mount", async () => {
+    // No running ops at mount: a pre-existing terminal run is simply absent from
+    // the running set, so it can never be diffed into a toast.
     mockActiveOps = [];
     renderWithProviders(<OperationsProvider>{null}</OperationsProvider>);
 
     await new Promise((r) => setTimeout(r, 20));
-    expect(mockToastMessage).not.toHaveBeenCalled();
+    expect(mockRunCompleted).not.toHaveBeenCalled();
   });
 
-  it("toasts when an observed running op transitions to error", async () => {
-    stubDetail("run-1", "error", [{ connector_playlist_identifier: "pl1" }]);
+  it("announces a failure (retryable → Retry action) when a run errors", async () => {
+    stubDetail("run-1", "error", {
+      issues: [{ connector_playlist_identifier: "pl1" }],
+      retryable: true,
+    });
     mockActiveOps = [runningRow("run-1", "op-1")];
     const { rerender } = renderWithProviders(
       <OperationsProvider>{null}</OperationsProvider>,
@@ -97,14 +114,17 @@ describe("OperationsProvider failure surfacing", () => {
     rerender(<OperationsProvider>{null}</OperationsProvider>);
 
     await waitFor(() => {
-      expect(mockToastMessage).toHaveBeenCalledWith(
-        "Import failed",
-        expect.objectContaining({ action: expect.anything() }),
+      expect(mockRunCompleted).toHaveBeenCalledWith(
+        expect.objectContaining({
+          runId: "run-1",
+          failed: true,
+          action: expect.objectContaining({ label: "Retry failed only" }),
+        }),
       );
     });
   });
 
-  it("does not toast when an op completes cleanly", async () => {
+  it("announces a success when a run completes cleanly", async () => {
     stubDetail("run-2", "complete");
     mockActiveOps = [runningRow("run-2", "op-2")];
     const { rerender } = renderWithProviders(
@@ -114,12 +134,31 @@ describe("OperationsProvider failure surfacing", () => {
     mockActiveOps = [];
     rerender(<OperationsProvider>{null}</OperationsProvider>);
 
+    await waitFor(() => {
+      expect(mockRunCompleted).toHaveBeenCalledWith(
+        expect.objectContaining({ failed: false }),
+      );
+    });
+  });
+
+  it("does not announce a cancelled/superseded run", async () => {
+    stubDetail("run-4", "cancelled");
+    mockActiveOps = [runningRow("run-4", "op-4")];
+    const { rerender } = renderWithProviders(
+      <OperationsProvider>{null}</OperationsProvider>,
+    );
+
+    mockActiveOps = [];
+    rerender(<OperationsProvider>{null}</OperationsProvider>);
+
     await new Promise((r) => setTimeout(r, 20));
-    expect(mockToastMessage).not.toHaveBeenCalled();
+    expect(mockRunCompleted).not.toHaveBeenCalled();
   });
 
   it("skips a run already claimed by a foreground card", async () => {
-    stubDetail("run-3", "error", [{ connector_playlist_identifier: "pl1" }]);
+    stubDetail("run-3", "error", {
+      issues: [{ connector_playlist_identifier: "pl1" }],
+    });
     // A foreground card claimed this run's toast first.
     claimRunToast("run-3");
 
@@ -131,6 +170,6 @@ describe("OperationsProvider failure surfacing", () => {
     rerender(<OperationsProvider>{null}</OperationsProvider>);
 
     await new Promise((r) => setTimeout(r, 20));
-    expect(mockToastMessage).not.toHaveBeenCalled();
+    expect(mockRunCompleted).not.toHaveBeenCalled();
   });
 });

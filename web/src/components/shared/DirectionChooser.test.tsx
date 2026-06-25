@@ -3,7 +3,6 @@ import userEvent from "@testing-library/user-event";
 import { describe, expect, it, vi } from "vitest";
 
 import { DirectionChooser } from "./DirectionChooser";
-import { SyncDirectionIndicator } from "./SyncDirectionIndicator";
 
 describe("DirectionChooser", () => {
   it("renders both directions leading with what gets overwritten", () => {
@@ -49,29 +48,5 @@ describe("DirectionChooser", () => {
       screen.getByRole("radio", { name: /Mixd → Spotify/ }),
     );
     expect(onChange).toHaveBeenCalledWith("push");
-  });
-});
-
-describe("SyncDirectionIndicator", () => {
-  it("prefers the API label when provided", () => {
-    render(
-      <SyncDirectionIndicator
-        direction="pull"
-        connectorLabel="Spotify"
-        label="Spotify → Mixd (replaces Mixd)"
-      />,
-    );
-    expect(
-      screen.getByText("Spotify → Mixd (replaces Mixd)"),
-    ).toBeInTheDocument();
-  });
-
-  it("derives the label from direction when none is given", () => {
-    render(
-      <SyncDirectionIndicator direction="push" connectorLabel="Spotify" />,
-    );
-    expect(
-      screen.getByText("Mixd → Spotify (replaces Spotify)"),
-    ).toBeInTheDocument();
   });
 });

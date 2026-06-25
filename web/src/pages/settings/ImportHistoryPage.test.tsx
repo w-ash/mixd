@@ -23,6 +23,7 @@ function makeSummary(
     status: "complete",
     counts: { tracks: 100 },
     issue_count: 0,
+    retryable: false,
     ...overrides,
   };
 }
@@ -94,6 +95,7 @@ describe("ImportHistoryPage", () => {
       status: "complete",
       counts: { tracks: 100 },
       issues: [{ track_id: "abc", reason: "no_match" }],
+      retryable: false,
     });
 
     renderWithProviders(<ImportHistoryPage />, {

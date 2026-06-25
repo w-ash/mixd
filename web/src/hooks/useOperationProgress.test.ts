@@ -548,4 +548,33 @@ describe("useOperationProgress", () => {
     });
     close();
   });
+
+  it("clears a still-active sub-op on complete (lost sub_operation_completed)", async () => {
+    mockSSEWithEvents([
+      {
+        event: "started",
+        data: JSON.stringify({ total: 100, description: "Running workflow" }),
+      },
+      {
+        event: "sub_operation_started",
+        data: JSON.stringify({
+          operation_id: "sub-1",
+          description: "Fetching metadata",
+          total: 50,
+        }),
+      },
+      // No sub_operation_completed — the terminal `complete` must still clear the
+      // sub-op so the UI can't show a spinning bar under a "Complete" badge.
+      { event: "complete", data: JSON.stringify({}) },
+    ]);
+
+    const { result } = renderHook(() => useOperationProgress("op-123"), {
+      wrapper: createWrapper(),
+    });
+
+    await waitFor(() => {
+      expect(result.current.progress?.status).toBe("completed");
+      expect(result.current.progress?.subOperation).toBeNull();
+    });
+  });
 });

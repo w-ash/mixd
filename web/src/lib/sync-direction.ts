@@ -4,8 +4,8 @@
  *
  * Our sync is a one-way *replace*, not a two-way merge: each direction names
  * the side that gets overwritten. The API hands back `direction_label` for the
- * current direction; the interactive chooser needs both, so the formatting
- * lives here and the read-only indicator prefers the API value when present.
+ * current direction; the interactive chooser needs both directions' labels, so
+ * the formatting lives here.
  */
 
 export type SyncDirection = "push" | "pull";

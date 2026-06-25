@@ -2,7 +2,7 @@ import { useQueryClient } from "@tanstack/react-query";
 import { useCallback, useEffect, useRef, useState } from "react";
 
 import { useOperationSSE } from "#/hooks/useOperationSSE";
-import { SSE_EVENT, type SSEState } from "#/lib/sse-types";
+import { SSE_EVENT } from "#/lib/sse-types";
 
 export type OperationStatus =
   | "pending"
@@ -73,18 +73,6 @@ interface UseOperationProgressResult {
   error: Error | null;
 }
 
-/** Imperative re-attach controller: like {@link useOperationProgress} but the
- * caller drives the operation lifecycle (`start`/`adopt`/`reset`) instead of
- * passing an operationId prop. Used by the global operations provider to
- * re-attach to an in-flight import/sync. */
-interface UseOperationProgressController extends UseOperationProgressResult {
-  sseState: SSEState;
-  lastEventAt: number | null;
-  start: (operationId: string) => void;
-  adopt: (operationId: string) => void;
-  reset: () => void;
-}
-
 /** Shared zero-state for fields that don't vary across event handlers.
  * ``subOperationHistory`` is intentionally omitted — its accumulator must
  * survive the reducer-style spreads that rebuild the rest of the state. */
@@ -143,16 +131,18 @@ function initialProgress(
 }
 
 /**
- * Imperative controller over the shared {@link useOperationSSE} core, reducing
- * SSE progress events into an {@link OperationProgress} with per-sub-operation
- * history. The caller owns the lifecycle via `start`/`adopt`/`reset`.
+ * Subscribes to real-time SSE progress for a given operation.
  *
- * Connects to GET /api/v1/operations/{operationId}/progress and invalidates the
- * specified query keys when the operation completes or fails.
+ * Reduces SSE progress events (from the shared {@link useOperationSSE} core)
+ * into an {@link OperationProgress} with per-sub-operation history, driven by
+ * the `operationId` prop — pending state on connect, cleared on null. Connects
+ * to GET /api/v1/operations/{operationId}/progress and invalidates the supplied
+ * query keys when the operation completes or fails.
  */
-export function useOperationProgressController(
+export function useOperationProgress(
+  operationId: string | null,
   options?: UseOperationProgressOptions,
-): UseOperationProgressController {
+): UseOperationProgressResult {
   const [progress, setProgress] = useState<OperationProgress | null>(null);
   const queryClient = useQueryClient();
 
@@ -212,6 +202,10 @@ export function useOperationProgressController(
               message: "Complete",
               counts:
                 (d.counts as Record<string, unknown>) ?? prev?.counts ?? null,
+              // Clear any still-active sub-op (ERROR does the same) so a lost
+              // `sub_operation_completed` can't leave a spinning bar under the
+              // "Complete" badge.
+              subOperation: null,
             }));
             invalidateQueries();
           }
@@ -348,29 +342,21 @@ export function useOperationProgressController(
     if (core.error) setProgress(failIfActive("Connection failed"));
   }, [core.error]);
 
-  const { start: coreStart, adopt: coreAdopt, reset } = core;
-  const { markSeeded } = core.recovery;
+  const { start: coreStart, reset: coreReset } = core;
 
   const start = useCallback(
-    (operationId: string) => {
-      coreStart(operationId);
+    (opId: string) => {
+      coreStart(opId);
       setProgress(initialProgress("pending", "Connecting..."));
     },
     [coreStart],
   );
 
-  const adopt = useCallback(
-    (operationId: string) => {
-      coreAdopt(operationId);
-      // The /operations/{id}/snapshot endpoint is workflow-only (404s for an
-      // import/sync), so there's no persisted seed to wait for — close the gate
-      // and resume from the live stream. A terminal-after-reload seed off the
-      // operation-run row lands with the operations provider.
-      markSeeded();
-      setProgress(initialProgress("pending", "Connecting..."));
-    },
-    [coreAdopt, markSeeded],
-  );
+  // Drive the lifecycle from the operationId prop.
+  useEffect(() => {
+    if (operationId) start(operationId);
+    else coreReset();
+  }, [operationId, start, coreReset]);
 
   const isActive =
     progress?.status === "running" || progress?.status === "pending";
@@ -380,34 +366,5 @@ export function useOperationProgressController(
     isActive,
     isConnected: core.isConnected,
     error: core.error,
-    sseState: core.sseState,
-    lastEventAt: core.lastEventAt,
-    start,
-    adopt,
-    reset,
   };
-}
-
-/**
- * Subscribes to real-time SSE progress for a given operation.
- *
- * Connects to GET /api/v1/operations/{operationId}/progress and parses typed
- * progress events, driven by the `operationId` prop (pending state on connect,
- * cleared on null). For imperative re-attach use
- * {@link useOperationProgressController}.
- */
-export function useOperationProgress(
-  operationId: string | null,
-  options?: UseOperationProgressOptions,
-): UseOperationProgressResult {
-  const { progress, isActive, isConnected, error, start, reset } =
-    useOperationProgressController(options);
-
-  // Domain-specific init: drive the controller from the operationId prop.
-  useEffect(() => {
-    if (operationId) start(operationId);
-    else reset();
-  }, [operationId, start, reset]);
-
-  return { progress, isActive, isConnected, error };
 }

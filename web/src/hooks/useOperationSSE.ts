@@ -117,7 +117,10 @@ export function useOperationSSE(
       );
     },
     onStreamEnd() {
-      onStreamEndRef.current?.();
+      // Only an *abnormal* close (no terminal latched) needs wrapper handling.
+      // A normal terminal frame already fired reportTerminal before the stream
+      // ended, so we skip a redundant failIfActive / snapshot reconcile.
+      if (!terminalEmittedRef.current) onStreamEndRef.current?.();
     },
   });
 
@@ -156,8 +159,10 @@ export function useOperationSSE(
   const markSeeded = useCallback(() => setIsSeeking(false), []);
 
   const recovery: OperationSSERecovery = {
-    active:
-      (isSeeking || sseState.kind === "stalled") && !terminalEmittedRef.current,
+    // Derived from state, never the terminal ref — reading a ref during render
+    // can tear/go stale. `isRunning` is flipped false by reportTerminal on the
+    // terminal fire, so it closes the gate at the same moment the ref would.
+    active: (isSeeking || sseState.kind === "stalled") && isRunning,
     markSeeded,
   };
 

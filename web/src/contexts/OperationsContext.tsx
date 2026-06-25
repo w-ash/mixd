@@ -1,106 +1,69 @@
 /**
- * Global import/sync operations awareness.
+ * Global import/sync operations awareness (headless watcher).
  *
- * Two jobs, split by how they scale:
- *   - **Failure surfacing** (poll-based, N-concurrent): diff the
- *     `?status=running` list across polls; when a run leaves the running set,
- *     fetch its terminal status and toast on failure — even if the user
- *     navigated away. Works for every in-flight operation, no SSE needed.
- *   - **Live re-attach** (single adopted op): `adopt(operationId)` streams one
- *     operation's live progress for a page that wants to resume it.
+ * Poll-based terminal surfacing: diff the `?status=running` list across polls;
+ * when a run leaves the running set, fetch its terminal status and announce it
+ * via the shared run-completed toast — even if the user navigated away. The
+ * toast ledger dedups against any foreground card watching the same run, so a
+ * run is announced exactly once. Failed import runs offer a "Retry failed only"
+ * action (the server says which runs are `retryable`).
  *
  * Mounted INSIDE the router (it needs `useNavigate` for the toast action),
- * wrapping `<Routes>`. The sidebar badge does NOT consume this context — it
- * reads `useActiveOperations()` directly off the shared cache.
+ * wrapping `<Routes>`. The sidebar badge reads `useActiveOperations()` directly
+ * off the same shared cache. This component renders no UI and exposes no
+ * context — it is purely the background announcer.
  *
- * One context (not the workflow provider's two-context split): the badge
- * bypasses it, leaving too few consumers to justify isolating SSE liveness.
+ * Polling is gated on auth so it never runs on the login page (the provider
+ * mounts above the route-level AuthGuard). `useAuthenticate` only works inside
+ * the Neon provider — which `AuthProvider` omits when auth is disabled — so we
+ * branch on the build-time `authEnabled` constant (stable per build → no
+ * rules-of-hooks violation).
  */
 
-import {
-  createContext,
-  type ReactNode,
-  useCallback,
-  useContext,
-  useEffect,
-  useMemo,
-  useRef,
-  useState,
-} from "react";
+import { useAuthenticate } from "@neondatabase/auth/react/ui";
+import { type ReactNode, useCallback, useEffect, useRef } from "react";
 import { useNavigate } from "react-router";
 
-import type { OperationRunSummarySchema } from "#/api/generated/model";
+import { authEnabled } from "#/api/auth";
 import {
   getOperationRunApiV1OperationRunsRunIdGet,
   retryFailedOperationApiV1OperationRunsRunIdRetryFailedPost,
 } from "#/api/generated/operation-runs/operation-runs";
 import { useActiveOperations } from "#/hooks/useActiveOperations";
-import {
-  type OperationProgress,
-  useOperationProgressController,
-} from "#/hooks/useOperationProgress";
 import { claimRunToast } from "#/lib/operation-toast-ledger";
 import { toasts } from "#/lib/toasts";
 
-export interface OperationsState {
-  /** All in-flight operation runs (server truth), for the sidebar/badge. */
-  activeOperations: OperationRunSummarySchema[];
-  /** The single op this provider is live-attached to, or null. */
-  adoptedOperationId: string | null;
-  /** Live progress for the adopted op, or null. */
-  progress: OperationProgress | null;
-  /** Re-attach live progress to an in-flight operation (single slot). */
-  adopt: (operationId: string) => void;
-  /** Detach from the adopted op. */
-  reset: () => void;
-}
-
-const OperationsContext = createContext<OperationsState | null>(null);
-
-/** Human noun for a terminal-failure toast, by operation_type prefix. */
-function operationNoun(operationType: string): string {
-  if (operationType.startsWith("import")) return "Import";
-  if (operationType.startsWith("sync") || operationType.startsWith("apply")) {
-    return "Sync";
-  }
-  return "Operation";
-}
-
 export function OperationsProvider({ children }: { children: ReactNode }) {
+  return authEnabled ? (
+    <AuthGatedWatcher>{children}</AuthGatedWatcher>
+  ) : (
+    <OperationsWatcher isAuthed>{children}</OperationsWatcher>
+  );
+}
+
+/** Reads Neon auth so polling pauses on the login page. Only mounted when
+ *  `authEnabled` (so the Neon provider context exists). */
+function AuthGatedWatcher({ children }: { children: ReactNode }) {
+  const { data: session } = useAuthenticate();
+  return (
+    <OperationsWatcher isAuthed={Boolean(session)}>
+      {children}
+    </OperationsWatcher>
+  );
+}
+
+function OperationsWatcher({
+  isAuthed,
+  children,
+}: {
+  isAuthed: boolean;
+  children: ReactNode;
+}) {
   const navigate = useNavigate();
-  const { data: activeOperations = [] } = useActiveOperations();
-  const liveProgress = useOperationProgressController();
+  const { data: activeOperations = [] } = useActiveOperations(isAuthed);
 
-  const [adoptedOperationId, setAdoptedOperationId] = useState<string | null>(
-    null,
-  );
-
-  const { adopt: adoptLive, reset: resetLive } = liveProgress;
-  const adopt = useCallback(
-    (operationId: string) => {
-      setAdoptedOperationId(operationId);
-      adoptLive(operationId);
-    },
-    [adoptLive],
-  );
-  const reset = useCallback(() => {
-    setAdoptedOperationId(null);
-    resetLive();
-  }, [resetLive]);
-
-  // ── Poll-based failure surfacing ────────────────────────────────────────
-  // Read the adopted id through a ref so surfaceTerminal stays stable (and the
-  // diff effect only re-runs when the active list changes).
-  const adoptedIdRef = useRef(adoptedOperationId);
-  adoptedIdRef.current = adoptedOperationId;
-
-  const viewLog = useCallback(
-    (runId: string) => navigate(`/settings/imports?run=${runId}`),
-    [navigate],
-  );
-
-  // Re-run only the failed items, then re-attach to the fresh operation. Falls
-  // back to the log when the server says nothing is retryable (409).
+  // Re-run only the failed items, then surface the result on the next poll.
+  // Falls back to the run's log when the server says nothing is retryable (409).
   const retryFailed = useCallback(
     async (runId: string) => {
       try {
@@ -109,50 +72,50 @@ export function OperationsProvider({ children }: { children: ReactNode }) {
             runId,
           );
         if (resp.status === 202) {
-          adopt(resp.data.operation_id);
           toasts.info("Retrying failed items…");
           return;
         }
       } catch {
         // fall through to the log
       }
-      viewLog(runId);
+      navigate(`/settings/imports?run=${runId}`);
     },
-    [adopt, viewLog],
+    [navigate],
   );
 
   const surfaceTerminal = useCallback(
     async (runId: string) => {
-      const resp = await getOperationRunApiV1OperationRunsRunIdGet(runId);
-      if (resp.status !== 200) return;
+      // customFetch throws ApiError on any non-2xx; treat a transient failure
+      // (network/5xx/404 race) as "nothing to surface" and let the next poll
+      // retry rather than leak an unhandled rejection.
+      const resp = await getOperationRunApiV1OperationRunsRunIdGet(runId).catch(
+        () => null,
+      );
+      if (resp?.status !== 200) return;
       const run = resp.data;
-      // Only failures toast; cancelled/superseded and clean completes don't.
-      if (run.status !== "error") return;
-      // The foreground card watching this op owns its toast.
-      if (run.operation_id && run.operation_id === adoptedIdRef.current) return;
+      // Cancelled/superseded runs are a neutral, deliberate stop — don't toast.
+      if (run.status === "cancelled") return;
       // Shared ledger: skip if a foreground card already announced this run.
       if (!claimRunToast(runId)) return;
 
-      const noun = operationNoun(run.operation_type);
-      const failedCount = run.issues.length;
-      const retryable =
-        run.operation_type === "import_connector_playlists" && failedCount > 0;
-      toasts.message(`${noun} failed`, {
-        description:
-          failedCount > 0
-            ? `${failedCount} item${failedCount === 1 ? "" : "s"} failed.`
-            : undefined,
-        action: retryable
+      toasts.runCompleted({
+        operationType: run.operation_type,
+        counts: run.counts,
+        issueCount: run.issues.length,
+        runId,
+        failed: run.status === "error",
+        onNavigate: navigate,
+        action: run.retryable
           ? { label: "Retry failed only", onClick: () => retryFailed(runId) }
-          : { label: "View log", onClick: () => viewLog(runId) },
+          : undefined,
       });
     },
-    [retryFailed, viewLog],
+    [navigate, retryFailed],
   );
 
   // Diff the running set across polls. A run that *left* the set → resolve its
-  // terminal status. Seeded on the first poll so a pre-existing terminal
-  // failure (predating mount) never retro-toasts.
+  // terminal status. Seeded on the first poll so a pre-existing terminal run
+  // (predating mount) never retro-toasts.
   const prevRunningRef = useRef<Set<string> | null>(null);
   const resolvedRef = useRef<Set<string>>(new Set());
 
@@ -169,24 +132,5 @@ export function OperationsProvider({ children }: { children: ReactNode }) {
     }
   }, [activeOperations, surfaceTerminal]);
 
-  const value = useMemo<OperationsState>(
-    () => ({
-      activeOperations,
-      adoptedOperationId,
-      progress: liveProgress.progress,
-      adopt,
-      reset,
-    }),
-    [activeOperations, adoptedOperationId, liveProgress.progress, adopt, reset],
-  );
-
-  return <OperationsContext value={value}>{children}</OperationsContext>;
-}
-
-export function useOperations(): OperationsState {
-  const ctx = useContext(OperationsContext);
-  if (!ctx) {
-    throw new Error("useOperations must be used within OperationsProvider");
-  }
-  return ctx;
+  return <>{children}</>;
 }

@@ -244,4 +244,72 @@ describe("SyncConfirmationDialog", () => {
     );
     expect(onStarted).not.toHaveBeenCalled();
   });
+
+  it("clears the 409-derived destructive state when the direction changes", async () => {
+    stubPreview({
+      tracks_to_add: 0,
+      tracks_to_remove: 147,
+      tracks_unchanged: 3,
+      direction: "push",
+      connector_name: "spotify",
+      playlist_name: "Test Playlist",
+      has_comparison_data: true,
+      safety_flagged: true,
+      safety_removals: 147,
+      safety_total: 150,
+      confirm_token: "tok1",
+    });
+    server.use(
+      http.post(SYNC_URL, () =>
+        HttpResponse.json(
+          {
+            error: {
+              code: "CONFIRMATION_REQUIRED",
+              message: "stale",
+              details: { confirm_token: "tok2", removals: "147", total: "150" },
+            },
+          },
+          { status: 409 },
+        ),
+      ),
+    );
+    renderDialog();
+
+    // Trigger the destructive 409 → the dialog re-prompts and stays destructive.
+    await userEvent.click(
+      await screen.findByRole("button", { name: "Remove 147 tracks" }),
+    );
+    await waitFor(() =>
+      expect(
+        screen.getByText(/playlist changed since the preview/i),
+      ).toBeInTheDocument(),
+    );
+
+    // The other direction's preview is non-destructive.
+    stubPreview({
+      tracks_to_add: 4,
+      tracks_to_remove: 0,
+      tracks_unchanged: 1,
+      direction: "pull",
+      connector_name: "spotify",
+      playlist_name: "Test Playlist",
+      has_comparison_data: true,
+      safety_flagged: false,
+    });
+
+    // Switching direction must drop the stale 409 counts/error/token, not stay
+    // locked to "Remove 147 tracks" with the old direction's numbers.
+    await userEvent.click(
+      screen.getByRole("radio", { name: /Spotify → Mixd/ }),
+    );
+
+    await waitFor(() =>
+      expect(
+        screen.queryByText(/playlist changed since the preview/i),
+      ).not.toBeInTheDocument(),
+    );
+    expect(
+      screen.queryByRole("button", { name: /Remove 147 tracks/ }),
+    ).not.toBeInTheDocument();
+  });
 });

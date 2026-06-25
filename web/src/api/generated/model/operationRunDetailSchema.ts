@@ -20,4 +20,5 @@ export interface OperationRunDetailSchema {
   status: OperationRunDetailSchemaStatus;
   counts: JsonDict;
   issues: JsonDict[];
+  retryable: boolean;
 }
