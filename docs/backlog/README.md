@@ -1,7 +1,9 @@
 # Project Mixd — Planning
 
-**Current Version**: 0.8.6
-**Next**: v0.8.7 Import/sync reconciliation — reliability (backend + CLI; code-complete, pending ship)
+**Current Version**: 0.8.8
+**Next**: v0.8.9 Workflow templates & import/export
+
+**v0.8.7–v0.8.8 shipped (2026-06-25)** — **Import/sync reconciliation**, the correctness epic that fixed a *very broken* Spotify import + sync. One `PlaylistReconciliationEngine` now fetches the real remote fresh and diffs at the connector-identifier level — killing the self-join that silently dropped tracks, made push a no-op, and left the destructive guard dead. Unmatched tracks survive as first-class **unresolved** rows, destructive syncs are gated behind a real `confirm_token` 409 round-trip, and every run leaves a durable `OperationRun` audit row. **v0.8.7** shipped the engine + REST + CLI (`import-spotify` / `sync` / `sync-preview` / `repair`, per-item-atomic batches, position-aware duplicate removal on push). **v0.8.8** brought it to the web: a headless `OperationsProvider` that surfaces overnight failures + an "N running" sidebar badge, **Retry failed only** (server-reconstructed from the audit row via a pure `OperationRun.is_retryable`), the destructive-sync confirm dialog, additive imports with honest per-playlist progress + unresolved bulk-repair, and one `DirectionChooser` direction vocabulary. A web-robustness pass rode along in the same ship — SSE stream-end REST reconcile, toast-ledger dedup, render-pure recovery gate, and auth-gated/non-background polling extracted to a shared `useAdaptivePollingList`.
 
 **v0.8.6 shipped (2026-06-18)** — **Cycle hardening & cleanup** from the 2026-06 design-debt review. Split the 2,062-line `repositories/interfaces.py` into 15 per-aggregate protocol modules; extended the `lazy="raise_on_sql"` eager-load guard across the whole ORM graph (eager-coverage audit + `passive_deletes` belt-and-braces, every relationship now carries an explicit `lazy=`); collapsed the `update_connector_playlist` verification ceremony and `base_repo` speculative periphery. Connector push now reports honestly via `PlaylistOpsOutcome.fully_applied` — a partial push routes to ERROR instead of a silent SYNCED, and canonical tracks with **no match on the destination** surface as an "unmatched" count in the CLI sync output and a **gold tooltip chip** on the web Playlist Detail (persisted via `last_sync_tracks_unmatched`, migration `029`). A code-review pass also caught a suppressed-error ADD false-success and an orphaned `@db_operation("delete")` decorator. Two rule carve-outs reconciled (irreducible SQLAlchemy-reflection suppressions; the interface→infra OAuth-access exception).
 
@@ -85,8 +87,8 @@ Each milestone delivers a **vertical slice** — backend API + frontend page tog
 | **v0.8.4** | Background sync scheduling | 🚀 Shipped | [details](v0.8.0-0.8.4.md#v084-background-sync-scheduling) |
 | **v0.8.5** | Operation & surface reliability (design-debt review) | 🚀 Shipped | [details](v0.8.5-0.8.6.md#v085-operation--surface-reliability) |
 | **v0.8.6** | Cycle hardening & cleanup (design-debt review) | 🚀 Shipped | [details](v0.8.5-0.8.6.md#v086-cycle-hardening--cleanup) |
-| **v0.8.7** | Import/sync reconciliation — reliability (backend + CLI) | 🔨 In Progress | [details](v0.8.7-0.8.8.md#v087-importsync-reliability-backend--cli) |
-| **v0.8.8** | Import/sync reconciliation — web UI | 🔨 In Progress | [details](v0.8.7-0.8.8.md#v088-importsync-web-ui) |
+| **v0.8.7** | Import/sync reconciliation — reliability (backend + CLI) | 🚀 Shipped | [details](v0.8.7-0.8.8.md#v087-importsync-reliability-backend--cli) |
+| **v0.8.8** | Import/sync reconciliation — web UI | 🚀 Shipped | [details](v0.8.7-0.8.8.md#v088-importsync-web-ui) |
 | **v0.8.9** | Workflow templates & import/export | 🔜 Not Started | [details](v0.8.9-0.8.10.md#v089-workflow-templates--importexport) |
 | **v0.8.10** | Editor polish — sub-flows & playlist browse | 🔜 Not Started | [details](v0.8.9-0.8.10.md#v0810-editor-polish---sub-flows--playlist-browse) |
 | **v0.8.11** | Manual playlist track editing (design-debt review) | 🔜 Not Started | [details](v0.8.11.md#v0811-manual-playlist-track-editing) |
