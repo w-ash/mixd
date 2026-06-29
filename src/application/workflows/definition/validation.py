@@ -13,8 +13,11 @@ editor's verdict can never diverge from the save path:
 
 from collections import Counter
 from collections.abc import Mapping
+from typing import NamedTuple
 
+from src.application.workflows.nodes.config_accessors import cfg_str_list
 from src.application.workflows.nodes.config_fields import (
+    DEFAULT_PLAY_HISTORY_METRICS,
     FieldType,
     get_enricher_metric_names,
     get_node_config_fields,
@@ -315,14 +318,42 @@ _METRIC_CONSUMER_TYPES: frozenset[str] = frozenset({
     "sorter.by_metric",
 })
 
+
+class _EnricherRequirement(NamedTuple):
+    """A consumer node's fixed enricher dependency.
+
+    ``metric`` is set only when the enricher emits it *conditionally on its own
+    config* (play_history's ``first_played_dates``), so the enricher type being
+    upstream isn't enough — the upstream task must be configured to emit it.
+    ``None`` means the enricher always produces what the consumer needs.
+    """
+
+    enricher_type: str
+    metric: str | None = None
+
+
 # Node types whose required enricher is fixed (not metric-name-derived).
-# The consumer needs this enricher upstream regardless of config.
-_ENRICHER_CONSUMER_MAP: dict[str, str] = {
-    "filter.by_preference": "enricher.preferences",
-    "sorter.by_preference": "enricher.preferences",
-    "filter.by_tag": "enricher.tags",
-    "filter.by_tag_namespace": "enricher.tags",
+_ENRICHER_CONSUMER_MAP: dict[str, _EnricherRequirement] = {
+    "filter.by_preference": _EnricherRequirement("enricher.preferences"),
+    "sorter.by_preference": _EnricherRequirement("enricher.preferences"),
+    "filter.by_tag": _EnricherRequirement("enricher.tags"),
+    "filter.by_tag_namespace": _EnricherRequirement("enricher.tags"),
+    "filter.by_first_played_date": _EnricherRequirement(
+        "enricher.play_history", metric="first_played_dates"
+    ),
 }
+
+
+def _enricher_emits(enricher_task: WorkflowTaskDef, metric: str) -> bool:
+    """True if an enricher.play_history task is configured to emit ``metric``.
+
+    play_history only emits the metrics named in its ``metrics`` config, which
+    defaults to ``DEFAULT_PLAY_HISTORY_METRICS`` (no ``first_played_dates``) —
+    so an enricher with default/empty config does NOT satisfy a consumer that
+    needs a non-default metric.
+    """
+    configured = cfg_str_list(enricher_task.config, "metrics")
+    return metric in (configured or list(DEFAULT_PLAY_HISTORY_METRICS))
 
 
 def _validate_enrichment_dependencies(
@@ -342,24 +373,28 @@ def _validate_enrichment_dependencies(
     warnings: list[dict[str, str]] = []
     task_by_id = {task.id: task for task in workflow_def.tasks}
 
-    def _collect_upstream_enricher_types(
+    def _collect_upstream_enrichers(
         task_id: str, visited: set[str] | None = None
-    ) -> set[str]:
-        """Recursively collect all enricher node types upstream of a task."""
+    ) -> list[WorkflowTaskDef]:
+        """Recursively collect all enricher tasks upstream of a task.
+
+        Returns tasks (not just types) so the caller can inspect a play_history
+        enricher's ``metrics`` config, not only its presence.
+        """
         if visited is None:
             visited = set()
         if task_id in visited:
-            return set()
+            return []
         visited.add(task_id)
         task = task_by_id.get(task_id)
         if not task:
-            return set()
-        enricher_types: set[str] = set()
+            return []
+        enrichers: list[WorkflowTaskDef] = []
         if task.type.startswith("enricher."):
-            enricher_types.add(task.type)
+            enrichers.append(task)
         for upstream_id in task.upstream:
-            enricher_types |= _collect_upstream_enricher_types(upstream_id, visited)
-        return enricher_types
+            enrichers.extend(_collect_upstream_enrichers(upstream_id, visited))
+        return enrichers
 
     for task_def in workflow_def.tasks:
         if task_def.type in _METRIC_CONSUMER_TYPES:
@@ -367,9 +402,9 @@ def _validate_enrichment_dependencies(
             if not metric_name:
                 continue
 
-            upstream_enrichers = _collect_upstream_enricher_types(task_def.id)
+            upstream_types = {e.type for e in _collect_upstream_enrichers(task_def.id)}
             available_metrics: set[str] = set()
-            for enricher_type in upstream_enrichers:
+            for enricher_type in upstream_types:
                 available_metrics |= _enricher_metrics().get(
                     enricher_type, frozenset[str]()
                 )
@@ -385,17 +420,27 @@ def _validate_enrichment_dependencies(
                         f"Available metrics from upstream: {sorted(available_metrics) or 'none'}"
                     ),
                 })
-        elif required_enricher := _ENRICHER_CONSUMER_MAP.get(task_def.type):
-            upstream_enrichers = _collect_upstream_enricher_types(task_def.id)
-            if required_enricher not in upstream_enrichers:
+        elif requirement := _ENRICHER_CONSUMER_MAP.get(task_def.type):
+            upstream = _collect_upstream_enrichers(task_def.id)
+            matching = [e for e in upstream if e.type == requirement.enricher_type]
+            metric_ok = requirement.metric is None or any(
+                _enricher_emits(e, requirement.metric) for e in matching
+            )
+            if not (matching and metric_ok):
+                need = (
+                    f"upstream '{requirement.enricher_type}'"
+                    if requirement.metric is None
+                    else f"'{requirement.metric}' from upstream '{requirement.enricher_type}'"
+                )
+                upstream_types = sorted({e.type for e in upstream})
                 warnings.append({
                     "task_id": task_def.id,
                     "field": "type",
                     "severity": "warning",
                     "message": (
-                        f"'{task_def.type}' requires upstream '{required_enricher}' — "
+                        f"'{task_def.type}' requires {need} — "
                         f"sort/filter will have no data. "
-                        f"Upstream enrichers: {sorted(upstream_enrichers) or 'none'}"
+                        f"Upstream enrichers: {upstream_types or 'none'}"
                     ),
                 })
 

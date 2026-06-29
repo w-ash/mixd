@@ -16,6 +16,7 @@ from pathlib import Path
 import pytest
 
 from src.application.workflows.definition.loader import load_workflow_def
+from src.application.workflows.definition.validation import validate_workflow_def
 
 # Registers every node type as a side effect; get_node() below depends on it.
 import src.application.workflows.nodes.catalog as _catalog
@@ -85,3 +86,14 @@ class TestProductionTemplate:
         """compute_parallel_levels raises on cycles — just call it."""
         wf = load_workflow_def(template_path)
         compute_parallel_levels(wf.tasks)
+
+    def test_passes_full_validation(self, template_path: Path) -> None:
+        """Every bundled template must pass the real save/execute validator.
+
+        Beyond the constituent rules above, validate_workflow_def also enforces
+        per-node config completeness/types, primary_input/result_key correctness,
+        and source placement — the exact gate a template hits when instantiated
+        and saved. Non-blocking enrichment warnings don't raise.
+        """
+        wf = load_workflow_def(template_path)
+        validate_workflow_def(wf)

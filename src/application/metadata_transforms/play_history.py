@@ -16,6 +16,7 @@ from src.domain.entities.track import Track, TrackList
 from src.domain.transforms.core import Transform
 
 from ._helpers import (
+    DateSource,
     calculate_time_window,
     get_play_metrics,
     parse_datetime_safe,
@@ -32,6 +33,7 @@ def filter_by_play_history(
     min_days_back: int | None = None,
     max_days_back: int | None = None,
     include_missing: bool = False,
+    date_source: DateSource = "last_played",
     tracklist: TrackList | None = None,
 ) -> Transform | TrackList:
     """Filter tracks by play count and/or listening date constraints.
@@ -41,6 +43,10 @@ def filter_by_play_history(
     - Absolute: start_date/end_date = ISO date strings
     - Relative: min_days_back/max_days_back = integer days from today
 
+    The date constraints apply to either the first- or last-played date per
+    ``date_source`` — mirroring ``sort_by_date``'s symmetry. Defaults to
+    "last_played" so existing callers are unchanged.
+
     Args:
         min_plays: Minimum play count (inclusive)
         max_plays: Maximum play count (inclusive)
@@ -49,6 +55,8 @@ def filter_by_play_history(
         min_days_back: Start of time window, days from today (relative mode)
         max_days_back: End of time window, days from today (relative mode)
         include_missing: Whether to include tracks with no play data
+        date_source: Which played-date to apply date constraints against —
+            "last_played" (default) or "first_played"
         tracklist: Optional tracklist to transform immediately
 
     Returns:
@@ -92,8 +100,9 @@ def filter_by_play_history(
             start_date, end_date, min_days_back, max_days_back
         )
 
-        # Get play data from metadata using helper
-        play_counts, last_played_dates = get_play_metrics(t)
+        # Get play data from metadata using helper. date_source selects which
+        # played-date map (first- or last-played) the date constraints check.
+        play_counts, played_dates = get_play_metrics(t, date_source)
 
         def meets_play_history_criteria(track: Track) -> bool:
             if not track.id:
@@ -113,19 +122,19 @@ def filter_by_play_history(
 
             # Apply date constraints
             if effective_after is not None or effective_before is not None:
-                last_played_raw = last_played_dates.get(track.id)
+                played_raw = played_dates.get(track.id)
 
-                if last_played_raw is None:
+                if played_raw is None:
                     return include_missing
 
                 # Parse datetime using helper
-                last_played = parse_datetime_safe(last_played_raw)
-                if last_played is None:
+                played_at = parse_datetime_safe(played_raw)
+                if played_at is None:
                     return include_missing
 
-                if effective_after is not None and last_played < effective_after:
+                if effective_after is not None and played_at < effective_after:
                     return False
-                if effective_before is not None and last_played >= effective_before:
+                if effective_before is not None and played_at >= effective_before:
                     return False
 
             return True
@@ -143,6 +152,7 @@ def filter_by_play_history(
             end_date=end_date,
             min_days_back=min_days_back,
             max_days_back=max_days_back,
+            date_source=date_source,
             effective_after_date=effective_after.isoformat()
             if effective_after
             else None,

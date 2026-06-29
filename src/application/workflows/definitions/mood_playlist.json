@@ -23,7 +23,7 @@
       "type": "filter.by_tag",
       "upstream": ["enrich_tags"],
       "config": {
-        "tags": ["mood:chill"],
+        "tags": "mood:chill",
         "match_mode": "any"
       }
     },

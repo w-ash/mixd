@@ -22,6 +22,7 @@ from .filtering import (
     filter_by_duration,
     filter_by_liked_status,
     filter_by_predicate,
+    filter_by_release_year,
     filter_duplicates,
 )
 from .playlist_operations import reorder_to_match_target
@@ -41,6 +42,7 @@ __all__ = [
     "filter_by_duration",
     "filter_by_liked_status",
     "filter_by_predicate",
+    "filter_by_release_year",
     "filter_duplicates",
     "interleave",
     "intersect",

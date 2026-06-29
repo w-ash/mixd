@@ -1,7 +1,7 @@
 # Project Mixd — Planning
 
-**Current Version**: 0.8.8.1
-**Next**: v0.8.9 Workflow templates & import/export
+**Current Version**: 0.8.9
+**Next**: v0.8.10 Editor polish — sub-flows & playlist browse
 
 **v0.8.7–v0.8.8 shipped (2026-06-25)** — **Import/sync reconciliation**, the correctness epic that fixed a *very broken* Spotify import + sync. One `PlaylistReconciliationEngine` now fetches the real remote fresh and diffs at the connector-identifier level — killing the self-join that silently dropped tracks, made push a no-op, and left the destructive guard dead. Unmatched tracks survive as first-class **unresolved** rows, destructive syncs are gated behind a real `confirm_token` 409 round-trip, and every run leaves a durable `OperationRun` audit row. **v0.8.7** shipped the engine + REST + CLI (`import-spotify` / `sync` / `sync-preview` / `repair`, per-item-atomic batches, position-aware duplicate removal on push). **v0.8.8** brought it to the web: a headless `OperationsProvider` that surfaces overnight failures + an "N running" sidebar badge, **Retry failed only** (server-reconstructed from the audit row via a pure `OperationRun.is_retryable`), the destructive-sync confirm dialog, additive imports with honest per-playlist progress + unresolved bulk-repair, and one `DirectionChooser` direction vocabulary. A web-robustness pass rode along in the same ship — SSE stream-end REST reconcile, toast-ledger dedup, render-pure recovery gate, and auth-gated/non-background polling extracted to a shared `useAdaptivePollingList`.
 
@@ -89,9 +89,10 @@ Each milestone delivers a **vertical slice** — backend API + frontend page tog
 | **v0.8.6** | Cycle hardening & cleanup (design-debt review) | 🚀 Shipped | [details](v0.8.5-0.8.6.md#v086-cycle-hardening--cleanup) |
 | **v0.8.7** | Import/sync reconciliation — reliability (backend + CLI) | 🚀 Shipped | [details](v0.8.7-0.8.8.md#v087-importsync-reliability-backend--cli) |
 | **v0.8.8** | Import/sync reconciliation — web UI | 🚀 Shipped | [details](v0.8.7-0.8.8.md#v088-importsync-web-ui) |
-| **v0.8.9** | Workflow templates & import/export | 🔜 Not Started | [details](v0.8.9-0.8.10.md#v089-workflow-templates--importexport) |
+| **v0.8.9** | Workflow templates & import/export | 🚀 Shipped | [details](v0.8.9-0.8.10.md#v089-workflow-templates--importexport) |
 | **v0.8.10** | Editor polish — sub-flows & playlist browse | 🔜 Not Started | [details](v0.8.9-0.8.10.md#v0810-editor-polish---sub-flows--playlist-browse) |
 | **v0.8.11** | Manual playlist track editing (design-debt review) | 🔜 Not Started | [details](v0.8.11.md#v0811-manual-playlist-track-editing) |
+| **v0.8.12** | Trustworthy workflow play-history config (v0.8.9 review follow-ons) | 🔜 Not Started | [details](v0.8.12.md#v0812-trustworthy-workflow-play-history-config) |
 | **v0.9.0** | Workflow assistant — right-panel chat ported from couplefins | 🔜 Not Started | [details](v0.9.x.md#v090-workflow-assistant-right-panel-chat) |
 | **v0.9.1** | MCP server — mixd as a tool surface (shared registry with v0.9.0 chat) | 🔜 Not Started | [details](v0.9.x.md#v091-mcp-server-mixd-as-a-tool-surface) |
 | **v0.10.0** | First-class artists | 🔜 Not Started | [details](v0.10.x.md#v0100-first-class-artists) |

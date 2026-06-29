@@ -37,6 +37,7 @@ from src.domain.transforms import (
     filter_by_date_range,
     filter_by_duration,
     filter_by_liked_status,
+    filter_by_release_year,
     filter_duplicates,
     interleave,
     intersect,
@@ -131,6 +132,14 @@ TRANSFORM_REGISTRY: dict[str, dict[str, TransformEntry]] = {
             ),
             "Filters tracks by release date range",
         ),
+        "by_release_year": _tf(
+            lambda _ctx, cfg: filter_by_release_year(
+                min_year=cfg_int(cfg, "min_year"),
+                max_year=cfg_int(cfg, "max_year"),
+                include_missing=cfg_bool(cfg, "include_missing"),
+            ),
+            "Filters tracks by release year range (temporally stable, e.g. 2010 to 2019)",
+        ),
         "by_tracks": _tf(
             lambda ctx, cfg: exclude_tracks(
                 ctx.collect_tracklists([cfg_str(cfg, "exclusion_source")])[0].tracks,
@@ -185,6 +194,19 @@ TRANSFORM_REGISTRY: dict[str, dict[str, TransformEntry]] = {
                 include_missing=cfg_bool(cfg, "include_missing"),
             ),
             "Filters tracks by play count and/or listening date with flexible constraints",
+        ),
+        "by_first_played_date": _tf(
+            lambda _ctx, cfg: filter_by_play_history(
+                date_source="first_played",
+                min_plays=cfg_int(cfg, "min_plays"),
+                max_plays=cfg_int(cfg, "max_plays"),
+                start_date=cfg_str_or_none(cfg, "start_date"),
+                end_date=cfg_str_or_none(cfg, "end_date"),
+                min_days_back=cfg_int(cfg, "min_days_back"),
+                max_days_back=cfg_int(cfg, "max_days_back"),
+                include_missing=cfg_bool(cfg, "include_missing"),
+            ),
+            "Filters tracks by when they were first played (and/or play count)",
         ),
         "by_preference": _tf(
             lambda _ctx, cfg: filter_by_preference(

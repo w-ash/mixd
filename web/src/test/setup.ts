@@ -53,6 +53,7 @@ import { getSettingsMock } from "#/api/generated/settings/settings.msw";
 import { getStatsMock } from "#/api/generated/stats/stats.msw";
 import { getTracksMock } from "#/api/generated/tracks/tracks.msw";
 import { getWorkflowsMock } from "#/api/generated/workflows/workflows.msw";
+import { useEditorStore } from "#/stores/editor-store";
 
 export const server = setupServer(
   ...getAuthMock(),
@@ -73,5 +74,8 @@ beforeAll(() => server.listen({ onUnhandledRequest: "warn" }));
 afterEach(() => {
   server.resetHandlers();
   cleanup();
+  // The editor store is a module-level singleton; reset it so tests that seed it
+  // (import, load) can't leak nodes/name/dirty state into the next test.
+  useEditorStore.getState().resetWorkflow();
 });
 afterAll(() => server.close());

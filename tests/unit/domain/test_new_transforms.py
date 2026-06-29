@@ -1,9 +1,12 @@
 """Tests for new domain transforms: reverse, duration, liked status, intersect, percentage."""
 
+from datetime import UTC, datetime
+
 from src.domain.entities.track import Track, TrackList
 from src.domain.transforms import (
     filter_by_duration,
     filter_by_liked_status,
+    filter_by_release_year,
     intersect,
     reverse_tracks,
     select_by_percentage,
@@ -210,3 +213,71 @@ class TestSelectByPercentage:
         tracks = [make_track(1), make_track(2)]
         result = select_by_percentage(percentage=50, tracklist=TrackList(tracks=tracks))
         assert len(result.tracks) == 1
+
+
+def _track_released(track_id: int, year: int | None) -> Track:
+    """Track with a UTC release_date at midyear, or no release date when None."""
+    release_date = datetime(year, 6, 1, tzinfo=UTC) if year is not None else None
+    return make_track(track_id, release_date=release_date)
+
+
+class TestFilterByReleaseYear:
+    """filter_by_release_year — absolute year range, unlike age-in-days drift."""
+
+    def test_in_range_kept_out_of_range_dropped(self):
+        tracks = [
+            _track_released(1, 2009),  # below
+            _track_released(2, 2010),  # lower boundary (inclusive)
+            _track_released(3, 2015),  # inside
+            _track_released(4, 2019),  # upper boundary (inclusive)
+            _track_released(5, 2020),  # above
+        ]
+        result = filter_by_release_year(
+            min_year=2010, max_year=2019, tracklist=TrackList(tracks=tracks)
+        )
+        assert [t.id for t in result.tracks] == [2, 3, 4]
+
+    def test_boundary_years_are_inclusive(self):
+        tracks = [_track_released(1, 2010), _track_released(2, 2019)]
+        result = filter_by_release_year(
+            min_year=2010, max_year=2019, tracklist=TrackList(tracks=tracks)
+        )
+        assert len(result.tracks) == 2
+
+    def test_only_min_year(self):
+        tracks = [_track_released(1, 2008), _track_released(2, 2012)]
+        result = filter_by_release_year(
+            min_year=2010, tracklist=TrackList(tracks=tracks)
+        )
+        assert [t.id for t in result.tracks] == [2]
+
+    def test_only_max_year(self):
+        tracks = [_track_released(1, 2008), _track_released(2, 2012)]
+        result = filter_by_release_year(
+            max_year=2010, tracklist=TrackList(tracks=tracks)
+        )
+        assert [t.id for t in result.tracks] == [1]
+
+    def test_missing_release_date_excluded_by_default(self):
+        tracks = [_track_released(1, 2015), _track_released(2, None)]
+        result = filter_by_release_year(
+            min_year=2010, max_year=2019, tracklist=TrackList(tracks=tracks)
+        )
+        assert [t.id for t in result.tracks] == [1]
+
+    def test_missing_release_date_included_when_requested(self):
+        tracks = [_track_released(1, 2015), _track_released(2, None)]
+        result = filter_by_release_year(
+            min_year=2010,
+            max_year=2019,
+            include_missing=True,
+            tracklist=TrackList(tracks=tracks),
+        )
+        assert {t.id for t in result.tracks} == {1, 2}
+
+    def test_dual_mode_returns_transform_without_tracklist(self):
+        transform = filter_by_release_year(min_year=2010)
+        assert callable(transform)  # Transform is a Callable alias, not isinstance-able
+        tracks = [_track_released(1, 2008), _track_released(2, 2012)]
+        result = transform(TrackList(tracks=tracks))
+        assert [t.id for t in result.tracks] == [2]

@@ -1,4 +1,4 @@
-import { GitBranch, LayoutTemplate, Plus } from "lucide-react";
+import { GitBranch, LayoutTemplate, Plus, Upload } from "lucide-react";
 import { useMemo } from "react";
 import { Link } from "react-router";
 
@@ -24,6 +24,7 @@ import { TemplateGalleryDialog } from "#/components/workflow/TemplateGalleryDial
 import { WorkflowRow } from "#/components/workflow/WorkflowRow";
 import { useWorkflowExecutionContext } from "#/contexts/WorkflowExecutionContext";
 import { usePagination } from "#/hooks/usePagination";
+import { useWorkflowImport } from "#/hooks/useWorkflowImport";
 import { formatNextRun, isScheduleFailing } from "#/lib/schedule";
 
 function WorkflowTableSkeleton() {
@@ -42,10 +43,17 @@ function WorkflowTableSkeleton() {
   );
 }
 
-/** "New Workflow" + "From template" — shared by the header and the empty state. */
+/** "New Workflow" + "From template" + "Import" — shared by header and empty state. */
 function NewWorkflowActions() {
+  const { open, inputRef, inputProps } = useWorkflowImport();
+
   return (
     <div className="flex items-center gap-2">
+      <Button size="sm" variant="outline" className="gap-1.5" onClick={open}>
+        <Upload className="size-3.5" />
+        Import
+      </Button>
+      <input ref={inputRef} {...inputProps} />
       <TemplateGalleryDialog
         trigger={
           <Button size="sm" variant="outline" className="gap-1.5">

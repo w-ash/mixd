@@ -16,7 +16,7 @@ in the application/metadata_transforms package.
 # Legitimate Any: use case results, OperationResult metadata, metric values
 
 from datetime import UTC, datetime, timedelta
-from typing import TypeIs
+from typing import Literal, TypeIs
 from uuid import UUID
 
 from src.config import get_logger
@@ -98,25 +98,44 @@ def calculate_time_window(
 
 # === Metadata Extraction ===
 
+# A played-date source for play-history filters/sorters. Typed as a Literal so
+# the DATE_SOURCE_METRIC_KEYS lookup below can never KeyError on a typo — the
+# type checker rejects any other value at the call site.
+type DateSource = Literal["first_played", "last_played"]
+
+# Maps a date_source parameter to its metadata metric key. The single home for
+# this mapping (sort_by_date in metric_transforms.py imports it back) so the
+# play-history filter and sorter agree on which date a source name resolves to.
+# Kept str-keyed because sort_by_date indexes it with a plain str (after handling
+# its own "added_at" case); get_play_metrics' DateSource-typed param is what
+# guarantees the lookup never misses.
+DATE_SOURCE_METRIC_KEYS: dict[str, str] = {
+    "first_played": "first_played_dates",
+    "last_played": "last_played_dates",
+}
+
 
 def get_play_metrics(
     tracklist: TrackList,
+    date_source: DateSource = "last_played",
 ) -> tuple[dict[UUID, MetricValue], dict[UUID, MetricValue]]:
-    """Extract play count and last played date metrics from tracklist metadata.
+    """Extract play count and a played-date metric from tracklist metadata.
 
     Reads from the canonical nested structure: metadata["metrics"][metric_name].
 
     Args:
         tracklist: TrackList with metadata containing play metrics
+        date_source: Which date metric to return alongside the counts —
+            "last_played" (default, preserves prior behavior) or "first_played"
 
     Returns:
-        Tuple of (play_counts_dict, last_played_dates_dict)
-        where keys are track IDs and values are counts/dates
+        Tuple of (play_counts_dict, played_dates_dict) keyed by track ID, where
+        the dates dict is the first- or last-played map per ``date_source``.
     """
     metrics = tracklist.metadata.get("metrics", {})
     play_counts = metrics.get("total_plays", {})
-    last_played_dates = metrics.get("last_played_dates", {})
-    return play_counts, last_played_dates
+    played_dates = metrics.get(DATE_SOURCE_METRIC_KEYS[date_source], {})
+    return play_counts, played_dates
 
 
 # === Datetime Parsing ===

@@ -9,6 +9,7 @@ import { useReactFlow } from "@xyflow/react";
 import {
   ArrowLeft,
   Clock,
+  Download,
   Eye,
   LayoutGrid,
   Maximize2,
@@ -17,6 +18,7 @@ import {
   Save,
   Trash2,
   Undo2,
+  Upload,
 } from "lucide-react";
 import { useCallback, useEffect, useRef } from "react";
 import { useNavigate } from "react-router";
@@ -30,8 +32,10 @@ import { DialogHeader, DialogTitle } from "#/components/ui/dialog";
 import { ResponsiveDialog } from "#/components/ui/responsive-dialog";
 import { VersionHistory } from "#/components/workflow/VersionHistory";
 import { useWorkflowExecution } from "#/hooks/useWorkflowExecution";
+import { useWorkflowImport } from "#/hooks/useWorkflowImport";
 import { toasts } from "#/lib/toasts";
 import { cn } from "#/lib/utils";
+import { downloadWorkflowDef } from "#/lib/workflow-file";
 import { layoutWorkflow } from "#/lib/workflow-layout";
 import { useEditorStore } from "#/stores/editor-store";
 
@@ -55,6 +59,7 @@ export function EditorToolbar() {
   const hasNodes = useEditorStore((s) => s.nodes.length > 0);
 
   const nameInputRef = useRef<HTMLInputElement>(null);
+  const importer = useWorkflowImport();
 
   const createMutation = useCreateWorkflowApiV1WorkflowsPost({
     mutation: { meta: { errorLabel: "Failed to save workflow" } },
@@ -131,6 +136,10 @@ export function EditorToolbar() {
     requestAnimationFrame(() => fitView({ padding: 0.2, duration: 300 }));
   }, [toWorkflowDef, setNodes, setEdges, fitView]);
 
+  const handleExport = useCallback(() => {
+    downloadWorkflowDef(toWorkflowDef());
+  }, [toWorkflowDef]);
+
   const handleBack = useCallback(() => {
     if (workflowId) {
       navigate(`/workflows/${workflowId}`);
@@ -196,6 +205,34 @@ export function EditorToolbar() {
         <Eye className="size-3.5" />
         <span className="text-xs">Preview</span>
       </Button>
+
+      {/* Export — download the current canvas as a portable .json */}
+      <Button
+        variant="ghost"
+        size="sm"
+        onClick={handleExport}
+        disabled={!hasNodes}
+        aria-label="Export workflow"
+        title="Export workflow as JSON"
+        className="gap-1.5"
+      >
+        <Download className="size-3.5" />
+        <span className="text-xs">Export</span>
+      </Button>
+
+      {/* Import — load a .json file as an unsaved draft (Save creates it) */}
+      <Button
+        variant="ghost"
+        size="sm"
+        onClick={importer.open}
+        aria-label="Import workflow"
+        title="Import a workflow from a JSON file"
+        className="gap-1.5"
+      >
+        <Upload className="size-3.5" />
+        <span className="text-xs">Import</span>
+      </Button>
+      <input ref={importer.inputRef} {...importer.inputProps} />
 
       {/* Run — only for saved workflows; executes the persisted definition.
           Disabled while dirty so it never silently runs the stale saved version

@@ -96,6 +96,13 @@ ENRICHER_METRIC_DEFS: dict[str, tuple[ConfigFieldOption, ...]] = {
     ),
 }
 
+# Metrics enricher.play_history emits when its `metrics` config is omitted.
+# Single source of truth shared by the enrichment-config builder (factories.py)
+# and the dependency validator (validation.py): the latter must know that
+# first_played_dates is NOT in the default set, so a consumer needing it requires
+# an enricher explicitly configured to emit it.
+DEFAULT_PLAY_HISTORY_METRICS: tuple[str, ...] = ("total_plays", "last_played_dates")
+
 # Flattened union of all enricher metrics — used by filter/sorter UI dropdowns.
 METRIC_OPTIONS: tuple[ConfigFieldOption, ...] = tuple(
     opt for opts in ENRICHER_METRIC_DEFS.values() for opt in opts
@@ -170,16 +177,23 @@ INCLUDE_MISSING_FIELD = ConfigFieldDef(
 
 
 def _date_range_fields(
-    min_days_label: str = "Played Within (days)",
-    max_days_label: str = "Not Played Since (days)",
+    min_days_label: str = "Not Played In (days)",
+    max_days_label: str = "Played Within (days)",
 ) -> tuple[ConfigFieldDef, ...]:
-    """Shared date-range constraint fields used by play-history filter and sorter."""
+    """Shared date-range constraint fields used by play-history filter and sorter.
+
+    Labels follow the runtime in ``calculate_time_window``: ``min_days_back``
+    is the *minimum age* (keeps plays older than N days — i.e. excludes the
+    recent N), and ``max_days_back`` is the *maximum age* (keeps plays within
+    the last N days). Defaults read in the last-played sense; callers override
+    the wording for other date sources.
+    """
     return (
         ConfigFieldDef(
             key="min_days_back",
             label=min_days_label,
             field_type="number",
-            description="Only count plays within this many recent days",
+            description="Only keep plays older than this many days",
             placeholder="30",
             min=1,
         ),
@@ -187,7 +201,7 @@ def _date_range_fields(
             key="max_days_back",
             label=max_days_label,
             field_type="number",
-            description="Only count plays older than this many days",
+            description="Only keep plays within this many recent days",
             min=1,
         ),
         ConfigFieldDef(
@@ -344,6 +358,33 @@ _NODE_CONFIG_FIELDS: dict[str, tuple[ConfigFieldDef, ...]] = {
             min=0,
         ),
     ),
+    "filter.by_release_year": (
+        ConfigFieldDef(
+            key="min_year",
+            label="From Year",
+            field_type="number",
+            description="Earliest release year to keep (inclusive)",
+            placeholder="2010",
+            min=1900,
+            max=2100,
+        ),
+        ConfigFieldDef(
+            key="max_year",
+            label="To Year",
+            field_type="number",
+            description="Latest release year to keep (inclusive)",
+            placeholder="2019",
+            min=1900,
+            max=2100,
+        ),
+        ConfigFieldDef(
+            key="include_missing",
+            label="Include Missing",
+            field_type="boolean",
+            description="Include tracks with no release date",
+            default=False,
+        ),
+    ),
     "filter.by_tracks": (
         ConfigFieldDef(
             key="exclusion_source",
@@ -462,6 +503,28 @@ _NODE_CONFIG_FIELDS: dict[str, tuple[ConfigFieldDef, ...]] = {
         *_date_range_fields(),
         INCLUDE_MISSING_FIELD,
     ),
+    "filter.by_first_played_date": (
+        ConfigFieldDef(
+            key="min_plays",
+            label="Minimum Plays",
+            field_type="number",
+            description="Keep tracks played at least this many times",
+            placeholder="1",
+            min=0,
+        ),
+        ConfigFieldDef(
+            key="max_plays",
+            label="Maximum Plays",
+            field_type="number",
+            description="Keep tracks played at most this many times",
+            min=0,
+        ),
+        *_date_range_fields(
+            min_days_label="First Played Before (days ago)",
+            max_days_label="First Played Within (days)",
+        ),
+        INCLUDE_MISSING_FIELD,
+    ),
     "filter.by_preference": (
         ConfigFieldDef(
             key="include",
@@ -571,8 +634,8 @@ _NODE_CONFIG_FIELDS: dict[str, tuple[ConfigFieldDef, ...]] = {
             options=SORT_ORDER_OPTIONS,
         ),
         *_date_range_fields(
-            min_days_label="Within (days)",
-            max_days_label="Older Than (days)",
+            min_days_label="Older Than (days)",
+            max_days_label="Within (days)",
         ),
     ),
     "sorter.by_added_at": (

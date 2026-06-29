@@ -26,10 +26,12 @@ class TestTransformDefinitions:
         expected = {
             "deduplicate",
             "by_release_date",
+            "by_release_year",
             "by_tracks",
             "by_artists",
             "by_metric",
             "by_play_history",
+            "by_first_played_date",
             "by_preference",
             "by_tag",
             "by_tag_namespace",

@@ -66,6 +66,7 @@ interface EditorState {
 
   // Actions - Persistence
   loadWorkflow: (def: WorkflowDefSchemaInput, workflowId?: string) => void;
+  resetWorkflow: () => void;
   toWorkflowDef: () => WorkflowDefSchemaInput;
   resetDirty: () => void;
   setName: (name: string) => void;
@@ -74,17 +75,36 @@ interface EditorState {
   setEdges: (edges: Edge[]) => void;
 }
 
+/** The blank-canvas state, fresh each call (new array refs). Single source for
+ *  the store's initial values and `resetWorkflow`, so they can't drift apart. */
+function initialWorkflowState(): Pick<
+  EditorState,
+  | "nodes"
+  | "edges"
+  | "past"
+  | "future"
+  | "workflowId"
+  | "workflowName"
+  | "workflowDescription"
+  | "isDirty"
+  | "selectedNodeId"
+> {
+  return {
+    nodes: [],
+    edges: [],
+    past: [],
+    future: [],
+    workflowId: null,
+    workflowName: "Untitled Workflow",
+    workflowDescription: "",
+    isDirty: false,
+    selectedNodeId: null,
+  };
+}
+
 export const useEditorStore = create<EditorState>()((set, get) => ({
   // Initial state
-  nodes: [],
-  edges: [],
-  past: [],
-  future: [],
-  workflowId: null,
-  workflowName: "Untitled Workflow",
-  workflowDescription: "",
-  isDirty: false,
-  selectedNodeId: null,
+  ...initialWorkflowState(),
 
   // React Flow event handlers
   onNodesChange: (changes) => {
@@ -270,10 +290,26 @@ export const useEditorStore = create<EditorState>()((set, get) => ({
       selectedNodeId: null,
     });
 
-    // Run async ELK layout and update positions
-    layoutWorkflow(tasks).then((result) => {
-      set({ nodes: result.nodes, edges: result.edges });
-    });
+    // Run async ELK layout and update positions. Layout is best-effort: if ELK
+    // rejects (e.g. a malformed imported graph that slipped the parse guard),
+    // reveal the nodes where they were seeded instead of leaving a blank canvas
+    // or an unhandled rejection.
+    layoutWorkflow(tasks)
+      .then((result) => {
+        set({ nodes: result.nodes, edges: result.edges });
+      })
+      .catch(() => {
+        set((state) => ({
+          nodes: state.nodes.map((n) => ({
+            ...n,
+            style: { ...n.style, opacity: 1 },
+          })),
+        }));
+      });
+  },
+
+  resetWorkflow: () => {
+    set(initialWorkflowState());
   },
 
   toWorkflowDef: () => {

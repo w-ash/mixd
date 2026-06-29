@@ -18,28 +18,10 @@ For the planning overview, see [README.md](README.md).
 - **Two-Way Like Synchronization** (M) - Bidirectional sync between services with conflict resolution
 - **Workflow Debugging Tools** (L) - Interactive debugging for workflow testing
 - **Playlist Diffing and Merging** (L) - Visualize differences between local and remote playlists
-- **Canonical Genre Support** (L) - Complements v0.7.1 freeform tagging with curated MusicBrainz genre data. Add `genres: list[str]` as a first-class Track attribute (like `album` or `isrc`), NOT in `TrackMetric` (float-only) or `connector_metadata` (transient per-connector). Enables workflow transforms like `filter_by_genre(include=["rock"], match_mode="any")`. Source attribution comes free from existing `DBTrackMapping` → `DBConnectorTrack` linkage.
-    - **MusicBrainz API** (primary source, verified Feb 2026):
-        - Endpoint: `GET /ws/2/recording/{MBID}?inc=genres&fmt=json`
-        - Response: `[{name: str, id: str, count: int, disambiguation: str}]` — flat list per recording, sorted by community vote count
-        - `inc=genres` returns curated taxonomy only; `inc=tags` is broader community superset
-        - Rate limit: 1 req/sec (existing `MusicBrainzAPIClient` already handles via asyncio.Lock)
-        - Requires MBID on track — identity resolution must run first
-        - Thousands of curated genre entries, flat taxonomy
-    - **Genre hierarchy** (key open design question):
-        - MusicBrainz has genre-genre relationships: subgenre-of, influenced-by, fusion-of
-        - BUT recording lookup returns a flat list — hierarchy is NOT embedded in the response
-        - A track tagged "shoegaze" does NOT auto-include "alternative rock" or "rock" — only genres explicitly voted on are returned
-        - Decision needed: should `filter_by_genre("rock")` auto-resolve subgenres? Options: (a) flat only — user lists all desired genres explicitly, (b) fetch/cache the MB genre tree and resolve at enrichment time, (c) resolve at filter time via a genre tree utility
-    - **Other sources evaluated**:
-        - Spotify: genres on **artists only** (not tracks) and field is **deprecated** — not viable
-        - Last.fm: `track.getTopTags` returns freeform tags with count 0–100, includes non-genre labels ("seen live", "female vocalist") — would need confidence threshold + genre-vs-non-genre filtering. High coverage but noisy. Defer for now, MusicBrainz-only first.
-    - **Architecture decisions** (from planning, not yet implemented):
-        - Separate `EnrichGenresUseCase` (not extending `EnrichTracksUseCase` — different data shape, writes to Track entity not TrackMetric table)
-        - DB: `genres` JSON column + `genres_updated_at` DateTime on `tracks` table (Alembic migration)
-        - Freshness: ~1 year TTL (genres are very stable), checked via `genres_updated_at`, separate from metric freshness registry
-        - Pure domain `filter_by_genre` transform (genres live on Track, no metadata lookup needed)
-        - Full plan available at `.claude/plans/cached-booping-sedgewick.md`
+- **Canonical Genre Support** (L) — A curator wants to filter and build playlists by genre ("rock but not metal", "shoegaze deep cuts") when freeform tags (v0.7.1) are too sparse or inconsistent to rely on.
+    - **Open question (decide first)**: should `filter_by_genre("rock")` auto-resolve subgenres? MusicBrainz recording lookup returns a *flat* voted list — a "shoegaze" track does not auto-include "rock" — so hierarchy isn't free. Options: (a) flat — the user lists every genre explicitly; (b) fetch/cache the MB genre tree, resolve at enrichment; (c) resolve at filter time.
+    - **Direction**: MusicBrainz `inc=genres` as the curated primary source (1 req/s via the existing `MusicBrainzAPIClient`; needs an MBID, so identity resolution runs first). Spotify genres are artist-only + deprecated (not viable); Last.fm tags are high-coverage but noisy ("seen live", "female vocalist") — deferred behind a confidence threshold.
+    - **Spec (when scheduled)**: genres as a first-class Track attribute (not `TrackMetric` / `connector_metadata`); leaning toward a separate `EnrichGenresUseCase` + `genres` JSON column + ~1yr TTL + a pure-domain `filter_by_genre` transform. Full locked plan in `.claude/plans/cached-booping-sedgewick.md` — not inlined here.
 
 ## Enrichment Sources
 
@@ -119,7 +101,12 @@ Items explicitly descoped — they serve neither persona or are Data Exploiter t
 ## Deferred Clean Architecture Improvements
 
 - **Domain Layer Logging Abstraction** (S) - Remove infrastructure dependency from domain layer
+- **Multi-value config-field validation parity** (S) — `cfg_str_list` (runtime) accepts a config value as *either* a JSON array (`["a","b"]`) or a comma-separated string (`"a,b"`), but `validate_workflow_def`'s `_FIELD_TYPE_MAP` maps `field_type="string"` → `str` and rejects the array form. So a `filter.by_tag` / `filter.by_tag_namespace` workflow using list-valued `tags`/`values` runs fine yet fails validation if re-saved through the create path. Surfaced (and worked around at the data level) in v0.8.9 by fixing `mood_playlist.json` to the string form. Real fix: either a `"string_list"` field type the validator understands, or accept both shapes for these keys. Touches `config_fields.py` (field types) + `validation.py` (`_FIELD_TYPE_MAP`).
+
+> _Scheduled 2026-06 (from the v0.8.9 review): config-aware enrichment validation + the day-window key rename → [v0.8.12](v0.8.12.md); editor-store lifecycle contract → [v0.8.10](v0.8.9-0.8.10.md). The Multi-value item above is the same subsystem and a natural companion for v0.8.12 if picked up._
 
 ## Testing & CI
+
+- **Track down the latent web-suite unhandled error** (S) — _Problem:_ the full Vitest run fails its exit code with **`1 error`** even though every test passes (`96 files, 688 passed, 1 error`), so a future real error would hide in the noise. _Cause (suspected):_ a cross-test async leak — an effect/SSE update firing after a test completes, surfaced during a passive-mount effect and attributed to `useWorkflowPreview.test.ts`. Confirmed **pre-existing** in the v0.8.9 review (baseline with that work stashed: `682 passed, 1 error`) and the file passes cleanly in isolation, so it's an interaction, not an assertion failure. _Direction:_ likely a `useWorkflowSSE` subscription or timer not torn down on unmount; bisect file order to find the leaker, then add the missing cleanup. Cheapest to fix during v0.8.10 (same SSE/editor code).
 
 - **E2E suite hardening — restore mobile + functional coverage** (M) - The `web-e2e` CI job was chronically red (independent of any one feature) for two pre-existing reasons, descoped during the v0.8.1 ship to make the gate meaningful: (1) `navigation.spec.ts` and `playlist-browse.spec.ts` assert on **live backend data** but the Playwright CI container has no backend (`pnpm dev` can't boot Postgres+API there → `ECONNREFUSED`), violating the documented "mock the API via `page.route()`" pattern (`web-e2e-patterns.md`); (2) the `iphone-15-pro` project's baseline snapshots were never captured/committed (only `chromium` exists → every mobile shot fails "snapshot doesn't exist"). **To restore**: add `page.route()` fixtures to the two functional specs per the `auth-smoke.spec.ts` pass-through pattern, then remove them from `testIgnore` in `playwright.config.ts`; re-add the `iphone-15-pro` project and generate its baselines **in the pinned Playwright Docker image** (`web/e2e/README.md` procedure — local macOS PNGs won't match). Note: the chromium `visual.spec.ts` baselines currently capture *empty-state* pages (no backend), so consider whether visual baselines should be captured against mocked data for meaningful coverage.

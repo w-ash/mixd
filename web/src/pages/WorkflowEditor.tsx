@@ -1,7 +1,7 @@
 import { ReactFlowProvider } from "@xyflow/react";
 import { LayoutPanelLeft, Monitor } from "lucide-react";
 import { useEffect } from "react";
-import { Link, useParams } from "react-router";
+import { Link, useLocation, useParams } from "react-router";
 
 import { useGetWorkflowApiV1WorkflowsWorkflowIdGet } from "#/api/generated/workflows/workflows";
 import { PageHeader } from "#/components/layout/PageHeader";
@@ -17,6 +17,7 @@ import { useEditorStore } from "#/stores/editor-store";
 export default function WorkflowEditor() {
   const { id } = useParams<{ id: string }>();
   const workflowId = id ?? null;
+  const location = useLocation();
   const isMobile = useIsMobile();
   const loadWorkflow = useEditorStore((s) => s.loadWorkflow);
   const isDirty = useEditorStore((s) => s.isDirty);
@@ -37,6 +38,18 @@ export default function WorkflowEditor() {
       loadWorkflow(workflow.definition, workflow.id);
     }
   }, [workflow, loadWorkflow]);
+
+  // A blank "New Workflow" must start clean. The singleton editor store survives
+  // navigation, so without this a prior edit/import would leak into a fresh
+  // /workflows/new. Skip the reset when an import just seeded the store — it
+  // navigates here with `{ imported: true }`.
+  useEffect(() => {
+    const seededByImport = (location.state as { imported?: boolean } | null)
+      ?.imported;
+    if (workflowId === null && !seededByImport) {
+      useEditorStore.getState().resetWorkflow();
+    }
+  }, [workflowId, location]);
 
   // Unsaved changes guard
   useEffect(() => {

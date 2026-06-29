@@ -568,7 +568,7 @@ wheels = [
 
 [[package]]
 name = "mixd"
-version = "0.8.8.1"
+version = "0.8.9"
 source = { editable = "." }
 dependencies = [
     { name = "alembic" },

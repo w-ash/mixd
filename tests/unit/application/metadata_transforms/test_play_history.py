@@ -176,6 +176,142 @@ class TestFilterByPlayHistory:
         assert result.tracks[0].id == 1  # The current obsession
 
 
+class TestFilterByPlayHistoryFirstPlayed:
+    """date_source='first_played' applies date constraints to first-played dates.
+
+    The default ('last_played') behavior is exercised by the cases above and
+    stays unchanged — these assert the first-played path resolves the right
+    metric key and reuses the same window/parse/include_missing logic.
+    """
+
+    def test_recent_discovery_window(self):
+        """max_days_back keeps tracks first played within the window."""
+        tracks = [
+            Track(id=1, title="New Find", artists=[Artist(name="Artist 1")]),
+            Track(id=2, title="Old Favorite", artists=[Artist(name="Artist 2")]),
+        ]
+
+        # Track 1 discovered 10 days ago; track 2 discovered 200 days ago.
+        recently_discovered = (datetime.now(UTC) - timedelta(days=10)).isoformat()
+        long_known = (datetime.now(UTC) - timedelta(days=200)).isoformat()
+
+        metadata = {
+            "metrics": {
+                "total_plays": {1: 5, 2: 30},
+                # last_played is RECENT for both — proving the filter reads
+                # first_played, not last_played.
+                "last_played_dates": {
+                    1: recently_discovered,
+                    2: recently_discovered,
+                },
+                "first_played_dates": {1: recently_discovered, 2: long_known},
+            }
+        }
+        tracklist = TrackList(tracks=tracks, metadata=metadata)
+
+        result = filter_by_play_history(
+            max_days_back=30, date_source="first_played", tracklist=tracklist
+        )
+
+        assert [t.id for t in result.tracks] == [1]
+
+    def test_combined_with_min_plays(self):
+        """first-played window composes with an all-time play-count constraint."""
+        tracks = [
+            Track(id=1, title="Repeat Find", artists=[Artist(name="Artist 1")]),
+            Track(id=2, title="One-off Find", artists=[Artist(name="Artist 2")]),
+        ]
+
+        recent = (datetime.now(UTC) - timedelta(days=5)).isoformat()
+        metadata = {
+            "metrics": {
+                "total_plays": {1: 4, 2: 1},
+                "first_played_dates": {1: recent, 2: recent},
+            }
+        }
+        tracklist = TrackList(tracks=tracks, metadata=metadata)
+
+        result = filter_by_play_history(
+            min_plays=3,
+            max_days_back=30,
+            date_source="first_played",
+            tracklist=tracklist,
+        )
+
+        assert [t.id for t in result.tracks] == [1]
+
+    def test_missing_first_played_excluded_by_default(self):
+        """A track with no first_played date is dropped unless include_missing."""
+        tracks = [
+            Track(id=1, title="Known", artists=[Artist(name="Artist 1")]),
+            Track(id=2, title="No Date", artists=[Artist(name="Artist 2")]),
+        ]
+
+        recent = (datetime.now(UTC) - timedelta(days=5)).isoformat()
+        metadata = {
+            "metrics": {
+                "total_plays": {1: 3, 2: 3},
+                "first_played_dates": {1: recent},  # track 2 absent
+            }
+        }
+        tracklist = TrackList(tracks=tracks, metadata=metadata)
+
+        excluded = filter_by_play_history(
+            max_days_back=30, date_source="first_played", tracklist=tracklist
+        )
+        assert [t.id for t in excluded.tracks] == [1]
+
+        included = filter_by_play_history(
+            max_days_back=30,
+            date_source="first_played",
+            include_missing=True,
+            tracklist=tracklist,
+        )
+        assert {t.id for t in included.tracks} == {1, 2}
+
+    def test_accepts_datetime_objects_not_only_iso_strings(self):
+        """parse_datetime_safe handles tz-aware datetimes as well as ISO strings."""
+        tracks = [Track(id=1, title="Find", artists=[Artist(name="Artist 1")])]
+        metadata = {
+            "metrics": {
+                "first_played_dates": {1: datetime.now(UTC) - timedelta(days=3)},
+            }
+        }
+        tracklist = TrackList(tracks=tracks, metadata=metadata)
+
+        result = filter_by_play_history(
+            max_days_back=30, date_source="first_played", tracklist=tracklist
+        )
+        assert [t.id for t in result.tracks] == [1]
+
+
+class TestGetPlayMetricsDateSource:
+    """get_play_metrics selects first- vs last-played map by date_source."""
+
+    def test_returns_requested_date_map(self):
+        from src.application.metadata_transforms._helpers import get_play_metrics
+
+        first = {1: "2020-01-01T00:00:00+00:00"}
+        last = {1: "2024-01-01T00:00:00+00:00"}
+        tracklist = TrackList(
+            tracks=[Track(id=1, title="T", artists=[Artist(name="A")])],
+            metadata={
+                "metrics": {
+                    "total_plays": {1: 7},
+                    "first_played_dates": first,
+                    "last_played_dates": last,
+                }
+            },
+        )
+
+        counts_default, dates_default = get_play_metrics(tracklist)
+        assert counts_default == {1: 7}
+        assert dates_default == last  # default preserves prior behavior
+
+        _, dates_first = get_play_metrics(tracklist, date_source="first_played")
+        assert dates_first == first
+
+
 class TestSortByPlayHistory:
     """Test play history sorting functionality."""
 

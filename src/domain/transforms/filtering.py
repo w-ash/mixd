@@ -196,6 +196,48 @@ def filter_by_duration(
     return dual_mode(cast(Transform, filter_by_predicate(in_duration_range)), tracklist)
 
 
+def filter_by_release_year(
+    min_year: int | None = None,
+    max_year: int | None = None,
+    include_missing: bool = False,
+    tracklist: TrackList | None = None,
+) -> Transform | TrackList:
+    """
+    Filter tracks by release year range.
+
+    Unlike ``filter_by_date_range`` (which measures age in days from *today*, so a
+    fixed decade silently drifts every night), this filters on the absolute
+    release year - "tracks from 2010 to 2019" means the same thing next year.
+
+    Args:
+        min_year: Earliest release year to keep (inclusive), or None for no minimum
+        max_year: Latest release year to keep (inclusive), or None for no maximum
+        include_missing: Whether to include tracks without a release date
+
+    Returns:
+        Transformation function
+
+    Raises:
+        ValueError: If neither min_year nor max_year is given (an unbounded
+            range is a no-op — fail loudly rather than silently keep everything,
+            mirroring ``filter_by_play_history``).
+    """
+    if min_year is None and max_year is None:
+        raise ValueError(
+            "filter_by_release_year requires at least one of min_year or max_year"
+        )
+
+    def in_year_range(track: Track) -> bool:
+        if track.release_date is None:
+            return include_missing
+        year = track.release_date.year
+        if min_year is not None and year < min_year:
+            return False
+        return not (max_year is not None and year > max_year)
+
+    return dual_mode(cast(Transform, filter_by_predicate(in_year_range)), tracklist)
+
+
 def filter_by_liked_status(
     service: str,
     is_liked: bool = True,

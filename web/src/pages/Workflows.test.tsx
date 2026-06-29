@@ -1,6 +1,25 @@
+import { fireEvent } from "@testing-library/react";
 import { HttpResponse, http } from "msw";
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 
+// useNavigate is mocked so the list-page Import can be asserted to open the
+// editor; everything else in react-router stays real (Link, MemoryRouter).
+const { mockNavigate } = vi.hoisted(() => ({ mockNavigate: vi.fn() }));
+vi.mock("react-router", async (importActual) => {
+  const actual = await importActual<typeof import("react-router")>();
+  return { ...actual, useNavigate: () => mockNavigate };
+});
+
+// Import seeds the editor store, whose loadWorkflow runs an async ELK layout —
+// mock it so the seed is synchronous and deterministic.
+vi.mock("#/lib/workflow-layout", () => ({
+  layoutWorkflow: vi.fn().mockResolvedValue({ nodes: [], edges: [] }),
+  buildEdges: vi.fn().mockReturnValue({ flowEdges: [] }),
+  generateNodeId: vi.fn().mockReturnValue("node_1"),
+}));
+
+import { toasts } from "#/lib/toasts";
+import { useEditorStore } from "#/stores/editor-store";
 import { server } from "#/test/setup";
 import {
   renderWithProviders,
@@ -10,6 +29,24 @@ import {
 } from "#/test/test-utils";
 
 import { Workflows } from "./Workflows";
+
+function fileFromDef(def: unknown): File {
+  return new File([JSON.stringify(def)], "wf.json", {
+    type: "application/json",
+  });
+}
+
+const ONE_ROW = [
+  {
+    id: "11111111-1111-1111-1111-111111111111",
+    name: "Flow A",
+    description: null,
+    definition_version: 1,
+    task_count: 2,
+    node_types: ["source"],
+    updated_at: "2026-02-15T12:00:00Z",
+  },
+];
 
 const WF_A = "11111111-1111-1111-1111-111111111111";
 const WF_B = "22222222-2222-2222-2222-222222222222";
@@ -230,6 +267,60 @@ describe("Workflows", () => {
     await waitFor(() => {
       expect(screen.getByText("No workflows yet")).toBeInTheDocument();
     });
+  });
+
+  it("imports a valid workflow file and opens the editor on the draft", async () => {
+    mockNavigate.mockClear();
+    useEditorStore.setState({ workflowName: "Old", workflowId: "existing" });
+    server.use(http.get("*/api/v1/workflows", () => listResponse(ONE_ROW)));
+
+    renderWithProviders(<Workflows />);
+    await waitFor(() => {
+      expect(screen.getAllByText("Flow A").length).toBeGreaterThan(0);
+    });
+
+    const input = screen.getByLabelText(
+      "Import workflow file",
+    ) as HTMLInputElement;
+    fireEvent.change(input, {
+      target: { files: [fileFromDef({ name: "Imported", tasks: [] })] },
+    });
+
+    await waitFor(() => {
+      // `imported: true` tells WorkflowEditor not to reset the seeded draft.
+      expect(mockNavigate).toHaveBeenCalledWith("/workflows/new", {
+        state: { imported: true },
+      });
+    });
+    expect(useEditorStore.getState().workflowName).toBe("Imported");
+    expect(useEditorStore.getState().workflowId).toBeNull();
+  });
+
+  it("shows an error toast and does not navigate on an invalid file", async () => {
+    mockNavigate.mockClear();
+    const errorSpy = vi.spyOn(toasts, "error").mockImplementation(() => {});
+    server.use(http.get("*/api/v1/workflows", () => listResponse(ONE_ROW)));
+
+    renderWithProviders(<Workflows />);
+    await waitFor(() => {
+      expect(screen.getAllByText("Flow A").length).toBeGreaterThan(0);
+    });
+
+    const input = screen.getByLabelText(
+      "Import workflow file",
+    ) as HTMLInputElement;
+    fireEvent.change(input, {
+      target: { files: [new File(["not json {"], "bad.json")] },
+    });
+
+    await waitFor(() => {
+      expect(errorSpy).toHaveBeenCalledWith(
+        "Couldn't import workflow",
+        expect.any(Error),
+      );
+    });
+    expect(mockNavigate).not.toHaveBeenCalled();
+    errorSpy.mockRestore();
   });
 
   it("renders error state when API fails", async () => {

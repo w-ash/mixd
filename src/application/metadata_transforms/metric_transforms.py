@@ -20,7 +20,7 @@ from src.domain.entities.track import Track, TrackList
 from src.domain.transforms.core import Transform, dual_mode
 from src.domain.transforms.filtering import filter_by_predicate
 
-from ._helpers import parse_datetime_safe
+from ._helpers import DATE_SOURCE_METRIC_KEYS, parse_datetime_safe
 
 logger = get_logger(__name__)
 
@@ -148,13 +148,6 @@ def sort_by_external_metrics(
     return dual_mode(transform, tracklist)
 
 
-# Mapping from date_source parameter to metadata metric key
-_DATE_SOURCE_METRIC_KEYS = {
-    "first_played": "first_played_dates",
-    "last_played": "last_played_dates",
-}
-
-
 def sort_by_date(
     date_source: str,
     ascending: bool = True,
@@ -180,7 +173,7 @@ def sort_by_date(
         if date_source == "added_at":
             date_map = t.metadata.get("added_at_dates", {})
         else:
-            metric_key = _DATE_SOURCE_METRIC_KEYS[date_source]
+            metric_key = DATE_SOURCE_METRIC_KEYS[date_source]
             date_map = t.metadata.get("metrics", {}).get(metric_key, {})
 
         # Tracks without dates sort to the end regardless of direction

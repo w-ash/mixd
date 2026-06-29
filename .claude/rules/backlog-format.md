@@ -56,6 +56,17 @@ Sub-version sections: **Goal** · **Context** · **What this unlocks** · **Pers
 
 **Story** = who/what/why, with enough detail for in-flight judgment. **Decisions** = non-obvious choices, user-rooted rationale. **Spec** = schema/API/technical. **Tests** = verification at the right layer. Infra stories use **Story** to explain the user-facing capability they enable.
 
+## Readability (problem-first, dual-reader)
+
+An item is read by two audiences: a **human** skimming the roadmap (wants the user need fast, the solution left open) and **Claude** picking it up cold (wants the technical anchors or it re-derives them). Serve both by **altitude, not omission** — keep the *why* up top and demote the *how* down, never blend them.
+
+- **Lead with the problem, never the mechanism.** The title and first Story clause name a persona need ("the *‹persona›* wants *‹X›* so they can *‹Y›*"), not a feature, file, or function. The `_User goal:_` line, if used, is hoisted to the lead — not stranded at the bottom where a skimmer never reaches it.
+- **Resolve lead-vs-grounding by altitude.** Problem-first prose lives in **Story/Decisions**; every locked identifier, path, signature, endpoint, and magic number lives in **Spec/Notes**. Give Claude the anchor it needs to act, but never weave a constant into a narrative sentence.
+- **Decisions = verdict + "because *‹user impact›*".** Lead each bullet with the choice, then the user-rooted reason. A bullet with no user-facing "because" is Spec material — move it.
+- **State each load-bearing fact once.** "Already shipped in vX.Y" → Dependencies (or one `Already in place (vX.Y): …` line); reference it elsewhere, don't restate it. Repetition (the same "ported from X" / "already built" note 5×) is the dominant readability tax — and never weave past-tense archaeology into forward-looking planning prose.
+- **Anchor as direction, not a frozen manifest.** Name the real ids/tables/endpoints once; frame constants (widths, TTLs, thresholds, rate limits, model versions) as "starting point, revisit" — especially in unscheduled items, where deep specs wait until scheduling. Decide before filing: no unresolved "X or Y" presented as spec; drop superlative roadmap framing.
+- **Make it skimmable.** Split walls of text into Story/Decisions/Spec/Tests; bullet blast-radius / tool-coverage lists instead of inline run-ons; bold the load-bearing constraint at the *start* of its bullet. Push doc-bug asides and incident IDs to a pointer into the design/findings doc. Group pure hygiene/refactor items under a labeled subhead so skimmers can skip them and Claude can still find them.
+
 ## Post-Deploy Revisions epic (required per feature)
 
 Every feature file reserves a placeholder epic at the bottom — **Post-Deploy Revisions** — that accumulates work discovered during prod testing. Starts empty; entries are added as each revision ships (scheme in `version-management`). Each entry maps to a `<feature>.<N>` tag; the conventional-commit prefix (`fix:` / `feat:` / `refactor:`) carries the nature of the work.

@@ -1,0 +1,69 @@
+{
+  "id": "recent_discovery_mix",
+  "name": "Recent Discovery Mix",
+  "description": "Fresh finds you're already into — liked tracks first played in the last 30 days that you've already returned to 3+ times.",
+  "version": "1.0",
+  "tasks": [
+    {
+      "id": "source_liked",
+      "type": "source.liked_tracks",
+      "config": {
+        "connector_filter": "spotify"
+      }
+    },
+    {
+      "id": "enrich_play_history",
+      "type": "enricher.play_history",
+      "config": {
+        "metrics": ["total_plays", "first_played_dates"],
+        "period_days": 30
+      },
+      "upstream": ["source_liked"]
+    },
+    {
+      "id": "filter_recently_discovered",
+      "type": "filter.by_first_played_date",
+      "config": {
+        "max_days_back": 30,
+        "include_missing": false
+      },
+      "upstream": ["enrich_play_history"]
+    },
+    {
+      "id": "filter_repeat_listens",
+      "type": "filter.by_play_history",
+      "config": {
+        "min_plays": 3,
+        "include_missing": false
+      },
+      "upstream": ["filter_recently_discovered"]
+    },
+    {
+      "id": "sort_newest_discovery",
+      "type": "sorter.by_first_played",
+      "config": {
+        "ascending": false
+      },
+      "upstream": ["filter_repeat_listens"]
+    },
+    {
+      "id": "limit_selection",
+      "type": "selector.limit_tracks",
+      "config": {
+        "count": 25,
+        "method": "first"
+      },
+      "upstream": ["sort_newest_discovery"]
+    },
+    {
+      "id": "create_playlist",
+      "type": "destination.create_playlist",
+      "config": {
+        "name": "Recent Discovery Mix",
+        "description": "New finds from the last 30 days you've already played 3+ times",
+        "connector": "spotify"
+      },
+      "upstream": ["limit_selection"]
+    }
+  ]
+}

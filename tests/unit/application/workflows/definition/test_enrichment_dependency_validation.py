@@ -223,3 +223,83 @@ class TestPreferenceAndTagConsumerValidation:
         warnings = _validate_enrichment_dependencies(_make_def(tasks))
         assert len(warnings) == 1
         assert "enricher.preferences" in warnings[0]["message"]
+
+
+class TestFirstPlayedDateConsumerValidation:
+    """filter.by_first_played_date reads play-history-derived first_played dates,
+    so it warns unless an upstream enricher.play_history is configured to emit
+    the first_played_dates metric (which is NOT in the default metric set). Its
+    sibling filter.by_release_year reads intrinsic track data and must NOT warn.
+    """
+
+    def test_warns_when_no_play_history_enricher(self):
+        tasks = [
+            WorkflowTaskDef(id="src", type="source.liked_tracks", config={}),
+            WorkflowTaskDef(
+                id="filter",
+                type="filter.by_first_played_date",
+                config={"max_days_back": 30},
+                upstream=["src"],
+            ),
+        ]
+        warnings = _validate_enrichment_dependencies(_make_def(tasks))
+        assert len(warnings) == 1
+        assert warnings[0]["task_id"] == "filter"
+        assert "enricher.play_history" in warnings[0]["message"]
+
+    def test_warns_when_enricher_omits_first_played_metric(self):
+        """An enricher.play_history with default metrics doesn't emit
+        first_played_dates, so type-presence alone must not silence the warning.
+        """
+        tasks = [
+            WorkflowTaskDef(id="src", type="source.liked_tracks", config={}),
+            WorkflowTaskDef(
+                id="enrich",
+                type="enricher.play_history",
+                config={},  # default metrics — no first_played_dates
+                upstream=["src"],
+            ),
+            WorkflowTaskDef(
+                id="filter",
+                type="filter.by_first_played_date",
+                config={"max_days_back": 30},
+                upstream=["enrich"],
+            ),
+        ]
+        warnings = _validate_enrichment_dependencies(_make_def(tasks))
+        assert len(warnings) == 1
+        assert warnings[0]["task_id"] == "filter"
+        assert "first_played_dates" in warnings[0]["message"]
+
+    def test_no_warning_when_enricher_emits_first_played_metric(self):
+        tasks = [
+            WorkflowTaskDef(id="src", type="source.liked_tracks", config={}),
+            WorkflowTaskDef(
+                id="enrich",
+                type="enricher.play_history",
+                config={"metrics": ["total_plays", "first_played_dates"]},
+                upstream=["src"],
+            ),
+            WorkflowTaskDef(
+                id="filter",
+                type="filter.by_first_played_date",
+                config={"max_days_back": 30},
+                upstream=["enrich"],
+            ),
+        ]
+        warnings = _validate_enrichment_dependencies(_make_def(tasks))
+        assert warnings == []
+
+    def test_release_year_filter_never_warns(self):
+        """Intrinsic track data — no enricher dependency, no warning even bare."""
+        tasks = [
+            WorkflowTaskDef(id="src", type="source.liked_tracks", config={}),
+            WorkflowTaskDef(
+                id="filter",
+                type="filter.by_release_year",
+                config={"min_year": 2010, "max_year": 2019},
+                upstream=["src"],
+            ),
+        ]
+        warnings = _validate_enrichment_dependencies(_make_def(tasks))
+        assert warnings == []

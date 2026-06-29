@@ -1,0 +1,70 @@
+{
+  "id": "decade_deep_cuts",
+  "name": "Decade Deep Cuts",
+  "description": "The quieter corners of the 2010s — liked tracks released 2010–2019 that you've barely played, least-played first.",
+  "version": "1.0",
+  "tasks": [
+    {
+      "id": "source_liked",
+      "type": "source.liked_tracks",
+      "config": {
+        "connector_filter": "spotify"
+      }
+    },
+    {
+      "id": "enrich_play_history",
+      "type": "enricher.play_history",
+      "config": {
+        "metrics": ["total_plays"],
+        "period_days": 365
+      },
+      "upstream": ["source_liked"]
+    },
+    {
+      "id": "filter_2010s",
+      "type": "filter.by_release_year",
+      "config": {
+        "min_year": 2010,
+        "max_year": 2019,
+        "include_missing": false
+      },
+      "upstream": ["enrich_play_history"]
+    },
+    {
+      "id": "filter_deep_cuts",
+      "type": "filter.by_play_history",
+      "config": {
+        "max_plays": 4,
+        "include_missing": true
+      },
+      "upstream": ["filter_2010s"]
+    },
+    {
+      "id": "sort_least_played",
+      "type": "sorter.by_play_history",
+      "config": {
+        "reverse": false
+      },
+      "upstream": ["filter_deep_cuts"]
+    },
+    {
+      "id": "limit_selection",
+      "type": "selector.limit_tracks",
+      "config": {
+        "count": 30,
+        "method": "first"
+      },
+      "upstream": ["sort_least_played"]
+    },
+    {
+      "id": "create_playlist",
+      "type": "destination.create_playlist",
+      "config": {
+        "name": "Decade Deep Cuts",
+        "description": "2010s tracks you liked but rarely played",
+        "connector": "spotify"
+      },
+      "upstream": ["limit_selection"]
+    }
+  ]
+}

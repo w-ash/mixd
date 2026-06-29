@@ -33,6 +33,7 @@ from src.domain.entities.track import TrackList
 from src.domain.transforms.core import require_database_tracks
 
 from .config_accessors import cfg_bool, cfg_int, cfg_str_list
+from .config_fields import DEFAULT_PLAY_HISTORY_METRICS
 from .execution_context import NodeContext
 from .registry import NodeFn
 from .transform_definitions import COMBINER_REGISTRY, TRANSFORM_REGISTRY
@@ -268,7 +269,7 @@ def build_play_history_enrichment_config(
     _ctx: NodeContext, config: Mapping[str, JsonValue]
 ) -> EnrichmentConfig:
     """Build config for play-history enrichment from internal database."""
-    metrics = cfg_str_list(config, "metrics") or ["total_plays", "last_played_dates"]
+    metrics = cfg_str_list(config, "metrics") or list(DEFAULT_PLAY_HISTORY_METRICS)
     return EnrichmentConfig(
         enrichment_type="play_history",
         metrics=metrics,
