@@ -46,7 +46,7 @@ class TestFilterByPlayHistory:
         assert result.tracks[0].id == 2
 
     def test_relative_time_window_filter(self):
-        """Test filtering with relative time window (min_days_back/max_days_back)."""
+        """Test filtering with relative time window (not_played_in_days/played_within_days)."""
         tracks = [
             Track(id=1, title="Recent", artists=[Artist(name="Artist 1")]),
             Track(id=2, title="Old", artists=[Artist(name="Artist 2")]),
@@ -65,7 +65,7 @@ class TestFilterByPlayHistory:
         tracklist = TrackList(tracks=tracks, metadata=metadata)
 
         # Filter for tracks played within last 30 days
-        result = filter_by_play_history(max_days_back=30, tracklist=tracklist)
+        result = filter_by_play_history(played_within_days=30, tracklist=tracklist)
 
         assert len(result.tracks) == 1
         assert result.tracks[0].id == 1
@@ -141,7 +141,7 @@ class TestFilterByPlayHistory:
 
         # Find hidden gems: at least 3 plays, but not played in last 180 days
         result = filter_by_play_history(
-            min_plays=3, min_days_back=180, tracklist=tracklist
+            min_plays=3, not_played_in_days=180, tracklist=tracklist
         )
 
         assert len(result.tracks) == 1
@@ -169,7 +169,7 @@ class TestFilterByPlayHistory:
 
         # Find current obsessions: 8+ plays in last 30 days
         result = filter_by_play_history(
-            min_plays=8, max_days_back=30, tracklist=tracklist
+            min_plays=8, played_within_days=30, tracklist=tracklist
         )
 
         assert len(result.tracks) == 1
@@ -185,7 +185,7 @@ class TestFilterByPlayHistoryFirstPlayed:
     """
 
     def test_recent_discovery_window(self):
-        """max_days_back keeps tracks first played within the window."""
+        """played_within_days keeps tracks first played within the window."""
         tracks = [
             Track(id=1, title="New Find", artists=[Artist(name="Artist 1")]),
             Track(id=2, title="Old Favorite", artists=[Artist(name="Artist 2")]),
@@ -210,7 +210,7 @@ class TestFilterByPlayHistoryFirstPlayed:
         tracklist = TrackList(tracks=tracks, metadata=metadata)
 
         result = filter_by_play_history(
-            max_days_back=30, date_source="first_played", tracklist=tracklist
+            played_within_days=30, date_source="first_played", tracklist=tracklist
         )
 
         assert [t.id for t in result.tracks] == [1]
@@ -233,7 +233,7 @@ class TestFilterByPlayHistoryFirstPlayed:
 
         result = filter_by_play_history(
             min_plays=3,
-            max_days_back=30,
+            played_within_days=30,
             date_source="first_played",
             tracklist=tracklist,
         )
@@ -257,12 +257,12 @@ class TestFilterByPlayHistoryFirstPlayed:
         tracklist = TrackList(tracks=tracks, metadata=metadata)
 
         excluded = filter_by_play_history(
-            max_days_back=30, date_source="first_played", tracklist=tracklist
+            played_within_days=30, date_source="first_played", tracklist=tracklist
         )
         assert [t.id for t in excluded.tracks] == [1]
 
         included = filter_by_play_history(
-            max_days_back=30,
+            played_within_days=30,
             date_source="first_played",
             include_missing=True,
             tracklist=tracklist,
@@ -280,7 +280,7 @@ class TestFilterByPlayHistoryFirstPlayed:
         tracklist = TrackList(tracks=tracks, metadata=metadata)
 
         result = filter_by_play_history(
-            max_days_back=30, date_source="first_played", tracklist=tracklist
+            played_within_days=30, date_source="first_played", tracklist=tracklist
         )
         assert [t.id for t in result.tracks] == [1]
 
@@ -380,7 +380,7 @@ class TestSortByPlayHistory:
 
         # Sort by plays within last 30 days (reverse=True, most played first)
         result = sort_by_play_history(
-            max_days_back=30, reverse=True, tracklist=tracklist
+            played_within_days=30, reverse=True, tracklist=tracklist
         )
 
         # Only recent tracks should have non-zero sort values

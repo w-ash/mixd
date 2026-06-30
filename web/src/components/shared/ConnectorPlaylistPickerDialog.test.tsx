@@ -327,4 +327,34 @@ describe("ConnectorPlaylistPickerDialog", () => {
       await waitFor(() => expect(deleteSpy).toHaveBeenCalledOnce());
     });
   });
+
+  describe("select mode (link-to-existing flow)", () => {
+    it("emits a single playlist on row click and strips import chrome", async () => {
+      mockList([CHILL, WORKOUT]);
+      const { onConfirm } = setup({ mode: "select" });
+
+      // Wait for the list, then confirm the title reflects link/select intent.
+      expect(await screen.findByText("Chill Vibes")).toBeVisible();
+      expect(screen.getByText(/^Select a .* playlist$/)).toBeInTheDocument();
+
+      // No multi-select Import action button (the "Import N playlists" footer —
+      // distinct from the "Imported" status filter chip), no select-all, no
+      // per-row assignment menu.
+      expect(
+        screen.queryByRole("button", { name: /Import \d+ playlist/ }),
+      ).not.toBeInTheDocument();
+      expect(
+        screen.queryByLabelText("Select all visible playlists"),
+      ).not.toBeInTheDocument();
+      expect(
+        screen.queryByRole("button", { name: /More actions/ }),
+      ).not.toBeInTheDocument();
+
+      // Clicking a row confirms exactly that one playlist.
+      await userEvent.click(screen.getByText("Chill Vibes"));
+      expect(onConfirm).toHaveBeenCalledWith([
+        { id: "sp1", name: "Chill Vibes" },
+      ]);
+    });
+  });
 });

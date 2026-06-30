@@ -14,8 +14,7 @@
       "id": "enrich_play_history",
       "type": "enricher.play_history",
       "config": {
-        "metrics": ["total_plays", "last_played_dates", "first_played_dates"],
-        "period_days": 365
+        "metrics": ["total_plays", "last_played_dates", "first_played_dates"]
       },
       "upstream": ["liked_tracks"]
     },
@@ -31,7 +30,7 @@
       "id": "filter_not_recent",
       "type": "filter.by_play_history",
       "config": {
-        "max_days_back": 180
+        "played_within_days": 180
       },
       "upstream": ["filter_well_played"]
     },

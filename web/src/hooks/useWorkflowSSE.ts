@@ -199,10 +199,14 @@ export function useWorkflowSSE(
     markSeeded();
 
     // Reconcile persisted node states into the in-memory map in a single
-    // setState call — no N intermediate Map allocations.
-    const totalNodes = snapshot.nodes.length;
+    // setState call — no N intermediate Map allocations. Default a missing
+    // `nodes` to empty: a recovery snapshot that arrives partial (or a late
+    // fetch resolving against a torn-down mock in tests) makes the merge a safe
+    // no-op rather than throwing, while the terminal-status check below still runs.
+    const nodes = snapshot.nodes ?? [];
+    const totalNodes = nodes.length;
     mergeNodeStatusEvents(
-      snapshot.nodes.map((node) => ({
+      nodes.map((node) => ({
         node_id: node.node_id,
         node_type: node.node_type,
         status: node.status,

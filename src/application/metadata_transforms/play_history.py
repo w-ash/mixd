@@ -30,8 +30,8 @@ def filter_by_play_history(
     max_plays: int | None = None,
     start_date: str | None = None,
     end_date: str | None = None,
-    min_days_back: int | None = None,
-    max_days_back: int | None = None,
+    not_played_in_days: int | None = None,
+    played_within_days: int | None = None,
     include_missing: bool = False,
     date_source: DateSource = "last_played",
     tracklist: TrackList | None = None,
@@ -41,7 +41,7 @@ def filter_by_play_history(
     Unified filter with three clear time window modes:
     - None: No date fields = all-time play counts
     - Absolute: start_date/end_date = ISO date strings
-    - Relative: min_days_back/max_days_back = integer days from today
+    - Relative: not_played_in_days/played_within_days = integer days from today
 
     The date constraints apply to either the first- or last-played date per
     ``date_source`` — mirroring ``sort_by_date``'s symmetry. Defaults to
@@ -52,8 +52,8 @@ def filter_by_play_history(
         max_plays: Maximum play count (inclusive)
         start_date: Include tracks played after this ISO date (absolute mode)
         end_date: Include tracks played before this ISO date (absolute mode)
-        min_days_back: Start of time window, days from today (relative mode)
-        max_days_back: End of time window, days from today (relative mode)
+        not_played_in_days: Start of time window, days from today (relative mode)
+        played_within_days: End of time window, days from today (relative mode)
         include_missing: Whether to include tracks with no play data
         date_source: Which played-date to apply date constraints against —
             "last_played" (default) or "first_played"
@@ -64,10 +64,10 @@ def filter_by_play_history(
 
     Examples:
         # Tracks played 5+ times in last month
-        filter_by_play_history(min_plays=5, max_days_back=30)
+        filter_by_play_history(min_plays=5, played_within_days=30)
 
         # Hidden gems: loved but not played recently
-        filter_by_play_history(min_plays=3, min_days_back=180)
+        filter_by_play_history(min_plays=3, not_played_in_days=180)
 
         # Tracks played 1-3 times between specific dates
         filter_by_play_history(
@@ -77,7 +77,7 @@ def filter_by_play_history(
         )
 
         # Current obsessions: 8+ plays in last month
-        filter_by_play_history(min_plays=8, max_days_back=30)
+        filter_by_play_history(min_plays=8, played_within_days=30)
     """
     # Validate at least one constraint is specified
     constraints = [
@@ -85,19 +85,19 @@ def filter_by_play_history(
         max_plays is not None,
         start_date is not None,
         end_date is not None,
-        min_days_back is not None,
-        max_days_back is not None,
+        not_played_in_days is not None,
+        played_within_days is not None,
     ]
     if not any(constraints):
         raise ValueError(
-            "Must specify at least one constraint: min_plays, max_plays, start_date, end_date, min_days_back, or max_days_back"
+            "Must specify at least one constraint: min_plays, max_plays, start_date, end_date, not_played_in_days, or played_within_days"
         )
 
     def transform(t: TrackList) -> TrackList:
         """Apply unified play history filtering."""
         # Calculate effective date range using helper
         effective_after, effective_before = calculate_time_window(
-            start_date, end_date, min_days_back, max_days_back
+            start_date, end_date, not_played_in_days, played_within_days
         )
 
         # Get play data from metadata using helper. date_source selects which
@@ -150,8 +150,8 @@ def filter_by_play_history(
             max_plays=max_plays,
             start_date=start_date,
             end_date=end_date,
-            min_days_back=min_days_back,
-            max_days_back=max_days_back,
+            not_played_in_days=not_played_in_days,
+            played_within_days=played_within_days,
             date_source=date_source,
             effective_after_date=effective_after.isoformat()
             if effective_after
@@ -173,8 +173,8 @@ def filter_by_play_history(
 def sort_by_play_history(
     start_date: str | None = None,
     end_date: str | None = None,
-    min_days_back: int | None = None,
-    max_days_back: int | None = None,
+    not_played_in_days: int | None = None,
+    played_within_days: int | None = None,
     reverse: bool = True,
     tracklist: TrackList | None = None,
 ) -> Transform | TrackList:
@@ -184,13 +184,13 @@ def sort_by_play_history(
     clear time window modes as filter_by_play_history:
     - None: No date fields = all-time play counts
     - Absolute: start_date/end_date = ISO date strings
-    - Relative: min_days_back/max_days_back = integer days from today
+    - Relative: not_played_in_days/played_within_days = integer days from today
 
     Args:
         start_date: Include tracks played after this ISO date (absolute mode)
         end_date: Include tracks played before this ISO date (absolute mode)
-        min_days_back: Start of time window, days from today (relative mode)
-        max_days_back: End of time window, days from today (relative mode)
+        not_played_in_days: Start of time window, days from today (relative mode)
+        played_within_days: End of time window, days from today (relative mode)
         reverse: Sort order - True for most played first, False for least played first
         tracklist: Optional tracklist to transform immediately
 
@@ -202,7 +202,7 @@ def sort_by_play_history(
         sort_by_play_history(reverse=True)
 
         # Sort by plays in last month (least played first)
-        sort_by_play_history(max_days_back=30, reverse=False)
+        sort_by_play_history(played_within_days=30, reverse=False)
 
         # Sort by plays between specific dates
         sort_by_play_history(
@@ -212,14 +212,14 @@ def sort_by_play_history(
         )
 
         # Sort by plays in time window (90-30 days ago)
-        sort_by_play_history(min_days_back=90, max_days_back=30, reverse=True)
+        sort_by_play_history(not_played_in_days=90, played_within_days=30, reverse=True)
     """
 
     def transform(t: TrackList) -> TrackList:
         """Apply play history sorting."""
         # Calculate effective date range using helper
         effective_after, effective_before = calculate_time_window(
-            start_date, end_date, min_days_back, max_days_back
+            start_date, end_date, not_played_in_days, played_within_days
         )
 
         # Get play data from metadata using helper
@@ -269,8 +269,8 @@ def sort_by_play_history(
             "Play history sort applied",
             start_date=start_date,
             end_date=end_date,
-            min_days_back=min_days_back,
-            max_days_back=max_days_back,
+            not_played_in_days=not_played_in_days,
+            played_within_days=played_within_days,
             effective_after_date=effective_after.isoformat()
             if effective_after
             else None,

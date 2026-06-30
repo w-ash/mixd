@@ -122,9 +122,16 @@ export function useSSEConnection(
           `/api/v1/operations/${operationId}/progress`,
           ctrl.signal,
         );
+        // The effect cleanup aborts `ctrl` on unmount/disconnect. Bail before
+        // every state write so a stream that resolves or keeps yielding after
+        // teardown can't `setState` on an unmounted component — the source of a
+        // stray cross-test "1 error" in the Vitest suite when a mocked iterator
+        // ignores the abort signal.
+        if (ctrl.signal.aborted) return;
         setState({ kind: "open-no-events", openedAt: Date.now() });
 
         for await (const event of events) {
+          if (ctrl.signal.aborted) return;
           // Bump freshness for every frame, including server keepalive
           // comments (which arrive as `event: ""` with empty data).
           // Done before the data guard so keepalives reset the watchdog.
@@ -159,6 +166,7 @@ export function useSSEConnection(
           }
         }
 
+        if (ctrl.signal.aborted) return;
         setState((prev) =>
           prev.kind === "closed-error" || prev.kind === "closed-done"
             ? prev
@@ -167,6 +175,7 @@ export function useSSEConnection(
         onStreamEndRef.current?.();
       } catch (err) {
         if (err instanceof DOMException && err.name === "AbortError") return;
+        if (ctrl.signal.aborted) return;
         const error =
           err instanceof Error ? err : new Error("SSE connection error");
         setState((prev) => ({

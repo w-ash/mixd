@@ -15,8 +15,7 @@
       "id": "enrich_play_history",
       "type": "enricher.play_history",
       "config": {
-        "metrics": ["total_plays", "first_played_dates"],
-        "period_days": 30
+        "metrics": ["total_plays", "first_played_dates"]
       },
       "upstream": ["source_liked"]
     },
@@ -24,7 +23,7 @@
       "id": "filter_recently_discovered",
       "type": "filter.by_first_played_date",
       "config": {
-        "max_days_back": 30,
+        "played_within_days": 30,
         "include_missing": false
       },
       "upstream": ["enrich_play_history"]

@@ -35,6 +35,7 @@ vi.mock("#/lib/workflow-layout", () => ({
   createInitialNodes: vi.fn().mockReturnValue({ nodes: [], edges: [] }),
 }));
 
+import { useEditorStore } from "#/stores/editor-store";
 import { renderWithProviders, screen } from "#/test/test-utils";
 
 import WorkflowEditor from "./WorkflowEditor";
@@ -61,6 +62,42 @@ describe("WorkflowEditor", () => {
 
     // Node palette has search input
     expect(screen.getByPlaceholderText("Search nodes...")).toBeInTheDocument();
+  });
+});
+
+describe("WorkflowEditor entry intent", () => {
+  afterEach(() => {
+    useEditorStore.getState().resetWorkflow();
+  });
+
+  it("resets a leftover draft on a blank /workflows/new entry", () => {
+    // A draft left in the navigation-surviving singleton store by a prior edit.
+    useEditorStore.setState({ workflowName: "Leftover draft", isDirty: true });
+
+    renderWithProviders(<WorkflowEditor />, {
+      routerProps: { initialEntries: ["/workflows/new"] },
+    });
+
+    // Blank entry wipes it — no stale canvas leaks into a fresh workflow.
+    expect(useEditorStore.getState().workflowName).toBe("Untitled Workflow");
+    expect(useEditorStore.getState().isDirty).toBe(false);
+  });
+
+  it("adopts a seeded draft when the route declares a seed entry", () => {
+    // Import seeds the store *before* navigating with the typed seed marker.
+    useEditorStore.setState({ workflowName: "Imported draft", isDirty: true });
+
+    renderWithProviders(<WorkflowEditor />, {
+      routerProps: {
+        initialEntries: [
+          { pathname: "/workflows/new", state: { editorEntry: "seed" } },
+        ],
+      },
+    });
+
+    // Seed entry keeps the draft — it must not be reset.
+    expect(useEditorStore.getState().workflowName).toBe("Imported draft");
+    expect(useEditorStore.getState().isDirty).toBe(true);
   });
 });
 

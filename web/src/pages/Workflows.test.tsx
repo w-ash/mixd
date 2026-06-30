@@ -287,9 +287,10 @@ describe("Workflows", () => {
     });
 
     await waitFor(() => {
-      // `imported: true` tells WorkflowEditor not to reset the seeded draft.
+      // The typed seed marker declares a `seed` entry so WorkflowEditor adopts
+      // the seeded draft instead of resetting it.
       expect(mockNavigate).toHaveBeenCalledWith("/workflows/new", {
-        state: { imported: true },
+        state: { editorEntry: "seed" },
       });
     });
     expect(useEditorStore.getState().workflowName).toBe("Imported");

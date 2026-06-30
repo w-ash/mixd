@@ -27,7 +27,7 @@
       "config": {
         "min_plays": 2,
         "max_plays": 10,
-        "min_days_back": 60,
+        "not_played_in_days": 60,
         "include_missing": true
       }
     },
@@ -38,7 +38,7 @@
       "config": {
         "min_plays": 1,
         "max_plays": 15,
-        "max_days_back": 90,
+        "played_within_days": 90,
         "include_missing": false
       }
     },
@@ -61,7 +61,7 @@
       "type": "sorter.by_play_history",
       "upstream": ["deduplicate_combined"],
       "config": {
-        "max_days_back": 90,
+        "played_within_days": 90,
         "reverse": false
       }
     },

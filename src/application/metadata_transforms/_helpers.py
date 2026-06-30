@@ -39,23 +39,23 @@ def is_datetime_string(value: object) -> TypeIs[str]:
 def calculate_time_window(
     start_date: str | None,
     end_date: str | None,
-    min_days_back: int | None,
-    max_days_back: int | None,
+    not_played_in_days: int | None,
+    played_within_days: int | None,
 ) -> tuple[datetime | None, datetime | None]:
     """Calculate effective time window from various date parameters.
 
     Supports three time window modes:
     - None: No date fields = all-time
     - Absolute: start_date/end_date = ISO date strings
-    - Relative: min_days_back/max_days_back = integer days from today
+    - Relative: not_played_in_days/played_within_days = integer days from today
 
     Relative time mode takes precedence over absolute dates for clarity.
 
     Args:
         start_date: ISO format date string for absolute start
         end_date: ISO format date string for absolute end
-        min_days_back: Start of time window (furthest back, sets effective_before)
-        max_days_back: End of time window (closest to today, sets effective_after)
+        not_played_in_days: Start of time window (furthest back, sets effective_before)
+        played_within_days: End of time window (closest to today, sets effective_after)
 
     Returns:
         Tuple of (effective_after, effective_before) datetime objects or None
@@ -67,10 +67,10 @@ def calculate_time_window(
     effective_before = None
 
     # Relative time mode takes precedence (clearer for users)
-    # min_days_back = start of time window (furthest back, sets effective_before)
-    # max_days_back = end of time window (closest to today, sets effective_after)
-    if min_days_back is not None:
-        effective_before = datetime.now(UTC) - timedelta(days=min_days_back)
+    # not_played_in_days = start of time window (furthest back, sets effective_before)
+    # played_within_days = end of time window (closest to today, sets effective_after)
+    if not_played_in_days is not None:
+        effective_before = datetime.now(UTC) - timedelta(days=not_played_in_days)
     elif start_date is not None:
         try:
             effective_after = datetime.fromisoformat(start_date)
@@ -81,8 +81,8 @@ def calculate_time_window(
                 f"Invalid start_date format: {start_date}. Use ISO format like '2024-01-01'"
             ) from e
 
-    if max_days_back is not None:
-        effective_after = datetime.now(UTC) - timedelta(days=max_days_back)
+    if played_within_days is not None:
+        effective_after = datetime.now(UTC) - timedelta(days=played_within_days)
     elif end_date is not None:
         try:
             effective_before = datetime.fromisoformat(end_date)

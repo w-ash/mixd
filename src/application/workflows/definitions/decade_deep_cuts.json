@@ -15,8 +15,7 @@
       "id": "enrich_play_history",
       "type": "enricher.play_history",
       "config": {
-        "metrics": ["total_plays"],
-        "period_days": 365
+        "metrics": ["total_plays"]
       },
       "upstream": ["source_liked"]
     },

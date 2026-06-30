@@ -6,7 +6,12 @@ import type {
   PlaylistDetailSchema,
   PlaylistEntrySchema,
 } from "#/api/generated/model";
-import { makePlaylistDetail, makePlaylistEntries } from "#/test/factories";
+import {
+  makeConnectorMetadata,
+  makeConnectorPlaylistBrowse,
+  makePlaylistDetail,
+  makePlaylistEntries,
+} from "#/test/factories";
 import { server } from "#/test/setup";
 import {
   renderWithProviders,
@@ -396,5 +401,78 @@ describe("PlaylistDetail — linked services row", () => {
     const label = await screen.findByText("Sync failed");
     // StatusIndicator: the label sits next to an icon svg in the same wrapper.
     expect(label.parentElement?.querySelector("svg")).not.toBeNull();
+  });
+});
+
+describe("PlaylistDetail — browse-to-link", () => {
+  it("browses the connector, picks a playlist, and links it without typing an ID", async () => {
+    setupHandlers(makePlaylistDetail(), []);
+    let linkBody: Record<string, unknown> | null = null;
+    server.use(
+      http.get("*/api/v1/connectors", () =>
+        HttpResponse.json(
+          [makeConnectorMetadata({ name: "spotify", connected: true })],
+          { status: 200 },
+        ),
+      ),
+      http.get("*/api/v1/connectors/spotify/playlists", () =>
+        HttpResponse.json({
+          data: [
+            makeConnectorPlaylistBrowse({
+              connector_playlist_identifier: "sp_pick_1",
+              name: "Roadtrip Mix",
+              track_count: 42,
+            }),
+          ],
+          from_cache: true,
+          fetched_at: new Date().toISOString(),
+        }),
+      ),
+      http.post("*/api/v1/playlists/:playlistId/links", async ({ request }) => {
+        linkBody = (await request.json()) as Record<string, unknown>;
+        return HttpResponse.json(
+          {
+            id: "lnk_new",
+            connector_name: "spotify",
+            connector_playlist_identifier: "sp_pick_1",
+            connector_playlist_name: "Roadtrip Mix",
+            sync_direction: "push",
+            direction_label: "Mixd → Spotify (replaces Spotify)",
+            sync_status: "never_synced",
+            last_synced: null,
+            last_sync_error: null,
+            last_sync_tracks_added: null,
+            last_sync_tracks_removed: null,
+            last_sync_tracks_unmatched: 0,
+          },
+          { status: 201 },
+        );
+      }),
+    );
+
+    renderPlaylistDetail();
+
+    // Open the link dialog, then browse instead of pasting an ID.
+    await userEvent.click(
+      await screen.findByRole("button", { name: "Link Playlist" }),
+    );
+    await userEvent.click(
+      await screen.findByRole("button", { name: /Browse .* playlists/ }),
+    );
+
+    // Pick a playlist from the browse list; the choice surfaces on the button.
+    await userEvent.click(await screen.findByText("Roadtrip Mix"));
+    expect(
+      await screen.findByRole("button", { name: /Selected: Roadtrip Mix/ }),
+    ).toBeInTheDocument();
+
+    // Submit — the link is created with the browsed identifier, no typing.
+    await userEvent.click(screen.getByRole("button", { name: "Link" }));
+
+    await waitFor(() => expect(linkBody).not.toBeNull());
+    expect(linkBody).toMatchObject({
+      connector: "spotify",
+      connector_playlist_identifier: "sp_pick_1",
+    });
   });
 });

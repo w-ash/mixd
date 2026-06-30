@@ -16,7 +16,7 @@
       "upstream": ["get_recent_plays"],
       "config": {
         "min_plays": 8,
-        "max_days_back": 30,
+        "played_within_days": 30,
         "include_missing": false
       }
     },
@@ -25,7 +25,7 @@
       "type": "sorter.by_play_history",
       "upstream": ["filter_obsessions"],
       "config": {
-        "max_days_back": 30,
+        "played_within_days": 30,
         "reverse": true
       }
     },

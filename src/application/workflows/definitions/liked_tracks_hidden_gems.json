@@ -21,7 +21,7 @@
       "upstream": ["enrich_plays"],
       "config": {
         "min_plays": 3,
-        "min_days_back": 180,
+        "not_played_in_days": 180,
         "include_missing": false
       }
     },

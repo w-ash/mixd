@@ -182,15 +182,15 @@ def _date_range_fields(
 ) -> tuple[ConfigFieldDef, ...]:
     """Shared date-range constraint fields used by play-history filter and sorter.
 
-    Labels follow the runtime in ``calculate_time_window``: ``min_days_back``
+    Labels follow the runtime in ``calculate_time_window``: ``not_played_in_days``
     is the *minimum age* (keeps plays older than N days — i.e. excludes the
-    recent N), and ``max_days_back`` is the *maximum age* (keeps plays within
+    recent N), and ``played_within_days`` is the *maximum age* (keeps plays within
     the last N days). Defaults read in the last-played sense; callers override
     the wording for other date sources.
     """
     return (
         ConfigFieldDef(
-            key="min_days_back",
+            key="not_played_in_days",
             label=min_days_label,
             field_type="number",
             description="Only keep plays older than this many days",
@@ -198,7 +198,7 @@ def _date_range_fields(
             min=1,
         ),
         ConfigFieldDef(
-            key="max_days_back",
+            key="played_within_days",
             label=max_days_label,
             field_type="number",
             description="Only keep plays within this many recent days",

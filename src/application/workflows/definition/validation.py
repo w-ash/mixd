@@ -15,7 +15,7 @@ from collections import Counter
 from collections.abc import Mapping
 from typing import NamedTuple
 
-from src.application.workflows.nodes.config_accessors import cfg_str_list
+from src.application.workflows.nodes.config_accessors import cfg_int, cfg_str_list
 from src.application.workflows.nodes.config_fields import (
     DEFAULT_PLAY_HISTORY_METRICS,
     FieldType,
@@ -311,6 +311,12 @@ def _enricher_metrics() -> dict[str, frozenset[str]]:
     return _enricher_metrics_cache
 
 
+# The one enricher whose emitted metrics depend on its own ``metrics`` config
+# rather than being fixed by type — so validation must read config, not just
+# capability, when reasoning about what it produces.
+_PLAY_HISTORY_ENRICHER = "enricher.play_history"
+
+
 # Node types whose required enricher is derived from config["metric_name"]
 # via the ENRICHER_METRIC_DEFS lookup (scalar-metric consumers).
 _METRIC_CONSUMER_TYPES: frozenset[str] = frozenset({
@@ -344,16 +350,30 @@ _ENRICHER_CONSUMER_MAP: dict[str, _EnricherRequirement] = {
 }
 
 
-def _enricher_emits(enricher_task: WorkflowTaskDef, metric: str) -> bool:
-    """True if an enricher.play_history task is configured to emit ``metric``.
+def _enricher_emitted_metrics(enricher_task: WorkflowTaskDef) -> set[str]:
+    """The metrics an enricher task is *configured* to emit (not just capable of).
 
-    play_history only emits the metrics named in its ``metrics`` config, which
-    defaults to ``DEFAULT_PLAY_HISTORY_METRICS`` (no ``first_played_dates``) —
-    so an enricher with default/empty config does NOT satisfy a consumer that
-    needs a non-default metric.
+    ``enricher.play_history`` emits only the metrics named in its ``metrics``
+    config (defaulting to ``DEFAULT_PLAY_HISTORY_METRICS`` when unset), so its
+    output depends on config, not just type. Every other enricher has no
+    ``metrics`` config and always emits its full capability set.
+
+    This is the config-aware view both consumer checks below rely on: "this
+    enricher *can* emit X" (capability) is not "this enricher *will* emit X".
     """
-    configured = cfg_str_list(enricher_task.config, "metrics")
-    return metric in (configured or list(DEFAULT_PLAY_HISTORY_METRICS))
+    if enricher_task.type == _PLAY_HISTORY_ENRICHER:
+        configured = cfg_str_list(enricher_task.config, "metrics")
+        return set(configured or DEFAULT_PLAY_HISTORY_METRICS)
+    return set(_enricher_metrics().get(enricher_task.type, frozenset[str]()))
+
+
+def _enricher_emits(enricher_task: WorkflowTaskDef, metric: str) -> bool:
+    """True if an enricher task is configured to emit ``metric``.
+
+    play_history with default/empty config does NOT satisfy a consumer that
+    needs a non-default metric (e.g. ``first_played_dates``).
+    """
+    return metric in _enricher_emitted_metrics(enricher_task)
 
 
 def _validate_enrichment_dependencies(
@@ -402,12 +422,13 @@ def _validate_enrichment_dependencies(
             if not metric_name:
                 continue
 
-            upstream_types = {e.type for e in _collect_upstream_enrichers(task_def.id)}
+            # Config-aware: a play_history enricher emits only the metrics it's
+            # configured for, so union each upstream's *emitted* set, not the
+            # capability set — otherwise a default-config enricher certifies a
+            # consumer (e.g. metric_name="period_plays") that produces nothing.
             available_metrics: set[str] = set()
-            for enricher_type in upstream_types:
-                available_metrics |= _enricher_metrics().get(
-                    enricher_type, frozenset[str]()
-                )
+            for enricher in _collect_upstream_enrichers(task_def.id):
+                available_metrics |= _enricher_emitted_metrics(enricher)
 
             if metric_name not in available_metrics:
                 warnings.append({
@@ -443,6 +464,27 @@ def _validate_enrichment_dependencies(
                         f"Upstream enrichers: {upstream_types or 'none'}"
                     ),
                 })
+
+    # An enricher.play_history ``period_days`` only takes effect when
+    # ``period_plays`` is among its metrics (the runtime gates the window on it).
+    # Set without it, the day window is silently ignored — warn rather than let
+    # the user assume a recency window that never applies.
+    for task_def in workflow_def.tasks:
+        if task_def.type != _PLAY_HISTORY_ENRICHER:
+            continue
+        if cfg_int(task_def.config, "period_days") and (
+            "period_plays" not in _enricher_emitted_metrics(task_def)
+        ):
+            warnings.append({
+                "task_id": task_def.id,
+                "field": "config.period_days",
+                "severity": "warning",
+                "message": (
+                    "'period_days' is set but 'period_plays' is not in this "
+                    "enricher's metrics — the day window is ignored. Add "
+                    "'period_plays' to metrics to apply it."
+                ),
+            })
 
     return warnings
 

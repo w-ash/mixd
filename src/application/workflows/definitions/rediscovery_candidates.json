@@ -15,8 +15,7 @@
       "id": "enrich_play_history",
       "type": "enricher.play_history",
       "config": {
-        "metrics": ["total_plays", "last_played_dates"],
-        "period_days": 365
+        "metrics": ["total_plays", "last_played_dates"]
       },
       "upstream": ["source_liked_songs"]
     },

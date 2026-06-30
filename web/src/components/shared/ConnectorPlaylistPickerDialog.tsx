@@ -74,6 +74,13 @@ interface ConnectorPlaylistPickerDialogProps {
    * UUIDs — names tag along so the confirm dialog avoids a re-query.
    */
   onConfirm?: (playlists: PickedPlaylist[]) => void;
+  /**
+   * `import` (default) — multi-select with an Import action + per-row tag/rate
+   * assignment menu, for the Playlists import flow. `select` — single-select,
+   * click-a-row-to-confirm, with the import-only chrome stripped, for the
+   * link-to-existing-playlist flow (emits exactly one playlist via onConfirm).
+   */
+  mode?: "import" | "select";
 }
 
 function PlaylistRowSkeleton() {
@@ -120,7 +127,9 @@ export function ConnectorPlaylistPickerDialog({
   onOpenChange,
   connector,
   onConfirm,
+  mode = "import",
 }: ConnectorPlaylistPickerDialogProps) {
+  const isSelect = mode === "select";
   const queryClient = useQueryClient();
   const { search, setSearch, deferredSearch, isSearching } = useTrackSearch();
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
@@ -319,7 +328,11 @@ export function ConnectorPlaylistPickerDialog({
         <DialogHeader>
           <div className="flex items-start justify-between gap-3">
             <div>
-              <DialogTitle>Import from {connectorLabel}</DialogTitle>
+              <DialogTitle>
+                {isSelect
+                  ? `Select a ${connectorLabel} playlist`
+                  : `Import from ${connectorLabel}`}
+              </DialogTitle>
               <p className="mt-1 text-sm text-text-muted">
                 {response?.from_cache
                   ? `Showing cached playlists. Refresh to pull the latest from ${connectorLabel}.`
@@ -420,151 +433,204 @@ export function ConnectorPlaylistPickerDialog({
             />
           ) : (
             <div>
-              <div className="sticky top-0 z-10 flex items-center gap-3 border-b bg-background px-3 py-2 text-xs text-text-muted">
-                <Checkbox
-                  checked={headerChecked}
-                  onCheckedChange={toggleHeader}
-                  aria-label="Select all visible playlists"
-                />
-                <span>
-                  {visibleSelectedCount} of {filtered.length} selected
-                  {isSearching && " · filtering…"}
-                </span>
-              </div>
-              {filtered.map((p) => {
-                const id = p.connector_playlist_identifier;
-                const checked = selectedIds.has(id);
-                const rowId = `${connectorName}-pick-${id}`;
-                const tagAssignments = p.current_assignments.filter(
-                  (a) => a.action_type === "add_tag",
-                );
-                const ratingAssignment = p.current_assignments.find(
-                  (a) => a.action_type === "set_preference",
-                );
-                const hasAssignments = p.current_assignments.length > 0;
-                return (
-                  <div
-                    key={id}
-                    className="flex items-center gap-3 border-b px-3 py-2 last:border-b-0 hover:bg-accent/30"
-                  >
-                    <Checkbox
-                      id={rowId}
-                      checked={checked}
-                      onCheckedChange={(next) => toggleRow(id, next === true)}
-                    />
-                    {p.image_url ? (
-                      <img
-                        src={p.image_url}
-                        alt=""
-                        className="size-10 rounded-sm object-cover"
-                        loading="lazy"
-                      />
-                    ) : (
-                      <div
-                        className="size-10 shrink-0 rounded-sm bg-surface-muted"
-                        aria-hidden="true"
-                      />
-                    )}
-                    <label
-                      htmlFor={rowId}
-                      className="min-w-0 flex-1 cursor-pointer"
+              {!isSelect && (
+                <div className="sticky top-0 z-10 flex items-center gap-3 border-b bg-background px-3 py-2 text-xs text-text-muted">
+                  <Checkbox
+                    checked={headerChecked}
+                    onCheckedChange={toggleHeader}
+                    aria-label="Select all visible playlists"
+                  />
+                  <span>
+                    {visibleSelectedCount} of {filtered.length} selected
+                    {isSearching && " · filtering…"}
+                  </span>
+                </div>
+              )}
+              {isSelect &&
+                filtered.map((p) => {
+                  const id = p.connector_playlist_identifier;
+                  // Single-select: the whole row is the affordance — click to
+                  // confirm exactly one playlist. No checkbox / assignment menu;
+                  // those are import-only chrome.
+                  return (
+                    <button
+                      key={id}
+                      type="button"
+                      onClick={() => {
+                        onConfirm?.([{ id, name: p.name }]);
+                        // Parent closes us via the controlled prop, bypassing
+                        // handleOpenChange's reset — run it here so a reopen
+                        // starts on a clean filter state.
+                        handleOpenChange(false);
+                      }}
+                      className="flex w-full items-center gap-3 border-b px-3 py-2 text-left last:border-b-0 hover:bg-accent/30"
                     >
-                      <div className="flex flex-wrap items-center gap-x-2 gap-y-1">
-                        <p className="truncate font-medium text-text">
+                      {p.image_url ? (
+                        <img
+                          src={p.image_url}
+                          alt=""
+                          className="size-10 rounded-sm object-cover"
+                          loading="lazy"
+                        />
+                      ) : (
+                        <div
+                          className="size-10 shrink-0 rounded-sm bg-surface-muted"
+                          aria-hidden="true"
+                        />
+                      )}
+                      <span className="min-w-0 flex-1">
+                        <span className="block truncate font-medium text-text">
                           {p.name}
+                        </span>
+                        <span className="block truncate text-xs text-text-muted">
+                          {p.owner ?? "Unknown"} ·{" "}
+                          <span className="tabular-nums">
+                            {p.track_count.toLocaleString()}
+                          </span>{" "}
+                          tracks
+                        </span>
+                      </span>
+                      <ImportStatusPill status={p.import_status} />
+                    </button>
+                  );
+                })}
+              {!isSelect &&
+                filtered.map((p) => {
+                  const id = p.connector_playlist_identifier;
+                  const checked = selectedIds.has(id);
+                  const rowId = `${connectorName}-pick-${id}`;
+                  const tagAssignments = p.current_assignments.filter(
+                    (a) => a.action_type === "add_tag",
+                  );
+                  const ratingAssignment = p.current_assignments.find(
+                    (a) => a.action_type === "set_preference",
+                  );
+                  const hasAssignments = p.current_assignments.length > 0;
+                  return (
+                    <div
+                      key={id}
+                      className="flex items-center gap-3 border-b px-3 py-2 last:border-b-0 hover:bg-accent/30"
+                    >
+                      <Checkbox
+                        id={rowId}
+                        checked={checked}
+                        onCheckedChange={(next) => toggleRow(id, next === true)}
+                      />
+                      {p.image_url ? (
+                        <img
+                          src={p.image_url}
+                          alt=""
+                          className="size-10 rounded-sm object-cover"
+                          loading="lazy"
+                        />
+                      ) : (
+                        <div
+                          className="size-10 shrink-0 rounded-sm bg-surface-muted"
+                          aria-hidden="true"
+                        />
+                      )}
+                      <label
+                        htmlFor={rowId}
+                        className="min-w-0 flex-1 cursor-pointer"
+                      >
+                        <div className="flex flex-wrap items-center gap-x-2 gap-y-1">
+                          <p className="truncate font-medium text-text">
+                            {p.name}
+                          </p>
+                          {ratingAssignment && (
+                            <PreferenceBadge
+                              state={
+                                ratingAssignment.action_value as PreferenceState
+                              }
+                            />
+                          )}
+                          {tagAssignments.map((a) => (
+                            <TagChip
+                              key={a.assignment_id}
+                              tag={a.action_value}
+                              className="text-xs"
+                            />
+                          ))}
+                        </div>
+                        <p className="truncate text-xs text-text-muted">
+                          {p.owner ?? "Unknown"} ·{" "}
+                          <span className="tabular-nums">
+                            {p.track_count.toLocaleString()}
+                          </span>{" "}
+                          tracks
                         </p>
-                        {ratingAssignment && (
-                          <PreferenceBadge
-                            state={
-                              ratingAssignment.action_value as PreferenceState
+                      </label>
+                      <ImportStatusPill status={p.import_status} />
+                      <DropdownMenu>
+                        <DropdownMenuTrigger asChild>
+                          <Button
+                            variant="ghost"
+                            size="icon"
+                            aria-label={`More actions for ${p.name}`}
+                          >
+                            <MoreHorizontal />
+                          </Button>
+                        </DropdownMenuTrigger>
+                        <DropdownMenuContent align="end">
+                          <DropdownMenuItem
+                            onSelect={() =>
+                              setAssignDialog({ mode: "tag", playlist: p })
                             }
-                          />
-                        )}
-                        {tagAssignments.map((a) => (
-                          <TagChip
-                            key={a.assignment_id}
-                            tag={a.action_value}
-                            className="text-xs"
-                          />
-                        ))}
-                      </div>
-                      <p className="truncate text-xs text-text-muted">
-                        {p.owner ?? "Unknown"} ·{" "}
-                        <span className="tabular-nums">
-                          {p.track_count.toLocaleString()}
-                        </span>{" "}
-                        tracks
-                      </p>
-                    </label>
-                    <ImportStatusPill status={p.import_status} />
-                    <DropdownMenu>
-                      <DropdownMenuTrigger asChild>
-                        <Button
-                          variant="ghost"
-                          size="icon"
-                          aria-label={`More actions for ${p.name}`}
-                        >
-                          <MoreHorizontal />
-                        </Button>
-                      </DropdownMenuTrigger>
-                      <DropdownMenuContent align="end">
-                        <DropdownMenuItem
-                          onSelect={() =>
-                            setAssignDialog({ mode: "tag", playlist: p })
-                          }
-                        >
-                          Tag tracks…
-                        </DropdownMenuItem>
-                        <DropdownMenuItem
-                          onSelect={() =>
-                            setAssignDialog({ mode: "rate", playlist: p })
-                          }
-                        >
-                          {ratingAssignment ? "Update rating…" : "Rate tracks…"}
-                        </DropdownMenuItem>
-                        {hasAssignments && (
-                          <>
-                            <DropdownMenuSeparator />
-                            <DropdownMenuItem
-                              onSelect={() => reApply.mutate(p)}
-                              disabled={reApply.isPending}
-                            >
-                              Re-apply
-                            </DropdownMenuItem>
-                            {tagAssignments.map((a) => (
+                          >
+                            Tag tracks…
+                          </DropdownMenuItem>
+                          <DropdownMenuItem
+                            onSelect={() =>
+                              setAssignDialog({ mode: "rate", playlist: p })
+                            }
+                          >
+                            {ratingAssignment
+                              ? "Update rating…"
+                              : "Rate tracks…"}
+                          </DropdownMenuItem>
+                          {hasAssignments && (
+                            <>
+                              <DropdownMenuSeparator />
                               <DropdownMenuItem
-                                key={`remove-${a.assignment_id}`}
-                                variant="destructive"
-                                onSelect={() =>
-                                  remove.mutate({
-                                    playlist: p,
-                                    assignment: a,
-                                  })
-                                }
+                                onSelect={() => reApply.mutate(p)}
+                                disabled={reApply.isPending}
                               >
-                                Remove tag: {a.action_value}
+                                Re-apply
                               </DropdownMenuItem>
-                            ))}
-                            {ratingAssignment && (
-                              <DropdownMenuItem
-                                variant="destructive"
-                                onSelect={() =>
-                                  remove.mutate({
-                                    playlist: p,
-                                    assignment: ratingAssignment,
-                                  })
-                                }
-                              >
-                                Remove rating
-                              </DropdownMenuItem>
-                            )}
-                          </>
-                        )}
-                      </DropdownMenuContent>
-                    </DropdownMenu>
-                  </div>
-                );
-              })}
+                              {tagAssignments.map((a) => (
+                                <DropdownMenuItem
+                                  key={`remove-${a.assignment_id}`}
+                                  variant="destructive"
+                                  onSelect={() =>
+                                    remove.mutate({
+                                      playlist: p,
+                                      assignment: a,
+                                    })
+                                  }
+                                >
+                                  Remove tag: {a.action_value}
+                                </DropdownMenuItem>
+                              ))}
+                              {ratingAssignment && (
+                                <DropdownMenuItem
+                                  variant="destructive"
+                                  onSelect={() =>
+                                    remove.mutate({
+                                      playlist: p,
+                                      assignment: ratingAssignment,
+                                    })
+                                  }
+                                >
+                                  Remove rating
+                                </DropdownMenuItem>
+                              )}
+                            </>
+                          )}
+                        </DropdownMenuContent>
+                      </DropdownMenu>
+                    </div>
+                  );
+                })}
             </div>
           )}
         </div>
@@ -573,24 +639,26 @@ export function ConnectorPlaylistPickerDialog({
           <Button variant="ghost" onClick={() => handleOpenChange(false)}>
             Cancel
           </Button>
-          <Button
-            disabled={selectedCount === 0}
-            onClick={() => {
-              if (selectedCount === 0) return;
-              const picked: PickedPlaylist[] = [];
-              for (const p of playlists) {
-                if (selectedIds.has(p.connector_playlist_identifier)) {
-                  picked.push({
-                    id: p.connector_playlist_identifier,
-                    name: p.name,
-                  });
+          {!isSelect && (
+            <Button
+              disabled={selectedCount === 0}
+              onClick={() => {
+                if (selectedCount === 0) return;
+                const picked: PickedPlaylist[] = [];
+                for (const p of playlists) {
+                  if (selectedIds.has(p.connector_playlist_identifier)) {
+                    picked.push({
+                      id: p.connector_playlist_identifier,
+                      name: p.name,
+                    });
+                  }
                 }
-              }
-              onConfirm?.(picked);
-            }}
-          >
-            Import {pluralize(selectedCount, "playlist")}
-          </Button>
+                onConfirm?.(picked);
+              }}
+            >
+              Import {pluralize(selectedCount, "playlist")}
+            </Button>
+          )}
         </DialogFooter>
       </ResponsiveDialog>
       {assignDialog && (

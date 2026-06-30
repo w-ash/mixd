@@ -17,8 +17,7 @@
       "type": "enricher.play_history",
       "upstream": ["source_approved"],
       "config": {
-        "metrics": ["total_plays", "last_played_dates"],
-        "period_days": 365
+        "metrics": ["total_plays", "last_played_dates"]
       }
     },
     {
@@ -27,7 +26,7 @@
       "upstream": ["enrich_play_history"],
       "config": {
         "min_plays": 3,
-        "min_days_back": 180,
+        "not_played_in_days": 180,
         "include_missing": false
       }
     },
