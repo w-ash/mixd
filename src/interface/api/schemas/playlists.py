@@ -59,6 +59,11 @@ class PlaylistEntrySchema(BaseModel):
 
     model_config = ConfigDict(from_attributes=True)
 
+    # Stable membership identity (mirrors DBPlaylistTrack.id). The client keys
+    # rows by this and addresses remove/reorder by it — distinct from ``position``
+    # (the volatile 1-based display index), so two identical-track entries are
+    # individually addressable.
+    id: UUID
     position: int
     track: TrackSummarySchema
     added_at: datetime | None = None
@@ -192,6 +197,29 @@ class UpdatePlaylistRequest(BaseModel):
     description: str | None = None
 
 
+class AddTracksRequest(BaseModel):
+    """Request body for POST /playlists/{id}/tracks.
+
+    ``track_ids`` is order-significant and may repeat (manual add allows
+    duplicates). ``position`` is a 0-based insert index; omit to append.
+    """
+
+    track_ids: list[UUID]
+    position: int | None = None
+
+
+class RemoveEntriesRequest(BaseModel):
+    """Request body for batch DELETE /playlists/{id}/tracks."""
+
+    entry_ids: list[UUID]
+
+
+class ReorderEntriesRequest(BaseModel):
+    """Request body for PATCH /playlists/{id}/tracks/reorder (full ordered list)."""
+
+    entry_ids: list[UUID]
+
+
 # --- Domain-to-schema converters ---
 
 
@@ -212,6 +240,7 @@ def _to_track_summary(track: Track) -> TrackSummarySchema:
 def to_playlist_entry(entry: PlaylistEntry, position: int) -> PlaylistEntrySchema:
     if entry.track is not None:
         return PlaylistEntrySchema(
+            id=entry.id,
             position=position + 1,
             track=_to_track_summary(entry.track),
             added_at=entry.added_at,
@@ -221,6 +250,7 @@ def to_playlist_entry(entry: PlaylistEntry, position: int) -> PlaylistEntrySchem
     # still renders (with id=None marking it unresolved).
     ref = entry.connector_track_ref
     return PlaylistEntrySchema(
+        id=entry.id,
         position=position + 1,
         track=TrackSummarySchema(
             id=None,

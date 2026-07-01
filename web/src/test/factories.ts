@@ -146,6 +146,7 @@ export function makePlaylistDetail(
 
 export function makePlaylistEntries(
   items: Array<{
+    id?: string;
     title: string;
     artist: string;
     album?: string | null;
@@ -154,6 +155,10 @@ export function makePlaylistEntries(
   }>,
 ): PlaylistEntrySchema[] {
   return items.map((item, i) => ({
+    // Entry (membership) id — distinct from track.id so the same track can
+    // appear twice and still be individually addressable.
+    id:
+      item.id ?? `019d0001-0000-7000-8000-${String(i + 100).padStart(12, "0")}`,
     position: i + 1,
     track: {
       id: `019d0000-0000-7000-8000-${String(i + 100).padStart(12, "0")}`,

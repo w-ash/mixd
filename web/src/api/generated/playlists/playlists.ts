@@ -3,7 +3,7 @@
  * Do not edit manually.
  * Mixd
  * Personal music metadata hub
- * OpenAPI spec version: 0.8.10
+ * OpenAPI spec version: 0.8.11
  */
 import {
   useMutation,
@@ -25,6 +25,7 @@ import type {
 } from '@tanstack/react-query';
 
 import type {
+  AddTracksRequest,
   CreateLinkRequest,
   CreatePlaylistRequest,
   GetPlaylistTracksApiV1PlaylistsPlaylistIdTracksGetParams,
@@ -36,6 +37,8 @@ import type {
   PlaylistDetailSchema,
   PlaylistLinkSchema,
   PreviewPlaylistSyncApiV1PlaylistsPlaylistIdLinksLinkIdSyncPreviewGetParams,
+  RemoveEntriesRequest,
+  ReorderEntriesRequest,
   RepairUnresolvedResponse,
   SyncLinkRequest,
   SyncPreviewResponse,
@@ -700,7 +703,368 @@ export function useGetPlaylistTracksApiV1PlaylistsPlaylistIdTracksGet<TData = Aw
 
 
 
-export type listPlaylistLinksApiV1PlaylistsPlaylistIdLinksGetResponse200 = {
+export type addPlaylistTracksApiV1PlaylistsPlaylistIdTracksPostResponse200 = {
+  data: PlaylistDetailSchema
+  status: 200
+}
+
+export type addPlaylistTracksApiV1PlaylistsPlaylistIdTracksPostResponse422 = {
+  data: HTTPValidationError
+  status: 422
+}
+
+export type addPlaylistTracksApiV1PlaylistsPlaylistIdTracksPostResponseSuccess = (addPlaylistTracksApiV1PlaylistsPlaylistIdTracksPostResponse200) & {
+  headers: Headers;
+};
+export type addPlaylistTracksApiV1PlaylistsPlaylistIdTracksPostResponseError = (addPlaylistTracksApiV1PlaylistsPlaylistIdTracksPostResponse422) & {
+  headers: Headers;
+};
+
+export type addPlaylistTracksApiV1PlaylistsPlaylistIdTracksPostResponse = (addPlaylistTracksApiV1PlaylistsPlaylistIdTracksPostResponseSuccess | addPlaylistTracksApiV1PlaylistsPlaylistIdTracksPostResponseError)
+
+export const getAddPlaylistTracksApiV1PlaylistsPlaylistIdTracksPostUrl = (playlistId: string,) => {
+
+
+
+
+  return `/api/v1/playlists/${playlistId}/tracks`
+}
+
+/**
+ * Append tracks to a playlist (manual curation; duplicates allowed).
+ * @summary Add Playlist Tracks
+ */
+export const addPlaylistTracksApiV1PlaylistsPlaylistIdTracksPost = async (playlistId: string,
+    addTracksRequest: AddTracksRequest, options?: RequestInit): Promise<addPlaylistTracksApiV1PlaylistsPlaylistIdTracksPostResponse> => {
+
+  return customFetch<addPlaylistTracksApiV1PlaylistsPlaylistIdTracksPostResponse>(getAddPlaylistTracksApiV1PlaylistsPlaylistIdTracksPostUrl(playlistId),
+  {
+    ...options,
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', ...options?.headers },
+    body: JSON.stringify(addTracksRequest)
+  }
+);}
+
+
+
+
+export const getAddPlaylistTracksApiV1PlaylistsPlaylistIdTracksPostMutationOptions = <TError = HTTPValidationError,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof addPlaylistTracksApiV1PlaylistsPlaylistIdTracksPost>>, TError,{playlistId: string;data: AddTracksRequest}, TContext>, request?: SecondParameter<typeof customFetch>}
+): UseMutationOptions<Awaited<ReturnType<typeof addPlaylistTracksApiV1PlaylistsPlaylistIdTracksPost>>, TError,{playlistId: string;data: AddTracksRequest}, TContext> => {
+
+const mutationKey = ['addPlaylistTracksApiV1PlaylistsPlaylistIdTracksPost'];
+const {mutation: mutationOptions, request: requestOptions} = options ?
+      options.mutation && 'mutationKey' in options.mutation && options.mutation.mutationKey ?
+      options
+      : {...options, mutation: {...options.mutation, mutationKey}}
+      : {mutation: { mutationKey, }, request: undefined};
+
+
+
+
+      const mutationFn: MutationFunction<Awaited<ReturnType<typeof addPlaylistTracksApiV1PlaylistsPlaylistIdTracksPost>>, {playlistId: string;data: AddTracksRequest}> = (props) => {
+          const {playlistId,data} = props ?? {};
+
+          return  addPlaylistTracksApiV1PlaylistsPlaylistIdTracksPost(playlistId,data,requestOptions)
+        }
+
+
+
+
+
+
+  return  { mutationFn, ...mutationOptions }}
+
+    export type AddPlaylistTracksApiV1PlaylistsPlaylistIdTracksPostMutationResult = NonNullable<Awaited<ReturnType<typeof addPlaylistTracksApiV1PlaylistsPlaylistIdTracksPost>>>
+    export type AddPlaylistTracksApiV1PlaylistsPlaylistIdTracksPostMutationBody = AddTracksRequest
+    export type AddPlaylistTracksApiV1PlaylistsPlaylistIdTracksPostMutationError = HTTPValidationError
+
+    /**
+ * @summary Add Playlist Tracks
+ */
+export const useAddPlaylistTracksApiV1PlaylistsPlaylistIdTracksPost = <TError = HTTPValidationError,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof addPlaylistTracksApiV1PlaylistsPlaylistIdTracksPost>>, TError,{playlistId: string;data: AddTracksRequest}, TContext>, request?: SecondParameter<typeof customFetch>}
+ , queryClient?: QueryClient): UseMutationResult<
+        Awaited<ReturnType<typeof addPlaylistTracksApiV1PlaylistsPlaylistIdTracksPost>>,
+        TError,
+        {playlistId: string;data: AddTracksRequest},
+        TContext
+      > => {
+      return useMutation(getAddPlaylistTracksApiV1PlaylistsPlaylistIdTracksPostMutationOptions(options), queryClient);
+    }
+    export type removePlaylistTracksApiV1PlaylistsPlaylistIdTracksDeleteResponse204 = {
+  data: void
+  status: 204
+}
+
+export type removePlaylistTracksApiV1PlaylistsPlaylistIdTracksDeleteResponse422 = {
+  data: HTTPValidationError
+  status: 422
+}
+
+export type removePlaylistTracksApiV1PlaylistsPlaylistIdTracksDeleteResponseSuccess = (removePlaylistTracksApiV1PlaylistsPlaylistIdTracksDeleteResponse204) & {
+  headers: Headers;
+};
+export type removePlaylistTracksApiV1PlaylistsPlaylistIdTracksDeleteResponseError = (removePlaylistTracksApiV1PlaylistsPlaylistIdTracksDeleteResponse422) & {
+  headers: Headers;
+};
+
+export type removePlaylistTracksApiV1PlaylistsPlaylistIdTracksDeleteResponse = (removePlaylistTracksApiV1PlaylistsPlaylistIdTracksDeleteResponseSuccess | removePlaylistTracksApiV1PlaylistsPlaylistIdTracksDeleteResponseError)
+
+export const getRemovePlaylistTracksApiV1PlaylistsPlaylistIdTracksDeleteUrl = (playlistId: string,) => {
+
+
+
+
+  return `/api/v1/playlists/${playlistId}/tracks`
+}
+
+/**
+ * Batch-remove entries from a playlist by their membership ids.
+ * @summary Remove Playlist Tracks
+ */
+export const removePlaylistTracksApiV1PlaylistsPlaylistIdTracksDelete = async (playlistId: string,
+    removeEntriesRequest: RemoveEntriesRequest, options?: RequestInit): Promise<removePlaylistTracksApiV1PlaylistsPlaylistIdTracksDeleteResponse> => {
+
+  return customFetch<removePlaylistTracksApiV1PlaylistsPlaylistIdTracksDeleteResponse>(getRemovePlaylistTracksApiV1PlaylistsPlaylistIdTracksDeleteUrl(playlistId),
+  {
+    ...options,
+    method: 'DELETE',
+    headers: { 'Content-Type': 'application/json', ...options?.headers },
+    body: JSON.stringify(removeEntriesRequest)
+  }
+);}
+
+
+
+
+export const getRemovePlaylistTracksApiV1PlaylistsPlaylistIdTracksDeleteMutationOptions = <TError = HTTPValidationError,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof removePlaylistTracksApiV1PlaylistsPlaylistIdTracksDelete>>, TError,{playlistId: string;data: RemoveEntriesRequest}, TContext>, request?: SecondParameter<typeof customFetch>}
+): UseMutationOptions<Awaited<ReturnType<typeof removePlaylistTracksApiV1PlaylistsPlaylistIdTracksDelete>>, TError,{playlistId: string;data: RemoveEntriesRequest}, TContext> => {
+
+const mutationKey = ['removePlaylistTracksApiV1PlaylistsPlaylistIdTracksDelete'];
+const {mutation: mutationOptions, request: requestOptions} = options ?
+      options.mutation && 'mutationKey' in options.mutation && options.mutation.mutationKey ?
+      options
+      : {...options, mutation: {...options.mutation, mutationKey}}
+      : {mutation: { mutationKey, }, request: undefined};
+
+
+
+
+      const mutationFn: MutationFunction<Awaited<ReturnType<typeof removePlaylistTracksApiV1PlaylistsPlaylistIdTracksDelete>>, {playlistId: string;data: RemoveEntriesRequest}> = (props) => {
+          const {playlistId,data} = props ?? {};
+
+          return  removePlaylistTracksApiV1PlaylistsPlaylistIdTracksDelete(playlistId,data,requestOptions)
+        }
+
+
+
+
+
+
+  return  { mutationFn, ...mutationOptions }}
+
+    export type RemovePlaylistTracksApiV1PlaylistsPlaylistIdTracksDeleteMutationResult = NonNullable<Awaited<ReturnType<typeof removePlaylistTracksApiV1PlaylistsPlaylistIdTracksDelete>>>
+    export type RemovePlaylistTracksApiV1PlaylistsPlaylistIdTracksDeleteMutationBody = RemoveEntriesRequest
+    export type RemovePlaylistTracksApiV1PlaylistsPlaylistIdTracksDeleteMutationError = HTTPValidationError
+
+    /**
+ * @summary Remove Playlist Tracks
+ */
+export const useRemovePlaylistTracksApiV1PlaylistsPlaylistIdTracksDelete = <TError = HTTPValidationError,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof removePlaylistTracksApiV1PlaylistsPlaylistIdTracksDelete>>, TError,{playlistId: string;data: RemoveEntriesRequest}, TContext>, request?: SecondParameter<typeof customFetch>}
+ , queryClient?: QueryClient): UseMutationResult<
+        Awaited<ReturnType<typeof removePlaylistTracksApiV1PlaylistsPlaylistIdTracksDelete>>,
+        TError,
+        {playlistId: string;data: RemoveEntriesRequest},
+        TContext
+      > => {
+      return useMutation(getRemovePlaylistTracksApiV1PlaylistsPlaylistIdTracksDeleteMutationOptions(options), queryClient);
+    }
+    export type removePlaylistTrackApiV1PlaylistsPlaylistIdTracksEntryIdDeleteResponse204 = {
+  data: void
+  status: 204
+}
+
+export type removePlaylistTrackApiV1PlaylistsPlaylistIdTracksEntryIdDeleteResponse422 = {
+  data: HTTPValidationError
+  status: 422
+}
+
+export type removePlaylistTrackApiV1PlaylistsPlaylistIdTracksEntryIdDeleteResponseSuccess = (removePlaylistTrackApiV1PlaylistsPlaylistIdTracksEntryIdDeleteResponse204) & {
+  headers: Headers;
+};
+export type removePlaylistTrackApiV1PlaylistsPlaylistIdTracksEntryIdDeleteResponseError = (removePlaylistTrackApiV1PlaylistsPlaylistIdTracksEntryIdDeleteResponse422) & {
+  headers: Headers;
+};
+
+export type removePlaylistTrackApiV1PlaylistsPlaylistIdTracksEntryIdDeleteResponse = (removePlaylistTrackApiV1PlaylistsPlaylistIdTracksEntryIdDeleteResponseSuccess | removePlaylistTrackApiV1PlaylistsPlaylistIdTracksEntryIdDeleteResponseError)
+
+export const getRemovePlaylistTrackApiV1PlaylistsPlaylistIdTracksEntryIdDeleteUrl = (playlistId: string,
+    entryId: string,) => {
+
+
+
+
+  return `/api/v1/playlists/${playlistId}/tracks/${entryId}`
+}
+
+/**
+ * Remove a single entry from a playlist by its membership id.
+ * @summary Remove Playlist Track
+ */
+export const removePlaylistTrackApiV1PlaylistsPlaylistIdTracksEntryIdDelete = async (playlistId: string,
+    entryId: string, options?: RequestInit): Promise<removePlaylistTrackApiV1PlaylistsPlaylistIdTracksEntryIdDeleteResponse> => {
+
+  return customFetch<removePlaylistTrackApiV1PlaylistsPlaylistIdTracksEntryIdDeleteResponse>(getRemovePlaylistTrackApiV1PlaylistsPlaylistIdTracksEntryIdDeleteUrl(playlistId,entryId),
+  {
+    ...options,
+    method: 'DELETE'
+
+
+  }
+);}
+
+
+
+
+export const getRemovePlaylistTrackApiV1PlaylistsPlaylistIdTracksEntryIdDeleteMutationOptions = <TError = HTTPValidationError,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof removePlaylistTrackApiV1PlaylistsPlaylistIdTracksEntryIdDelete>>, TError,{playlistId: string;entryId: string}, TContext>, request?: SecondParameter<typeof customFetch>}
+): UseMutationOptions<Awaited<ReturnType<typeof removePlaylistTrackApiV1PlaylistsPlaylistIdTracksEntryIdDelete>>, TError,{playlistId: string;entryId: string}, TContext> => {
+
+const mutationKey = ['removePlaylistTrackApiV1PlaylistsPlaylistIdTracksEntryIdDelete'];
+const {mutation: mutationOptions, request: requestOptions} = options ?
+      options.mutation && 'mutationKey' in options.mutation && options.mutation.mutationKey ?
+      options
+      : {...options, mutation: {...options.mutation, mutationKey}}
+      : {mutation: { mutationKey, }, request: undefined};
+
+
+
+
+      const mutationFn: MutationFunction<Awaited<ReturnType<typeof removePlaylistTrackApiV1PlaylistsPlaylistIdTracksEntryIdDelete>>, {playlistId: string;entryId: string}> = (props) => {
+          const {playlistId,entryId} = props ?? {};
+
+          return  removePlaylistTrackApiV1PlaylistsPlaylistIdTracksEntryIdDelete(playlistId,entryId,requestOptions)
+        }
+
+
+
+
+
+
+  return  { mutationFn, ...mutationOptions }}
+
+    export type RemovePlaylistTrackApiV1PlaylistsPlaylistIdTracksEntryIdDeleteMutationResult = NonNullable<Awaited<ReturnType<typeof removePlaylistTrackApiV1PlaylistsPlaylistIdTracksEntryIdDelete>>>
+
+    export type RemovePlaylistTrackApiV1PlaylistsPlaylistIdTracksEntryIdDeleteMutationError = HTTPValidationError
+
+    /**
+ * @summary Remove Playlist Track
+ */
+export const useRemovePlaylistTrackApiV1PlaylistsPlaylistIdTracksEntryIdDelete = <TError = HTTPValidationError,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof removePlaylistTrackApiV1PlaylistsPlaylistIdTracksEntryIdDelete>>, TError,{playlistId: string;entryId: string}, TContext>, request?: SecondParameter<typeof customFetch>}
+ , queryClient?: QueryClient): UseMutationResult<
+        Awaited<ReturnType<typeof removePlaylistTrackApiV1PlaylistsPlaylistIdTracksEntryIdDelete>>,
+        TError,
+        {playlistId: string;entryId: string},
+        TContext
+      > => {
+      return useMutation(getRemovePlaylistTrackApiV1PlaylistsPlaylistIdTracksEntryIdDeleteMutationOptions(options), queryClient);
+    }
+    export type reorderPlaylistTracksApiV1PlaylistsPlaylistIdTracksReorderPatchResponse200 = {
+  data: PlaylistDetailSchema
+  status: 200
+}
+
+export type reorderPlaylistTracksApiV1PlaylistsPlaylistIdTracksReorderPatchResponse422 = {
+  data: HTTPValidationError
+  status: 422
+}
+
+export type reorderPlaylistTracksApiV1PlaylistsPlaylistIdTracksReorderPatchResponseSuccess = (reorderPlaylistTracksApiV1PlaylistsPlaylistIdTracksReorderPatchResponse200) & {
+  headers: Headers;
+};
+export type reorderPlaylistTracksApiV1PlaylistsPlaylistIdTracksReorderPatchResponseError = (reorderPlaylistTracksApiV1PlaylistsPlaylistIdTracksReorderPatchResponse422) & {
+  headers: Headers;
+};
+
+export type reorderPlaylistTracksApiV1PlaylistsPlaylistIdTracksReorderPatchResponse = (reorderPlaylistTracksApiV1PlaylistsPlaylistIdTracksReorderPatchResponseSuccess | reorderPlaylistTracksApiV1PlaylistsPlaylistIdTracksReorderPatchResponseError)
+
+export const getReorderPlaylistTracksApiV1PlaylistsPlaylistIdTracksReorderPatchUrl = (playlistId: string,) => {
+
+
+
+
+  return `/api/v1/playlists/${playlistId}/tracks/reorder`
+}
+
+/**
+ * Reorder a playlist's entries via the complete ordered entry_ids list.
+ * @summary Reorder Playlist Tracks
+ */
+export const reorderPlaylistTracksApiV1PlaylistsPlaylistIdTracksReorderPatch = async (playlistId: string,
+    reorderEntriesRequest: ReorderEntriesRequest, options?: RequestInit): Promise<reorderPlaylistTracksApiV1PlaylistsPlaylistIdTracksReorderPatchResponse> => {
+
+  return customFetch<reorderPlaylistTracksApiV1PlaylistsPlaylistIdTracksReorderPatchResponse>(getReorderPlaylistTracksApiV1PlaylistsPlaylistIdTracksReorderPatchUrl(playlistId),
+  {
+    ...options,
+    method: 'PATCH',
+    headers: { 'Content-Type': 'application/json', ...options?.headers },
+    body: JSON.stringify(reorderEntriesRequest)
+  }
+);}
+
+
+
+
+export const getReorderPlaylistTracksApiV1PlaylistsPlaylistIdTracksReorderPatchMutationOptions = <TError = HTTPValidationError,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof reorderPlaylistTracksApiV1PlaylistsPlaylistIdTracksReorderPatch>>, TError,{playlistId: string;data: ReorderEntriesRequest}, TContext>, request?: SecondParameter<typeof customFetch>}
+): UseMutationOptions<Awaited<ReturnType<typeof reorderPlaylistTracksApiV1PlaylistsPlaylistIdTracksReorderPatch>>, TError,{playlistId: string;data: ReorderEntriesRequest}, TContext> => {
+
+const mutationKey = ['reorderPlaylistTracksApiV1PlaylistsPlaylistIdTracksReorderPatch'];
+const {mutation: mutationOptions, request: requestOptions} = options ?
+      options.mutation && 'mutationKey' in options.mutation && options.mutation.mutationKey ?
+      options
+      : {...options, mutation: {...options.mutation, mutationKey}}
+      : {mutation: { mutationKey, }, request: undefined};
+
+
+
+
+      const mutationFn: MutationFunction<Awaited<ReturnType<typeof reorderPlaylistTracksApiV1PlaylistsPlaylistIdTracksReorderPatch>>, {playlistId: string;data: ReorderEntriesRequest}> = (props) => {
+          const {playlistId,data} = props ?? {};
+
+          return  reorderPlaylistTracksApiV1PlaylistsPlaylistIdTracksReorderPatch(playlistId,data,requestOptions)
+        }
+
+
+
+
+
+
+  return  { mutationFn, ...mutationOptions }}
+
+    export type ReorderPlaylistTracksApiV1PlaylistsPlaylistIdTracksReorderPatchMutationResult = NonNullable<Awaited<ReturnType<typeof reorderPlaylistTracksApiV1PlaylistsPlaylistIdTracksReorderPatch>>>
+    export type ReorderPlaylistTracksApiV1PlaylistsPlaylistIdTracksReorderPatchMutationBody = ReorderEntriesRequest
+    export type ReorderPlaylistTracksApiV1PlaylistsPlaylistIdTracksReorderPatchMutationError = HTTPValidationError
+
+    /**
+ * @summary Reorder Playlist Tracks
+ */
+export const useReorderPlaylistTracksApiV1PlaylistsPlaylistIdTracksReorderPatch = <TError = HTTPValidationError,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof reorderPlaylistTracksApiV1PlaylistsPlaylistIdTracksReorderPatch>>, TError,{playlistId: string;data: ReorderEntriesRequest}, TContext>, request?: SecondParameter<typeof customFetch>}
+ , queryClient?: QueryClient): UseMutationResult<
+        Awaited<ReturnType<typeof reorderPlaylistTracksApiV1PlaylistsPlaylistIdTracksReorderPatch>>,
+        TError,
+        {playlistId: string;data: ReorderEntriesRequest},
+        TContext
+      > => {
+      return useMutation(getReorderPlaylistTracksApiV1PlaylistsPlaylistIdTracksReorderPatchMutationOptions(options), queryClient);
+    }
+    export type listPlaylistLinksApiV1PlaylistsPlaylistIdLinksGetResponse200 = {
   data: PlaylistLinkSchema[]
   status: 200
 }

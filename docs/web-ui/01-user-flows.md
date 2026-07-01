@@ -385,10 +385,10 @@ With database-backed credential storage, Settings handles the Last.fm web auth f
 | Step | Endpoint | Use Case | Status |
 |------|----------|----------|--------|
 | 2 | `GET /tracks?q=...` | `ListTracksUseCase` (merged search+list) | ✅ Implemented (v0.3.2) |
-| 3 | `POST /playlists/{id}/tracks` | `UpdateCanonicalPlaylistUseCase` | Needs implementation |
+| 3 | `POST /playlists/{id}/tracks` | `AddPlaylistTracksUseCase` | ✅ Implemented (v0.8.11) |
 
 **Edge cases**:
-- User tries to add a track that's already in the playlist: Backend allows duplicates (some playlists intentionally repeat tracks). UI shows "Already added" badge but doesn't prevent re-adding.
+- User tries to add a track that's already in the playlist: Backend allows duplicates (some playlists intentionally repeat tracks; each occurrence is a distinct `PlaylistEntry`). UI shows an "Added" badge but doesn't prevent re-adding. Distinct from workflow append, which dedupes — see `_append_entries`.
 - Adding many tracks at once (>50): Batch the request. Show progress if needed.
 
 ---
@@ -399,23 +399,19 @@ With database-backed credential storage, Settings handles the Last.fm web auth f
 
 **Steps**:
 
-1. On the playlist detail page, user enables reorder mode (or directly drags).
-   - **Drag-and-drop**: grab handle on left of each row. Drag to new position.
-   - **Keyboard accessible**: select a track, use Up/Down arrow keys to move it, Enter to confirm.
+1. On the playlist detail page, rows carry a drag handle (dnd-kit sortable).
+   - **Drag-and-drop**: grab the handle (⠿) on the left of a row and drag to a new position; a lifted row + gap indicate the drop target.
+   - **Keyboard accessible**: focus the handle, Space/Enter to lift, Up/Down arrows to move, Space/Enter to drop, Esc to cancel. Live-region announces "Moved {title} to position n of N".
 
 2. After repositioning, the new order is submitted.
-   - Frontend calls `PATCH /playlists/{id}/tracks/reorder` with `{ entry_ids: [...] }` (full ordered list).
-   - Optimistic update: UI immediately reflects new order. Reverts on failure.
-
-3. For moving a single track to a specific position:
-   - `PATCH /playlists/{id}/tracks/move` with `{ entry_id, new_position }`.
-   - More efficient for single-track moves in large playlists.
+   - Frontend calls `PATCH /playlists/{id}/tracks/reorder` with `{ entry_ids: [...] }` (the full ordered list of entry ids).
+   - Optimistic update: UI immediately reflects the new order. Reverts (+ error toast) on failure.
 
 **Backend calls**:
 | Action | Endpoint | Use Case | Status |
 |--------|----------|----------|--------|
-| Full reorder | `PATCH /playlists/{id}/tracks/reorder` | `UpdateCanonicalPlaylistUseCase` | Needs implementation |
-| Single move | `PATCH /playlists/{id}/tracks/move` | `UpdateCanonicalPlaylistUseCase` | Needs implementation |
+| Full reorder | `PATCH /playlists/{id}/tracks/reorder` | `ReorderPlaylistEntriesUseCase` | ✅ Implemented (v0.8.11) |
+| Single move | `PATCH /playlists/{id}/tracks/move` | — | Deferred — full-list reorder covers it; revisit only if large-playlist payloads warrant it |
 
 **Edge cases**:
 - Reorder fails (network error): Revert to previous order. Toast: "Reorder failed. Your changes were not saved."
@@ -429,24 +425,26 @@ With database-backed credential storage, Settings handles the Last.fm web auth f
 
 **Steps**:
 
-1. **Single track**: Click the X (remove) button on a track row.
-   - Confirmation: "Remove 'Track Title' from 'Playlist Name'?" with **Remove** / **Cancel**.
-   - Calls `DELETE /playlists/{id}/tracks/{entry_id}`.
+No confirmation dialog — removal is **optimistic with an Undo snackbar** (the 2026 norm across Spotify/Apple Music/YouTube Music/Tidal; NN/g's "easy reversal over up-front confirmation"). Undo preserves the entry's identity (`added_at`/position) because the `DELETE` is *deferred* until the snackbar's window elapses — an undone removal never reaches the server.
 
-2. **Batch removal**: Check multiple tracks via checkboxes, click **Remove Selected**.
-   - Confirmation: "Remove 5 tracks from 'Playlist Name'?" with **Remove** / **Cancel**.
-   - Calls `DELETE /playlists/{id}/tracks` with `{ entry_ids: [...] }` (batch endpoint).
+1. **Single track**: Click the **✕** on a track row.
+   - The row disappears immediately; a "Removed track — **Undo**" snackbar appears (~7s, keyboard-reachable).
+   - On window elapse, frontend calls `DELETE /playlists/{id}/tracks/{entry_id}`. Clicking **Undo** cancels it and restores the row.
 
-3. On success: tracks disappear from list with animation. Toast: "3 tracks removed."
+2. **Batch removal**: Check multiple tracks, click **Remove selected** in the contextual bar.
+   - Rows disappear immediately; one consolidated "Removed N tracks — **Undo**" snackbar.
+   - On window elapse, frontend calls `DELETE /playlists/{id}/tracks` with `{ entry_ids: [...] }` (batch endpoint).
+
+3. A pending removal commits immediately if another edit (reorder/add) or navigation preempts it.
 
 **Backend calls**:
 | Action | Endpoint | Use Case | Status |
 |--------|----------|----------|--------|
-| Single remove | `DELETE /playlists/{id}/tracks/{entry_id}` | `UpdateCanonicalPlaylistUseCase` | Needs implementation |
-| Batch remove | `DELETE /playlists/{id}/tracks` (body: entry_ids) | `UpdateCanonicalPlaylistUseCase` | Needs implementation |
+| Single remove | `DELETE /playlists/{id}/tracks/{entry_id}` | `RemovePlaylistEntriesUseCase` | ✅ Implemented (v0.8.11) |
+| Batch remove | `DELETE /playlists/{id}/tracks` (body: entry_ids) | `RemovePlaylistEntriesUseCase` | ✅ Implemented (v0.8.11) |
 
 **Edge cases**:
-- Track was already removed (by another operation): 404 on the entry. Toast: "Track was already removed." Refresh list.
+- Track was already removed (by another operation): 404 on the entry. Toast: "Couldn't remove — tracks restored." Refresh list.
 
 ---
 

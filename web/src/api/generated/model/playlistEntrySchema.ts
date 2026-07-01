@@ -3,7 +3,7 @@
  * Do not edit manually.
  * Mixd
  * Personal music metadata hub
- * OpenAPI spec version: 0.8.10
+ * OpenAPI spec version: 0.8.11
  */
 import type { TrackSummarySchema } from './trackSummarySchema.ts';
 
@@ -16,6 +16,7 @@ import type { TrackSummarySchema } from './trackSummarySchema.ts';
  * ("Couldn't match: …") and offer a repair action without losing the slot.
  */
 export interface PlaylistEntrySchema {
+  id: string;
   position: number;
   track: TrackSummarySchema;
   added_at?: string | null;

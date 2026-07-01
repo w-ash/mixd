@@ -250,6 +250,7 @@ describe("PlaylistDetail — unresolved tracks + repair", () => {
   function entriesWithUnresolved(): PlaylistEntrySchema[] {
     return [
       {
+        id: "019d0001-0000-7000-8000-000000000101",
         position: 1,
         track: {
           id: "019d0000-0000-7000-8000-000000000101",
@@ -262,6 +263,7 @@ describe("PlaylistDetail — unresolved tracks + repair", () => {
         is_resolved: true,
       },
       {
+        id: "019d0001-0000-7000-8000-000000000102",
         position: 2,
         track: {
           id: "019d0000-0000-7000-8000-000000000102",

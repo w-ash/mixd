@@ -3,12 +3,13 @@
  * Do not edit manually.
  * Mixd
  * Personal music metadata hub
- * OpenAPI spec version: 0.8.10
+ * OpenAPI spec version: 0.8.11
  */
 
 export * from './activeAssignmentSchema.ts';
 export * from './addTagRequest.ts';
 export * from './addTagResponse.ts';
+export * from './addTracksRequest.ts';
 export * from './applyResultSchema.ts';
 export * from './artistSchema.ts';
 export * from './assignmentActionType.ts';
@@ -102,7 +103,9 @@ export * from './preferenceState.ts';
 export * from './previewPlaylistSyncApiV1PlaylistsPlaylistIdLinksLinkIdSyncPreviewGetParams.ts';
 export * from './previewStartedResponse.ts';
 export * from './relinkMappingRequest.ts';
+export * from './removeEntriesRequest.ts';
 export * from './renameTagRequest.ts';
+export * from './reorderEntriesRequest.ts';
 export * from './repairUnresolvedResponse.ts';
 export * from './resolveReviewRequest.ts';
 export * from './resolveReviewRequestAction.ts';

@@ -27,6 +27,13 @@ export interface ToastOptions {
   id?: string | number;
   action?: ToastAction;
   duration?: number;
+  /**
+   * Fires when the toast closes because its `duration` elapsed — NOT on manual
+   * dismiss or action click. Sonner pauses the duration countdown on hover /
+   * window-blur, so this is the pause-aware deadline to hang a deferred commit
+   * on (vs. a raw `setTimeout`, which keeps ticking while the toast is paused).
+   */
+  onAutoClose?: () => void;
 }
 
 /** Human-readable `{ title, description }` for any thrown error. */
@@ -173,6 +180,11 @@ export const toasts = {
 
   info(title: string, options: ToastOptions = {}) {
     toast.info(title, options);
+  },
+
+  /** Dismiss a toast by id (e.g. a deferred-action snackbar that's been preempted). */
+  dismiss(id: string | number) {
+    toast.dismiss(id);
   },
 
   /**
