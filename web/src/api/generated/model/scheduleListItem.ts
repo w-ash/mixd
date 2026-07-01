@@ -3,7 +3,7 @@
  * Do not edit manually.
  * Mixd
  * Personal music metadata hub
- * OpenAPI spec version: 0.8.10
+ * OpenAPI spec version: 0.8.11
  */
 import type { ScheduleListItemScheduleType } from './scheduleListItemScheduleType.ts';
 import type { ScheduleListItemStatus } from './scheduleListItemStatus.ts';

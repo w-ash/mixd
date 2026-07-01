@@ -1,11 +1,11 @@
 """Unit tests for migration 033's pure key-rewrite transform.
 
-The DB row loop (``_rewrite``) needs an Alembic context, and the integration
-test harness builds its schema via ``metadata.create_all`` rather than running
-migrations — so the round-trip across the three JSONB columns is covered by the
-manual ``alembic upgrade head`` smoke step. Here we pin the load-bearing logic:
-``_rename_definition_keys`` renames the day-window keys inside every task config
-and nowhere else, and upgrade/downgrade are exact inverses.
+The DB row loop (``_rewrite``) needs an Alembic context, so the end-to-end
+round-trip across the three JSONB columns is covered by
+``tests/integration/migrations/test_033_day_window_rewrite.py`` (a real
+upgrade/downgrade against a throwaway Postgres). Here we pin the load-bearing
+logic: ``_rename_definition_keys`` renames the day-window keys inside every task
+config and nowhere else, and upgrade/downgrade are exact inverses.
 """
 
 import importlib.util

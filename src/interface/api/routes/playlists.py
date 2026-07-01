@@ -10,6 +10,10 @@ from fastapi import APIRouter, Depends, Query
 from fastapi.responses import Response
 
 from src.application.runner import execute_use_case
+from src.application.use_cases.add_playlist_tracks import (
+    AddPlaylistTracksCommand,
+    AddPlaylistTracksUseCase,
+)
 from src.application.use_cases.create_canonical_playlist import (
     CreateCanonicalPlaylistCommand,
     CreateCanonicalPlaylistUseCase,
@@ -42,6 +46,14 @@ from src.application.use_cases.read_canonical_playlist import (
     ReadCanonicalPlaylistCommand,
     ReadCanonicalPlaylistUseCase,
 )
+from src.application.use_cases.remove_playlist_entries import (
+    RemovePlaylistEntriesCommand,
+    RemovePlaylistEntriesUseCase,
+)
+from src.application.use_cases.reorder_playlist_entries import (
+    ReorderPlaylistEntriesCommand,
+    ReorderPlaylistEntriesUseCase,
+)
 from src.application.use_cases.repair_unresolved_entries import (
     RepairUnresolvedEntriesCommand,
     RepairUnresolvedEntriesUseCase,
@@ -71,12 +83,15 @@ from src.interface.api.deps import get_current_user_id
 from src.interface.api.schemas.common import PaginatedResponse
 from src.interface.api.schemas.imports import OperationStartedResponse
 from src.interface.api.schemas.playlists import (
+    AddTracksRequest,
     CreateLinkRequest,
     CreatePlaylistRequest,
     PlaylistDetailSchema,
     PlaylistEntrySchema,
     PlaylistLinkSchema,
     PlaylistSummarySchema,
+    RemoveEntriesRequest,
+    ReorderEntriesRequest,
     RepairUnresolvedResponse,
     SyncLinkRequest,
     SyncPreviewResponse,
@@ -235,6 +250,80 @@ async def get_playlist_tracks(
         limit=limit,
         offset=offset,
     )
+
+
+# ─── Manual track editing (add / remove / reorder) ───────────────────────────
+
+
+@router.post("/{playlist_id}/tracks")
+async def add_playlist_tracks(
+    playlist_id: UUID,
+    body: AddTracksRequest,
+    user_id: str = Depends(get_current_user_id),
+) -> PlaylistDetailSchema:
+    """Append tracks to a playlist (manual curation; duplicates allowed)."""
+    command = AddPlaylistTracksCommand(
+        user_id=user_id,
+        playlist_id=playlist_id,
+        track_ids=body.track_ids,
+        position=body.position,
+    )
+    result = await execute_use_case(
+        lambda uow: AddPlaylistTracksUseCase().execute(command, uow),
+        user_id=user_id,
+    )
+    return to_playlist_detail(result.playlist)
+
+
+@router.delete("/{playlist_id}/tracks/{entry_id}", status_code=204)
+async def remove_playlist_track(
+    playlist_id: UUID,
+    entry_id: UUID,
+    user_id: str = Depends(get_current_user_id),
+) -> Response:
+    """Remove a single entry from a playlist by its membership id."""
+    command = RemovePlaylistEntriesCommand(
+        user_id=user_id, playlist_id=playlist_id, entry_ids=[entry_id]
+    )
+    await execute_use_case(
+        lambda uow: RemovePlaylistEntriesUseCase().execute(command, uow),
+        user_id=user_id,
+    )
+    return Response(status_code=204)
+
+
+@router.delete("/{playlist_id}/tracks", status_code=204)
+async def remove_playlist_tracks(
+    playlist_id: UUID,
+    body: RemoveEntriesRequest,
+    user_id: str = Depends(get_current_user_id),
+) -> Response:
+    """Batch-remove entries from a playlist by their membership ids."""
+    command = RemovePlaylistEntriesCommand(
+        user_id=user_id, playlist_id=playlist_id, entry_ids=body.entry_ids
+    )
+    await execute_use_case(
+        lambda uow: RemovePlaylistEntriesUseCase().execute(command, uow),
+        user_id=user_id,
+    )
+    return Response(status_code=204)
+
+
+@router.patch("/{playlist_id}/tracks/reorder")
+async def reorder_playlist_tracks(
+    playlist_id: UUID,
+    body: ReorderEntriesRequest,
+    user_id: str = Depends(get_current_user_id),
+) -> PlaylistDetailSchema:
+    """Reorder a playlist's entries via the complete ordered entry_ids list."""
+    command = ReorderPlaylistEntriesCommand(
+        user_id=user_id, playlist_id=playlist_id, entry_ids=body.entry_ids
+    )
+    result = await execute_use_case(
+        lambda uow: ReorderPlaylistEntriesUseCase().execute(command, uow),
+        user_id=user_id,
+    )
+    return to_playlist_detail(result.playlist)
 
 
 # ─── Playlist Links ──────────────────────────────────────────────────────────

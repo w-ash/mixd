@@ -126,6 +126,7 @@ export function makeEntry(
   trackIndex = position - 1,
 ): PlaylistEntrySchema {
   return {
+    id: `019d0001-0000-7000-8000-${String(position + 200).padStart(12, "0")}`,
     position,
     track: CATALOG[trackIndex % CATALOG.length],
     added_at: "2026-05-12T09:30:00Z",
@@ -139,6 +140,7 @@ export function makeUnresolvedEntry(
   title: string,
 ): PlaylistEntrySchema {
   return {
+    id: `019d0001-0000-7000-8000-${String(position + 300).padStart(12, "0")}`,
     position,
     track: {
       id: null,

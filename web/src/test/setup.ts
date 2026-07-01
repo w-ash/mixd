@@ -11,6 +11,15 @@ globalThis.ResizeObserver = class {
   disconnect() {}
 };
 Element.prototype.scrollIntoView = () => {};
+// Pointer-capture APIs jsdom lacks — dnd-kit's PointerSensor calls these on
+// drag activation (and pointer events generally). Without them, jsdom throws
+// "setPointerCapture is not a function" on any pointer interaction in a
+// DndContext. No-op stubs are sufficient for behavior tests.
+if (!Element.prototype.setPointerCapture) {
+  Element.prototype.setPointerCapture = () => {};
+  Element.prototype.releasePointerCapture = () => {};
+  Element.prototype.hasPointerCapture = () => false;
+}
 // HTMLDialogElement imperative API polyfill for jsdom.
 if (typeof HTMLDialogElement !== "undefined") {
   if (!HTMLDialogElement.prototype.showModal) {

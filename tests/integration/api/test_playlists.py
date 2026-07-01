@@ -190,3 +190,80 @@ class TestGetPlaylistTracks:
         response = await client.get(f"/api/v1/playlists/{nonexistent_id()}/tracks")
 
         assert response.status_code == 404
+
+
+class TestManualTrackEditingContract:
+    """Add / remove / reorder endpoints — HTTP contract (status codes + errors).
+
+    Happy-path identity preservation is covered against the real repository in
+    tests/integration/test_manual_playlist_editing.py; here we pin the route
+    wiring: request-schema validation (422), not-found mapping (404), and the
+    204 no-content shape for deletes.
+    """
+
+    async def _make_playlist(self, client: httpx.AsyncClient) -> str:
+        resp = await client.post("/api/v1/playlists", json={"name": "Editable"})
+        return resp.json()["id"]
+
+    async def test_add_empty_track_ids_returns_400(
+        self, client: httpx.AsyncClient
+    ) -> None:
+        # Empty list parses as JSON; the Command's min_len validator rejects it
+        # as a domain ValueError → 400 VALIDATION_ERROR.
+        playlist_id = await self._make_playlist(client)
+
+        response = await client.post(
+            f"/api/v1/playlists/{playlist_id}/tracks", json={"track_ids": []}
+        )
+
+        assert response.status_code == 400
+        assert response.json()["error"]["code"] == "VALIDATION_ERROR"
+
+    async def test_add_unknown_track_returns_404(
+        self, client: httpx.AsyncClient
+    ) -> None:
+        playlist_id = await self._make_playlist(client)
+
+        response = await client.post(
+            f"/api/v1/playlists/{playlist_id}/tracks",
+            json={"track_ids": [str(nonexistent_id())]},
+        )
+
+        assert response.status_code == 404
+
+    async def test_remove_unknown_entry_returns_404(
+        self, client: httpx.AsyncClient
+    ) -> None:
+        playlist_id = await self._make_playlist(client)
+
+        response = await client.delete(
+            f"/api/v1/playlists/{playlist_id}/tracks/{nonexistent_id()}"
+        )
+
+        assert response.status_code == 404
+
+    async def test_batch_remove_empty_returns_400(
+        self, client: httpx.AsyncClient
+    ) -> None:
+        playlist_id = await self._make_playlist(client)
+
+        response = await client.request(
+            "DELETE",
+            f"/api/v1/playlists/{playlist_id}/tracks",
+            json={"entry_ids": []},
+        )
+
+        assert response.status_code == 400
+
+    async def test_reorder_mismatched_ids_returns_404(
+        self, client: httpx.AsyncClient
+    ) -> None:
+        # Empty playlist has 0 entries, so a stray id is not a valid permutation.
+        playlist_id = await self._make_playlist(client)
+
+        response = await client.patch(
+            f"/api/v1/playlists/{playlist_id}/tracks/reorder",
+            json={"entry_ids": [str(nonexistent_id())]},
+        )
+
+        assert response.status_code == 404

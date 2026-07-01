@@ -3,7 +3,7 @@
   "info": {
     "title": "Mixd",
     "description": "Personal music metadata hub",
-    "version": "0.8.10"
+    "version": "0.8.11"
   },
   "paths": {
     "/api/v1/connectors/{service}/auth-url": {
@@ -551,6 +551,204 @@
               "application/json": {
                 "schema": {
                   "$ref": "#/components/schemas/PaginatedResponse_PlaylistEntrySchema_"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      },
+      "post": {
+        "tags": [
+          "playlists"
+        ],
+        "summary": "Add Playlist Tracks",
+        "description": "Append tracks to a playlist (manual curation; duplicates allowed).",
+        "operationId": "add_playlist_tracks_api_v1_playlists__playlist_id__tracks_post",
+        "parameters": [
+          {
+            "name": "playlist_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid",
+              "title": "Playlist Id"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/AddTracksRequest"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PlaylistDetailSchema"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      },
+      "delete": {
+        "tags": [
+          "playlists"
+        ],
+        "summary": "Remove Playlist Tracks",
+        "description": "Batch-remove entries from a playlist by their membership ids.",
+        "operationId": "remove_playlist_tracks_api_v1_playlists__playlist_id__tracks_delete",
+        "parameters": [
+          {
+            "name": "playlist_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid",
+              "title": "Playlist Id"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/RemoveEntriesRequest"
+              }
+            }
+          }
+        },
+        "responses": {
+          "204": {
+            "description": "Successful Response"
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/playlists/{playlist_id}/tracks/{entry_id}": {
+      "delete": {
+        "tags": [
+          "playlists"
+        ],
+        "summary": "Remove Playlist Track",
+        "description": "Remove a single entry from a playlist by its membership id.",
+        "operationId": "remove_playlist_track_api_v1_playlists__playlist_id__tracks__entry_id__delete",
+        "parameters": [
+          {
+            "name": "playlist_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid",
+              "title": "Playlist Id"
+            }
+          },
+          {
+            "name": "entry_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid",
+              "title": "Entry Id"
+            }
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": "Successful Response"
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/playlists/{playlist_id}/tracks/reorder": {
+      "patch": {
+        "tags": [
+          "playlists"
+        ],
+        "summary": "Reorder Playlist Tracks",
+        "description": "Reorder a playlist's entries via the complete ordered entry_ids list.",
+        "operationId": "reorder_playlist_tracks_api_v1_playlists__playlist_id__tracks_reorder_patch",
+        "parameters": [
+          {
+            "name": "playlist_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid",
+              "title": "Playlist Id"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ReorderEntriesRequest"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PlaylistDetailSchema"
                 }
               }
             }
@@ -4130,6 +4328,35 @@
         "title": "AddTagResponse",
         "description": "Response from POST /tracks/{id}/tags."
       },
+      "AddTracksRequest": {
+        "properties": {
+          "track_ids": {
+            "items": {
+              "type": "string",
+              "format": "uuid"
+            },
+            "type": "array",
+            "title": "Track Ids"
+          },
+          "position": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Position"
+          }
+        },
+        "type": "object",
+        "required": [
+          "track_ids"
+        ],
+        "title": "AddTracksRequest",
+        "description": "Request body for POST /playlists/{id}/tracks.\n\n``track_ids`` is order-significant and may repeat (manual add allows\nduplicates). ``position`` is a 0-based insert index; omit to append."
+      },
       "ApplyResultSchema": {
         "properties": {
           "preferences_applied": {
@@ -6474,6 +6701,11 @@
       },
       "PlaylistEntrySchema": {
         "properties": {
+          "id": {
+            "type": "string",
+            "format": "uuid",
+            "title": "Id"
+          },
           "position": {
             "type": "integer",
             "title": "Position"
@@ -6501,6 +6733,7 @@
         },
         "type": "object",
         "required": [
+          "id",
           "position",
           "track"
         ],
@@ -6707,6 +6940,24 @@
         "title": "RelinkMappingRequest",
         "description": "Request body for relinking a mapping to a different track."
       },
+      "RemoveEntriesRequest": {
+        "properties": {
+          "entry_ids": {
+            "items": {
+              "type": "string",
+              "format": "uuid"
+            },
+            "type": "array",
+            "title": "Entry Ids"
+          }
+        },
+        "type": "object",
+        "required": [
+          "entry_ids"
+        ],
+        "title": "RemoveEntriesRequest",
+        "description": "Request body for batch DELETE /playlists/{id}/tracks."
+      },
       "RenameTagRequest": {
         "properties": {
           "new_tag": {
@@ -6720,6 +6971,24 @@
         ],
         "title": "RenameTagRequest",
         "description": "Body for PATCH /api/v1/tags/{tag}. ``new_tag`` is normalized client-side."
+      },
+      "ReorderEntriesRequest": {
+        "properties": {
+          "entry_ids": {
+            "items": {
+              "type": "string",
+              "format": "uuid"
+            },
+            "type": "array",
+            "title": "Entry Ids"
+          }
+        },
+        "type": "object",
+        "required": [
+          "entry_ids"
+        ],
+        "title": "ReorderEntriesRequest",
+        "description": "Request body for PATCH /playlists/{id}/tracks/reorder (full ordered list)."
       },
       "RepairUnresolvedResponse": {
         "properties": {

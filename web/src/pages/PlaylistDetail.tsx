@@ -11,12 +11,9 @@ import {
   Unlink,
 } from "lucide-react";
 import { useEffect, useState } from "react";
-import { Link, useNavigate, useParams } from "react-router";
+import { useNavigate, useParams } from "react-router";
 import { useGetConnectorsApiV1ConnectorsGet } from "#/api/generated/connectors/connectors";
-import type {
-  PlaylistEntrySchema,
-  PlaylistLinkSchema,
-} from "#/api/generated/model";
+import type { PlaylistLinkSchema } from "#/api/generated/model";
 import {
   getGetPlaylistApiV1PlaylistsPlaylistIdGetQueryKey,
   getGetPlaylistTracksApiV1PlaylistsPlaylistIdTracksGetQueryKey,
@@ -34,6 +31,8 @@ import {
 } from "#/api/generated/playlists/playlists";
 import { STALE } from "#/api/query-client";
 import { PageHeader } from "#/components/layout/PageHeader";
+import { AddTracksDialog } from "#/components/playlist/AddTracksDialog";
+import { PlaylistTrackEditor } from "#/components/playlist/PlaylistTrackEditor";
 import { BackLink } from "#/components/shared/BackLink";
 import { ConfirmationDialog } from "#/components/shared/ConfirmationDialog";
 import { ConnectorIcon } from "#/components/shared/ConnectorIcon";
@@ -42,15 +41,12 @@ import { ConnectorPlaylistPickerDialog } from "#/components/shared/ConnectorPlay
 import { DirectionChooser } from "#/components/shared/DirectionChooser";
 import { EmptyState } from "#/components/shared/EmptyState";
 import { OperationProgress } from "#/components/shared/OperationProgress";
-import { ResponsiveTable } from "#/components/shared/ResponsiveTable";
 import { SectionHeader } from "#/components/shared/SectionHeader";
 import {
   StatusIndicator,
   syncStatusVariant,
 } from "#/components/shared/StatusIndicator";
 import { SyncConfirmationDialog } from "#/components/shared/SyncConfirmationDialog";
-import { TableCard } from "#/components/shared/TableCard";
-import { TitleLink } from "#/components/shared/TitleLink";
 import { UnmatchedBadge } from "#/components/shared/UnmatchedBadge";
 import { Button } from "#/components/ui/button";
 import {
@@ -69,21 +65,11 @@ import {
   SelectValue,
 } from "#/components/ui/select";
 import { Skeleton } from "#/components/ui/skeleton";
-import {
-  Table,
-  TableBody,
-  TableCell,
-  TableHead,
-  TableHeader,
-  TableRow,
-} from "#/components/ui/table";
 import { useOperationProgress } from "#/hooks/useOperationProgress";
 import { getConnectorLabel } from "#/lib/connector-brand";
 import {
   decodeHtmlEntities,
-  formatArtists,
   formatDate,
-  formatDuration,
   formatRelativeTime,
   formatTotalDuration,
 } from "#/lib/format";
@@ -112,47 +98,6 @@ function DetailSkeleton() {
         ))}
       </div>
     </div>
-  );
-}
-
-/**
- * Card representation of a playlist track row — used by ResponsiveTable below
- * the @2xl container threshold (typically iPhone / iPad portrait widths).
- */
-function PlaylistTrackCard({ entry }: { entry: PlaylistEntrySchema }) {
-  return (
-    <TableCard
-      leading={
-        <span className="mt-0.5 shrink-0 font-mono text-xs tabular-nums text-text-muted">
-          {entry.position}
-        </span>
-      }
-    >
-      {entry.is_resolved === false ? (
-        <div className="flex flex-col gap-0.5">
-          <span className="font-medium text-text">{entry.track.title}</span>
-          <UnresolvedTag />
-        </div>
-      ) : (
-        <TitleLink to={`/library/${entry.track.id}`}>
-          {entry.track.title}
-        </TitleLink>
-      )}
-      <p className="truncate text-sm text-text-muted">
-        {formatArtists(entry.track.artists)}
-      </p>
-      <div className="mt-1.5 flex flex-wrap items-center gap-x-3 gap-y-1 text-xs text-text-muted">
-        {entry.track.album && (
-          <span className="truncate">{entry.track.album}</span>
-        )}
-        <span className="shrink-0 tabular-nums">
-          {formatDuration(entry.track.duration_ms)}
-        </span>
-        {entry.added_at && (
-          <span className="shrink-0">Added {formatDate(entry.added_at)}</span>
-        )}
-      </div>
-    </TableCard>
   );
 }
 
@@ -793,15 +738,6 @@ function LinkedServicesSection({ playlistId }: { playlistId: string }) {
 // ─── Main Page ───────────────────────────────────────────────────────────────
 
 /** Status mark for an entry that couldn't be matched to a known track. */
-function UnresolvedTag() {
-  return (
-    <span className="inline-flex items-center gap-1 text-xs text-status-expired">
-      <AlertTriangle className="size-3 shrink-0" aria-hidden="true" />
-      Unresolved
-    </span>
-  );
-}
-
 /** Roll-up + bulk repair for a playlist's unresolved entries. Silent at zero. */
 function RepairUnresolvedBar({
   playlistId,
@@ -903,6 +839,13 @@ export function PlaylistDetail() {
     tracksData?.status === 200 ? tracksData.data : undefined;
   const entries = tracksResponse?.data ?? [];
   const unresolvedCount = entries.filter((e) => e.is_resolved === false).length;
+  // Track ids already in the playlist — drives the "Added" badge in the
+  // Add-Tracks modal (re-adding is still allowed; duplicates are intentional).
+  const existingTrackIds = new Set(
+    entries
+      .map((e) => e.track.id)
+      .filter((id): id is string => typeof id === "string"),
+  );
 
   return (
     <div>
@@ -917,6 +860,10 @@ export function PlaylistDetail() {
         }
         action={
           <div className="flex gap-2">
+            <AddTracksDialog
+              playlistId={playlist.id}
+              existingTrackIds={existingTrackIds}
+            />
             <EditPlaylistDialog
               playlistId={playlist.id}
               currentName={playlist.name}
@@ -985,72 +932,12 @@ export function PlaylistDetail() {
         <EmptyState
           icon={<Music className="size-10" />}
           heading="This playlist is empty"
-          description="Add tracks by linking a connector playlist or using workflows."
+          description="Add tracks with the Add Tracks button, link a connector playlist, or build it with a workflow."
         />
       )}
 
       {!tracksLoading && entries.length > 0 && (
-        <ResponsiveTable
-          cards={
-            <div className="flex flex-col gap-2">
-              {entries.map((entry) => (
-                <PlaylistTrackCard key={entry.position} entry={entry} />
-              ))}
-            </div>
-          }
-          table={
-            <Table>
-              <TableHeader>
-                <TableRow>
-                  <TableHead className="w-12 text-right">#</TableHead>
-                  <TableHead>Title</TableHead>
-                  <TableHead>Artists</TableHead>
-                  <TableHead>Album</TableHead>
-                  <TableHead className="w-20 text-right">Duration</TableHead>
-                  <TableHead className="w-32 text-right">Added</TableHead>
-                </TableRow>
-              </TableHeader>
-              <TableBody>
-                {entries.map((entry) => (
-                  <TableRow key={entry.position}>
-                    <TableCell className="text-right tabular-nums text-text-muted">
-                      {entry.position}
-                    </TableCell>
-                    <TableCell>
-                      {entry.is_resolved === false ? (
-                        <div className="flex flex-col gap-0.5">
-                          <span className="font-medium text-text">
-                            {entry.track.title}
-                          </span>
-                          <UnresolvedTag />
-                        </div>
-                      ) : (
-                        <Link
-                          to={`/library/${entry.track.id}`}
-                          className="font-medium text-text hover:text-primary transition-colors"
-                        >
-                          {entry.track.title}
-                        </Link>
-                      )}
-                    </TableCell>
-                    <TableCell className="text-text-muted">
-                      {formatArtists(entry.track.artists)}
-                    </TableCell>
-                    <TableCell className="text-text-muted">
-                      {entry.track.album ?? "\u2014"}
-                    </TableCell>
-                    <TableCell className="text-right tabular-nums text-text-muted">
-                      {formatDuration(entry.track.duration_ms)}
-                    </TableCell>
-                    <TableCell className="text-right text-sm text-text-muted">
-                      {formatDate(entry.added_at)}
-                    </TableCell>
-                  </TableRow>
-                ))}
-              </TableBody>
-            </Table>
-          }
-        />
+        <PlaylistTrackEditor playlistId={playlistId} entries={entries} />
       )}
     </div>
   );

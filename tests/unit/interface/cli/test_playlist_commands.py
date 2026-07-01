@@ -661,3 +661,67 @@ class TestRepair:
         assert result.exit_code == 0, result.output
         assert "Repaired 3" in result.output
         assert "2 still unresolved" in result.output
+
+
+class TestRemoveTracksPartialMatch:
+    """``remove-tracks`` must surface refs that resolve but aren't in the playlist.
+
+    A partial match used to print a success count that silently omitted the
+    no-op refs; the command now warns, names the skipped tracks, and still
+    exits 0 for the removals that did happen.
+    """
+
+    def test_warns_about_tracks_not_in_playlist(self) -> None:
+        import asyncio
+        from types import SimpleNamespace
+
+        from src.domain.entities.playlist import Playlist, PlaylistEntry
+        from tests.fixtures import make_track
+
+        in_track = make_track(title="In Song")
+        absent_track = make_track(title="Absent Song")
+        # Loaded playlist contains only the first track; the second resolves fine
+        # but isn't a member, so it should be reported as skipped.
+        loaded = Playlist(name="My Playlist", entries=[PlaylistEntry(track=in_track)])
+
+        def _fake_run_async(coro):
+            return asyncio.run(coro)
+
+        def _resolve_track(ref: str, *, user_id: str):
+            return in_track if ref == "InRef" else absent_track
+
+        with (
+            patch(
+                "src.interface.cli.playlist_commands.get_cli_user_id",
+                return_value="default",
+            ),
+            patch(
+                "src.interface.cli.playlist_commands.resolve_playlist_ref",
+                return_value=SimpleNamespace(id=uuid7(), name="My Playlist"),
+            ),
+            patch(
+                "src.interface.cli.playlist_commands.resolve_track_ref",
+                side_effect=_resolve_track,
+            ),
+            patch(
+                "src.interface.cli.playlist_commands._load_playlist_entries",
+                AsyncMock(return_value=loaded),
+            ),
+            patch(
+                "src.application.runner.execute_use_case",
+                AsyncMock(return_value=SimpleNamespace(removed=1)),
+            ),
+            patch("src.interface.cli.playlist_commands.run_async", _fake_run_async),
+        ):
+            result = runner.invoke(
+                app,
+                ["playlist", "remove-tracks", "My Playlist", "InRef", "AbsentRef"],
+            )
+
+        assert result.exit_code == 0, result.output
+        assert "Traceback" not in result.output
+        # The miss is named and flagged as skipped...
+        assert "Absent Song" in result.output
+        assert "skipped" in result.output.lower()
+        # ...while the matched removal still reports success.
+        assert "Removed 1 track" in result.output

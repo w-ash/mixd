@@ -2,6 +2,7 @@
 
 from collections.abc import Mapping, Sequence
 from typing import Annotated
+from uuid import UUID
 
 from rich.panel import Panel
 from rich.prompt import Confirm
@@ -10,12 +11,14 @@ import typer
 
 from src.domain.entities.playlist import Playlist
 from src.domain.entities.shared import ConnectorPlaylistIdentifier
+from src.domain.exceptions import NotFoundError
 from src.interface.cli.async_runner import run_async
 from src.interface.cli.cli_helpers import (
     get_cli_user_id,
     handle_cli_error,
     report_connector_batch_outcome,
     resolve_playlist_ref,
+    resolve_track_ref,
     validate_sync_source,
 )
 from src.interface.cli.console import (
@@ -102,6 +105,262 @@ def delete(
         mixd playlist delete 3 --force
     """
     run_async(_delete_playlist_async(playlist_id, force))
+
+
+# ─── Manual track editing (add / remove / reorder) ───────────────────────────
+
+
+@app.command(name="add-tracks")
+def add_tracks(
+    playlist: Annotated[str, typer.Argument(help="Playlist name or UUID")],
+    tracks: Annotated[
+        list[str],
+        typer.Argument(help="Track name(s) or UUID(s) to append"),
+    ],
+) -> None:
+    """Append one or more tracks to a playlist.
+
+    Tracks land at the end, in the order given. Duplicates are allowed — adding
+    a track already present adds it again (a separate membership).
+
+    Examples:
+        mixd playlist add-tracks "Road Trip" "Bohemian Rhapsody"
+        mixd playlist add-tracks 0c3e... <track-uuid> <track-uuid>
+    """
+    # Resolve refs in the sync frame: the resolvers drive their own event loop.
+    user_id = get_cli_user_id()
+    target = resolve_playlist_ref(playlist, user_id=user_id)
+    track_ids = [resolve_track_ref(ref, user_id=user_id).id for ref in tracks]
+    run_async(_add_tracks_async(target.id, target.name, track_ids))
+
+
+@app.command(name="remove-tracks")
+def remove_tracks(
+    playlist: Annotated[str, typer.Argument(help="Playlist name or UUID")],
+    tracks: Annotated[
+        list[str],
+        typer.Argument(help="Track name(s) or UUID(s) to remove"),
+    ],
+) -> None:
+    """Remove tracks from a playlist by track reference.
+
+    Removes every entry matching each referenced track (both copies of a
+    duplicated track). To change order instead, use ``mixd playlist reorder``.
+
+    Examples:
+        mixd playlist remove-tracks "Road Trip" "Old Song"
+    """
+    user_id = get_cli_user_id()
+    target = resolve_playlist_ref(playlist, user_id=user_id)
+    # id → display title, order-preserving and deduped by id, so we can name any
+    # requested track that turns out not to be in the playlist.
+    track_titles = {
+        track.id: track.title
+        for track in (resolve_track_ref(ref, user_id=user_id) for ref in tracks)
+    }
+    run_async(_remove_tracks_async(target.id, target.name, track_titles))
+
+
+@app.command()
+def reorder(
+    playlist: Annotated[str, typer.Argument(help="Playlist name or UUID")],
+    positions: Annotated[
+        list[int],
+        typer.Argument(
+            help="Current 1-based positions in the new order (a permutation of 1..N)"
+        ),
+    ],
+) -> None:
+    """Reorder a playlist by listing its current positions in the new order.
+
+    Pass every current position exactly once. Example: a 3-track playlist whose
+    third track should come first becomes ``3 1 2``.
+
+    Examples:
+        mixd playlist reorder "Road Trip" 3 1 2
+    """
+    user_id = get_cli_user_id()
+    target = resolve_playlist_ref(playlist, user_id=user_id)
+    run_async(_reorder_async(target.id, target.name, positions))
+
+
+async def _load_playlist_entries(playlist_id: UUID, user_id: str) -> Playlist:
+    """Load a playlist with its full ordered entries (entry ids = DB ids)."""
+    from src.application.runner import execute_use_case
+    from src.application.use_cases.read_canonical_playlist import (
+        ReadCanonicalPlaylistCommand,
+        ReadCanonicalPlaylistUseCase,
+    )
+
+    result = await execute_use_case(
+        lambda uow: ReadCanonicalPlaylistUseCase().execute(
+            ReadCanonicalPlaylistCommand(user_id=user_id, playlist_id=str(playlist_id)),
+            uow,
+        ),
+        user_id=user_id,
+    )
+    if result.playlist is None:
+        raise NotFoundError(f"Playlist {playlist_id} not found")
+    return result.playlist
+
+
+async def _add_tracks_async(
+    playlist_id: UUID, playlist_name: str, track_ids: list[UUID]
+) -> None:
+    """Append tracks to a playlist (raising body of add-tracks)."""
+    from src.application.runner import execute_use_case
+    from src.application.use_cases.add_playlist_tracks import (
+        AddPlaylistTracksCommand,
+        AddPlaylistTracksUseCase,
+    )
+
+    user_id = get_cli_user_id()
+    try:
+        result = await execute_use_case(
+            lambda uow: AddPlaylistTracksUseCase().execute(
+                AddPlaylistTracksCommand(
+                    user_id=user_id, playlist_id=playlist_id, track_ids=track_ids
+                ),
+                uow,
+            ),
+            user_id=user_id,
+        )
+    except NotFoundError as e:
+        err_console.print(f"[red]Error: {e}[/red]")
+        raise typer.Exit(1) from e
+    except Exception as e:
+        handle_cli_error(e, "Failed to add tracks")
+    else:
+        console.print(
+            f"[green]✓ Added {result.added} track(s) to "
+            f"[bold]{playlist_name}[/bold].[/green]"
+        )
+
+
+async def _removal_entry_ids(
+    playlist_id: UUID, user_id: str, track_titles: dict[UUID, str]
+) -> list[UUID]:
+    """Map the requested tracks to playlist entry ids, narrating any no-ops.
+
+    Warns by name about a requested track that resolved fine but isn't actually
+    in this playlist — otherwise a partial match prints a success count that
+    silently omits the no-op refs. Keeps the load + match logic out of the
+    command's ``try`` clause (mirrors ``_reorder_entry_ids``).
+    """
+    playlist = await _load_playlist_entries(playlist_id, user_id)
+    track_ids = set(track_titles)
+    entry_ids = [
+        entry.id
+        for entry in playlist.entries
+        if entry.track is not None and entry.track.id in track_ids
+    ]
+    matched_ids = {
+        entry.track.id
+        for entry in playlist.entries
+        if entry.track is not None and entry.track.id in track_ids
+    }
+    unmatched = [title for tid, title in track_titles.items() if tid not in matched_ids]
+    if unmatched:
+        console.print(
+            f"[yellow]Not in [bold]{playlist.name}[/bold], skipped: "
+            f"{', '.join(unmatched)}.[/yellow]"
+        )
+    if not entry_ids:
+        console.print("[yellow]No matching tracks in that playlist.[/yellow]")
+    return entry_ids
+
+
+async def _remove_tracks_async(
+    playlist_id: UUID, playlist_name: str, track_titles: dict[UUID, str]
+) -> None:
+    """Remove every entry matching the given tracks (raising body of remove-tracks)."""
+    from src.application.runner import execute_use_case
+    from src.application.use_cases.remove_playlist_entries import (
+        RemovePlaylistEntriesCommand,
+        RemovePlaylistEntriesUseCase,
+    )
+
+    user_id = get_cli_user_id()
+    try:
+        entry_ids = await _removal_entry_ids(playlist_id, user_id, track_titles)
+        if not entry_ids:
+            return
+        result = await execute_use_case(
+            lambda uow: RemovePlaylistEntriesUseCase().execute(
+                RemovePlaylistEntriesCommand(
+                    user_id=user_id, playlist_id=playlist_id, entry_ids=entry_ids
+                ),
+                uow,
+            ),
+            user_id=user_id,
+        )
+    except NotFoundError as e:
+        err_console.print(f"[red]Error: {e}[/red]")
+        raise typer.Exit(1) from e
+    except Exception as e:
+        handle_cli_error(e, "Failed to remove tracks")
+    else:
+        console.print(
+            f"[green]✓ Removed {result.removed} track(s) from "
+            f"[bold]{playlist_name}[/bold].[/green]"
+        )
+
+
+async def _reorder_entry_ids(
+    playlist_id: UUID, user_id: str, positions: list[int]
+) -> list[UUID]:
+    """Validate positions are a full permutation and map them to entry ids.
+
+    Raises ``typer.Exit(1)`` (after a user-facing message) when ``positions``
+    isn't exactly 1..N — keeping the ``raise`` out of the command's try clause.
+    """
+    playlist = await _load_playlist_entries(playlist_id, user_id)
+    expected = list(range(1, len(playlist.entries) + 1))
+    if sorted(positions) != expected:
+        err_console.print(
+            f"[red]Error: positions must be a permutation of 1..{len(expected)} "
+            f"(each current position exactly once).[/red]"
+        )
+        raise typer.Exit(1)
+    return [playlist.entries[pos - 1].id for pos in positions]
+
+
+async def _reorder_async(
+    playlist_id: UUID, playlist_name: str, positions: list[int]
+) -> None:
+    """Apply a full-list reorder from 1-based positions (raising body of reorder)."""
+    from src.application.runner import execute_use_case
+    from src.application.use_cases.reorder_playlist_entries import (
+        ReorderPlaylistEntriesCommand,
+        ReorderPlaylistEntriesUseCase,
+    )
+
+    user_id = get_cli_user_id()
+    try:
+        entry_ids = await _reorder_entry_ids(playlist_id, user_id, positions)
+        await execute_use_case(
+            lambda uow: ReorderPlaylistEntriesUseCase().execute(
+                ReorderPlaylistEntriesCommand(
+                    user_id=user_id, playlist_id=playlist_id, entry_ids=entry_ids
+                ),
+                uow,
+            ),
+            user_id=user_id,
+        )
+    except typer.Exit:
+        # The permutation-validation exit above is intentional — don't reclassify
+        # it as an unexpected error.
+        raise
+    except NotFoundError as e:
+        err_console.print(f"[red]Error: {e}[/red]")
+        raise typer.Exit(1) from e
+    except Exception as e:
+        handle_cli_error(e, "Failed to reorder playlist")
+    else:
+        console.print(
+            f"[green]✓ Reordered [bold]{playlist_name}[/bold] "
+            f"({len(positions)} tracks).[/green]"
+        )
 
 
 async def _list_stored_playlists_impl() -> None:
@@ -1190,7 +1449,6 @@ def repair_unresolved(
     DB-only and idempotent: fills in tracks that now have a match (e.g. after a
     match-review or metadata enrichment) without re-fetching from the connector.
     """
-    from uuid import UUID
 
     async def _repair(playlist_id: UUID):
         from src.application.runner import execute_use_case
