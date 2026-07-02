@@ -27,6 +27,7 @@ from src.interface._shared.run_lifecycle import (
 )
 from src.interface.cli.async_runner import run_async
 from src.interface.cli.cli_helpers import (
+    ScheduleCommandSpec,
     get_cli_user_id,
     handle_cli_error,
     run_schedule_command,
@@ -714,16 +715,18 @@ def schedule_workflow(
         raise typer.Exit(1)
 
     run_schedule_command(
-        user_id=get_cli_user_id(),
-        label=f"workflow '{selected.definition.name}'",
-        workflow_id=selected.id,
-        daily=daily,
-        weekly=weekly,
-        at=at,
-        tz=tz,
-        enable=enable,
-        disable=disable,
-        remove=remove,
+        ScheduleCommandSpec(
+            user_id=get_cli_user_id(),
+            label=f"workflow '{selected.definition.name}'",
+            workflow_id=selected.id,
+            daily=daily,
+            weekly=weekly,
+            at=at,
+            tz=tz,
+            enable=enable,
+            disable=disable,
+            remove=remove,
+        )
     )
 
 

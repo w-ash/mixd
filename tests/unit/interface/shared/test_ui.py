@@ -2,7 +2,12 @@
 
 from src.domain.entities.operations import OperationResult
 from src.domain.entities.track import Artist, Track
-from src.interface.cli.ui import _format_metric_value
+from src.interface.cli.ui import (
+    _format_metric_value,
+    console,
+    display_operation_result,
+)
+from tests.fixtures import make_track
 
 
 class TestMetricValueFormatting:
@@ -122,3 +127,43 @@ class TestOperationResultDisplay:
         assert sorted_metrics[1].label == "Track Plays Created"
         assert sorted_metrics[2].label == "Filtered (Too Short)"
         assert sorted_metrics[3].label == "Filtered (Duplicates)"
+
+
+class TestTableRenderingCharacterization:
+    """Lock the rendered table output across the renderer split.
+
+    ``display_operation_result`` funnels every table result through
+    ``_render_summary_table`` + ``_render_track_details_table``; these
+    characterize the summary metrics, the "Track Details" table with its
+    dynamic metric columns, and the play-import skip so the split stays
+    behavior-identical.
+    """
+
+    def test_table_output_has_summary_and_track_details(self):
+        track = make_track(title="Creep", artist="Radiohead")
+        result = OperationResult(
+            operation_name="Enrich",
+            tracks=[track],
+            metrics={"playcount": {track.id: 12}},
+        )
+        result.summary_metrics.add("enriched", 1, "Tracks Enriched", significance=1)
+
+        with console.capture() as capture:
+            display_operation_result(result, output_format="table")
+        out = capture.get()
+
+        assert "Tracks Enriched" in out
+        assert "Track Details" in out
+        assert "Radiohead" in out
+        assert "Creep" in out
+        assert "Playcount" in out  # dynamic metric column header
+
+    def test_play_import_operation_skips_track_details(self):
+        track = make_track(title="Creep", artist="Radiohead")
+        result = OperationResult(operation_name="Spotify Import", tracks=[track])
+
+        with console.capture() as capture:
+            display_operation_result(result, output_format="table")
+        out = capture.get()
+
+        assert "Track Details" not in out

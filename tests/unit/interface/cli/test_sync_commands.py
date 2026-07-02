@@ -27,10 +27,10 @@ class TestSyncSchedule:
             )
         assert result.exit_code == 0, result.output
         assert "Traceback" not in result.output
-        kwargs = m_run.call_args.kwargs
-        assert kwargs["sync_target"] == "lastfm:plays"
-        assert kwargs["daily"] is True
-        assert kwargs["at"] == "02:00"
+        spec = m_run.call_args.args[0]
+        assert spec.sync_target == "lastfm:plays"
+        assert spec.daily is True
+        assert spec.at == "02:00"
 
     def test_unknown_target_is_rejected(self) -> None:
         result = runner.invoke(
@@ -104,10 +104,10 @@ class TestWorkflowSchedule:
                 ],
             )
         assert result.exit_code == 0, result.output
-        kwargs = m_run.call_args.kwargs
-        assert kwargs["workflow_id"] is fake.id
-        assert kwargs["weekly"] == "sunday"
-        assert kwargs["at"] == "6:30"
+        spec = m_run.call_args.args[0]
+        assert spec.workflow_id is fake.id
+        assert spec.weekly == "sunday"
+        assert spec.at == "6:30"
 
     def test_unknown_workflow_exits_1(self) -> None:
         with (

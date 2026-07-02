@@ -16,7 +16,7 @@ leaks a stack trace.
 from collections.abc import Awaitable, Callable, Sequence
 from datetime import UTC, datetime
 from pathlib import Path
-from typing import Literal, Never
+from typing import Never
 from uuid import UUID
 
 from attrs import define, field
@@ -25,6 +25,7 @@ from rich.table import Table
 import typer
 
 from src.application.pagination import TRACK_SORT_COLUMNS, TrackSortBy
+from src.application.services.batch_file_import_service import ImportProgressSpec
 from src.config.constants import BusinessLimits
 from src.domain.entities import OperationResult, Playlist, Track
 from src.domain.entities.playlist_assignment import (
@@ -182,19 +183,11 @@ def validate_file_path(file_path: Path) -> None:
 
 
 def run_import_with_progress(
-    service: Literal["lastfm", "spotify"],
-    mode: Literal["recent", "incremental", "full", "file"],
+    spec: ImportProgressSpec,
     *,
-    limit: int | None = None,
-    username: str | None = None,
-    file_path: Path | None = None,
-    confirm: bool = False,
-    from_date: datetime | None = None,
-    to_date: datetime | None = None,
-    batch_size: int | None = None,
     progress_emitter: ProgressEmitter | None = None,
 ) -> OperationResult:
-    """Execute import with unified progress context and display.
+    """Execute an import with unified progress context and display.
 
     Consolidates the common pattern of:
     1. Setting up progress coordination context
@@ -207,15 +200,7 @@ def run_import_with_progress(
     adapter from the progress coordination context.
 
     Args:
-        service: Service name ("lastfm" or "spotify")
-        mode: Import mode ("incremental", "file", etc.)
-        limit: Maximum tracks to import (LastFM only).
-        username: LastFM username for user-specific imports.
-        file_path: Path to import file (Spotify file imports).
-        confirm: Whether user confirmed destructive operations.
-        from_date: Start date for date range filtering.
-        to_date: End date for date range filtering.
-        batch_size: Batch size for chunked processing.
+        spec: Import selectors (service, mode, file path, batch size, dates …).
         progress_emitter: Fallback emitter when no progress manager is active in context.
 
     Returns:
@@ -236,16 +221,16 @@ def run_import_with_progress(
 
             return await run_import(
                 user_id=get_cli_user_id(),
-                service=service,
-                mode=mode,
-                limit=limit,
-                username=username,
-                file_path=file_path,
-                confirm=confirm,
-                from_date=from_date,
-                to_date=to_date,
+                service=spec.service,
+                mode=spec.mode,
+                limit=spec.limit,
+                username=spec.username,
+                file_path=spec.file_path,
+                confirm=spec.confirm,
+                from_date=spec.from_date,
+                to_date=spec.to_date,
                 progress_emitter=progress_adapter,
-                batch_size=batch_size,
+                batch_size=spec.batch_size,
             )
 
     return run_async(_execute_with_progress())
@@ -704,6 +689,30 @@ def describe_cadence(schedule: Schedule) -> str:
 # ---------------------------------------------------------------------------
 
 
+@define(frozen=True, slots=True)
+class ScheduleCommandSpec:
+    """Inputs for a single ``run_schedule_command`` invocation.
+
+    Bundles the schedule-CLI arguments shared by ``workflow schedule`` and
+    ``sync schedule`` so both forward one typed object. ``workflow_id`` xor
+    ``sync_target`` identifies the target; the action flags (``daily`` /
+    ``weekly`` / ``enable`` / ``disable`` / ``remove``) are mutually exclusive,
+    validated inside ``run_schedule_command``.
+    """
+
+    user_id: str
+    label: str
+    workflow_id: UUID | None = None
+    sync_target: str | None = None
+    daily: bool = False
+    weekly: str | None = None
+    at: str | None = None
+    tz: str | None = None
+    enable: bool = False
+    disable: bool = False
+    remove: bool = False
+
+
 def _render_schedule(schedule: Schedule, *, label: str) -> None:
     """Print a schedule's cadence, next run, status, and failure state."""
     console.print(f"[bold]{label}[/bold]")
@@ -719,20 +728,7 @@ def _render_schedule(schedule: Schedule, *, label: str) -> None:
             console.print(f"  [dim]Last error: {schedule.last_error}[/dim]")
 
 
-def run_schedule_command(
-    *,
-    user_id: str,
-    label: str,
-    workflow_id: UUID | None = None,
-    sync_target: str | None = None,
-    daily: bool = False,
-    weekly: str | None = None,
-    at: str | None = None,
-    tz: str | None = None,
-    enable: bool = False,
-    disable: bool = False,
-    remove: bool = False,
-) -> None:
+def run_schedule_command(spec: ScheduleCommandSpec) -> None:
     """Resolve the requested schedule action and run it (one codepath, two edges).
 
     Exactly one mutating action is allowed per invocation; with none, the current
@@ -758,62 +754,69 @@ def run_schedule_command(
         # handle_cli_error is `-> Never`, so on failure this does not return —
         # callers read the result unconditionally.
         try:
-            return run_async(execute_use_case(factory, user_id=user_id))
+            return run_async(execute_use_case(factory, user_id=spec.user_id))
         except Exception as e:
             handle_cli_error(e, error)
 
-    if sum([remove, enable, disable, daily, weekly is not None]) > 1:
+    actions = [spec.remove, spec.enable, spec.disable, spec.daily]
+    if sum([*actions, spec.weekly is not None]) > 1:
         raise typer.BadParameter(
             "choose only one of --daily/--weekly, --enable, --disable, --remove"
         )
     # --at / --tz only mean something alongside a cadence; alone they would
     # silently fall through to "show", so reject them explicitly.
-    if (at is not None or tz is not None) and not (daily or weekly is not None):
+    if (spec.at is not None or spec.tz is not None) and not (
+        spec.daily or spec.weekly is not None
+    ):
         raise typer.BadParameter("--at / --tz require --daily or --weekly")
 
-    if remove:
+    if spec.remove:
         _run(
             lambda uow: DeleteScheduleUseCase().execute(
                 DeleteScheduleCommand(
-                    user_id=user_id, workflow_id=workflow_id, sync_target=sync_target
+                    user_id=spec.user_id,
+                    workflow_id=spec.workflow_id,
+                    sync_target=spec.sync_target,
                 ),
                 uow,
             ),
-            error=f"Failed to remove schedule for {label}",
+            error=f"Failed to remove schedule for {spec.label}",
         )
-        console.print(f"[green]✓ Removed schedule for {label}.[/green]")
+        console.print(f"[green]✓ Removed schedule for {spec.label}.[/green]")
         return
 
-    if enable or disable:
+    if spec.enable or spec.disable:
         result = _run(
             lambda uow: ToggleScheduleUseCase().execute(
                 ToggleScheduleCommand(
-                    user_id=user_id,
-                    enabled=enable,
-                    workflow_id=workflow_id,
-                    sync_target=sync_target,
+                    user_id=spec.user_id,
+                    enabled=spec.enable,
+                    workflow_id=spec.workflow_id,
+                    sync_target=spec.sync_target,
                 ),
                 uow,
             ),
-            error=f"Failed to toggle schedule for {label}",
+            error=f"Failed to toggle schedule for {spec.label}",
         )
-        verb = "enabled" if enable else "disabled"
-        console.print(f"[green]✓ Schedule {verb} for {label}.[/green]")
-        _render_schedule(result.schedule, label=label)
+        verb = "enabled" if spec.enable else "disabled"
+        console.print(f"[green]✓ Schedule {verb} for {spec.label}.[/green]")
+        _render_schedule(result.schedule, label=spec.label)
         return
 
-    if daily or weekly is not None:
-        if at is None:
+    if spec.daily or spec.weekly is not None:
+        if spec.at is None:
             raise typer.BadParameter("--at HH:MM is required when setting a schedule")
-        hour, minute = parse_time_of_day(at)
-        day_of_week = parse_weekday(weekly) if weekly is not None else None
-        timezone = validate_timezone_arg(tz) if tz else resolve_default_timezone()
+        hour, minute = parse_time_of_day(spec.at)
+        day_of_week = parse_weekday(spec.weekly) if spec.weekly is not None else None
+        timezone = (
+            validate_timezone_arg(spec.tz) if spec.tz else resolve_default_timezone()
+        )
         result = _run(
             lambda uow: UpsertScheduleUseCase().execute(
                 UpsertScheduleCommand(
-                    user_id=user_id,
-                    workflow_id=workflow_id,
-                    sync_target=sync_target,
+                    user_id=spec.user_id,
+                    workflow_id=spec.workflow_id,
+                    sync_target=spec.sync_target,
                     hour=hour,
                     minute=minute,
                     day_of_week=day_of_week,
@@ -821,27 +824,29 @@ def run_schedule_command(
                 ),
                 uow,
             ),
-            error=f"Failed to schedule {label}",
+            error=f"Failed to schedule {spec.label}",
         )
         action = "Scheduled" if result.created else "Updated schedule for"
-        console.print(f"[green]✓ {action} {label}.[/green]")
-        _render_schedule(result.schedule, label=label)
+        console.print(f"[green]✓ {action} {spec.label}.[/green]")
+        _render_schedule(result.schedule, label=spec.label)
         return
 
     # No action — show the current schedule (empty state if none).
     result = _run(
         lambda uow: GetScheduleUseCase().execute(
             GetScheduleCommand(
-                user_id=user_id, workflow_id=workflow_id, sync_target=sync_target
+                user_id=spec.user_id,
+                workflow_id=spec.workflow_id,
+                sync_target=spec.sync_target,
             ),
             uow,
         ),
-        error=f"Failed to read schedule for {label}",
+        error=f"Failed to read schedule for {spec.label}",
     )
     if result.schedule is None:
-        console.print(f"[dim]No schedule set for {label}.[/dim]")
+        console.print(f"[dim]No schedule set for {spec.label}.[/dim]")
         console.print(
             "[dim]Set one with --daily --at HH:MM or --weekly <day> --at HH:MM.[/dim]"
         )
         return
-    _render_schedule(result.schedule, label=label)
+    _render_schedule(result.schedule, label=spec.label)

@@ -77,7 +77,7 @@ Populated during investigation. One row per spoke. ROI/Risk are the executor's d
 | [22](22-list-tracks-decomposition.md) | track/core.py: extract list_tracks filter builder | infrastructure | S-M | med | low-med | Opus | Not Started |
 | [23](23-base-repo-mapper-split.md) | base_repo.py: split mapper machinery from repository base | infrastructure | S | med | low | Opus | **Done (v0.8.14)** |
 | [24](24-db-models-aggregate-split.md) | db_models.py: split by aggregate (optional, honest ROI med-low) | infrastructure | M | med-low | low-med | Opus | Not Started |
-| [25](25-cli-structural-pass.md) | CLI structural pass: ui renderer, helper param-objects, family split | interface | M | med | low-med | Opus | Not Started |
+| [25](25-cli-structural-pass.md) | CLI structural pass: ui renderer, helper param-objects, family split | interface | M | med | low-med | Opus | **Done (v0.8.14)** — item 3 skipped |
 | [26](26-ratchet-closeout.md) | Ratchet closeout: flip suppressed rules as the sweep clears them | config/tooling | M | high | low | Opus | basedpyright step **done (v0.8.13)**; remainder scheduled v0.8.17 |
 
 ## Counter-proposals

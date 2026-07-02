@@ -74,11 +74,25 @@ def _display_table_result(
     next_step_message: str | None = None,
 ) -> None:
     """Display result as formatted tables with summary metrics and track details."""
-    # Display title
     display_title = title or result.operation_name or "Operation Results"
     print_brand_title(display_title)
 
-    # Create summary table
+    console.print(_render_summary_table(result))
+
+    # Track details table if we have tracks - skip for play import operations
+    if result.tracks and not _is_play_import_operation(result):
+        console.print()
+        console.print(_render_track_details_table(result))
+
+    # Next step message
+    if next_step_message:
+        console.print(f"\n[yellow]{next_step_message}[/yellow]")
+
+    console.print()
+
+
+def _render_summary_table(result: OperationResult) -> Table:
+    """Build the borderless summary-metrics table (label → value, plus duration)."""
     summary_table = Table(show_header=False, box=None, padding=(0, 2))
     summary_table.add_column(style="cyan")
     summary_table.add_column(style="green bold")
@@ -92,80 +106,72 @@ def _display_table_result(
     if result.execution_time > 0:
         summary_table.add_row("Duration", f"{result.execution_time:.1f}s")
 
-    console.print(summary_table)
+    return summary_table
 
-    # Track details table if we have tracks - skip for play import operations
-    if result.tracks and not _is_play_import_operation(result):
-        console.print()
-        details_table = Table(title="Track Details")
-        details_table.add_column("#", style="dim", justify="right")
-        details_table.add_column("Artist", style="cyan")
-        details_table.add_column("Track", style="green")
-        details_table.add_column("Source", style=GOLD)
 
-        # Add metric columns - sorted for consistent display
-        metric_columns = sorted(result.metrics.keys()) if result.metrics else []
+def _format_metric_cell(raw_value: object, *, is_fresh: bool) -> str:
+    """Format one per-track metric cell, dimming cached (non-fresh) values.
+
+    Floats render as their integer part (metric columns are whole counts);
+    cached values are wrapped in ``[dim]…[/dim]`` so freshly-fetched metrics
+    stand out from ones served from cache.
+    """
+    if raw_value is None:
+        return "—"
+    match raw_value:
+        case int() as num:
+            formatted = str(num)
+        case float() as num:
+            formatted = f"{int(num)}"
+        case _:
+            formatted = str(raw_value)
+    return formatted if is_fresh else f"[dim]{formatted}[/dim]"
+
+
+def _render_track_details_table(result: OperationResult) -> Table:
+    """Build the track-details table, owning metric columns + fresh/cached styling."""
+    details_table = Table(title="Track Details")
+    details_table.add_column("#", style="dim", justify="right")
+    details_table.add_column("Artist", style="cyan")
+    details_table.add_column("Track", style="green")
+    details_table.add_column("Source", style=GOLD)
+
+    # Add metric columns - sorted for consistent display
+    metric_columns = sorted(result.metrics.keys()) if result.metrics else []
+    for metric_name in metric_columns:
+        display_name = metric_name.replace("_", " ").title()
+        details_table.add_column(display_name, style="yellow", justify="right")
+
+    # Get fresh metric IDs from tracklist metadata (for cached vs fresh styling)
+    fresh_metric_ids: dict[str, list[UUID]] = (
+        result.tracklist.metadata.get("fresh_metric_ids", {})
+        if result.tracklist
+        else {}
+    )
+    track_sources = (
+        result.tracklist.metadata.get("track_sources", {}) if result.tracklist else {}
+    )
+
+    # Add track rows
+    for i, track in enumerate(result.tracks, 1):
+        artist_name = track.artists[0].name if track.artists else "Unknown"
+
+        # Get source information from tracklist metadata
+        source_info = "Unknown"
+        if track.id and track.id in track_sources:
+            source_info = track_sources[track.id].get("playlist_name", "Unknown")
+
+        row: list[str] = [str(i), artist_name, track.title, source_info]
+
+        # Add metric values for this track
         for metric_name in metric_columns:
-            display_name = metric_name.replace("_", " ").title()
-            details_table.add_column(display_name, style="yellow", justify="right")
+            raw_value = result.get_metric(track.id, metric_name)
+            is_fresh = track.id in fresh_metric_ids.get(metric_name, [])
+            row.append(_format_metric_cell(raw_value, is_fresh=is_fresh))
 
-        # Get fresh metric IDs from tracklist metadata (for cached vs fresh styling)
-        fresh_metric_ids: dict[str, list[UUID]] = (
-            result.tracklist.metadata.get("fresh_metric_ids", {})
-            if result.tracklist
-            else {}
-        )
+        details_table.add_row(*row)
 
-        # Add track rows
-        for i, track in enumerate(result.tracks, 1):
-            artist_name = track.artists[0].name if track.artists else "Unknown"
-
-            # Get source information from tracklist metadata
-            source_info = "Unknown"
-            track_sources = (
-                result.tracklist.metadata.get("track_sources", {})
-                if result.tracklist
-                else {}
-            )
-            if track.id and track.id in track_sources:
-                source_data = track_sources[track.id]
-                source_info = source_data.get("playlist_name", "Unknown")
-
-            row: list[str] = [str(i), artist_name, track.title, source_info]
-
-            # Add metric values for this track
-            for metric_name in metric_columns:
-                raw_value = result.get_metric(track.id, metric_name)
-                # Check if this metric was freshly fetched or from cache
-                is_fresh = track.id in fresh_metric_ids.get(metric_name, [])
-
-                if raw_value is None:
-                    row.append("—")
-                    continue
-
-                match raw_value:
-                    case int() as num:
-                        formatted = str(num)
-                        row.append(formatted if is_fresh else f"[dim]{formatted}[/dim]")
-                    case float() as num:
-                        formatted = f"{int(num)}"
-                        row.append(formatted if is_fresh else f"[dim]{formatted}[/dim]")
-                    case _:
-                        formatted = str(raw_value)
-                        if not is_fresh:
-                            row.append(f"[dim]{formatted}[/dim]")
-                        else:
-                            row.append(formatted)
-
-            details_table.add_row(*row)
-
-        console.print(details_table)
-
-    # Next step message
-    if next_step_message:
-        console.print(f"\n[yellow]{next_step_message}[/yellow]")
-
-    console.print()
+    return details_table
 
 
 def _display_json_result(result: OperationResult) -> None:

@@ -14,6 +14,7 @@ from unittest.mock import MagicMock, patch
 import pytest
 import typer
 
+from src.application.services.batch_file_import_service import ImportProgressSpec
 from src.interface.cli.cli_helpers import (
     parse_date_string,
     prompt_batch_size,
@@ -180,10 +181,12 @@ class TestRunImportWithProgress:
             mock_run_async.side_effect = fake_run_async(expected_result)
 
             result = run_import_with_progress(
-                service="spotify",
-                mode="file",
-                file_path=Path("/test/file.json"),
-                batch_size=100,
+                ImportProgressSpec(
+                    service="spotify",
+                    mode="file",
+                    file_path=Path("/test/file.json"),
+                    batch_size=100,
+                )
             )
 
             # Verify run_async was called
@@ -218,10 +221,12 @@ class TestRunImportWithProgress:
             # Execute with kwargs
             test_path = Path("/test/file.json")
             result = run_import_with_progress(
-                service="spotify",
-                mode="file",
-                file_path=test_path,
-                batch_size=200,
+                ImportProgressSpec(
+                    service="spotify",
+                    mode="file",
+                    file_path=test_path,
+                    batch_size=200,
+                )
             )
 
             # Verify run_async was called

@@ -17,6 +17,7 @@ from rich.table import Table
 import typer
 
 from src.interface.cli.cli_helpers import (
+    ScheduleCommandSpec,
     describe_cadence,
     format_next_run,
     get_cli_user_id,
@@ -86,16 +87,18 @@ def schedule_sync(
 
     validated = validate_sync_target_arg(target)
     run_schedule_command(
-        user_id=get_cli_user_id(),
-        label=f"sync '{validated}'",
-        sync_target=validated,
-        daily=daily,
-        weekly=weekly,
-        at=at,
-        tz=tz,
-        enable=enable,
-        disable=disable,
-        remove=remove,
+        ScheduleCommandSpec(
+            user_id=get_cli_user_id(),
+            label=f"sync '{validated}'",
+            sync_target=validated,
+            daily=daily,
+            weekly=weekly,
+            at=at,
+            tz=tz,
+            enable=enable,
+            disable=disable,
+            remove=remove,
+        )
     )
 
 

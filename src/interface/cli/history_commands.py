@@ -6,6 +6,7 @@ from typing import Annotated
 from rich.prompt import Prompt
 import typer
 
+from src.application.services.batch_file_import_service import ImportProgressSpec
 from src.config import settings
 from src.interface.cli.async_runner import run_async
 from src.interface.cli.cli_helpers import (
@@ -73,10 +74,12 @@ def import_lastfm_cmd(
 
     # Execute import with unified progress context
     result = run_import_with_progress(
-        service="lastfm",
-        mode="incremental",
-        from_date=from_datetime,
-        to_date=to_datetime,
+        ImportProgressSpec(
+            service="lastfm",
+            mode="incremental",
+            from_date=from_datetime,
+            to_date=to_datetime,
+        )
     )
 
     console.print("[bold green]✓ Last.fm import completed![/bold green]")
@@ -141,10 +144,12 @@ def _import_single_spotify_file(file_path: Path, batch_size: int | None) -> None
 
     # Execute import with unified progress context
     result = run_import_with_progress(
-        service="spotify",
-        mode="file",
-        file_path=file_path,
-        batch_size=batch_size,
+        ImportProgressSpec(
+            service="spotify",
+            mode="file",
+            file_path=file_path,
+            batch_size=batch_size,
+        )
     )
 
     console.print(f"[bold green]✓ Imported {file_path.name}[/bold green]")

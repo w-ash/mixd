@@ -5,6 +5,7 @@ archiving and error aggregation. Follows hexagonal architecture by keeping file
 operations in the application layer and delegating actual import to use cases.
 """
 
+from datetime import datetime
 from pathlib import Path
 from typing import Literal, Protocol
 
@@ -17,6 +18,28 @@ from src.domain.entities.progress import ProgressEmitter
 logger = get_logger(__name__)
 
 
+@define(frozen=True, slots=True)
+class ImportProgressSpec:
+    """Selectors describing a single play-history import run.
+
+    Bundles the parameters the CLI forwards to ``run_import`` so the executor
+    protocol and the progress helper take one typed object instead of a wide
+    keyword list. ``progress_emitter`` is intentionally NOT part of this spec —
+    it is a runtime dependency, not import configuration, and is passed
+    alongside the spec.
+    """
+
+    service: Literal["lastfm", "spotify"]
+    mode: Literal["recent", "incremental", "full", "file"]
+    limit: int | None = None
+    username: str | None = None
+    file_path: Path | None = None
+    confirm: bool = False
+    from_date: datetime | None = None
+    to_date: datetime | None = None
+    batch_size: int | None = None
+
+
 class ImportExecutorProtocol(Protocol):
     """Protocol for executing individual file imports.
 
@@ -26,20 +49,14 @@ class ImportExecutorProtocol(Protocol):
 
     def __call__(
         self,
-        service: Literal["lastfm", "spotify"],
-        mode: Literal["recent", "incremental", "full", "file"],
+        spec: ImportProgressSpec,
         *,
-        file_path: Path | None = ...,
-        batch_size: int | None = ...,
         progress_emitter: ProgressEmitter | None = ...,
     ) -> OperationResult:
         """Execute a single file import.
 
         Args:
-            service: Service name (e.g., "spotify")
-            mode: Import mode (e.g., "file")
-            file_path: Path to file being imported.
-            batch_size: Batch size for chunked processing.
+            spec: Import selectors (service, mode, file path, batch size, …).
             progress_emitter: Progress reporting callback.
 
         Returns:
@@ -195,10 +212,12 @@ class BatchFileImportService:
 
         # Execute import
         _ = self._import_executor(
-            service=service,
-            mode="file",
-            file_path=file_path,
-            batch_size=batch_size,
+            ImportProgressSpec(
+                service=service,
+                mode="file",
+                file_path=file_path,
+                batch_size=batch_size,
+            ),
             progress_emitter=progress_emitter,
         )
 

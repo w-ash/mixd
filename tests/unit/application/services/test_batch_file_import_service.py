@@ -24,10 +24,8 @@ from src.domain.entities.progress import NullProgressEmitter
 def mock_executor():
     """Mock import executor that returns success results."""
 
-    def executor(service: str, mode: str, **kwargs):
-        return OperationResult(
-            operation_name=f"Import {kwargs.get('file_path', 'test')}"
-        )
+    def executor(spec, **kwargs):
+        return OperationResult(operation_name=f"Import {spec.file_path}")
 
     return executor
 
@@ -36,7 +34,7 @@ def mock_executor():
 def failing_executor():
     """Mock import executor that always raises exceptions."""
 
-    def executor(service: str, mode: str, **kwargs):
+    def executor(spec, **kwargs):
         raise ValueError("Import failed")
 
     return executor
@@ -191,7 +189,7 @@ class TestBatchImportErrors:
         # Setup executor that fails on second file
         call_count = 0
 
-        def conditional_executor(service: str, mode: str, **kwargs):
+        def conditional_executor(spec, **kwargs):
             nonlocal call_count
             call_count += 1
             if call_count == 2:
@@ -233,7 +231,9 @@ class TestBatchImportErrors:
         """Import tracks all failed files."""
         # Setup
         service = BatchFileImportService(
-            import_executor=lambda **kwargs: (_ for _ in ()).throw(ValueError("Failed"))
+            import_executor=lambda spec, **kwargs: (_ for _ in ()).throw(
+                ValueError("Failed")
+            )
         )
 
         imports_dir = tmp_path / "imports"
@@ -315,8 +315,14 @@ class TestBatchImportEdgeCases:
         """Import executor receives all expected parameters."""
         captured_params = {}
 
-        def capturing_executor(service: str, mode: str, **kwargs):
-            captured_params.update({"service": service, "mode": mode, **kwargs})
+        def capturing_executor(spec, **kwargs):
+            captured_params.update({
+                "service": spec.service,
+                "mode": spec.mode,
+                "file_path": spec.file_path,
+                "batch_size": spec.batch_size,
+                **kwargs,
+            })
             return OperationResult(operation_name="Import")
 
         service = BatchFileImportService(import_executor=capturing_executor)
