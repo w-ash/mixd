@@ -108,5 +108,6 @@ Use existing factories from `tests.fixtures` (`make_track`, `make_mock_uow`).
 - **Database** → docs/architecture/database.md
 - **Workflows** → docs/guides/workflows.md
 - **Planning & Backlog** → docs/backlog/ (includes completed/ archive, unscheduled.md)
+- **Product Decision Records** → docs/decisions/ (slow-burn decisions held open with evidence ledgers + activation triggers; append evidence rows when research surfaces relevant findings)
 - **Personas** → docs/personas.md (proto-personas, anti-personas, audit findings)
 - **Web UI Specs** → docs/web-ui/README.md
