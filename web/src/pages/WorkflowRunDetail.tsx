@@ -22,6 +22,7 @@ import {
   RunStatusBadge,
 } from "#/components/shared/RunStatusBadge";
 import { SectionHeader } from "#/components/shared/SectionHeader";
+import { DetailHeaderSkeleton } from "#/components/shared/skeletons";
 import { TableCard } from "#/components/shared/TableCard";
 import { WorkflowGraph } from "#/components/shared/WorkflowGraph";
 import { Button } from "#/components/ui/button";
@@ -55,10 +56,7 @@ import {
 function RunDetailSkeleton() {
   return (
     <div className="space-y-6">
-      <div className="space-y-2">
-        <Skeleton className="h-8 w-64" />
-        <Skeleton className="h-4 w-96" />
-      </div>
+      <DetailHeaderSkeleton />
       <Skeleton className="h-[700px] w-full rounded-lg" />
     </div>
   );

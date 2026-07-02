@@ -11,7 +11,7 @@ import { STALE } from "#/api/query-client";
 import { PageHeader } from "#/components/layout/PageHeader";
 import { ConnectorCard } from "#/components/shared/ConnectorCard";
 import { EmptyState } from "#/components/shared/EmptyState";
-import { QueryErrorState } from "#/components/shared/QueryErrorState";
+import { QueryStates } from "#/components/shared/QueryStates";
 import { SectionHeader } from "#/components/shared/SectionHeader";
 import { Skeleton } from "#/components/ui/skeleton";
 import { getConnectorLabel } from "#/lib/connector-brand";
@@ -200,21 +200,21 @@ export function Integrations() {
         description="Your music services. Connect streaming services and data sources to build your unified library."
       />
 
-      {isLoading && <IntegrationsSkeleton />}
-
-      {isError && (
-        <QueryErrorState error={error} heading="Failed to load connectors" />
-      )}
-
-      {!isLoading && !isError && connectors.length === 0 && (
-        <EmptyState
-          icon={<HelpCircle className="size-10" />}
-          heading="No connectors configured"
-          description="No music service connectors are available."
-        />
-      )}
-
-      {!isLoading && !isError && connectors.length > 0 && (
+      <QueryStates
+        loading={isLoading}
+        isError={isError}
+        error={error}
+        errorHeading="Failed to load connectors"
+        skeleton={<IntegrationsSkeleton />}
+        isEmpty={connectors.length === 0}
+        empty={
+          <EmptyState
+            icon={<HelpCircle className="size-10" />}
+            heading="No connectors configured"
+            description="No music service connectors are available."
+          />
+        }
+      >
         <div className="space-y-8">
           {grouped.map(([category, sectionConnectors]) => (
             <ConnectorSection
@@ -226,7 +226,7 @@ export function Integrations() {
             />
           ))}
         </div>
-      )}
+      </QueryStates>
     </div>
   );
 }

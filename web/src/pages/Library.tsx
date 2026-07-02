@@ -17,8 +17,9 @@ import { BulkTagDialog } from "#/components/shared/BulkTagDialog";
 import { ConnectorIcon } from "#/components/shared/ConnectorIcon";
 import { EmptyState } from "#/components/shared/EmptyState";
 import { PreferenceBadge } from "#/components/shared/PreferenceToggle";
-import { QueryErrorState } from "#/components/shared/QueryErrorState";
+import { QueryStates } from "#/components/shared/QueryStates";
 import { ResponsiveTable } from "#/components/shared/ResponsiveTable";
+import { ListRowsSkeleton } from "#/components/shared/skeletons";
 import { TableCard } from "#/components/shared/TableCard";
 import { TablePagination } from "#/components/shared/TablePagination";
 import { TagChip } from "#/components/shared/TagChip";
@@ -27,7 +28,6 @@ import { Badge } from "#/components/ui/badge";
 import { Button } from "#/components/ui/button";
 import { Checkbox } from "#/components/ui/checkbox";
 import { Input } from "#/components/ui/input";
-import { Skeleton } from "#/components/ui/skeleton";
 import {
   Table,
   TableBody,
@@ -148,21 +148,6 @@ function parseSortParam(param: string): { field: SortField; dir: SortDir } {
     return { field: "title", dir: "asc" };
   }
   return { field, dir };
-}
-
-function TrackTableSkeleton() {
-  return (
-    <div className="space-y-3">
-      {Array.from({ length: 8 }).map((_, i) => (
-        // biome-ignore lint/suspicious/noArrayIndexKey: static skeleton placeholders
-        <div key={i} className="flex items-center gap-4">
-          <Skeleton className="h-5 w-56" />
-          <Skeleton className="h-5 w-32" />
-          <Skeleton className="h-5 w-16" />
-        </div>
-      ))}
-    </div>
-  );
 }
 
 /** Sortable column header — clicking toggles direction or sets new sort */
@@ -514,42 +499,44 @@ export function Library() {
         </section>
       )}
 
-      {/* Loading */}
-      {isLoading && <TrackTableSkeleton />}
-
-      {/* Error */}
-      {isError && (
-        <QueryErrorState error={error} heading="Failed to load tracks" />
-      )}
-
-      {/* Empty state */}
-      {!isLoading && !isError && tracks.length === 0 && (
-        <EmptyState
-          icon={<Music className="size-10" />}
-          heading={hasFilters ? "No matching tracks" : "No tracks yet"}
-          description={(() => {
-            if (hasFilters) return "Try adjusting your search or filters.";
-            const oauthLabels = connectors
-              .filter((c) => c.auth_method === "oauth")
-              .map((c) => c.display_name);
-            const source =
-              oauthLabels.length > 0
-                ? formatList(oauthLabels, "disjunction")
-                : "a music service";
-            return `Import your music from ${source} to see your library here.`;
-          })()}
-          action={
-            !hasFilters ? (
-              <Button size="sm" asChild>
-                <Link to="/settings/sync">Import Music</Link>
-              </Button>
-            ) : undefined
-          }
-        />
-      )}
-
-      {/* Track results — table on wide containers, cards on narrow */}
-      {!isLoading && !isError && tracks.length > 0 && (
+      <QueryStates
+        loading={isLoading}
+        isError={isError}
+        error={error}
+        errorHeading="Failed to load tracks"
+        skeleton={
+          <ListRowsSkeleton
+            rows={8}
+            bars={["h-5 w-56", "h-5 w-32", "h-5 w-16"]}
+          />
+        }
+        isEmpty={tracks.length === 0}
+        empty={
+          <EmptyState
+            icon={<Music className="size-10" />}
+            heading={hasFilters ? "No matching tracks" : "No tracks yet"}
+            description={(() => {
+              if (hasFilters) return "Try adjusting your search or filters.";
+              const oauthLabels = connectors
+                .filter((c) => c.auth_method === "oauth")
+                .map((c) => c.display_name);
+              const source =
+                oauthLabels.length > 0
+                  ? formatList(oauthLabels, "disjunction")
+                  : "a music service";
+              return `Import your music from ${source} to see your library here.`;
+            })()}
+            action={
+              !hasFilters ? (
+                <Button size="sm" asChild>
+                  <Link to="/settings/sync">Import Music</Link>
+                </Button>
+              ) : undefined
+            }
+          />
+        }
+      >
+        {/* Track results — table on wide containers, cards on narrow */}
         <div
           className={cn(
             "transition-all duration-200",
@@ -734,7 +721,7 @@ export function Library() {
             }}
           />
         </div>
-      )}
+      </QueryStates>
 
       <BulkTagDialog
         open={bulkTagOpen}

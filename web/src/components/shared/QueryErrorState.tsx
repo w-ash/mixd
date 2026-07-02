@@ -16,9 +16,12 @@ import { EmptyState } from "./EmptyState";
 export function QueryErrorState({
   error,
   heading,
+  description,
 }: {
   error: unknown;
   heading: string;
+  /** Static override of the default error-message description. */
+  description?: string;
 }) {
   if (isDatabaseUnavailable(error)) {
     return <DatabaseUnavailable />;
@@ -29,7 +32,10 @@ export function QueryErrorState({
       icon={<AlertTriangle className="size-10" />}
       heading={heading}
       description={
-        error instanceof Error ? error.message : "An unexpected error occurred."
+        description ??
+        (error instanceof Error
+          ? error.message
+          : "An unexpected error occurred.")
       }
       role="alert"
     />

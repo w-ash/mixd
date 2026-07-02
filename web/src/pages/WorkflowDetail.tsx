@@ -13,6 +13,7 @@ import { STALE } from "#/api/query-client";
 import { PageHeader } from "#/components/layout/PageHeader";
 import { BackLink } from "#/components/shared/BackLink";
 import { EmptyState } from "#/components/shared/EmptyState";
+import { DetailHeaderSkeleton } from "#/components/shared/skeletons";
 import { Button } from "#/components/ui/button";
 import { Skeleton } from "#/components/ui/skeleton";
 import { RunHistoryTable } from "#/components/workflow/RunHistoryTable";
@@ -28,10 +29,7 @@ import { cn } from "#/lib/utils";
 function DetailSkeleton() {
   return (
     <div className="space-y-6">
-      <div className="space-y-2">
-        <Skeleton className="h-8 w-64" />
-        <Skeleton className="h-4 w-96" />
-      </div>
+      <DetailHeaderSkeleton />
       <Skeleton className="h-16 w-full rounded-lg" />
       <Skeleton className="h-24 w-full rounded-lg" />
     </div>

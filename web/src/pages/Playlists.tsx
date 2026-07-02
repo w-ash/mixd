@@ -15,12 +15,12 @@ import {
 import { CreatePlaylistModal } from "#/components/shared/CreatePlaylistModal";
 import { EmptyState } from "#/components/shared/EmptyState";
 import { ImportPlaylistsConfirmDialog } from "#/components/shared/ImportPlaylistsConfirmDialog";
-import { QueryErrorState } from "#/components/shared/QueryErrorState";
+import { QueryStates } from "#/components/shared/QueryStates";
 import { ResponsiveTable } from "#/components/shared/ResponsiveTable";
+import { ListRowsSkeleton } from "#/components/shared/skeletons";
 import { TablePagination } from "#/components/shared/TablePagination";
 import { TitleLink } from "#/components/shared/TitleLink";
 import { Button } from "#/components/ui/button";
-import { Skeleton } from "#/components/ui/skeleton";
 import {
   Table,
   TableBody,
@@ -33,22 +33,6 @@ import { usePagination } from "#/hooks/usePagination";
 import { decodeHtmlEntities, formatDate } from "#/lib/format";
 import { pluralSuffix } from "#/lib/pluralize";
 import { getSyncStatusConfig } from "#/lib/sync-status";
-
-function PlaylistTableSkeleton() {
-  return (
-    <div className="space-y-3">
-      {Array.from({ length: 5 }).map((_, i) => (
-        // biome-ignore lint/suspicious/noArrayIndexKey: static skeleton placeholders
-        <div key={i} className="flex items-center gap-4">
-          <Skeleton className="h-5 w-48" />
-          <Skeleton className="h-5 w-16" />
-          <Skeleton className="h-5 w-24" />
-          <Skeleton className="h-5 w-32" />
-        </div>
-      ))}
-    </div>
-  );
-}
 
 /**
  * Card representation of a Playlist row — used by ResponsiveTable below the
@@ -160,99 +144,102 @@ export function Playlists() {
         />
       )}
 
-      {isLoading && <PlaylistTableSkeleton />}
-
-      {isError && (
-        <QueryErrorState error={error} heading="Failed to load playlists" />
-      )}
-
-      {!isLoading && !isError && playlists.length === 0 && (
-        <EmptyState
-          icon={<Music className="size-10" />}
-          heading="No playlists yet"
-          description="Create your first playlist to start curating your music collection."
-          action={<CreatePlaylistModal />}
-        />
-      )}
-
-      {!isLoading && !isError && playlists.length > 0 && (
-        <>
-          <ResponsiveTable
-            cards={
-              <div className="flex flex-col gap-2">
+      <QueryStates
+        loading={isLoading}
+        isError={isError}
+        error={error}
+        errorHeading="Failed to load playlists"
+        skeleton={
+          <ListRowsSkeleton
+            rows={5}
+            bars={["h-5 w-48", "h-5 w-16", "h-5 w-24", "h-5 w-32"]}
+          />
+        }
+        isEmpty={playlists.length === 0}
+        empty={
+          <EmptyState
+            icon={<Music className="size-10" />}
+            heading="No playlists yet"
+            description="Create your first playlist to start curating your music collection."
+            action={<CreatePlaylistModal />}
+          />
+        }
+      >
+        <ResponsiveTable
+          cards={
+            <div className="flex flex-col gap-2">
+              {playlists.map((playlist) => (
+                <PlaylistCard key={playlist.id} playlist={playlist} />
+              ))}
+            </div>
+          }
+          table={
+            <Table>
+              <TableHeader>
+                <TableRow>
+                  <TableHead>Name</TableHead>
+                  <TableHead className="w-24 text-right">Tracks</TableHead>
+                  <TableHead className="w-40">Connectors</TableHead>
+                  <TableHead className="w-36 text-right">Updated</TableHead>
+                </TableRow>
+              </TableHeader>
+              <TableBody>
                 {playlists.map((playlist) => (
-                  <PlaylistCard key={playlist.id} playlist={playlist} />
-                ))}
-              </div>
-            }
-            table={
-              <Table>
-                <TableHeader>
-                  <TableRow>
-                    <TableHead>Name</TableHead>
-                    <TableHead className="w-24 text-right">Tracks</TableHead>
-                    <TableHead className="w-40">Connectors</TableHead>
-                    <TableHead className="w-36 text-right">Updated</TableHead>
-                  </TableRow>
-                </TableHeader>
-                <TableBody>
-                  {playlists.map((playlist) => (
-                    <TableRow key={playlist.id}>
-                      <TableCell>
-                        <Link
-                          to={`/playlists/${playlist.id}`}
-                          viewTransition
-                          className="font-medium text-text hover:text-primary transition-colors"
-                        >
-                          {playlist.name}
-                        </Link>
-                        {playlist.description && (
-                          <p className="mt-0.5 text-xs text-text-muted line-clamp-1">
-                            {decodeHtmlEntities(playlist.description)}
-                          </p>
-                        )}
-                      </TableCell>
-                      <TableCell className="text-right tabular-nums">
-                        {playlist.track_count}
-                      </TableCell>
-                      <TableCell>
-                        <div className="flex gap-2">
-                          {playlist.connector_links.map((link) => (
+                  <TableRow key={playlist.id}>
+                    <TableCell>
+                      <Link
+                        to={`/playlists/${playlist.id}`}
+                        viewTransition
+                        className="font-medium text-text hover:text-primary transition-colors"
+                      >
+                        {playlist.name}
+                      </Link>
+                      {playlist.description && (
+                        <p className="mt-0.5 text-xs text-text-muted line-clamp-1">
+                          {decodeHtmlEntities(playlist.description)}
+                        </p>
+                      )}
+                    </TableCell>
+                    <TableCell className="text-right tabular-nums">
+                      {playlist.track_count}
+                    </TableCell>
+                    <TableCell>
+                      <div className="flex gap-2">
+                        {playlist.connector_links.map((link) => (
+                          <span
+                            key={link.connector_name}
+                            className="inline-flex items-center gap-1.5"
+                          >
+                            <ConnectorIcon
+                              name={link.connector_name}
+                              labelHidden
+                            />
                             <span
-                              key={link.connector_name}
-                              className="inline-flex items-center gap-1.5"
-                            >
-                              <ConnectorIcon
-                                name={link.connector_name}
-                                labelHidden
-                              />
-                              <span
-                                className={`size-1.5 rounded-full ${getSyncStatusConfig(link.sync_status).dotClass}`}
-                                title={`${link.sync_direction} · ${link.sync_status}`}
-                              />
-                            </span>
-                          ))}
-                        </div>
-                      </TableCell>
-                      <TableCell className="text-right text-text-muted text-sm">
-                        {formatDate(playlist.updated_at)}
-                      </TableCell>
-                    </TableRow>
-                  ))}
-                </TableBody>
-              </Table>
-            }
-          />
+                              className={`size-1.5 rounded-full ${getSyncStatusConfig(link.sync_status).dotClass}`}
+                              title={`${link.sync_direction} · ${link.sync_status}`}
+                            />
+                          </span>
+                        ))}
+                      </div>
+                    </TableCell>
+                    <TableCell className="text-right text-text-muted text-sm">
+                      {formatDate(playlist.updated_at)}
+                    </TableCell>
+                  </TableRow>
+                ))}
+              </TableBody>
+            </Table>
+          }
+        />
 
-          <TablePagination
-            page={Math.min(page, totalPages)}
-            totalPages={totalPages}
-            total={total}
-            limit={limit}
-            onPageChange={setPage}
-          />
-        </>
-      )}
+        <TablePagination
+          page={Math.min(page, totalPages)}
+          totalPages={totalPages}
+          total={total}
+          limit={limit}
+          onPageChange={setPage}
+        />
+      </QueryStates>
     </div>
   );
 }

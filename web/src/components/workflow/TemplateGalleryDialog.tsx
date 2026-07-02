@@ -9,14 +9,14 @@ import {
 } from "#/api/generated/workflows/workflows";
 import { EmptyState } from "#/components/shared/EmptyState";
 import { NodeTypeBadge } from "#/components/shared/NodeTypeBadge";
-import { QueryErrorState } from "#/components/shared/QueryErrorState";
+import { QueryStates } from "#/components/shared/QueryStates";
+import { BlocksSkeleton } from "#/components/shared/skeletons";
 import {
   DialogDescription,
   DialogHeader,
   DialogTitle,
 } from "#/components/ui/dialog";
 import { ResponsiveDialog } from "#/components/ui/responsive-dialog";
-import { Skeleton } from "#/components/ui/skeleton";
 import { toasts } from "#/lib/toasts";
 
 /** One selectable template card in the gallery list. */
@@ -66,17 +66,6 @@ function TemplateCard({
   );
 }
 
-function GallerySkeleton() {
-  return (
-    <div className="flex flex-col gap-3">
-      {Array.from({ length: 4 }).map((_, i) => (
-        // biome-ignore lint/suspicious/noArrayIndexKey: static skeleton placeholders
-        <Skeleton key={i} className="h-20 w-full rounded-md" />
-      ))}
-    </div>
-  );
-}
-
 /**
  * "Start from a template" gallery. Lists the built-in, file-backed templates
  * from `GET /workflows/templates`; selecting one instantiates a new
@@ -123,21 +112,23 @@ export function TemplateGalleryDialog({ trigger }: { trigger: ReactNode }) {
       </DialogHeader>
 
       <div className="mt-4 max-h-[60vh] overflow-y-auto">
-        {isLoading && <GallerySkeleton />}
-
-        {isError && (
-          <QueryErrorState error={error} heading="Failed to load templates" />
-        )}
-
-        {!isLoading && !isError && templates.length === 0 && (
-          <EmptyState
-            icon={<LayoutTemplate className="size-10" />}
-            heading="No templates available"
-            description="There are no built-in templates to start from right now."
-          />
-        )}
-
-        {!isLoading && !isError && templates.length > 0 && (
+        <QueryStates
+          loading={isLoading}
+          isError={isError}
+          error={error}
+          errorHeading="Failed to load templates"
+          skeleton={
+            <BlocksSkeleton count={4} className="h-20 w-full rounded-md" />
+          }
+          isEmpty={templates.length === 0}
+          empty={
+            <EmptyState
+              icon={<LayoutTemplate className="size-10" />}
+              heading="No templates available"
+              description="There are no built-in templates to start from right now."
+            />
+          }
+        >
           <div className="flex flex-col gap-3">
             {templates.map((template) => (
               <TemplateCard
@@ -148,7 +139,7 @@ export function TemplateGalleryDialog({ trigger }: { trigger: ReactNode }) {
               />
             ))}
           </div>
-        )}
+        </QueryStates>
       </div>
     </ResponsiveDialog>
   );

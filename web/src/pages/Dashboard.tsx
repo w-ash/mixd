@@ -25,7 +25,7 @@ import { STALE } from "#/api/query-client";
 import { PageHeader } from "#/components/layout/PageHeader";
 import { ConnectorIcon } from "#/components/shared/ConnectorIcon";
 import { PreferenceBadge } from "#/components/shared/PreferenceToggle";
-import { QueryErrorState } from "#/components/shared/QueryErrorState";
+import { QueryStates } from "#/components/shared/QueryStates";
 import { ResponsiveTable } from "#/components/shared/ResponsiveTable";
 import { ScheduleFailuresBanner } from "#/components/shared/ScheduleFailuresBanner";
 import { SectionHeader } from "#/components/shared/SectionHeader";
@@ -33,6 +33,7 @@ import {
   confidenceVariant,
   variantColorClass,
 } from "#/components/shared/StatusIndicator";
+import { CardGridSkeleton } from "#/components/shared/skeletons";
 import { Skeleton } from "#/components/ui/skeleton";
 import {
   Table,
@@ -45,26 +46,6 @@ import {
 import { formatCount, formatList } from "#/lib/format";
 import { pluralize } from "#/lib/pluralize";
 import { cn } from "#/lib/utils";
-
-/* ── Skeleton loader ─────────────────────────────────────── */
-
-function DashboardSkeleton() {
-  return (
-    <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
-      {Array.from({ length: 4 }).map((_, i) => (
-        <div
-          // biome-ignore lint/suspicious/noArrayIndexKey: static skeleton placeholders
-          key={i}
-          className="rounded-xl border border-border-muted bg-surface p-5 space-y-3"
-        >
-          <Skeleton className="size-5" />
-          <Skeleton className="h-8 w-24" />
-          <Skeleton className="h-3 w-16" />
-        </div>
-      ))}
-    </div>
-  );
-}
 
 /* ── Stat card ───────────────────────────────────────────── */
 
@@ -543,20 +524,26 @@ export function Dashboard() {
 
       <ScheduleFailuresBanner />
 
-      {isLoading && <DashboardSkeleton />}
-
-      {isError && (
-        <QueryErrorState error={error} heading="Failed to load statistics" />
-      )}
-
-      {!isLoading &&
-        !isError &&
-        stats &&
-        (stats.total_tracks === 0 ? (
-          <GettingStarted stats={stats} connectorLabels={connectorLabels} />
-        ) : (
-          <StatsGrid stats={stats} />
-        ))}
+      <QueryStates
+        loading={isLoading}
+        isError={isError}
+        error={error}
+        errorHeading="Failed to load statistics"
+        skeleton={
+          <CardGridSkeleton
+            count={4}
+            gridClassName="sm:grid-cols-2 lg:grid-cols-4"
+            bars={["size-5", "h-8 w-24", "h-3 w-16"]}
+          />
+        }
+      >
+        {stats &&
+          (stats.total_tracks === 0 ? (
+            <GettingStarted stats={stats} connectorLabels={connectorLabels} />
+          ) : (
+            <StatsGrid stats={stats} />
+          ))}
+      </QueryStates>
 
       {matchingLoading && <MatchingHealthSkeleton />}
       {health && <MatchingHealth health={health} />}

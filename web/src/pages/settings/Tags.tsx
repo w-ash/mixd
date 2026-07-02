@@ -23,10 +23,11 @@ import { PageHeader } from "#/components/layout/PageHeader";
 import { BulkApplyAssignmentsDialog } from "#/components/shared/BulkApplyAssignmentsDialog";
 import { ConfirmationDialog } from "#/components/shared/ConfirmationDialog";
 import { EmptyState } from "#/components/shared/EmptyState";
+import { QueryStates } from "#/components/shared/QueryStates";
 import { ResponsiveTable } from "#/components/shared/ResponsiveTable";
+import { ListRowsSkeleton } from "#/components/shared/skeletons";
 import { Button } from "#/components/ui/button";
 import { Input } from "#/components/ui/input";
-import { Skeleton } from "#/components/ui/skeleton";
 import { formatDate } from "#/lib/format";
 import { pluralSuffix } from "#/lib/pluralize";
 import { toasts } from "#/lib/toasts";
@@ -36,26 +37,6 @@ type DialogMode = "rename" | "merge" | "delete";
 interface ActiveDialog {
   mode: DialogMode;
   tag: TagSummarySchema;
-}
-
-function TagsSkeleton() {
-  return (
-    <div className="space-y-3">
-      {Array.from({ length: 6 }).map((_, i) => (
-        <div
-          // biome-ignore lint/suspicious/noArrayIndexKey: static skeleton
-          key={i}
-          className="flex items-center gap-4 rounded-lg border border-border bg-surface-elevated px-4 py-3"
-        >
-          <Skeleton className="h-4 w-32" />
-          <Skeleton className="h-3 w-20" />
-          <div className="flex-1" />
-          <Skeleton className="h-3 w-16" />
-          <Skeleton className="h-7 w-24" />
-        </div>
-      ))}
-    </div>
-  );
 }
 
 interface TagRowActionsProps {
@@ -270,33 +251,35 @@ export function Tags() {
         />
       </div>
 
-      {isPending && <TagsSkeleton />}
-
-      {isError && (
-        <EmptyState
-          heading="Couldn't load tags"
-          description="Refresh the page or check your connection."
-          role="alert"
-        />
-      )}
-
-      {!isPending && !isError && tags.length === 0 && (
-        <EmptyState
-          icon={<TagIcon className="size-8" aria-hidden />}
-          heading={
-            trimmedSearch
-              ? `No tags matching "${trimmedSearch}"`
-              : "No tags yet"
-          }
-          description={
-            trimmedSearch
-              ? "Try a different search."
-              : "Tag tracks from the Library or a Track Detail page to start building your taxonomy."
-          }
-        />
-      )}
-
-      {!isPending && !isError && tags.length > 0 && (
+      <QueryStates
+        loading={isPending}
+        isError={isError}
+        errorHeading="Couldn't load tags"
+        errorDescription="Refresh the page or check your connection."
+        skeleton={
+          <ListRowsSkeleton
+            rows={6}
+            variant="card"
+            bars={["h-4 w-32", "h-3 w-20", "ml-auto h-3 w-16", "h-7 w-24"]}
+          />
+        }
+        isEmpty={tags.length === 0}
+        empty={
+          <EmptyState
+            icon={<TagIcon className="size-8" aria-hidden />}
+            heading={
+              trimmedSearch
+                ? `No tags matching "${trimmedSearch}"`
+                : "No tags yet"
+            }
+            description={
+              trimmedSearch
+                ? "Try a different search."
+                : "Tag tracks from the Library or a Track Detail page to start building your taxonomy."
+            }
+          />
+        }
+      >
         <ResponsiveTable
           cards={
             <div className="flex flex-col gap-2">
@@ -365,7 +348,7 @@ export function Tags() {
             </div>
           }
         />
-      )}
+      </QueryStates>
 
       {/* Rename dialog */}
       <ConfirmationDialog

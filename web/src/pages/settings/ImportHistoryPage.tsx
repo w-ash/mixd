@@ -11,7 +11,9 @@ import {
 } from "#/api/generated/operation-runs/operation-runs";
 import { PageHeader } from "#/components/layout/PageHeader";
 import { EmptyState } from "#/components/shared/EmptyState";
+import { QueryStates } from "#/components/shared/QueryStates";
 import { RunStatusBadge } from "#/components/shared/RunStatusBadge";
+import { BlocksSkeleton } from "#/components/shared/skeletons";
 import { Button } from "#/components/ui/button";
 import { Skeleton } from "#/components/ui/skeleton";
 import { formatDateTime } from "#/lib/format";
@@ -156,34 +158,22 @@ export function ImportHistoryPage() {
         description="Persistent log of every import, sync, and bulk apply you've kicked off. Expand any row to see counts and per-item issues."
       />
 
-      {isPending && (
-        <div className="space-y-3">
-          {Array.from({ length: 4 }).map((_, i) => (
-            <Skeleton
-              // biome-ignore lint/suspicious/noArrayIndexKey: static skeleton
-              key={i}
-              className="h-16 w-full rounded-lg"
-            />
-          ))}
-        </div>
-      )}
-
-      {isError && (
-        <EmptyState
-          heading="Couldn't load import history"
-          description="Refresh the page or check your connection."
-          role="alert"
-        />
-      )}
-
-      {!isPending && !isError && runs.length === 0 && (
-        <EmptyState
-          heading="No imports yet"
-          description="Run one from Settings → Integrations or the CLI, then come back to see the audit row."
-        />
-      )}
-
-      {!isPending && !isError && runs.length > 0 && (
+      <QueryStates
+        loading={isPending}
+        isError={isError}
+        errorHeading="Couldn't load import history"
+        errorDescription="Refresh the page or check your connection."
+        skeleton={
+          <BlocksSkeleton count={4} className="h-16 w-full rounded-lg" />
+        }
+        isEmpty={runs.length === 0}
+        empty={
+          <EmptyState
+            heading="No imports yet"
+            description="Run one from Settings → Integrations or the CLI, then come back to see the audit row."
+          />
+        }
+      >
         <div className="overflow-hidden rounded-lg border border-border bg-surface-elevated shadow-elevated">
           <ul className="divide-y divide-border">
             {runs.map((run) => {
@@ -228,7 +218,7 @@ export function ImportHistoryPage() {
             })}
           </ul>
         </div>
-      )}
+      </QueryStates>
 
       {nextCursor && (
         <div className="mt-6 flex justify-center">

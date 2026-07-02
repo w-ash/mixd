@@ -43,7 +43,7 @@ import { type AssignMode, AssignPlaylistDialog } from "./AssignPlaylistDialog";
 import { EmptyState } from "./EmptyState";
 import { ImportStatusPill } from "./ImportStatusPill";
 import { PreferenceBadge, type PreferenceState } from "./PreferenceToggle";
-import { QueryErrorState } from "./QueryErrorState";
+import { QueryStates } from "./QueryStates";
 import { TagChip } from "./TagChip";
 
 /**
@@ -404,34 +404,35 @@ export function ConnectorPlaylistPickerDialog({
         </div>
 
         <div className="max-h-[50vh] overflow-y-auto rounded-md border">
-          {isLoading ? (
-            <div className="px-3 py-2">
-              {Array.from({ length: 5 }).map((_, i) => (
-                // biome-ignore lint/suspicious/noArrayIndexKey: static skeleton
-                <PlaylistRowSkeleton key={i} />
-              ))}
-            </div>
-          ) : isError ? (
-            <div className="p-4">
-              <QueryErrorState
-                error={error}
-                heading={`Couldn't load ${connectorLabel} playlists`}
+          <QueryStates
+            loading={isLoading}
+            isError={isError}
+            error={error}
+            errorHeading={`Couldn't load ${connectorLabel} playlists`}
+            skeleton={
+              <div className="px-3 py-2">
+                {Array.from({ length: 5 }).map((_, i) => (
+                  // biome-ignore lint/suspicious/noArrayIndexKey: static skeleton
+                  <PlaylistRowSkeleton key={i} />
+                ))}
+              </div>
+            }
+            isEmpty={filtered.length === 0}
+            empty={
+              <EmptyState
+                heading={
+                  playlists.length === 0
+                    ? "No playlists"
+                    : "No playlists match your filters"
+                }
+                description={
+                  playlists.length === 0
+                    ? `Connect ${connectorLabel} or create a playlist there to see it here.`
+                    : "Try removing a filter or clearing the search."
+                }
               />
-            </div>
-          ) : filtered.length === 0 ? (
-            <EmptyState
-              heading={
-                playlists.length === 0
-                  ? "No playlists"
-                  : "No playlists match your filters"
-              }
-              description={
-                playlists.length === 0
-                  ? `Connect ${connectorLabel} or create a playlist there to see it here.`
-                  : "Try removing a filter or clearing the search."
-              }
-            />
-          ) : (
+            }
+          >
             <div>
               {!isSelect && (
                 <div className="sticky top-0 z-10 flex items-center gap-3 border-b bg-background px-3 py-2 text-xs text-text-muted">
@@ -632,7 +633,7 @@ export function ConnectorPlaylistPickerDialog({
                   );
                 })}
             </div>
-          )}
+          </QueryStates>
         </div>
 
         <DialogFooter>

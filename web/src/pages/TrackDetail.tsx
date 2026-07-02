@@ -25,11 +25,14 @@ import {
   confidenceVariant,
   StatusIndicator,
 } from "#/components/shared/StatusIndicator";
+import {
+  CardGridSkeleton,
+  DetailHeaderSkeleton,
+} from "#/components/shared/skeletons";
 import { TagEditor } from "#/components/shared/TagEditor";
 import { UnlinkMappingDialog } from "#/components/shared/UnlinkMappingDialog";
 import { Badge } from "#/components/ui/badge";
 import { Button } from "#/components/ui/button";
-import { Skeleton } from "#/components/ui/skeleton";
 import {
   decodeHtmlEntities,
   formatArtists,
@@ -42,16 +45,8 @@ import { toasts } from "#/lib/toasts";
 function DetailSkeleton() {
   return (
     <div className="space-y-6">
-      <div className="space-y-2">
-        <Skeleton className="h-8 w-64" />
-        <Skeleton className="h-4 w-48" />
-      </div>
-      <div className="grid grid-cols-2 gap-4">
-        <Skeleton className="h-24 w-full" />
-        <Skeleton className="h-24 w-full" />
-        <Skeleton className="h-24 w-full" />
-        <Skeleton className="h-24 w-full" />
-      </div>
+      <DetailHeaderSkeleton subtitleWidth="w-48" />
+      <CardGridSkeleton count={4} gridClassName="grid-cols-2" />
     </div>
   );
 }
