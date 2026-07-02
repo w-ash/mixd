@@ -54,7 +54,7 @@ Populated during investigation. One row per spoke. ROI/Risk are the executor's d
 | ID | Title | Area | Effort | ROI | Risk | Suggested executor | Status |
 |----|-------|------|--------|-----|------|--------------------|--------|
 | [01](01-apple-music-dead-classifier.md) | ~~Delete dead AppleMusicErrorClassifier~~ | infrastructure | — | — | — | — | **Rejected** (user: deliberate groundwork for Apple integration) |
-| [02](02-play-importer-pipeline.md) | Play-importer pipeline: typed params, single username resolution | infrastructure | L | high | med | Fable | Not Started |
+| [02](02-play-importer-pipeline.md) | Play-importer pipeline: typed params, single username resolution | infrastructure | L | high | med | Fable | **Done (v0.8.14)** |
 | [03](03-play-resolver-decomposition.md) | Play-resolver decomposition & Last.fm chain flattening | infrastructure | M | med | med | Opus | Not Started |
 | [04](04-matching-provider-loop-hoist.md) | Matching providers: hoist per-track loop | infrastructure | S | med | low | Opus | **Done (v0.8.14)** |
 | [05](05-lastfm-conversions-boundary.md) | Last.fm conversions: validate at the boundary | infrastructure | S | med | low | Opus | **Done (v0.8.14)** |
@@ -122,6 +122,7 @@ _Unrelated debt discovered mid-sweep, parked for separate tracking (not fixed in
 - **Frontend minor items** (from sweep, below work-order threshold): mutation `invalidate → toast → close` helper (~6 dialogs); `ScheduleFailureBanner` vs `ScheduleFailuresBanner` rename; `NodeConfigPanel` `FieldInput` extraction; `EditorToolbar` `useWorkflowSave` extraction; `Tags.tsx` bespoke `tagMutationCallbacks` (justified by 422-in-onSuccess envelope).
 - **Repo-wide raw-Tailwind-palette sweep** beyond spoke 20's three files — bigger scope decision.
 - **`MatchFailureReason.NO_ISRC` has no producers** after spoke 04 removed the only emitters (the unreachable re-validation branches). Removing the enum member is a domain change (persisted/reported failure vocabulary) — decide separately, e.g. at the v0.8.17 vulture prune.
+- **`commit_batch` is absent from `UnitOfWorkProtocol`** (found in spoke 02): only the concrete `DatabaseUnitOfWork` defines it, so the lastfm importer and `_shared/batch_commit.py` reach it via `getattr` guards. Adding it to the protocol (+ mock fixtures) would delete both dances — small, separate change.
 - **`scripts/check_ratchet.sh` fails on main pre-sweep: `noqa (src/) = 14` vs baseline 13** (found integrating spoke 23; count identical before/after every wave-2 spoke). A `# noqa` landed at some point without the baseline moving — needs a whodunit + either removal or a deliberate baseline bump at the v0.8.17 closeout. Conversely `pyright-ignore` is now 19 vs baseline 20 (spoke 15 deleted one) — ratchet the baseline down at closeout.
 - **`added_at_dates` metadata has no production writer** (found in spoke 15): `metric_transforms.py` reads it (`sort_by_date`) and `track.py` types it, but the only writer was the test-kept-alive `Playlist.to_tracklist()` (now deleted); the workflow playlist source builds `track_sources` metadata instead. Either the playlist source should emit `added_at_dates` (feature gap: date-sorting playlist-sourced tracks by added-at) or the reader + typed keys are dead — needs its own decision.
 

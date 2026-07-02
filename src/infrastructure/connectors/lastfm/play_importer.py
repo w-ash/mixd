@@ -1,12 +1,13 @@
-"""Last.fm-specific play importer implementing connector-only ingestion pattern.
+"""Last.fm-specific play importer implementing connector-only ingestion.
 
-MIGRATED from src/infrastructure/services/lastfm_play_importer.py to keep ALL Last.fm
-logic contained within the lastfm connector directory. Contains sophisticated daily
-chunking, checkpoint management, and boundary-respecting import logic.
+Contains all Last.fm import logic: token-first account resolution, daily
+chunking, checkpoint management, and boundary-respecting date ranges.
 """
 
 from datetime import UTC, date, datetime, time, timedelta
-from typing import cast, override
+from typing import override
+
+from attrs import evolve
 
 from src.config import get_logger, settings
 from src.config.constants import LastFMConstants
@@ -18,27 +19,30 @@ from src.domain.entities import (
 )
 from src.domain.entities.progress import ProgressEmitter, create_progress_event
 from src.domain.exceptions import LastfmAuthRequiredError
-from src.domain.repositories.play import PlayImporterProtocol
+from src.domain.repositories.play import (
+    LastfmImportParams,
+    PlayImporterProtocol,
+    PlayImportParams,
+)
 from src.domain.repositories.uow import UnitOfWorkProtocol
 from src.infrastructure.connectors._shared.token_storage import (
     TokenStorage,
     get_token_storage,
 )
 from src.infrastructure.connectors.lastfm.connector import LastFMConnector
-from src.infrastructure.services.base_play_importer import (
-    BasePlayImporter,
-    LastFMImportParams,
-)
+from src.infrastructure.services.base_play_importer import BasePlayImporter
 
 logger = get_logger(__name__)
 
 
-class LastfmPlayImporter(BasePlayImporter[PlayRecord], PlayImporterProtocol):
-    """Last.fm-specific play importer with sophisticated chunking and checkpoint logic.
+class LastfmPlayImporter(
+    BasePlayImporter[PlayRecord, LastfmImportParams], PlayImporterProtocol
+):
+    """Last.fm play importer with daily chunking and checkpoint logic.
 
-    MIGRATED from services directory to maintain clean architecture boundaries.
-    Implements PlayImporterProtocol for use with generic PlayImportOrchestrator.
-    Contains ALL Last.fm-specific logic: daily chunking, checkpoint management, etc.
+    Implements PlayImporterProtocol for use with the generic
+    PlayImportOrchestrator. Ingests connector plays only; canonical resolution
+    is the resolver's job (two-phase import).
     """
 
     operation_name: str
@@ -50,15 +54,14 @@ class LastfmPlayImporter(BasePlayImporter[PlayRecord], PlayImporterProtocol):
         lastfm_connector: LastFMConnector | None = None,
         token_storage: TokenStorage | None = None,
     ) -> None:
-        """Initialize Last.fm play importer for connector-only ingestion pattern.
+        """Initialize Last.fm play importer for connector-only ingestion.
 
         Args:
-            lastfm_connector: Last.fm API connector (optional, will create if None)
-            token_storage: OAuth token store used to resolve the connected Last.fm
-                account name per mixd user (optional, defaults to the DB-backed store)
+            lastfm_connector: Last.fm API connector (optional, created if None)
+            token_storage: OAuth token store used to resolve the connected
+                Last.fm account name per mixd user (optional, defaults to the
+                DB-backed store)
         """
-        # Initialize base class with None since we only do connector ingestion
-        super().__init__(None)
         self.operation_name = "Last.fm Connector Play Import"
         self.lastfm_connector = lastfm_connector or LastFMConnector()
         self._token_storage = token_storage or get_token_storage()
@@ -67,71 +70,54 @@ class LastfmPlayImporter(BasePlayImporter[PlayRecord], PlayImporterProtocol):
     async def import_plays(
         self,
         uow: UnitOfWorkProtocol,
+        params: PlayImportParams,
+        *,
+        user_id: str | None = None,
         progress_emitter: ProgressEmitter | None = None,
-        **params: object,
     ) -> tuple[OperationResult, list[ConnectorTrackPlay]]:
         """Import Last.fm plays as connector_plays for later resolution.
 
-        Implements PlayImporterProtocol interface. Uses sophisticated chunking logic.
-
         Args:
             uow: Unit of work for database operations
-            **params: Last.fm parameters (username, from_date, to_date, limit, etc.)
+            params: Last.fm import selectors (username, date range, limit)
+            user_id: The mixd user id (web path) for token-first account
+                resolution; None for CLI/local-dev
+            progress_emitter: Optional progress emitter
 
         Returns:
             Tuple of (operation_result, connector_plays_list)
         """
-        # Resolve the mixd user_id (web path) before extracting params so it never
-        # leaks downstream into the day-chunk kwargs. None for CLI/local-dev.
-        user_id = cast("str | None", params.pop("user_id", None))
+        if not isinstance(params, LastfmImportParams):
+            raise TypeError(
+                f"LastfmPlayImporter requires LastfmImportParams, got {type(params).__name__}"
+            )
 
-        # Extract common and Last.fm-specific parameters using typed approach
-        common_params, lastfm_params = self._extract_common_params(**params)
-        # One cast at the template-method boundary: the remaining service params
-        # are object-typed; downstream typed accessors define the field shapes.
-        typed_params = cast(LastFMImportParams, {**common_params, **lastfm_params})
-
-        # Resolve the Last.fm account ONCE, token-first, and pass the concrete name
-        # down so the per-day fetch + checkpoint never fall back to env for a web
-        # user (the cross-tenant leak). Raises LastfmAuthRequiredError if nothing
-        # resolves (web user with no connected account and no env).
-        resolved_username = await self._resolve_username(
-            typed_params.get("username"), user_id
-        )
+        # Resolve the Last.fm account ONCE, token-first, and pass the concrete
+        # name down so the per-day fetch + checkpoint never fall back to env for
+        # a web user (the cross-tenant leak). Raises LastfmAuthRequiredError if
+        # nothing resolves (web user with no connected account and no env).
+        resolved_username = await self._resolve_username(params.username, user_id)
 
         logger.info(
             "Starting Last.fm connector play ingestion with unified approach",
             username=resolved_username,
-            from_date=typed_params.get("from_date"),
-            to_date=typed_params.get("to_date"),
-            limit=typed_params.get("limit"),
+            from_date=params.from_date,
+            to_date=params.to_date,
+            limit=params.limit,
         )
 
-        # Handle checkpoint reset for full history imports (moved from application layer)
-        limit = typed_params.get("limit")
+        # Checkpoint reset for full history imports
         if (
-            limit and limit >= settings.import_settings.full_history_import_threshold
-        ):  # Full history import detection
+            params.limit
+            and params.limit >= settings.import_settings.full_history_import_threshold
+        ):
             await self._reset_checkpoint_for_full_history(resolved_username, uow)
 
-        # Use migrated sophisticated import logic with typed parameters
-        result = await self._import_plays_unified(
-            import_batch_id=typed_params.get("import_batch_id"),
-            progress_emitter=progress_emitter,
+        result, connector_plays = await self.import_data(
+            evolve(params, username=resolved_username),
             uow=uow,
-            from_date=typed_params.get("from_date"),
-            to_date=typed_params.get("to_date"),
-            username=resolved_username,
-            # Pass any remaining parameters that aren't in the typed interface
-            **{
-                k: v
-                for k, v in lastfm_params.items()
-                if k not in {"username", "from_date", "to_date", "limit"}
-            },
+            progress_emitter=progress_emitter,
         )
-
-        # Get the connector plays using base class method
-        connector_plays = self._get_stored_connector_plays()
 
         logger.info(
             "Last.fm connector play ingestion complete",
@@ -173,133 +159,76 @@ class LastfmPlayImporter(BasePlayImporter[PlayRecord], PlayImporterProtocol):
 
         raise LastfmAuthRequiredError()
 
-    # === MIGRATED SOPHISTICATED LOGIC FROM ORIGINAL IMPORTER ===
+    @staticmethod
+    def _require_resolved_username(params: LastfmImportParams) -> str:
+        """Narrow the resolved username, failing loudly if resolution was skipped.
 
-    async def _import_plays_unified(
-        self,
-        import_batch_id: str | None = None,
-        progress_emitter: ProgressEmitter | None = None,
-        uow: UnitOfWorkProtocol | None = None,
-        **kwargs: object,
-    ) -> OperationResult:
-        """Import Last.fm plays with unified checkpoint-bounded approach.
-
-        MIGRATED from original LastfmPlayImporter. Sophisticated logic for:
-        - Explicit range: Provide from_date/to_date to establish or expand import window
-        - Incremental: No dates to import from last checkpoint to now (respects boundaries)
+        ``import_plays`` always evolves the params with the resolved account
+        before entering the pipeline; a None here means a caller bypassed
+        ``_resolve_username`` — the exact path that used to silently fall back
+        to env (the cross-tenant leak), now a hard error instead.
         """
-        # Extract Last.fm-specific parameters from kwargs
-        from_date = kwargs.get("from_date")
-        to_date = kwargs.get("to_date")
-        username = kwargs.get("username")
-
-        # Unified approach - always use date range strategy with smart boundaries
-        return await self.import_data(
-            import_batch_id=import_batch_id,
-            progress_emitter=progress_emitter,
-            uow=uow,
-            from_date=from_date,
-            to_date=to_date,
-            username=username,
-            **{
-                k: v
-                for k, v in kwargs.items()
-                if k not in {"from_date", "to_date", "username"}
-            },
-        )
+        if params.username is None:
+            raise ValueError(
+                "username must be resolved before the import pipeline "
+                "(see LastfmPlayImporter._resolve_username)"
+            )
+        return params.username
 
     @override
     async def _fetch_data(
         self,
+        params: LastfmImportParams,
+        *,
+        uow: UnitOfWorkProtocol,
         progress_emitter: ProgressEmitter | None = None,
-        uow: UnitOfWorkProtocol | None = None,
-        from_date: datetime | None = None,
-        to_date: datetime | None = None,
-        username: str | None = None,
         operation_id: str | None = None,
-        **kwargs: object,
     ) -> list[PlayRecord]:
         """Unified import using checkpoint-bounded date ranges.
 
-        MIGRATED sophisticated logic from original importer:
         1. Explicit range: from_date/to_date provided (establishes/expands boundaries)
         2. Incremental: no dates (checkpoint-bounded, last run to now)
         """
-        # Unified checkpoint resolution
-        explicit_range = from_date is not None
-        checkpoint = await self._resolve_checkpoint(username=username, uow=uow)
+        username = self._require_resolved_username(params)
 
-        # Smart date range determination
+        explicit_range = params.from_date is not None
+        checkpoint = await self._resolve_checkpoint(username, uow)
+
         effective_from, effective_to = self._determine_date_range(
-            requested_from=from_date, requested_to=to_date, checkpoint=checkpoint
+            requested_from=params.from_date,
+            requested_to=params.to_date,
+            checkpoint=checkpoint,
         )
 
         logger.info(f"📡 Unified Last.fm import: {effective_from} to {effective_to}")
 
-        # Single code path - always use daily chunking (superior strategy)
+        # Single code path - always use daily chunking
         return await self._fetch_date_range_strategy(
             from_date=effective_from,
             to_date=effective_to,
             username=username,
-            checkpoint=checkpoint,  # Pass resolved checkpoint to avoid redundant lookup
+            checkpoint=checkpoint,  # Already resolved; avoids a redundant lookup
             progress_emitter=progress_emitter,
             uow=uow,
             explicit_range=explicit_range,
             operation_id=operation_id,
-            **kwargs,
         )
 
     async def _resolve_checkpoint(
-        self,
-        username: str | None = None,
-        uow: UnitOfWorkProtocol | None = None,
-        require_username: bool = False,
+        self, username: str, uow: UnitOfWorkProtocol
     ) -> SyncCheckpoint | None:
-        """Unified checkpoint resolution for all import operations.
-
-        MIGRATED: Eliminates duplicate checkpoint loading logic across methods.
-        """
-
-        if not uow:
-            return None
-
+        """Load the plays sync checkpoint, degrading to None on lookup failure."""
         try:
-            return await self._load_checkpoint(
-                username, uow, require_username=require_username
+            checkpoint_repository = uow.get_checkpoint_repository()
+            checkpoint = await checkpoint_repository.get_sync_checkpoint(
+                user_id=username, service="lastfm", entity_type="plays"
             )
         except Exception as e:
             logger.warning(f"Checkpoint resolution failed: {e}")
-            if require_username:
-                raise
             return None
-
-    async def _load_checkpoint(
-        self,
-        username: str | None,
-        uow: UnitOfWorkProtocol,
-        *,
-        require_username: bool,
-    ) -> SyncCheckpoint | None:
-        """Resolve the username and load the plays sync checkpoint."""
-
-        def _raise_username_required_error() -> None:
-            raise ValueError("Username is required for checkpoint operations")
-
-        resolved_username = username or self.lastfm_connector.lastfm_username
-        if not resolved_username:
-            if require_username:
-                _raise_username_required_error()
-            logger.debug("No username available for checkpoint operations")
-            return None
-
-        # Get checkpoint repository from UnitOfWork to ensure same transaction context
-        checkpoint_repository = uow.get_checkpoint_repository()
-        checkpoint = await checkpoint_repository.get_sync_checkpoint(
-            user_id=resolved_username, service="lastfm", entity_type="plays"
-        )
 
         logger.debug(
-            f"Checkpoint resolution: found={checkpoint is not None}, user={resolved_username}"
+            f"Checkpoint resolution: found={checkpoint is not None}, user={username}"
         )
         return checkpoint
 
@@ -311,7 +240,7 @@ class LastfmPlayImporter(BasePlayImporter[PlayRecord], PlayImporterProtocol):
     ) -> tuple[datetime, datetime]:
         """Smart boundary-respecting date range logic.
 
-        MIGRATED: Handles both explicit ranges and checkpoint-bounded incremental imports.
+        Handles both explicit ranges and checkpoint-bounded incremental imports.
         """
         now = datetime.now(UTC)
 
@@ -337,19 +266,17 @@ class LastfmPlayImporter(BasePlayImporter[PlayRecord], PlayImporterProtocol):
         self,
         from_date: datetime,
         to_date: datetime,
-        username: str | None = None,
+        username: str,
         checkpoint: SyncCheckpoint | None = None,
         progress_emitter: ProgressEmitter | None = None,
         uow: UnitOfWorkProtocol | None = None,
         explicit_range: bool = False,
         operation_id: str | None = None,
-        **additional_options: object,
     ) -> list[PlayRecord]:
-        """Download scrobbles using smart daily chunking with auto-scaling for power users.
+        """Download scrobbles using smart daily chunking.
 
-        MIGRATED sophisticated chunking logic from original importer.
-        Most users listen to <200 tracks/day, so we optimize for daily chunks.
-        Only sub-chunk when a day returns exactly 200 tracks (power user case).
+        Most users listen to <200 tracks/day, so daily chunks are optimal;
+        the Last.fm client paginates within a day when needed.
 
         Args:
             explicit_range: When True, the caller explicitly requested this date range.
@@ -357,72 +284,16 @@ class LastfmPlayImporter(BasePlayImporter[PlayRecord], PlayImporterProtocol):
                 fetches even when the checkpoint is ahead of the requested range.
             operation_id: Optional operation ID for progress event emission.
         """
-        _ = additional_options  # Reserved for future extensibility
-        username = username or self.lastfm_connector.lastfm_username
-        if not username:
-            raise ValueError(
-                "No Last.fm username provided or configured (set LASTFM_USERNAME environment variable)"
-            )
-
         logger.info(
             f"📡 Fetching tracks with daily chunking: from_date={from_date}, to_date={to_date}, user={username}"
         )
-        logger.debug(
-            f"Daily chunking debug: from_date type={type(from_date)}, to_date type={type(to_date)}"
-        )
-
-        if not uow:
-            logger.warning("No UnitOfWork provided - checkpoint functionality disabled")
-
-        # Checkpoint parameter contains the already-resolved checkpoint from _fetch_data
 
         # Adjust start date based on checkpoint for incremental imports
-        original_start_date = from_date.date()
-        original_end_date = to_date.date()
-
-        if checkpoint and checkpoint.cursor and not explicit_range:
-            # Resume from checkpoint - always re-process checkpoint day to catch new plays.
-            # Skip when explicit_range=True: the caller explicitly requested this date
-            # range, so respect it even if the checkpoint is ahead.
-            try:
-                checkpoint_date = datetime.fromisoformat(checkpoint.cursor).date()
-
-                # Always redo the checkpoint day to catch any new tracks that might have been played
-                resume_date = checkpoint_date
-                logger.info(
-                    f"📋 Re-processing checkpoint day: {checkpoint_date} (always redo to catch new plays)"
-                )
-
-                # But don't go earlier than the requested from_date
-                start_date = max(resume_date, original_start_date)
-                logger.debug(
-                    f"Checkpoint resume: checkpoint_date={checkpoint_date}, resume_date={resume_date}, final_start={start_date}"
-                )
-            except (ValueError, TypeError) as e:
-                logger.warning(
-                    f"Invalid checkpoint cursor '{checkpoint.cursor}': {e}, starting from beginning"
-                )
-                start_date = original_start_date
-        else:
-            start_date = original_start_date
-            if explicit_range:
-                logger.debug(
-                    f"Explicit date range requested, ignoring checkpoint. Starting from: {start_date}"
-                )
-            else:
-                logger.debug(
-                    f"No checkpoint found, starting from requested date: {start_date}"
-                )
-
-        end_date = original_end_date
+        start_date = self._resolve_chunk_start(
+            checkpoint, explicit_range=explicit_range, requested_start=from_date.date()
+        )
+        end_date = to_date.date()
         total_days = (end_date - start_date).days + 1
-
-        logger.debug(
-            f"Daily chunking: start_date={start_date}, end_date={end_date}, total_days={total_days}"
-        )
-        logger.debug(
-            f"Date calculation: original range={original_start_date} to {original_end_date}, effective range={start_date} to {end_date}"
-        )
 
         # If we're already caught up, return empty
         if start_date > end_date:
@@ -441,30 +312,15 @@ class LastfmPlayImporter(BasePlayImporter[PlayRecord], PlayImporterProtocol):
         while current_date <= end_date:
             days_processed += 1
 
-            # Note: Progress reporting now handled by event-driven progress system
-            # The ProgressEmitter pattern replaces direct callback invocation
-
-            # Define day boundaries in UTC
+            # Define day boundaries in UTC, respecting the original time
+            # boundaries on the first/last day if more restrictive
             day_start = datetime.combine(current_date, time.min, UTC)
             day_end = datetime.combine(current_date, time.max, UTC)
-
-            logger.debug(
-                f"Day {current_date}: raw boundaries day_start={day_start}, day_end={day_end}"
-            )
-
-            # Respect the original time boundaries if they're more restrictive
             effective_start = (
                 max(day_start, from_date) if current_date == start_date else day_start
             )
             effective_end = (
                 min(day_end, to_date) if current_date == end_date else day_end
-            )
-
-            logger.debug(
-                f"Day {current_date}: effective boundaries start={effective_start}, end={effective_end}"
-            )
-            logger.debug(
-                f"Day {current_date}: is_first_day={current_date == start_date}, is_last_day={current_date == end_date}"
             )
 
             day_records = await self._fetch_day_records(
@@ -475,9 +331,6 @@ class LastfmPlayImporter(BasePlayImporter[PlayRecord], PlayImporterProtocol):
             )
 
             all_play_records.extend(day_records)
-            logger.debug(
-                f"Day {current_date}: fetched {len(day_records)} records, total so far: {len(all_play_records)}"
-            )
 
             if progress_emitter and operation_id:
                 await progress_emitter.emit_progress(
@@ -489,21 +342,9 @@ class LastfmPlayImporter(BasePlayImporter[PlayRecord], PlayImporterProtocol):
                     )
                 )
 
-            # Validate day records timestamps are within expected range
-            if day_records:
-                day_timestamps = [r.played_at for r in day_records]
-                min_ts = min(day_timestamps)
-                max_ts = max(day_timestamps)
-                logger.debug(
-                    f"Day {current_date}: timestamp range {min_ts} to {max_ts}"
-                )
-
-                # Check if timestamps are actually within the day boundaries
-                if min_ts < effective_start or max_ts > effective_end:
-                    logger.warning(
-                        f"Day {current_date}: timestamps outside expected range! "
-                        + f"Expected {effective_start} to {effective_end}, got {min_ts} to {max_ts}"
-                    )
+            self._warn_if_outside_bounds(
+                day_records, current_date, effective_start, effective_end
+            )
 
             # Save checkpoint and commit batch after each day so data
             # survives machine restarts (at most one day lost on crash)
@@ -517,16 +358,12 @@ class LastfmPlayImporter(BasePlayImporter[PlayRecord], PlayImporterProtocol):
                 if batch_commit is not None:
                     await batch_commit()
 
-            # Move to next day (simple and reliable)
-            prev_date = current_date
             current_date += timedelta(days=1)
-            logger.debug(f"Daily iteration: moved from {prev_date} to {current_date}")
 
         logger.info(
             f"📡 Daily chunking complete: {len(all_play_records)} records across {days_processed} days"
         )
 
-        # Log checkpoint status
         if checkpoint:
             logger.info(
                 f"📋 Incremental import complete: processed {days_processed} new days since {checkpoint.cursor}"
@@ -537,6 +374,56 @@ class LastfmPlayImporter(BasePlayImporter[PlayRecord], PlayImporterProtocol):
             )
 
         return all_play_records
+
+    @staticmethod
+    def _resolve_chunk_start(
+        checkpoint: SyncCheckpoint | None,
+        *,
+        explicit_range: bool,
+        requested_start: date,
+    ) -> date:
+        """Pick the chunking start date: checkpoint resume vs. requested start.
+
+        Resuming always re-processes the checkpoint day to catch new plays.
+        When ``explicit_range`` is True the caller explicitly requested this
+        range, so the checkpoint never overrides it (historical fetches work
+        even when the checkpoint is ahead).
+        """
+        if not (checkpoint and checkpoint.cursor and not explicit_range):
+            return requested_start
+
+        try:
+            checkpoint_date = datetime.fromisoformat(checkpoint.cursor).date()
+        except (ValueError, TypeError) as e:
+            logger.warning(
+                f"Invalid checkpoint cursor '{checkpoint.cursor}': {e}, starting from beginning"
+            )
+            return requested_start
+
+        logger.info(
+            f"📋 Re-processing checkpoint day: {checkpoint_date} (always redo to catch new plays)"
+        )
+        # But don't go earlier than the requested from_date
+        return max(checkpoint_date, requested_start)
+
+    @staticmethod
+    def _warn_if_outside_bounds(
+        day_records: list[PlayRecord],
+        current_date: date,
+        effective_start: datetime,
+        effective_end: datetime,
+    ) -> None:
+        """Warn when fetched timestamps violate the day's boundary contract."""
+        if not day_records:
+            return
+        day_timestamps = [r.played_at for r in day_records]
+        min_ts = min(day_timestamps)
+        max_ts = max(day_timestamps)
+        if min_ts < effective_start or max_ts > effective_end:
+            logger.warning(
+                f"Day {current_date}: timestamps outside expected range! "
+                + f"Expected {effective_start} to {effective_end}, got {min_ts} to {max_ts}"
+            )
 
     async def _fetch_day_records(
         self,
@@ -572,16 +459,14 @@ class LastfmPlayImporter(BasePlayImporter[PlayRecord], PlayImporterProtocol):
             uow: UnitOfWork for database operations with proper transaction context
         """
         try:
-            # Create checkpoint using UnitOfWork transaction context
             checkpoint = SyncCheckpoint(
                 user_id=username,
                 service="lastfm",
                 entity_type="plays",
                 last_timestamp=day_end,
-                cursor=completed_date.isoformat(),  # Store date as ISO string for easy parsing
+                cursor=completed_date.isoformat(),  # ISO string for easy parsing
             )
 
-            # Use UnitOfWork's checkpoint repository to ensure proper transaction handling
             checkpoint_repo = uow.get_checkpoint_repository()
             _ = await checkpoint_repo.save_sync_checkpoint(checkpoint)
             logger.debug(f"Checkpoint saved: user={username}, date={completed_date}")
@@ -594,23 +479,14 @@ class LastfmPlayImporter(BasePlayImporter[PlayRecord], PlayImporterProtocol):
     async def _process_data(
         self,
         raw_data: list[PlayRecord],
+        *,
         batch_id: str,
         import_timestamp: datetime,
-        progress_emitter: ProgressEmitter | None = None,
-        uow: UnitOfWorkProtocol | None = None,
-        **kwargs: object,
     ) -> list[ConnectorTrackPlay]:
-        """Convert PlayRecord objects to ConnectorTrackPlay objects.
-
-        Overrides base class to return connector plays instead of canonical plays.
-        """
-        # Mark unused parameters for base class compatibility
-        _ = progress_emitter, uow, kwargs, import_timestamp
-        play_records = raw_data
-        connector_plays: list[ConnectorTrackPlay] = []
-
-        for play_record in play_records:
-            connector_play = ConnectorTrackPlay(
+        """Convert PlayRecord objects to ConnectorTrackPlay objects."""
+        _ = import_timestamp  # Last.fm stamps each play at conversion time
+        return [
+            ConnectorTrackPlay(
                 service="lastfm",
                 track_name=play_record.track_name,
                 artist_name=play_record.artist_name,
@@ -622,67 +498,39 @@ class LastfmPlayImporter(BasePlayImporter[PlayRecord], PlayImporterProtocol):
                 raw_data=play_record.raw_data or {},
                 import_timestamp=datetime.now(UTC),
                 import_source="lastfm_api",
-                import_batch_id=batch_id,  # Use the provided batch_id
+                import_batch_id=batch_id,
             )
-            connector_plays.append(connector_play)
-
-        return connector_plays
-
-    @override
-    async def _save_data(
-        self, data: list[ConnectorTrackPlay], uow: UnitOfWorkProtocol | None = None
-    ) -> tuple[int, int]:
-        """Save connector plays using base class method for DRY compliance."""
-        if data and not uow:
-            raise RuntimeError("UnitOfWork required for Last.fm connector play storage")
-
-        # Use base class method to eliminate duplication
-        return await self._save_connector_plays_via_uow(data, uow) if uow else (0, 0)
+            for play_record in raw_data
+        ]
 
     async def _reset_checkpoint_for_full_history(
-        self, username: str | None, uow: UnitOfWorkProtocol
+        self, username: str, uow: UnitOfWorkProtocol
     ) -> None:
-        """Reset Last.fm checkpoint for full history imports.
-
-        Moved from application layer to maintain clean architecture boundaries.
+        """Reset the Last.fm checkpoint so a full-history import starts clean.
 
         Args:
-            username: Last.fm username (will resolve from connector if None)
-            uow: Unit of work for database operations
+            username: The resolved Last.fm account name.
+            uow: Unit of work for database operations.
         """
-        # Resolve username from connector if not provided
-        resolved_username = username or self.lastfm_connector.lastfm_username
-        if not resolved_username:
-            logger.warning("Cannot reset checkpoint: no Last.fm username available")
-            return
-
-        # Create a new checkpoint with no timestamp (forces full import)
         checkpoint = SyncCheckpoint(
-            user_id=resolved_username,
+            user_id=username,
             service="lastfm",
             entity_type="plays",
-            last_timestamp=None,
+            last_timestamp=None,  # Forces full import
         )
 
-        # Use transaction manager's checkpoint repository
         checkpoint_repo = uow.get_checkpoint_repository()
         _ = await checkpoint_repo.save_sync_checkpoint(checkpoint)
 
         logger.info(
-            f"Reset Last.fm checkpoint for full history import: user={resolved_username}"
+            f"Reset Last.fm checkpoint for full history import: user={username}"
         )
 
     @override
     async def _handle_checkpoints(
         self,
         raw_data: list[PlayRecord],
-        uow: UnitOfWorkProtocol | None = None,
-        **kwargs: object,
+        params: LastfmImportParams,
+        uow: UnitOfWorkProtocol,
     ) -> None:
-        """Update sync checkpoints to track import progress for incremental syncs.
-
-        Last.fm-specific implementation that handles checkpoint updates after daily processing.
-        The actual checkpoint saving is done during daily chunking in _save_day_checkpoint.
-        """
-        # For Last.fm, checkpoints are handled during the daily chunking process
-        # in _save_day_checkpoint method, so this is a no-op
+        """No-op: Last.fm checkpoints are saved per day in _save_day_checkpoint."""

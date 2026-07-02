@@ -22,6 +22,7 @@ from src.domain.entities.progress import (
     ProgressOperation,
 )
 from src.domain.exceptions import LastfmAuthRequiredError, SpotifyAuthRequiredError
+from src.domain.repositories.play import LastfmImportParams, SpotifyImportParams
 from src.domain.repositories.uow import UnitOfWorkProtocol
 
 logger = get_logger(__name__)
@@ -336,7 +337,7 @@ class ImportTracksUseCase:
                 uow=uow,
                 user_id=command.user_id,
                 progress_emitter=progress_emitter,
-                limit=limit,  # Passed to ingestion phase
+                params=LastfmImportParams(limit=limit),
             )
 
             logger.info(
@@ -383,9 +384,11 @@ class ImportTracksUseCase:
                 uow=uow,
                 user_id=command.user_id,
                 progress_emitter=progress_emitter,
-                username=command.username,
-                from_date=command.from_date,
-                to_date=command.to_date,
+                params=LastfmImportParams(
+                    username=command.username,
+                    from_date=command.from_date,
+                    to_date=command.to_date,
+                ),
             )
 
             logger.info(
@@ -443,7 +446,7 @@ class ImportTracksUseCase:
                 uow=uow,
                 user_id=command.user_id,
                 progress_emitter=progress_emitter,
-                limit=50000,  # Passed to ingestion phase
+                params=LastfmImportParams(limit=50000),
             )
 
             logger.info(
@@ -493,7 +496,7 @@ class ImportTracksUseCase:
                 uow=uow,
                 user_id=command.user_id,
                 progress_emitter=progress_emitter,
-                file_path=command.file_path,
+                params=SpotifyImportParams(file_path=Path(command.file_path)),
             )
 
             logger.info(

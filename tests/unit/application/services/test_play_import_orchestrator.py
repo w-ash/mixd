@@ -5,12 +5,14 @@ short-circuit on empty ingestion, and error handling.
 """
 
 from datetime import UTC, datetime
+from pathlib import Path
 from unittest.mock import AsyncMock
 
 import pytest
 
 from src.application.services.play_import_orchestrator import PlayImportOrchestrator
 from src.domain.entities import ConnectorTrackPlay, OperationResult, TrackPlay
+from src.domain.repositories.play import LastfmImportParams, SpotifyImportParams
 from tests.fixtures.mocks import make_mock_uow
 
 
@@ -116,7 +118,10 @@ class TestTwoPhaseHappyPath:
         )
 
         result = await orchestrator.import_plays_two_phase(
-            mock_importer, mock_uow, user_id="test-user", file_path="/fake/path.json"
+            mock_importer,
+            mock_uow,
+            user_id="test-user",
+            params=SpotifyImportParams(file_path=Path("/fake/path.json")),
         )
 
         assert result.operation_name == "Two-Phase Play Import"
@@ -138,7 +143,7 @@ class TestTwoPhaseHappyPath:
         )
 
         result = await orchestrator.import_plays_two_phase(
-            mock_importer, mock_uow, user_id="test-user"
+            mock_importer, mock_uow, user_id="test-user", params=LastfmImportParams()
         )
 
         assert "ingestion_phase" in result.metadata
@@ -155,7 +160,7 @@ class TestEmptyIngestion:
         mock_importer.import_plays.return_value = (ingestion_result, [])
 
         result = await orchestrator.import_plays_two_phase(
-            mock_importer, mock_uow, user_id="test-user"
+            mock_importer, mock_uow, user_id="test-user", params=LastfmImportParams()
         )
 
         # Should return the ingestion result directly
@@ -182,7 +187,7 @@ class TestResolutionPhaseErrors:
         )
 
         result = await orchestrator.import_plays_two_phase(
-            mock_importer, mock_uow, user_id="test-user"
+            mock_importer, mock_uow, user_id="test-user", params=LastfmImportParams()
         )
 
         # The resolution phase error should be in combined metrics
@@ -281,7 +286,7 @@ class TestIncrementalCommit:
         )
 
         await orchestrator.import_plays_two_phase(
-            mock_importer, mock_uow, user_id="test-user"
+            mock_importer, mock_uow, user_id="test-user", params=LastfmImportParams()
         )
 
         mock_uow.commit_batch.assert_awaited_once()
@@ -296,7 +301,7 @@ class TestIncrementalCommit:
         )
 
         await orchestrator.import_plays_two_phase(
-            mock_importer, mock_uow, user_id="test-user"
+            mock_importer, mock_uow, user_id="test-user", params=LastfmImportParams()
         )
 
         mock_uow.commit_batch.assert_not_awaited()
@@ -325,7 +330,11 @@ class TestPhase2Progress:
         emitter.complete_operation = AsyncMock()
 
         await orchestrator.import_plays_two_phase(
-            mock_importer, mock_uow, user_id="test-user", progress_emitter=emitter
+            mock_importer,
+            mock_uow,
+            user_id="test-user",
+            params=LastfmImportParams(),
+            progress_emitter=emitter,
         )
 
         emitter.start_operation.assert_awaited()
@@ -345,7 +354,11 @@ class TestPhase2Progress:
         emitter.start_operation = AsyncMock(return_value="phase2-op-id")
 
         await orchestrator.import_plays_two_phase(
-            mock_importer, mock_uow, user_id="test-user", progress_emitter=emitter
+            mock_importer,
+            mock_uow,
+            user_id="test-user",
+            params=LastfmImportParams(),
+            progress_emitter=emitter,
         )
 
         # Phase 1 may call start_operation via the importer, but Phase 2 should not

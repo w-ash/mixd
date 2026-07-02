@@ -11,6 +11,7 @@ from unittest.mock import AsyncMock, MagicMock
 import pytest
 
 from src.domain.entities import ConnectorTrackPlay
+from src.domain.repositories.play import LastfmImportParams, SpotifyImportParams
 from src.infrastructure.connectors.spotify.personal_data import SpotifyPlayRecord
 from src.infrastructure.connectors.spotify.play_importer import SpotifyPlayImporter
 
@@ -56,21 +57,29 @@ def mock_uow():
 
 
 class TestFetchData:
-    """Test _fetch_data() file validation and parsing."""
+    """Test _fetch_data() file validation and parsing.
 
-    async def test_missing_file_path_raises_value_error(self, importer):
-        with pytest.raises(ValueError, match="file_path is required"):
-            await importer._fetch_data()
+    file_path required-ness moved into SpotifyImportParams (a mandatory attrs
+    field), so the old "file_path is required" runtime guard has no test —
+    omission no longer constructs.
+    """
 
-    async def test_nonexistent_file_raises_file_not_found(self, importer):
+    async def test_nonexistent_file_raises_file_not_found(self, importer, mock_uow):
         with pytest.raises(FileNotFoundError, match="not found"):
-            await importer._fetch_data(file_path=Path("/nonexistent/file.json"))
+            await importer._fetch_data(
+                SpotifyImportParams(file_path=Path("/nonexistent/file.json")),
+                uow=mock_uow,
+            )
 
-    async def test_directory_path_raises_value_error(self, importer, tmp_path: Path):
+    async def test_directory_path_raises_value_error(
+        self, importer, mock_uow, tmp_path: Path
+    ):
         with pytest.raises(ValueError, match="not a file"):
-            await importer._fetch_data(file_path=tmp_path)
+            await importer._fetch_data(
+                SpotifyImportParams(file_path=tmp_path), uow=mock_uow
+            )
 
-    async def test_valid_file_returns_records(self, importer, tmp_path: Path):
+    async def test_valid_file_returns_records(self, importer, mock_uow, tmp_path: Path):
         import json
 
         data = [
@@ -94,37 +103,11 @@ class TestFetchData:
         file = tmp_path / "history.json"
         file.write_text(json.dumps(data))
 
-        records = await importer._fetch_data(file_path=file)
+        records = await importer._fetch_data(
+            SpotifyImportParams(file_path=file), uow=mock_uow
+        )
         assert len(records) == 1
         assert isinstance(records[0], SpotifyPlayRecord)
-
-    async def test_string_path_converted_to_pathlib(self, importer, tmp_path: Path):
-        """String file paths should be auto-converted to Path objects."""
-        import json
-
-        data = [
-            {
-                "ts": "2024-06-15T14:30:00Z",
-                "spotify_track_uri": "spotify:track:abc123",
-                "master_metadata_track_name": "Test",
-                "master_metadata_album_artist_name": "Artist",
-                "master_metadata_album_album_name": "Album",
-                "ms_played": 200000,
-                "platform": "Linux",
-                "conn_country": "US",
-                "reason_start": "trackdone",
-                "reason_end": "trackdone",
-                "shuffle": False,
-                "skipped": False,
-                "offline": False,
-                "incognito_mode": False,
-            }
-        ]
-        file = tmp_path / "history.json"
-        file.write_text(json.dumps(data))
-
-        records = await importer._fetch_data(file_path=str(file))
-        assert len(records) == 1
 
 
 class TestProcessData:
@@ -219,7 +202,7 @@ class TestProcessData:
 
 
 class TestSaveData:
-    """Test _save_data() delegation to connector play repository."""
+    """Test the shared connector-play save path."""
 
     async def test_save_delegates_to_connector_play_repository(
         self, importer, mock_uow
@@ -227,36 +210,35 @@ class TestSaveData:
         plays = [MagicMock(spec=ConnectorTrackPlay)]
         mock_uow.get_connector_play_repository.return_value.bulk_insert_connector_plays.return_value = plays
 
-        inserted, dupes = await importer._save_data(plays, mock_uow)
+        inserted, dupes = await importer._save_connector_plays_via_uow(plays, mock_uow)
 
         mock_uow.get_connector_play_repository.assert_called_once()
         assert inserted == 1
         assert dupes == 0
 
     async def test_save_empty_list_returns_zero(self, importer, mock_uow):
-        inserted, dupes = await importer._save_data([], mock_uow)
+        inserted, dupes = await importer._save_connector_plays_via_uow([], mock_uow)
         assert inserted == 0
         assert dupes == 0
-
-    async def test_save_without_uow_raises(self, importer):
-        with pytest.raises(RuntimeError, match="UnitOfWork required"):
-            await importer._save_data([MagicMock()], None)
 
 
 class TestHandleCheckpoints:
     """Test _handle_checkpoints() — should be a no-op for file-based imports."""
 
-    async def test_checkpoints_is_noop(self, importer):
+    async def test_checkpoints_is_noop(self, importer, mock_uow, tmp_path: Path):
         # Should complete without error or side effects
-        await importer._handle_checkpoints(raw_data=["some", "data"])
+        await importer._handle_checkpoints(
+            [], SpotifyImportParams(file_path=tmp_path / "x.json"), mock_uow
+        )
 
 
 class TestImportPlays:
     """Test the import_plays() protocol method (end-to-end with mocks)."""
 
-    async def test_missing_file_path_raises(self, importer, mock_uow):
-        with pytest.raises(ValueError, match="file_path is required"):
-            await importer.import_plays(mock_uow)
+    async def test_wrong_params_type_raises(self, importer, mock_uow):
+        """The stringly-typed registry boundary is re-typed at runtime."""
+        with pytest.raises(TypeError, match="requires SpotifyImportParams"):
+            await importer.import_plays(mock_uow, LastfmImportParams())
 
     async def test_returns_result_and_connector_plays(
         self, importer, mock_uow, tmp_path: Path
@@ -285,7 +267,7 @@ class TestImportPlays:
         file.write_text(json.dumps(data))
 
         result, connector_plays = await importer.import_plays(
-            mock_uow, file_path=str(file)
+            mock_uow, SpotifyImportParams(file_path=file)
         )
 
         assert result.operation_name == "Spotify Connector Play Import"

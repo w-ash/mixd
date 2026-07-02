@@ -26,7 +26,11 @@ from src.domain.matching.play_dedup import (
     compute_dedup_time_range,
     deduplicate_cross_source_plays,
 )
-from src.domain.repositories.play import PlayImporterProtocol, PlayResolverProtocol
+from src.domain.repositories.play import (
+    PlayImporterProtocol,
+    PlayImportParams,
+    PlayResolverProtocol,
+)
 from src.domain.repositories.uow import UnitOfWorkProtocol
 
 logger = get_logger(__name__)
@@ -48,16 +52,18 @@ class PlayImportOrchestrator:
         uow: UnitOfWorkProtocol,
         *,
         user_id: str,
+        params: PlayImportParams,
         progress_emitter: ProgressEmitter | None = None,
-        **import_params: object,
     ) -> OperationResult:
         """Execute two-phase play import: ingestion then resolution.
 
         Args:
             importer: Pluggable importer instance from infrastructure layer
             uow: Unit of work for database operations
+            user_id: The mixd user id, threaded to the importer for token-first
+                account resolution (the cross-tenant leak fix)
+            params: Importer-specific frozen import selectors
             progress_emitter: Optional progress emitter (defaults to null implementation)
-            **import_params: Importer-specific parameters
 
         Returns:
             Combined operation result with ingestion and resolution metrics
@@ -69,11 +75,8 @@ class PlayImportOrchestrator:
 
         # Phase 1: Raw data ingestion (connector_plays)
         logger.info("Phase 1: Ingesting raw play data")
-        # Thread the mixd user_id so the importer resolves the *connected* account
-        # (stored-token account_name) rather than falling back to env — the
-        # cross-tenant leak fix. The importer pops it before the day-chunk kwargs.
         ingestion_result, connector_plays = await importer.import_plays(
-            uow, user_id=user_id, progress_emitter=progress_emitter, **import_params
+            uow, params, user_id=user_id, progress_emitter=progress_emitter
         )
 
         if not connector_plays:

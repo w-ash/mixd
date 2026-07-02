@@ -5,17 +5,47 @@ Split from the former monolithic ``interfaces.py``.
 
 from collections.abc import Awaitable, Callable, Mapping, Sequence
 from datetime import datetime
+from pathlib import Path
 from typing import TYPE_CHECKING, Literal, Protocol, TypedDict
 from uuid import UUID
+
+from attrs import define
 
 from src.domain.entities import (
     ConnectorTrackPlay,
     OperationResult,
     TrackPlay,
 )
+from src.domain.entities.progress import ProgressEmitter
 
 if TYPE_CHECKING:
     from src.domain.repositories.uow import UnitOfWorkProtocol
+
+
+@define(frozen=True, slots=True)
+class LastfmImportParams:
+    """Selectors for a Last.fm play import (API-based, checkpoint-bounded).
+
+    ``username`` is the *request* username (CLI affordance); the importer
+    resolves the effective account token-first (see the importer's
+    ``_resolve_username``) and threads the resolved name through the pipeline.
+    """
+
+    username: str | None = None
+    from_date: datetime | None = None
+    to_date: datetime | None = None
+    limit: int | None = None
+
+
+@define(frozen=True, slots=True)
+class SpotifyImportParams:
+    """Selectors for a Spotify play import (personal-data file export)."""
+
+    file_path: Path
+    batch_size: int | None = None
+
+
+type PlayImportParams = LastfmImportParams | SpotifyImportParams
 
 
 type PlaySortBy = Literal[
@@ -163,9 +193,17 @@ class PlayImporterProtocol(Protocol):
     async def import_plays(
         self,
         uow: UnitOfWorkProtocol,
-        **params: object,
+        params: PlayImportParams,
+        *,
+        user_id: str | None = None,
+        progress_emitter: ProgressEmitter | None = None,
     ) -> tuple[OperationResult, list[ConnectorTrackPlay]]:
-        """Import plays and return result with connector plays for resolution."""
+        """Import plays and return result with connector plays for resolution.
+
+        Each importer accepts its own params type from the union and raises
+        ``TypeError`` on a mismatch (the importer registry is stringly-typed;
+        this check restores the type boundary at runtime).
+        """
         ...
 
 

@@ -81,7 +81,6 @@ class TestLastfmPlayImporterIntegration:
             raw_data=play_records,
             batch_id="integration-test-batch",
             import_timestamp=datetime.now(UTC),
-            uow=unit_of_work,
         )
 
         # Assert - Verify transformation
@@ -124,15 +123,8 @@ class TestLastfmPlayImporterIntegration:
             )
         ]
 
-        # Test base class connector play storage
-        importer._store_connector_plays(connector_plays)
-        retrieved_plays = importer._get_stored_connector_plays()
-
-        assert len(retrieved_plays) == 1
-        assert retrieved_plays[0].track_name == "Integration Test Track"
-        assert retrieved_plays[0].import_batch_id == "test-batch-123"
-
-        # Test UnitOfWork-based save method
+        # Test UnitOfWork-based save method (plays are returned directly by
+        # import_data — the old instance-state handoff no longer exists)
         saved_count, duplicate_count = await importer._save_connector_plays_via_uow(
             connector_plays, unit_of_work
         )
@@ -155,7 +147,6 @@ class TestLastfmPlayImporterIntegration:
             raw_data=[],
             batch_id="empty-test-batch",
             import_timestamp=datetime.now(UTC),
-            uow=unit_of_work,
         )
         assert result == []
 
@@ -166,7 +157,7 @@ class TestLastfmPlayImporterIntegration:
         assert saved_count == 0
         assert duplicate_count == 0
 
-        # Test UnitOfWork requirement for save method with data
+        # Save with data goes through the single connector-play save path
         connector_plays = [
             ConnectorTrackPlay(
                 service="lastfm",
@@ -180,8 +171,11 @@ class TestLastfmPlayImporterIntegration:
             )
         ]
 
-        with pytest.raises(RuntimeError, match="UnitOfWork required"):
-            await importer._save_data(connector_plays, None)
+        saved_count, duplicate_count = await importer._save_connector_plays_via_uow(
+            connector_plays, unit_of_work
+        )
+        assert saved_count == 1
+        assert duplicate_count == 0
 
     # INTEGRATION TEST 4: Metadata Preservation (Business Value)
     async def test_metadata_preservation_lastfm_specific(
@@ -221,7 +215,6 @@ class TestLastfmPlayImporterIntegration:
             raw_data=[lastfm_play_record],
             batch_id="metadata-test-batch",
             import_timestamp=datetime.now(UTC),
-            uow=unit_of_work,
         )
 
         # Assert all Last.fm metadata is preserved
