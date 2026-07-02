@@ -56,8 +56,9 @@ Every spacing value comes from this scale.
 ## Cross-Page Consistency
 
 - Same pattern on 2+ pages → shared component. Same action/status = same component everywhere.
-- **Existing primitives**: `ui/` (Button, Card, Dialog, Select, Input, Badge, Table, Skeleton, Switch); `shared/` (EmptyState, StatusIndicator, ConfirmationDialog, SyncConfirmationDialog, SectionHeader, OperationProgress, ConnectorCard, RunStatusBadge, NodeTypeBadge, TablePagination).
-- **Four states for every data view**: loading (Skeleton), empty (EmptyState), error (boundary), success.
+- **Existing primitives**: `ui/` (Button, Card, Dialog, Select, Input, Badge, Table, Skeleton, Switch); `shared/` (QueryStates, QueryErrorState, EmptyState, skeletons.tsx — ListRowsSkeleton/BlocksSkeleton/CardGridSkeleton/DetailHeaderSkeleton, CommandSearchList, TrackResultRow, StatusIndicator, ConfirmationDialog, SyncConfirmationDialog, SectionHeader, OperationProgress, ConnectorCard, RunStatusBadge, NodeTypeBadge, TablePagination).
+- **Four states for every data view** render through `shared/QueryStates` (skeleton → `QueryErrorState` → empty → success) with `shared/skeletons.tsx` primitives — never hand-roll an `isLoading/isError` ladder (killed in v0.8.15). Pass the page's Tanstack flag verbatim (`isLoading` vs `isPending` differ on disabled queries) and a caller-derived `isEmpty`. Single-resource detail pages may keep early-return guards but compose the skeleton primitives.
+- **Search pickers compose `shared/CommandSearchList`** (owns search state, query, min-2-chars threshold, 3-state ladder; `TrackResultRow` with leading/trailing slots) — don't fork the cmdk scaffold.
 - Sibling cards share radius/shadow/padding. Vary depth between hierarchy levels, not within.
 
 ## Visual Identity — Anti-AI-Slop

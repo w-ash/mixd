@@ -25,6 +25,7 @@ paths:
 ## Shared Components
 - See `web-design-system.md` for the canonical component catalog and the "same action/status = same component" rule.
 - Before introducing a new shared component, search `web/src/components/shared/` and `web/src/components/ui/` — most patterns already exist.
+- **Data views render through `shared/QueryStates`** (+ `shared/skeletons.tsx` primitives); **search pickers compose `shared/CommandSearchList`**. Hand-rolled loading/error/empty ladders and forked cmdk scaffolds were eliminated in v0.8.15 — don't reintroduce them.
 - **Modal dialogs use `ResponsiveDialog`** (`web/src/components/ui/responsive-dialog.tsx`) which renders as a centered modal on desktop and a bottom sheet on mobile. Don't reach for `Dialog` directly.
 - **Mobile vs desktop branching** uses `useIsMobile()` from `web/src/hooks/useIsMobile.ts` — single `lg:` breakpoint (1024px), iPad portrait counts as mobile.
 

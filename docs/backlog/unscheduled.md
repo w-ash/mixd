@@ -15,6 +15,8 @@ For the planning overview, see [README.md](README.md).
 
 ## Quality of Life Improvements
 
+- **Detail-page error semantics: stop reporting failures as "not found"** (S) — A user on a flaky connection opens a workflow/playlist detail page and is told it "doesn't exist" when the request merely failed: `WorkflowDetail`, `WorkflowRunDetail`, and `PlaylistDetail` render *every* query failure as their not-found `EmptyState`. `TrackDetail` already does this right (`ApiError` 404 → "not found"; anything else → `QueryErrorState` with the real message). Align the other three on the TrackDetail fork. Flagged UX change (error copy/appearance changes), found during the v0.8.15 exploration.
+- **PlaylistDetail tracks region has no loading state** (XS) — The page ladder covers only the playlist query; the tracks query renders an empty track list until data arrives, so a slow connection shows a playlist that appears trackless. Gate the tracks region on its own query with a `ListRowsSkeleton`. Flagged UX change, found during the v0.8.15 exploration.
 - **Two-Way Like Synchronization** (M) - Bidirectional sync between services with conflict resolution
 - **Workflow Debugging Tools** (L) - Interactive debugging for workflow testing
 - **Playlist Diffing and Merging** (L) - Visualize differences between local and remote playlists
