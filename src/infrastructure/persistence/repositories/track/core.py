@@ -7,6 +7,7 @@ from uuid import UUID
 
 from sqlalchemy import (
     ColumnElement,
+    Select,
     String,
     and_,
     cast as sa_cast,
@@ -460,7 +461,112 @@ class TrackRepository(BaseRepository[DBTrack, Track]):
         ``after_value`` and ``after_id`` are provided, uses a keyset WHERE clause
         for O(1) seeking regardless of page depth. Falls back to OFFSET otherwise.
         """
-        # Build base filter conditions — always scoped to user
+        conditions = self._build_list_filters(
+            user_id=user_id,
+            query=query,
+            liked=liked,
+            connector=connector,
+            preference=preference,
+            tags=tags,
+            tag_mode=tag_mode,
+            namespace=namespace,
+        )
+
+        # Count total matching tracks (skipped on cursor-paginated pages)
+        total: int | None = None
+        if include_total:
+            count_stmt = select(func.count()).select_from(DBTrack)
+            if conditions:
+                count_stmt = count_stmt.where(*conditions)
+            count_result = await self.session.execute(count_stmt)
+            total = count_result.scalar_one()
+
+            if total == 0:
+                return TrackListingPage(
+                    tracks=[],
+                    total=0,
+                    liked_track_ids=set(),
+                    next_page_key=None,
+                    facets=_empty_facets() if include_facets else None,
+                )
+
+        # Build data query with filters, sorting, pagination, and relationships
+        data_stmt = self.select()
+        if conditions:
+            data_stmt = data_stmt.where(*conditions)
+        data_stmt, sort_field = self._apply_sort_and_page(
+            data_stmt,
+            sort_by=sort_by,
+            limit=limit,
+            offset=offset,
+            after_value=after_value,
+            after_id=after_id,
+        )
+        data_stmt = self.with_default_relationships(data_stmt)
+
+        result = await self.session.execute(data_stmt)
+        db_tracks = list(result.scalars().all())
+
+        tracks = [await self.mapper.to_domain(db_track) for db_track in db_tracks]
+
+        # Build next-page keyset from the last row. The cursor value type
+        # depends on which column is active — see TrackListingPage docstring.
+        next_page_key: tuple[str | int | datetime | None, UUID] | None = None
+        if db_tracks and len(db_tracks) == limit:
+            last_db = db_tracks[-1]
+            cursor_value = cast("object", getattr(last_db, sort_field))
+            if cursor_value is None or isinstance(cursor_value, (str, int, datetime)):
+                next_page_key = (cursor_value, last_db.id)
+
+        # Get authoritative liked status from track_likes table for returned tracks
+        track_ids = [t.id for t in tracks]
+        liked_ids: set[UUID] = set()
+        if track_ids:
+            liked_stmt = (
+                select(DBTrackLike.track_id)
+                .where(
+                    DBTrackLike.track_id.in_(track_ids),
+                    DBTrackLike.is_liked.is_(True),
+                    DBTrackLike.user_id == user_id,
+                )
+                .distinct()
+            )
+            liked_result = await self.session.execute(liked_stmt)
+            liked_ids = set(liked_result.scalars().all())
+
+        facets = (
+            await self._compute_facets(conditions, user_id, total=total)
+            if include_facets
+            else None
+        )
+
+        return TrackListingPage(
+            tracks=tracks,
+            total=total,
+            liked_track_ids=liked_ids,
+            next_page_key=next_page_key,
+            facets=facets,
+        )
+
+    def _build_list_filters(
+        self,
+        *,
+        user_id: str,
+        query: str | None,
+        liked: bool | None,
+        connector: str | None,
+        preference: str | None,
+        tags: Sequence[str] | None,
+        tag_mode: Literal["and", "or"],
+        namespace: str | None,
+    ) -> list[ColumnElement[bool]]:
+        """Build the WHERE conditions for list_tracks — always user-scoped.
+
+        Every filter except the free-text ``query`` (a pg_trgm-accelerated ILIKE
+        across title/album/artist) is a correlated ``id IN (subquery)`` term. The
+        ``tag_mode="and"`` branch keeps its distinct-count HAVING trick so a track
+        must carry every listed tag; ``"or"`` matches any.
+        """
         conditions: list[ColumnElement[bool]] = [DBTrack.user_id == user_id]
 
         if query:
@@ -541,24 +647,26 @@ class TrackRepository(BaseRepository[DBTrack, Track]):
             )
             conditions.append(DBTrack.id.in_(ns_subq))
 
-        # Count total matching tracks (skipped on cursor-paginated pages)
-        total: int | None = None
-        if include_total:
-            count_stmt = select(func.count()).select_from(DBTrack)
-            if conditions:
-                count_stmt = count_stmt.where(*conditions)
-            count_result = await self.session.execute(count_stmt)
-            total = count_result.scalar_one()
+        return conditions
 
-            if total == 0:
-                return TrackListingPage(
-                    tracks=[],
-                    total=0,
-                    liked_track_ids=set(),
-                    next_page_key=None,
-                    facets=_empty_facets() if include_facets else None,
-                )
+    def _apply_sort_and_page(
+        self,
+        stmt: Select[tuple[DBTrack]],
+        *,
+        sort_by: str,
+        limit: int,
+        offset: int,
+        after_value: object,
+        after_id: UUID | None,
+    ) -> tuple[Select[tuple[DBTrack]], str]:
+        """Apply ORDER BY, keyset/offset pagination, and LIMIT to ``stmt``.
 
+        Returns the augmented statement plus the resolved ``sort_field`` name so
+        the caller can read the cursor value off the last row for the next-page
+        key. Keyset seeking (``WHERE (sort_col, id) </> (:value, :id)``) engages
+        when both ``after_value`` and ``after_id`` are provided; otherwise falls
+        back to OFFSET.
+        """
         # Resolve sort column from the registry (sort_by validated upstream;
         # unknown values fall back to title_asc).
         sort_field, sort_dir = self._SORT_SPECS.get(
@@ -566,76 +674,23 @@ class TrackRepository(BaseRepository[DBTrack, Track]):
         )
         col = self._SORT_COLUMNS[sort_field]
 
-        # Build data query with sorting, pagination, and relationship loading
-        data_stmt = self.select()
-        if conditions:
-            data_stmt = data_stmt.where(*conditions)
-
         # Keyset pagination: WHERE (sort_col, id) > (:value, :id) for ASC
         use_keyset = after_value is not None and after_id is not None
         if use_keyset:
             keyset_pair = tuple_(col, DBTrack.id)
             cursor_pair = tuple_(literal(after_value), literal(after_id))
             if sort_dir == "desc":
-                data_stmt = data_stmt.where(keyset_pair < cursor_pair)
+                stmt = stmt.where(keyset_pair < cursor_pair)
             else:
-                data_stmt = data_stmt.where(keyset_pair > cursor_pair)
+                stmt = stmt.where(keyset_pair > cursor_pair)
         else:
-            data_stmt = data_stmt.offset(offset)
+            stmt = stmt.offset(offset)
 
-        # Apply sort and limit
-        data_stmt = data_stmt.order_by(
+        stmt = stmt.order_by(
             col.desc() if sort_dir == "desc" else col.asc(),
             DBTrack.id.desc() if sort_dir == "desc" else DBTrack.id.asc(),
         )
-        data_stmt = data_stmt.limit(limit)
-
-        # Eager-load relationships for mapper
-        data_stmt = self.with_default_relationships(data_stmt)
-
-        result = await self.session.execute(data_stmt)
-        db_tracks = list(result.scalars().all())
-
-        tracks = [await self.mapper.to_domain(db_track) for db_track in db_tracks]
-
-        # Build next-page keyset from the last row. The cursor value type
-        # depends on which column is active — see TrackListingPage docstring.
-        next_page_key: tuple[str | int | datetime | None, UUID] | None = None
-        if db_tracks and len(db_tracks) == limit:
-            last_db = db_tracks[-1]
-            cursor_value = cast("object", getattr(last_db, sort_field))
-            if cursor_value is None or isinstance(cursor_value, (str, int, datetime)):
-                next_page_key = (cursor_value, last_db.id)
-
-        # Get authoritative liked status from track_likes table for returned tracks
-        track_ids = [t.id for t in tracks]
-        liked_ids: set[UUID] = set()
-        if track_ids:
-            liked_stmt = (
-                select(DBTrackLike.track_id)
-                .where(
-                    DBTrackLike.track_id.in_(track_ids),
-                    DBTrackLike.is_liked.is_(True),
-                    DBTrackLike.user_id == user_id,
-                )
-                .distinct()
-            )
-            liked_result = await self.session.execute(liked_stmt)
-            liked_ids = set(liked_result.scalars().all())
-
-        facets = (
-            await self._compute_facets(conditions, user_id, total=total)
-            if include_facets
-            else None
-        )
-
-        return TrackListingPage(
-            tracks=tracks,
-            total=total,
-            liked_track_ids=liked_ids,
-            next_page_key=next_page_key,
-            facets=facets,
-        )
+        return stmt.limit(limit), sort_field
 
     async def _compute_facets(
         self,
