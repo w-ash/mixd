@@ -59,12 +59,12 @@ Populated during investigation. One row per spoke. ROI/Risk are the executor's d
 | [03](03-play-resolver-decomposition.md) | Play-resolver decomposition & Last.fm chain flattening | infrastructure | M | med | med | Opus | **Done (v0.8.14)** |
 | [04](04-matching-provider-loop-hoist.md) | Matching providers: hoist per-track loop | infrastructure | S | med | low | Opus | **Done (v0.8.14)** |
 | [05](05-lastfm-conversions-boundary.md) | Last.fm conversions: validate at the boundary | infrastructure | S | med | low | Opus | **Done (v0.8.14)** |
-| [06](06-base-connector-reflection.md) | BaseAPIConnector: replace get_playlist reflection | infrastructure | M | med | med | Opus | Not Started |
+| [06](06-base-connector-reflection.md) | BaseAPIConnector: replace get_playlist reflection | infrastructure | M | med | med | Opus | **Done (v0.8.16)** — reflection was production-dead; deleted, not migrated; `get_connector_config` deleted too (zero prod callers) |
 | [07](07-use-case-skeleton-collapse.md) | Collapse the five copy-pasted use-case skeletons | application | L | high | med | Fable | **Done (v0.8.14)** |
 | [08](08-route-handler-conformance.md) | Route handlers: move strays behind execute_use_case | interface | M | med | med | Opus | **Done (v0.8.14)** — 422 body-shape deviation flagged |
 | [09](09-timed-query-envelope.md) | Shared timed-query envelope for read use cases | application | S | med | low | Haiku | **Done (v0.8.14)** |
 | [10](10-update-canonical-playlist-split.md) | update_canonical_playlist: push diff sub-algorithms down | application | M | med | med | Opus | **Done (v0.8.14)** — 434 lines (contract+envelope), not ~250 |
-| [11](11-executor-closure-flatten.md) | Workflow executor: flatten triple-nested closure stack | application | L | high | med-high | Fable | Not Started |
+| [11](11-executor-closure-flatten.md) | Workflow executor: flatten triple-nested closure stack | application | L | high | med-high | Fable | **Done (v0.8.16)** — characterization tests first (6, incl. first real `run_workflow` coverage); AST-verified move fidelity |
 | [12](12-execution-strategies-dead-abstraction.md) | Delete dead execution-Strategy abstraction | domain | M | high | low-med | Opus | **Done (v0.8.13)** |
 | [13](13-dead-config-purge.md) | Purge dead config: BatchConfig + MatchingConfig fields | domain+config | S-M | high | low | Opus | **Done (v0.8.13)** |
 | [14](14-service-method-splits.md) | Split two oversized service methods along phase seams | application | M | med | med | Opus | **Done (v0.8.14)** |
@@ -77,7 +77,7 @@ Populated during investigation. One row per spoke. ROI/Risk are the executor's d
 | [21](21-track-connector-mapping-spec.md) | track/connector.py: mapping-spec object + batch-method decomposition | infrastructure | M | high | med | Opus | **Done (v0.8.14)** |
 | [22](22-list-tracks-decomposition.md) | track/core.py: extract list_tracks filter builder | infrastructure | S-M | med | low-med | Opus | **Done (v0.8.14)** — TrackListFilters skipped (globally-ignored rule) |
 | [23](23-base-repo-mapper-split.md) | base_repo.py: split mapper machinery from repository base | infrastructure | S | med | low | Opus | **Done (v0.8.14)** |
-| [24](24-db-models-aggregate-split.md) | db_models.py: split by aggregate (optional, honest ROI med-low) | infrastructure | M | med-low | low-med | Opus | Not Started |
+| [24](24-db-models-aggregate-split.md) | db_models.py: split by aggregate (optional, honest ROI med-low) | infrastructure | M | med-low | low-med | Opus | **Skipped (v0.8.16, user-approved)** — both premises false: 72 import sites (not ~30); zero string relationship targets (all 31 typed `Mapped[DBX]` → cross-module import cycles between track↔playlist aggregates) |
 | [25](25-cli-structural-pass.md) | CLI structural pass: ui renderer, helper param-objects, family split | interface | M | med | low-med | Opus | **Done (v0.8.14)** — item 3 skipped |
 | [26](26-ratchet-closeout.md) | Ratchet closeout: flip suppressed rules as the sweep clears them | config/tooling | M | high | low | Opus | basedpyright step **done (v0.8.13)**; remainder scheduled v0.8.17 |
 

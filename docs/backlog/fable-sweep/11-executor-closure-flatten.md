@@ -2,7 +2,7 @@
 
 > Spoke of [The Fable Sweep](README.md) ([v0.8.12](../v0.8.12.md)). Self-contained work order — written so a fresh agent can execute it cold, without re-reading the whole codebase.
 
-**Area:** application · **Suggested executor:** Fable · **Effort:** L · **ROI:** high · **Risk:** med-high · **Status:** Not Started
+**Area:** application · **Suggested executor:** Fable · **Effort:** L · **ROI:** high · **Risk:** med-high · **Status:** Completed (2026-07-02, v0.8.16, Fable main thread)
 
 ## Problem
 

@@ -3,7 +3,7 @@
  * Do not edit manually.
  * Mixd
  * Personal music metadata hub
- * OpenAPI spec version: 0.8.15
+ * OpenAPI spec version: 0.8.16
  */
 import type { ScheduleResponseScheduleType } from './scheduleResponseScheduleType.ts';
 import type { ScheduleResponseStatus } from './scheduleResponseStatus.ts';

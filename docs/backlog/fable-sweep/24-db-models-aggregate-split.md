@@ -2,7 +2,9 @@
 
 > Spoke of [The Fable Sweep](README.md) ([v0.8.12](../v0.8.12.md)). Self-contained work order — written so a fresh agent can execute it cold, without re-reading the whole codebase.
 
-**Area:** infrastructure · **Suggested executor:** Opus · **Effort:** M · **ROI:** med-low · **Risk:** low-med · **Status:** Not Started
+**Area:** infrastructure · **Suggested executor:** Opus · **Effort:** M · **ROI:** med-low · **Risk:** low-med · **Status:** Skipped (v0.8.16, user-approved 2026-07-02)
+
+> **Skip rationale (2026-07-02 pre-execution exploration):** both work-order premises are false. (1) 72 actual importer files (29 repositories, 37 tests, alembic env.py, 5 other), not ~30. (2) Zero string-based `relationship()` targets — all 31 relationships are typed `Mapped[DBX]` annotations, so per-aggregate modules need mutual cross-module imports between mutually-referencing aggregates (DBPlaylistTrack→DBTrack, DBMatchReview→DBTrack+DBConnectorTrack, DBConnectorPlay→DBTrack): a circular-import surface the work order didn't price in. The file is wide-not-deep (~52 lines/class) and the audit already rated the status quo acceptable; churn + risk now clearly outweigh the navigation-only benefit.
 
 ## Problem
 
