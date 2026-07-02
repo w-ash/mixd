@@ -1,7 +1,7 @@
 # Project Mixd — Planning
 
 **Current Version**: 0.8.11
-**Next**: v0.8.12 The Fable Sweep — structural-hardening pass run in the Claude Fable 5 window (through 2026-07-07); then v0.9.0 Workflow assistant — right-panel chat ported from couplefins
+**Next**: v0.8.13–v0.8.17 The Fable Sweep execution waves (audit shipped as v0.8.12; Fable-executor spokes inside the window through 2026-07-07); then v0.9.0 Workflow assistant — right-panel chat ported from couplefins
 
 **v0.8.11 shipped (2026-06-30)** — **Manual playlist track editing**, the closing slice of the v0.8.x cycle: add, remove, and reorder a canonical playlist's tracks directly from its detail page, instead of round-tripping through connector sync or a workflow. Three frozen-Command use cases (`AddPlaylistTracks` / `RemovePlaylistEntries` / `ReorderPlaylistEntries`) + REST endpoints + CLI parity (`mixd playlist add-tracks` / `remove-tracks` / `reorder`) sit on the entry-identity threading already shipped in v0.8.7 (`PlaylistEntry.id`, `eq=False`), so the only load-bearing schema change was finally *exposing* `PlaylistEntrySchema.id`. The web surface is a **dnd-kit** sortable `PlaylistTrackEditor` (keyboard reorder + screen-reader announcements) + an `AddTracksDialog` multi-select search modal; **remove is optimistic with a deferred-commit "Undo" snackbar** — the `DELETE` waits out the snackbar window, so an undone removal never reaches the server and keeps the entry's `added_at`/position (re-truing flow 3.6 away from its old confirm-dialog spec). Manual add deliberately allows duplicates without disturbing the workflow-append dedupe path.
 
@@ -96,7 +96,12 @@ Each milestone delivers a **vertical slice** — backend API + frontend page tog
 | **v0.8.9** | Workflow templates & import/export | 🚀 Shipped | [details](v0.8.9-0.8.10.md#v089-workflow-templates--importexport) |
 | **v0.8.10** | Editor polish (predictable canvas + playlist browse) + trustworthy play-history config (absorbed the v0.8.9 review follow-ons; sub-flows cut) | 🚀 Shipped | [details](v0.8.9-0.8.10.md#v0810-editor-polish--trustworthy-play-history-config) |
 | **v0.8.11** | Manual playlist track editing (design-debt review) | 🚀 Shipped | [details](v0.8.11.md#v0811-manual-playlist-track-editing) |
-| **v0.8.12** | The Fable Sweep — structural hardening (Fable 5 window; no user feature) | 🔨 In Progress | [details](v0.8.12.md#v0812-the-fable-sweep--structural-hardening) |
+| **v0.8.12** | The Fable Sweep — audit & work orders (execution → v0.8.13–v0.8.17; docs-only, no deploy artifact) | 🚀 Shipped | [details](v0.8.12.md#v0812-the-fable-sweep--structural-hardening) |
+| **v0.8.13** | Sweep Wave 1 — dead code & free wins (+ basedpyright ratchet flip) | 🔜 Not Started | [details](v0.8.13-0.8.17.md#v0813-sweep-wave-1--dead-code--free-wins) |
+| **v0.8.14** | Sweep Wave 2 — backend structure (use-case collapse, persistence, play pipeline) | 🔜 Not Started | [details](v0.8.13-0.8.17.md#v0814-sweep-wave-2--backend-structure) |
+| **v0.8.15** | Sweep Wave 3 — frontend structure (QueryStates, search de-fork, page splits) | 🔜 Not Started | [details](v0.8.13-0.8.17.md#v0815-sweep-wave-3--frontend-structure) |
+| **v0.8.16** | Sweep Wave 4 — high-risk decompositions (executor flatten, connector contract) | 🔜 Not Started | [details](v0.8.13-0.8.17.md#v0816-sweep-wave-4--high-risk-decompositions) |
+| **v0.8.17** | Sweep closeout — ratchet & Fable review | 🔜 Not Started | [details](v0.8.13-0.8.17.md#v0817-sweep-closeout--ratchet--review) |
 | **v0.9.0** | Workflow assistant — right-panel chat ported from couplefins | 🔜 Not Started | [details](v0.9.x.md#v090-workflow-assistant-right-panel-chat) |
 | **v0.9.1** | MCP server — mixd as a tool surface (shared registry with v0.9.0 chat) | 🔜 Not Started | [details](v0.9.x.md#v091-mcp-server-mixd-as-a-tool-surface) |
 | **v0.10.0** | First-class artists | 🔜 Not Started | [details](v0.10.x.md#v0100-first-class-artists) |

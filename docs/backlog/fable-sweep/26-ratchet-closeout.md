@@ -2,7 +2,7 @@
 
 > Spoke of [The Fable Sweep](README.md) ([v0.8.12](../v0.8.12.md)). Self-contained work order — this is Story 3's execution spec, informed by the 2026-07-01 census. Runs LAST, after the approved spokes land.
 
-**Area:** config/tooling · **Suggested executor:** Opus · **Effort:** M · **ROI:** high · **Risk:** low · **Status:** Not Started (blocked on Story 2 spokes)
+**Area:** config/tooling · **Suggested executor:** Opus · **Effort:** M · **ROI:** high · **Risk:** low · **Status:** Not Started (scheduled as [v0.8.17](../v0.8.13-0.8.17.md#v0817-sweep-closeout--ratchet--review); blocked on waves v0.8.13–v0.8.16. **Step 1 below was pulled forward to v0.8.13.**)
 
 ## Census (2026-07-01 baselines)
 
@@ -31,7 +31,7 @@ Recommendation: **(2)** — body complexity is the debt that regrows silently; a
 2. After each approved spoke lands, re-run the PLR census; when a rule's count hits 0, flip it from the `ignore` list in `pyproject.toml` **in that spoke's commit** (per the hub guardrail). Whatever is still nonzero at closeout gets fixed here or explicitly re-documented in pyproject's ignore rationale (updated comment, dated).
 3. Re-verify `uv run vulture` is clean against the whitelist after spokes 07/12/13/15 remove flagged items — prune stale whitelist entries.
 4. Full matrix green: `uv run pytest -m ""` · `uv run basedpyright src/` · `uv run ruff check .` · `pnpm --prefix web check && pnpm --prefix web build` · import-linter contract.
-5. Ship as the `0.8.12` feature bump (drop revision): `pyproject.toml` version → `uv sync` → `pnpm --prefix web sync-api`; flip the README matrix row to 🚀 Shipped.
+5. Ship as the `0.8.17` closeout bump (each wave v0.8.13–v0.8.16 bumps at its own deploy): `pyproject.toml` version → `uv sync` → `pnpm --prefix web sync-api`; flip the README matrix rows to 🚀 Shipped.
 6. Fable code-reviews the aggregate sweep diff (call-site completeness, behavior preservation, layer boundaries) before the bump.
 
 ## Guardrails (do not skip)

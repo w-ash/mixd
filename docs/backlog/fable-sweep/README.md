@@ -78,13 +78,15 @@ Populated during investigation. One row per spoke. ROI/Risk are the executor's d
 | [23](23-base-repo-mapper-split.md) | base_repo.py: split mapper machinery from repository base | infrastructure | S | med | low | Opus | Not Started |
 | [24](24-db-models-aggregate-split.md) | db_models.py: split by aggregate (optional, honest ROI med-low) | infrastructure | M | med-low | low-med | Opus | Not Started |
 | [25](25-cli-structural-pass.md) | CLI structural pass: ui renderer, helper param-objects, family split | interface | M | med | low-med | Opus | Not Started |
-| [26](26-ratchet-closeout.md) | Ratchet closeout: flip suppressed rules as the sweep clears them | config/tooling | M | high | low | Opus | Blocked on Story 2 |
+| [26](26-ratchet-closeout.md) | Ratchet closeout: flip suppressed rules as the sweep clears them | config/tooling | M | high | low | Opus | Scheduled v0.8.17 (basedpyright step → v0.8.13) |
 
 ## Counter-proposals
 
 _If Fable finds a better plan than v0.8.12's three-phase seed, it goes here for approval before execution starts._
 
-**The three-story structure held up.** Two sequencing refinements for Story 2, for approval:
+> **Scheduled 2026-07-01:** the user approved the wave sequencing below and built it into the backlog as **[v0.8.13–v0.8.17](../v0.8.13-0.8.17.md)** (Wave 1 → v0.8.13, Wave 2 → v0.8.14, Wave 3 → v0.8.15, Wave 4 → v0.8.16, Close → v0.8.17; spoke 25 moved into Wave 2, spoke 24 optional in Wave 4). That file is the schedule; this hub stays the per-spoke spec + status ledger.
+
+**The three-story structure held up.** Two sequencing refinements for Story 2, as originally proposed:
 
 1. **Flip the basedpyright promotion FIRST, not last.** The census found `basedpyright src/` at 0 errors/0 warnings — the promotion is free today. Executing spoke 26's step 1 as the sweep's first commit locks the type floor before any refactor, so every spoke is checked at the higher bar. (Story 3 as written defers all ratcheting to the end.)
 2. **Suggested execution order** (cheap-confident first, riskiest last, conflicts sequenced):
