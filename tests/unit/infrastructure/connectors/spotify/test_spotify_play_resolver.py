@@ -180,6 +180,66 @@ class TestResolverFiltering:
         assert context["resolution_method"] == MatchMethod.PLAY_RESOLVER
 
 
+class TestResolverContextKeys:
+    """The persisted context key set is pinned (track_plays.context JSON contract)."""
+
+    async def test_resolved_play_context_keys_are_byte_identical(self):
+        connector = MagicMock()
+        resolver = SpotifyConnectorPlayResolver(spotify_connector=connector)
+
+        uow = MagicMock()
+        connector_repo = AsyncMock()
+        connector_repo.find_tracks_by_connectors.return_value = {
+            ("spotify", "4iV5W9uYEdYUVa79Axb7Rh"): make_track(duration_ms=300000),
+        }
+        uow.get_connector_repository.return_value = connector_repo
+
+        play = _make_connector_play(ms_played=300000)
+        plays, _ = await resolver.resolve_connector_plays(
+            [play], uow, user_id="test-user"
+        )
+
+        context = plays[0].context
+        assert set(context.keys()) == {
+            "track_name",
+            "artist_name",
+            "album_name",
+            "platform",
+            "country",
+            "reason_start",
+            "reason_end",
+            "shuffle",
+            "skipped",
+            "offline",
+            "incognito_mode",
+            "spotify_track_uri",
+            "spotify_track_id",
+            "resolution_method",
+            "architecture_version",
+        }
+        assert context["architecture_version"] == "connector_plays_deferred_resolution"
+        assert context["spotify_track_id"] == "4iV5W9uYEdYUVa79Axb7Rh"
+
+    async def test_unrecognized_metadata_passed_through(self):
+        """Extra service_metadata keys survive into context verbatim."""
+        connector = MagicMock()
+        resolver = SpotifyConnectorPlayResolver(spotify_connector=connector)
+
+        uow = MagicMock()
+        connector_repo = AsyncMock()
+        connector_repo.find_tracks_by_connectors.return_value = {
+            ("spotify", "4iV5W9uYEdYUVa79Axb7Rh"): make_track(duration_ms=300000),
+        }
+        uow.get_connector_repository.return_value = connector_repo
+
+        play = _make_connector_play(ms_played=300000, episode_show="A Podcast")
+        plays, _ = await resolver.resolve_connector_plays(
+            [play], uow, user_id="test-user"
+        )
+
+        assert plays[0].context["episode_show"] == "A Podcast"
+
+
 class TestResolverTrackResolution:
     """Test canonical track creation and lookup."""
 

@@ -5,11 +5,13 @@ and sophisticated duration-based filtering.
 """
 
 from collections.abc import Callable
+from enum import StrEnum
 
 from src.config import get_logger, settings
 from src.config.constants import MatchMethod, SpotifyConstants
 from src.domain.entities import ConnectorTrackPlay, Track, TrackPlay
 from src.domain.entities.operations import TrackContextFields
+from src.domain.entities.shared import JsonValue
 from src.domain.repositories.play import ResolutionMetrics
 from src.domain.repositories.uow import UnitOfWorkProtocol
 from src.infrastructure.connectors.spotify import SpotifyConnector
@@ -19,6 +21,13 @@ from src.infrastructure.connectors.spotify.inward_resolver import (
 )
 
 logger = get_logger(__name__)
+
+
+class SkipReason(StrEnum):
+    """Why a resolved Spotify play was excluded from the accepted set."""
+
+    DURATION = "duration"
+    INCOGNITO = "incognito"
 
 
 def should_include_spotify_play(
@@ -94,19 +103,10 @@ class SpotifyConnectorPlayResolver:
         if not connector_plays:
             return [], self._create_empty_metrics()
 
-        # Step 1: Extract unique Spotify track IDs + fallback hints in a single pass
-        unique_ids_set: set[str] = set()
-        fallback_hints: dict[str, FallbackHint] = {}
-        for cp in connector_plays:
-            sid = self._extract_spotify_id_from_connector_play(cp)
-            if sid:
-                unique_ids_set.add(sid)
-                if sid not in fallback_hints and cp.artist_name and cp.track_name:
-                    fallback_hints[sid] = FallbackHint(
-                        artist_name=cp.artist_name, track_name=cp.track_name
-                    )
-        unique_spotify_ids = list(unique_ids_set)
-
+        # Step 1: Extract unique Spotify track IDs + fallback hints
+        unique_spotify_ids, fallback_hints = self._extract_ids_and_hints(
+            connector_plays
+        )
         if not unique_spotify_ids:
             logger.warning("No valid Spotify track IDs found in connector plays")
             return [], self._create_empty_metrics()
@@ -138,129 +138,57 @@ class SpotifyConnectorPlayResolver:
 
             if not canonical_track or not canonical_track.id:
                 filtering_stats["error_count"] += 1
-                failure_info = {
+                filtering_stats["resolution_failures"].append({
                     "track": f"{connector_play.artist_name} - {connector_play.track_name}",
                     "spotify_id": spotify_id or "",
                     "reason": "track_resolution_failed",
-                }
-                filtering_stats["resolution_failures"].append(failure_info)
+                })
                 logger.warning(
                     f"Track not resolved: {connector_play.artist_name} - {connector_play.track_name}"
                 )
                 continue
 
-            # Apply Spotify-specific duration filtering
-            if connector_play.ms_played is not None and not should_include_spotify_play(
-                connector_play.ms_played,
-                canonical_track.duration_ms,
-                connector_play.track_name,
-                connector_play.artist_name,
-            ):
+            skip = self._should_skip(connector_play, canonical_track)
+            if skip is SkipReason.DURATION:
                 filtering_stats["duration_excluded"] += 1
                 duration_info = (
                     f"{canonical_track.duration_ms / 60000:.2f}"
                     if canonical_track.duration_ms
                     else "?"
                 )
+                # A DURATION skip implies ms_played is not None (the guard lives
+                # in _should_skip); `or 0` only satisfies the type checker.
+                ms_played = connector_play.ms_played or 0
                 logger.debug(
                     f"Skipped (duration): {connector_play.track_name} - "
-                    + f"{connector_play.ms_played / 60000:.2f}/{duration_info}min"
+                    + f"{ms_played / 60000:.2f}/{duration_info}min"
                 )
                 continue
-
-            # Filter out incognito plays
-            incognito_mode = connector_play.service_metadata.get(
-                "incognito_mode", False
-            )
-            if incognito_mode:
+            if skip is SkipReason.INCOGNITO:
                 filtering_stats["incognito_excluded"] += 1
                 logger.debug(f"Skipped (incognito): {connector_play.track_name}")
                 continue
 
-            # Create TrackPlay with Spotify's RICH metadata preservation
             filtering_stats["accepted_plays"] += 1
-
-            # Preserve ALL Spotify metadata - this is the valuable behavioral data
-            context = {
-                # Core track identification
-                TrackContextFields.TRACK_NAME: connector_play.track_name,
-                TrackContextFields.ARTIST_NAME: connector_play.artist_name,
-                TrackContextFields.ALBUM_NAME: connector_play.album_name,
-                # Spotify's rich behavioral metadata
-                TrackContextFields.PLATFORM: connector_play.service_metadata.get(
-                    "platform"
-                ),
-                TrackContextFields.COUNTRY: connector_play.service_metadata.get(
-                    "country"
-                ),
-                TrackContextFields.REASON_START: connector_play.service_metadata.get(
-                    "reason_start"
-                ),
-                TrackContextFields.REASON_END: connector_play.service_metadata.get(
-                    "reason_end"
-                ),
-                TrackContextFields.SHUFFLE: connector_play.service_metadata.get(
-                    "shuffle"
-                ),
-                "skipped": connector_play.service_metadata.get("skipped"),
-                TrackContextFields.OFFLINE: connector_play.service_metadata.get(
-                    "offline"
-                ),
-                TrackContextFields.INCOGNITO_MODE: incognito_mode,
-                # Spotify identifiers and technical metadata
-                TrackContextFields.SPOTIFY_TRACK_URI: connector_play.service_metadata.get(
-                    "track_uri"
-                ),
-                "spotify_track_id": spotify_id,
-                # Resolution tracking
-                "resolution_method": self._inward_resolver.get_resolution_method(
-                    spotify_id
+            track_plays.append(
+                TrackPlay(
+                    track_id=canonical_track.id,
+                    service="spotify",
+                    played_at=connector_play.played_at,
+                    ms_played=connector_play.ms_played,
+                    context=self._build_context(connector_play, spotify_id),
+                    import_timestamp=connector_play.import_timestamp,
+                    import_source=connector_play.import_source or "spotify_export",
+                    import_batch_id=connector_play.import_batch_id,
                 )
-                if spotify_id
-                else MatchMethod.PLAY_RESOLVER,
-                "architecture_version": "connector_plays_deferred_resolution",
-                # Preserve any additional Spotify metadata
-                **{
-                    k: v
-                    for k, v in connector_play.service_metadata.items()
-                    if k
-                    not in [
-                        TrackContextFields.PLATFORM,
-                        TrackContextFields.COUNTRY,
-                        TrackContextFields.REASON_START,
-                        TrackContextFields.REASON_END,
-                        TrackContextFields.SHUFFLE,
-                        "skipped",
-                        TrackContextFields.OFFLINE,
-                        TrackContextFields.INCOGNITO_MODE,
-                        "track_uri",
-                    ]
-                },
-            }
-
-            track_play = TrackPlay(
-                track_id=canonical_track.id,
-                service="spotify",
-                played_at=connector_play.played_at,
-                ms_played=connector_play.ms_played,
-                context=context,
-                import_timestamp=connector_play.import_timestamp,
-                import_source=connector_play.import_source or "spotify_export",
-                import_batch_id=connector_play.import_batch_id,
             )
 
-            track_plays.append(track_play)
-
-        # Combine metrics into typed ResolutionMetrics
-        spotify_metrics: ResolutionMetrics = {
-            **filtering_stats,
-            "new_tracks_count": canonical_track_metrics["new_tracks_count"],
-            "updated_tracks_count": canonical_track_metrics["updated_tracks_count"],
-            "unique_tracks_processed": len(unique_spotify_ids),
-            "tracks_resolved": len(canonical_tracks_map),
-            "fallback_resolved": len(self._inward_resolver.fallback_resolved_ids),
-            "redirect_resolved": len(self._inward_resolver.redirect_resolved_ids),
-        }
+        spotify_metrics = self._assemble_metrics(
+            filtering_stats,
+            canonical_track_metrics,
+            unique_ids_count=len(unique_spotify_ids),
+            tracks_resolved=len(canonical_tracks_map),
+        )
 
         logger.info(
             "Processed Spotify connector plays with rich metadata preservation",
@@ -276,6 +204,120 @@ class SpotifyConnectorPlayResolver:
         )
 
         return track_plays, spotify_metrics
+
+    def _extract_ids_and_hints(
+        self, connector_plays: list[ConnectorTrackPlay]
+    ) -> tuple[list[str], dict[str, FallbackHint]]:
+        """Extract unique Spotify track IDs + fallback hints in a single pass."""
+        unique_ids_set: set[str] = set()
+        fallback_hints: dict[str, FallbackHint] = {}
+        for cp in connector_plays:
+            sid = self._extract_spotify_id_from_connector_play(cp)
+            if sid:
+                unique_ids_set.add(sid)
+                if sid not in fallback_hints and cp.artist_name and cp.track_name:
+                    fallback_hints[sid] = FallbackHint(
+                        artist_name=cp.artist_name, track_name=cp.track_name
+                    )
+        return list(unique_ids_set), fallback_hints
+
+    def _should_skip(
+        self, connector_play: ConnectorTrackPlay, canonical_track: Track
+    ) -> SkipReason | None:
+        """Decide whether a resolved play should be excluded (and why).
+
+        Applies Spotify duration filtering, then the incognito exclusion.
+        Returns ``None`` when the play should be accepted.
+        """
+        if connector_play.ms_played is not None and not should_include_spotify_play(
+            connector_play.ms_played,
+            canonical_track.duration_ms,
+            connector_play.track_name,
+            connector_play.artist_name,
+        ):
+            return SkipReason.DURATION
+
+        if connector_play.service_metadata.get("incognito_mode", False):
+            return SkipReason.INCOGNITO
+
+        return None
+
+    def _build_context(
+        self, connector_play: ConnectorTrackPlay, spotify_id: str | None
+    ) -> dict[str, JsonValue]:
+        """Build the persisted play context, preserving ALL Spotify metadata.
+
+        NOTE: the key set here is persisted into ``track_plays.context`` JSON —
+        any key change is user-visible data drift. Keep byte-identical.
+        """
+        incognito_mode = connector_play.service_metadata.get("incognito_mode", False)
+        return {
+            # Core track identification
+            TrackContextFields.TRACK_NAME: connector_play.track_name,
+            TrackContextFields.ARTIST_NAME: connector_play.artist_name,
+            TrackContextFields.ALBUM_NAME: connector_play.album_name,
+            # Spotify's rich behavioral metadata
+            TrackContextFields.PLATFORM: connector_play.service_metadata.get(
+                "platform"
+            ),
+            TrackContextFields.COUNTRY: connector_play.service_metadata.get("country"),
+            TrackContextFields.REASON_START: connector_play.service_metadata.get(
+                "reason_start"
+            ),
+            TrackContextFields.REASON_END: connector_play.service_metadata.get(
+                "reason_end"
+            ),
+            TrackContextFields.SHUFFLE: connector_play.service_metadata.get("shuffle"),
+            "skipped": connector_play.service_metadata.get("skipped"),
+            TrackContextFields.OFFLINE: connector_play.service_metadata.get("offline"),
+            TrackContextFields.INCOGNITO_MODE: incognito_mode,
+            # Spotify identifiers and technical metadata
+            TrackContextFields.SPOTIFY_TRACK_URI: connector_play.service_metadata.get(
+                "track_uri"
+            ),
+            "spotify_track_id": spotify_id,
+            # Resolution tracking
+            "resolution_method": self._inward_resolver.get_resolution_method(spotify_id)
+            if spotify_id
+            else MatchMethod.PLAY_RESOLVER,
+            "architecture_version": "connector_plays_deferred_resolution",
+            # Preserve any additional Spotify metadata
+            **{
+                k: v
+                for k, v in connector_play.service_metadata.items()
+                if k
+                not in [
+                    TrackContextFields.PLATFORM,
+                    TrackContextFields.COUNTRY,
+                    TrackContextFields.REASON_START,
+                    TrackContextFields.REASON_END,
+                    TrackContextFields.SHUFFLE,
+                    "skipped",
+                    TrackContextFields.OFFLINE,
+                    TrackContextFields.INCOGNITO_MODE,
+                    "track_uri",
+                ]
+            },
+        }
+
+    def _assemble_metrics(
+        self,
+        filtering_stats: ResolutionMetrics,
+        canonical_track_metrics: dict[str, int],
+        *,
+        unique_ids_count: int,
+        tracks_resolved: int,
+    ) -> ResolutionMetrics:
+        """Combine per-play filtering stats with canonical-resolution counts."""
+        return {
+            **filtering_stats,
+            "new_tracks_count": canonical_track_metrics["new_tracks_count"],
+            "updated_tracks_count": canonical_track_metrics["updated_tracks_count"],
+            "unique_tracks_processed": unique_ids_count,
+            "tracks_resolved": tracks_resolved,
+            "fallback_resolved": len(self._inward_resolver.fallback_resolved_ids),
+            "redirect_resolved": len(self._inward_resolver.redirect_resolved_ids),
+        }
 
     def _extract_spotify_id_from_connector_play(
         self, connector_play: ConnectorTrackPlay

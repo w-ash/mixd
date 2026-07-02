@@ -55,7 +55,7 @@ Populated during investigation. One row per spoke. ROI/Risk are the executor's d
 |----|-------|------|--------|-----|------|--------------------|--------|
 | [01](01-apple-music-dead-classifier.md) | ~~Delete dead AppleMusicErrorClassifier~~ | infrastructure | — | — | — | — | **Rejected** (user: deliberate groundwork for Apple integration) |
 | [02](02-play-importer-pipeline.md) | Play-importer pipeline: typed params, single username resolution | infrastructure | L | high | med | Fable | **Done (v0.8.14)** |
-| [03](03-play-resolver-decomposition.md) | Play-resolver decomposition & Last.fm chain flattening | infrastructure | M | med | med | Opus | Not Started |
+| [03](03-play-resolver-decomposition.md) | Play-resolver decomposition & Last.fm chain flattening | infrastructure | M | med | med | Opus | **Done (v0.8.14)** |
 | [04](04-matching-provider-loop-hoist.md) | Matching providers: hoist per-track loop | infrastructure | S | med | low | Opus | **Done (v0.8.14)** |
 | [05](05-lastfm-conversions-boundary.md) | Last.fm conversions: validate at the boundary | infrastructure | S | med | low | Opus | **Done (v0.8.14)** |
 | [06](06-base-connector-reflection.md) | BaseAPIConnector: replace get_playlist reflection | infrastructure | M | med | med | Opus | Not Started |

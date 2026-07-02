@@ -8,7 +8,7 @@ Tests the complete import pipeline from use case to database:
 """
 
 from datetime import UTC, datetime
-from unittest.mock import AsyncMock, Mock, patch
+from unittest.mock import Mock, patch
 
 import pytest
 
@@ -17,6 +17,12 @@ from src.application.use_cases.import_play_history import (
     ImportTracksUseCase,
 )
 from src.domain.entities import PlayRecord
+from src.infrastructure.connectors._shared.inward_track_resolver import (
+    TrackResolutionMetrics,
+)
+from src.infrastructure.connectors.lastfm.play_resolver import (
+    LastfmConnectorPlayResolver,
+)
 
 
 @pytest.mark.slow
@@ -77,23 +83,12 @@ class TestLastfmImportE2E:
 
             mock_connector.get_recent_tracks = mock_get_recent_tracks
 
-            with patch(
-                "src.infrastructure.connectors.lastfm.track_resolution_service.LastfmTrackResolutionService"
-            ) as mock_resolution_class:
-                # Mock track resolution - return successfully resolved Track entity
-                mock_resolution_service = AsyncMock()
-                from src.domain.entities import Artist, Track
-
-                # Use the pre-created track from the test setup
-                async def mock_resolve_plays(*args, **kwargs):
-                    return [test_track], {
-                        "new_tracks_count": 1,
-                        "updated_tracks_count": 0,
-                    }
-
-                mock_resolution_service.resolve_plays_to_canonical_tracks.side_effect = mock_resolve_plays
-                mock_resolution_class.return_value = mock_resolution_service
-
+            # Mock resolution to return the pre-created track in input order.
+            with patch.object(
+                LastfmConnectorPlayResolver,
+                "_resolve_plays_to_canonical_tracks",
+                return_value=([test_track], TrackResolutionMetrics(created=1)),
+            ):
                 # Arrange - Create command for incremental import
                 command = ImportTracksCommand(
                     service="lastfm",
@@ -233,27 +228,13 @@ class TestLastfmImportE2E:
             mock_connector.get_recent_tracks = mock_get_recent_tracks_checkpoint
             mock_connector_class.return_value = mock_connector
 
-            with patch(
-                "src.infrastructure.connectors.lastfm.track_resolution_service.LastfmTrackResolutionService"
-            ) as mock_resolution_class:
-                mock_resolution_service = AsyncMock()
-                from src.domain.entities import Artist, Track
-
-                # Use the pre-created track from the test setup
-                async def mock_resolve_plays(play_records, *args, **kwargs):
-                    if not play_records:
-                        # No plays to resolve
-                        return [], {"new_tracks_count": 0, "updated_tracks_count": 0}
-
-                    # Return the pre-created test track
-                    return [test_track], {
-                        "new_tracks_count": 1,
-                        "updated_tracks_count": 0,
-                    }
-
-                mock_resolution_service.resolve_plays_to_canonical_tracks.side_effect = mock_resolve_plays
-                mock_resolution_class.return_value = mock_resolution_service
-
+            # First import resolves one play; the checkpoint re-run finds no
+            # new plays, so the resolver short-circuits before this seam.
+            with patch.object(
+                LastfmConnectorPlayResolver,
+                "_resolve_plays_to_canonical_tracks",
+                return_value=([test_track], TrackResolutionMetrics(created=1)),
+            ):
                 # Act - Run import with specific date range
                 command = ImportTracksCommand(
                     service="lastfm",

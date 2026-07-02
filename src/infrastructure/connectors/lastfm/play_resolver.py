@@ -1,17 +1,26 @@
 """Last.fm-specific connector play resolver with metadata preservation.
 
 Handles Last.fm's available metadata including MusicBrainz IDs, track URLs,
-and Last.fm ecosystem integration data.
+and Last.fm ecosystem integration data. Owns the full resolution flow:
+extract unique ``artist::title`` identifiers, delegate bulk lookup/creation
+to ``LastfmInwardResolver``, map canonical tracks back to input order, and
+build ``TrackPlay`` objects with preserved metadata.
 """
 
 from collections.abc import Callable
 
 from src.config import get_logger
-from src.domain.entities import ConnectorTrackPlay, PlayRecord, TrackPlay
+from src.domain.entities import ConnectorTrackPlay, Track, TrackPlay
+from src.domain.entities.shared import JsonValue
+from src.domain.matching.protocols import CrossDiscoveryProvider
 from src.domain.repositories.play import ResolutionMetrics
 from src.domain.repositories.uow import UnitOfWorkProtocol
-
-from .track_resolution_service import LastfmTrackResolutionService
+from src.infrastructure.connectors._shared.inward_track_resolver import (
+    TrackResolutionMetrics,
+)
+from src.infrastructure.connectors.lastfm.client import LastFMAPIClient
+from src.infrastructure.connectors.lastfm.identifiers import make_lastfm_identifier
+from src.infrastructure.connectors.lastfm.inward_resolver import LastfmInwardResolver
 
 logger = get_logger(__name__)
 
@@ -26,15 +35,20 @@ class LastfmConnectorPlayResolver:
     - Love status and streamability flags
     """
 
-    lastfm_resolution_service: LastfmTrackResolutionService
+    lastfm_client: LastFMAPIClient
+    _inward_resolver: LastfmInwardResolver
 
     def __init__(
         self,
-        lastfm_resolution_service: LastfmTrackResolutionService | None = None,
+        cross_discovery: CrossDiscoveryProvider | None = None,
+        lastfm_client: LastFMAPIClient | None = None,
+        inward_resolver: LastfmInwardResolver | None = None,
     ):
-        """Initialize with Last.fm resolution service."""
-        self.lastfm_resolution_service = (
-            lastfm_resolution_service or LastfmTrackResolutionService()
+        """Initialize with an inward resolver (constructed if not injected)."""
+        self.lastfm_client = lastfm_client or LastFMAPIClient()
+        self._inward_resolver = inward_resolver or LastfmInwardResolver(
+            lastfm_client=self.lastfm_client,
+            cross_discovery=cross_discovery,
         )
 
     async def resolve_connector_plays(
@@ -49,18 +63,15 @@ class LastfmConnectorPlayResolver:
         if not connector_plays:
             return [], self._create_empty_metrics()
 
-        # Step 1: Convert ConnectorTrackPlay objects to PlayRecord objects
-        play_records = self._convert_connector_plays_to_play_records(connector_plays)
-
-        # Step 2: Use existing LastfmTrackResolutionService
+        # Step 1: Resolve plays to canonical tracks (input order preserved)
         (
             resolved_tracks,
             resolution_metrics,
-        ) = await self.lastfm_resolution_service.resolve_plays_to_canonical_tracks(
-            play_records, uow, user_id=user_id, progress_callback=progress_callback
+        ) = await self._resolve_plays_to_canonical_tracks(
+            connector_plays, uow, user_id=user_id, progress_callback=progress_callback
         )
 
-        # Step 3: Create TrackPlay objects with Last.fm metadata preservation
+        # Step 2: Create TrackPlay objects with Last.fm metadata preservation
         track_plays: list[TrackPlay] = []
         filtering_stats: ResolutionMetrics = {
             "raw_plays": len(connector_plays),
@@ -74,82 +85,35 @@ class LastfmConnectorPlayResolver:
         ):
             if resolved_track is None:
                 filtering_stats["error_count"] += 1
-                failure_info = {
+                filtering_stats["resolution_failures"].append({
                     "track": f"{connector_play.artist_name} - {connector_play.track_name}",
                     "reason": "track_resolution_failed",
-                }
-                filtering_stats["resolution_failures"].append(failure_info)
+                })
                 logger.warning(
                     f"Track not resolved: {connector_play.artist_name} - {connector_play.track_name}"
                 )
                 continue
 
-            # Create TrackPlay with Last.fm metadata preservation
             filtering_stats["accepted_plays"] += 1
-
-            # Preserve Last.fm's available metadata
-            context = {
-                # Core track identification
-                "track_name": connector_play.track_name,
-                "artist_name": connector_play.artist_name,
-                "album_name": connector_play.album_name,
-                # Last.fm specific metadata
-                "lastfm_track_url": connector_play.service_metadata.get(
-                    "lastfm_track_url"
-                ),
-                "lastfm_artist_url": connector_play.service_metadata.get(
-                    "lastfm_artist_url"
-                ),
-                "lastfm_album_url": connector_play.service_metadata.get(
-                    "lastfm_album_url"
-                ),
-                # MusicBrainz IDs for enhanced matching
-                "mbid": connector_play.service_metadata.get("mbid"),
-                "artist_mbid": connector_play.service_metadata.get("artist_mbid"),
-                "album_mbid": connector_play.service_metadata.get("album_mbid"),
-                # Last.fm flags
-                "streamable": connector_play.service_metadata.get("streamable"),
-                "loved": connector_play.service_metadata.get("loved"),
-                # Resolution tracking
-                "resolution_method": "lastfm_connector_play_resolver",
-                "architecture_version": "connector_plays_deferred_resolution",
-                # Preserve any additional Last.fm metadata
-                **{
-                    k: v
-                    for k, v in connector_play.service_metadata.items()
-                    if k
-                    not in [
-                        "lastfm_track_url",
-                        "lastfm_artist_url",
-                        "lastfm_album_url",
-                        "mbid",
-                        "artist_mbid",
-                        "album_mbid",
-                        "streamable",
-                        "loved",
-                    ]
-                },
-            }
-
-            track_play = TrackPlay(
-                track_id=resolved_track.id,
-                service="lastfm",
-                played_at=connector_play.played_at,
-                ms_played=connector_play.ms_played,  # Will be None for Last.fm
-                context=context,
-                import_timestamp=connector_play.import_timestamp,
-                import_source=connector_play.import_source or "lastfm_api",
-                import_batch_id=connector_play.import_batch_id,
+            track_plays.append(
+                TrackPlay(
+                    track_id=resolved_track.id,
+                    service="lastfm",
+                    played_at=connector_play.played_at,
+                    ms_played=connector_play.ms_played,  # Will be None for Last.fm
+                    context=self._build_context(connector_play),
+                    import_timestamp=connector_play.import_timestamp,
+                    import_source=connector_play.import_source or "lastfm_api",
+                    import_batch_id=connector_play.import_batch_id,
+                )
             )
-
-            track_plays.append(track_play)
 
         # Combine filtering stats with resolution metrics
         lastfm_metrics: ResolutionMetrics = {
             **filtering_stats,
-            "new_tracks_count": resolution_metrics.get("new_tracks", 0),
-            "updated_tracks_count": resolution_metrics.get("existing_mappings", 0),
-            "spotify_enhanced_count": resolution_metrics.get("spotify_enhanced", 0),
+            "new_tracks_count": resolution_metrics.created,
+            "updated_tracks_count": resolution_metrics.existing,
+            "spotify_enhanced_count": 0,  # Tracked internally by inward resolver
         }
 
         logger.info(
@@ -164,27 +128,143 @@ class LastfmConnectorPlayResolver:
 
         return track_plays, lastfm_metrics
 
-    def _convert_connector_plays_to_play_records(
+    async def _resolve_plays_to_canonical_tracks(
+        self,
+        connector_plays: list[ConnectorTrackPlay],
+        uow: UnitOfWorkProtocol,
+        *,
+        user_id: str,
+        progress_callback: Callable[[int, int, str], None] | None = None,
+    ) -> tuple[list[Track | None], TrackResolutionMetrics]:
+        """Resolve plays to canonical tracks, preserving input order.
+
+        1. Extract unique ``artist::title`` identifiers.
+        2. Delegate bulk lookup + creation to ``LastfmInwardResolver``.
+        3. Map resolved tracks back to the original play order (``None`` when
+           a play's identifier did not resolve).
+        """
+        if progress_callback:
+            progress_callback(10, 100, "Extracting unique Last.fm track identifiers...")
+
+        unique_identifiers = self._extract_unique_lastfm_identifiers(connector_plays)
+        if not unique_identifiers:
+            logger.warning("No valid Last.fm track identifiers found in play records")
+            return [], TrackResolutionMetrics()
+
+        if progress_callback:
+            progress_callback(
+                30, 100, f"Resolving {len(unique_identifiers)} unique tracks..."
+            )
+
+        (
+            canonical_tracks_map,
+            resolution_metrics,
+        ) = await self._inward_resolver.resolve_to_canonical_tracks(
+            list(unique_identifiers), uow, user_id=user_id
+        )
+
+        if progress_callback:
+            progress_callback(80, 100, "Creating resolved track list...")
+
+        resolved_tracks: list[Track | None] = []
+        for connector_play in connector_plays:
+            identifier = make_lastfm_identifier(
+                connector_play.artist_name, connector_play.track_name
+            )
+            canonical_track = canonical_tracks_map.get(identifier)
+
+            if canonical_track:
+                resolved_tracks.append(canonical_track)
+            else:
+                logger.warning(
+                    f"Failed to resolve Last.fm track: {connector_play.artist_name} - {connector_play.track_name}"
+                )
+                resolved_tracks.append(None)
+
+        resolved_count = sum(1 for t in resolved_tracks if t is not None)
+
+        if progress_callback:
+            progress_callback(
+                100,
+                100,
+                f"Resolution complete: {resolved_count}/{len(resolved_tracks)} tracks resolved",
+            )
+
+        logger.info(
+            f"Last.fm resolution complete: {resolved_count}/{len(connector_plays)} tracks resolved"
+        )
+
+        return resolved_tracks, resolution_metrics
+
+    def _extract_unique_lastfm_identifiers(
         self, connector_plays: list[ConnectorTrackPlay]
-    ) -> list[PlayRecord]:
-        """Convert ConnectorTrackPlay objects to PlayRecord objects."""
-        play_records: list[PlayRecord] = []
+    ) -> set[str]:
+        """Extract unique Last.fm track identifiers (artist + title combinations)."""
+        unique_identifiers: set[str] = set()
 
         for connector_play in connector_plays:
-            play_record = PlayRecord(
-                artist_name=connector_play.artist_name,
-                track_name=connector_play.track_name,
-                played_at=connector_play.played_at,
-                service="lastfm",
-                album_name=connector_play.album_name,
-                ms_played=connector_play.ms_played,  # Will be None for Last.fm
-                service_metadata=connector_play.service_metadata,
-                api_page=connector_play.api_page,
-                raw_data=connector_play.raw_data,
-            )
-            play_records.append(play_record)
+            if connector_play.artist_name and connector_play.track_name:
+                identifier = make_lastfm_identifier(
+                    connector_play.artist_name, connector_play.track_name
+                )
+                unique_identifiers.add(identifier)
+            else:
+                logger.warning(
+                    f"Skipping record with missing artist/track: artist='{connector_play.artist_name}', track='{connector_play.track_name}'"
+                )
 
-        return play_records
+        logger.debug(
+            f"Extracted {len(unique_identifiers)} unique Last.fm identifiers from {len(connector_plays)} play records"
+        )
+
+        return unique_identifiers
+
+    def _build_context(
+        self, connector_play: ConnectorTrackPlay
+    ) -> dict[str, JsonValue]:
+        """Build the persisted play context, preserving Last.fm metadata.
+
+        NOTE: the key set here is persisted into ``track_plays.context`` JSON —
+        any key change is user-visible data drift. Keep byte-identical.
+        """
+        return {
+            # Core track identification
+            "track_name": connector_play.track_name,
+            "artist_name": connector_play.artist_name,
+            "album_name": connector_play.album_name,
+            # Last.fm specific metadata
+            "lastfm_track_url": connector_play.service_metadata.get("lastfm_track_url"),
+            "lastfm_artist_url": connector_play.service_metadata.get(
+                "lastfm_artist_url"
+            ),
+            "lastfm_album_url": connector_play.service_metadata.get("lastfm_album_url"),
+            # MusicBrainz IDs for enhanced matching
+            "mbid": connector_play.service_metadata.get("mbid"),
+            "artist_mbid": connector_play.service_metadata.get("artist_mbid"),
+            "album_mbid": connector_play.service_metadata.get("album_mbid"),
+            # Last.fm flags
+            "streamable": connector_play.service_metadata.get("streamable"),
+            "loved": connector_play.service_metadata.get("loved"),
+            # Resolution tracking
+            "resolution_method": "lastfm_connector_play_resolver",
+            "architecture_version": "connector_plays_deferred_resolution",
+            # Preserve any additional Last.fm metadata
+            **{
+                k: v
+                for k, v in connector_play.service_metadata.items()
+                if k
+                not in [
+                    "lastfm_track_url",
+                    "lastfm_artist_url",
+                    "lastfm_album_url",
+                    "mbid",
+                    "artist_mbid",
+                    "album_mbid",
+                    "streamable",
+                    "loved",
+                ]
+            },
+        }
 
     def _create_empty_metrics(self) -> ResolutionMetrics:
         """Create empty metrics dictionary."""
