@@ -3,7 +3,7 @@
  * Do not edit manually.
  * Mixd
  * Personal music metadata hub
- * OpenAPI spec version: 0.8.11
+ * OpenAPI spec version: 0.8.13
  */
 import type { JsonDict } from './jsonDict.ts';
 import type { OperationRunSummarySchemaStatus } from './operationRunSummarySchemaStatus.ts';

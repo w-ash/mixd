@@ -64,21 +64,21 @@ Populated during investigation. One row per spoke. ROI/Risk are the executor's d
 | [09](09-timed-query-envelope.md) | Shared timed-query envelope for read use cases | application | S | med | low | Haiku | Not Started |
 | [10](10-update-canonical-playlist-split.md) | update_canonical_playlist: push diff sub-algorithms down | application | M | med | med | Opus | Not Started |
 | [11](11-executor-closure-flatten.md) | Workflow executor: flatten triple-nested closure stack | application | L | high | med-high | Fable | Not Started |
-| [12](12-execution-strategies-dead-abstraction.md) | Delete dead execution-Strategy abstraction | domain | M | high | low-med | Opus | Not Started |
-| [13](13-dead-config-purge.md) | Purge dead config: BatchConfig + MatchingConfig fields | domain+config | S-M | high | low | Opus | Not Started |
+| [12](12-execution-strategies-dead-abstraction.md) | Delete dead execution-Strategy abstraction | domain | M | high | low-med | Opus | **Done (v0.8.13)** |
+| [13](13-dead-config-purge.md) | Purge dead config: BatchConfig + MatchingConfig fields | domain+config | S-M | high | low | Opus | **Done (v0.8.13)** |
 | [14](14-service-method-splits.md) | Split two oversized service methods along phase seams | application | M | med | med | Opus | Not Started |
 | [15](15-backend-minor-batch.md) | Backend minor batch: dual_mode, play-history predicate, protocol surface | domain+application | S | low-med | low | Haiku | Not Started |
 | [16](16-query-states-wrapper.md) | QueryStates wrapper + skeleton primitives (four-state ladder) | web | L | high | med | Fable | Not Started |
 | [17](17-command-search-list.md) | CommandSearchList: de-fork track-search dialogs | web | M | med | med | Opus | Not Started |
-| [18](18-dead-frontend-export.md) | Resolve dead export hasActiveFilters | web | XS | low | low | Haiku | Not Started |
+| [18](18-dead-frontend-export.md) | Resolve dead export hasActiveFilters | web | XS | low | low | Haiku | **Done (v0.8.13)** |
 | [19](19-page-decomposition.md) | Page decomposition along named seams (4 screens) | web | M-L | med | low-med | Opus | Not Started |
-| [20](20-design-token-conformance.md) | Design-token conformance: SyncConfirmationDialog palette | web | XS-S | low-med | low | Haiku | Not Started |
+| [20](20-design-token-conformance.md) | Design-token conformance: SyncConfirmationDialog palette | web | XS-S | low-med | low | Haiku | **Done (v0.8.13)** |
 | [21](21-track-connector-mapping-spec.md) | track/connector.py: mapping-spec object + batch-method decomposition | infrastructure | M | high | med | Opus | Not Started |
 | [22](22-list-tracks-decomposition.md) | track/core.py: extract list_tracks filter builder | infrastructure | S-M | med | low-med | Opus | Not Started |
 | [23](23-base-repo-mapper-split.md) | base_repo.py: split mapper machinery from repository base | infrastructure | S | med | low | Opus | Not Started |
 | [24](24-db-models-aggregate-split.md) | db_models.py: split by aggregate (optional, honest ROI med-low) | infrastructure | M | med-low | low-med | Opus | Not Started |
 | [25](25-cli-structural-pass.md) | CLI structural pass: ui renderer, helper param-objects, family split | interface | M | med | low-med | Opus | Not Started |
-| [26](26-ratchet-closeout.md) | Ratchet closeout: flip suppressed rules as the sweep clears them | config/tooling | M | high | low | Opus | Scheduled v0.8.17 (basedpyright step → v0.8.13) |
+| [26](26-ratchet-closeout.md) | Ratchet closeout: flip suppressed rules as the sweep clears them | config/tooling | M | high | low | Opus | basedpyright step **done (v0.8.13)**; remainder scheduled v0.8.17 |
 
 ## Counter-proposals
 
