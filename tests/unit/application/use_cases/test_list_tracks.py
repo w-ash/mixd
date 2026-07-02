@@ -231,3 +231,19 @@ class TestListTracksCommand:
         assert cmd.limit == 50
         assert cmd.offset == 0
         assert cmd.cursor is None
+
+
+class TestListTracksCommandTagNormalization:
+    """Tags are normalized on the Command so every caller (CLI + web) matches
+    stored, normalized tags — not just the web handler."""
+
+    def test_normalizes_case_and_whitespace(self) -> None:
+        cmd = ListTracksCommand(user_id="u", tags=["Mood:Chill", "  ENERGY:High "])
+        assert cmd.tags == ("mood:chill", "energy:high")
+
+    def test_none_stays_none(self) -> None:
+        assert ListTracksCommand(user_id="u", tags=None).tags is None
+
+    def test_invalid_tag_raises_value_error(self) -> None:
+        with pytest.raises(ValueError, match="invalid characters"):
+            ListTracksCommand(user_id="u", tags=["cafe!"])

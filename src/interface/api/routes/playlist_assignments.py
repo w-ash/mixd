@@ -13,19 +13,16 @@ from fastapi import APIRouter, Depends, HTTPException
 
 from src.application.runner import execute_use_case
 from src.application.use_cases.apply_playlist_assignments import (
-    ApplyPlaylistAssignmentsCommand,
-    ApplyPlaylistAssignmentsUseCase,
     run_apply_playlist_assignments,
 )
-from src.application.use_cases.create_playlist_assignment import (
-    CreatePlaylistAssignmentCommand,
-    CreatePlaylistAssignmentUseCase,
+from src.application.use_cases.create_and_apply_assignment import (
+    CreateAndApplyAssignmentCommand,
+    CreateAndApplyAssignmentUseCase,
 )
 from src.application.use_cases.delete_playlist_assignment import (
     DeletePlaylistAssignmentCommand,
     DeletePlaylistAssignmentUseCase,
 )
-from src.domain.repositories.uow import UnitOfWorkProtocol
 from src.interface.api.deps import get_current_user_id
 from src.interface.api.schemas.imports import OperationStartedResponse
 from src.interface.api.schemas.playlist_assignments import (
@@ -51,28 +48,19 @@ async def create_and_apply_assignment(
     leg commits first; if the apply leg errors, the assignment persists and
     can be retried via ``POST /{id}/apply``.
     """
-    create_cmd = CreatePlaylistAssignmentCommand(
+    command = CreateAndApplyAssignmentCommand(
         user_id=user_id,
         connector_playlist_id=body.connector_playlist_id,
         action_type=body.action_type,
         raw_action_value=body.action_value,
     )
-
-    async def _create_and_apply(uow: UnitOfWorkProtocol):
-        create_result = await CreatePlaylistAssignmentUseCase().execute(create_cmd, uow)
-        apply_cmd = ApplyPlaylistAssignmentsCommand(
-            user_id=user_id,
-            assignment_ids=[create_result.assignment.id],
-        )
-        apply_result = await ApplyPlaylistAssignmentsUseCase().execute(apply_cmd, uow)
-        return create_result.assignment, apply_result
-
-    assignment, apply_result = await execute_use_case(
-        _create_and_apply, user_id=user_id
+    result = await execute_use_case(
+        lambda uow: CreateAndApplyAssignmentUseCase().execute(command, uow),
+        user_id=user_id,
     )
     return CreateAssignmentResponse(
-        assignment=AssignmentSchema.model_validate(assignment),
-        result=ApplyResultSchema.model_validate(apply_result),
+        assignment=AssignmentSchema.model_validate(result.assignment),
+        result=ApplyResultSchema.model_validate(result.apply_result),
     )
 
 

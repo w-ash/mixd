@@ -9,6 +9,11 @@ from uuid import UUID
 
 from attrs import define
 
+from src.application.use_cases.get_track_details import (
+    GetTrackDetailsCommand,
+    GetTrackDetailsUseCase,
+    TrackDetailsResult,
+)
 from src.domain.entities.track import Track
 from src.domain.repositories.uow import UnitOfWorkProtocol
 
@@ -64,3 +69,24 @@ class MergeTracksUseCase:
             )
             await uow.commit()
             return MergeTracksResult(merged_track=merged_track)
+
+
+@define(slots=True)
+class MergeTrackAndFetchDetailsUseCase:
+    """Merge two tracks, then return the winner's full detail view.
+
+    Composes ``MergeTracksUseCase`` (which commits) with
+    ``GetTrackDetailsUseCase`` (a fresh read after the merge commit) so the
+    web route can respond with the updated detail in one ``execute_use_case``
+    call. Kept separate from ``MergeTracksUseCase`` so the CLI merge path pays
+    no cost for the detail assembly it doesn't need.
+    """
+
+    async def execute(
+        self, command: MergeTracksCommand, uow: UnitOfWorkProtocol
+    ) -> TrackDetailsResult:
+        await MergeTracksUseCase().execute(command, uow)
+        return await GetTrackDetailsUseCase().execute(
+            GetTrackDetailsCommand(user_id=command.user_id, track_id=command.winner_id),
+            uow,
+        )

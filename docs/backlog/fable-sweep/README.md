@@ -60,7 +60,7 @@ Populated during investigation. One row per spoke. ROI/Risk are the executor's d
 | [05](05-lastfm-conversions-boundary.md) | Last.fm conversions: validate at the boundary | infrastructure | S | med | low | Opus | **Done (v0.8.14)** |
 | [06](06-base-connector-reflection.md) | BaseAPIConnector: replace get_playlist reflection | infrastructure | M | med | med | Opus | Not Started |
 | [07](07-use-case-skeleton-collapse.md) | Collapse the five copy-pasted use-case skeletons | application | L | high | med | Fable | **Done (v0.8.14)** |
-| [08](08-route-handler-conformance.md) | Route handlers: move strays behind execute_use_case | interface | M | med | med | Opus | Not Started |
+| [08](08-route-handler-conformance.md) | Route handlers: move strays behind execute_use_case | interface | M | med | med | Opus | **Done (v0.8.14)** — 422 body-shape deviation flagged |
 | [09](09-timed-query-envelope.md) | Shared timed-query envelope for read use cases | application | S | med | low | Haiku | **Done (v0.8.14)** |
 | [10](10-update-canonical-playlist-split.md) | update_canonical_playlist: push diff sub-algorithms down | application | M | med | med | Opus | **Done (v0.8.14)** — 434 lines (contract+envelope), not ~250 |
 | [11](11-executor-closure-flatten.md) | Workflow executor: flatten triple-nested closure stack | application | L | high | med-high | Fable | Not Started |

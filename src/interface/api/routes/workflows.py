@@ -4,7 +4,6 @@ Each handler is 5-10 lines: parse request -> build Command -> execute_use_case()
 All business logic lives in the use cases.
 """
 
-from datetime import UTC, datetime
 from uuid import UUID
 
 from fastapi import APIRouter, Depends, Query
@@ -34,8 +33,6 @@ from src.application.use_cases.workflow_runs import (
     ListActiveRunsUseCase,
     ListWorkflowRunsCommand,
     ListWorkflowRunsUseCase,
-    RunWorkflowCommand,
-    RunWorkflowUseCase,
 )
 from src.application.use_cases.workflow_versions import (
     GetWorkflowVersionCommand,
@@ -53,7 +50,6 @@ from src.application.workflows.definition.validation import (
 from src.application.workflows.nodes.config_fields import get_node_config_fields
 from src.application.workflows.nodes.registry import list_nodes
 from src.config import get_logger
-from src.config.constants import WorkflowConstants
 from src.domain.entities.workflow import WorkflowDef, WorkflowRun
 from src.domain.exceptions import NotFoundError
 from src.domain.repositories.uow import UnitOfWorkProtocol
@@ -94,14 +90,11 @@ from src.interface.api.schemas.workflows import (
     to_workflow_detail,
     to_workflow_summary,
 )
-from src.interface.api.services.background import (
-    finalize_sse_operation,
-    launch_background,
-)
+from src.interface.api.services.background import launch_background
 from src.interface.api.services.sse_operations import prepare_sse_operation
 from src.interface.api.services.workflow_execution import (
     execute_preview_background,
-    execute_workflow_background,
+    launch_workflow_run,
 )
 
 logger = get_logger(__name__).bind(service="workflows_api")
@@ -370,56 +363,7 @@ async def run_workflow_endpoint(
     user_id: str = Depends(get_current_user_id),
 ) -> WorkflowRunStartedResponse:
     """Start a workflow execution. Returns immediately with operation_id + run_id."""
-    # 1. Allocate operation_id + SSE queue first so the run row can persist
-    # the operation_id. The snapshot endpoint resolves operation_id -> run
-    # via the DB, so the link must exist from the moment the run is created.
-    operation_id, sse_queue = await prepare_sse_operation()
-
-    try:
-        # 2. Create run record (PENDING) + check execution guard, with operation_id
-        command = RunWorkflowCommand(
-            user_id=user_id, workflow_id=workflow_id, operation_id=operation_id
-        )
-        result = await execute_use_case(
-            lambda uow: RunWorkflowUseCase().execute(command, uow),
-            user_id=user_id,
-        )
-    except Exception:
-        # Use case failed (e.g., 409 already-running). Tear down the SSE
-        # queue we just registered so it doesn't leak.
-        await finalize_sse_operation(operation_id)
-        raise
-
-    run_id = result.run_id
-    workflow = result.workflow
-
-    # 3. Push run_accepted before launching the bg task. The queue buffers,
-    # so even if the first node takes seconds to produce output the SSE consumer
-    # sees activity within ~50 ms of the POST. evt_accept is a string id so it bypasses the
-    # numeric Last-Event-ID resume regex (one-shot signaling event).
-    await sse_queue.put({
-        "id": WorkflowConstants.SSE_EVENT_ID_RUN_ACCEPTED,
-        "event": WorkflowConstants.SSE_EVENT_RUN_ACCEPTED,
-        "data": {
-            "operation_id": operation_id,
-            "run_id": str(run_id),
-            "workflow_id": str(workflow.definition.id),
-            "task_count": len(workflow.definition.tasks),
-            "accepted_at": datetime.now(UTC).isoformat(),
-        },
-    })
-
-    # 4. Launch background execution
-    launch_background(
-        f"workflow_run_{operation_id}",
-        lambda: execute_workflow_background(
-            operation_id, workflow.definition, run_id, sse_queue, user_id
-        ),
-        workflow_id=workflow.definition.id,
-        run_id=run_id,
-    )
-
-    return WorkflowRunStartedResponse(operation_id=operation_id, run_id=run_id)
+    return await launch_workflow_run(workflow_id, user_id)
 
 
 @router.get("/{workflow_id}/runs")

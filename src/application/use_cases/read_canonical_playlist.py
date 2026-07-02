@@ -9,11 +9,15 @@ from datetime import datetime
 from attrs import define, field
 
 from src.application.use_cases._shared.command_validators import non_empty_string
-from src.application.use_cases._shared.playlist_resolver import resolve_playlist
+from src.application.use_cases._shared.playlist_resolver import (
+    require_playlist,
+    resolve_playlist,
+)
 from src.application.use_cases._shared.timed_execution import timed_query
 from src.config import get_logger
+from src.config.constants import BusinessLimits
 from src.domain.entities import utc_now_factory
-from src.domain.entities.playlist import Playlist
+from src.domain.entities.playlist import Playlist, PlaylistEntry
 from src.domain.repositories.uow import UnitOfWorkProtocol
 
 logger = get_logger(__name__)
@@ -131,3 +135,53 @@ class ReadCanonicalPlaylistUseCase:
                 )
 
             return result
+
+
+@define(frozen=True, slots=True)
+class ReadPlaylistTracksPageCommand:
+    """Request parameters for a paginated slice of a playlist's entries."""
+
+    user_id: str
+    playlist_id: str = field(validator=non_empty_string)
+    limit: int = field(default=BusinessLimits.DEFAULT_PAGE_SIZE)
+    offset: int = 0
+    connector: str | None = None
+
+
+@define(frozen=True, slots=True)
+class ReadPlaylistTracksPageResult:
+    """A page of playlist entries plus the total entry count."""
+
+    entries: list[PlaylistEntry]
+    total: int
+    limit: int
+    offset: int
+
+
+@define(slots=True)
+class ReadPlaylistTracksPageUseCase:
+    """Return one page of a playlist's entries (offset/limit slice + total).
+
+    Owns the slicing that used to live in the ``GET /playlists/{id}/tracks``
+    handler. Resolves the playlist (404 if missing/not owned) and paginates
+    its entries in the application layer.
+    """
+
+    async def execute(
+        self, command: ReadPlaylistTracksPageCommand, uow: UnitOfWorkProtocol
+    ) -> ReadPlaylistTracksPageResult:
+        async with uow:
+            playlist = await require_playlist(
+                command.playlist_id,
+                uow,
+                user_id=command.user_id,
+                connector=command.connector or "spotify",
+            )
+            entries = playlist.entries
+            page = entries[command.offset : command.offset + command.limit]
+            return ReadPlaylistTracksPageResult(
+                entries=page,
+                total=len(entries),
+                limit=command.limit,
+                offset=command.offset,
+            )

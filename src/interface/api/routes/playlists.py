@@ -45,6 +45,8 @@ from src.application.use_cases.preview_playlist_sync import (
 from src.application.use_cases.read_canonical_playlist import (
     ReadCanonicalPlaylistCommand,
     ReadCanonicalPlaylistUseCase,
+    ReadPlaylistTracksPageCommand,
+    ReadPlaylistTracksPageUseCase,
 )
 from src.application.use_cases.remove_playlist_entries import (
     RemovePlaylistEntriesCommand,
@@ -58,11 +60,6 @@ from src.application.use_cases.repair_unresolved_entries import (
     RepairUnresolvedEntriesCommand,
     RepairUnresolvedEntriesUseCase,
 )
-from src.application.use_cases.sync_playlist_link import (
-    SyncPlaylistLinkCommand,
-    SyncPlaylistLinkUseCase,
-    to_operation_result as sync_to_operation_result,
-)
 from src.application.use_cases.update_canonical_playlist import (
     UpdateCanonicalPlaylistCommand,
     UpdateCanonicalPlaylistUseCase,
@@ -75,7 +72,7 @@ from src.config import get_logger
 from src.domain.entities.playlist_link import SyncDirection
 from src.domain.entities.shared import ConnectorPlaylistIdentifier
 from src.domain.entities.track import TrackList
-from src.domain.exceptions import ConfirmationRequiredError, NotFoundError
+from src.domain.exceptions import NotFoundError
 from src.infrastructure.connectors._shared.metric_registry import (
     MetricConfigProviderImpl,
 )
@@ -100,10 +97,10 @@ from src.interface.api.schemas.playlists import (
     direction_label,
     to_link_schema,
     to_playlist_detail,
+    to_playlist_entry,
     to_playlist_summary,
 )
-from src.interface.api.services.progress import OperationBoundEmitter
-from src.interface.api.services.sse_operations import launch_sse_operation
+from src.interface.api.services.playlist_sync import launch_playlist_link_sync
 
 logger = get_logger(__name__).bind(service="playlists_api")
 
@@ -230,25 +227,21 @@ async def get_playlist_tracks(
     offset: int = Query(default=0, ge=0),
 ) -> PaginatedResponse[PlaylistEntrySchema]:
     """Get paginated track entries for a playlist."""
-    command = ReadCanonicalPlaylistCommand(
-        user_id=user_id, playlist_id=str(playlist_id)
+    command = ReadPlaylistTracksPageCommand(
+        user_id=user_id, playlist_id=str(playlist_id), limit=limit, offset=offset
     )
     result = await execute_use_case(
-        lambda uow: ReadCanonicalPlaylistUseCase().execute(command, uow),
+        lambda uow: ReadPlaylistTracksPageUseCase().execute(command, uow),
         user_id=user_id,
     )
-    if result.playlist is None:
-        raise NotFoundError(f"Playlist {playlist_id} not found")
-
-    from src.interface.api.schemas.playlists import to_playlist_entry
-
-    entries = result.playlist.entries
-    page = entries[offset : offset + limit]
     return PaginatedResponse(
-        data=[to_playlist_entry(entry, offset + idx) for idx, entry in enumerate(page)],
-        total=len(entries),
-        limit=limit,
-        offset=offset,
+        data=[
+            to_playlist_entry(entry, result.offset + idx)
+            for idx, entry in enumerate(result.entries)
+        ],
+        total=result.total,
+        limit=result.limit,
+        offset=result.offset,
     )
 
 
@@ -458,33 +451,11 @@ async def sync_playlist_link(
     *synchronously* — before any background work — with a fresh token + the
     removal counts, so the client can show the confirm dialog and retry.
     """
-    direction_override = (
-        SyncDirection(body.direction_override)
-        if body and body.direction_override
-        else None
-    )
-    confirm_token = body.confirm_token if body else None
-
-    await _ensure_sync_confirmed(link_id, direction_override, user_id, confirm_token)
-
-    async def _sync(emitter: OperationBoundEmitter) -> object:  # noqa: ARG001
-        command = SyncPlaylistLinkCommand(
-            user_id=user_id,
-            link_id=link_id,
-            direction_override=direction_override,
-            confirmed=True,
-        )
-        result = await execute_use_case(
-            lambda uow: SyncPlaylistLinkUseCase().execute(command, uow),
-            user_id=user_id,
-        )
-        return sync_to_operation_result(result)
-
-    return await launch_sse_operation(
+    return await launch_playlist_link_sync(
+        link_id=link_id,
         user_id=user_id,
-        operation_type="sync_playlist_link",
-        coro_factory=_sync,
-        name_prefix="playlist_sync",
+        direction_override=body.direction_override if body else None,
+        confirm_token=body.confirm_token if body else None,
     )
 
 
@@ -507,35 +478,3 @@ async def repair_playlist_unresolved(
     return RepairUnresolvedResponse(
         repaired=result.repaired, still_unresolved=result.still_unresolved
     )
-
-
-async def _ensure_sync_confirmed(
-    link_id: UUID,
-    direction_override: SyncDirection | None,
-    user_id: str,
-    confirm_token: str | None,
-) -> None:
-    """Raise ConfirmationRequiredError (→ 409) for an unconfirmed destructive sync.
-
-    Runs the read-only preview synchronously so the destructive-guard 409 is
-    reachable at request time — the old background path swallowed it into a
-    generic error SSE event the client never saw. Compares the caller's
-    ``confirm_token`` against the freshly-minted one: a missing or *stale* token
-    (the plan changed since the user previewed it) re-prompts with the fresh
-    token + counts; a matching token (or a non-destructive plan) proceeds.
-    """
-    command = PreviewPlaylistSyncCommand(
-        user_id=user_id, link_id=link_id, direction_override=direction_override
-    )
-    preview = await execute_use_case(
-        lambda uow: PreviewPlaylistSyncUseCase().execute(command, uow),
-        user_id=user_id,
-    )
-    if preview.safety_flagged and confirm_token != preview.confirm_token:
-        raise ConfirmationRequiredError(
-            preview.safety_message or "Destructive sync requires confirmation",
-            removals=preview.safety_removals,
-            total=preview.safety_total,
-            remaining=preview.safety_remaining,
-            confirm_token=preview.confirm_token,
-        )

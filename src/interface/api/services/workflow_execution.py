@@ -12,9 +12,15 @@ Run/node status updaters + heartbeat ticker are shared with the CLI — see
 import asyncio
 from asyncio import CancelledError
 import contextlib
+from datetime import UTC, datetime
 from uuid import UUID
 
-from src.application.use_cases.workflow_runs import ExecuteWorkflowRunUseCase
+from src.application.runner import execute_use_case
+from src.application.use_cases.workflow_runs import (
+    ExecuteWorkflowRunUseCase,
+    RunWorkflowCommand,
+    RunWorkflowUseCase,
+)
 from src.config import get_logger
 from src.config.constants import WorkflowConstants, truncate_error_message
 from src.domain.entities.workflow import WorkflowDef
@@ -23,10 +29,80 @@ from src.interface._shared.run_lifecycle import (
     update_node_status,
     update_run_status,
 )
-from src.interface.api.services.background import finalize_sse_operation
-from src.interface.api.services.sse_operations import build_terminal_event
+from src.interface.api.schemas.workflows import WorkflowRunStartedResponse
+from src.interface.api.services.background import (
+    finalize_sse_operation,
+    launch_background,
+)
+from src.interface.api.services.sse_operations import (
+    build_terminal_event,
+    prepare_sse_operation,
+)
 
 logger = get_logger(__name__).bind(service="workflows_api")
+
+
+async def launch_workflow_run(
+    workflow_id: UUID, user_id: str
+) -> WorkflowRunStartedResponse:
+    """Create the run record and kick off background execution, returning at once.
+
+    Owns the SSE orchestration the ``POST /workflows/{id}/run`` handler used to
+    carry inline: allocate the operation_id + SSE queue first (so the run row can
+    persist the operation_id), create the PENDING run (409/404 propagate; the
+    queue is torn down on failure), push the one-shot ``run_accepted`` event
+    synchronously, then launch the background workflow task.
+    """
+    # 1. Allocate operation_id + SSE queue first so the run row can persist the
+    # operation_id. The snapshot endpoint resolves operation_id -> run via the DB,
+    # so the link must exist from the moment the run is created.
+    operation_id, sse_queue = await prepare_sse_operation()
+
+    try:
+        # 2. Create run record (PENDING) + check execution guard, with operation_id
+        command = RunWorkflowCommand(
+            user_id=user_id, workflow_id=workflow_id, operation_id=operation_id
+        )
+        result = await execute_use_case(
+            lambda uow: RunWorkflowUseCase().execute(command, uow),
+            user_id=user_id,
+        )
+    except Exception:
+        # Use case failed (e.g., 409 already-running). Tear down the SSE queue we
+        # just registered so it doesn't leak.
+        await finalize_sse_operation(operation_id)
+        raise
+
+    run_id = result.run_id
+    workflow = result.workflow
+
+    # 3. Push run_accepted before launching the bg task. The queue buffers, so even
+    # if the first node takes seconds to produce output the SSE consumer sees
+    # activity within ~50 ms of the POST. evt_accept is a string id so it bypasses
+    # the numeric Last-Event-ID resume regex (one-shot signaling event).
+    await sse_queue.put({
+        "id": WorkflowConstants.SSE_EVENT_ID_RUN_ACCEPTED,
+        "event": WorkflowConstants.SSE_EVENT_RUN_ACCEPTED,
+        "data": {
+            "operation_id": operation_id,
+            "run_id": str(run_id),
+            "workflow_id": str(workflow.definition.id),
+            "task_count": len(workflow.definition.tasks),
+            "accepted_at": datetime.now(UTC).isoformat(),
+        },
+    })
+
+    # 4. Launch background execution
+    launch_background(
+        f"workflow_run_{operation_id}",
+        lambda: execute_workflow_background(
+            operation_id, workflow.definition, run_id, sse_queue, user_id
+        ),
+        workflow_id=workflow.definition.id,
+        run_id=run_id,
+    )
+
+    return WorkflowRunStartedResponse(operation_id=operation_id, run_id=run_id)
 
 
 async def _run_workflow_and_push_terminal(

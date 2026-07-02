@@ -25,10 +25,23 @@ from src.config import get_logger
 from src.config.constants import BusinessLimits
 from src.domain.entities import Track
 from src.domain.entities.preference import PreferenceState
+from src.domain.entities.tag import normalize_tag
 from src.domain.repositories.track import TrackFacets, TrackListingPage
 from src.domain.repositories.uow import UnitOfWorkProtocol
 
 logger = get_logger(__name__)
+
+
+def _normalize_tags(tags: Sequence[str] | None) -> tuple[str, ...] | None:
+    """Canonicalize filter tags so every caller matches stored (normalized) tags.
+
+    Normalization lives on the Command — not the web handler — so the CLI and
+    any future caller get the same behavior the web applied at its boundary
+    (``?tag=Mood:Chill`` → ``mood:chill``). Invalid tags raise ``ValueError``.
+    """
+    if tags is None:
+        return None
+    return tuple(normalize_tag(t) for t in tags)
 
 
 @define(frozen=True, slots=True)
@@ -40,7 +53,7 @@ class ListTracksCommand:
     liked: bool | None = None
     connector: str | None = None
     preference: str | None = None
-    tags: Sequence[str] | None = None
+    tags: Sequence[str] | None = field(default=None, converter=_normalize_tags)
     tag_mode: Literal["and", "or"] = "and"
     namespace: str | None = None
     sort_by: TrackSortBy = "title_asc"

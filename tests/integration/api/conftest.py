@@ -21,6 +21,7 @@ from src.infrastructure.persistence.unit_of_work import DatabaseUnitOfWork
 from src.interface.api.app import create_app
 import src.interface.api.routes.workflows as _workflows_mod
 import src.interface.api.services.sse_operations as _sse_operations_mod
+import src.interface.api.services.workflow_execution as _workflow_execution_mod
 
 
 def _noop_launch(_name: str, _coro_factory: object, **_kwargs: object) -> None:
@@ -37,8 +38,9 @@ def _stub_launch_background(*modules: Any) -> Generator[None]:
 
     The seam-level helper ``launch_sse_operation`` in ``sse_operations``
     fronts the imports / connectors / playlist-assignments / playlist-sync
-    routes, so stubbing there covers them all at once. ``workflows`` is the
-    only remaining direct caller and still needs its own stub.
+    routes, so stubbing there covers them all at once. ``workflows`` (preview
+    kickoff) and ``workflow_execution`` (run kickoff, via ``launch_workflow_run``)
+    are the remaining direct callers and each need their own stub.
     """
     originals = [(m, m.launch_background) for m in modules]
     for m, _ in originals:
@@ -145,7 +147,9 @@ async def client(
     with _test_db_env(postgres_url):
         await _truncate_all_tables()
 
-        with _stub_launch_background(_sse_operations_mod, _workflows_mod):
+        with _stub_launch_background(
+            _sse_operations_mod, _workflows_mod, _workflow_execution_mod
+        ):
             app = create_app()
             transport = httpx.ASGITransport(app=app)
             async with httpx.AsyncClient(

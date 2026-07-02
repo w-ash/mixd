@@ -15,9 +15,9 @@ import pytest
 from src.application.use_cases.preview_playlist_sync import PreviewPlaylistSyncResult
 from src.domain.entities.playlist_link import SyncDirection
 from src.domain.exceptions import ConfirmationRequiredError
-from src.interface.api.routes.playlists import _ensure_sync_confirmed
+from src.interface.api.services.playlist_sync import _ensure_sync_confirmed
 
-_EXEC = "src.interface.api.routes.playlists.execute_use_case"
+_EXEC = "src.interface.api.services.playlist_sync.execute_use_case"
 _FRESH_TOKEN = "tok-fresh"
 
 

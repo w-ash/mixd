@@ -9,20 +9,25 @@ import asyncio
 import httpx
 import pytest
 
-import src.interface.api.routes.workflows as _workflows_mod
 from src.interface.api.services.progress import get_operation_registry
+import src.interface.api.services.workflow_execution as _workflow_execution_mod
 from tests.fixtures.factories import nonexistent_id
 from tests.integration.api.conftest import create_workflow as _create_workflow
 
 
 @pytest.fixture(autouse=True)
 def _stub_workflow_background(monkeypatch):
-    """Prevent background workflow execution in tests — only verify endpoints."""
+    """Prevent background workflow execution in tests — only verify endpoints.
+
+    ``POST /workflows/{id}/run`` kicks off the background task via
+    ``launch_workflow_run`` in ``workflow_execution``, so that is the module
+    whose ``launch_background`` binding must be stubbed.
+    """
 
     def _noop_launch(_name: str, _coro_factory: object, **_kwargs: object) -> None:
         pass
 
-    monkeypatch.setattr(_workflows_mod, "launch_background", _noop_launch)
+    monkeypatch.setattr(_workflow_execution_mod, "launch_background", _noop_launch)
 
 
 async def _seed_completed_runs(workflow_id: str, count: int) -> None:
@@ -136,7 +141,7 @@ class TestRunWorkflowEndpoint:
         # DB-backed guard (uq_workflow_runs_active) is what rejects the second
         # POST — no need to fake an in-process flag.
         monkeypatch.setattr(
-            "src.interface.api.routes.workflows.launch_background",
+            "src.interface.api.services.workflow_execution.launch_background",
             lambda *args, **kwargs: None,
         )
 

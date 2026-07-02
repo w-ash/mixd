@@ -22,8 +22,8 @@ from src.application.use_cases.get_track_details import (
 )
 from src.application.use_cases.list_tracks import ListTracksCommand, ListTracksUseCase
 from src.application.use_cases.merge_tracks import (
+    MergeTrackAndFetchDetailsUseCase,
     MergeTracksCommand,
-    MergeTracksUseCase,
 )
 from src.application.use_cases.relink_connector_track import (
     RelinkConnectorTrackCommand,
@@ -57,6 +57,7 @@ from src.interface.api.schemas.tracks import (
     PaginatedLibraryTracksResponse,
     RelinkMappingRequest,
     SetPreferenceRequest,
+    TagString,
     TrackDetailSchema,
     TrackFacetsSchema,
     UnlinkMappingResponse,
@@ -81,7 +82,7 @@ async def list_tracks(
         default=None, description="Filter by preference state"
     ),
     tag: Annotated[
-        list[str] | None,
+        list[TagString] | None,
         Query(
             description="Filter by tag (repeat for multi-tag). Normalized server-side.",
         ),
@@ -115,24 +116,18 @@ async def list_tracks(
     Supports both offset-based and cursor-based (keyset) pagination.
     When ``cursor`` is provided, it takes precedence over ``offset`` for
     O(1) page seeking regardless of depth.
+
+    ``tag`` values are validated + normalized at the query boundary via
+    ``TagString`` (invalid → 422); ``ListTracksCommand`` re-normalizes so
+    non-web callers (CLI) match stored tags too.
     """
-    # Normalize any raw tag values before they reach the filter subquery —
-    # a user could hit ?tag=Mood:Chill and still match stored mood:chill.
-    # Invalid tags surface as 422 rather than 500.
-    from src.domain.entities.tag import normalize_tag
-
-    try:
-        normalized_tags = [normalize_tag(t) for t in tag] if tag else None
-    except ValueError as e:
-        raise HTTPException(status_code=422, detail=str(e)) from e
-
     command = ListTracksCommand(
         user_id=user_id,
         query=q,
         liked=liked,
         connector=connector,
         preference=preference,
-        tags=normalized_tags,
+        tags=tag,
         tag_mode=tag_mode,
         namespace=namespace,
         sort_by=sort,
@@ -189,14 +184,8 @@ async def merge_track(
     command = MergeTracksCommand(
         user_id=user_id, winner_id=track_id, loser_id=body.loser_id
     )
-    await execute_use_case(
-        lambda uow: MergeTracksUseCase().execute(command, uow),
-        user_id=user_id,
-    )
-    # Fresh read after merge commit
-    detail_cmd = GetTrackDetailsCommand(user_id=user_id, track_id=track_id)
     result = await execute_use_case(
-        lambda uow: GetTrackDetailsUseCase().execute(detail_cmd, uow),
+        lambda uow: MergeTrackAndFetchDetailsUseCase().execute(command, uow),
         user_id=user_id,
     )
     return to_track_detail(result)
