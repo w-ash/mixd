@@ -53,7 +53,7 @@ function PreviewContent({ preview }: { preview: SyncPreviewResponse }) {
       <div className="rounded-md bg-surface-inset p-3 text-sm text-text-muted space-y-1">
         {preview.tracks_to_add > 0 && (
           <p>
-            <span className="text-green-500 font-medium">
+            <span className="text-status-success font-medium">
               +{preview.tracks_to_add}
             </span>{" "}
             tracks to add to {target}
@@ -61,7 +61,7 @@ function PreviewContent({ preview }: { preview: SyncPreviewResponse }) {
         )}
         {preview.tracks_to_remove > 0 && (
           <p>
-            <span className="text-red-500 font-medium">
+            <span className="text-status-error font-medium">
               -{preview.tracks_to_remove}
             </span>{" "}
             tracks to remove from {target}
@@ -102,7 +102,7 @@ function FirstSyncContent({
         <span className="text-sm font-medium text-text">{playlistName}</span>
       </div>
       <div className="flex items-start gap-2 rounded-md bg-surface-inset p-3 text-sm text-text-muted">
-        <Info className="mt-0.5 size-4 shrink-0 text-blue-400" />
+        <Info className="mt-0.5 size-4 shrink-0 text-status-info" />
         <div>
           <p>This link has never been synced.</p>
           <p className="mt-1 text-text-faint">{description}</p>
@@ -287,7 +287,7 @@ export function SyncConfirmationDialog({
       )}
 
       {previewError && (
-        <div className="flex items-center gap-2 rounded-md bg-red-500/10 p-3 text-sm text-red-400">
+        <div className="flex items-center gap-2 rounded-md bg-status-error/10 p-3 text-sm text-status-error">
           <AlertTriangle className="size-4 shrink-0" />
           <span>Failed to load sync preview. You can still sync manually.</span>
         </div>
@@ -298,14 +298,14 @@ export function SyncConfirmationDialog({
           <>
             <PreviewContent preview={preview} />
             {isSafetyFlagged && (
-              <div className="flex items-start gap-2 rounded-md border-l-2 border-red-500 bg-red-500/10 p-4 text-sm text-red-400">
+              <div className="flex items-start gap-2 rounded-md border-l-2 border-status-error bg-status-error/10 p-4 text-sm text-status-error">
                 <AlertTriangle className="mt-0.5 size-4 shrink-0" />
                 <div>
                   <p className="font-medium text-text">
                     This sync will remove {pluralize(removals, "track")}
                     {total > 0 ? ` of ${total}` : ""} from "{playlistName}".
                   </p>
-                  <p className="mt-1 text-red-400/80">
+                  <p className="mt-1 text-status-error/80">
                     {preview.safety_message ??
                       "Removing these tracks can't be undone."}
                   </p>
@@ -322,7 +322,7 @@ export function SyncConfirmationDialog({
         ))}
 
       {syncError && (
-        <div className="flex items-start gap-2 rounded-md bg-amber-500/10 p-3 text-sm text-amber-400">
+        <div className="flex items-start gap-2 rounded-md bg-status-warning/10 p-3 text-sm text-status-warning">
           <AlertTriangle className="mt-0.5 size-4 shrink-0" />
           <span>{syncError}</span>
         </div>

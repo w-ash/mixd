@@ -59,20 +59,20 @@ describe("SSELivenessPill", () => {
     expect(screen.getByText(/Last update 11s ago/)).toBeInTheDocument();
   });
 
-  it("uses amber styling at 30s of staleness", () => {
+  it("uses warning styling at 30s of staleness", () => {
     setLiveness({ kind: "streaming", lastEventAt: 1000 }, 1000);
     setNow(32_000); // 31s elapsed
     render(<SSELivenessPill />);
     const node = screen.getByText(/Last update 31s ago/);
-    expect(node.className).toMatch(/amber/);
+    expect(node.className).toMatch(/status-warning/);
   });
 
-  it("uses red copy and styling at 60s of staleness", () => {
+  it("uses stale copy and error styling at 60s of staleness", () => {
     setLiveness({ kind: "streaming", lastEventAt: 1000 }, 1000);
     setNow(62_000); // 61s elapsed
     render(<SSELivenessPill />);
     const node = screen.getByText(/Connection may be stale/);
-    expect(node.className).toMatch(/red/);
+    expect(node.className).toMatch(/status-error/);
   });
 
   it("renders the stall banner when state is stalled", () => {

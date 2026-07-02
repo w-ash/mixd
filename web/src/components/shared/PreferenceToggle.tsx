@@ -16,7 +16,7 @@ const STATES: {
     value: "hmm",
     icon: <CircleHelp className="size-3.5" />,
     label: "Hmm — need to listen",
-    activeClass: "text-amber-400 bg-amber-400/15",
+    activeClass: "text-status-warning bg-status-warning/15",
   },
   {
     value: "nah",
@@ -28,7 +28,7 @@ const STATES: {
     value: "yah",
     icon: <CircleCheck className="size-3.5" />,
     label: "Yah — keep in rotation",
-    activeClass: "text-emerald-400 bg-emerald-400/15",
+    activeClass: "text-status-success bg-status-success/15",
   },
   {
     value: "star",

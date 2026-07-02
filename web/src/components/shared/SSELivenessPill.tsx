@@ -28,8 +28,11 @@ type Tier = "neutral" | "amber" | "red";
 
 const TIER_STYLES: Record<Tier, { pill: string; dot: string }> = {
   neutral: { pill: "bg-surface-sunken text-text-muted", dot: "bg-text-faint" },
-  amber: { pill: "bg-amber-500/10 text-amber-300", dot: "bg-amber-400" },
-  red: { pill: "bg-red-500/10 text-red-300", dot: "bg-red-400" },
+  amber: {
+    pill: "bg-status-warning/10 text-status-warning",
+    dot: "bg-status-warning",
+  },
+  red: { pill: "bg-status-error/10 text-status-error", dot: "bg-status-error" },
 };
 
 function tierFor(elapsedMs: number): Tier {
@@ -53,7 +56,7 @@ export function SSELivenessPill({ className }: SSELivenessPillProps) {
         role="alert"
         aria-live="polite"
         className={cn(
-          "rounded-md border border-amber-500/40 bg-amber-500/5 px-3 py-2 font-display text-xs text-amber-300",
+          "rounded-md border border-status-warning/40 bg-status-warning/5 px-3 py-2 font-display text-xs text-status-warning",
           className,
         )}
       >
