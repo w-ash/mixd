@@ -86,7 +86,7 @@ _If Fable finds a better plan than v0.8.12's three-phase seed, it goes here for 
 
 > **Scheduled 2026-07-01:** the user approved the wave sequencing below and built it into the backlog as **[v0.8.13–v0.8.17](../v0.8.13-0.8.17.md)** (Wave 1 → v0.8.13, Wave 2 → v0.8.14, Wave 3 → v0.8.15, Wave 4 → v0.8.16, Close → v0.8.17; spoke 25 moved into Wave 2, spoke 24 optional in Wave 4). That file is the schedule; this hub stays the per-spoke spec + status ledger.
 
-> **Window re-scope (2026-07-02, approved):** two doc-only investigation briefs join the window alongside the waves — the v0.9.x Pre-Work brief and the identity-resolution research pass (extended to artist identity). If Fable attention runs short they outrank Fable-executor spokes 02/07/16 (work orders written, Opus fallback documented); spoke 11 keeps its Fable slot longest. The v0.8.17 Fable review runs per-wave inside the window rather than as one post-sweep aggregate. Details in the schedule file's Fable-window note.
+> **Window re-scope (2026-07-02, approved):** two doc-only investigation briefs join the window alongside the waves — the v0.9.x Pre-Work brief and the identity-resolution research pass (extended to artist identity + an omni-integration provider breadth scan). If Fable attention runs short they outrank Fable-executor spokes 02/07/16 (work orders written, Opus fallback documented); spoke 11 keeps its Fable slot longest. The v0.8.17 Fable review runs per-wave inside the window rather than as one post-sweep aggregate. **The ordered queue lives in the schedule file's [window execution order](../v0.8.13-0.8.17.md) — the source of truth for what to tackle next.**
 
 **The three-story structure held up.** Two sequencing refinements for Story 2, as originally proposed:
 
