@@ -19,7 +19,7 @@ from src.infrastructure.persistence.database.db_models import (
     DBTrackLike,
     DBTrackMapping,
 )
-from src.infrastructure.persistence.repositories.base_repo import BaseModelMapper
+from src.infrastructure.persistence.repositories.mappers import BaseModelMapper
 
 logger = get_logger(__name__)
 

@@ -1,9 +1,9 @@
 """Repository layer for database operations with SQLAlchemy 2.0."""
 
 # Re-export core components
-from src.infrastructure.persistence.repositories.base_repo import (
+from src.infrastructure.persistence.repositories.base_repo import BaseRepository
+from src.infrastructure.persistence.repositories.mappers import (
     BaseModelMapper,
-    BaseRepository,
     ModelMapper,
 )
 

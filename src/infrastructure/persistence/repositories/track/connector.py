@@ -37,10 +37,10 @@ from src.infrastructure.persistence.database.db_models import (
     DBTrackMapping,
 )
 from src.infrastructure.persistence.repositories.base_repo import (
-    BaseModelMapper,
     BaseRepository,
     rows_affected,
 )
+from src.infrastructure.persistence.repositories.mappers import BaseModelMapper
 from src.infrastructure.persistence.repositories.repo_decorator import db_operation
 from src.infrastructure.persistence.repositories.track.core import TrackRepository
 from src.infrastructure.persistence.repositories.track.mapper import (

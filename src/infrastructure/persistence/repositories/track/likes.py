@@ -8,10 +8,8 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from src.config import get_logger
 from src.domain.entities import TrackLike
 from src.infrastructure.persistence.database.db_models import DBTrackLike
-from src.infrastructure.persistence.repositories.base_repo import (
-    BaseRepository,
-    SimpleMapperFactory,
-)
+from src.infrastructure.persistence.repositories.base_repo import BaseRepository
+from src.infrastructure.persistence.repositories.mappers import SimpleMapperFactory
 from src.infrastructure.persistence.repositories.repo_decorator import db_operation
 
 logger = get_logger(__name__)

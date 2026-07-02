@@ -14,9 +14,9 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.domain.entities.track import Artist, Track
 from src.infrastructure.persistence.database.db_models import DBTrack
-from src.infrastructure.persistence.repositories.base_repo import (
+from src.infrastructure.persistence.repositories.base_repo import BaseRepository
+from src.infrastructure.persistence.repositories.mappers import (
     BaseModelMapper,
-    BaseRepository,
     ModelMapper,
     has_session_support,
 )

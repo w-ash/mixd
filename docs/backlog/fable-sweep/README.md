@@ -75,7 +75,7 @@ Populated during investigation. One row per spoke. ROI/Risk are the executor's d
 | [20](20-design-token-conformance.md) | Design-token conformance: SyncConfirmationDialog palette | web | XS-S | low-med | low | Haiku | **Done (v0.8.13)** |
 | [21](21-track-connector-mapping-spec.md) | track/connector.py: mapping-spec object + batch-method decomposition | infrastructure | M | high | med | Opus | Not Started |
 | [22](22-list-tracks-decomposition.md) | track/core.py: extract list_tracks filter builder | infrastructure | S-M | med | low-med | Opus | Not Started |
-| [23](23-base-repo-mapper-split.md) | base_repo.py: split mapper machinery from repository base | infrastructure | S | med | low | Opus | Not Started |
+| [23](23-base-repo-mapper-split.md) | base_repo.py: split mapper machinery from repository base | infrastructure | S | med | low | Opus | **Done (v0.8.14)** |
 | [24](24-db-models-aggregate-split.md) | db_models.py: split by aggregate (optional, honest ROI med-low) | infrastructure | M | med-low | low-med | Opus | Not Started |
 | [25](25-cli-structural-pass.md) | CLI structural pass: ui renderer, helper param-objects, family split | interface | M | med | low-med | Opus | Not Started |
 | [26](26-ratchet-closeout.md) | Ratchet closeout: flip suppressed rules as the sweep clears them | config/tooling | M | high | low | Opus | basedpyright step **done (v0.8.13)**; remainder scheduled v0.8.17 |
@@ -122,6 +122,7 @@ _Unrelated debt discovered mid-sweep, parked for separate tracking (not fixed in
 - **Frontend minor items** (from sweep, below work-order threshold): mutation `invalidate → toast → close` helper (~6 dialogs); `ScheduleFailureBanner` vs `ScheduleFailuresBanner` rename; `NodeConfigPanel` `FieldInput` extraction; `EditorToolbar` `useWorkflowSave` extraction; `Tags.tsx` bespoke `tagMutationCallbacks` (justified by 422-in-onSuccess envelope).
 - **Repo-wide raw-Tailwind-palette sweep** beyond spoke 20's three files — bigger scope decision.
 - **`MatchFailureReason.NO_ISRC` has no producers** after spoke 04 removed the only emitters (the unreachable re-validation branches). Removing the enum member is a domain change (persisted/reported failure vocabulary) — decide separately, e.g. at the v0.8.17 vulture prune.
+- **`scripts/check_ratchet.sh` fails on main pre-sweep: `noqa (src/) = 14` vs baseline 13** (found integrating spoke 23; count identical before/after every wave-2 spoke). A `# noqa` landed at some point without the baseline moving — needs a whodunit + either removal or a deliberate baseline bump at the v0.8.17 closeout. Conversely `pyright-ignore` is now 19 vs baseline 20 (spoke 15 deleted one) — ratchet the baseline down at closeout.
 - **`added_at_dates` metadata has no production writer** (found in spoke 15): `metric_transforms.py` reads it (`sort_by_date`) and `track.py` types it, but the only writer was the test-kept-alive `Playlist.to_tracklist()` (now deleted); the workflow playlist source builds `track_sources` metadata instead. Either the playlist source should emit `added_at_dates` (feature gap: date-sorting playlist-sourced tracks by added-at) or the reader + typed keys are dead — needs its own decision.
 
 ## Healthy — audited and dispositioned leave-alone

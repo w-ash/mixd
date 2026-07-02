@@ -39,9 +39,9 @@ from src.domain.exceptions import (
 from src.infrastructure.persistence.database.db_models import DBSchedule
 from src.infrastructure.persistence.repositories.base_repo import (
     BaseRepository,
-    SimpleMapperFactory,
     rows_affected,
 )
+from src.infrastructure.persistence.repositories.mappers import SimpleMapperFactory
 from src.infrastructure.persistence.repositories.repo_decorator import db_operation
 
 logger = get_logger(__name__)

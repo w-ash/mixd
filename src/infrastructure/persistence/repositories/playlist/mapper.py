@@ -27,7 +27,7 @@ from src.infrastructure.persistence.database.db_models import (
     DBTrack,
     DBTrackMapping,
 )
-from src.infrastructure.persistence.repositories.base_repo import BaseModelMapper
+from src.infrastructure.persistence.repositories.mappers import BaseModelMapper
 from src.infrastructure.persistence.repositories.track.mapper import (
     extract_db_artist_names,
 )

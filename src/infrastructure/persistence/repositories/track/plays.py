@@ -14,10 +14,8 @@ from src.domain.entities import TrackPlay, ensure_utc
 from src.domain.entities.shared import JsonDict
 from src.domain.repositories.play import PlayAggregationResult, PlaySortBy
 from src.infrastructure.persistence.database.db_models import DBTrackPlay
-from src.infrastructure.persistence.repositories.base_repo import (
-    BaseModelMapper,
-    BaseRepository,
-)
+from src.infrastructure.persistence.repositories.base_repo import BaseRepository
+from src.infrastructure.persistence.repositories.mappers import BaseModelMapper
 from src.infrastructure.persistence.repositories.repo_decorator import db_operation
 
 logger = get_logger(__name__)
