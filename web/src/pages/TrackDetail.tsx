@@ -1,38 +1,28 @@
 import { useQueryClient } from "@tanstack/react-query";
-import { ExternalLink, HelpCircle, Link2Off, Repeat, Star } from "lucide-react";
-import { useState } from "react";
+import { HelpCircle } from "lucide-react";
 import { Link, useParams } from "react-router";
 import { ApiError } from "#/api/client";
-import type { ConnectorMappingSchema } from "#/api/generated/model";
 import {
   getGetTrackDetailApiV1TracksTrackIdGetQueryKey,
   useAddTrackTagApiV1TracksTrackIdTagsPost,
   useDeleteTrackPreferenceApiV1TracksTrackIdPreferenceDelete,
   useDeleteTrackTagApiV1TracksTrackIdTagsTagDelete,
   useGetTrackDetailApiV1TracksTrackIdGet,
-  useSetPrimaryMappingApiV1TracksTrackIdMappingsMappingIdPrimaryPatch,
   useSetTrackPreferenceApiV1TracksTrackIdPreferencePut,
 } from "#/api/generated/tracks/tracks";
 import { PageHeader } from "#/components/layout/PageHeader";
 import { BackLink } from "#/components/shared/BackLink";
-import { ConnectorListItem } from "#/components/shared/ConnectorListItem";
 import { EmptyState } from "#/components/shared/EmptyState";
 import { MergeTrackDialog } from "#/components/shared/MergeTrackDialog";
 import { PreferenceToggle } from "#/components/shared/PreferenceToggle";
 import { QueryErrorState } from "#/components/shared/QueryErrorState";
-import { RelinkMappingDialog } from "#/components/shared/RelinkMappingDialog";
-import {
-  confidenceVariant,
-  StatusIndicator,
-} from "#/components/shared/StatusIndicator";
 import {
   CardGridSkeleton,
   DetailHeaderSkeleton,
 } from "#/components/shared/skeletons";
 import { TagEditor } from "#/components/shared/TagEditor";
-import { UnlinkMappingDialog } from "#/components/shared/UnlinkMappingDialog";
+import { MappingList } from "#/components/track/MappingList";
 import { Badge } from "#/components/ui/badge";
-import { Button } from "#/components/ui/button";
 import {
   decodeHtmlEntities,
   formatArtists,
@@ -40,7 +30,6 @@ import {
   formatDateTime,
   formatDuration,
 } from "#/lib/format";
-import { toasts } from "#/lib/toasts";
 
 function DetailSkeleton() {
   return (
@@ -84,243 +73,6 @@ function Section({
       </h2>
       {children}
     </section>
-  );
-}
-
-/** Build external URL for a connector track ID, or null if not linkable */
-function getConnectorTrackUrl(
-  connectorName: string,
-  trackId: string,
-): string | null {
-  switch (connectorName) {
-    case "spotify":
-      return `https://open.spotify.com/track/${trackId}`;
-    case "musicbrainz":
-      return `https://musicbrainz.org/recording/${trackId}`;
-    case "lastfm":
-      return trackId.startsWith("https://") ? trackId : null;
-    default:
-      return null;
-  }
-}
-
-/** Human-readable match method label + explanation */
-const matchMethods: Record<string, { label: string; description: string }> = {
-  direct_import: {
-    label: "Direct",
-    description: "Matched by ISRC (exact identifier)",
-  },
-  direct: {
-    label: "Direct",
-    description: "Matched by ISRC (exact identifier)",
-  },
-  search_fallback: {
-    label: "Search",
-    description: "Found via search by artist + title",
-  },
-  artist_title: {
-    label: "Artist/Title",
-    description: "Matched by artist name and track title",
-  },
-  spotify_redirect: {
-    label: "Redirect",
-    description: "Redirected from a different version",
-  },
-  spotify_connector_play_resolver: {
-    label: "Play Resolver",
-    description: "Resolved from listening history",
-  },
-  lastfm_discovery: {
-    label: "Discovery",
-    description: "Discovered via Last.fm data",
-  },
-  direct_import_stale_id: {
-    label: "Stale ID",
-    description: "Originally matched by ID, but the ID has since changed",
-  },
-  search_fallback_stale_id: {
-    label: "Stale ID",
-    description: "Originally found via search, but the ID has since changed",
-  },
-};
-
-function matchMethodLabel(method: string): string {
-  return matchMethods[method]?.label ?? method;
-}
-
-function matchMethodDescription(method: string): string {
-  return matchMethods[method]?.description ?? method;
-}
-
-const smallBadge = "text-[10px] px-1.5 py-0";
-
-/** Connector mapping list with hover-reveal actions */
-function MappingList({
-  trackId,
-  mappings,
-  trackTitle,
-}: {
-  trackId: string;
-  mappings: ConnectorMappingSchema[];
-  trackTitle: string;
-}) {
-  const [relinkMapping, setRelinkMapping] =
-    useState<ConnectorMappingSchema | null>(null);
-  const [unlinkMapping, setUnlinkMapping] =
-    useState<ConnectorMappingSchema | null>(null);
-
-  const queryClient = useQueryClient();
-  const setPrimaryMutation =
-    useSetPrimaryMappingApiV1TracksTrackIdMappingsMappingIdPrimaryPatch({
-      mutation: {
-        onSuccess: () => {
-          queryClient.invalidateQueries({
-            queryKey: getGetTrackDetailApiV1TracksTrackIdGetQueryKey(trackId),
-          });
-          toasts.success("Primary mapping updated");
-        },
-        meta: { errorLabel: "Failed to set primary" },
-      },
-    });
-
-  return (
-    <>
-      <div className="space-y-2">
-        {mappings.map((m) => {
-          const url = getConnectorTrackUrl(
-            m.connector_name,
-            m.connector_track_id,
-          );
-          const titleDiffers =
-            m.connector_track_title && m.connector_track_title !== trackTitle;
-
-          return (
-            <ConnectorListItem
-              key={`${m.connector_name}-${m.connector_track_id}`}
-              connectorName={m.connector_name}
-              muted={!m.is_primary}
-              actions={
-                <>
-                  <Button
-                    variant="ghost"
-                    size="sm"
-                    className="h-7 px-2 text-xs text-text-faint hover:text-text"
-                    onClick={() => setRelinkMapping(m)}
-                  >
-                    <Repeat className="mr-1 size-3" />
-                    Relink
-                  </Button>
-                  <Button
-                    variant="ghost"
-                    size="sm"
-                    className="h-7 px-2 text-xs text-text-faint hover:text-destructive"
-                    onClick={() => setUnlinkMapping(m)}
-                  >
-                    <Link2Off className="mr-1 size-3" />
-                    Unlink
-                  </Button>
-                  {!m.is_primary && (
-                    <Button
-                      variant="ghost"
-                      size="sm"
-                      className="h-7 px-2 text-xs text-text-faint hover:text-text"
-                      disabled={setPrimaryMutation.isPending}
-                      onClick={() =>
-                        setPrimaryMutation.mutate({
-                          trackId,
-                          mappingId: m.mapping_id,
-                        })
-                      }
-                    >
-                      <Star className="mr-1 size-3" />
-                      Primary
-                    </Button>
-                  )}
-                  {url && (
-                    <a
-                      href={url}
-                      target="_blank"
-                      rel="noopener noreferrer"
-                      className="inline-flex h-7 items-center px-2 text-xs text-text-faint transition-colors hover:text-text"
-                    >
-                      <ExternalLink className="mr-1 size-3" />
-                      Open
-                    </a>
-                  )}
-                </>
-              }
-            >
-              {/* Title + artists */}
-              <div>
-                <span className="text-sm font-medium text-text">
-                  {m.connector_track_title || m.connector_track_id}
-                </span>
-                {m.connector_track_artists.length > 0 && (
-                  <span className="ml-1.5 text-xs text-text-muted">
-                    {m.connector_track_artists.join(", ")}
-                  </span>
-                )}
-              </div>
-
-              {/* Title mismatch warning */}
-              {titleDiffers && (
-                <p className="mt-1 rounded bg-status-expired/10 px-2 py-0.5 text-xs text-status-expired">
-                  Service title differs: &ldquo;
-                  {m.connector_track_title}&rdquo;
-                </p>
-              )}
-
-              {/* Metadata badges */}
-              <div className="mt-1.5 flex flex-wrap items-center gap-1.5">
-                {m.is_primary && (
-                  <Badge variant="default" className={smallBadge}>
-                    Primary
-                  </Badge>
-                )}
-                <Badge
-                  variant="outline"
-                  className={smallBadge}
-                  title={matchMethodDescription(m.match_method)}
-                >
-                  {matchMethodLabel(m.match_method)}
-                </Badge>
-                <StatusIndicator
-                  variant={confidenceVariant(m.confidence)}
-                  label={`${m.confidence}%`}
-                  size="sm"
-                />
-                {m.origin === "manual_override" && (
-                  <Badge
-                    variant="outline"
-                    className={`${smallBadge} border-primary/40 text-primary`}
-                  >
-                    Manual
-                  </Badge>
-                )}
-              </div>
-            </ConnectorListItem>
-          );
-        })}
-      </div>
-
-      {relinkMapping && (
-        <RelinkMappingDialog
-          trackId={trackId}
-          mapping={relinkMapping}
-          open
-          onOpenChange={(open) => !open && setRelinkMapping(null)}
-        />
-      )}
-
-      {unlinkMapping && (
-        <UnlinkMappingDialog
-          trackId={trackId}
-          mapping={unlinkMapping}
-          open
-          onOpenChange={(open) => !open && setUnlinkMapping(null)}
-        />
-      )}
-    </>
   );
 }
 

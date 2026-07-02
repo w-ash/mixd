@@ -39,6 +39,17 @@ interface ActiveDialog {
   tag: TagSummarySchema;
 }
 
+interface TagDialogConfig {
+  title: string;
+  description: string;
+  confirmLabel: string;
+  destructive?: boolean;
+  isPending: boolean;
+  disabled?: boolean;
+  onConfirm: () => void;
+  input?: { placeholder: string; ariaLabel: string };
+}
+
 interface TagRowActionsProps {
   tag: TagSummarySchema;
   onRename: (tag: TagSummarySchema) => void;
@@ -217,6 +228,49 @@ export function Tags() {
     deleteMutation.isPending ||
     mergeMutation.isPending;
 
+  // One dialog, mode-keyed. Copy per mode must stay byte-identical — the tests
+  // assert the exact description text and its track/tracks pluralization.
+  const activeConfig: TagDialogConfig | null = (() => {
+    if (!activeDialog) return null;
+    const { mode, tag } = activeDialog;
+    const count = tag.track_count;
+    const trackWord = count === 1 ? "track" : "tracks";
+    switch (mode) {
+      case "rename":
+        return {
+          title: "Rename tag",
+          description: `"${tag.tag}" appears on ${count} ${trackWord}. The new name will replace it everywhere.`,
+          confirmLabel: `Rename across ${count} tracks`,
+          isPending: renameMutation.isPending,
+          disabled: !targetInput.trim(),
+          onConfirm: handleRename,
+          input: { placeholder: "mood:ambient", ariaLabel: "New tag name" },
+        };
+      case "merge":
+        return {
+          title: "Merge into another tag",
+          description: `Every track currently tagged "${tag.tag}" will be moved to the target tag. Tracks already on the target stay as-is.`,
+          confirmLabel: `Merge ${count} tracks`,
+          isPending: mergeMutation.isPending,
+          disabled: !targetInput.trim(),
+          onConfirm: handleMerge,
+          input: {
+            placeholder: "Target tag (e.g. context:workout)",
+            ariaLabel: "Target tag",
+          },
+        };
+      case "delete":
+        return {
+          title: "Delete tag",
+          description: `Removes "${tag.tag}" from ${count} ${trackWord} and clears its history. This can't be undone.`,
+          confirmLabel: `Delete from ${count} tracks`,
+          destructive: true,
+          isPending: deleteMutation.isPending,
+          onConfirm: handleDelete,
+        };
+    }
+  })();
+
   return (
     <div>
       <title>Tags — Mixd</title>
@@ -350,69 +404,28 @@ export function Tags() {
         />
       </QueryStates>
 
-      {/* Rename dialog */}
+      {/* Tag action dialog — one instance, mode-keyed off activeDialog */}
       <ConfirmationDialog
-        open={activeDialog?.mode === "rename"}
+        open={activeDialog !== null}
         onOpenChange={(open) => !open && closeDialog()}
-        title="Rename tag"
-        description={
-          activeDialog?.mode === "rename"
-            ? `"${activeDialog.tag.tag}" appears on ${activeDialog.tag.track_count} ${activeDialog.tag.track_count === 1 ? "track" : "tracks"}. The new name will replace it everywhere.`
-            : undefined
-        }
-        confirmLabel={`Rename across ${activeDialog?.mode === "rename" ? activeDialog.tag.track_count : 0} tracks`}
-        isPending={renameMutation.isPending}
-        disabled={!targetInput.trim()}
-        onConfirm={handleRename}
+        title={activeConfig?.title ?? ""}
+        description={activeConfig?.description}
+        confirmLabel={activeConfig?.confirmLabel ?? ""}
+        destructive={activeConfig?.destructive}
+        isPending={activeConfig?.isPending}
+        disabled={activeConfig?.disabled}
+        onConfirm={() => activeConfig?.onConfirm()}
       >
-        <Input
-          autoFocus
-          value={targetInput}
-          onChange={(e) => setTargetInput(e.target.value)}
-          placeholder="mood:ambient"
-          aria-label="New tag name"
-        />
+        {activeConfig?.input && (
+          <Input
+            autoFocus
+            value={targetInput}
+            onChange={(e) => setTargetInput(e.target.value)}
+            placeholder={activeConfig.input.placeholder}
+            aria-label={activeConfig.input.ariaLabel}
+          />
+        )}
       </ConfirmationDialog>
-
-      {/* Merge dialog */}
-      <ConfirmationDialog
-        open={activeDialog?.mode === "merge"}
-        onOpenChange={(open) => !open && closeDialog()}
-        title="Merge into another tag"
-        description={
-          activeDialog?.mode === "merge"
-            ? `Every track currently tagged "${activeDialog.tag.tag}" will be moved to the target tag. Tracks already on the target stay as-is.`
-            : undefined
-        }
-        confirmLabel={`Merge ${activeDialog?.mode === "merge" ? activeDialog.tag.track_count : 0} tracks`}
-        isPending={mergeMutation.isPending}
-        disabled={!targetInput.trim()}
-        onConfirm={handleMerge}
-      >
-        <Input
-          autoFocus
-          value={targetInput}
-          onChange={(e) => setTargetInput(e.target.value)}
-          placeholder="Target tag (e.g. context:workout)"
-          aria-label="Target tag"
-        />
-      </ConfirmationDialog>
-
-      {/* Delete dialog */}
-      <ConfirmationDialog
-        open={activeDialog?.mode === "delete"}
-        onOpenChange={(open) => !open && closeDialog()}
-        title="Delete tag"
-        description={
-          activeDialog?.mode === "delete"
-            ? `Removes "${activeDialog.tag.tag}" from ${activeDialog.tag.track_count} ${activeDialog.tag.track_count === 1 ? "track" : "tracks"} and clears its history. This can't be undone.`
-            : undefined
-        }
-        confirmLabel={`Delete from ${activeDialog?.mode === "delete" ? activeDialog.tag.track_count : 0} tracks`}
-        destructive
-        isPending={deleteMutation.isPending}
-        onConfirm={handleDelete}
-      />
 
       {/* Lightweight overlay while any mutation is in flight (in case dialog
           closes before completion). */}
