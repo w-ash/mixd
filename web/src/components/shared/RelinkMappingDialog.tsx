@@ -8,9 +8,9 @@ import {
   getGetTrackDetailApiV1TracksTrackIdGetQueryKey,
   useRelinkMappingApiV1TracksTrackIdMappingsMappingIdPatch,
 } from "#/api/generated/tracks/tracks";
+import { CommandSearchList } from "#/components/shared/CommandSearchList";
 import { ConnectorIcon } from "#/components/shared/ConnectorIcon";
 import { MappingInfoCard } from "#/components/shared/MappingInfoCard";
-import { TrackSearchCombobox } from "#/components/shared/TrackSearchCombobox";
 import { Button } from "#/components/ui/button";
 import {
   DialogDescription,
@@ -92,7 +92,7 @@ export function RelinkMappingDialog({
       <MappingInfoCard mapping={mapping} />
 
       {!selectedTarget ? (
-        <TrackSearchCombobox
+        <CommandSearchList
           onSelect={setSelectedTarget}
           excludeTrackId={trackId}
           placeholder="Search for the target track..."

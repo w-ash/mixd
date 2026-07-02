@@ -9,8 +9,8 @@ import {
   getGetTrackDetailApiV1TracksTrackIdGetQueryKey,
   useMergeTrackApiV1TracksTrackIdMergePost,
 } from "#/api/generated/tracks/tracks";
+import { CommandSearchList } from "#/components/shared/CommandSearchList";
 import { ConnectorIcon } from "#/components/shared/ConnectorIcon";
-import { TrackSearchCombobox } from "#/components/shared/TrackSearchCombobox";
 import { Badge } from "#/components/ui/badge";
 import { Button } from "#/components/ui/button";
 import {
@@ -122,7 +122,7 @@ export function MergeTrackDialog({ winner }: MergeTrackDialogProps) {
       </DialogHeader>
 
       {!selectedLoser ? (
-        <TrackSearchCombobox
+        <CommandSearchList
           onSelect={setSelectedLoser}
           excludeTrackId={winner.id}
           placeholder="Search for the duplicate..."

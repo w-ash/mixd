@@ -1,7 +1,6 @@
 import { useQueryClient } from "@tanstack/react-query";
-import { Command } from "cmdk";
-import { Check, Plus, Search } from "lucide-react";
-import { useEffect, useRef, useState } from "react";
+import { Check, Plus } from "lucide-react";
+import { useState } from "react";
 import type { LibraryTrackSchema } from "#/api/generated/model";
 import {
   getGetPlaylistApiV1PlaylistsPlaylistIdGetQueryKey,
@@ -9,8 +8,7 @@ import {
   getListPlaylistsApiV1PlaylistsGetQueryKey,
   useAddPlaylistTracksApiV1PlaylistsPlaylistIdTracksPost,
 } from "#/api/generated/playlists/playlists";
-import { useListTracksApiV1TracksGet } from "#/api/generated/tracks/tracks";
-import { ConnectorIcon } from "#/components/shared/ConnectorIcon";
+import { CommandSearchList } from "#/components/shared/CommandSearchList";
 import { Button } from "#/components/ui/button";
 import {
   DialogFooter,
@@ -18,8 +16,6 @@ import {
   DialogTitle,
 } from "#/components/ui/dialog";
 import { ResponsiveDialog } from "#/components/ui/responsive-dialog";
-import { useTrackSearch } from "#/hooks/useTrackSearch";
-import { formatArtists } from "#/lib/format";
 import { pluralize } from "#/lib/pluralize";
 import { toasts } from "#/lib/toasts";
 
@@ -44,21 +40,7 @@ export function AddTracksDialog({
   const [selected, setSelected] = useState<Map<string, LibraryTrackSchema>>(
     new Map(),
   );
-  const { search, setSearch, deferredSearch } = useTrackSearch();
   const queryClient = useQueryClient();
-  const inputRef = useRef<HTMLInputElement>(null);
-
-  // Focus the search input when the dialog opens (search-first modal) without
-  // the `autoFocus` attribute the a11y lint flags.
-  useEffect(() => {
-    if (open) inputRef.current?.focus();
-  }, [open]);
-
-  const { data, isLoading } = useListTracksApiV1TracksGet(
-    { q: deferredSearch || undefined, limit: 20 },
-    { query: { enabled: open && deferredSearch.length >= 2 } },
-  );
-  const results = data?.status === 200 ? data.data.data : [];
 
   const addMutation = useAddPlaylistTracksApiV1PlaylistsPlaylistIdTracksPost({
     mutation: {
@@ -87,7 +69,6 @@ export function AddTracksDialog({
 
   function reset() {
     setSelected(new Map());
-    setSearch("");
   }
 
   function toggle(track: LibraryTrackSchema) {
@@ -126,82 +107,36 @@ export function AddTracksDialog({
         <DialogTitle>Add tracks</DialogTitle>
       </DialogHeader>
 
-      <Command
-        className="rounded-lg border border-border-muted bg-surface"
-        shouldFilter={false}
+      <CommandSearchList
+        limit={20}
+        enabled={open}
         loop
-      >
-        <div className="flex items-center gap-2 border-b border-border-muted px-3">
-          <Search className="size-4 text-text-muted" />
-          <Command.Input
-            ref={inputRef}
-            value={search}
-            onValueChange={setSearch}
-            placeholder="Search your library…"
-            className="flex h-10 w-full bg-transparent text-sm text-text outline-none placeholder:text-text-faint"
-          />
-        </div>
-        <Command.List className="max-h-72 overflow-y-auto p-1">
-          {deferredSearch.length < 2 && (
-            <Command.Empty className="p-4 text-center text-sm text-text-muted">
-              Type at least 2 characters to search.
-            </Command.Empty>
-          )}
-          {deferredSearch.length >= 2 && isLoading && (
-            <Command.Loading className="p-4 text-center text-sm text-text-muted">
-              Searching…
-            </Command.Loading>
-          )}
-          {deferredSearch.length >= 2 && !isLoading && results.length === 0 && (
-            <Command.Empty className="p-4 text-center text-sm text-text-muted">
-              No tracks found.
-            </Command.Empty>
-          )}
-          {results.map((track) => {
-            const id = track.id ?? "";
-            const isSelected = selected.has(id);
-            const alreadyIn = existingTrackIds.has(id);
-            return (
-              <Command.Item
-                key={id}
-                value={id}
-                onSelect={() => toggle(track)}
-                className="flex cursor-pointer items-center gap-3 rounded-md px-3 py-2 text-sm hover:bg-surface-sunken aria-selected:bg-surface-sunken"
-              >
-                <span
-                  className={`flex size-4 shrink-0 items-center justify-center rounded border ${
-                    isSelected
-                      ? "border-primary bg-primary text-primary-foreground"
-                      : "border-border-muted"
-                  }`}
-                  aria-hidden="true"
-                >
-                  {isSelected && <Check className="size-3.5" strokeWidth={3} />}
-                </span>
-                <div className="min-w-0 flex-1">
-                  <div className="truncate font-medium text-text">
-                    {track.title}
-                  </div>
-                  <div className="truncate text-xs text-text-muted">
-                    {formatArtists(track.artists)}
-                    {track.album && ` — ${track.album}`}
-                  </div>
-                </div>
-                {alreadyIn && (
-                  <span className="shrink-0 rounded bg-surface-sunken px-1.5 py-0.5 text-[11px] text-text-muted">
-                    Added
-                  </span>
-                )}
-                <div className="flex shrink-0 gap-1">
-                  {track.connector_names.map((name) => (
-                    <ConnectorIcon key={name} name={name} />
-                  ))}
-                </div>
-              </Command.Item>
-            );
-          })}
-        </Command.List>
-      </Command>
+        listClassName="max-h-72 overflow-y-auto p-1"
+        placeholder="Search your library…"
+        onSelect={toggle}
+        rowLeading={(track) => {
+          const isSelected = selected.has(track.id);
+          return (
+            <span
+              className={`flex size-4 shrink-0 items-center justify-center rounded border ${
+                isSelected
+                  ? "border-primary bg-primary text-primary-foreground"
+                  : "border-border-muted"
+              }`}
+              aria-hidden="true"
+            >
+              {isSelected && <Check className="size-3.5" strokeWidth={3} />}
+            </span>
+          );
+        }}
+        rowTrailing={(track) =>
+          existingTrackIds.has(track.id) ? (
+            <span className="shrink-0 rounded bg-surface-sunken px-1.5 py-0.5 text-[11px] text-text-muted">
+              Added
+            </span>
+          ) : null
+        }
+      />
 
       <DialogFooter>
         <Button
