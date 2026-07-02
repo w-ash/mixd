@@ -2,7 +2,7 @@
 
 Proves the "always complete" invariant at the entity level: unresolved entries
 keep their position in ``entries``/``track_count`` while being excluded from the
-resolved-only ``tracks``/``to_tracklist`` views that diff and workflows consume.
+resolved-only ``tracks`` view that diff and workflows consume.
 """
 
 from src.domain.entities.playlist import (
@@ -62,14 +62,9 @@ class TestPlaylistResolvedViews:
 
     def test_resolved_and_unresolved_accessors(self):
         playlist = _mixed_playlist()
-        assert len(playlist.resolved_entries) == 2
+        assert len(playlist.tracks) == 2
         assert len(playlist.unresolved_entries) == 1
         assert playlist.unresolved_count == 1
-
-    def test_to_tracklist_skips_unresolved(self):
-        playlist = _mixed_playlist()
-        tracklist = playlist.to_tracklist()
-        assert len(tracklist.tracks) == 2
 
 
 class TestMembershipKeys:

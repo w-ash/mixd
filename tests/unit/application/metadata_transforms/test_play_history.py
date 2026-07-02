@@ -96,6 +96,38 @@ class TestFilterByPlayHistory:
         assert len(result.tracks) == 1
         assert result.tracks[0].id == 2
 
+    def test_include_missing_does_not_rescue_out_of_window_plays(self):
+        """include_missing applies only to absent/unparseable dates.
+
+        A track whose date parses but falls outside the window is a hard
+        exclusion — include_missing=True must not readmit it.
+        """
+        tracks = [
+            Track(id=1, title="In Window", artists=[Artist(name="Artist 1")]),
+            Track(id=2, title="Out of Window", artists=[Artist(name="Artist 2")]),
+            Track(id=3, title="Never Played", artists=[Artist(name="Artist 3")]),
+        ]
+
+        metadata = {
+            "metrics": {
+                "total_plays": {1: 5, 2: 8},
+                "last_played_dates": {
+                    1: "2024-07-15T00:00:00+00:00",
+                    2: "2024-01-15T00:00:00+00:00",
+                },
+            }
+        }
+        tracklist = TrackList(tracks=tracks, metadata=metadata)
+
+        result = filter_by_play_history(
+            start_date="2024-06-01",
+            end_date="2024-08-31",
+            include_missing=True,
+            tracklist=tracklist,
+        )
+
+        assert [t.id for t in result.tracks] == [1, 3]
+
     def test_constraint_validation(self):
         """Test that at least one constraint is required."""
         tracks = [Track(id=1, title="Test", artists=[Artist(name="Artist")])]

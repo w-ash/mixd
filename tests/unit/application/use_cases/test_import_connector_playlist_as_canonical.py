@@ -123,7 +123,6 @@ class TestReimportRoutesThroughEngine:
 
         apply_mock.assert_awaited_once()
         upsert_mock.assert_not_called()
-        uow.get_playlist_link_repository().create_links_batch.assert_not_called()
         assert list(result.skipped_unchanged) == ["sp1"]
         assert len(result.succeeded) == 0
         # The no-op still records a fresh base snapshot, so the batch commits.

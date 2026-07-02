@@ -13,12 +13,13 @@ Unlike pure domain transforms, these functions:
 
 from src.config import get_logger
 from src.domain.entities.track import Track, TrackList
-from src.domain.transforms.core import Transform
+from src.domain.transforms.core import Transform, dual_mode
 
 from ._helpers import (
     DateSource,
     calculate_time_window,
     get_play_metrics,
+    is_datetime_in_window,
     parse_datetime_safe,
 )
 
@@ -122,19 +123,14 @@ def filter_by_play_history(
 
             # Apply date constraints
             if effective_after is not None or effective_before is not None:
-                played_raw = played_dates.get(track.id)
-
-                if played_raw is None:
-                    return include_missing
-
-                # Parse datetime using helper
-                played_at = parse_datetime_safe(played_raw)
+                # Missing/unparseable dates follow include_missing; a date that
+                # parses but falls outside the window is a hard exclusion.
+                played_at = parse_datetime_safe(played_dates.get(track.id))
                 if played_at is None:
                     return include_missing
-
-                if effective_after is not None and played_at < effective_after:
-                    return False
-                if effective_before is not None and played_at >= effective_before:
+                if not is_datetime_in_window(
+                    played_at, effective_after, effective_before
+                ):
                     return False
 
             return True
@@ -167,7 +163,7 @@ def filter_by_play_history(
 
         return result
 
-    return transform(tracklist) if tracklist is not None else transform
+    return dual_mode(transform, tracklist)
 
 
 def sort_by_play_history(
@@ -240,19 +236,10 @@ def sort_by_play_history(
             # within the time window. Since we only have last_played_dates (not all play dates),
             # we'll use a heuristic: if the track was played within the window,
             # use its total play count, otherwise use 0.
-            last_played_raw = last_played_dates.get(track.id)
-            if last_played_raw is None:
-                return 0
-
-            # Parse datetime using helper
-            last_played = parse_datetime_safe(last_played_raw)
-            if last_played is None:
-                return 0
-
-            # Check if last played date is within our time window
-            if effective_after is not None and last_played < effective_after:
-                return 0
-            if effective_before is not None and last_played >= effective_before:
+            last_played = parse_datetime_safe(last_played_dates.get(track.id))
+            if last_played is None or not is_datetime_in_window(
+                last_played, effective_after, effective_before
+            ):
                 return 0
 
             # Track was played within window, use its total play count as proxy
@@ -283,4 +270,4 @@ def sort_by_play_history(
 
         return result
 
-    return transform(tracklist) if tracklist is not None else transform
+    return dual_mode(transform, tracklist)

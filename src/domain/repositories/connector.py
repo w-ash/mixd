@@ -238,21 +238,6 @@ class ConnectorRepositoryProtocol(Protocol):
         """
         ...
 
-    def batch_ensure_primary_mappings(
-        self, primaries: list[tuple[UUID, str, str]]
-    ) -> Awaitable[int]:
-        """Set primary mappings for multiple track-connector pairs in bulk.
-
-        Each tuple is (track_id, connector_name, connector_track_identifier).
-
-        Args:
-            primaries: List of (track_id, connector_name, connector_track_identifier).
-
-        Returns:
-            Number of mappings successfully promoted to primary.
-        """
-        ...
-
     def set_primary_mapping(
         self, track_id: UUID, connector_name: str, connector_track_id: UUID
     ) -> Awaitable[bool]:
@@ -339,22 +324,6 @@ class ConnectorRepositoryProtocol(Protocol):
         """
         ...
 
-    def get_remaining_mappings(
-        self, track_id: UUID, connector_name: str
-    ) -> Awaitable[list[TrackMapping]]:
-        """Get all mappings for a (track, connector) pair, ordered by confidence desc.
-
-        Used to pick the next primary mapping after removing one.
-
-        Args:
-            track_id: Canonical track ID.
-            connector_name: Connector name to filter by.
-
-        Returns:
-            List of TrackMapping entities, highest confidence first.
-        """
-        ...
-
     def get_connector_track_by_id(
         self, connector_track_id: UUID
     ) -> Awaitable[ConnectorTrack | None]:
@@ -431,20 +400,6 @@ class ConnectorPlaylistRepositoryProtocol(Protocol):
 
         Returns:
             Updated ConnectorPlaylist model
-        """
-        ...
-
-    def get_by_connector_id(
-        self, connector: str, connector_id: str
-    ) -> Awaitable[ConnectorPlaylist | None]:
-        """Get connector playlist by connector and external ID.
-
-        Args:
-            connector: Connector name (e.g., "spotify")
-            connector_id: External playlist ID
-
-        Returns:
-            ConnectorPlaylist if found, None otherwise
         """
         ...
 

@@ -1,9 +1,7 @@
 """Connector playlist repository implementation."""
 
 from collections.abc import Sequence
-from typing import Any
 
-from sqlalchemy import Select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.config import get_logger
@@ -31,28 +29,6 @@ class ConnectorPlaylistRepository(
             model_class=DBConnectorPlaylist,
             mapper=ConnectorPlaylistMapper(),
         )
-
-    def select_by_connector_id(
-        self, connector: str, connector_id: str
-    ) -> Select[tuple[Any, ...]]:  # pyright: ignore[reportExplicitAny]  # SQLAlchemy Select row shape is genuinely unknown until query executes
-        """Create a select statement for a connector playlist by its external ID."""
-        return self.select().where(
-            self.model_class.connector_name == connector,
-            self.model_class.connector_playlist_identifier == connector_id,
-        )
-
-    @db_operation("get_by_connector_id")
-    async def get_by_connector_id(
-        self, connector: str, connector_id: str
-    ) -> ConnectorPlaylist | None:
-        """Get a connector playlist by its connector name and external ID."""
-        stmt = self.select_by_connector_id(connector, connector_id)
-        db_entity = await self.execute_select_one(stmt)
-
-        if not db_entity:
-            return None
-
-        return await self.mapper.to_domain(db_entity)
 
     @db_operation("upsert_model")
     async def upsert_model(

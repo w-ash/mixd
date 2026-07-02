@@ -67,7 +67,7 @@ Populated during investigation. One row per spoke. ROI/Risk are the executor's d
 | [12](12-execution-strategies-dead-abstraction.md) | Delete dead execution-Strategy abstraction | domain | M | high | low-med | Opus | **Done (v0.8.13)** |
 | [13](13-dead-config-purge.md) | Purge dead config: BatchConfig + MatchingConfig fields | domain+config | S-M | high | low | Opus | **Done (v0.8.13)** |
 | [14](14-service-method-splits.md) | Split two oversized service methods along phase seams | application | M | med | med | Opus | Not Started |
-| [15](15-backend-minor-batch.md) | Backend minor batch: dual_mode, play-history predicate, protocol surface | domain+application | S | low-med | low | Haiku | Not Started |
+| [15](15-backend-minor-batch.md) | Backend minor batch: dual_mode, play-history predicate, protocol surface | domain+application | S | low-med | low | Haiku | **Done (v0.8.14)** |
 | [16](16-query-states-wrapper.md) | QueryStates wrapper + skeleton primitives (four-state ladder) | web | L | high | med | Fable | Not Started |
 | [17](17-command-search-list.md) | CommandSearchList: de-fork track-search dialogs | web | M | med | med | Opus | Not Started |
 | [18](18-dead-frontend-export.md) | Resolve dead export hasActiveFilters | web | XS | low | low | Haiku | **Done (v0.8.13)** |
@@ -122,6 +122,7 @@ _Unrelated debt discovered mid-sweep, parked for separate tracking (not fixed in
 - **Frontend minor items** (from sweep, below work-order threshold): mutation `invalidate → toast → close` helper (~6 dialogs); `ScheduleFailureBanner` vs `ScheduleFailuresBanner` rename; `NodeConfigPanel` `FieldInput` extraction; `EditorToolbar` `useWorkflowSave` extraction; `Tags.tsx` bespoke `tagMutationCallbacks` (justified by 422-in-onSuccess envelope).
 - **Repo-wide raw-Tailwind-palette sweep** beyond spoke 20's three files — bigger scope decision.
 - **`MatchFailureReason.NO_ISRC` has no producers** after spoke 04 removed the only emitters (the unreachable re-validation branches). Removing the enum member is a domain change (persisted/reported failure vocabulary) — decide separately, e.g. at the v0.8.17 vulture prune.
+- **`added_at_dates` metadata has no production writer** (found in spoke 15): `metric_transforms.py` reads it (`sort_by_date`) and `track.py` types it, but the only writer was the test-kept-alive `Playlist.to_tracklist()` (now deleted); the workflow playlist source builds `track_sources` metadata instead. Either the playlist source should emit `added_at_dates` (feature gap: date-sorting playlist-sourced tracks by added-at) or the reader + typed keys are dead — needs its own decision.
 
 ## Healthy — audited and dispositioned leave-alone
 

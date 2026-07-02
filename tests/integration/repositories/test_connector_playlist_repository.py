@@ -39,10 +39,16 @@ class TestSnapshotIdRoundTrip:
         repo = uow.get_connector_playlist_repository()
 
         uid = uuid4().hex[:8]
-        await repo.upsert_model(_cp(f"A {uid}", f"sp_{uid}", snapshot_id="snap-abc"))
+        identifier = f"sp_{uid}"
+        await repo.upsert_model(_cp(f"A {uid}", identifier, snapshot_id="snap-abc"))
         await db_session.flush()
 
-        back = await repo.get_by_connector_id("spotify", f"sp_{uid}")
+        # Read back by listing all Spotify playlists and finding the one with the right ID
+        playlists = await repo.list_by_connector("spotify")
+        back = next(
+            (p for p in playlists if p.connector_playlist_identifier == identifier),
+            None,
+        )
         assert back is not None
         assert back.snapshot_id == "snap-abc"
 
@@ -52,13 +58,19 @@ class TestSnapshotIdRoundTrip:
         repo = uow.get_connector_playlist_repository()
 
         uid = uuid4().hex[:8]
-        await repo.upsert_model(_cp(f"A {uid}", f"sp_{uid}", snapshot_id="snap-v1"))
+        identifier = f"sp_{uid}"
+        await repo.upsert_model(_cp(f"A {uid}", identifier, snapshot_id="snap-v1"))
         await db_session.flush()
 
-        await repo.upsert_model(_cp(f"A {uid}", f"sp_{uid}", snapshot_id="snap-v2"))
+        await repo.upsert_model(_cp(f"A {uid}", identifier, snapshot_id="snap-v2"))
         await db_session.flush()
 
-        back = await repo.get_by_connector_id("spotify", f"sp_{uid}")
+        # Read back by listing all Spotify playlists and finding the one with the right ID
+        playlists = await repo.list_by_connector("spotify")
+        back = next(
+            (p for p in playlists if p.connector_playlist_identifier == identifier),
+            None,
+        )
         assert back is not None
         assert back.snapshot_id == "snap-v2"
 
@@ -68,10 +80,16 @@ class TestSnapshotIdRoundTrip:
         repo = uow.get_connector_playlist_repository()
 
         uid = uuid4().hex[:8]
-        await repo.upsert_model(_cp(f"A {uid}", f"sp_{uid}", snapshot_id=None))
+        identifier = f"sp_{uid}"
+        await repo.upsert_model(_cp(f"A {uid}", identifier, snapshot_id=None))
         await db_session.flush()
 
-        back = await repo.get_by_connector_id("spotify", f"sp_{uid}")
+        # Read back by listing all Spotify playlists and finding the one with the right ID
+        playlists = await repo.list_by_connector("spotify")
+        back = next(
+            (p for p in playlists if p.connector_playlist_identifier == identifier),
+            None,
+        )
         assert back is not None
         assert back.snapshot_id is None
 
@@ -149,12 +167,14 @@ class TestBulkUpsertModels:
         assert identifiers == {f"sp_a_{uid}", f"sp_b_{uid}", f"sp_c_{uid}"}
 
         # Round-trip: read each back, snapshot_id preserved.
+        playlists = await repo.list_by_connector("spotify")
+        playlist_by_ident = {p.connector_playlist_identifier: p for p in playlists}
         for ident, expected_snap in [
             (f"sp_a_{uid}", "s1"),
             (f"sp_b_{uid}", "s2"),
             (f"sp_c_{uid}", "s3"),
         ]:
-            back = await repo.get_by_connector_id("spotify", ident)
+            back = playlist_by_ident.get(ident)
             assert back is not None
             assert back.snapshot_id == expected_snap
 
@@ -164,13 +184,19 @@ class TestBulkUpsertModels:
         repo = uow.get_connector_playlist_repository()
 
         uid = uuid4().hex[:8]
-        await repo.bulk_upsert_models([_cp(f"A {uid}", f"sp_{uid}", snapshot_id="v1")])
+        identifier = f"sp_{uid}"
+        await repo.bulk_upsert_models([_cp(f"A {uid}", identifier, snapshot_id="v1")])
         await db_session.flush()
 
-        await repo.bulk_upsert_models([_cp(f"A {uid}", f"sp_{uid}", snapshot_id="v2")])
+        await repo.bulk_upsert_models([_cp(f"A {uid}", identifier, snapshot_id="v2")])
         await db_session.flush()
 
-        back = await repo.get_by_connector_id("spotify", f"sp_{uid}")
+        # Read back by listing all Spotify playlists and finding the one with the right ID
+        playlists = await repo.list_by_connector("spotify")
+        back = next(
+            (p for p in playlists if p.connector_playlist_identifier == identifier),
+            None,
+        )
         assert back is not None
         assert back.snapshot_id == "v2"
 

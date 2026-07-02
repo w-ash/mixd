@@ -9,7 +9,7 @@ These tests lock down the current TrackList contract before refactoring:
 from datetime import UTC, datetime
 
 from src.domain.entities.playlist import Playlist, PlaylistEntry
-from src.domain.entities.track import Artist, Track, TrackList
+from src.domain.entities.track import TrackList
 from tests.fixtures import make_tracks
 
 
@@ -92,24 +92,14 @@ class TestTrackListMetadataRoundTrip:
 class TestPlaylistTrackListConversion:
     """Verify the Playlist ↔ TrackList bridge."""
 
-    def test_to_tracklist_extracts_tracks(self):
+    def test_playlist_tracks_property_extracts_tracks(self):
+        """playlist.tracks extracts resolved tracks from entries."""
         tracks = make_tracks(3)
         entries = [PlaylistEntry(track=t) for t in tracks]
         playlist = Playlist(name="Test", entries=entries)
 
-        tl = playlist.to_tracklist()
-
-        assert len(tl.tracks) == 3
-        assert tl.tracks == tracks
-
-    def test_to_tracklist_returns_source_metadata(self):
-        """to_tracklist() carries source_playlist_name and empty added_at_dates."""
-        playlist = Playlist(name="Test", entries=[])
-
-        tl = playlist.to_tracklist()
-
-        assert tl.metadata["source_playlist_name"] == "Test"
-        assert tl.metadata["added_at_dates"] == {}
+        assert len(playlist.tracks) == 3
+        assert playlist.tracks == tracks
 
     def test_from_tracklist_creates_playlist_with_entries(self):
         tracks = make_tracks(2)
@@ -130,55 +120,3 @@ class TestPlaylistTrackListConversion:
         playlist = Playlist.from_tracklist("Test", tracks)
 
         assert len(playlist.entries) == 2
-
-    def test_to_tracklist_preserves_added_at_dates(self):
-        """to_tracklist should carry added_at temporal data in metadata."""
-        now = datetime(2025, 6, 15, 12, 0, 0, tzinfo=UTC)
-        tracks = make_tracks(2)
-        entries = [PlaylistEntry(track=t, added_at=now) for t in tracks]
-        playlist = Playlist(name="Temporal", entries=entries)
-
-        tl = playlist.to_tracklist()
-
-        assert "added_at_dates" in tl.metadata
-        assert tl.metadata["added_at_dates"][tracks[0].id] == now.isoformat()
-        assert tl.metadata["added_at_dates"][tracks[1].id] == now.isoformat()
-
-    def test_to_tracklist_carries_source_playlist_name(self):
-        """to_tracklist should include source_playlist_name in metadata."""
-        playlist = Playlist(name="My Playlist", entries=[])
-
-        tl = playlist.to_tracklist()
-
-        assert tl.metadata["source_playlist_name"] == "My Playlist"
-
-    def test_to_tracklist_skips_entries_without_added_at(self):
-        """Entries without added_at should not appear in added_at_dates."""
-        tracks = make_tracks(2)
-        entries = [
-            PlaylistEntry(track=tracks[0], added_at=datetime(2025, 1, 1, tzinfo=UTC)),
-            PlaylistEntry(track=tracks[1]),  # No added_at
-        ]
-        playlist = Playlist(name="Mixed", entries=entries)
-
-        tl = playlist.to_tracklist()
-
-        assert tracks[0].id in tl.metadata["added_at_dates"]
-        assert tracks[1].id not in tl.metadata["added_at_dates"]
-
-    def test_to_tracklist_all_tracks_have_ids(self):
-        """All tracks have UUIDs, so all entries with added_at should appear in added_at_dates."""
-        now = datetime(2025, 1, 1, tzinfo=UTC)
-        track_a = Track(title="Track A", artists=[Artist(name="A")])
-        track_b = Track(title="Track B", artists=[Artist(name="B")])
-        entries = [
-            PlaylistEntry(track=track_a, added_at=now),
-            PlaylistEntry(track=track_b, added_at=now),
-        ]
-        playlist = Playlist(name="Mixed", entries=entries)
-
-        tl = playlist.to_tracklist()
-
-        assert track_a.id in tl.metadata["added_at_dates"]
-        assert track_b.id in tl.metadata["added_at_dates"]
-        assert len(tl.metadata["added_at_dates"]) == 2

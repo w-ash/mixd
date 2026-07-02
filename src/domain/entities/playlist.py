@@ -180,11 +180,6 @@ class Playlist:
         return [entry.track for entry in self.entries if entry.track is not None]
 
     @property
-    def resolved_entries(self) -> list[PlaylistEntry]:
-        """Entries that resolved to a canonical track."""
-        return [entry for entry in self.entries if entry.track is not None]
-
-    @property
     def unresolved_entries(self) -> list[PlaylistEntry]:
         """Entries whose connector track had no canonical match (preserved positions)."""
         return [entry for entry in self.entries if entry.track is None]
@@ -193,26 +188,6 @@ class Playlist:
     def unresolved_count(self) -> int:
         """How many positions are unresolved (the "N unresolved" badge)."""
         return sum(1 for entry in self.entries if entry.track is None)
-
-    def to_tracklist(self) -> TrackList:
-        """Convert to TrackList for workflow processing.
-
-        Preserves temporal metadata (added_at dates) so downstream transforms
-        can filter/sort by when tracks were added to the playlist. Unresolved
-        entries are skipped — a TrackList is canonical tracks only.
-        """
-        added_at_dates = {
-            entry.track.id: entry.added_at.isoformat()
-            for entry in self.entries
-            if entry.track is not None and entry.added_at is not None
-        }
-        return TrackList(
-            tracks=self.tracks,
-            metadata={
-                "source_playlist_name": self.name,
-                "added_at_dates": added_at_dates,
-            },
-        )
 
     @classmethod
     def from_tracklist(

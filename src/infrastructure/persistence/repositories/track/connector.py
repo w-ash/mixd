@@ -770,7 +770,7 @@ class TrackConnectorRepository:
 
             primaries = [(tid, connector, cid) for tid, cid in primaries_set.items()]
             if primaries:
-                _ = await self.batch_ensure_primary_mappings(primaries)
+                _ = await self._batch_ensure_primary_mappings(primaries)
 
         return domain_tracks
 
@@ -868,7 +868,7 @@ class TrackConnectorRepository:
         return result.scalar_one()
 
     @db_operation("get_remaining_mappings")
-    async def get_remaining_mappings(
+    async def _get_remaining_mappings(
         self, track_id: UUID, connector_name: str
     ) -> list[TrackMapping]:
         """Get all mappings for a (track, connector) pair, ordered by confidence desc."""
@@ -906,7 +906,7 @@ class TrackConnectorRepository:
         Promotes the highest-confidence mapping if none is primary,
         or clears the denormalized ID if no mappings remain.
         """
-        remaining = await self.get_remaining_mappings(track_id, connector_name)
+        remaining = await self._get_remaining_mappings(track_id, connector_name)
         if not remaining:
             await self._clear_denormalized_id(track_id, connector_name)
             return
@@ -1147,7 +1147,7 @@ class TrackConnectorRepository:
         return success
 
     @db_operation("batch_ensure_primary_mappings")
-    async def batch_ensure_primary_mappings(
+    async def _batch_ensure_primary_mappings(
         self,
         primaries: list[tuple[UUID, str, str]],
     ) -> int:

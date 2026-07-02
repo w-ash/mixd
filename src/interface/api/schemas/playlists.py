@@ -244,7 +244,7 @@ def to_playlist_entry(entry: PlaylistEntry, position: int) -> PlaylistEntrySchem
             position=position + 1,
             track=_to_track_summary(entry.track),
             added_at=entry.added_at,
-            is_resolved=True,
+            is_resolved=entry.is_resolved,
         )
     # Unresolved: synthesize a summary from the connector ref so the position
     # still renders (with id=None marking it unresolved).
@@ -258,7 +258,7 @@ def to_playlist_entry(entry: PlaylistEntry, position: int) -> PlaylistEntrySchem
             artists=[ArtistSchema(name=a) for a in (ref.artists if ref else ())],
         ),
         added_at=entry.added_at,
-        is_resolved=False,
+        is_resolved=entry.is_resolved,
     )
 
 

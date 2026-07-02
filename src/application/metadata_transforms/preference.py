@@ -21,7 +21,7 @@ from src.domain.entities.preference import (
     PreferenceState,
 )
 from src.domain.entities.track import Track, TrackList
-from src.domain.transforms.core import Transform
+from src.domain.transforms.core import Transform, dual_mode
 
 logger = get_logger(__name__)
 
@@ -68,7 +68,7 @@ def filter_by_preference(
         )
         return t.with_tracks(kept)
 
-    return transform(tracklist) if tracklist is not None else transform
+    return dual_mode(transform, tracklist)
 
 
 def sort_by_preference(
@@ -105,4 +105,4 @@ def sort_by_preference(
         )
         return t.with_tracks(sorted_tracks)
 
-    return transform(tracklist) if tracklist is not None else transform
+    return dual_mode(transform, tracklist)

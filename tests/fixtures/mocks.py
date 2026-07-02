@@ -184,7 +184,6 @@ def make_mock_playlist_link_repo(**overrides) -> AsyncMock:
     repo.list_by_user_connector.return_value = overrides.pop(
         "list_by_user_connector", []
     )
-    repo.create_links_batch.side_effect = overrides.pop("create_links_batch", list)
     for k, v in overrides.items():
         setattr(repo, k, v)
     return repo
@@ -256,7 +255,6 @@ def make_mock_connector_playlist_repo(**overrides) -> AsyncMock:
     """Build an ``AsyncMock`` mimicking :class:`ConnectorPlaylistRepositoryProtocol`."""
     repo = AsyncMock()
     repo.upsert_model.side_effect = overrides.pop("upsert_model", lambda cp: cp)
-    repo.get_by_connector_id.return_value = overrides.pop("get_by_connector_id", None)
     repo.list_by_connector.return_value = overrides.pop("list_by_connector", [])
     repo.bulk_upsert_models.side_effect = overrides.pop("bulk_upsert_models", list)
     for k, v in overrides.items():

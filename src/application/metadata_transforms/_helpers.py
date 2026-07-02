@@ -183,3 +183,28 @@ def parse_datetime_safe(value: object) -> datetime | None:
 
     # Not a datetime or string
     return None
+
+
+# === Window Predicates ===
+
+
+def is_datetime_in_window(
+    value: datetime,
+    effective_after: datetime | None,
+    effective_before: datetime | None,
+) -> bool:
+    """Check whether a datetime falls within ``[effective_after, effective_before)``.
+
+    Callers own their missing/unparseable-date policy (``include_missing`` in
+    the filter, score 0 in the sort) — this predicate only answers the window
+    question for an already-parsed datetime.
+
+    Args:
+        value: The datetime to test.
+        effective_after: Start of window (inclusive) or None for no lower bound.
+        effective_before: End of window (exclusive) or None for no upper bound.
+    """
+    return not (
+        (effective_after is not None and value < effective_after)
+        or (effective_before is not None and value >= effective_before)
+    )

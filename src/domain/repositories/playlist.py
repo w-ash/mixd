@@ -114,13 +114,6 @@ class PlaylistLinkRepositoryProtocol(Protocol):
         """Create a new playlist link. Ensures the DBConnectorPlaylist exists."""
         ...
 
-    def create_links_batch(
-        self, links: Sequence[PlaylistLink]
-    ) -> Awaitable[list[PlaylistLink]]:
-        """Bulk-insert N playlist links. Returns only links actually inserted;
-        duplicates (by (playlist_id, connector_name)) are skipped silently."""
-        ...
-
     def update_sync_status(
         self,
         link_id: UUID,

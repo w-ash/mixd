@@ -2,7 +2,7 @@
 
 Tests new repository methods against a real database session:
 get_mapping_by_id, delete_mapping, update_mapping_track,
-count_mappings_for_connector_track, get_remaining_mappings,
+count_mappings_for_connector_track,
 ensure_primary_for_connector, get_connector_track_by_id.
 """
 
@@ -10,6 +10,7 @@ from datetime import UTC, datetime
 from uuid import UUID, uuid4, uuid7
 
 import pytest
+from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.domain.exceptions import NotFoundError
@@ -166,51 +167,6 @@ class TestCountMappingsForConnectorTrack:
         assert count == 0
 
 
-class TestGetRemainingMappings:
-    """get_remaining_mappings returns mappings ordered by confidence desc."""
-
-    async def test_returns_ordered_by_confidence(
-        self, db_session: AsyncSession, connector_repo
-    ) -> None:
-
-        uid = str(uuid4())[:8]
-
-        db_track = DBTrack(title=f"Multi {uid}", artists={"names": ["Multi Artist"]})
-        db_session.add(db_track)
-        await db_session.flush()
-
-        for i, (ext_id, conf) in enumerate([
-            (f"sp:{uid}:low", 50),
-            (f"sp:{uid}:high", 95),
-        ]):
-            ct = DBConnectorTrack(
-                connector_name="spotify",
-                connector_track_identifier=ext_id,
-                title=f"CT {i}",
-                artists={"names": ["A"]},
-                raw_metadata={},
-                last_updated=datetime.now(UTC),
-            )
-            db_session.add(ct)
-            await db_session.flush()
-            m = DBTrackMapping(
-                track_id=db_track.id,
-                connector_track_id=ct.id,
-                connector_name="spotify",
-                match_method="search",
-                confidence=conf,
-                is_primary=False,
-            )
-            db_session.add(m)
-        await db_session.flush()
-
-        result = await connector_repo.get_remaining_mappings(db_track.id, "spotify")
-
-        assert len(result) == 2
-        assert result[0].confidence == 95
-        assert result[1].confidence == 50
-
-
 class TestEnsurePrimaryForConnector:
     """ensure_primary_for_connector promotes or clears primary mapping."""
 
@@ -252,8 +208,17 @@ class TestEnsurePrimaryForConnector:
 
         await connector_repo.ensure_primary_for_connector(db_track.id, "spotify")
 
-        remaining = await connector_repo.get_remaining_mappings(db_track.id, "spotify")
-        primaries = [m for m in remaining if m.is_primary]
+        # Verify by querying the database directly
+        result = await db_session.execute(
+            select(DBTrackMapping)
+            .where(
+                DBTrackMapping.track_id == db_track.id,
+                DBTrackMapping.connector_name == "spotify",
+            )
+            .order_by(DBTrackMapping.confidence.desc())
+        )
+        mappings = result.scalars().all()
+        primaries = [m for m in mappings if m.is_primary]
         assert len(primaries) == 1
         assert primaries[0].confidence == 90
 
@@ -265,8 +230,15 @@ class TestEnsurePrimaryForConnector:
         # Should not raise or change anything
         await connector_repo.ensure_primary_for_connector(track_id, "spotify")
 
-        remaining = await connector_repo.get_remaining_mappings(track_id, "spotify")
-        primaries = [m for m in remaining if m.is_primary]
+        # Verify by querying the database directly
+        result = await db_session.execute(
+            select(DBTrackMapping).where(
+                DBTrackMapping.track_id == track_id,
+                DBTrackMapping.connector_name == "spotify",
+            )
+        )
+        mappings = result.scalars().all()
+        primaries = [m for m in mappings if m.is_primary]
         assert len(primaries) == 1
 
 

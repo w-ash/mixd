@@ -14,6 +14,7 @@ from src.application.use_cases.create_canonical_playlist import (
     CreateCanonicalPlaylistUseCase,
 )
 from src.domain.entities.playlist import ConnectorPlaylist, ConnectorPlaylistItem
+from src.domain.entities.track import TrackList
 from src.infrastructure.persistence.repositories.factories import get_unit_of_work
 
 
@@ -117,10 +118,23 @@ class TestPlaylistSourceDuplicateHandling:
 
                 # Create canonical playlist using real use case
                 use_case = CreateCanonicalPlaylistUseCase(metric_config=MagicMock())
+                # Build the source TrackList by hand (playlist → tracklist views
+                # live at the call sites; the entity has no conversion method)
+                tracklist = TrackList(
+                    tracks=processed_tracklist.tracks,
+                    metadata={
+                        "source_playlist_name": processed_tracklist.name,
+                        "added_at_dates": {
+                            entry.track.id: entry.added_at.isoformat()
+                            for entry in processed_tracklist.entries
+                            if entry.track is not None and entry.added_at is not None
+                        },
+                    },
+                )
                 command = CreateCanonicalPlaylistCommand(
                     user_id="default",
                     name="Test Integration Playlist",
-                    tracklist=processed_tracklist.to_tracklist(),
+                    tracklist=tracklist,
                     # Use test-specific metadata to ensure we're working with test data
                     metadata={
                         "test_id": "duplicate_handling_test",

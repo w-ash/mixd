@@ -19,7 +19,7 @@ from typing import Literal
 from src.config import get_logger
 from src.domain.entities.tag import normalize_tag
 from src.domain.entities.track import Track, TrackList
-from src.domain.transforms.core import Transform
+from src.domain.transforms.core import Transform, dual_mode
 
 logger = get_logger(__name__)
 
@@ -63,7 +63,7 @@ def filter_by_tag(
         )
         return t.with_tracks(kept)
 
-    return transform(tracklist) if tracklist is not None else transform
+    return dual_mode(transform, tracklist)
 
 
 def filter_by_tag_namespace(
@@ -105,4 +105,4 @@ def filter_by_tag_namespace(
         )
         return t.with_tracks(kept)
 
-    return transform(tracklist) if tracklist is not None else transform
+    return dual_mode(transform, tracklist)

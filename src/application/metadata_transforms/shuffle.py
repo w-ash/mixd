@@ -11,7 +11,7 @@ import random
 
 from src.config import get_logger
 from src.domain.entities.track import TrackList
-from src.domain.transforms.core import Transform
+from src.domain.transforms.core import Transform, dual_mode
 
 logger = get_logger(__name__)
 
@@ -99,4 +99,4 @@ def weighted_shuffle(
         )
         return t.with_tracks([track for _, track in blended])
 
-    return transform(tracklist) if tracklist is not None else transform
+    return dual_mode(transform, tracklist)
