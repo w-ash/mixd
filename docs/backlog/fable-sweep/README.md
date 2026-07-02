@@ -66,7 +66,7 @@ Populated during investigation. One row per spoke. ROI/Risk are the executor's d
 | [11](11-executor-closure-flatten.md) | Workflow executor: flatten triple-nested closure stack | application | L | high | med-high | Fable | Not Started |
 | [12](12-execution-strategies-dead-abstraction.md) | Delete dead execution-Strategy abstraction | domain | M | high | low-med | Opus | **Done (v0.8.13)** |
 | [13](13-dead-config-purge.md) | Purge dead config: BatchConfig + MatchingConfig fields | domain+config | S-M | high | low | Opus | **Done (v0.8.13)** |
-| [14](14-service-method-splits.md) | Split two oversized service methods along phase seams | application | M | med | med | Opus | Not Started |
+| [14](14-service-method-splits.md) | Split two oversized service methods along phase seams | application | M | med | med | Opus | **Done (v0.8.14)** |
 | [15](15-backend-minor-batch.md) | Backend minor batch: dual_mode, play-history predicate, protocol surface | domain+application | S | low-med | low | Haiku | **Done (v0.8.14)** |
 | [16](16-query-states-wrapper.md) | QueryStates wrapper + skeleton primitives (four-state ladder) | web | L | high | med | Fable | Not Started |
 | [17](17-command-search-list.md) | CommandSearchList: de-fork track-search dialogs | web | M | med | med | Opus | Not Started |

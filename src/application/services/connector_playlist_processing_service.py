@@ -7,9 +7,11 @@ duplicate preservation, and performance optimization across create and update us
 
 from datetime import datetime
 
+from src.application.connector_protocols import TrackConversionConnector
 from src.config import get_logger
 from src.domain.entities.playlist import (
     ConnectorPlaylist,
+    ConnectorPlaylistItem,
     ConnectorTrackRef,
     Playlist,
     PlaylistEntry,
@@ -90,10 +92,6 @@ class ConnectorPlaylistProcessingService:
             - len({item.connector_track_identifier for item in playlist_items}),
         )
 
-        # Step 1: Use track data directly from playlist items (preserves Spotify order)
-        # Instead of making additional API calls that scramble ordering,
-        # extract unique track data from playlist items that already contain full track info
-
         # Get typed connector instance for track conversion
         from src.application.use_cases._shared.connector_resolver import (
             resolve_track_conversion_connector,
@@ -101,14 +99,63 @@ class ConnectorPlaylistProcessingService:
 
         connector_instance = resolve_track_conversion_connector(connector_name, uow)
 
-        # Collect unique tracks while preserving the data we already have.
-        # ``connector_track_by_id`` keeps each source track's display data so an
-        # unmatched position can still be rendered ("Couldn't match: …").
+        unique_connector_tracks, connector_track_by_id = (
+            self._extract_unique_connector_tracks(playlist_items, connector_instance)
+        )
+
+        track_id_to_domain_track = await self._resolve_and_ingest_tracks(
+            unique_connector_tracks, connector_name, uow, user_id=user_id
+        )
+
+        playlist_entries, unresolved_count = self._build_playlist_entries(
+            playlist_items,
+            connector_name,
+            track_id_to_domain_track,
+            connector_track_by_id,
+        )
+
+        logger.info(
+            "Created playlist structure: %d positions (%d resolved, %d unresolved)",
+            len(playlist_entries),
+            len(playlist_entries) - unresolved_count,
+            unresolved_count,
+            original_count=len(playlist_items),
+            unresolved=unresolved_count,
+        )
+
+        # Return Playlist with PlaylistEntry objects (track + position metadata)
+        return Playlist(
+            name=connector_playlist.name,
+            entries=playlist_entries,
+            description=connector_playlist.description,
+            connector_playlist_identifiers={
+                connector_name: connector_playlist.connector_playlist_identifier
+            },
+            metadata={
+                "connector_playlist_processed": True,
+                "original_item_count": len(playlist_items),
+                "preserved_entry_count": len(playlist_entries),
+                "unresolved_count": unresolved_count,
+                "unique_tracks": len(track_id_to_domain_track),
+            },
+        )
+
+    @staticmethod
+    def _extract_unique_connector_tracks(
+        playlist_items: list[ConnectorPlaylistItem],
+        connector_instance: TrackConversionConnector,
+    ) -> tuple[list[ConnectorTrack], dict[str, ConnectorTrack]]:
+        """Collect one ConnectorTrack per unique source track, preserving order.
+
+        Uses the full track data already carried in each item's extras — no extra
+        API calls, so Spotify order is preserved — falling back to minimal
+        metadata. ``connector_track_by_id`` keeps each source track's display data
+        so an unmatched position can still be rendered ("Couldn't match: …").
+        """
         seen_track_ids: set[str] = set()
         unique_connector_tracks: list[ConnectorTrack] = []
         connector_track_by_id: dict[str, ConnectorTrack] = {}
 
-        # First pass: collect unique track data from playlist items
         for item in playlist_items:
             if item.connector_track_identifier not in seen_track_ids:
                 seen_track_ids.add(item.connector_track_identifier)
@@ -145,7 +192,22 @@ class ConnectorPlaylistProcessingService:
             f"Retrieved {len(unique_connector_tracks)} unique tracks from playlist items (no API calls needed)"
         )
 
-        # Step 3: Efficiently persist unique tracks (reusing CreateConnectorPlaylistUseCase pattern)
+        return unique_connector_tracks, connector_track_by_id
+
+    async def _resolve_and_ingest_tracks(
+        self,
+        unique_connector_tracks: list[ConnectorTrack],
+        connector_name: str,
+        uow: UnitOfWorkProtocol,
+        *,
+        user_id: str,
+    ) -> dict[str, Track]:
+        """Resolve unique tracks to domain tracks, ingesting any that are new.
+
+        Bulk-looks up existing tracks, then ingests only the truly-new ones
+        (falling back to per-track retry on bulk failure, so one bad row doesn't
+        drop the batch). Returns the connector-track-id → domain ``Track`` map.
+        """
         connector_repo = uow.get_connector_repository()
 
         # Bulk lookup existing tracks
@@ -218,11 +280,22 @@ class ConnectorPlaylistProcessingService:
             created=len(new_connector_tracks),
         )
 
-        # Step 4: One PlaylistEntry per source position — resolved when the track
-        # ingested, UNRESOLVED otherwise. A position is never skipped: the
-        # imported playlist stays complete (right count + order), and unmatched
-        # positions (ingest failures, local/unavailable tracks) are preserved
-        # with their display data for the UI and later re-resolution.
+        return track_id_to_domain_track
+
+    def _build_playlist_entries(
+        self,
+        playlist_items: list[ConnectorPlaylistItem],
+        connector_name: str,
+        track_id_to_domain_track: dict[str, Track],
+        connector_track_by_id: dict[str, ConnectorTrack],
+    ) -> tuple[list[PlaylistEntry], int]:
+        """Build one PlaylistEntry per source position — resolved or unresolved.
+
+        A position is never skipped: resolved when its track ingested, UNRESOLVED
+        otherwise (ingest failures, local/unavailable tracks) with its display data
+        preserved for the UI and later re-resolution. Returns the entries plus the
+        unresolved count.
+        """
         playlist_entries: list[PlaylistEntry] = []
         unresolved_count = 0
 
@@ -251,31 +324,7 @@ class ConnectorPlaylistProcessingService:
                     )
                 )
 
-        logger.info(
-            "Created playlist structure: %d positions (%d resolved, %d unresolved)",
-            len(playlist_entries),
-            len(playlist_entries) - unresolved_count,
-            unresolved_count,
-            original_count=len(playlist_items),
-            unresolved=unresolved_count,
-        )
-
-        # Return Playlist with PlaylistEntry objects (track + position metadata)
-        return Playlist(
-            name=connector_playlist.name,
-            entries=playlist_entries,
-            description=connector_playlist.description,
-            connector_playlist_identifiers={
-                connector_name: connector_playlist.connector_playlist_identifier
-            },
-            metadata={
-                "connector_playlist_processed": True,
-                "original_item_count": len(playlist_items),
-                "preserved_entry_count": len(playlist_entries),
-                "unresolved_count": unresolved_count,
-                "unique_tracks": len(track_id_to_domain_track),
-            },
-        )
+        return playlist_entries, unresolved_count
 
     @staticmethod
     def _parse_added_at(raw: str | None, position: int) -> datetime | None:

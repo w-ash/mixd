@@ -119,8 +119,68 @@ class MetricsApplicationService:
             - fresh_ids_dict: Dictionary mapping metric names to sets of track IDs that
               were freshly fetched (not from cache) in this session.
         """
-        if not track_ids or not metric_names:
+        field_map = self._validate_and_map_fields(track_ids, connector, metric_names)
+        if not field_map:
             return {}, {}
+
+        result: dict[str, dict[UUID, MetricValue]] = {}
+        fresh_ids_per_metric: dict[str, set[UUID]] = {}
+
+        (
+            missing_tracks_per_metric,
+            cached_values_per_metric,
+            tracks_for_api,
+        ) = await self._load_cached_and_missing(track_ids, connector, field_map, uow)
+
+        all_metrics_to_save: list[TrackMetric] = []
+        if missing_tracks_per_metric and connector_instance:
+            all_metrics_to_save = await self._fetch_and_extract_fresh(
+                connector=connector,
+                connector_instance=connector_instance,
+                field_map=field_map,
+                missing_tracks_per_metric=missing_tracks_per_metric,
+                tracks_for_api=tracks_for_api,
+                cached_values_per_metric=cached_values_per_metric,
+                fresh_ids_per_metric=fresh_ids_per_metric,
+                progress_broker=progress_broker,
+                parent_operation_id=parent_operation_id,
+            )
+        await self._bulk_save(all_metrics_to_save, uow)
+
+        # Combine cached and fresh values
+        for metric_name in field_map:
+            metric_values = cached_values_per_metric.get(metric_name, {})
+            if metric_values:
+                result[metric_name] = metric_values
+                logger.debug(f"Retrieved {len(metric_values)} values for {metric_name}")
+            else:
+                logger.warning(f"No values retrieved for {metric_name}")
+
+        total_values = sum(len(values) for values in result.values())
+        freshly_fetched = sum(len(ids) for ids in fresh_ids_per_metric.values())
+        summary = (
+            f"Retrieved {len(result)} metric types with "
+            f"{total_values} total values ({freshly_fetched} freshly fetched)"
+        )
+
+        if track_ids and total_values == 0:
+            logger.warning(f"{summary} — downstream nodes may filter all tracks")
+        else:
+            logger.info(summary)
+
+        return result, fresh_ids_per_metric
+
+    def _validate_and_map_fields(
+        self, track_ids: list[UUID], connector: str, metric_names: list[str]
+    ) -> dict[str, str]:
+        """Validate requested metrics and build the metric→field map.
+
+        Returns an empty map when nothing is fetchable (no inputs, unknown
+        connector, no supported metrics, or no field mappings) — the caller
+        treats that as a no-op and returns empty results.
+        """
+        if not track_ids or not metric_names:
+            return {}
 
         logger.info(
             f"Getting external track metrics for {len(track_ids)} tracks",
@@ -142,9 +202,8 @@ class MetricsApplicationService:
 
         if not metric_names:
             logger.warning(f"No supported metrics found for connector {connector}")
-            return {}, {}
+            return {}
 
-        # Build field map from registered metric configurations
         field_map: dict[str, str] = {}
         for metric_name in metric_names:
             field_name = self.metric_config.get_field_name(metric_name)
@@ -155,12 +214,23 @@ class MetricsApplicationService:
 
         if not field_map:
             logger.warning("No valid field mappings found for any requested metrics")
-            return {}, {}
 
-        result: dict[str, dict[UUID, MetricValue]] = {}
-        fresh_ids_per_metric: dict[str, set[UUID]] = {}
+        return field_map
 
-        # Phase 1: Single database transaction to identify missing data
+    async def _load_cached_and_missing(
+        self,
+        track_ids: list[UUID],
+        connector: str,
+        field_map: dict[str, str],
+        uow: UnitOfWorkProtocol,
+    ) -> tuple[dict[str, list[UUID]], dict[str, dict[UUID, MetricValue]], list[Track]]:
+        """Read cached metrics and pre-load the tracks that still need an API fetch.
+
+        One read transaction: per metric, fetch fresh-enough cached values and
+        record the track ids still missing; then, while the UoW is still open,
+        load the ``Track`` rows for every missing id so the API phase can run
+        outside the transaction.
+        """
         missing_tracks_per_metric: dict[str, list[UUID]] = {}
         cached_values_per_metric: dict[str, dict[UUID, MetricValue]] = {}
 
@@ -200,120 +270,132 @@ class MetricsApplicationService:
                 tracks_dict = await track_repo.find_tracks_by_ids(list(all_missing_ids))
                 tracks_for_api = list(tracks_dict.values())
 
-        # Phase 2: Single API fetch for all missing tracks, then extract per-metric
-        if missing_tracks_per_metric and connector_instance:
-            fresh_metadata: dict[UUID, Mapping[str, JsonValue]] = {}
+        return missing_tracks_per_metric, cached_values_per_metric, tracks_for_api
 
-            if tracks_for_api:
-                # Filter out tracks with no connector identity (avoids wasted API calls)
-                tracks_with_identity = [
-                    t
-                    for t in tracks_for_api
-                    if connector in t.connector_track_identifiers
-                ]
-                skipped = len(tracks_for_api) - len(tracks_with_identity)
-                if skipped:
-                    logger.debug(
-                        f"Skipping {skipped} tracks with no {connector} identity mapping",
-                        connector=connector,
-                        skipped_count=skipped,
-                    )
+    async def _fetch_and_extract_fresh(
+        self,
+        *,
+        connector: str,
+        connector_instance: TrackMetadataConnector,
+        field_map: dict[str, str],
+        missing_tracks_per_metric: dict[str, list[UUID]],
+        tracks_for_api: list[Track],
+        cached_values_per_metric: dict[str, dict[UUID, MetricValue]],
+        fresh_ids_per_metric: dict[str, set[UUID]],
+        progress_broker: ProgressBroker | None,
+        parent_operation_id: str | None,
+    ) -> list[TrackMetric]:
+        """Fetch metadata for the missing tracks and extract the metrics to persist.
 
-                if tracks_with_identity:
-                    # Throttled sub-operation: caps SSE wire rate at 4 Hz so
-                    # per-track callbacks from the rate-limited batch processor
-                    # don't flood the queue or React tree.
-                    emitter: ThrottledSubOperationEmitter | None = (
-                        await create_throttled_sub_operation(
-                            progress_broker,
-                            description=f"Fetching {connector} metadata",
-                            total_items=len(tracks_with_identity),
-                            parent_operation_id=parent_operation_id,
-                            phase="enrich",
-                            node_type="enricher",
-                        )
-                        if progress_broker and parent_operation_id
-                        else None
-                    )
-                    teardown_status = OperationStatus.COMPLETED
-                    try:
-                        fresh_metadata = (
-                            await connector_instance.get_external_track_data(
-                                tracks_with_identity,
-                                progress_callback=emitter,
-                            )
-                        )
-                    except Exception as e:
-                        teardown_status = OperationStatus.FAILED
-                        logger.error(
-                            f"Failed to fetch metrics from {connector} API: {e}"
-                        )
-                        raise
-                    finally:
-                        if emitter is not None:
-                            await emitter.aclose(teardown_status)
-
-            # Extract metrics from fresh metadata (only for missing track/metric pairs)
-            missing_metric_names = [
-                m for m in field_map if m in missing_tracks_per_metric
-            ]
-            all_extracted = self._extract_metrics_from_metadata(
-                fresh_metadata, missing_metric_names, field_map, connector
-            )
-
-            # Filter to only track/metric pairs that were actually missing
-            missing_sets = {
-                name: set(ids) for name, ids in missing_tracks_per_metric.items()
-            }
-            all_metrics_to_save: list[TrackMetric] = [
-                m
-                for m in all_extracted
-                if m.track_id in missing_sets.get(m.metric_type, set())
-            ]
-
-            # Update caches from extracted metrics
-            for metric in all_metrics_to_save:
-                if metric.metric_type not in cached_values_per_metric:
-                    cached_values_per_metric[metric.metric_type] = {}
-                cached_values_per_metric[metric.metric_type][metric.track_id] = (
-                    metric.value
-                )
-                if metric.metric_type not in fresh_ids_per_metric:
-                    fresh_ids_per_metric[metric.metric_type] = set()
-                fresh_ids_per_metric[metric.metric_type].add(metric.track_id)
-
-            # Phase 3: Single database transaction to bulk save
-            if all_metrics_to_save:
-                async with uow:
-                    metrics_repo = uow.get_metrics_repository()
-                    saved_count = await metrics_repo.save_track_metrics(
-                        all_metrics_to_save
-                    )
-                    await uow.commit()
-                    logger.info(f"Bulk saved {saved_count} new metrics")
-
-        # Combine cached and fresh values
-        for metric_name in field_map:
-            metric_values = cached_values_per_metric.get(metric_name, {})
-            if metric_values:
-                result[metric_name] = metric_values
-                logger.debug(f"Retrieved {len(metric_values)} values for {metric_name}")
-            else:
-                logger.warning(f"No values retrieved for {metric_name}")
-
-        total_values = sum(len(values) for values in result.values())
-        freshly_fetched = sum(len(ids) for ids in fresh_ids_per_metric.values())
-        summary = (
-            f"Retrieved {len(result)} metric types with "
-            f"{total_values} total values ({freshly_fetched} freshly fetched)"
+        One API fetch for all missing tracks, then per-metric extraction filtered
+        to the track/metric pairs that were actually missing. Updates the caller's
+        cache and fresh-id accumulators in place and returns the metrics to save.
+        """
+        fresh_metadata = await self._fetch_fresh_metadata(
+            connector=connector,
+            connector_instance=connector_instance,
+            tracks_for_api=tracks_for_api,
+            progress_broker=progress_broker,
+            parent_operation_id=parent_operation_id,
         )
 
-        if track_ids and total_values == 0:
-            logger.warning(f"{summary} — downstream nodes may filter all tracks")
-        else:
-            logger.info(summary)
+        # Extract metrics from fresh metadata (only for missing track/metric pairs)
+        missing_metric_names = [m for m in field_map if m in missing_tracks_per_metric]
+        all_extracted = self._extract_metrics_from_metadata(
+            fresh_metadata, missing_metric_names, field_map, connector
+        )
 
-        return result, fresh_ids_per_metric
+        # Filter to only track/metric pairs that were actually missing
+        missing_sets = {
+            name: set(ids) for name, ids in missing_tracks_per_metric.items()
+        }
+        all_metrics_to_save: list[TrackMetric] = [
+            m
+            for m in all_extracted
+            if m.track_id in missing_sets.get(m.metric_type, set())
+        ]
+
+        # Update caches from extracted metrics
+        for metric in all_metrics_to_save:
+            if metric.metric_type not in cached_values_per_metric:
+                cached_values_per_metric[metric.metric_type] = {}
+            cached_values_per_metric[metric.metric_type][metric.track_id] = metric.value
+            if metric.metric_type not in fresh_ids_per_metric:
+                fresh_ids_per_metric[metric.metric_type] = set()
+            fresh_ids_per_metric[metric.metric_type].add(metric.track_id)
+
+        return all_metrics_to_save
+
+    @staticmethod
+    async def _fetch_fresh_metadata(
+        *,
+        connector: str,
+        connector_instance: TrackMetadataConnector,
+        tracks_for_api: list[Track],
+        progress_broker: ProgressBroker | None,
+        parent_operation_id: str | None,
+    ) -> dict[UUID, Mapping[str, JsonValue]]:
+        """Fetch external metadata for missing tracks that carry connector identity.
+
+        Skips tracks with no identity mapping (avoids wasted API calls) and wraps
+        the batch fetch in a throttled sub-operation — caps SSE wire rate at 4 Hz
+        so per-track callbacks from the rate-limited batch processor don't flood
+        the queue or React tree — when a progress broker is supplied.
+        """
+        if not tracks_for_api:
+            return {}
+
+        # Filter out tracks with no connector identity (avoids wasted API calls)
+        tracks_with_identity = [
+            t for t in tracks_for_api if connector in t.connector_track_identifiers
+        ]
+        skipped = len(tracks_for_api) - len(tracks_with_identity)
+        if skipped:
+            logger.debug(
+                f"Skipping {skipped} tracks with no {connector} identity mapping",
+                connector=connector,
+                skipped_count=skipped,
+            )
+
+        if not tracks_with_identity:
+            return {}
+
+        emitter: ThrottledSubOperationEmitter | None = (
+            await create_throttled_sub_operation(
+                progress_broker,
+                description=f"Fetching {connector} metadata",
+                total_items=len(tracks_with_identity),
+                parent_operation_id=parent_operation_id,
+                phase="enrich",
+                node_type="enricher",
+            )
+            if progress_broker and parent_operation_id
+            else None
+        )
+        teardown_status = OperationStatus.COMPLETED
+        try:
+            return await connector_instance.get_external_track_data(
+                tracks_with_identity,
+                progress_callback=emitter,
+            )
+        except Exception as e:
+            teardown_status = OperationStatus.FAILED
+            logger.error(f"Failed to fetch metrics from {connector} API: {e}")
+            raise
+        finally:
+            if emitter is not None:
+                await emitter.aclose(teardown_status)
+
+    @staticmethod
+    async def _bulk_save(metrics: list[TrackMetric], uow: UnitOfWorkProtocol) -> None:
+        """Persist freshly-extracted metrics in a single write transaction."""
+        if not metrics:
+            return
+        async with uow:
+            metrics_repo = uow.get_metrics_repository()
+            saved_count = await metrics_repo.save_track_metrics(metrics)
+            await uow.commit()
+            logger.info(f"Bulk saved {saved_count} new metrics")
 
     async def extract_track_metrics(
         self, tracks: list[Track], uow: UnitOfWorkProtocol
