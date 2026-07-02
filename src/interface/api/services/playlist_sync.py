@@ -45,7 +45,7 @@ async def launch_playlist_link_sync(
     parsed_direction = SyncDirection(direction_override) if direction_override else None
     await _ensure_sync_confirmed(link_id, parsed_direction, user_id, confirm_token)
 
-    async def _sync(emitter: OperationBoundEmitter) -> object:  # noqa: ARG001
+    async def _sync(_emitter: OperationBoundEmitter) -> object:
         command = SyncPlaylistLinkCommand(
             user_id=user_id,
             link_id=link_id,

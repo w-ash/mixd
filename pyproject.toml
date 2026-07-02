@@ -109,18 +109,26 @@ select = [
 ignore = [
     "E501",      # Line too long (handled by formatter)
     "COM812",    # COM812 conflicts with formatter
-    "PLR0912",   # Too many branches (complexity is fine for orchestration code)
-    "PLR0915",   # Too many statements (orchestration functions can be long)
-    "PLR0914",   # Too many local variables (data processing needs variables)
-    "PLR1702",   # Too many nested blocks (error handling requires nesting)
+    # PLR complexity suppressions re-censused at the v0.8.17 sweep closeout (2026-07-02,
+    # spoke 26): none reached 0, so all seven stay off. Per-rule counts + rationale below;
+    # ratchet policy: flip a rule only when its count genuinely hits 0 — no new noqa.
+    "PLR0912",   # Too many branches — 13 left (sync_likes, track/playlist repos, diff_engine)
+    "PLR0915",   # Too many statements — 9 left (sync_likes at 108, executor, play_dedup)
+    "PLR0914",   # Too many local variables — 12 left (matching/algorithms at 29, sync_likes, executor)
+    "PLR1702",   # Too many nested blocks — 2 left (apply_playlist_assignments; apple_music tree is user-protected)
     "PLR6301",   # Method could be function (DI pattern requires methods)
     "PLC0415",   # Import not at top (lazy imports for CLI performance)
     "TRY003",    # Long exception messages (clear error messages are good)
     "PLR6201",   # Use set for membership (tuples are fine for small static checks)
     "PLC2701",   # Private name imports (_shared modules are internal API)
-    "PLR0913",   # Too many arguments (data processing functions need arguments)
-    "PLR0917",   # Too many positional arguments (same as above)
-    "PLR0911",   # Too many return statements (complex logic needs returns)
+    "PLR0913",   # Too many arguments — 61: dominated by Typer command / FastAPI Query() entry
+                 # points where every CLI/API option is a parameter (framework idiom, not debt);
+                 # scoped-per-file-ignore vs keep-off decision documented in fable-sweep spoke 26
+    "PLR0917",   # Too many positional arguments — 20, tracks PLR0913
+    "PLR0911",   # Too many return statements — 5 left, all guard/classification chains
+                 # (webhook verification, error classifiers) where each return is a distinct
+                 # outcome: a log event name, HTTP status, or error category. Merging returns
+                 # would collapse distinct observable outcomes — worse code to satisfy a count
     "TRY400",    # Use logging.exception (doesn't apply to Loguru)
     "PLW0603",   # Global statements (acceptable for library-style patterns in utilities)
     "TC001",     # Move import into TYPE_CHECKING block (obsolete with PEP 649)

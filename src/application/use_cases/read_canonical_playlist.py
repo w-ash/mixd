@@ -55,17 +55,6 @@ class ReadCanonicalPlaylistResult:
     execution_time_ms: int = 0
     errors: list[str] = field(factory=list)
 
-    @property
-    def operation_summary(self) -> dict[str, object]:
-        """Returns operation metrics for logging and monitoring."""
-        return {
-            "playlist_id": self.playlist.id if self.playlist else None,
-            "playlist_name": self.playlist.name if self.playlist else None,
-            "track_count": len(self.playlist.tracks) if self.playlist else 0,
-            "execution_time_ms": self.execution_time_ms,
-            "success": not self.errors,
-        }
-
 
 @define(slots=True)
 class ReadCanonicalPlaylistUseCase:

@@ -95,20 +95,6 @@ class UpdateCanonicalPlaylistResult:
         """Number of tracks removed (from operation_counts)."""
         return self.operation_counts.removed
 
-    @property
-    def operation_summary(self) -> dict[str, object]:
-        """Returns operation statistics as a dictionary."""
-        return {
-            "playlist_id": self.playlist.id,
-            "operations_performed": self.operations_performed,
-            "added": self.operation_counts.added,
-            "removed": self.operation_counts.removed,
-            "moved": self.operation_counts.moved,
-            "execution_time_ms": self.execution_time_ms,
-            "confidence_score": self.confidence_score,
-            "success": not self.errors,
-        }
-
 
 @define(slots=True)
 class UpdateCanonicalPlaylistUseCase:

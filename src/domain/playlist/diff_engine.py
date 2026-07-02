@@ -100,14 +100,6 @@ class PlaylistDiff:
         """True if any operations are needed to synchronize playlists."""
         return bool(self.operations)
 
-    @property
-    def operation_summary(self) -> dict[str, int]:
-        """Count of operations by type (add, remove, move)."""
-        summary = {op_type.value: 0 for op_type in PlaylistOperationType}
-        for op in self.operations:
-            summary[op.operation_type.value] += 1
-        return summary
-
 
 def match_tracks_with_db_lookup(
     current_tracks: list[Track], target_tracks: list[Track]

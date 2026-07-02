@@ -81,19 +81,6 @@ class CreateConnectorPlaylistResult:
     external_metadata: dict[str, JsonValue] = field(factory=dict)
     errors: list[str] = field(factory=list)
 
-    @property
-    def operation_summary(self) -> dict[str, object]:
-        """Returns a summary of the playlist creation operation for logging."""
-        return {
-            "playlist_id": self.playlist.id,
-            "playlist_name": self.playlist.name,
-            "connector": self.connector,
-            "external_playlist_id": self.external_playlist_id,
-            "tracks_created": self.tracks_created,
-            "execution_time_ms": self.execution_time_ms,
-            "success": not self.errors,
-        }
-
 
 @define(slots=True)
 class CreateConnectorPlaylistUseCase:

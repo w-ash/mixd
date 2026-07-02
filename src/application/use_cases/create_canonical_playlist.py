@@ -69,17 +69,6 @@ class CreateCanonicalPlaylistResult:
     execution_time_ms: int = 0
     errors: list[str] = field(factory=list)
 
-    @property
-    def operation_summary(self) -> dict[str, object]:
-        """Key metrics from the playlist creation operation."""
-        return {
-            "playlist_id": self.playlist.id,
-            "playlist_name": self.playlist.name,
-            "tracks_created": self.tracks_created,
-            "execution_time_ms": self.execution_time_ms,
-            "success": not self.errors,
-        }
-
 
 @define(slots=True)
 class CreateCanonicalPlaylistUseCase:
