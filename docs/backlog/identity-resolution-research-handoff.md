@@ -5,6 +5,8 @@
 
 **This is a research pass.** The deliverable is a memo plus backlog stories, not code. Do not refactor anything. Where the current design looks odd, treat it as a question to investigate (it may encode a hard-won lesson — check git history before judging).
 
+**Scope extension (2026-07-02)**: while the matching stack is in context, also map the design space for **artist-level identity** — v0.10.0's Artist Identity Resolution epic (Spotify artist ID ↔ Last.fm artist name ↔ MusicBrainz artist MBID, and the alias/abbreviation problem: "TEED" vs "Totally Enormous Extinct Dinosaurs", where text normalization can't bridge and the current sketch is a MusicBrainz-alias lookup table). One section in the memo, not a second memo.
+
 **Why this assignment exists**: a mid-2026 DRY/DDD tighten pass swept the whole backend and barely touched identity resolution. Do not read that as a clean bill of health. That pass audited *hygiene debt* — suppressed warnings, whitelisted symbols, dead endpoints, lint-visible duplication — and the matching engine passes every static gate. What it never did is interrogate the *design*: whether the confidence model matches reality, whether identity assertions outside the engine are sound, whether the abstractions sit at the right altitude, whether failure handling covers the failure modes that actually occur. Hygiene-clean and design-sound are different properties; your job is the second one. The one place the pass did generate identity-adjacent findings, it deliberately deferred them (§2b below).
 
 ---

@@ -23,8 +23,12 @@ from src.infrastructure.connectors.base import (
     register_metrics,
 )
 from src.infrastructure.connectors.lastfm.client import LastFMAPIClient
-from src.infrastructure.connectors.lastfm.conversions import LastFMTrackInfo
+from src.infrastructure.connectors.lastfm.conversions import (
+    LastFMTrackInfo,
+    convert_lastfm_track_to_connector,
+)
 from src.infrastructure.connectors.lastfm.error_classifier import LastFMErrorClassifier
+from src.infrastructure.connectors.lastfm.models import LastFMTrackData
 from src.infrastructure.connectors.lastfm.operations import LastFMOperations
 from src.infrastructure.connectors.protocols import ConnectorConfig
 
@@ -113,10 +117,14 @@ class LastFMConnector(BaseAPIConnector):
     def convert_track_to_connector(
         self, track_data: Mapping[str, JsonValue]
     ) -> ConnectorTrack:
-        """Convert Last.fm track data to ConnectorTrack domain model."""
-        from .conversions import convert_lastfm_track_to_connector
+        """Convert Last.fm track data to ConnectorTrack domain model.
 
-        return convert_lastfm_track_to_connector(track_data)
+        Validates the raw payload into a typed ``LastFMTrackData`` at this
+        boundary; only the typed model flows into the conversion function.
+        """
+        return convert_lastfm_track_to_connector(
+            LastFMTrackData.model_validate(track_data)
+        )
 
     async def get_recent_tracks(
         self,

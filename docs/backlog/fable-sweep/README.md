@@ -57,7 +57,7 @@ Populated during investigation. One row per spoke. ROI/Risk are the executor's d
 | [02](02-play-importer-pipeline.md) | Play-importer pipeline: typed params, single username resolution | infrastructure | L | high | med | Fable | Not Started |
 | [03](03-play-resolver-decomposition.md) | Play-resolver decomposition & Last.fm chain flattening | infrastructure | M | med | med | Opus | Not Started |
 | [04](04-matching-provider-loop-hoist.md) | Matching providers: hoist per-track loop | infrastructure | S | med | low | Opus | **Done (v0.8.14)** |
-| [05](05-lastfm-conversions-boundary.md) | Last.fm conversions: validate at the boundary | infrastructure | S | med | low | Opus | Not Started |
+| [05](05-lastfm-conversions-boundary.md) | Last.fm conversions: validate at the boundary | infrastructure | S | med | low | Opus | **Done (v0.8.14)** |
 | [06](06-base-connector-reflection.md) | BaseAPIConnector: replace get_playlist reflection | infrastructure | M | med | med | Opus | Not Started |
 | [07](07-use-case-skeleton-collapse.md) | Collapse the five copy-pasted use-case skeletons | application | L | high | med | Fable | Not Started |
 | [08](08-route-handler-conformance.md) | Route handlers: move strays behind execute_use_case | interface | M | med | med | Opus | Not Started |
@@ -85,6 +85,8 @@ Populated during investigation. One row per spoke. ROI/Risk are the executor's d
 _If Fable finds a better plan than v0.8.12's three-phase seed, it goes here for approval before execution starts._
 
 > **Scheduled 2026-07-01:** the user approved the wave sequencing below and built it into the backlog as **[v0.8.13–v0.8.17](../v0.8.13-0.8.17.md)** (Wave 1 → v0.8.13, Wave 2 → v0.8.14, Wave 3 → v0.8.15, Wave 4 → v0.8.16, Close → v0.8.17; spoke 25 moved into Wave 2, spoke 24 optional in Wave 4). That file is the schedule; this hub stays the per-spoke spec + status ledger.
+
+> **Window re-scope (2026-07-02, approved):** two doc-only investigation briefs join the window alongside the waves — the v0.9.x Pre-Work brief and the identity-resolution research pass (extended to artist identity). If Fable attention runs short they outrank Fable-executor spokes 02/07/16 (work orders written, Opus fallback documented); spoke 11 keeps its Fable slot longest. The v0.8.17 Fable review runs per-wave inside the window rather than as one post-sweep aggregate. Details in the schedule file's Fable-window note.
 
 **The three-story structure held up.** Two sequencing refinements for Story 2, as originally proposed:
 

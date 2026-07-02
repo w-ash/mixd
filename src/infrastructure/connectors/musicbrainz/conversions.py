@@ -11,6 +11,7 @@ Key components:
 """
 
 from collections.abc import Mapping
+from datetime import UTC, datetime
 
 from src.config import get_logger
 from src.domain.entities import Artist, ConnectorTrack
@@ -88,8 +89,6 @@ def convert_musicbrainz_track_to_connector(
     Returns:
         ConnectorTrack with standardized fields and MusicBrainz metadata
     """
-    from datetime import UTC, datetime
-
     if not recording_data:
         raise ValueError("MusicBrainz recording data is required")
 
