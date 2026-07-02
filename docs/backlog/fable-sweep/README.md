@@ -73,7 +73,7 @@ Populated during investigation. One row per spoke. ROI/Risk are the executor's d
 | [18](18-dead-frontend-export.md) | Resolve dead export hasActiveFilters | web | XS | low | low | Haiku | **Done (v0.8.13)** |
 | [19](19-page-decomposition.md) | Page decomposition along named seams (4 screens) | web | M-L | med | low-med | Opus | Not Started |
 | [20](20-design-token-conformance.md) | Design-token conformance: SyncConfirmationDialog palette | web | XS-S | low-med | low | Haiku | **Done (v0.8.13)** |
-| [21](21-track-connector-mapping-spec.md) | track/connector.py: mapping-spec object + batch-method decomposition | infrastructure | M | high | med | Opus | Not Started |
+| [21](21-track-connector-mapping-spec.md) | track/connector.py: mapping-spec object + batch-method decomposition | infrastructure | M | high | med | Opus | **Done (v0.8.14)** |
 | [22](22-list-tracks-decomposition.md) | track/core.py: extract list_tracks filter builder | infrastructure | S-M | med | low-med | Opus | Not Started |
 | [23](23-base-repo-mapper-split.md) | base_repo.py: split mapper machinery from repository base | infrastructure | S | med | low | Opus | **Done (v0.8.14)** |
 | [24](24-db-models-aggregate-split.md) | db_models.py: split by aggregate (optional, honest ROI med-low) | infrastructure | M | med-low | low-med | Opus | Not Started |

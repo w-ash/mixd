@@ -14,6 +14,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.config.constants import MappingOrigin
 from src.domain.entities import Artist, ConnectorTrack
+from src.domain.repositories.connector import ConnectorMappingSpec
 from src.infrastructure.persistence.database.db_models import DBTrackMapping
 from src.infrastructure.persistence.repositories.factories import get_unit_of_work
 
@@ -153,7 +154,13 @@ class TestMapTracksSkipsManualOverride:
         connector_repo = uow.get_connector_repository()
         track = await uow.get_track_repository().get_by_id(track_id)
         await connector_repo.map_tracks_to_connectors([
-            (track, "spotify", "sp_map_001", "search_fallback", 95, None, None)
+            ConnectorMappingSpec(
+                track=track,
+                connector="spotify",
+                connector_id="sp_map_001",
+                match_method="search_fallback",
+                confidence=95,
+            )
         ])
 
         result = await db_session.execute(

@@ -17,7 +17,10 @@ from src.domain.matching.types import (
     ProviderMatchResult,
     RawProviderMatch,
 )
-from src.domain.repositories.connector import ConnectorRepositoryProtocol
+from src.domain.repositories.connector import (
+    ConnectorMappingSpec,
+    ConnectorRepositoryProtocol,
+)
 from src.domain.repositories.track import (
     TrackIdentityServiceProtocol,
     TrackRepositoryProtocol,
@@ -141,16 +144,14 @@ class TrackIdentityServiceImpl(TrackIdentityServiceProtocol):
         self, matches: MatchResultsById, connector: str
     ) -> None:
         """Save identity mappings to database."""
-        no_metadata = cast(dict[str, object] | None, None)
         mappings = [
-            (
-                mr.track,
-                connector,
-                mr.connector_id,
-                mr.match_method,
-                mr.confidence,
-                no_metadata,
-                mr.evidence_dict,
+            ConnectorMappingSpec(
+                track=mr.track,
+                connector=connector,
+                connector_id=mr.connector_id,
+                match_method=mr.match_method,
+                confidence=mr.confidence,
+                confidence_evidence=mr.evidence_dict,
             )
             for mr in matches.values()
         ]

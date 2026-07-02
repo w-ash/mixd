@@ -7,6 +7,8 @@ from collections.abc import Awaitable, Mapping, Sequence
 from typing import Protocol, TypedDict, overload
 from uuid import UUID
 
+from attrs import define
+
 from src.domain.entities import (
     ConnectorPlaylist,
     ConnectorTrack,
@@ -14,6 +16,25 @@ from src.domain.entities import (
     TrackMapping,
 )
 from src.domain.entities.shared import JsonDict, JsonValue
+
+
+@define(frozen=True, slots=True)
+class ConnectorMappingSpec:
+    """A single track→connector mapping request for batch mapping.
+
+    Replaces the former 7-element positional tuple consumed by
+    ``map_tracks_to_connectors``. Named fields remove the silent field-order
+    coupling between the method's two unpack sites — adding a field no longer
+    means re-checking every positional constructor.
+    """
+
+    track: Track
+    connector: str
+    connector_id: str
+    match_method: str
+    confidence: int
+    metadata: dict[str, object] | None = None
+    confidence_evidence: dict[str, object] | None = None
 
 
 class MatchMethodStatRow(TypedDict):
@@ -93,23 +114,14 @@ class ConnectorRepositoryProtocol(Protocol):
 
     def map_tracks_to_connectors(
         self,
-        mappings: list[
-            tuple[
-                Track,
-                str,
-                str,
-                str,
-                int,
-                dict[str, object] | None,
-                dict[str, object] | None,
-            ]
-        ],
+        mappings: list[ConnectorMappingSpec],
     ) -> Awaitable[list[Track]]:
         """Batch-map multiple tracks to connectors in a single operation.
 
         Args:
-            mappings: List of (track, service_name, external_id, match_method,
-                    confidence, metadata, confidence_evidence) tuples.
+            mappings: Mapping specs, each pairing a track with its connector,
+                external id, match method, confidence, and optional
+                metadata/confidence evidence.
 
         Returns:
             List of Track objects updated with external service connections.

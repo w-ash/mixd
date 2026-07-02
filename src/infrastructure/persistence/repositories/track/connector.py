@@ -30,7 +30,11 @@ from src.config.constants import BusinessLimits, DenormalizedTrackColumns, Mappi
 from src.domain.entities import Artist, ConnectorTrack, Track, TrackMapping
 from src.domain.entities.shared import JsonDict, JsonValue
 from src.domain.exceptions import NotFoundError
-from src.domain.repositories.connector import FullMappingInfo, MatchMethodStatRow
+from src.domain.repositories.connector import (
+    ConnectorMappingSpec,
+    FullMappingInfo,
+    MatchMethodStatRow,
+)
 from src.infrastructure.persistence.database.db_models import (
     DBConnectorTrack,
     DBTrack,
@@ -400,23 +404,16 @@ class TrackConnectorRepository:
     @db_operation("map_tracks_to_connectors")
     async def map_tracks_to_connectors(
         self,
-        mappings: list[
-            tuple[
-                Track,
-                str,
-                str,
-                str,
-                int,
-                dict[str, object] | None,
-                dict[str, object] | None,
-            ]
-        ],
+        mappings: list[ConnectorMappingSpec],
     ) -> list[Track]:
         """Link existing internal tracks to external service IDs with confidence scores.
 
+        Pipeline: build connector-track rows → bulk upsert → build mapping rows →
+        drop rows that would overwrite manual overrides → bulk upsert mappings.
+
         Args:
-            mappings: List of (track, service_name, external_id, match_method,
-                    confidence, metadata, confidence_evidence) tuples.
+            mappings: Mapping specs pairing each track with its connector, external
+                id, match method, confidence, and optional metadata/evidence.
 
         Returns:
             List of Track objects updated with external service connections.
@@ -424,124 +421,135 @@ class TrackConnectorRepository:
         if not mappings:
             return []
 
-        # Collect all connector tracks for bulk insert
-        connector_tracks_data: list[dict[str, object]] = []
-        connector_track_keys: set[tuple[str, str]] = set()
-        mapping_data: list[dict[str, object]] = []
-        updated_tracks: list[Track] = []
-        track_metadata_map: dict[UUID, JsonDict] = {}
-
-        # Prepare all necessary data
-        for (
-            track,
-            connector,
-            connector_id,
-            _,
-            _,
-            metadata,
-            _,
-        ) in mappings:
-            # Prepare connector track data
-            connector_track_key = (connector, connector_id)
-            if connector_track_key not in connector_track_keys:
-                connector_tracks_data.append(
-                    self._build_connector_track_dict(
-                        connector,
-                        connector_id,
-                        track.title,
-                        track.artists,
-                        track.album,
-                        track.duration_ms,
-                        track.release_date,
-                        track.isrc,
-                        metadata,
-                    )
-                )
-                connector_track_keys.add(connector_track_key)
-
-            # Create updated track object. Application-layer metadata is
-            # ``dict[str, object]`` (mixed types) but Track stores
-            # ``Mapping[str, JsonValue]`` — cast at the boundary; the values
-            # are JSON-serialisable at runtime, the type system can't see it.
-            updated_track = track.with_connector_track_id(connector, connector_id)
-            if metadata:
-                json_metadata = cast("JsonDict", metadata)
-                updated_track = updated_track.with_connector_metadata(
-                    connector, json_metadata
-                )
-                track_metadata_map.setdefault(track.id, {})[connector] = json_metadata
-
-            updated_tracks.append(updated_track)
-
-        # Bulk upsert connector tracks
-        connector_tracks = await self.connector_repo.bulk_upsert(
-            connector_tracks_data,
-            lookup_keys=["connector_name", "connector_track_identifier"],
-            return_models=True,
+        updated_tracks = self._build_updated_tracks(mappings)
+        connector_id_map = await self._upsert_connector_tracks(
+            self._build_connector_track_rows(mappings)
+        )
+        mapping_rows = await self._filter_manual_overrides(
+            self._build_mapping_rows(mappings, connector_id_map)
         )
 
-        # Create connector ID to DB ID mapping
-        connector_id_map: dict[tuple[str, str], UUID] = {
-            (ct.connector_name, ct.connector_track_identifier): ct.id
-            for ct in connector_tracks
-        }
-
-        # Prepare mapping data
-        for (
-            track,
-            connector,
-            connector_id,
-            match_method,
-            confidence,
-            _,
-            confidence_evidence,
-        ) in mappings:
-            if (connector, connector_id) not in connector_id_map:
-                continue
-
-            connector_track_id = connector_id_map[connector, connector_id]
-            mapping_data.append({
-                "user_id": track.user_id,
-                "track_id": track.id,
-                "connector_track_id": connector_track_id,
-                "connector_name": connector,
-                "match_method": match_method,
-                "confidence": confidence,
-                "confidence_evidence": confidence_evidence,
-                "is_primary": False,  # Don't set primary here, handle it separately
-            })
-
-        # Filter out mappings that would overwrite manual overrides
-        if mapping_data:
-            ct_ids_in_batch = [d["connector_track_id"] for d in mapping_data]
-            result = await self.session.execute(
-                select(DBTrackMapping.connector_track_id).where(
-                    DBTrackMapping.connector_track_id.in_(ct_ids_in_batch),
-                    DBTrackMapping.origin == MappingOrigin.MANUAL_OVERRIDE,
-                )
-            )
-            manual_override_ct_ids = {row[0] for row in result.fetchall()}
-
-            if manual_override_ct_ids:
-                mapping_data = [
-                    d
-                    for d in mapping_data
-                    if d["connector_track_id"] not in manual_override_ct_ids
-                ]
-
-        # Bulk upsert mappings
-        if mapping_data:
+        if mapping_rows:
             _ = await self.mapping_repo.bulk_upsert(
-                mapping_data,
+                mapping_rows,
                 lookup_keys=["user_id", "connector_track_id", "connector_name"],
                 return_models=False,
             )
 
-        # Note: Metrics processing moved to MetricsApplicationService
-        # This repository focuses on track mapping only
-        # Metrics extraction is handled at the application layer
-
+        # Note: metrics extraction lives in the application layer
+        # (MetricsApplicationService); this repository maps track identity only.
         return updated_tracks
+
+    def _build_connector_track_rows(
+        self, mappings: list[ConnectorMappingSpec]
+    ) -> list[dict[str, object]]:
+        """Build deduplicated connector-track upsert rows (one per external id)."""
+        rows: list[dict[str, object]] = []
+        seen_keys: set[tuple[str, str]] = set()
+        for spec in mappings:
+            key = (spec.connector, spec.connector_id)
+            if key in seen_keys:
+                continue
+            seen_keys.add(key)
+            rows.append(
+                self._build_connector_track_dict(
+                    spec.connector,
+                    spec.connector_id,
+                    spec.track.title,
+                    spec.track.artists,
+                    spec.track.album,
+                    spec.track.duration_ms,
+                    spec.track.release_date,
+                    spec.track.isrc,
+                    spec.metadata,
+                )
+            )
+        return rows
+
+    @staticmethod
+    def _build_updated_tracks(mappings: list[ConnectorMappingSpec]) -> list[Track]:
+        """Build the returned Track objects with connector id + metadata applied.
+
+        Application-layer metadata is ``dict[str, object]`` (mixed types) but
+        Track stores ``Mapping[str, JsonValue]`` — cast at the boundary; the
+        values are JSON-serialisable at runtime, the type system can't see it.
+        """
+        updated_tracks: list[Track] = []
+        for spec in mappings:
+            updated_track = spec.track.with_connector_track_id(
+                spec.connector, spec.connector_id
+            )
+            if spec.metadata:
+                updated_track = updated_track.with_connector_metadata(
+                    spec.connector, cast("JsonDict", spec.metadata)
+                )
+            updated_tracks.append(updated_track)
+        return updated_tracks
+
+    async def _upsert_connector_tracks(
+        self, rows: list[dict[str, object]]
+    ) -> dict[tuple[str, str], UUID]:
+        """Bulk upsert connector-track rows, returning an (name, external_id) -> id map."""
+        connector_tracks = await self.connector_repo.bulk_upsert(
+            rows,
+            lookup_keys=["connector_name", "connector_track_identifier"],
+            return_models=True,
+        )
+        return {
+            (ct.connector_name, ct.connector_track_identifier): ct.id
+            for ct in connector_tracks
+        }
+
+    @staticmethod
+    def _build_mapping_rows(
+        mappings: list[ConnectorMappingSpec],
+        connector_id_map: dict[tuple[str, str], UUID],
+    ) -> list[dict[str, object]]:
+        """Build track_mapping upsert rows for specs whose connector track exists."""
+        rows: list[dict[str, object]] = []
+        for spec in mappings:
+            key = (spec.connector, spec.connector_id)
+            if key not in connector_id_map:
+                continue
+            rows.append({
+                "user_id": spec.track.user_id,
+                "track_id": spec.track.id,
+                "connector_track_id": connector_id_map[key],
+                "connector_name": spec.connector,
+                "match_method": spec.match_method,
+                "confidence": spec.confidence,
+                "confidence_evidence": spec.confidence_evidence,
+                "is_primary": False,  # Don't set primary here, handle it separately
+            })
+        return rows
+
+    async def _filter_manual_overrides(
+        self, mapping_rows: list[dict[str, object]]
+    ) -> list[dict[str, object]]:
+        """Drop mapping rows whose connector track has a manual-override mapping.
+
+        MANUAL_OVERRIDE rows are user-pinned identity decisions — an automatic
+        bulk map must never clobber them.
+        """
+        if not mapping_rows:
+            return mapping_rows
+
+        ct_ids_in_batch = [d["connector_track_id"] for d in mapping_rows]
+        result = await self.session.execute(
+            select(DBTrackMapping.connector_track_id).where(
+                DBTrackMapping.connector_track_id.in_(ct_ids_in_batch),
+                DBTrackMapping.origin == MappingOrigin.MANUAL_OVERRIDE,
+            )
+        )
+        manual_override_ct_ids = {row[0] for row in result.fetchall()}
+        if not manual_override_ct_ids:
+            return mapping_rows
+
+        return [
+            d
+            for d in mapping_rows
+            if d["connector_track_id"] not in manual_override_ct_ids
+        ]
 
     @db_operation("map_track_to_connector")
     async def map_track_to_connector(
@@ -562,14 +570,14 @@ class TrackConnectorRepository:
         await self.track_repo.get_by_id(track.id)
 
         results = await self.map_tracks_to_connectors([
-            (
-                track,
-                connector,
-                connector_id,
-                match_method,
-                confidence,
-                metadata,
-                confidence_evidence,
+            ConnectorMappingSpec(
+                track=track,
+                connector=connector,
+                connector_id=connector_id,
+                match_method=match_method,
+                confidence=confidence,
+                metadata=metadata,
+                confidence_evidence=confidence_evidence,
             )
         ])
 
@@ -621,16 +629,61 @@ class TrackConnectorRepository:
         if not tracks:
             return []
 
-        # Group tracks by identifier upfront to handle duplicates in a single batch.
-        # Spotify API can return the same track multiple times across pagination boundaries.
-        tracks_by_identifier: dict[str, list[ConnectorTrack]] = {}
-        for track in tracks:
-            identifier = track.connector_track_identifier
-            if identifier not in tracks_by_identifier:
-                tracks_by_identifier[identifier] = []
-            tracks_by_identifier[identifier].append(track)
+        # 1. Group tracks by identifier upfront to handle duplicates in a single
+        # batch (Spotify can return the same track across pagination boundaries),
+        # then bulk upsert one connector track per unique identifier.
+        tracks_by_identifier = self._group_tracks_by_identifier(tracks)
+        connector_track_lookup = await self._upsert_connector_tracks_from_groups(
+            connector, tracks_by_identifier
+        )
 
-        # 1. Bulk upsert connector tracks (one per unique identifier, last occurrence wins)
+        # 2. Bulk-fetch all existing mappings for these connector tracks (N → 1).
+        existing_mapping_by_ct_id = await self._fetch_existing_mappings_by_ct_id(
+            [ct.id for ct in connector_track_lookup.values()], user_id
+        )
+
+        # 3. Create or find a domain track per unique identifier, collecting the
+        # mapping rows that new tracks need.
+        domain_tracks: list[Track] = []
+        track_mappings_data: list[dict[str, object]] = []
+        for identifier, track_group in tracks_by_identifier.items():
+            domain_track, mapping_row = await self._ingest_one_group(
+                connector,
+                identifier,
+                track_group,
+                connector_track_lookup,
+                existing_mapping_by_ct_id,
+                user_id=user_id,
+            )
+            # Add the domain track for each occurrence in the playlist
+            domain_tracks.extend(domain_track for _ in track_group)
+            if mapping_row is not None:
+                track_mappings_data.append(mapping_row)
+
+        # 4. Bulk create mappings + set primaries for the newly created tracks.
+        await self._create_mappings_and_set_primaries(
+            connector, domain_tracks, track_mappings_data
+        )
+
+        return domain_tracks
+
+    @staticmethod
+    def _group_tracks_by_identifier(
+        tracks: list[ConnectorTrack],
+    ) -> dict[str, list[ConnectorTrack]]:
+        """Group connector tracks by external identifier, preserving order."""
+        groups: dict[str, list[ConnectorTrack]] = {}
+        for track in tracks:
+            groups.setdefault(track.connector_track_identifier, []).append(track)
+        return groups
+
+    async def _upsert_connector_tracks_from_groups(
+        self, connector: str, groups: dict[str, list[ConnectorTrack]]
+    ) -> dict[str, ConnectorTrack]:
+        """Bulk upsert one connector track per group (last occurrence wins).
+
+        Returns a lookup keyed by external identifier.
+        """
         connector_track_data: list[dict[str, object]] = [
             self._build_connector_track_dict(
                 connector,
@@ -643,136 +696,135 @@ class TrackConnectorRepository:
                 group[-1].isrc,
                 group[-1].raw_metadata,
             )
-            for identifier, group in tracks_by_identifier.items()
+            for identifier, group in groups.items()
         ]
-
         connector_tracks = await self.connector_repo.bulk_upsert(
             connector_track_data,
             lookup_keys=["connector_name", "connector_track_identifier"],
         )
+        return {ct.connector_track_identifier: ct for ct in connector_tracks}
 
-        # 2. Create a lookup dict for connector tracks
-        connector_track_lookup = {
-            ct.connector_track_identifier: ct for ct in connector_tracks
-        }
-
-        # 3. Bulk-fetch all existing mappings for these connector tracks (N queries → 1)
-        all_ct_db_ids = [ct.id for ct in connector_track_lookup.values()]
-        existing_mappings_list = await self.mapping_repo.find_by([
-            self.mapping_repo.model_class.connector_track_id.in_(all_ct_db_ids),
+    async def _fetch_existing_mappings_by_ct_id(
+        self, connector_track_ids: list[UUID], user_id: str
+    ) -> dict[UUID, TrackMapping]:
+        """Bulk-fetch existing mappings for connector tracks, keyed by connector_track_id."""
+        existing = await self.mapping_repo.find_by([
+            self.mapping_repo.model_class.connector_track_id.in_(connector_track_ids),
             self.mapping_repo.model_class.user_id == user_id,
         ])
-        existing_mapping_by_ct_id: dict[UUID, TrackMapping] = {
-            m.connector_track_id: m for m in existing_mappings_list
-        }
+        return {m.connector_track_id: m for m in existing}
 
-        # 4. Create or find domain tracks
-        domain_tracks: list[Track] = []
-        track_mappings_data: list[dict[str, object]] = []
-        metrics_data: list[tuple[UUID, Mapping[str, JsonValue]]] = []
+    async def _ingest_one_group(
+        self,
+        connector: str,
+        identifier: str,
+        track_group: list[ConnectorTrack],
+        connector_track_lookup: dict[str, ConnectorTrack],
+        existing_mapping_by_ct_id: dict[UUID, TrackMapping],
+        *,
+        user_id: str,
+    ) -> tuple[Track, dict[str, object] | None]:
+        """Resolve one unique connector identifier to a domain track.
 
-        # Process each unique connector track identifier
-        for connector_track_identifier, track_group in tracks_by_identifier.items():
-            # Use the first track from the group for processing (they're identical except position)
-            representative_track = track_group[0]
+        Returns the domain track and, when a new track was created, the mapping
+        row it needs (``None`` when an existing mapping was reused).
+        """
+        # Tracks in a group are identical except playlist position
+        representative_track = track_group[0]
+        connector_track_id = connector_track_lookup[identifier].id
+        mapping = existing_mapping_by_ct_id.get(connector_track_id)
 
-            # Get the connector track ID from the lookup
-            ct_entry = connector_track_lookup[connector_track_identifier]
-            connector_track_id = ct_entry.id
+        if mapping:
+            domain_track = await self.track_repo.get_by_id(mapping.track_id)
+            logger.debug(
+                f"Found existing track {mapping.track_id} for "
+                + f"{connector}:{identifier}"
+            )
+            await self._bump_confidence_if_needed(mapping)
+            return domain_track, None
 
-            # Check pre-fetched mappings instead of per-item query
-            mapping = existing_mapping_by_ct_id.get(connector_track_id)
+        return await self._create_track_with_mapping_row(
+            connector, representative_track, connector_track_id, user_id
+        )
 
-            if mapping:
-                # Track exists, retrieve it
-                domain_track = await self.track_repo.get_by_id(mapping.track_id)
-                logger.debug(
-                    f"Found existing track {mapping.track_id} for "
-                    + f"{connector}:{connector_track_identifier}"
-                )
-
-                # Add the domain track for each occurrence in the playlist
-                domain_tracks.extend(domain_track for _ in track_group)
-
-                # Update mapping confidence if needed (skip manual overrides)
-                if (
-                    mapping.confidence < BusinessLimits.FULL_CONFIDENCE_SCORE
-                    and mapping.origin != MappingOrigin.MANUAL_OVERRIDE
-                ):
-                    _ = await self.mapping_repo.update(
-                        mapping.id,
-                        {"confidence": BusinessLimits.FULL_CONFIDENCE_SCORE},
-                    )
-            else:
-                # Create new track using the representative track
-                artists = (
-                    [Artist(name=a.name) for a in representative_track.artists]
-                    if representative_track.artists
-                    else []
-                )
-                track_obj = Track(
-                    title=representative_track.title,
-                    artists=artists,
-                    album=representative_track.album,
-                    duration_ms=representative_track.duration_ms,
-                    release_date=representative_track.release_date,
-                    isrc=representative_track.isrc,
-                    user_id=user_id,
-                )
-
-                # Add connector ID and metadata
-                track_obj = track_obj.with_connector_track_id(
-                    connector, representative_track.connector_track_identifier
-                )
-                track_obj = track_obj.with_connector_metadata(
-                    connector, representative_track.raw_metadata or {}
-                )
-
-                # Save track and get ID
-                domain_track = await self.track_repo.save_track(track_obj)
-
-                # Add the domain track for each occurrence in the playlist
-                domain_tracks.extend(domain_track for _ in track_group)
-
-                # Prepare mapping data for bulk insert (only once per unique connector track)
-                track_mappings_data.append({
-                    "user_id": domain_track.user_id,
-                    "track_id": domain_track.id,
-                    "connector_track_id": connector_track_id,
-                    "connector_name": connector,
-                    "match_method": "direct",
-                    "confidence": 100,
-                    "is_primary": False,  # Will be set properly via ensure_primary_mapping post-processing
-                })
-
-                # Prepare metrics data (only once per unique connector track)
-                if representative_track.raw_metadata:
-                    metrics_data.append((
-                        domain_track.id,
-                        representative_track.raw_metadata,
-                    ))
-
-        # 5. Bulk create mappings if any
-        if track_mappings_data:
-            _ = await self.mapping_repo.bulk_upsert(
-                track_mappings_data,
-                lookup_keys=["user_id", "connector_track_id", "connector_name"],
-                return_models=False,
+    async def _bump_confidence_if_needed(self, mapping: TrackMapping) -> None:
+        """Raise a below-full mapping to full confidence, skipping manual overrides."""
+        if (
+            mapping.confidence < BusinessLimits.FULL_CONFIDENCE_SCORE
+            and mapping.origin != MappingOrigin.MANUAL_OVERRIDE
+        ):
+            _ = await self.mapping_repo.update(
+                mapping.id,
+                {"confidence": BusinessLimits.FULL_CONFIDENCE_SCORE},
             )
 
-            # 6. Set primary mappings in bulk (one per track-connector pair)
-            primaries_set: dict[UUID, str] = {}
-            for track in domain_tracks:
-                if track.id not in primaries_set:
-                    cid = track.connector_track_identifiers.get(connector)
-                    if cid:
-                        primaries_set[track.id] = cid
+    async def _create_track_with_mapping_row(
+        self,
+        connector: str,
+        representative_track: ConnectorTrack,
+        connector_track_id: UUID,
+        user_id: str,
+    ) -> tuple[Track, dict[str, object]]:
+        """Create a new canonical track from connector data; return it + its mapping row."""
+        artists = (
+            [Artist(name=a.name) for a in representative_track.artists]
+            if representative_track.artists
+            else []
+        )
+        track_obj = Track(
+            title=representative_track.title,
+            artists=artists,
+            album=representative_track.album,
+            duration_ms=representative_track.duration_ms,
+            release_date=representative_track.release_date,
+            isrc=representative_track.isrc,
+            user_id=user_id,
+        )
+        track_obj = track_obj.with_connector_track_id(
+            connector, representative_track.connector_track_identifier
+        )
+        track_obj = track_obj.with_connector_metadata(
+            connector, representative_track.raw_metadata or {}
+        )
+        domain_track = await self.track_repo.save_track(track_obj)
 
-            primaries = [(tid, connector, cid) for tid, cid in primaries_set.items()]
-            if primaries:
-                _ = await self._batch_ensure_primary_mappings(primaries)
+        mapping_row: dict[str, object] = {
+            "user_id": domain_track.user_id,
+            "track_id": domain_track.id,
+            "connector_track_id": connector_track_id,
+            "connector_name": connector,
+            "match_method": "direct",
+            "confidence": 100,
+            "is_primary": False,  # Set via _batch_ensure_primary_mappings post-processing
+        }
+        return domain_track, mapping_row
 
-        return domain_tracks
+    async def _create_mappings_and_set_primaries(
+        self,
+        connector: str,
+        domain_tracks: list[Track],
+        track_mappings_data: list[dict[str, object]],
+    ) -> None:
+        """Bulk create new mappings, then set one primary per track-connector pair."""
+        if not track_mappings_data:
+            return
+
+        _ = await self.mapping_repo.bulk_upsert(
+            track_mappings_data,
+            lookup_keys=["user_id", "connector_track_id", "connector_name"],
+            return_models=False,
+        )
+
+        primaries_set: dict[UUID, str] = {}
+        for track in domain_tracks:
+            if track.id not in primaries_set:
+                cid = track.connector_track_identifiers.get(connector)
+                if cid:
+                    primaries_set[track.id] = cid
+
+        primaries = [(tid, connector, cid) for tid, cid in primaries_set.items()]
+        if primaries:
+            _ = await self._batch_ensure_primary_mappings(primaries)
 
     async def _sync_denormalized_id(
         self, track_id: UUID, connector: str, connector_id: str
