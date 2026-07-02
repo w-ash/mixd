@@ -1,12 +1,18 @@
-"""Typed result objects for playlist operations.
+"""Typed result objects and counters for playlist operations.
 
 Replaces tuple-based returns with strongly-typed result objects using Python 3.13+
-features for better type safety and maintainability.
+features for better type safety and maintainability. The coherent "result
+assembly" surface for playlist mutations: the ``OperationCounts`` value object,
+its ``count_operation_types`` producer, and ``build_playlist_changes`` evidence.
 """
 
 from attrs import define
 
-from src.domain.playlist.diff_engine import PlaylistDiff, PlaylistOperationType
+from src.domain.playlist.diff_engine import (
+    PlaylistDiff,
+    PlaylistOperation,
+    PlaylistOperationType,
+)
 
 _MAX_EVIDENCE_TRACKS = 100
 """Cap per-list to avoid unbounded JSON in workflow run history."""
@@ -80,3 +86,39 @@ class OperationCounts:
     def has_changes(self) -> bool:
         """Whether any operations were counted."""
         return self.total > 0
+
+
+def count_operation_types(operations: list[PlaylistOperation]) -> OperationCounts:
+    """Count add/remove/move operations from a diff operations list.
+
+    Analyzes a list of playlist operations and returns typed counts of each
+    operation type for reporting and validation.
+
+    Args:
+        operations: List of PlaylistOperation objects with operation_type field.
+
+    Returns:
+        OperationCounts with added, removed, and moved counts.
+
+    Example:
+        >>> ops = [
+        ...     PlaylistOperation(operation_type=PlaylistOperationType.ADD),
+        ...     PlaylistOperation(operation_type=PlaylistOperationType.ADD),
+        ...     PlaylistOperation(operation_type=PlaylistOperationType.REMOVE),
+        ... ]
+        >>> counts = count_operation_types(ops)
+        >>> counts.added
+        2
+        >>> counts.removed
+        1
+    """
+    added = sum(
+        1 for op in operations if op.operation_type == PlaylistOperationType.ADD
+    )
+    removed = sum(
+        1 for op in operations if op.operation_type == PlaylistOperationType.REMOVE
+    )
+    moved = sum(
+        1 for op in operations if op.operation_type == PlaylistOperationType.MOVE
+    )
+    return OperationCounts(added=added, removed=removed, moved=moved)

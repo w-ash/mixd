@@ -3,9 +3,9 @@
 Resolves the given track ids to canonical tracks the user owns and inserts one
 ``PlaylistEntry`` per id — **duplicates allowed**, because the playlist DB models
 repeated memberships (distinct ``DBPlaylistTrack.id`` per slot). This is a
-different path from the workflow append in
-``UpdateCanonicalPlaylistUseCase._append_entries``, which dedupes by track id for
-its weekly re-run consumer; manual add must NOT inherit that filter.
+different path from the workflow append (``domain.playlist.select_appendable_entries``,
+driven by ``UpdateCanonicalPlaylistUseCase``), which dedupes by track id for its
+weekly re-run consumer; manual add must NOT inherit that filter.
 
 Persistence is the standard load → mutate ``entries`` → ``save_playlist`` path:
 the repository's consumption matcher preserves every existing row's id/added_at

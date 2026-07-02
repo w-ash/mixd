@@ -1,7 +1,9 @@
 """Unit tests for shared operation counter utilities."""
 
-from src.application.use_cases._shared.operation_counters import count_operation_types
-from src.application.use_cases._shared.playlist_results import OperationCounts
+from src.application.use_cases._shared.playlist_results import (
+    OperationCounts,
+    count_operation_types,
+)
 from src.domain.entities.track import Artist, Track
 from src.domain.playlist import PlaylistOperation, PlaylistOperationType
 

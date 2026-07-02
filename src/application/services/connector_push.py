@@ -24,11 +24,13 @@ from attrs import define, field
 from src.application.services.connector_playlist_sync_service import (
     sync_connector_playlist,
 )
-from src.application.use_cases._shared import build_playlist_changes
+from src.application.use_cases._shared import (
+    build_playlist_changes,
+    count_operation_types,
+)
 from src.application.use_cases._shared.connector_resolver import (
     resolve_playlist_connector,
 )
-from src.application.use_cases._shared.operation_counters import count_operation_types
 from src.config import get_logger
 from src.domain.entities.playlist import (
     ConnectorPlaylist,

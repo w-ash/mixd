@@ -28,6 +28,7 @@ from src.domain.entities.track import TrackList
 from src.domain.playlist import (
     PlaylistDiff,
     calculate_playlist_diff,
+    select_appendable_entries,
 )
 from src.domain.repositories.uow import UnitOfWorkProtocol
 
@@ -184,33 +185,11 @@ class UpdateCanonicalPlaylistUseCase:
         commit: bool = True,
     ) -> UpdateCanonicalPlaylistResult:
         """Applies the requested metadata/track updates and builds the result."""
-        # Step 1: Get current playlist state
+        # Step 1: Resolve current state + the target playlist to reconcile against.
         current_playlist = await require_playlist(
             command.playlist_id, uow, user_id=command.user_id
         )
-
-        # Step 1.5: Process ConnectorPlaylist data if present (returns Playlist or TrackList)
-        source_data = command.new_tracklist
-        if command.connector_playlist is not None:
-            from src.application.services.connector_playlist_processing_service import (
-                ConnectorPlaylistProcessingService,
-            )
-
-            processing_service = ConnectorPlaylistProcessingService()
-            source_data = await processing_service.process_connector_playlist(
-                command.connector_playlist, uow, user_id=command.user_id
-            )
-
-        # Convert source_data to Playlist if it's a TrackList
-        if isinstance(source_data, Playlist):
-            processed_playlist = source_data
-        else:
-            # Convert TrackList to Playlist with current timestamp for new entries
-            processed_playlist = Playlist.from_tracklist(
-                name=current_playlist.name,  # Use existing name
-                tracklist=source_data,
-                added_at=datetime.now(UTC),  # Timestamp for new tracks
-            )
+        processed_playlist = await self._resolve_target(command, current_playlist, uow)
 
         # Step 2: Handle metadata updates (name/description)
         if (
@@ -235,21 +214,15 @@ class UpdateCanonicalPlaylistUseCase:
         # Step 3: Handle track updates based on mode
         playlist_changes: dict[str, object] = {}
         if command.append_mode:
-            # Append mode: add new tracks to end of existing playlist
+            # Append mode: add new (deduped) tracks to end of existing playlist.
             (
                 result_playlist,
                 operations_performed,
                 operation_counts,
-            ) = await self._append_entries(
+            ) = await self._apply_append(
                 current_playlist, processed_playlist, uow, command.dry_run
             )
             confidence_score = 1.0  # High confidence for simple append
-
-            # Extract metrics from new tracks (only for non-dry runs)
-            if not command.dry_run:
-                await self.metrics_service.extract_track_metrics(
-                    processed_playlist.tracks, uow
-                )
         else:
             # Overwrite mode: diff resolved tracks for the operation counts.
             diff = calculate_playlist_diff(current_playlist, processed_playlist)
@@ -281,15 +254,14 @@ class UpdateCanonicalPlaylistUseCase:
             confidence_score = diff.confidence_score
             playlist_changes = build_playlist_changes(diff, command.playlist_id)
 
-            # Extract metrics from new tracks (only for non-dry runs)
-            if not command.dry_run:
-                await self.metrics_service.extract_track_metrics(
-                    processed_playlist.tracks, uow
-                )
-
-        # Commit changes if not dry run (caller owns the boundary when commit=False)
-        if commit and not command.dry_run:
-            await uow.commit()
+        # Extract metrics from new tracks and commit (only for non-dry runs;
+        # the caller owns the boundary when commit=False).
+        if not command.dry_run:
+            await self.metrics_service.extract_track_metrics(
+                processed_playlist.tracks, uow
+            )
+            if commit:
+                await uow.commit()
 
         result = UpdateCanonicalPlaylistResult(
             playlist=result_playlist,
@@ -309,6 +281,38 @@ class UpdateCanonicalPlaylistUseCase:
         )
 
         return result
+
+    async def _resolve_target(
+        self,
+        command: UpdateCanonicalPlaylistCommand,
+        current_playlist: Playlist,
+        uow: UnitOfWorkProtocol,
+    ) -> Playlist:
+        """Resolve the command's source into the target Playlist to reconcile against.
+
+        A ConnectorPlaylist is ingested by the processing service (which builds
+        the complete ordered entries — resolved AND unresolved). A bare TrackList
+        is wrapped under the existing name with a fresh ``added_at`` for its new
+        entries.
+        """
+        source_data = command.new_tracklist
+        if command.connector_playlist is not None:
+            from src.application.services.connector_playlist_processing_service import (
+                ConnectorPlaylistProcessingService,
+            )
+
+            processing_service = ConnectorPlaylistProcessingService()
+            source_data = await processing_service.process_connector_playlist(
+                command.connector_playlist, uow, user_id=command.user_id
+            )
+
+        if isinstance(source_data, Playlist):
+            return source_data
+        return Playlist.from_tracklist(
+            name=current_playlist.name,  # Use existing name
+            tracklist=source_data,
+            added_at=datetime.now(UTC),  # Timestamp for new tracks
+        )
 
     async def _execute_operations(
         self,
@@ -389,75 +393,42 @@ class UpdateCanonicalPlaylistUseCase:
 
         return current_playlist
 
-    async def _append_entries(
+    async def _apply_append(
         self,
         current_playlist: Playlist,
         new_playlist: Playlist,
         uow: UnitOfWorkProtocol,
         dry_run: bool,
     ) -> tuple[Playlist, int, OperationCounts]:
-        """Adds new unique entries to the end of the playlist.
+        """Persists the deduped appended entries at the end of the playlist.
 
-        Filters out entries for tracks that already exist to prevent duplicates.
-
-        Args:
-            current_playlist: Playlist to append entries to
-            new_playlist: Playlist with entries to add (duplicates will be filtered out)
-            uow: Database transaction manager
-            dry_run: If True, calculate result but don't save to database
+        The dedup-vs-append decision is the pure ``select_appendable_entries``
+        domain function (tracks already present are dropped; unresolved positions
+        are kept). This method owns only the persistence: build the appended
+        playlist, stamp ``last_updated``, and save — unless ``dry_run``.
 
         Returns:
             Tuple of (updated_playlist, operations_performed, operation_counts)
         """
-        # Filter out entries for tracks that already exist to avoid duplicates.
-        # Unresolved entries (no canonical track) are kept — they can't collide
-        # on a track id and carry distinct source positions.
-        existing_track_ids = {
-            entry.track.id
-            for entry in current_playlist.entries
-            if entry.track is not None and entry.track.id
-        }
-        new_entries = [
-            entry
-            for entry in new_playlist.entries
-            if entry.track is None
-            or not entry.track.id
-            or entry.track.id not in existing_track_ids
-        ]
-
+        new_entries = select_appendable_entries(
+            current_playlist.entries, new_playlist.entries
+        )
         if not new_entries:
             logger.info("No new entries to append")
             return current_playlist, 0, OperationCounts()
 
         logger.info(f"Appending {len(new_entries)} new entries to playlist")
+        counts = OperationCounts(added=len(new_entries))
+        appended = current_playlist.with_entries(current_playlist.entries + new_entries)
 
         if dry_run:
-            # For dry run, create result without persisting
-            result_playlist = current_playlist.with_entries(
-                current_playlist.entries + new_entries
-            )
-            return (
-                result_playlist,
-                len(new_entries),
-                OperationCounts(added=len(new_entries)),
-            )
+            return appended, len(new_entries), counts
 
-        # Create updated playlist with appended entries
-        updated_playlist = current_playlist.with_entries(
-            current_playlist.entries + new_entries
-        ).with_metadata({
-            **current_playlist.metadata,
-            "last_updated": datetime.now(UTC).isoformat(),
-            "entries_appended": len(new_entries),
-        })
-
-        # Persist updated playlist using update_playlist for existing playlists
-
-        playlist_repo = uow.get_playlist_repository()
-        saved_playlist = await playlist_repo.save_playlist(updated_playlist)
-
-        return (
-            saved_playlist,
-            len(new_entries),
-            OperationCounts(added=len(new_entries)),
+        saved_playlist = await uow.get_playlist_repository().save_playlist(
+            appended.with_metadata({
+                **current_playlist.metadata,
+                "last_updated": datetime.now(UTC).isoformat(),
+                "entries_appended": len(new_entries),
+            })
         )
+        return saved_playlist, len(new_entries), counts

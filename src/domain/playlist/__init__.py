@@ -1,5 +1,6 @@
 """Domain layer playlist operations and utilities."""
 
+from .append import select_appendable_entries
 from .diff_engine import (
     PlaylistDiff,
     PlaylistOperation,
@@ -18,5 +19,6 @@ __all__ = [
     "SyncSafetyResult",
     "calculate_playlist_diff",
     "check_sync_safety",
+    "select_appendable_entries",
     "sequence_operations_for_spotify",
 ]

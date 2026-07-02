@@ -62,7 +62,7 @@ Populated during investigation. One row per spoke. ROI/Risk are the executor's d
 | [07](07-use-case-skeleton-collapse.md) | Collapse the five copy-pasted use-case skeletons | application | L | high | med | Fable | **Done (v0.8.14)** |
 | [08](08-route-handler-conformance.md) | Route handlers: move strays behind execute_use_case | interface | M | med | med | Opus | Not Started |
 | [09](09-timed-query-envelope.md) | Shared timed-query envelope for read use cases | application | S | med | low | Haiku | **Done (v0.8.14)** |
-| [10](10-update-canonical-playlist-split.md) | update_canonical_playlist: push diff sub-algorithms down | application | M | med | med | Opus | Not Started |
+| [10](10-update-canonical-playlist-split.md) | update_canonical_playlist: push diff sub-algorithms down | application | M | med | med | Opus | **Done (v0.8.14)** — 434 lines (contract+envelope), not ~250 |
 | [11](11-executor-closure-flatten.md) | Workflow executor: flatten triple-nested closure stack | application | L | high | med-high | Fable | Not Started |
 | [12](12-execution-strategies-dead-abstraction.md) | Delete dead execution-Strategy abstraction | domain | M | high | low-med | Opus | **Done (v0.8.13)** |
 | [13](13-dead-config-purge.md) | Purge dead config: BatchConfig + MatchingConfig fields | domain+config | S-M | high | low | Opus | **Done (v0.8.13)** |

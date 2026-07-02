@@ -10,9 +10,6 @@ from src.application.use_cases._shared.connector_resolver import (
     resolve_playlist_connector,
     resolve_user_playlists_connector,
 )
-from src.application.use_cases._shared.operation_counters import (
-    count_operation_types,
-)
 from src.application.use_cases._shared.playlist_resolver import (
     require_playlist_link,
     resolve_playlist,
@@ -20,6 +17,7 @@ from src.application.use_cases._shared.playlist_resolver import (
 from src.application.use_cases._shared.playlist_results import (
     OperationCounts,
     build_playlist_changes,
+    count_operation_types,
 )
 
 __all__ = [
