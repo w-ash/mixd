@@ -122,7 +122,11 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 15
     container:
-      image: mcr.microsoft.com/playwright:v1.60.0-noble
+      # Must match @playwright/test in web/pnpm-lock.yaml exactly — a skewed image
+      # ships the wrong browser revisions and every test dies at browserType.launch.
+      # When bumping @playwright/test: bump this tag AND regenerate the visual
+      # baselines inside the new image (web/e2e/README.md).
+      image: mcr.microsoft.com/playwright:v1.61.1-noble
 
     defaults:
       run:
