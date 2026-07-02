@@ -246,7 +246,10 @@ class TestUpdateCanonicalPlaylistUseCase:
         with pytest.raises(NotFoundError):
             await use_case.execute(command, mock_uow)
 
-        mock_uow.rollback.assert_called_once()
+        # Explicit rollback + the __aexit__ rollback (a real-substrate no-op):
+        # the guarantee is "rolled back, never committed", not the call count.
+        mock_uow.rollback.assert_called()
+        mock_uow.commit.assert_not_called()
 
     async def test_result_includes_execution_time(self, mock_uow):
         """Test that result includes non-negative execution time."""

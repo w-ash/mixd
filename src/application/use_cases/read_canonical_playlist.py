@@ -10,7 +10,7 @@ from attrs import define, field
 
 from src.application.use_cases._shared.command_validators import non_empty_string
 from src.application.use_cases._shared.playlist_resolver import resolve_playlist
-from src.application.utilities.timing import ExecutionTimer
+from src.application.use_cases._shared.timed_execution import timed_query
 from src.config import get_logger
 from src.domain.entities import utc_now_factory
 from src.domain.entities.playlist import Playlist
@@ -90,59 +90,44 @@ class ReadCanonicalPlaylistUseCase:
         Raises:
             ValueError: If playlist not found
         """
-        timer = ExecutionTimer()
-
         logger.info(
             "Reading canonical playlist",
             playlist_id=command.playlist_id,
         )
 
-        async with uow:
-            try:
-                result = await self._read_playlist(command, uow, timer)
-            except Exception as e:
-                logger.error(
-                    "Canonical playlist read failed",
-                    error=str(e),
-                    playlist_id=command.playlist_id,
-                )
-                raise
-            else:
-                return result
-
-    async def _read_playlist(
-        self,
-        command: ReadCanonicalPlaylistCommand,
-        uow: UnitOfWorkProtocol,
-        timer: ExecutionTimer,
-    ) -> ReadCanonicalPlaylistResult:
-        """Resolves the playlist and builds the timed result."""
-        playlist = await resolve_playlist(
-            command.playlist_id,
+        async with (
             uow,
-            user_id=command.user_id,
-            connector=command.connector or "spotify",
-            raise_if_not_found=False,
-        )
-
-        result = ReadCanonicalPlaylistResult(
-            playlist=playlist,
-            execution_time_ms=timer.stop(),
-        )
-
-        if playlist:
-            logger.info(
-                "Canonical playlist read completed",
-                playlist_id=playlist.id,
-                name=playlist.name,
-                track_count=len(playlist.tracks),
-                execution_time_ms=timer.elapsed_ms,
-            )
-        else:
-            logger.info(
-                "Canonical playlist not found",
-                playlist_id=command.playlist_id,
-                execution_time_ms=timer.elapsed_ms,
+            timed_query(
+                "Canonical playlist read",
+                error_log_context={"playlist_id": command.playlist_id},
+            ) as timer,
+        ):
+            playlist = await resolve_playlist(
+                command.playlist_id,
+                uow,
+                user_id=command.user_id,
+                connector=command.connector or "spotify",
+                raise_if_not_found=False,
             )
 
-        return result
+            result = ReadCanonicalPlaylistResult(
+                playlist=playlist,
+                execution_time_ms=timer.stop(),
+            )
+
+            if playlist:
+                logger.info(
+                    "Canonical playlist read completed",
+                    playlist_id=playlist.id,
+                    name=playlist.name,
+                    track_count=len(playlist.tracks),
+                    execution_time_ms=timer.elapsed_ms,
+                )
+            else:
+                logger.info(
+                    "Canonical playlist not found",
+                    playlist_id=command.playlist_id,
+                    execution_time_ms=timer.elapsed_ms,
+                )
+
+            return result

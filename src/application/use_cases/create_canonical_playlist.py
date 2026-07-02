@@ -15,6 +15,7 @@ from src.application.services.metrics_application_service import (
 )
 from src.application.use_cases._shared.command_validators import non_empty_string
 from src.application.use_cases._shared.metric_config import MetricConfigProvider
+from src.application.use_cases._shared.timed_execution import timed_query
 from src.application.utilities.timing import ExecutionTimer
 from src.config import get_logger
 from src.domain.entities import utc_now_factory
@@ -144,8 +145,6 @@ class CreateCanonicalPlaylistUseCase:
         Raises:
             ValueError: If command execution fails
         """
-        timer = ExecutionTimer()
-
         logger.info(
             "Starting canonical playlist creation",
             name=command.name,
@@ -154,23 +153,23 @@ class CreateCanonicalPlaylistUseCase:
         )
 
         if not commit:
-            return await self._create_playlist(command, uow, timer, commit=False)
+            # Preview path: bespoke timing, no failure envelope (previews
+            # surface their own errors), no transaction to roll back.
+            return await self._create_playlist(
+                command, uow, ExecutionTimer(), commit=False
+            )
 
-        async with uow:
-            try:
-                result = await self._create_playlist(command, uow, timer)
-            except Exception as e:
-                # Explicit rollback on business logic failure
-                await uow.rollback()
-                logger.error(
-                    "Canonical playlist creation failed",
-                    error=str(e),
-                    name=command.name,
-                    track_count=len(command.tracklist.tracks),
-                )
-                raise
-            else:
-                return result
+        async with (
+            uow,  # __aexit__ rolls back on exception
+            timed_query(
+                "Canonical playlist creation",
+                error_log_context={
+                    "name": command.name,
+                    "track_count": len(command.tracklist.tracks),
+                },
+            ) as timer,
+        ):
+            return await self._create_playlist(command, uow, timer)
 
     async def _create_playlist(
         self,

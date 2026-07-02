@@ -13,6 +13,7 @@ from attrs import define, field
 
 from src.application.use_cases._shared.command_validators import non_empty_string
 from src.application.use_cases._shared.playlist_resolver import require_playlist
+from src.application.use_cases._shared.timed_execution import timed_query
 from src.application.utilities.timing import ExecutionTimer
 from src.config import get_logger
 from src.domain.entities import utc_now_factory
@@ -104,28 +105,20 @@ class DeleteCanonicalPlaylistUseCase:
         Raises:
             ValueError: If playlist not found.
         """
-        timer = ExecutionTimer()
-
         logger.info(
             "Starting canonical playlist deletion",
             playlist_id=command.playlist_id,
             force_delete=command.force_delete,
         )
 
-        async with uow:
-            try:
-                result = await self._delete_playlist(command, uow, timer)
-            except Exception as e:
-                # Explicit rollback on business logic failure
-                await uow.rollback()
-                logger.error(
-                    "Canonical playlist deletion failed",
-                    error=str(e),
-                    playlist_id=command.playlist_id,
-                )
-                raise
-            else:
-                return result
+        async with (
+            uow,  # __aexit__ rolls back on exception
+            timed_query(
+                "Canonical playlist deletion",
+                error_log_context={"playlist_id": command.playlist_id},
+            ) as timer,
+        ):
+            return await self._delete_playlist(command, uow, timer)
 
     async def _delete_playlist(
         self,

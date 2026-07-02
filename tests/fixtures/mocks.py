@@ -461,11 +461,20 @@ def make_mock_uow(**repo_overrides) -> MagicMock:
     )
 
     # Async context manager protocol
-    uow.__aenter__ = AsyncMock(return_value=uow)
-    uow.__aexit__ = AsyncMock(return_value=None)
     uow.commit = AsyncMock()
     uow.commit_batch = AsyncMock()
     uow.rollback = AsyncMock()
+    uow.__aenter__ = AsyncMock(return_value=uow)
+
+    async def _aexit(exc_type, _exc_val, _exc_tb):
+        # Mirror the real DatabaseUnitOfWork.__aexit__ rollback contract so
+        # tests can assert "failure → rollback" without use cases needing an
+        # explicit (redundant) rollback call. The clean-exit auto-commit half
+        # is deliberately NOT emulated: tests assert exact commit counts.
+        if exc_type is not None:
+            await uow.rollback()
+
+    uow.__aexit__ = AsyncMock(side_effect=_aexit)
 
     return uow
 

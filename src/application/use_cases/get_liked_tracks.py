@@ -9,7 +9,7 @@ from datetime import datetime
 from attrs import define, field
 from attrs.validators import and_, ge, in_, instance_of, le, optional
 
-from src.application.utilities.timing import ExecutionTimer
+from src.application.use_cases._shared.timed_execution import timed_query
 from src.config import get_logger
 from src.config.constants import BusinessLimits
 from src.domain.entities import utc_now_factory
@@ -102,8 +102,6 @@ class GetLikedTracksUseCase:
         Raises:
             ValueError: If command execution fails.
         """
-        timer = ExecutionTimer()
-
         logger.info(
             "Retrieving liked tracks",
             limit=command.limit,
@@ -111,33 +109,30 @@ class GetLikedTracksUseCase:
             sort_by=command.sort_by,
         )
 
-        async with uow:
-            try:
-                tracklist, total_available = await self._get_liked_tracks(command, uow)
+        async with (
+            uow,
+            timed_query(
+                "Liked tracks retrieval",
+                error_log_context={"connector_filter": command.connector_filter},
+            ) as timer,
+        ):
+            tracklist, total_available = await self._get_liked_tracks(command, uow)
 
-                result = GetLikedTracksResult(
-                    tracklist=tracklist,
-                    total_available=total_available,
-                    execution_time_ms=timer.stop(),
-                )
+            result = GetLikedTracksResult(
+                tracklist=tracklist,
+                total_available=total_available,
+                execution_time_ms=timer.stop(),
+            )
 
-                logger.info(
-                    "Liked tracks retrieval completed",
-                    track_count=len(tracklist.tracks),
-                    connector_filter=command.connector_filter,
-                    sort_by=command.sort_by,
-                    execution_time_ms=timer.elapsed_ms,
-                )
+            logger.info(
+                "Liked tracks retrieval completed",
+                track_count=len(tracklist.tracks),
+                connector_filter=command.connector_filter,
+                sort_by=command.sort_by,
+                execution_time_ms=timer.elapsed_ms,
+            )
 
-            except Exception as e:
-                logger.error(
-                    "Liked tracks retrieval failed",
-                    error=str(e),
-                    connector_filter=command.connector_filter,
-                )
-                raise
-            else:
-                return result
+            return result
 
     async def _get_liked_tracks(
         self, command: GetLikedTracksCommand, uow: UnitOfWorkProtocol

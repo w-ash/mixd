@@ -11,7 +11,7 @@ from typing import cast
 from attrs import define, field
 from attrs.validators import and_, ge, gt, in_, instance_of, le, optional
 
-from src.application.utilities.timing import ExecutionTimer
+from src.application.use_cases._shared.timed_execution import timed_query
 from src.config import get_logger
 from src.config.constants import BusinessLimits
 from src.domain.entities import utc_now_factory
@@ -112,8 +112,6 @@ class GetPlayedTracksUseCase:
         Raises:
             ValueError: If command execution fails.
         """
-        timer = ExecutionTimer()
-
         logger.info(
             "Retrieving played tracks",
             limit=command.limit,
@@ -122,35 +120,34 @@ class GetPlayedTracksUseCase:
             sort_by=command.sort_by,
         )
 
-        async with uow:
-            try:
-                tracklist, total_available = await self._get_played_tracks(command, uow)
+        async with (
+            uow,
+            timed_query(
+                "Played tracks retrieval",
+                error_log_context={
+                    "days_back": command.days_back,
+                    "connector_filter": command.connector_filter,
+                },
+            ) as timer,
+        ):
+            tracklist, total_available = await self._get_played_tracks(command, uow)
 
-                result = GetPlayedTracksResult(
-                    tracklist=tracklist,
-                    total_available=total_available,
-                    execution_time_ms=timer.stop(),
-                )
+            result = GetPlayedTracksResult(
+                tracklist=tracklist,
+                total_available=total_available,
+                execution_time_ms=timer.stop(),
+            )
 
-                logger.info(
-                    "Played tracks retrieval completed",
-                    track_count=len(tracklist.tracks),
-                    days_back=command.days_back,
-                    connector_filter=command.connector_filter,
-                    sort_by=command.sort_by,
-                    execution_time_ms=timer.elapsed_ms,
-                )
+            logger.info(
+                "Played tracks retrieval completed",
+                track_count=len(tracklist.tracks),
+                days_back=command.days_back,
+                connector_filter=command.connector_filter,
+                sort_by=command.sort_by,
+                execution_time_ms=timer.elapsed_ms,
+            )
 
-            except Exception as e:
-                logger.error(
-                    "Played tracks retrieval failed",
-                    error=str(e),
-                    days_back=command.days_back,
-                    connector_filter=command.connector_filter,
-                )
-                raise
-            else:
-                return result
+            return result
 
     async def _get_played_tracks(
         self, command: GetPlayedTracksCommand, uow: UnitOfWorkProtocol

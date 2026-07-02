@@ -19,6 +19,7 @@ from src.application.use_cases._shared.command_validators import (
     non_empty_string,
     validate_tracklist_has_tracks,
 )
+from src.application.use_cases._shared.timed_execution import timed_query
 from src.application.utilities.timing import ExecutionTimer
 from src.config import get_logger
 from src.domain.entities import ConnectorPlaylist, utc_now_factory
@@ -121,8 +122,6 @@ class CreateConnectorPlaylistUseCase:
         Raises:
             ConnectorSyncError: If the external playlist creation API call fails.
         """
-        timer = ExecutionTimer()
-
         logger.info(
             "Starting connector playlist creation",
             connector=command.connector,
@@ -131,18 +130,14 @@ class CreateConnectorPlaylistUseCase:
             create_internal=command.create_internal_playlist,
         )
 
-        try:
-            result = await self._create_playlist(command, uow, timer)
-        except Exception as e:
-            logger.error(
-                "Connector playlist creation failed",
-                error=str(e),
-                connector=command.connector,
-                playlist_name=command.playlist_name,
-            )
-            raise
-        else:
-            return result
+        async with timed_query(
+            "Connector playlist creation",
+            error_log_context={
+                "connector": command.connector,
+                "playlist_name": command.playlist_name,
+            },
+        ) as timer:
+            return await self._create_playlist(command, uow, timer)
 
     async def _create_playlist(
         self,
