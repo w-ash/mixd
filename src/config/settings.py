@@ -8,10 +8,9 @@ The configuration is organized into logical groups:
 - LoggingConfig: Console/file levels, rotation, stdlib log integration
 - CredentialsConfig: Spotify and Last.fm API keys and secrets
 - APIConfig: Rate limits, batch sizes, timeouts for external APIs
-- BatchConfig: Display truncation for log output
 - CLIConfig: CLI table formatting widths
 - ImportConfig: Import directories, play thresholds, batch processing
-- MatchingConfig: Track matching confidence scores and penalties
+- MatchingConfig: Track matching confidence scores and thresholds
 - FreshnessConfig: Cache TTLs for connector metadata
 - ServerConfig: CORS and HTTP middleware
 - SecurityConfig: Token encryption key
@@ -223,15 +222,6 @@ class APIConfig(BaseModel):
     )
 
 
-class BatchConfig(BaseModel):
-    """Display truncation settings for log messages and diagnostic output."""
-
-    truncation_limit: PositiveInt = Field(
-        default=5,
-        description="Maximum items shown in a list before truncating with '... and N more'.",
-    )
-
-
 class CLIConfig(BaseModel):
     """CLI display, formatting, and identity configuration."""
 
@@ -303,24 +293,6 @@ class ImportConfig(BaseModel):
 class MatchingConfig(BaseModel):
     """Track matching and confidence scoring configuration."""
 
-    # Base confidence scores by match method
-    base_confidence_isrc: ConfidenceScore = Field(
-        default=95,
-        description="Starting confidence for ISRC identifier matches.",
-    )
-    base_confidence_mbid: ConfidenceScore = Field(
-        default=95,
-        description="Starting confidence for MusicBrainz ID matches.",
-    )
-    base_confidence_artist_title: ConfidenceScore = Field(
-        default=90,
-        description="Starting confidence for fuzzy artist+title matches.",
-    )
-    isrc_suspect_base_confidence: ConfidenceScore = Field(
-        default=80,
-        description="Reduced starting confidence for ISRC matches flagged as suspect (e.g., duration mismatch suggesting remaster).",
-    )
-
     # Three-zone classification thresholds
     auto_accept_threshold: ConfidenceScore = Field(
         default=85,
@@ -331,56 +303,10 @@ class MatchingConfig(BaseModel):
         description="Confidence above which matches are queued for human review (below auto_accept). Below this, matches are auto-rejected.",
     )
 
-    # Legacy per-method thresholds (used as floor within review zone)
-    threshold_isrc: ConfidenceScore = Field(
-        default=60,
-        description="Minimum confidence to accept an ISRC-based match after penalties.",
-    )
-    threshold_mbid: ConfidenceScore = Field(
-        default=60,
-        description="Minimum confidence to accept a MusicBrainz ID-based match after penalties.",
-    )
-    threshold_artist_title: ConfidenceScore = Field(
-        default=50,
-        description="Minimum confidence for artist+title fuzzy matches. Lower than ISRC/MBID to accommodate title variations across services.",
-    )
-    threshold_default: ConfidenceScore = Field(
-        default=50,
-        description="Fallback threshold when match method is unspecified.",
-    )
-
-    # Duration penalty configuration
-    duration_missing_penalty: ConfidenceScore = Field(
-        default=5,
-        description="Confidence deduction when one track has no duration metadata.",
-    )
-    duration_max_penalty: ConfidenceScore = Field(
-        default=30,
-        description="Maximum confidence deduction from duration differences. Capped to prevent duration alone from rejecting strong matches.",
-    )
-    duration_tolerance_ms: NonNegativeInt = Field(
-        default=1000,
-        description="Duration difference in ms below which no penalty is applied.",
-    )
-    duration_per_second_penalty: NonNegativeFloat = Field(
-        default=0.5,
-        description="Confidence points deducted per second of duration difference beyond tolerance.",
-    )
-
     # Similarity thresholds
     high_similarity_threshold: SimilarityScore = Field(
         default=0.9,
         description="String similarity ratio (0.0-1.0) above which titles or artists are considered effectively identical.",
-    )
-
-    # Penalty caps
-    title_max_penalty: ConfidenceScore = Field(
-        default=30,
-        description="Maximum confidence deduction from title dissimilarity.",
-    )
-    artist_max_penalty: ConfidenceScore = Field(
-        default=30,
-        description="Maximum confidence deduction from artist name dissimilarity.",
     )
 
     # Phonetic matching
@@ -564,7 +490,6 @@ class Settings(BaseSettings):
     logging: LoggingConfig = Field(default_factory=LoggingConfig)
     credentials: CredentialsConfig = Field(default_factory=CredentialsConfig)
     api: APIConfig = Field(default_factory=APIConfig)
-    batch: BatchConfig = Field(default_factory=BatchConfig)
     cli: CLIConfig = Field(default_factory=CLIConfig)
     import_settings: ImportConfig = Field(
         default_factory=ImportConfig

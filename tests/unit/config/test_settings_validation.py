@@ -10,7 +10,6 @@ import pytest
 
 from src.config.settings import (
     APIConfig,
-    BatchConfig,
     CLIConfig,
     ConnectorAPIConfig,
     FreshnessConfig,
@@ -38,7 +37,7 @@ class TestDefaultsPassConstraints:
 
     def test_matching_config_defaults(self):
         config = MatchingConfig()
-        assert config.base_confidence_isrc == 95
+        assert config.auto_accept_threshold == 85
         assert config.high_similarity_threshold == 0.9
 
     def test_import_config_defaults(self):
@@ -54,10 +53,6 @@ class TestDefaultsPassConstraints:
         config = FreshnessConfig()
         assert config.lastfm_hours == 1.0
         assert config.spotify_hours == 24.0
-
-    def test_batch_config_defaults(self):
-        config = BatchConfig()
-        assert config.truncation_limit == 5
 
     def test_cli_config_defaults(self):
         config = CLIConfig()
@@ -141,12 +136,12 @@ class TestBoundaryAcceptance:
         assert config.play_threshold_percentage == 1.0
 
     def test_confidence_zero(self):
-        config = MatchingConfig(base_confidence_isrc=0)
-        assert config.base_confidence_isrc == 0
+        config = MatchingConfig(auto_accept_threshold=0)
+        assert config.auto_accept_threshold == 0
 
     def test_confidence_hundred(self):
-        config = MatchingConfig(base_confidence_isrc=100)
-        assert config.base_confidence_isrc == 100
+        config = MatchingConfig(auto_accept_threshold=100)
+        assert config.auto_accept_threshold == 100
 
     def test_similarity_zero(self):
         config = MatchingConfig(high_similarity_threshold=0.0)
@@ -192,10 +187,6 @@ class TestPositiveIntRejection:
         with pytest.raises(ValidationError):
             ConnectorAPIConfig(concurrency=0)
 
-    def test_truncation_limit_zero(self):
-        with pytest.raises(ValidationError):
-            BatchConfig(truncation_limit=0)
-
     def test_import_batch_size_zero(self):
         with pytest.raises(ValidationError):
             ImportConfig(batch_size=0)
@@ -234,19 +225,19 @@ class TestConfidenceScoreRejection:
 
     def test_over_hundred(self):
         with pytest.raises(ValidationError):
-            MatchingConfig(base_confidence_isrc=101)
+            MatchingConfig(auto_accept_threshold=101)
 
     def test_negative(self):
         with pytest.raises(ValidationError):
-            MatchingConfig(base_confidence_isrc=-1)
+            MatchingConfig(auto_accept_threshold=-1)
 
-    def test_penalty_over_hundred(self):
+    def test_review_threshold_over_hundred(self):
         with pytest.raises(ValidationError):
-            MatchingConfig(duration_max_penalty=101)
+            MatchingConfig(review_threshold=101)
 
-    def test_threshold_over_hundred(self):
+    def test_review_threshold_negative(self):
         with pytest.raises(ValidationError):
-            MatchingConfig(threshold_artist_title=101)
+            MatchingConfig(review_threshold=-1)
 
 
 class TestPercentageRejection:

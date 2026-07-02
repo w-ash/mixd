@@ -76,22 +76,6 @@ redirect_resolved  # attrs field on ImportResult
 image_url  # attrs field on ConnectorPlaylistInfo + Pydantic ConnectorPlaylistSchema
 current_assignments  # attrs field + Pydantic ConnectorPlaylistSchema
 
-# --- MatchingConfig / MatchingSettings fields (attrs + Pydantic, accessed via config object) ---
-base_confidence_isrc  # MatchingConfig field
-base_confidence_mbid  # MatchingConfig field
-base_confidence_artist_title  # MatchingConfig field
-isrc_suspect_base_confidence  # MatchingConfig field
-threshold_isrc  # MatchingConfig field
-threshold_mbid  # MatchingConfig field
-threshold_artist_title  # MatchingConfig field
-threshold_default  # MatchingConfig field
-duration_missing_penalty  # MatchingConfig field
-duration_max_penalty  # MatchingConfig field
-duration_tolerance_ms  # MatchingConfig field
-duration_per_second_penalty  # MatchingConfig field
-title_max_penalty  # MatchingConfig field
-artist_max_penalty  # MatchingConfig field
-
 # --- Protocol/interface methods (implementations called at runtime) ---
 save_node_record  # WorkflowRunRepositoryProtocol
 get_latest_run_for_workflow  # WorkflowRunRepositoryProtocol
