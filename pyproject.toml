@@ -287,15 +287,15 @@ reportUntypedBaseClass = true
 reportUntypedClassDecorator = true
 reportUntypedFunctionDecorator = true
 reportUntypedNamedTuple = true
-reportDeprecated = "warning"
+reportDeprecated = "error"
 reportUnnecessaryTypeIgnoreComment = "warning"
-reportImplicitOverride = "warning"
+reportImplicitOverride = "error"
 # Keep: catches genuinely unknown types from missing annotations
-reportUnknownParameterType = "warning"
-reportUnknownVariableType = "warning"
-reportUnknownMemberType = "warning"
-reportUnknownArgumentType = "warning"
-reportUnknownLambdaType = "warning"
+reportUnknownParameterType = "error"
+reportUnknownVariableType = "error"
+reportUnknownMemberType = "error"
+reportUnknownArgumentType = "error"
+reportUnknownLambdaType = "error"
 # Both reportAny and reportExplicitAny at error: no Any — explicit or implicit — allowed.
 reportAny = "error"
 reportExplicitAny = "error"
@@ -306,7 +306,7 @@ strictGenericNarrowing = true
 reportUnusedCallResult = "none"
 # Intentional patterns that "recommended" mode would flag as errors:
 # - bare list/dict generics are valid in Python 3.14 (equivalent to list[Any])
-reportMissingTypeArgument = "warning"
+reportMissingTypeArgument = "error"
 # - attrs @define classes initialize fields via __attrs_post_init__ (not __init__)
 reportUninitializedInstanceVariable = "none"
 # Python 3.14
