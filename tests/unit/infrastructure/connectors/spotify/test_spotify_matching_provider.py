@@ -84,16 +84,23 @@ class TestSpotifyProviderMatchByISRC:
         assert failures[0].reason == MatchFailureReason.API_ERROR
         assert failures[0].exception_type == "RuntimeError"
 
-    async def test_track_without_isrc_returns_no_isrc_failure(self):
-        """Track missing ISRC should produce NO_ISRC failure."""
+    async def test_track_without_isrc_routed_to_artist_title(self):
+        """A track lacking ISRC is routed to artist/title matching, not rejected.
+
+        Validation is the base partition's job (the single validation point), so
+        a no-ISRC track never reaches the ISRC path: it falls to artist/title.
+        """
         provider, connector = _make_provider()
-        track = make_track(isrc=None)
+        track = make_track(title="Song", artist="Artist", isrc=None)
+        connector.search_track.return_value = [
+            _make_spotify_track_model(track_id="sp_at", name="Song")
+        ]
 
-        matches, failures = await provider._match_by_isrc([track])
+        result = await provider.fetch_raw_matches_for_tracks([track])
 
-        assert len(matches) == 0
-        assert len(failures) == 1
-        assert failures[0].reason == MatchFailureReason.NO_ISRC
+        assert track.id in result.matches
+        assert result.matches[track.id]["match_method"] == "artist_title"
+        connector.search_by_isrc.assert_not_called()
 
 
 class TestSpotifyProviderMatchByArtistTitle:
@@ -143,16 +150,21 @@ class TestSpotifyProviderMatchByArtistTitle:
         assert len(failures) == 1
         assert failures[0].reason == MatchFailureReason.API_ERROR
 
-    async def test_track_without_metadata_returns_failure(self):
-        """Track without artist or title should produce NO_METADATA failure."""
+    async def test_unprocessable_track_returns_no_metadata_failure(self):
+        """A track with neither ISRC nor artist/title is unprocessable (NO_METADATA).
+
+        Routed through the template so the base partition (the single validation
+        point) classifies it, rather than the removed per-hook re-validation.
+        """
         provider, connector = _make_provider()
-        track = make_track(title="", artist="Artist")
+        track = make_track(title="", artist="Artist", isrc=None)
 
-        matches, failures = await provider._match_by_artist_title([track])
+        result = await provider.fetch_raw_matches_for_tracks([track])
 
-        assert len(matches) == 0
-        assert len(failures) == 1
-        assert failures[0].reason == MatchFailureReason.NO_METADATA
+        assert len(result.matches) == 0
+        assert len(result.failures) == 1
+        assert result.failures[0].reason == MatchFailureReason.NO_METADATA
+        connector.search_track.assert_not_called()
 
 
 class TestSpotifyProviderCreateRawMatch:

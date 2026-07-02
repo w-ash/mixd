@@ -6,6 +6,7 @@ remain in the domain layer.
 """
 
 from abc import ABC, abstractmethod
+from collections.abc import Awaitable, Callable
 from uuid import UUID
 
 from src.config import get_logger
@@ -20,6 +21,7 @@ from src.domain.matching.types import (
 )
 from src.infrastructure.connectors._shared.failure_handling import (
     create_and_log_failure,
+    handle_track_processing_failure,
     log_failure_summary,
 )
 
@@ -36,6 +38,11 @@ class BaseMatchingProvider(ABC):
     - Infrastructure layer: Data extraction and API communication
     - Domain layer: Business logic (confidence, thresholds, evaluation)
     - Application layer: Orchestration of infrastructure → domain flow
+
+    Validation happens once, in ``_partition_tracks`` (the single validation
+    point): tracks handed to ``_match_by_isrc`` are guaranteed to carry an
+    ISRC and tracks handed to ``_match_by_artist_title`` a valid artist/title,
+    so subclass hooks must not re-validate.
 
     Subclasses must implement:
     - service_name: Service identifier property
@@ -194,6 +201,54 @@ class BaseMatchingProvider(ABC):
             )
 
             return final_result
+
+    async def _match_each(
+        self,
+        tracks: list[Track],
+        method: str,
+        matcher: Callable[
+            [Track],
+            Awaitable[tuple[RawProviderMatch | None, MatchFailure | None]],
+        ],
+    ) -> tuple[dict[UUID, RawProviderMatch], list[MatchFailure]]:
+        """Run a per-track ``matcher`` over pre-partitioned tracks.
+
+        Owns the per-track loop shell shared by subclass hooks: the
+        ``track.id`` guard and the exception → ``handle_track_processing_failure``
+        classification. Tracks are already validated by ``_partition_tracks``
+        (the single validation point), so this does not re-check ISRC /
+        artist / title.
+
+        Args:
+            tracks: Pre-partitioned, pre-validated tracks to match.
+            method: Match-method label for failure records
+                ("isrc" / "artist_title").
+            matcher: Async per-track function returning (match, failure).
+
+        Returns:
+            Tuple of (matches dict, failures list).
+        """
+        matches: dict[UUID, RawProviderMatch] = {}
+        failures: list[MatchFailure] = []
+
+        for track in tracks:
+            if not track.id:
+                continue
+            try:
+                match, failure = await matcher(track)
+            except Exception as e:
+                failures.append(
+                    handle_track_processing_failure(
+                        track.id, self.service_name, method, e
+                    )
+                )
+            else:
+                if match is not None:
+                    matches[track.id] = match
+                if failure is not None:
+                    failures.append(failure)
+
+        return matches, failures
 
     def _partition_tracks(
         self, tracks: list[Track]

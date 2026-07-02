@@ -56,7 +56,7 @@ Populated during investigation. One row per spoke. ROI/Risk are the executor's d
 | [01](01-apple-music-dead-classifier.md) | ~~Delete dead AppleMusicErrorClassifier~~ | infrastructure | — | — | — | — | **Rejected** (user: deliberate groundwork for Apple integration) |
 | [02](02-play-importer-pipeline.md) | Play-importer pipeline: typed params, single username resolution | infrastructure | L | high | med | Fable | Not Started |
 | [03](03-play-resolver-decomposition.md) | Play-resolver decomposition & Last.fm chain flattening | infrastructure | M | med | med | Opus | Not Started |
-| [04](04-matching-provider-loop-hoist.md) | Matching providers: hoist per-track loop | infrastructure | S | med | low | Opus | Not Started |
+| [04](04-matching-provider-loop-hoist.md) | Matching providers: hoist per-track loop | infrastructure | S | med | low | Opus | **Done (v0.8.14)** |
 | [05](05-lastfm-conversions-boundary.md) | Last.fm conversions: validate at the boundary | infrastructure | S | med | low | Opus | Not Started |
 | [06](06-base-connector-reflection.md) | BaseAPIConnector: replace get_playlist reflection | infrastructure | M | med | med | Opus | Not Started |
 | [07](07-use-case-skeleton-collapse.md) | Collapse the five copy-pasted use-case skeletons | application | L | high | med | Fable | Not Started |
@@ -119,6 +119,7 @@ _Unrelated debt discovered mid-sweep, parked for separate tracking (not fixed in
 - **`.claude/rules/application-patterns.md` sanctions envelope repetition** — spoke 07 proposes amending one line; needs user sign-off on the wording.
 - **Frontend minor items** (from sweep, below work-order threshold): mutation `invalidate → toast → close` helper (~6 dialogs); `ScheduleFailureBanner` vs `ScheduleFailuresBanner` rename; `NodeConfigPanel` `FieldInput` extraction; `EditorToolbar` `useWorkflowSave` extraction; `Tags.tsx` bespoke `tagMutationCallbacks` (justified by 422-in-onSuccess envelope).
 - **Repo-wide raw-Tailwind-palette sweep** beyond spoke 20's three files — bigger scope decision.
+- **`MatchFailureReason.NO_ISRC` has no producers** after spoke 04 removed the only emitters (the unreachable re-validation branches). Removing the enum member is a domain change (persisted/reported failure vocabulary) — decide separately, e.g. at the v0.8.17 vulture prune.
 
 ## Healthy — audited and dispositioned leave-alone
 

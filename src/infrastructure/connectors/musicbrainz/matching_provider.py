@@ -54,7 +54,7 @@ class MusicBrainzProvider(BaseMatchingProvider):
         """Match tracks using MusicBrainz batch ISRC lookup API.
 
         Args:
-            tracks: Tracks with ISRC to match.
+            tracks: Tracks with ISRC to match (pre-validated by the base partition).
 
         Returns:
             Tuple of (matches dict, failures list).
@@ -62,26 +62,7 @@ class MusicBrainzProvider(BaseMatchingProvider):
         matches: dict[UUID, RawProviderMatch] = {}
         failures: list[MatchFailure] = []
 
-        # Validate tracks and collect valid ISRCs
-        valid_tracks: list[Track] = []
-        for track in tracks:
-            if not track.id:
-                continue
-
-            if not track.isrc:
-                failures.append(
-                    create_and_log_failure(
-                        track.id,
-                        MatchFailureReason.NO_ISRC,
-                        self.service_name,
-                        "isrc",
-                        "Track missing ISRC code",
-                    )
-                )
-                continue
-
-            valid_tracks.append(track)
-
+        valid_tracks = [track for track in tracks if track.id]
         if valid_tracks:
             try:
                 await self._lookup_isrc_batch(valid_tracks, matches, failures)
@@ -157,80 +138,41 @@ class MusicBrainzProvider(BaseMatchingProvider):
         """Match tracks using MusicBrainz artist/title search API.
 
         Args:
-            tracks: Tracks with artist and title to match.
+            tracks: Tracks with artist and title to match (pre-validated by the
+                base partition).
 
         Returns:
             Tuple of (matches dict, failures list).
         """
-        matches: dict[UUID, RawProviderMatch] = {}
-        failures: list[MatchFailure] = []
+        return await self._match_each(
+            tracks, "artist_title", self._match_track_by_artist_title_one
+        )
 
-        for track in tracks:
-            if not track.id:
-                continue
-
-            # Validate track has artist and title
-            if not track.artists or not track.title:
-                failures.append(
-                    create_and_log_failure(
-                        track.id,
-                        MatchFailureReason.NO_METADATA,
-                        self.service_name,
-                        "artist_title",
-                        "Track missing artist or title data",
-                    )
-                )
-                continue
-
-            # Call MusicBrainz API
-            try:
-                await self._search_artist_title(track, matches, failures)
-            except Exception as e:
-                failures.append(
-                    handle_track_processing_failure(
-                        track.id, self.service_name, "artist_title", e
-                    )
-                )
-
-        return matches, failures
-
-    async def _search_artist_title(
-        self,
-        track: Track,
-        matches: dict[UUID, RawProviderMatch],
-        failures: list[MatchFailure],
-    ) -> None:
-        """Search MusicBrainz by artist/title and record match or failure."""
-        track_id = track.id
-        if not track_id:
-            return
+    async def _match_track_by_artist_title_one(
+        self, track: Track
+    ) -> tuple[RawProviderMatch | None, MatchFailure | None]:
+        """Search MusicBrainz by artist/title for one track; return (match, failure)."""
         artist = track.artists[0].name if track.artists else ""
         recording = await self.connector_instance.search_recording(artist, track.title)
 
         if recording:
             raw_match = self._create_artist_title_raw_match(recording)
             if raw_match:
-                matches[track_id] = raw_match
-            else:
-                failures.append(
-                    create_and_log_failure(
-                        track_id,
-                        MatchFailureReason.INVALID_RESPONSE,
-                        self.service_name,
-                        "artist_title",
-                        "Failed to create raw match from MusicBrainz response",
-                    )
-                )
-        else:
-            failures.append(
-                create_and_log_failure(
-                    track_id,
-                    MatchFailureReason.NO_RESULTS,
-                    self.service_name,
-                    "artist_title",
-                    f"No MusicBrainz results for '{artist} - {track.title}'",
-                )
+                return raw_match, None
+            return None, create_and_log_failure(
+                track.id,
+                MatchFailureReason.INVALID_RESPONSE,
+                self.service_name,
+                "artist_title",
+                "Failed to create raw match from MusicBrainz response",
             )
+        return None, create_and_log_failure(
+            track.id,
+            MatchFailureReason.NO_RESULTS,
+            self.service_name,
+            "artist_title",
+            f"No MusicBrainz results for '{artist} - {track.title}'",
+        )
 
     def _create_isrc_raw_match(self, mbid: str) -> RawProviderMatch | None:
         """Create raw match data for ISRC-based matches.

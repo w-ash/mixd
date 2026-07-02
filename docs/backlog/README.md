@@ -100,7 +100,7 @@ Each milestone delivers a **vertical slice** — backend API + frontend page tog
 | **v0.8.11** | Manual playlist track editing (design-debt review) | 🚀 Shipped | [details](v0.8.11.md#v0811-manual-playlist-track-editing) |
 | **v0.8.12** | The Fable Sweep — audit & work orders (execution → v0.8.13–v0.8.17; docs-only, no deploy artifact) | 🚀 Shipped | [details](v0.8.12.md#v0812-the-fable-sweep--structural-hardening) |
 | **v0.8.13** | Sweep Wave 1 — dead code & free wins (+ basedpyright ratchet flip) | 🚀 Shipped | [details](v0.8.13-0.8.17.md#v0813-sweep-wave-1--dead-code--free-wins) |
-| **v0.8.14** | Sweep Wave 2 — backend structure (use-case collapse, persistence, play pipeline) | 🔜 Not Started | [details](v0.8.13-0.8.17.md#v0814-sweep-wave-2--backend-structure) |
+| **v0.8.14** | Sweep Wave 2 — backend structure (use-case collapse, persistence, play pipeline) | 🔨 In Progress | [details](v0.8.13-0.8.17.md#v0814-sweep-wave-2--backend-structure) |
 | **v0.8.15** | Sweep Wave 3 — frontend structure (QueryStates, search de-fork, page splits) | 🔜 Not Started | [details](v0.8.13-0.8.17.md#v0815-sweep-wave-3--frontend-structure) |
 | **v0.8.16** | Sweep Wave 4 — high-risk decompositions (executor flatten, connector contract) | 🔜 Not Started | [details](v0.8.13-0.8.17.md#v0816-sweep-wave-4--high-risk-decompositions) |
 | **v0.8.17** | Sweep closeout — ratchet & Fable review | 🔜 Not Started | [details](v0.8.13-0.8.17.md#v0817-sweep-closeout--ratchet--review) |
