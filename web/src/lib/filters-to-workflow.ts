@@ -64,17 +64,6 @@ export interface SerializerMeta {
 const DEFAULT_LIMIT = 100;
 const DEFAULT_CONNECTOR = "spotify";
 
-/** Does the filter state carry any meaningful signal? Used to gate the Save button. */
-export function hasActiveFilters(state: LibraryFilterState): boolean {
-  return Boolean(
-    state.preference ||
-      (state.tags && state.tags.length > 0) ||
-      state.liked === true ||
-      state.liked === false ||
-      state.connector,
-  );
-}
-
 /**
  * Convert filter state + metadata into a WorkflowDef the API will accept.
  *

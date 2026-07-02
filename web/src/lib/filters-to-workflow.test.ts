@@ -3,7 +3,6 @@ import type { WorkflowDefSchemaInput } from "#/api/generated/model/workflowDefSc
 import type { WorkflowTaskDefSchemaInput } from "#/api/generated/model/workflowTaskDefSchemaInput";
 import {
   filtersToWorkflowDef,
-  hasActiveFilters,
   summarizeFilters,
   toWorkflowId,
 } from "./filters-to-workflow";
@@ -22,24 +21,6 @@ function findTask(
   if (!task) throw new Error(`no task of type ${type} in workflow`);
   return task;
 }
-
-describe("hasActiveFilters", () => {
-  it("is false for an empty state", () => {
-    expect(hasActiveFilters({})).toBe(false);
-  });
-
-  it("is true when any filter is set", () => {
-    expect(hasActiveFilters({ preference: "star" })).toBe(true);
-    expect(hasActiveFilters({ tags: ["mood:chill"] })).toBe(true);
-    expect(hasActiveFilters({ liked: true })).toBe(true);
-    expect(hasActiveFilters({ liked: false })).toBe(true);
-    expect(hasActiveFilters({ connector: "spotify" })).toBe(true);
-  });
-
-  it("is false when tags is an empty array", () => {
-    expect(hasActiveFilters({ tags: [] })).toBe(false);
-  });
-});
 
 describe("toWorkflowId", () => {
   it("produces a stable slug from a display name", () => {
