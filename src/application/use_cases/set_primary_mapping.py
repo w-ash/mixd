@@ -8,6 +8,7 @@ from uuid import UUID
 
 from attrs import define
 
+from src.application.use_cases._shared.mapping_guard import require_owned_mapping
 from src.domain.exceptions import NotFoundError
 from src.domain.repositories.uow import UnitOfWorkProtocol
 
@@ -37,14 +38,12 @@ class SetPrimaryMappingUseCase:
         async with uow:
             connector_repo = uow.get_connector_repository()
 
-            mapping = await connector_repo.get_mapping_by_id(
-                command.mapping_id, user_id=command.user_id
+            mapping = await require_owned_mapping(
+                connector_repo,
+                command.mapping_id,
+                command.track_id,
+                user_id=command.user_id,
             )
-            if mapping is None:
-                raise NotFoundError(f"Mapping {command.mapping_id} not found")
-
-            if mapping.track_id != command.track_id:
-                raise ValueError("Mapping does not belong to the specified track")
 
             ct = await connector_repo.get_connector_track_by_id(
                 mapping.connector_track_id

@@ -18,6 +18,7 @@ Use typed resolvers from `_shared/connector_resolver.py` — `resolve_playlist_c
 - Every `execute()` takes `(command, uow) -> Result`. Even parameterless queries use an empty Command for API uniformity — the signature stays stable when params are added later.
 - Command/Result objects: `@define(frozen=True)`.
 - Each use case owns its own Command/Result types, transaction boundaries, and error handling. Pattern repetition across use cases is intentional — keep them co-located even when similar.
+- Envelope helpers in `use_cases/_shared/` (`persist_entry_change`, `mutate_owned_link`, `apply_with_event_log`, `require_owned_mapping`, `timed_query`) are the sanctioned way to share the transaction/guard skeleton — the Command/Result surface stays per use case; only the envelope plumbing is shared.
 
 ## Workflows
 - Pipelines are declarative: Source → Enricher → Filter → Sorter → Selector → Destination (see `docs/guides/workflows.md`).

@@ -9,8 +9,8 @@ from uuid import UUID
 
 from attrs import define
 
+from src.application.use_cases._shared.mapping_guard import require_owned_mapping
 from src.config.constants import MappingOrigin
-from src.domain.exceptions import NotFoundError
 from src.domain.repositories.uow import UnitOfWorkProtocol
 
 
@@ -49,15 +49,13 @@ class RelinkConnectorTrackUseCase:
             connector_repo = uow.get_connector_repository()
             track_repo = uow.get_track_repository()
 
-            # 1. Fetch and validate mapping
-            mapping = await connector_repo.get_mapping_by_id(
-                command.mapping_id, user_id=command.user_id
+            # 1. Fetch and validate mapping (existence + URL tamper guard)
+            mapping = await require_owned_mapping(
+                connector_repo,
+                command.mapping_id,
+                command.current_track_id,
+                user_id=command.user_id,
             )
-            if mapping is None:
-                raise NotFoundError(f"Mapping {command.mapping_id} not found")
-
-            if mapping.track_id != command.current_track_id:
-                raise ValueError("Mapping does not belong to the specified track")
 
             if command.new_track_id == mapping.track_id:
                 raise ValueError("Cannot relink mapping to the same track")

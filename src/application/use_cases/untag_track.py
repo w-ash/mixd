@@ -9,6 +9,7 @@ from uuid import UUID
 
 from attrs import define
 
+from src.application.use_cases._shared.event_log import apply_with_event_log
 from src.config import get_logger
 from src.domain.entities.sourced_metadata import MetadataSource
 from src.domain.entities.tag import TagEvent, normalize_tag
@@ -51,13 +52,10 @@ class UntagTrackUseCase:
                 [(command.track_id, tag)], user_id=command.user_id
             )
 
-            if not removed:
-                return UntagTrackResult(
-                    track_id=command.track_id, tag=tag, changed=False
-                )
-
-            await tag_repo.add_events(
-                [
+            changed = await apply_with_event_log(
+                uow,
+                changed=bool(removed),
+                events=[
                     TagEvent(
                         user_id=command.user_id,
                         track_id=command.track_id,
@@ -67,10 +65,10 @@ class UntagTrackUseCase:
                         tagged_at=command.tagged_at,
                     )
                 ],
+                add_events=tag_repo.add_events,
                 user_id=command.user_id,
             )
-            await uow.commit()
-            return UntagTrackResult(track_id=command.track_id, tag=tag, changed=True)
+            return UntagTrackResult(track_id=command.track_id, tag=tag, changed=changed)
 
 
 async def run_untag_track(

@@ -2,14 +2,17 @@
 
 Resolves playlist IDs (internal UUID or external connector string) and
 playlist-link IDs into domain entities. Used by CRUD and sync use cases.
+Also hosts the ownership-gate + single-mutation envelope for link edits.
 """
 
+from collections.abc import Awaitable, Callable
 from uuid import UUID
 
 from src.config import get_logger
 from src.domain.entities.playlist import Playlist
 from src.domain.entities.playlist_link import PlaylistLink
 from src.domain.exceptions import NotFoundError
+from src.domain.repositories.playlist import PlaylistLinkRepositoryProtocol
 from src.domain.repositories.uow import UnitOfWorkProtocol
 
 logger = get_logger(__name__)
@@ -130,3 +133,39 @@ async def require_playlist_link(
     # Ownership check: require_playlist raises NotFoundError for wrong user
     await require_playlist(str(link.playlist_id), uow, user_id=user_id)
     return link
+
+
+async def mutate_owned_link[ResultT](
+    link_id: UUID,
+    uow: UnitOfWorkProtocol,
+    *,
+    user_id: str,
+    mutate: Callable[[PlaylistLinkRepositoryProtocol], Awaitable[ResultT | None]],
+) -> ResultT:
+    """Ownership-gate a playlist link, apply one mutation, and commit.
+
+    The shared envelope for single-mutation link edits (update direction,
+    delete): ``require_playlist_link`` gate → one repo call → commit. A falsy
+    mutation result means the row vanished between gate and mutation — raised
+    as ``NotFoundError``, and nothing commits.
+
+    Args:
+        link_id: The playlist link UUID (from the request URL).
+        uow: Unit of work; this helper owns the transaction envelope.
+        user_id: Authenticated user ID for ownership scoping.
+        mutate: Single repository call to apply, given the link repo.
+
+    Returns:
+        The mutation's (truthy) result.
+
+    Raises:
+        NotFoundError: If the link doesn't exist, belongs to another user,
+            or the mutation reports no affected row.
+    """
+    async with uow:
+        await require_playlist_link(link_id, uow, user_id=user_id)
+        result = await mutate(uow.get_playlist_link_repository())
+        if not result:
+            raise NotFoundError(f"Playlist link {link_id} not found")
+        await uow.commit()
+        return result

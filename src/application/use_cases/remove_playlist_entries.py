@@ -15,9 +15,9 @@ from uuid import UUID
 from attrs import define, field
 from attrs.validators import min_len
 
-from src.application.use_cases._shared.playlist_resolver import require_playlist
+from src.application.use_cases._shared.entry_edit import persist_entry_change
 from src.config import get_logger
-from src.domain.entities.playlist import Playlist
+from src.domain.entities.playlist import Playlist, PlaylistEntry
 from src.domain.exceptions import NotFoundError
 from src.domain.repositories.uow import UnitOfWorkProtocol
 
@@ -48,12 +48,9 @@ class RemovePlaylistEntriesUseCase:
     async def execute(
         self, command: RemovePlaylistEntriesCommand, uow: UnitOfWorkProtocol
     ) -> RemovePlaylistEntriesResult:
-        async with uow:
-            playlist = await require_playlist(
-                str(command.playlist_id), uow, user_id=command.user_id
-            )
+        target_ids = set(command.entry_ids)
 
-            target_ids = set(command.entry_ids)
+        def transform(playlist: Playlist) -> list[PlaylistEntry]:
             existing_ids = {entry.id for entry in playlist.entries}
             missing = target_ids - existing_ids
             if missing:
@@ -62,19 +59,17 @@ class RemovePlaylistEntriesUseCase:
                 raise NotFoundError(
                     "Playlist entries not found: " + ", ".join(str(m) for m in missing)
                 )
+            return [entry for entry in playlist.entries if entry.id not in target_ids]
 
-            remaining = [
-                entry for entry in playlist.entries if entry.id not in target_ids
-            ]
-            removed = len(playlist.entries) - len(remaining)
+        saved = await persist_entry_change(
+            command.playlist_id, uow, user_id=command.user_id, transform=transform
+        )
 
-            playlist_repo = uow.get_playlist_repository()
-            saved = await playlist_repo.save_playlist(playlist.with_entries(remaining))
-            await uow.commit()
-
-            logger.info(
-                "Removed playlist entries",
-                playlist_id=command.playlist_id,
-                removed=removed,
-            )
-            return RemovePlaylistEntriesResult(playlist=saved, removed=removed)
+        # The stale-id gate guarantees every target id matched exactly one entry.
+        removed = len(target_ids)
+        logger.info(
+            "Removed playlist entries",
+            playlist_id=command.playlist_id,
+            removed=removed,
+        )
+        return RemovePlaylistEntriesResult(playlist=saved, removed=removed)

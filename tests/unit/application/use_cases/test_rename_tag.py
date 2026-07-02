@@ -5,7 +5,7 @@ and wraps the affected count in a Result. Tests verify the wiring + that
 the UoW is committed.
 """
 
-from src.application.use_cases.rename_tag import (
+from src.application.use_cases.tag_vocabulary import (
     RenameTagCommand,
     RenameTagUseCase,
 )

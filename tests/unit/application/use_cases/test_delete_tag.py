@@ -3,7 +3,7 @@
 Thin pass-through over ``tag_repo.delete_tag``; verifies wiring + commit.
 """
 
-from src.application.use_cases.delete_tag import (
+from src.application.use_cases.tag_vocabulary import (
     DeleteTagCommand,
     DeleteTagUseCase,
 )

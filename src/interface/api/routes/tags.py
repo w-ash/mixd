@@ -11,16 +11,12 @@ Tag management on a single track lives under ``/tracks/{id}/tags`` in
 from fastapi import APIRouter, Depends, Query
 
 from src.application.runner import execute_use_case
-from src.application.use_cases.delete_tag import (
+from src.application.use_cases.list_tags import ListTagsCommand, ListTagsUseCase
+from src.application.use_cases.tag_vocabulary import (
     DeleteTagCommand,
     DeleteTagUseCase,
-)
-from src.application.use_cases.list_tags import ListTagsCommand, ListTagsUseCase
-from src.application.use_cases.merge_tags import (
     MergeTagsCommand,
     MergeTagsUseCase,
-)
-from src.application.use_cases.rename_tag import (
     RenameTagCommand,
     RenameTagUseCase,
 )

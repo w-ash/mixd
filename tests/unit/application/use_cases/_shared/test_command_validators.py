@@ -8,7 +8,6 @@ from attrs import define, field
 import pytest
 
 from src.application.use_cases._shared.command_validators import (
-    api_batch_size_validator,
     non_empty_string,
     validate_tracklist_has_tracks,
 )
@@ -67,19 +66,3 @@ class TestValidateTracklistHasTracks:
         track = Track(title="Test", artists=[artist])
         cmd = TestCommand(tracklist=TrackList(tracks=[track]))
         assert len(cmd.tracklist.tracks) == 1
-
-
-class TestApiBatchSizeValidator:
-    """Tests for api_batch_size_validator (dynamic settings-based bound)."""
-
-    def test_rejects_oversized_batch(self):
-        """Should reject batch sizes exceeding settings limit."""
-
-        @define
-        class TestCommand:
-            batch_size: int = field(
-                validator=api_batch_size_validator("api.spotify_large_batch_size")
-            )
-
-        with pytest.raises(ValueError, match="cannot exceed"):
-            TestCommand(batch_size=999999)

@@ -18,7 +18,7 @@ from uuid import UUID
 from attrs import define, field
 from attrs.validators import min_len
 
-from src.application.use_cases._shared.playlist_resolver import require_playlist
+from src.application.use_cases._shared.entry_edit import persist_entry_change
 from src.config import get_logger
 from src.domain.entities.playlist import Playlist, PlaylistEntry
 from src.domain.exceptions import NotFoundError
@@ -57,11 +57,7 @@ class AddPlaylistTracksUseCase:
     async def execute(
         self, command: AddPlaylistTracksCommand, uow: UnitOfWorkProtocol
     ) -> AddPlaylistTracksResult:
-        async with uow:
-            playlist = await require_playlist(
-                str(command.playlist_id), uow, user_id=command.user_id
-            )
-
+        async def transform(playlist: Playlist) -> list[PlaylistEntry]:
             # Batch-fetch the distinct ids, then build entries in request order so
             # duplicates in the request produce duplicate memberships.
             track_repo = uow.get_track_repository()
@@ -85,14 +81,18 @@ class AddPlaylistTracksUseCase:
             else:
                 idx = max(0, min(command.position, len(entries)))
                 entries[idx:idx] = new_entries
+            return entries
 
-            playlist_repo = uow.get_playlist_repository()
-            saved = await playlist_repo.save_playlist(playlist.with_entries(entries))
-            await uow.commit()
+        saved = await persist_entry_change(
+            command.playlist_id, uow, user_id=command.user_id, transform=transform
+        )
 
-            logger.info(
-                "Added tracks to playlist",
-                playlist_id=command.playlist_id,
-                added=len(new_entries),
-            )
-            return AddPlaylistTracksResult(playlist=saved, added=len(new_entries))
+        # Every requested id resolved (or transform raised), duplicates allowed:
+        # one appended entry per requested id.
+        added = len(command.track_ids)
+        logger.info(
+            "Added tracks to playlist",
+            playlist_id=command.playlist_id,
+            added=added,
+        )
+        return AddPlaylistTracksResult(playlist=saved, added=added)

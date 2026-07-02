@@ -4,7 +4,7 @@ Thin pass-through over ``tag_repo.merge_tags`` (which itself aliases
 ``rename_tag``); verifies wiring + commit.
 """
 
-from src.application.use_cases.merge_tags import (
+from src.application.use_cases.tag_vocabulary import (
     MergeTagsCommand,
     MergeTagsUseCase,
 )

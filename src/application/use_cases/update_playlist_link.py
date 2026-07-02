@@ -4,9 +4,8 @@ from uuid import UUID
 
 from attrs import define
 
-from src.application.use_cases._shared.playlist_resolver import require_playlist_link
+from src.application.use_cases._shared.playlist_resolver import mutate_owned_link
 from src.domain.entities.playlist_link import PlaylistLink, SyncDirection
-from src.domain.exceptions import NotFoundError
 from src.domain.repositories.uow import UnitOfWorkProtocol
 
 
@@ -33,14 +32,12 @@ class UpdatePlaylistLinkUseCase:
     async def execute(
         self, command: UpdatePlaylistLinkCommand, uow: UnitOfWorkProtocol
     ) -> UpdatePlaylistLinkResult:
-        async with uow:
-            await require_playlist_link(command.link_id, uow, user_id=command.user_id)
-
-            link_repo = uow.get_playlist_link_repository()
-            link = await link_repo.update_link_direction(
+        link = await mutate_owned_link(
+            command.link_id,
+            uow,
+            user_id=command.user_id,
+            mutate=lambda repo: repo.update_link_direction(
                 command.link_id, command.sync_direction
-            )
-            if link is None:
-                raise NotFoundError(f"Playlist link {command.link_id} not found")
-            await uow.commit()
-            return UpdatePlaylistLinkResult(link=link)
+            ),
+        )
+        return UpdatePlaylistLinkResult(link=link)

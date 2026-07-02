@@ -9,6 +9,7 @@ from uuid import UUID
 
 from attrs import define
 
+from src.application.use_cases._shared.event_log import apply_with_event_log
 from src.config import get_logger
 from src.domain.entities.preference import (
     PreferenceEvent,
@@ -69,8 +70,10 @@ class SetTrackPreferenceUseCase:
                 await pref_repo.remove_preferences(
                     [command.track_id], user_id=command.user_id
                 )
-                await pref_repo.add_events(
-                    [
+                _ = await apply_with_event_log(
+                    uow,
+                    changed=True,
+                    events=[
                         PreferenceEvent(
                             user_id=command.user_id,
                             track_id=command.track_id,
@@ -80,9 +83,9 @@ class SetTrackPreferenceUseCase:
                             preferred_at=command.preferred_at,
                         )
                     ],
+                    add_events=pref_repo.add_events,
                     user_id=command.user_id,
                 )
-                await uow.commit()
                 return SetTrackPreferenceResult(
                     track_id=command.track_id, state=None, changed=True
                 )
@@ -107,8 +110,10 @@ class SetTrackPreferenceUseCase:
                 ],
                 user_id=command.user_id,
             )
-            await pref_repo.add_events(
-                [
+            _ = await apply_with_event_log(
+                uow,
+                changed=True,
+                events=[
                     PreferenceEvent(
                         user_id=command.user_id,
                         track_id=command.track_id,
@@ -118,9 +123,9 @@ class SetTrackPreferenceUseCase:
                         preferred_at=command.preferred_at,
                     )
                 ],
+                add_events=pref_repo.add_events,
                 user_id=command.user_id,
             )
-            await uow.commit()
             return SetTrackPreferenceResult(
                 track_id=command.track_id, state=command.state, changed=True
             )

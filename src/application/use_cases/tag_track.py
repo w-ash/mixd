@@ -12,6 +12,7 @@ from uuid import UUID
 
 from attrs import define
 
+from src.application.use_cases._shared.event_log import apply_with_event_log
 from src.config import get_logger
 from src.domain.entities.sourced_metadata import MetadataSource
 from src.domain.entities.tag import TagEvent, TrackTag
@@ -61,13 +62,10 @@ class TagTrackUseCase:
             tag_repo = uow.get_tag_repository()
             inserted = await tag_repo.add_tags([tag], user_id=command.user_id)
 
-            if not inserted:
-                return TagTrackResult(
-                    track_id=command.track_id, tag=tag.tag, changed=False
-                )
-
-            await tag_repo.add_events(
-                [
+            changed = await apply_with_event_log(
+                uow,
+                changed=bool(inserted),
+                events=[
                     TagEvent(
                         user_id=command.user_id,
                         track_id=command.track_id,
@@ -77,10 +75,12 @@ class TagTrackUseCase:
                         tagged_at=command.tagged_at,
                     )
                 ],
+                add_events=tag_repo.add_events,
                 user_id=command.user_id,
             )
-            await uow.commit()
-            return TagTrackResult(track_id=command.track_id, tag=tag.tag, changed=True)
+            return TagTrackResult(
+                track_id=command.track_id, tag=tag.tag, changed=changed
+            )
 
 
 async def run_tag_track(

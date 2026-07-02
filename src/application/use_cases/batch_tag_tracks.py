@@ -16,6 +16,7 @@ from uuid import UUID
 
 from attrs import define
 
+from src.application.use_cases._shared.event_log import apply_with_event_log
 from src.config import get_logger
 from src.domain.entities.sourced_metadata import MetadataSource
 from src.domain.entities.tag import TagEvent, TrackTag
@@ -84,23 +85,23 @@ class BatchTagTracksUseCase:
             tag_repo = uow.get_tag_repository()
             inserted = await tag_repo.add_tags(tags, user_id=command.user_id)
 
-            if inserted:
-                await tag_repo.add_events(
-                    [
-                        TagEvent(
-                            user_id=command.user_id,
-                            track_id=t.track_id,
-                            tag=t.tag,
-                            action="add",
-                            source=command.source,
-                            tagged_at=command.tagged_at,
-                        )
-                        for t in inserted
-                    ],
-                    user_id=command.user_id,
-                )
-                await uow.commit()
-
+            _ = await apply_with_event_log(
+                uow,
+                changed=bool(inserted),
+                events=[
+                    TagEvent(
+                        user_id=command.user_id,
+                        track_id=t.track_id,
+                        tag=t.tag,
+                        action="add",
+                        source=command.source,
+                        tagged_at=command.tagged_at,
+                    )
+                    for t in inserted
+                ],
+                add_events=tag_repo.add_events,
+                user_id=command.user_id,
+            )
             return BatchTagTracksResult(
                 tag=normalized_tag,
                 requested=len(unique_track_ids),

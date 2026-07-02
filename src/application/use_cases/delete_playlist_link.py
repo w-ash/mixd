@@ -8,9 +8,8 @@ from uuid import UUID
 
 from attrs import define
 
-from src.application.use_cases._shared.playlist_resolver import require_playlist_link
+from src.application.use_cases._shared.playlist_resolver import mutate_owned_link
 from src.config import get_logger
-from src.domain.exceptions import NotFoundError
 from src.domain.repositories.uow import UnitOfWorkProtocol
 
 logger = get_logger(__name__)
@@ -38,16 +37,11 @@ class DeletePlaylistLinkUseCase:
     async def execute(
         self, command: DeletePlaylistLinkCommand, uow: UnitOfWorkProtocol
     ) -> DeletePlaylistLinkResult:
-        async with uow:
-            await require_playlist_link(command.link_id, uow, user_id=command.user_id)
-
-            link_repo = uow.get_playlist_link_repository()
-            deleted = await link_repo.delete_link(command.link_id)
-
-            if not deleted:
-                raise NotFoundError(f"Playlist link {command.link_id} not found")
-
-            await uow.commit()
-
-            logger.info("Playlist link deleted", link_id=command.link_id)
-            return DeletePlaylistLinkResult(deleted=True)
+        await mutate_owned_link(
+            command.link_id,
+            uow,
+            user_id=command.user_id,
+            mutate=lambda repo: repo.delete_link(command.link_id),
+        )
+        logger.info("Playlist link deleted", link_id=command.link_id)
+        return DeletePlaylistLinkResult(deleted=True)

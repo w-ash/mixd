@@ -16,9 +16,9 @@ from uuid import UUID
 
 from attrs import define, field
 
-from src.application.use_cases._shared.playlist_resolver import require_playlist
+from src.application.use_cases._shared.entry_edit import persist_entry_change
 from src.config import get_logger
-from src.domain.entities.playlist import Playlist
+from src.domain.entities.playlist import Playlist, PlaylistEntry
 from src.domain.exceptions import NotFoundError
 from src.domain.repositories.uow import UnitOfWorkProtocol
 
@@ -48,11 +48,7 @@ class ReorderPlaylistEntriesUseCase:
     async def execute(
         self, command: ReorderPlaylistEntriesCommand, uow: UnitOfWorkProtocol
     ) -> ReorderPlaylistEntriesResult:
-        async with uow:
-            playlist = await require_playlist(
-                str(command.playlist_id), uow, user_id=command.user_id
-            )
-
+        def transform(playlist: Playlist) -> list[PlaylistEntry]:
             entries_by_id = {entry.id: entry for entry in playlist.entries}
             # Exact-permutation gate: equal length AND equal id set rules out
             # duplicates, missing ids, and extras in one check.
@@ -62,16 +58,15 @@ class ReorderPlaylistEntriesUseCase:
                 raise NotFoundError(
                     "Reorder entry_ids do not match the playlist's current entries"
                 )
+            return [entries_by_id[entry_id] for entry_id in command.entry_ids]
 
-            reordered = [entries_by_id[entry_id] for entry_id in command.entry_ids]
+        saved = await persist_entry_change(
+            command.playlist_id, uow, user_id=command.user_id, transform=transform
+        )
 
-            playlist_repo = uow.get_playlist_repository()
-            saved = await playlist_repo.save_playlist(playlist.with_entries(reordered))
-            await uow.commit()
-
-            logger.info(
-                "Reordered playlist entries",
-                playlist_id=command.playlist_id,
-                count=len(reordered),
-            )
-            return ReorderPlaylistEntriesResult(playlist=saved)
+        logger.info(
+            "Reordered playlist entries",
+            playlist_id=command.playlist_id,
+            count=len(command.entry_ids),
+        )
+        return ReorderPlaylistEntriesResult(playlist=saved)
