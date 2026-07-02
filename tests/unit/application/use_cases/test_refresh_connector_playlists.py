@@ -53,14 +53,14 @@ class TestSnapshotShortCircuit:
 
         result = await RefreshConnectorPlaylistsUseCase().execute(_cmd(["sp1"]), uow)
 
-        connector.get_playlist.assert_awaited_once_with("sp1")
+        connector.get_playlist.assert_awaited_once_with("sp1", on_page=None)
         assert list(result.succeeded) == ["sp1"]
         uow.commit.assert_awaited_once()
 
 
 class TestFailureIsolation:
     async def test_one_failure_others_succeed(self) -> None:
-        async def fake_get_playlist(pid: str):
+        async def fake_get_playlist(pid: str, **_kwargs):
             if pid == "bad":
                 raise RuntimeError("404")
             return _cp(pid)
@@ -129,7 +129,7 @@ class TestForce:
             _cmd(["sp1"], force=True), uow
         )
 
-        connector.get_playlist.assert_awaited_once_with("sp1")
+        connector.get_playlist.assert_awaited_once_with("sp1", on_page=None)
         assert list(result.succeeded) == ["sp1"]
         assert list(result.skipped_unchanged) == []
         uow.commit.assert_awaited_once()

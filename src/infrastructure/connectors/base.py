@@ -21,12 +21,12 @@ Example:
 
 from abc import ABC, abstractmethod
 from collections.abc import Awaitable, Callable, Mapping
-from typing import ClassVar, Self, cast
+from typing import ClassVar, Self
 
 from attrs import define, field
 from tenacity import AsyncRetrying
 
-from src.config import get_logger, settings
+from src.config import get_logger
 from src.config.logging import logging_context
 from src.domain.entities.playlist import ConnectorPlaylist
 from src.domain.entities.shared import JsonValue, MetricValue
@@ -166,49 +166,17 @@ class BaseAPIConnector(ABC):
         """Get error classifier for this connector. Override for service-specific classification."""
         return _DefaultClassifier()
 
-    def get_connector_config(self, key: str, default: object = None) -> object:
-        """Load configuration value from nested ConnectorAPIConfig.
-
-        Args:
-            key: Configuration key without service prefix (e.g. "BATCH_SIZE")
-            default: Fallback value if setting not found
-
-        Returns:
-            Configuration value from settings.api.<connector>.<field>
-
-        Example:
-            If connector_name="spotify" and key="BATCH_SIZE":
-            Returns settings.api.spotify.batch_size
-        """
-        key_mapping = {
-            "BATCH_SIZE": "batch_size",
-            "CONCURRENCY": "concurrency",
-            "RETRY_COUNT": "retry_count",
-            "RETRY_BASE_DELAY": "retry_base_delay",
-            "RETRY_MAX_DELAY": "retry_max_delay",
-            "REQUEST_DELAY": "request_delay",
-        }
-
-        modern_key = key_mapping.get(key, key.lower())
-        connector_config = cast(
-            "object", getattr(settings.api, self.connector_name.lower(), None)
-        )
-        if connector_config is None:
-            return default
-        return cast("object", getattr(connector_config, modern_key, default))
-
     async def get_playlist(
         self,
         playlist_id: str,
         *,
         on_page: Callable[[int, int], Awaitable[None]] | None = None,
     ) -> ConnectorPlaylist:
-        """Fetch playlist from service by delegating to service-specific method.
+        """Fetch playlist from service.
 
-        Automatically calls the appropriate method based on connector_name:
-        - spotify connector -> calls get_spotify_playlist()
-        - lastfm connector -> calls get_lastfm_playlist()
-        - etc.
+        Playlist-capable connectors (e.g. Spotify) override this method to
+        implement the fetch. Connectors without playlist support inherit this
+        default, which raises ``NotImplementedError``.
 
         Args:
             playlist_id: Service-specific playlist identifier
@@ -223,27 +191,6 @@ class BaseAPIConnector(ABC):
         Raises:
             NotImplementedError: If service doesn't support playlists
         """
-        # Try connector-specific method first (more efficient)
-        method_name = f"get_{self.connector_name}_playlist"
-        if hasattr(self, method_name):
-            method = cast(
-                "Callable[..., Awaitable[ConnectorPlaylist]]",
-                getattr(self, method_name),
-            )
-            # Only forward ``on_page`` when the caller opted in; otherwise
-            # call positionally so mock-based tests that assert the plain
-            # signature (and service-specific methods without on_page
-            # support) keep working.
-            if on_page is None:
-                return await method(playlist_id)
-            try:
-                return await method(playlist_id, on_page=on_page)
-            except TypeError as e:
-                if "on_page" not in str(e):
-                    raise
-                return await method(playlist_id)
-
-        # Fallback: connector doesn't support playlists
         raise NotImplementedError(
             f"Playlist operations not supported by {self.connector_name} connector"
         )

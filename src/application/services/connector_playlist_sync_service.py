@@ -234,12 +234,9 @@ async def _fetch_and_upsert_batch(
         async with semaphore:
             try:
                 on_page = on_page_factory(cid) if on_page_factory else None
-                # Preserve call signature for mock assertions: only pass
-                # ``on_page`` when the caller opted into progress emission.
-                if on_page is None:
-                    cp = await connector.get_playlist(cid)
-                else:
-                    cp = await connector.get_playlist(cid, on_page=on_page)
+                # The PlaylistConnector protocol guarantees the on_page kwarg,
+                # so pass it unconditionally (None opts out of progress).
+                cp = await connector.get_playlist(cid, on_page=on_page)
             except Exception as exc:
                 logger.warning(
                     "Failed to fetch connector playlist",

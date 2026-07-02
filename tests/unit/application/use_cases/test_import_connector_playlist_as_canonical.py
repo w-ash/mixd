@@ -240,7 +240,7 @@ class TestForce:
         with patch(_UPSERT_PATCH, new=AsyncMock(return_value=_create_result("Chill"))):
             result = await _use_case().execute(_cmd(["sp1"], force=True), uow)
 
-        connector.get_playlist.assert_awaited_once_with("sp1")
+        connector.get_playlist.assert_awaited_once_with("sp1", on_page=None)
         assert len(result.succeeded) == 1
         assert list(result.skipped_unchanged) == []
 
@@ -267,7 +267,7 @@ class TestCreatePath:
         with patch(_UPSERT_PATCH, new=AsyncMock(return_value=_create_result("Chill"))):
             result = await _use_case().execute(_cmd(["sp1"]), uow)
 
-        connector.get_playlist.assert_awaited_once_with("sp1")
+        connector.get_playlist.assert_awaited_once_with("sp1", on_page=None)
         assert len(result.succeeded) == 1
         outcome = result.succeeded[0]
         assert outcome.connector_playlist_identifier == "sp1"
@@ -308,7 +308,7 @@ class TestPerItemLinkCreation:
         cp1 = _cp("sp1", name="A")
         cp2 = _cp("sp2", name="B")
 
-        async def fake_get_playlist(pid: str):
+        async def fake_get_playlist(pid: str, **_kwargs):
             return cp1 if pid == "sp1" else cp2
 
         uow, connector = make_mock_uow_with_connector()
@@ -330,7 +330,7 @@ class TestPerItemLinkCreation:
 
 class TestFailureIsolation:
     async def test_fetch_failure_one_of_two(self) -> None:
-        async def fake_get_playlist(pid: str):
+        async def fake_get_playlist(pid: str, **_kwargs):
             if pid == "bad":
                 raise RuntimeError("404 on bad")
             return _cp(pid)
@@ -374,7 +374,7 @@ class TestPerItemAtomicity:
         cp1 = _cp("sp1", name="A")
         cp2 = _cp("sp2", name="B")
 
-        async def fake_get_playlist(pid: str):
+        async def fake_get_playlist(pid: str, **_kwargs):
             return cp1 if pid == "sp1" else cp2
 
         uow, connector = make_mock_uow_with_connector()

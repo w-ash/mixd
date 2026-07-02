@@ -13,88 +13,66 @@ class TestConnectorConfigurationConsistency:
     """Test that all connectors use consistent configuration patterns."""
 
     def test_spotify_uses_nested_connector_config(self):
-        """Verify Spotify connector uses settings.api.spotify.* nested structure."""
-        connector = SpotifyConnector()
+        """Verify Spotify config lives under settings.api.spotify.* nested structure."""
+        config = settings.api.spotify
 
         # Test nested ConnectorAPIConfig fields exist
-        assert hasattr(settings.api.spotify, "batch_size")
-        assert hasattr(settings.api.spotify, "retry_count")
-        assert hasattr(settings.api.spotify, "request_timeout")
+        assert hasattr(config, "batch_size")
+        assert hasattr(config, "retry_count")
+        assert hasattr(config, "request_timeout")
 
-        # Test connector can access config without errors
-        batch_size = connector.get_connector_config("BATCH_SIZE", 50)
-        assert isinstance(batch_size, int)
-        assert batch_size > 0
+        # Nested config exposes sensible typed values
+        assert isinstance(config.batch_size, int)
+        assert config.batch_size > 0
 
-        concurrency = connector.get_connector_config("CONCURRENCY", 5)
-        assert isinstance(concurrency, int)
-        assert concurrency > 0
+        assert isinstance(config.concurrency, int)
+        assert config.concurrency > 0
 
-        retry_count = connector.get_connector_config("RETRY_COUNT", 3)
-        assert isinstance(retry_count, int)
-        assert retry_count >= 0
+        assert isinstance(config.retry_count, int)
+        assert config.retry_count >= 0
 
     def test_lastfm_uses_nested_connector_config(self):
-        """Verify LastFM connector uses settings.api.lastfm.* nested structure."""
-        connector = LastFMConnector()
+        """Verify LastFM config lives under settings.api.lastfm.* nested structure."""
+        config = settings.api.lastfm
 
         # Test nested ConnectorAPIConfig fields exist
-        assert hasattr(settings.api.lastfm, "batch_size")
-        assert hasattr(settings.api.lastfm, "concurrency")
-        assert hasattr(settings.api.lastfm, "retry_count")
-        assert hasattr(settings.api.lastfm, "rate_limit")
-        assert hasattr(settings.api.lastfm, "retry_base_delay")
-        assert hasattr(settings.api.lastfm, "retry_max_delay")
+        assert hasattr(config, "batch_size")
+        assert hasattr(config, "concurrency")
+        assert hasattr(config, "retry_count")
+        assert hasattr(config, "rate_limit")
+        assert hasattr(config, "retry_base_delay")
+        assert hasattr(config, "retry_max_delay")
 
-        # Test connector can access config without errors
-        batch_size = connector.get_connector_config("BATCH_SIZE", 30)
-        assert isinstance(batch_size, int)
-        assert batch_size > 0
+        # Nested config exposes sensible typed values
+        assert isinstance(config.batch_size, int)
+        assert config.batch_size > 0
 
-        # Test LastFM-specific rate limiting config
-        rate_limit = connector.get_connector_config("RATE_LIMIT", 4.5)
-        assert isinstance(rate_limit, (int, float))
-        assert rate_limit > 0
+        # LastFM-specific rate limiting config
+        assert isinstance(config.rate_limit, (int, float))
+        assert config.rate_limit > 0
 
-        retry_base_delay = connector.get_connector_config("RETRY_BASE_DELAY", 1.0)
-        assert isinstance(retry_base_delay, (int, float))
-        assert retry_base_delay > 0
+        assert isinstance(config.retry_base_delay, (int, float))
+        assert config.retry_base_delay > 0
 
     def test_all_connectors_support_common_config_keys(self):
-        """Verify all connectors support the same basic configuration keys."""
-        connectors = [
-            SpotifyConnector(),
-            LastFMConnector(),
+        """Verify all connectors expose the same basic configuration fields."""
+        configs = [
+            settings.api.spotify,
+            settings.api.lastfm,
         ]
 
-        common_keys = [
-            "BATCH_SIZE",
-            "CONCURRENCY",
-            "RETRY_COUNT",
+        common_fields = [
+            "batch_size",
+            "concurrency",
+            "retry_count",
         ]
 
-        for connector in connectors:
-            for key in common_keys:
-                # Should not raise exceptions
-                value = connector.get_connector_config(key, 10)
+        for config in configs:
+            for field in common_fields:
+                value = getattr(config, field)
                 assert value is not None
                 assert isinstance(value, (int, float))
                 assert value > 0
-
-    def test_connector_config_provides_sensible_defaults(self):
-        """Verify connectors provide sensible defaults when settings are missing."""
-        spotify = SpotifyConnector()
-        lastfm = LastFMConnector()
-
-        # Test with non-existent keys to verify default behavior
-        fake_key = "NON_EXISTENT_KEY"
-        default_value = 42
-
-        spotify_result = spotify.get_connector_config(fake_key, default_value)
-        assert spotify_result == default_value
-
-        lastfm_result = lastfm.get_connector_config(fake_key, default_value)
-        assert lastfm_result == default_value
 
     def test_no_legacy_get_config_calls_in_connectors(self):
         """Verify connectors don't contain any legacy get_config() calls."""
