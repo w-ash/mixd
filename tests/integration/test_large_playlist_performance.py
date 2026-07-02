@@ -1,6 +1,6 @@
 """Performance tests for large playlists (5k-10k tracks).
 
-Validates that the LIS-based diff engine and execution strategies maintain
+Validates that the LIS-based diff engine and API operation sequencing maintain
 efficiency and correctness at scale, meeting Spotify's maximum playlist limits.
 """
 
@@ -11,10 +11,7 @@ import pytest
 from src.domain.entities.playlist import Playlist
 from src.domain.entities.track import Artist, Track, TrackList
 from src.domain.playlist.diff_engine import calculate_playlist_diff
-from src.domain.playlist.execution_strategies import (
-    APIExecutionStrategy,
-    CanonicalExecutionStrategy,
-)
+from src.domain.playlist.execution_strategies import plan_api_operations
 
 
 @pytest.mark.slow
@@ -147,7 +144,7 @@ class TestLargePlaylistPerformance:
     async def test_api_strategy_large_playlist(
         self, large_playlist_5k, db_session, test_data_tracker
     ):
-        """Test API execution strategy with large playlist."""
+        """Test API operation sequencing with large playlist."""
         # Create a reordering scenario
         target_tracks = large_playlist_5k.tracks[100:] + large_playlist_5k.tracks[:100]
         target_tracklist = TrackList(tracks=target_tracks)
@@ -155,37 +152,13 @@ class TestLargePlaylistPerformance:
         diff = calculate_playlist_diff(large_playlist_5k, target_tracklist)
 
         start_time = time.time()
-        api_strategy = APIExecutionStrategy()
-        execution_plan = api_strategy.plan_operations(diff)
+        operations = plan_api_operations(diff)
         execution_time = time.time() - start_time
-
-        # Should include position shift simulation
-        assert execution_plan.execution_metadata["position_shift_simulation"] is True
 
         # Operations should be properly sequenced
-        assert len(execution_plan.operations) == len(diff.operations)
+        assert len(operations) == len(diff.operations)
 
-        print(f"API strategy planning for 5K playlist: {execution_time:.3f}s")
-
-    async def test_canonical_strategy_large_playlist(
-        self, large_playlist_5k, db_session, test_data_tracker
-    ):
-        """Test canonical execution strategy with large playlist."""
-        # Create a reordering scenario
-        target_tracks = large_playlist_5k.tracks[200:] + large_playlist_5k.tracks[:200]
-        target_tracklist = TrackList(tracks=target_tracks)
-
-        diff = calculate_playlist_diff(large_playlist_5k, target_tracklist)
-
-        start_time = time.time()
-        canonical_strategy = CanonicalExecutionStrategy()
-        execution_plan = canonical_strategy.plan_operations(diff)
-        execution_time = time.time() - start_time
-
-        # Should prefer atomic reordering
-        assert execution_plan.use_atomic_reorder is True
-
-        print(f"Canonical strategy planning for 5K playlist: {execution_time:.3f}s")
+        print(f"API operation planning for 5K playlist: {execution_time:.3f}s")
 
     async def test_duplicate_heavy_playlist_performance(
         self, db_session, test_data_tracker
@@ -236,13 +209,8 @@ class TestLargePlaylistPerformance:
 
         diff = calculate_playlist_diff(large_playlist_10k, target_tracklist)
 
-        # Test both strategies
-        api_strategy = APIExecutionStrategy()
-        canonical_strategy = CanonicalExecutionStrategy()
-
-        # Exercise both strategy types for memory testing
-        api_strategy.plan_operations(diff)
-        canonical_strategy.plan_operations(diff)
+        # Exercise the API operation planner for memory testing
+        plan_api_operations(diff)
 
         final_memory = process.memory_info().rss / 1024 / 1024  # MB
         memory_increase = final_memory - initial_memory
@@ -307,13 +275,8 @@ class TestLargePlaylistPerformance:
         start_time = time.time()
         diff = calculate_playlist_diff(large_playlist_10k, target_tracklist)
 
-        # Test both strategies
-        api_strategy = APIExecutionStrategy()
-        canonical_strategy = CanonicalExecutionStrategy()
-
-        # Exercise both strategy types for memory testing
-        api_strategy.plan_operations(diff)
-        canonical_strategy.plan_operations(diff)
+        # Exercise the API operation planner
+        plan_api_operations(diff)
 
         execution_time = time.time() - start_time
 

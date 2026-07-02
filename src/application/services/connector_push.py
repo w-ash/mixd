@@ -44,7 +44,7 @@ from src.domain.playlist.diff_engine import (
     PlaylistOpsOutcome,
     calculate_playlist_diff,
 )
-from src.domain.playlist.execution_strategies import get_execution_strategy
+from src.domain.playlist.execution_strategies import plan_api_operations
 from src.domain.repositories.uow import UnitOfWorkProtocol
 
 logger = get_logger(__name__)
@@ -151,7 +151,7 @@ async def overwrite_external_playlist(
     diff = calculate_playlist_diff(current, target)
     if not diff.has_changes:
         return PushResult()
-    operations = get_execution_strategy("api").plan_operations(diff).operations
+    operations = plan_api_operations(diff)
     outcome = await execute_connector_operations(
         connector_name, connector_playlist_identifier, operations, uow
     )
