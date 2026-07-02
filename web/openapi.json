@@ -3,7 +3,7 @@
   "info": {
     "title": "Mixd",
     "description": "Personal music metadata hub",
-    "version": "0.8.13"
+    "version": "0.8.14"
   },
   "paths": {
     "/api/v1/connectors/{service}/auth-url": {
@@ -1311,7 +1311,7 @@
           "tracks"
         ],
         "summary": "List Tracks",
-        "description": "List tracks with optional search, filters, sorting, and pagination.\n\nSupports both offset-based and cursor-based (keyset) pagination.\nWhen ``cursor`` is provided, it takes precedence over ``offset`` for\nO(1) page seeking regardless of depth.",
+        "description": "List tracks with optional search, filters, sorting, and pagination.\n\nSupports both offset-based and cursor-based (keyset) pagination.\nWhen ``cursor`` is provided, it takes precedence over ``offset`` for\nO(1) page seeking regardless of depth.\n\n``tag`` values are validated + normalized at the query boundary via\n``TagString`` (invalid \u2192 422); ``ListTracksCommand`` re-normalizes so\nnon-web callers (CLI) match stored tags too.",
         "operationId": "list_tracks_api_v1_tracks_get",
         "parameters": [
           {
