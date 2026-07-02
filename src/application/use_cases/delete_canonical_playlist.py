@@ -64,18 +64,6 @@ class DeleteCanonicalPlaylistResult:
     warnings: list[str] = field(factory=list)
     errors: list[str] = field(factory=list)
 
-    @property
-    def operation_summary(self) -> dict[str, object]:
-        """Returns a structured summary of the deletion operation for logging or APIs."""
-        return {
-            "deleted_playlist_id": self.deleted_playlist_id,
-            "deleted_playlist_name": self.deleted_playlist_name,
-            "tracks_count": self.tracks_count,
-            "execution_time_ms": self.execution_time_ms,
-            "warnings_count": len(self.warnings),
-            "success": not self.errors,
-        }
-
 
 @define(slots=True)
 class DeleteCanonicalPlaylistUseCase:

@@ -69,15 +69,6 @@ class GetLikedTracksResult:
     execution_time_ms: int = 0
     errors: list[str] = field(factory=list)
 
-    @property
-    def operation_summary(self) -> dict[str, object]:
-        """Summary stats for the retrieval operation."""
-        return {
-            "track_count": len(self.tracklist.tracks),
-            "execution_time_ms": self.execution_time_ms,
-            "success": not self.errors,
-        }
-
 
 @define(slots=True)
 class GetLikedTracksUseCase:

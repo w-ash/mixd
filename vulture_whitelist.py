@@ -22,6 +22,7 @@ task_count  # @computed_field on WorkflowSummarySchema
 node_types  # @computed_field on WorkflowSummarySchema
 last_synced_at  # Pydantic ConnectorMetadataSchema field
 issue_count  # Pydantic field on OperationRunSummarySchema (audit-log list)
+retryable  # Pydantic field on OperationRun schemas — read by the frontend retry UI
 theme_mode  # UserSettingsResponse / UserSettingsPatch Pydantic fields
 iat  # JWTClaims TypedDict
 iss  # JWTClaims TypedDict
@@ -43,12 +44,8 @@ main  # Typer entrypoint (registered via project.scripts, not @app.command)
 # --- attrs field declarations (used by framework, not direct reference) ---
 total_files  # attrs field on BatchImportResult
 last_modified  # attrs field
-operations_requested  # attrs field
-is_auth_error  # attrs field
 progress_operation  # attrs field
 include_track_metadata  # attrs field
-preserve_timestamps  # attrs field
-max_api_calls  # attrs field
 decision  # attrs field on WorkflowNodeSummary
 metric_value  # attrs field on WorkflowNodeSummary
 node_details  # NodeResult TypedDict key
@@ -86,6 +83,9 @@ enrich_track_with_lastfm_metadata  # LastFMOperations — called by connector
 find_tracks_by_mbids  # TrackRepositoryProtocol — tested, part of public API
 create_review  # MatchReviewRepositoryProtocol — called by match_and_identify use case
 
+# --- Parked decisions (v0.8.17 closeout, 2026-07-02) — see fable-sweep/README.md Deferred ---
+NO_ISRC  # MatchFailureReason member: no producers since spoke 04; removal is a domain-vocabulary decision
+added_at_dates  # Track metadata key: reader (sort_by_date) has no production writer; wire-or-delete decision pending
+
 # --- Test-only methods (public API exercised by tests, not yet consumed in prod) ---
-build_dict  # MetadataBuilder — tested
 get_playlist_with_all_tracks  # SpotifyOperations — tested, called via connector

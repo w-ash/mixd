@@ -33,7 +33,7 @@ E2E runs against a Vite dev server with no real backend. Use `page.route()` for 
 
 `visual.spec.ts` baselines each route × theme via `toHaveScreenshot`. Snapshots live under `web/e2e/__screenshots__/visual.spec.ts/`.
 
-- **Baselines are Linux-only**: generated in `mcr.microsoft.com/playwright:v1.59.1-noble`. Local macOS PNGs won't match. Regenerate via the Docker procedure in `web/e2e/README.md`.
+- **Baselines are Linux-only**: generated in the Playwright Docker image pinned in `.github/workflows/ci.yml` (currently `mcr.microsoft.com/playwright:v1.61.1-noble`; the tag MUST match `@playwright/test` in `web/pnpm-lock.yaml` or browsers fail to launch). Local macOS PNGs won't match. Regenerate via the Docker procedure in `web/e2e/README.md`; a browser bump drifts antialiasing ~1%, so baselines regenerate with every Playwright bump.
 - Settle deterministically before capture: `await Promise.all([page.evaluate(() => document.fonts.ready), page.waitForLoadState("networkidle")])`.
 - Diff config (in `playwright.config.ts`): `maxDiffPixelRatio: 0.005`, `animations: "disabled"`, `caret: "hide"`.
 - Mask dynamic content (relative timestamps, avatars) at the locator level when adding new pages.

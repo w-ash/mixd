@@ -2,7 +2,27 @@
 
 > Spoke of [The Fable Sweep](README.md) ([v0.8.12](../v0.8.12.md)). Self-contained work order — this is Story 3's execution spec, informed by the 2026-07-01 census. Runs LAST, after the approved spokes land.
 
-**Area:** config/tooling · **Suggested executor:** Opus · **Effort:** M · **ROI:** high · **Risk:** low · **Status:** Not Started (scheduled as [v0.8.17](../v0.8.13-0.8.17.md#v0817-sweep-closeout--ratchet--review); blocked on waves v0.8.13–v0.8.16. **Step 1 below was pulled forward to v0.8.13.**)
+**Area:** config/tooling · **Suggested executor:** Opus · **Effort:** M · **ROI:** high · **Risk:** low · **Status:** Executed (2026-07-02, branch `sweep-closeout-v0.8.17`; step 1 shipped v0.8.13; PLR0913/0917 decision still pending user call — see Closeout outcome below)
+
+## Closeout outcome (2026-07-02, branch `sweep-closeout-v0.8.17`)
+
+**Re-census at v0.8.16 — no rule reached 0; none flipped.** All seven stay off with dated rationale rewritten in `pyproject.toml`:
+
+| Rule | 07-01 census | Closeout | Verdict |
+|------|------|------|---------|
+| PLR1702 | 2 | 2 | Spoke 11 DID clear executor.py; the 2 remaining are `apply_playlist_assignments.py:156` + `apple_music/error_classifier.py:152` (user-protected tree) — off, documented |
+| PLR0911 | 7 | 5 | All 5 are guard/classification chains (webhook verify ×2, error classifiers ×3) where each return is a distinct outcome (log event / HTTP status / category); merging = worse code — off, documented |
+| PLR0914 | 18 | 12 | sync_likes, executor, algorithms (29 locals) — off, documented |
+| PLR0915 | 18 | 9 | sync_likes (108 statements), executor, play_dedup — off, documented |
+| PLR0912 | 21 | 13 | sync_likes, repos, diff_engine — off, documented |
+| PLR0917 | 20 | 20 | tracks 0913 — pending the user call |
+| PLR0913 | 57 | 61 | Typer/FastAPI entry-point idiom dominates — pending the user call (recommendation: option 2, keep off) |
+
+**noqa whodunit — solved.** The 14th `# noqa` (baseline 13, set 2026-06-11 in `1191128e`) landed in `d2d3a179` (v0.8.7, 2026-06-21): `ARG001` on the unused-but-contract-required `emitter` param of `_sync` (spoke 08 later moved it into `api/services/playlist_sync.py`, count-neutral). Fixed by renaming to `_emitter` (dummy-variable-rgx exemption) and deleting the noqa — count back to 13, baseline unchanged.
+
+**Vulture cleaned + whitelist ratcheted.** 12 findings dispositioned: 8 dead `operation_summary` properties deleted (7 use-case Results never had a consumer; diff_engine's lost its last consumer when spoke 12 deleted `execution_strategies.py`); `retryable` ×2 whitelisted (frontend reads the API field); `NO_ISRC` + `added_at_dates` whitelisted as dated parked decisions (hub Deferred). 5 stale whitelist entries pruned (`operations_requested`, `is_auth_error`, `preserve_timestamps`, `max_api_calls`, `build_dict`). `check_ratchet.sh` baselines ratcheted: whitelist 79→63, pyright-ignore 20→18, noqa stays 13, type-ignore stays 0.
+
+**Spec discrepancy:** the acceptance matrix names an "import-linter contract", but import-linter is not installed anywhere in the repo (v0.8.12's "already in place" claim was false). Deferred as a work order in the dependency-audit findings doc.
 
 ## Census (2026-07-01 baselines)
 

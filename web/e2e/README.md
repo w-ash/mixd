@@ -29,28 +29,46 @@ macOS, Windows, and Linux; mixing platforms produces noisy diffs that
 regenerate on every PR. The single source of truth is the Playwright Docker
 image used in CI.
 
+**Image ↔ package coupling**: the Docker tag must match `@playwright/test`
+in `web/pnpm-lock.yaml` exactly (currently `v1.61.1-noble`) — the browsers
+inside the image are revision-locked to the Playwright version, and a skew
+kills every test at `browserType.launch`. Baselines are additionally coupled
+to the browser build: bumping `@playwright/test` (and therefore the image)
+usually drifts antialiasing by ~1% and requires regenerating baselines in
+the new image. Bump package, CI image (`.github/workflows/ci.yml`), and
+baselines together, reviewing that diffs are drift-only.
+
 To regenerate baselines:
 
 1. Push your branch to a PR.
 2. Comment `/update-snapshots` on the PR (or run the workflow manually
    via the Actions tab — `web-e2e` workflow, `update-snapshots: true`).
-3. CI runs `playwright test --update-snapshots` inside
-   `mcr.microsoft.com/playwright:v1.59.1-noble` and commits the
-   regenerated PNGs to your branch.
+3. CI runs `playwright test --update-snapshots` inside the pinned image
+   and commits the regenerated PNGs to your branch.
 4. Pull the auto-commit and continue work.
 
 Until that workflow trigger ships, regenerate locally with the same
 Docker image:
 
 ```bash
-docker run --rm -it \
+docker run --rm -e CI=true \
   -v "$PWD":/work -w /work/web \
-  -p 5173:5173 \
-  mcr.microsoft.com/playwright:v1.59.1-noble \
-  bash -c "corepack enable && corepack prepare pnpm@11.0.8 --activate \
+  mcr.microsoft.com/playwright:v1.61.1-noble \
+  bash -c "corepack enable && corepack prepare pnpm@11.5.2 --activate \
            && pnpm install --frozen-lockfile \
-           && pnpm test:e2e -- --update-snapshots"
+           && pnpm exec playwright test --update-snapshots"
 ```
+
+Use `pnpm exec playwright test --update-snapshots`, NOT
+`pnpm test:e2e -- --update-snapshots` — pnpm 11.5 silently drops the
+flag after `--`, the run looks normal, and nothing regenerates.
+
+`CI=true` is load-bearing twice over: without a TTY pnpm silently aborts
+purging the macOS `node_modules` (and still exits 0 — nothing regenerates),
+and it makes Playwright run with the exact CI profile (workers=1, retries=2).
+
+Afterwards run `pnpm install` on the host again — the container install
+replaces `node_modules` platform binaries with Linux ones.
 
 PNGs that don't match CI font rendering will fail review.
 
