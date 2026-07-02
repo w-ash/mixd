@@ -103,7 +103,7 @@ Each milestone delivers a **vertical slice** — backend API + frontend page tog
 | **v0.8.14** | Sweep Wave 2 — backend structure (use-case collapse, persistence, play pipeline) | 🔨 In Progress | [details](v0.8.13-0.8.17.md#v0814-sweep-wave-2--backend-structure) |
 | **v0.8.15** | Sweep Wave 3 — frontend structure (QueryStates, search de-fork, page splits) | 🔜 Not Started | [details](v0.8.13-0.8.17.md#v0815-sweep-wave-3--frontend-structure) |
 | **v0.8.16** | Sweep Wave 4 — high-risk decompositions (executor flatten, connector contract) | 🔜 Not Started | [details](v0.8.13-0.8.17.md#v0816-sweep-wave-4--high-risk-decompositions) |
-| **v0.8.17** | Sweep closeout — ratchet & Fable review | 🔜 Not Started | [details](v0.8.13-0.8.17.md#v0817-sweep-closeout--ratchet--review) |
+| **v0.8.17** | Sweep closeout — ratchet, Fable review & dependency audit | 🔜 Not Started | [details](v0.8.13-0.8.17.md#v0817-sweep-closeout--ratchet--review) |
 | **v0.9.0** | Workflow assistant — right-panel chat (couplefins port) + shared tool registry | 🔜 Not Started | [details](v0.9.x.md#v090-workflow-assistant-right-panel-chat) |
 | **v0.9.1** | MCP server — mixd as a tool surface (stdio; consumes the v0.9.0 registry) | 🔜 Not Started | [details](v0.9.x.md#v091-mcp-server-mixd-as-a-tool-surface) |
 | **v0.9.3** | Follow-ups & hardening — placeholder, scoped after v0.9.0/v0.9.1 ship | 🔜 Not Started | [details](v0.9.x.md#v093-follow-ups--hardening-placeholder) |
