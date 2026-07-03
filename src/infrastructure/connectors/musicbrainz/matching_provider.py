@@ -95,8 +95,8 @@ class MusicBrainzProvider(BaseMatchingProvider):
             if not track_id:
                 continue
             if track.isrc and track.isrc in isrc_results:
-                mbid = isrc_results[track.isrc]
-                if not mbid:
+                recording = isrc_results[track.isrc]
+                if not recording:
                     failures.append(
                         create_and_log_failure(
                             track_id,
@@ -107,7 +107,7 @@ class MusicBrainzProvider(BaseMatchingProvider):
                         )
                     )
                     continue
-                raw_match = self._create_isrc_raw_match(mbid)
+                raw_match = self._create_isrc_raw_match(recording)
                 if raw_match:
                     matches[track_id] = raw_match
                 else:
@@ -174,27 +174,35 @@ class MusicBrainzProvider(BaseMatchingProvider):
             f"No MusicBrainz results for '{artist} - {track.title}'",
         )
 
-    def _create_isrc_raw_match(self, mbid: str) -> RawProviderMatch | None:
+    def _create_isrc_raw_match(
+        self, recording: MusicBrainzRecording
+    ) -> RawProviderMatch | None:
         """Create raw match data for ISRC-based matches.
 
+        The /isrc/{isrc} lookup already returns title/artist-credit/length —
+        carry them into service_data so confidence scoring compares real
+        metadata (and the duration-based ISRC suspect check can run).
+
         Args:
-            mbid: MusicBrainz recording ID
+            recording: Validated MusicBrainz recording from the ISRC lookup
 
         Returns:
             Raw provider match data or None if creation fails
         """
         try:
-            artists: list[str] = []
+            artists: list[str] = [
+                credit.name for credit in recording.artist_credit if credit.name
+            ]
             service_data: dict[str, JsonValue] = {
-                "mbid": mbid,
-                "title": "",
-                "artist": "",
+                "mbid": recording.id,
+                "title": recording.title,
+                "artist": artists[0] if artists else "",
                 "artists": artists,
-                "duration_ms": None,
+                "duration_ms": recording.length,
             }
 
             return RawProviderMatch(
-                connector_id=mbid,
+                connector_id=recording.id,
                 match_method="isrc",
                 service_data=service_data,
             )

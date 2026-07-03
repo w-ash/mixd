@@ -80,16 +80,23 @@ class MusicBrainzAPIClient(BaseAPIClient):
 
     # ── ISRC Lookup ──────────────────────────────────────────────────────
 
-    async def get_recording_by_isrc(self, isrc: str) -> str | None:
-        """Get recording MBID by ISRC with rate limiting."""
+    async def get_recording_by_isrc(self, isrc: str) -> MusicBrainzRecording | None:
+        """Get the full recording (MBID, title, credits, length) by ISRC."""
         return await self._api_call(
             "musicbrainz_get_recording_by_isrc",
             self._get_recording_by_isrc_impl,
             isrc,
         )
 
-    async def _get_recording_by_isrc_impl(self, isrc: str) -> str | None:
-        """Look up ISRC via the dedicated /isrc/{isrc} endpoint."""
+    async def _get_recording_by_isrc_impl(
+        self, isrc: str
+    ) -> MusicBrainzRecording | None:
+        """Look up ISRC via the dedicated /isrc/{isrc} endpoint.
+
+        The response already carries title/artist-credit/length — return the
+        validated recording so matching can score against real metadata
+        instead of an empty payload.
+        """
         if not isrc:
             return None
 
@@ -107,10 +114,9 @@ class MusicBrainzAPIClient(BaseAPIClient):
 
         first = recordings_val[0]
         if isinstance(first, dict):
-            mbid = first.get("id")
-            if isinstance(mbid, str):
-                logger.debug(f"Found MBID {mbid} for ISRC {isrc}")
-                return mbid
+            recording = MusicBrainzRecording.model_validate(first)
+            logger.debug(f"Found MBID {recording.id} for ISRC {isrc}")
+            return recording
 
         logger.debug(f"No recording found for ISRC {isrc}")
         return None

@@ -47,8 +47,8 @@ class MusicBrainzConnector(BaseAPIConnector):
 
     # Public API Methods
 
-    async def get_recording_by_isrc(self, isrc: str) -> str | None:
-        """Get recording MBID by ISRC with rate limiting."""
+    async def get_recording_by_isrc(self, isrc: str) -> MusicBrainzRecording | None:
+        """Get the full recording (MBID, title, credits, length) by ISRC."""
         normalized_isrc = normalize_isrc(isrc)
         if not normalized_isrc:
             return None
@@ -63,17 +63,17 @@ class MusicBrainzConnector(BaseAPIConnector):
 
     async def batch_isrc_lookup(
         self, isrcs: list[str], _progress_desc: str = "MusicBrainz ISRC lookup"
-    ) -> dict[str, str | None]:
-        """Sequential lookup of ISRCs to MBIDs with rate limiting."""
+    ) -> dict[str, MusicBrainzRecording | None]:
+        """Sequential lookup of ISRCs to full recordings with rate limiting."""
         if not isrcs:
             return {}
 
-        results: dict[str, str | None] = {}
+        results: dict[str, MusicBrainzRecording | None] = {}
 
         for i, isrc in enumerate(isrcs, 1):
             try:
-                mbid = await self.get_recording_by_isrc(isrc)
-                results[isrc] = mbid
+                recording = await self.get_recording_by_isrc(isrc)
+                results[isrc] = recording
 
                 if i % 10 == 0 or i == len(isrcs):
                     logger.info(f"Processed {i}/{len(isrcs)} ISRCs")
@@ -82,7 +82,7 @@ class MusicBrainzConnector(BaseAPIConnector):
                 logger.error(f"Failed to lookup ISRC {isrc}: {e}")
                 results[isrc] = None
 
-        success_count = sum(1 for mbid in results.values() if mbid is not None)
+        success_count = sum(1 for rec in results.values() if rec is not None)
         logger.info(
             f"Sequential ISRC lookup completed: {success_count}/{len(isrcs)} successful"
         )
