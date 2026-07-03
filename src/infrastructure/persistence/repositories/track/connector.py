@@ -31,6 +31,7 @@ from src.domain.entities import Artist, ConnectorTrack, Track, TrackMapping
 from src.domain.entities.match_review import MatchReview
 from src.domain.entities.shared import JsonDict, JsonValue
 from src.domain.exceptions import NotFoundError
+from src.domain.matching.isrc_validation import assess_isrc_match_reliability
 from src.domain.matching.types import RawProviderMatch
 from src.domain.repositories.connector import (
     ConnectorMappingSpec,
@@ -652,6 +653,22 @@ class TrackConnectorRepository:
             [ct.id for ct in connector_track_lookup.values()], user_id
         )
 
+        # 2.5. Pre-collect ISRC owners for groups that will create new tracks,
+        # so suspect collisions route to review instead of merging (FM2a).
+        new_isrcs = {
+            group[0].isrc
+            for identifier, group in tracks_by_identifier.items()
+            if group[0].isrc
+            and connector_track_lookup[identifier].id not in existing_mapping_by_ct_id
+        }
+        isrc_owners: dict[str, Track] = (
+            await self.track_repo.find_tracks_by_isrcs(
+                sorted(new_isrcs), user_id=user_id
+            )
+            if new_isrcs
+            else {}
+        )
+
         # 3. Create or find a domain track per unique identifier, collecting the
         # mapping rows that new tracks need.
         domain_tracks: list[Track] = []
@@ -663,6 +680,7 @@ class TrackConnectorRepository:
                 track_group,
                 connector_track_lookup,
                 existing_mapping_by_ct_id,
+                isrc_owners,
                 user_id=user_id,
             )
             # Add the domain track for each occurrence in the playlist
@@ -740,6 +758,7 @@ class TrackConnectorRepository:
         track_group: list[ConnectorTrack],
         connector_track_lookup: dict[str, ConnectorTrack],
         existing_mapping_by_ct_id: dict[UUID, TrackMapping],
+        isrc_owners: dict[str, Track],
         *,
         user_id: str,
     ) -> tuple[Track, dict[str, object] | None]:
@@ -762,7 +781,7 @@ class TrackConnectorRepository:
             return domain_track, None
 
         return await self._create_track_with_mapping_row(
-            connector, representative_track, connector_track_id, user_id
+            connector, representative_track, connector_track_id, isrc_owners, user_id
         )
 
     async def _touch_last_seen(self, mapping_ids: list[UUID]) -> None:
@@ -783,6 +802,7 @@ class TrackConnectorRepository:
         connector: str,
         representative_track: ConnectorTrack,
         connector_track_id: UUID,
+        isrc_owners: dict[str, Track],
         user_id: str,
     ) -> tuple[Track, dict[str, object]]:
         """Create a new canonical track from connector data; return it + its mapping row."""
@@ -791,13 +811,16 @@ class TrackConnectorRepository:
             if representative_track.artists
             else []
         )
+        isrc = await self._resolve_ingest_isrc(
+            connector, representative_track, isrc_owners, user_id=user_id
+        )
         track_obj = Track(
             title=representative_track.title,
             artists=artists,
             album=representative_track.album,
             duration_ms=representative_track.duration_ms,
             release_date=representative_track.release_date,
-            isrc=representative_track.isrc,
+            isrc=isrc,
             user_id=user_id,
         )
         track_obj = track_obj.with_connector_track_id(
@@ -818,6 +841,51 @@ class TrackConnectorRepository:
             "is_primary": False,  # Set via _batch_ensure_primary_mappings post-processing
         }
         return domain_track, mapping_row
+
+    async def _resolve_ingest_isrc(
+        self,
+        connector: str,
+        representative_track: ConnectorTrack,
+        isrc_owners: dict[str, Track],
+        *,
+        user_id: str,
+    ) -> str | None:
+        """Decide whether an ingested track may claim its ISRC.
+
+        A suspect collision (duration >10s off the owner's) queues an
+        ``isrc_suspect`` review against the owner and withholds the ISRC —
+        the new canonical is created without it, the owner untouched.
+        Review-accept later merges the two (v0.8.18 FM2a routing).
+        """
+        isrc = representative_track.isrc
+        if not isrc:
+            return None
+        owner = isrc_owners.get(isrc)
+        if owner is None:
+            return isrc
+
+        duration_diff_ms: int | None = None
+        if representative_track.duration_ms and owner.duration_ms:
+            duration_diff_ms = abs(representative_track.duration_ms - owner.duration_ms)
+        if not assess_isrc_match_reliability(duration_diff_ms).suspect:
+            return isrc
+
+        _ = await self.queue_isrc_collision_review(
+            owner,
+            connector,
+            representative_track.connector_track_identifier,
+            {
+                "title": representative_track.title,
+                "artist": representative_track.artists[0].name
+                if representative_track.artists
+                else "",
+                "artists": [a.name for a in representative_track.artists],
+                "duration_ms": representative_track.duration_ms,
+                "isrc": isrc,
+            },
+            user_id=user_id,
+        )
+        return None
 
     async def _create_mappings_and_set_primaries(
         self,

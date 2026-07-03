@@ -74,6 +74,14 @@ class ResolveMatchReviewUseCase:
                 review.track_id, user_id=command.user_id
             )
 
+            # The isrc_suspect flow defers the incoming track to its own
+            # canonical instead of merging (v0.8.18 epic 3). Accepting the
+            # review means "same recording" — fold that deferred canonical
+            # into the reviewed one, unless a manual mapping pins it apart.
+            await self._merge_deferred_canonical(
+                review, ct.connector_track_identifier, uow, user_id=command.user_id
+            )
+
             await connector_repo.map_track_to_connector(
                 track=track,
                 connector=review.connector_name,
@@ -108,4 +116,49 @@ class ResolveMatchReviewUseCase:
         return ResolveMatchReviewResult(
             review=updated_review,
             mapping_created=mapping_created,
+        )
+
+    @staticmethod
+    async def _merge_deferred_canonical(
+        review: MatchReview,
+        connector_track_identifier: str,
+        uow: UnitOfWorkProtocol,
+        *,
+        user_id: str,
+    ) -> None:
+        """Fold a deferred canonical into the reviewed one on accept.
+
+        When the connector track is already mapped to a different canonical
+        (created by the suspect-ISRC deferral), accepting asserts the two are
+        the same recording: merge it into the reviewed track. A canonical
+        holding any manual-override mapping is left alone — the pinned
+        mapping is simply re-pointed by the caller.
+        """
+        connector_repo = uow.get_connector_repository()
+        existing = await connector_repo.find_tracks_by_connectors(
+            [(review.connector_name, connector_track_identifier)], user_id=user_id
+        )
+        other = existing.get((review.connector_name, connector_track_identifier))
+        if other is None or other.id == review.track_id:
+            return
+
+        mappings = await connector_repo.get_full_mappings_for_track(
+            other.id, user_id=user_id
+        )
+        if any(m["origin"] == MappingOrigin.MANUAL_OVERRIDE for m in mappings):
+            logger.info(
+                "Deferred canonical has manual mappings — re-pointing only",
+                deferred_track_id=other.id,
+                winner_track_id=review.track_id,
+            )
+            return
+
+        _ = await uow.get_track_merge_service().merge_tracks(
+            review.track_id, other.id, uow
+        )
+        logger.info(
+            "Merged deferred canonical into reviewed track",
+            deferred_track_id=other.id,
+            winner_track_id=review.track_id,
+            connector=review.connector_name,
         )
