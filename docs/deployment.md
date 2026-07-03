@@ -91,7 +91,7 @@ The `deploy` shell function (defined in `~/.zshrc`) runs `git push origin main -
 **What happens:**
 1. CI has already passed on `main` (lint, type check, tests with coverage, frontend build)
 2. GitHub Actions `release.yml` runs:
-   - **Release job** — generates changelog via git-cliff, creates GitHub Release
+   - **Release job** — publishes the tag's `CHANGELOG.md` section as the GitHub Release notes (fails if the entry is missing)
    - **Deploy job** — runs `flyctl deploy --remote-only` with `BUILD_HASH=$GITHUB_SHA`
 3. Fly.io runs `alembic upgrade head` as the release command (before switching traffic)
 4. Health check at `/api/v1/health` gates the traffic cutover

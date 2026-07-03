@@ -21,14 +21,19 @@ jobs:
         with:
           fetch-depth: 0
 
-      - name: Generate release notes
-        uses: orhun/git-cliff-action@v4
-        with:
-          config: cliff.toml
-          args: --latest --strip header
+      - name: Extract release notes from CHANGELOG.md
+        run: |
+          VERSION="${TAG#v}"
+          awk -v ver="$VERSION" '
+            /^## \[/ { if (found) exit; if (index($0, "[" ver "]")) { found = 1; next } }
+            found { print }
+          ' CHANGELOG.md > CHANGES.md
+          if ! [ -s CHANGES.md ]; then
+            echo "::error::CHANGELOG.md has no entry for $VERSION — add one before tagging (see version-management rule)"
+            exit 1
+          fi
         env:
-          OUTPUT: CHANGES.md
-          GITHUB_REPO: ${{ github.repository }}
+          TAG: ${{ github.ref_name }}
 
       - name: Create GitHub Release
         run: gh release create "$TAG" --title "$TAG" --notes-file CHANGES.md

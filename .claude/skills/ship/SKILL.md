@@ -76,16 +76,32 @@ In `docs/backlog/README.md`:
 - Transition the feature row from `🔜 Not Started` / `🔨 In Progress` → `🚀 Shipped`.
 - Update the `**Current Version**:` header to the newly shipped version number.
 - Update the `**Next**:` header to the next `🔜 Not Started` feature from the matrix.
+- Add a one-line entry at the top of the "Shipped — current cycle" list: `**vX.Y.Z** (YYYY-MM-DD) — one-sentence user benefit.` Max 1–3 lines — the full entry lives in `CHANGELOG.md` (Step 3c), never a paragraph here.
 - **Do not** write `✅ Completed`. That transition is user-driven and happens later, separately, when the user confirms the feature is stable in prod.
 
 **Revision shape:**
 - No row-status change. The feature stays `🚀 Shipped`.
 - Update the `**Current Version**:` header to the new revision (e.g., `0.7.6.1`).
+- Add the same one-line "Shipped" entry for the revision.
 - The `**Next**:` header is unchanged.
 
 ## Step 3b: Archive completed version file
 
 File archival happens **only when the user explicitly closes out the last feature in a minor series** (see Step 10) — never inside `/ship`'s automatic flow. Skip this step.
+
+## Step 3c: Changelog entry
+
+Add a dated section at the top of `CHANGELOG.md` (repo root, newest first):
+
+```
+## [X.Y.Z(.R)] — YYYY-MM-DD
+```
+
+- **Lead sentence = user benefit** — what the user can do now, not what changed internally. Technical bullets after.
+- End with a link to the version file section: `→ [details](docs/backlog/vX.Y.x.md#anchor)`.
+- Revisions get short entries mirroring their Post-Deploy Revisions bullet.
+
+The release workflow publishes this exact section as the GitHub Release notes and **fails the release if the entry is missing** — this step is not optional.
 
 ## Step 4: Bump the version
 
@@ -123,6 +139,7 @@ Run backend and frontend checks in parallel where possible (use parallel Bash ca
 - `uv run pytest` — fast tests (default addopts exclude slow/diagnostic)
 - `uv run ruff check . --fix` — lint + autofix
 - `uv run ruff format .` — autoformat
+- `uv run python scripts/check_backlog.py` — backlog hygiene (links, archive index, matrix ↔ files, changelog entry for the new version)
 
 **Frontend (run in parallel with backend):**
 - `pnpm --prefix web test` — Vitest component tests
@@ -147,7 +164,7 @@ If ANY check fails:
 
 ### On success
 
-All seven checks pass with zero errors and zero warnings → proceed to Step 7.
+All eight checks pass with zero errors and zero warnings → proceed to Step 7.
 
 ## Step 7: Pre-commit hygiene
 
@@ -167,7 +184,7 @@ If the exclusions are already present, skip. If not, add them:
 ### 7b: Stage files
 
 List all files to be staged, grouped by category:
-- Backlog files (`docs/backlog/`)
+- Backlog files (`docs/backlog/`) + `CHANGELOG.md`
 - Version files (`pyproject.toml`, `uv.lock`)
 - API schema and generated files (`web/openapi.json`, `web/src/api/generated/*`)
 - Pre-commit config (if modified)
@@ -216,7 +233,7 @@ After the commit succeeds:
 1. Guards against missing tags (must run `/ship` first)
 2. Pushes the commit and tag to origin together
 3. The `v*` tag triggers `.github/workflows/release.yml`, which runs two jobs:
-   - **GitHub Release**: generates changelog via git-cliff, creates a GitHub Release
+   - **GitHub Release**: publishes the tag's `CHANGELOG.md` section as the release notes (fails if the entry from Step 3c is missing)
    - **Deploy to Fly.io**: `flyctl deploy --remote-only` with `BUILD_HASH=$GITHUB_SHA`
 4. Polls for the exact workflow run matching the pushed commit (up to 60s), then streams it via `gh run watch`
 5. Fly.io runs `alembic upgrade head` as the release command (before switching traffic)
@@ -229,7 +246,8 @@ After the commit succeeds:
 When the user says something like *"v0.7.6 is good, move on"* or *"close out v0.7.6"*:
 
 1. In `docs/backlog/README.md`, transition that feature row from `🚀 Shipped` → `✅ Completed`.
-2. If all feature rows within a minor series (e.g., all of `v0.7.0` through `v0.7.N`) are now `✅ Completed`, `git mv docs/backlog/v0.7.x.md docs/backlog/completed/` — only at the level of the whole minor series, never a single feature.
-3. No version bump, no commit required on its own — the closeout typically rides along with the next feature's first ship.
+2. If that closes the whole minor series, run the **cycle-close ritual** from the `backlog-format` rule: `git mv` **all** the series' files (a series may span several — e.g. `v0.7.0-1.md` + `v0.7.6.md` + …) to `docs/backlog/completed/`, update the `completed/README.md` index, re-point README matrix links, sweep `Complete`/`Superseded` one-off records into `completed/`, and trim the README "Shipped" narrative to current + previous cycle.
+3. Run `uv run python scripts/check_backlog.py` — it flags anything the ritual missed (stale index, broken links, all-✅ series left in root).
+4. No version bump, no commit required on its own — the closeout typically rides along with the next feature's first ship.
 
 Do not initiate closeout inside `/ship`; leave it as an explicit request the user makes when they're ready.

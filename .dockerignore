@@ -41,7 +41,6 @@ scripts/
 vulture_whitelist.py
 CHANGELOG.md
 DEPLOYMENT.md
-cliff.toml
 
 # Root dev orchestration (not used in container)
 package.json
