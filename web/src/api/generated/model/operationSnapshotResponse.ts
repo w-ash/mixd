@@ -3,7 +3,7 @@
  * Do not edit manually.
  * Mixd
  * Personal music metadata hub
- * OpenAPI spec version: 0.8.17.1
+ * OpenAPI spec version: 0.8.17.2
  */
 import type { OperationSnapshotResponseStatus } from './operationSnapshotResponseStatus.ts';
 import type { WorkflowRunNodeSchema } from './workflowRunNodeSchema.ts';
