@@ -381,6 +381,37 @@ class ConnectorRepositoryProtocol(Protocol):
         """
         ...
 
+    def queue_isrc_collision_review(
+        self,
+        existing_track: Track,
+        connector: str,
+        connector_id: str,
+        service_data: Mapping[str, JsonValue],
+        *,
+        user_id: str,
+    ) -> Awaitable[bool]:
+        """Queue a review for a suspect ISRC collision instead of merging.
+
+        Evaluates the incoming connector track against the ISRC-owning
+        canonical (the engine's duration-based suspect check runs with real
+        durations) and inserts a pending ``isrc_suspect`` match review.
+
+        Skips insertion when a review for this (track, connector, connector
+        track) pair exists in ANY status — playlist re-syncs must not
+        resurrect rejected reviews.
+
+        Args:
+            existing_track: The canonical that owns the contested ISRC.
+            connector: Service name (e.g., "spotify").
+            connector_id: External id of the incoming track.
+            service_data: Incoming track metadata (title/artist/duration_ms…).
+            user_id: Owner's user ID.
+
+        Returns:
+            True if a review was queued, False if one already existed.
+        """
+        ...
+
     def ensure_primary_for_connector(
         self, track_id: UUID, connector_name: str
     ) -> Awaitable[None]:

@@ -229,6 +229,8 @@ class MatchMethod:
     LASTFM_IMPORT: Final = "lastfm_import"
     CANONICAL_REUSE: Final = "canonical_reuse"
     ISRC_MATCH: Final = "isrc_match"
+    # ISRC collision with suspect duration delta — routed to review, not merged
+    ISRC_SUSPECT: Final = "isrc_suspect"
     # Secondary mappings for stale IDs (old ID → same canonical track)
     DIRECT_IMPORT_STALE_ID: Final = "direct_import_stale_id"
     SEARCH_FALLBACK_STALE_ID: Final = "search_fallback_stale_id"
@@ -251,6 +253,7 @@ class MatchMethod:
         "lastfm_import": "Primary Import",
         "canonical_reuse": "Identity Resolution",
         "isrc_match": "Identity Resolution",
+        "isrc_suspect": "Identity Resolution",
         "mbid_match": "Identity Resolution",
         "lastfm_discovery": "Cross-Service Discovery",
         "spotify_connector_play_resolver": "Cross-Service Discovery",
@@ -266,6 +269,7 @@ class MatchMethod:
         "lastfm_import": "Standard Last.fm import (with confidence)",
         "canonical_reuse": "Canonical reuse — existing track matched",
         "isrc_match": "ISRC dedup across services",
+        "isrc_suspect": "ISRC reuse suspected — queued for review",
         "mbid_match": "MusicBrainz ID bridging",
         "lastfm_discovery": "Spotify found via Last.fm enrichment",
         "spotify_connector_play_resolver": "Spotify play context resolution",
