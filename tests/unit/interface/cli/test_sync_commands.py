@@ -65,6 +65,24 @@ class TestScheduleValidationRules:
     def test_cadence_requires_at(self) -> None:
         result = runner.invoke(app, ["sync", "schedule", "lastfm:plays", "--daily"])
         assert result.exit_code == 2
+        if "--at" not in result.output:  # TEMP DIAGNOSTIC — remove after CI capture
+            import sys
+
+            print(
+                f"DIAGNOSTIC_FULL_OUTPUT_START{result.output!r}DIAGNOSTIC_FULL_OUTPUT_END",
+                file=sys.stderr,
+            )
+            if result.exception is not None:
+                import traceback
+
+                print("DIAGNOSTIC_EXCEPTION_START", file=sys.stderr)
+                traceback.print_exception(
+                    type(result.exception),
+                    result.exception,
+                    result.exception.__traceback__,
+                    file=sys.stderr,
+                )
+                print("DIAGNOSTIC_EXCEPTION_END", file=sys.stderr)
         assert "--at" in result.output
 
     def test_bad_time_format_rejected(self) -> None:
