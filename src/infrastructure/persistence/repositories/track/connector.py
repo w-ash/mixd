@@ -26,7 +26,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from structlog.stdlib import BoundLogger
 
 from src.config import get_logger
-from src.config.constants import BusinessLimits, DenormalizedTrackColumns, MappingOrigin
+from src.config.constants import DenormalizedTrackColumns, MappingOrigin
 from src.domain.entities import Artist, ConnectorTrack, Track, TrackMapping
 from src.domain.entities.shared import JsonDict, JsonValue
 from src.domain.exceptions import NotFoundError
@@ -139,6 +139,7 @@ class TrackMappingMapper(BaseModelMapper[DBTrackMapping, TrackMapping]):
             confidence_evidence=evidence,
             origin=db_model.origin,
             is_primary=db_model.is_primary,
+            last_seen_at=db_model.last_seen_at,
         )
 
     @override
@@ -162,6 +163,7 @@ class TrackMappingMapper(BaseModelMapper[DBTrackMapping, TrackMapping]):
             confidence_evidence=domain_model.confidence_evidence,
             origin=domain_model.origin,
             is_primary=domain_model.is_primary,
+            last_seen_at=domain_model.last_seen_at,
         )
 
     @override
@@ -660,6 +662,15 @@ class TrackConnectorRepository:
             if mapping_row is not None:
                 track_mappings_data.append(mapping_row)
 
+        # 3.5. Re-encounter is a freshness signal, not evidence: stamp
+        # last_seen_at on every mapping this batch re-encountered — including
+        # manual overrides (freshness is origin-independent) — instead of
+        # overwriting confidence (FM1a).
+        if existing_mapping_by_ct_id:
+            await self._touch_last_seen([
+                m.id for m in existing_mapping_by_ct_id.values()
+            ])
+
         # 4. Bulk create mappings + set primaries for the newly created tracks.
         await self._create_mappings_and_set_primaries(
             connector, domain_tracks, track_mappings_data
@@ -740,23 +751,24 @@ class TrackConnectorRepository:
                 f"Found existing track {mapping.track_id} for "
                 + f"{connector}:{identifier}"
             )
-            await self._bump_confidence_if_needed(mapping)
             return domain_track, None
 
         return await self._create_track_with_mapping_row(
             connector, representative_track, connector_track_id, user_id
         )
 
-    async def _bump_confidence_if_needed(self, mapping: TrackMapping) -> None:
-        """Raise a below-full mapping to full confidence, skipping manual overrides."""
-        if (
-            mapping.confidence < BusinessLimits.FULL_CONFIDENCE_SCORE
-            and mapping.origin != MappingOrigin.MANUAL_OVERRIDE
-        ):
-            _ = await self.mapping_repo.update(
-                mapping.id,
-                {"confidence": BusinessLimits.FULL_CONFIDENCE_SCORE},
-            )
+    async def _touch_last_seen(self, mapping_ids: list[UUID]) -> None:
+        """Bulk-stamp last_seen_at on re-encountered mappings.
+
+        Replaces the pre-v0.8.18 bump-to-100: re-encountering a connector
+        track proves it exists, not that the canonical match was right, so
+        confidence is never touched here.
+        """
+        _ = await self.session.execute(
+            update(DBTrackMapping)
+            .where(DBTrackMapping.id.in_(mapping_ids))
+            .values(last_seen_at=datetime.now(UTC))
+        )
 
     async def _create_track_with_mapping_row(
         self,

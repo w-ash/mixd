@@ -314,6 +314,10 @@ class DBTrackMapping(BaseEntity):
         String(20), nullable=False, default="automatic", server_default="automatic"
     )
     is_primary: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
+    # Freshness signal: when an import last re-encountered this mapping's
+    # connector track. Deliberately NOT evidence — re-encounter proves the
+    # connector track exists, not that the canonical match is right (FM1a).
+    last_seen_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
 
     # Relationships
     track: Mapped[DBTrack] = relationship(

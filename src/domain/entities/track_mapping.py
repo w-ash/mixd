@@ -4,6 +4,7 @@ Typed frozen entity for track mapping data flowing between the persistence
 layer and domain/application layers.
 """
 
+from datetime import datetime
 from uuid import UUID, uuid7
 
 from attrs import define, field
@@ -32,4 +33,6 @@ class TrackMapping:
     confidence_evidence: dict[str, object] | None = None
     origin: str = "automatic"
     is_primary: bool = False
+    # Freshness signal (not evidence): last import re-encounter of this mapping.
+    last_seen_at: datetime | None = None
     id: UUID = field(factory=uuid7)

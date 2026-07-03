@@ -28,16 +28,16 @@ def _connector_track(identifier: str) -> ConnectorTrack:
     )
 
 
-class TestReingestBumpsConfidenceTo100:
-    """Characterization (FM1a): pins CURRENT (buggy) behavior — re-ingesting a
-    playlist that contains an already-mapped connector track silently promotes
-    the mapping to confidence 100 while the stored evidence still records the
-    real engine score. Flipped by: Confidence integrity repair (re-encounter
-    records last_seen_at; confidence stays 70). Sibling assertion to co-flip:
-    test_mapping_origin.py::test_automatic_confidence_is_updated.
+class TestReingestRecordsFreshnessNotConfidence:
+    """FLIPPED characterization (FM1a, fixed by Confidence integrity repair):
+    the original pin recorded re-ingest silently promoting a 70-confidence
+    mapping to 100 while its evidence still said 70. Now a re-encounter
+    stamps last_seen_at (a freshness signal) and never touches confidence —
+    score and evidence stay in agreement. Sibling flip:
+    test_mapping_origin.py::TestIngestSkipsManualOverride.
     """
 
-    async def test_reingest_overwrites_confidence_but_not_evidence(
+    async def test_reingest_stamps_last_seen_and_preserves_confidence(
         self, db_session: AsyncSession
     ):
         uow = get_unit_of_work(db_session)
@@ -57,6 +57,7 @@ class TestReingestBumpsConfidenceTo100:
                 confidence=70,
                 match_method="search_fallback",
                 confidence_evidence={"base_score": 70, "final_score": 70},
+                last_seen_at=None,
             )
         )
         await db_session.flush()
@@ -69,15 +70,18 @@ class TestReingestBumpsConfidenceTo100:
         row = (
             await db_session.execute(
                 select(
-                    DBTrackMapping.confidence, DBTrackMapping.confidence_evidence
+                    DBTrackMapping.confidence,
+                    DBTrackMapping.confidence_evidence,
+                    DBTrackMapping.last_seen_at,
                 ).where(DBTrackMapping.track_id == track_id)
             )
         ).one()
-        # Mere re-encounter promoted the mapping to full confidence...
-        assert row.confidence == 100
-        # ...while the evidence still says 70: score and evidence now disagree.
+        # Confidence untouched — evidence and score agree.
+        assert row.confidence == 70
         assert row.confidence_evidence is not None
         assert row.confidence_evidence["final_score"] == 70
+        # The re-encounter was recorded as freshness.
+        assert row.last_seen_at is not None
 
 
 class TestFastPathSynthesizesConfidence:

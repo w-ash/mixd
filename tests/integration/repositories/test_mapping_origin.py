@@ -71,7 +71,11 @@ async def _create_track_with_mapping(
 
 
 class TestIngestSkipsManualOverride:
-    """ingest_external_tracks_bulk should not update confidence on manual_override mappings."""
+    """Re-ingest never touches confidence; every re-encounter stamps last_seen_at.
+
+    FLIPPED (v0.8.18 FM1a): the automatic-origin case previously asserted the
+    bump-to-100; re-encounter is now recorded as freshness only.
+    """
 
     async def test_manual_override_confidence_not_updated(
         self, db_session: AsyncSession
@@ -99,15 +103,19 @@ class TestIngestSkipsManualOverride:
         )
 
         result = await db_session.execute(
-            select(DBTrackMapping.confidence, DBTrackMapping.origin).where(
-                DBTrackMapping.id == mapping_id
-            )
+            select(
+                DBTrackMapping.confidence,
+                DBTrackMapping.origin,
+                DBTrackMapping.last_seen_at,
+            ).where(DBTrackMapping.id == mapping_id)
         )
         row = result.one()
         assert row.confidence == 50
         assert row.origin == MappingOrigin.MANUAL_OVERRIDE
+        # Freshness is origin-independent: manual overrides get stamped too.
+        assert row.last_seen_at is not None
 
-    async def test_automatic_confidence_is_updated(self, db_session: AsyncSession):
+    async def test_automatic_confidence_is_preserved(self, db_session: AsyncSession):
         track_id, mapping_id = await _create_track_with_mapping(
             db_session,
             connector_id="sp_auto_001",
@@ -131,9 +139,43 @@ class TestIngestSkipsManualOverride:
         )
 
         result = await db_session.execute(
-            select(DBTrackMapping.confidence).where(DBTrackMapping.id == mapping_id)
+            select(DBTrackMapping.confidence, DBTrackMapping.last_seen_at).where(
+                DBTrackMapping.id == mapping_id
+            )
         )
-        assert result.scalar_one() == 100
+        row = result.one()
+        # No bump: 50 stays 50 (FM1a fixed).
+        assert row.confidence == 50
+        assert row.last_seen_at is not None
+
+    async def test_full_confidence_mapping_is_stamped_too(
+        self, db_session: AsyncSession
+    ):
+        """The old bump skipped confidence-100 rows; freshness must not."""
+        track_id, mapping_id = await _create_track_with_mapping(
+            db_session,
+            connector_id="sp_full_001",
+            origin=MappingOrigin.AUTOMATIC,
+            confidence=100,
+        )
+
+        uow = get_unit_of_work(db_session)
+        ct = ConnectorTrack(
+            connector_name="spotify",
+            connector_track_identifier="sp_full_001",
+            title="Test Track",
+            artists=[Artist(name="Test Artist")],
+            raw_metadata={},
+            last_updated=datetime.now(UTC),
+        )
+        await uow.get_connector_repository().ingest_external_tracks_bulk(
+            "spotify", [ct], user_id="default"
+        )
+
+        result = await db_session.execute(
+            select(DBTrackMapping.last_seen_at).where(DBTrackMapping.id == mapping_id)
+        )
+        assert result.scalar_one() is not None
 
 
 class TestMapTracksSkipsManualOverride:
