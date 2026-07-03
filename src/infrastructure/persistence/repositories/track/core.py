@@ -30,6 +30,7 @@ from src.domain.entities.preference import PREFERENCE_ORDER
 from src.domain.entities.sourced_metadata import SOURCE_PRIORITY
 from src.domain.exceptions import OptimisticLockError
 from src.domain.matching import normalize_for_comparison, strip_parentheticals
+from src.domain.matching.isrc_validation import assess_isrc_match_reliability
 from src.domain.repositories.track import TrackFacets, TrackListingPage
 from src.infrastructure.persistence.database.db_models import (
     DBTrack,
@@ -389,7 +390,15 @@ class TrackRepository(BaseRepository[DBTrack, Track]):
         # Handle lookups by ISRC, MBID, or Spotify ID
         uid = track.user_id
         if track.isrc:
-            return await self.upsert({"user_id": uid, "isrc": track.isrc}, values)
+            if await self._isrc_collision_is_suspect(uid, track):
+                # ISRC reuse across versions (remaster, re-release): don't
+                # claim the contested ISRC and don't clobber the owner's
+                # metadata — fall through the remaining keys (v0.8.18 FM2a).
+                # Callers with connector context queue the review; the ISRC
+                # itself stays available on connector_tracks.isrc.
+                _ = values.pop("isrc", None)
+            else:
+                return await self.upsert({"user_id": uid, "isrc": track.isrc}, values)
         if "musicbrainz" in track.connector_track_identifiers:
             return await self.upsert(
                 {
@@ -411,6 +420,44 @@ class TrackRepository(BaseRepository[DBTrack, Track]):
         db_track = DBTrack(**values)
         self.session.add(db_track)
         await self.session.flush()
+        return await self._refresh_and_map(db_track)
+
+    async def _isrc_collision_is_suspect(self, user_id: str, track: Track) -> bool:
+        """Check whether merging into the ISRC owner would be a suspect merge.
+
+        Reuses the engine's duration-based suspect check
+        (``assess_isrc_match_reliability``) — no new heuristic. Not suspect
+        when no owner exists or either duration is unknown (the pre-v0.8.18
+        merge behavior is retained for those).
+        """
+        owner = (
+            await self.session.execute(
+                select(DBTrack.id, DBTrack.duration_ms).where(
+                    DBTrack.user_id == user_id,
+                    DBTrack.isrc == track.isrc,
+                )
+            )
+        ).first()
+        if owner is None:
+            return False
+
+        duration_diff_ms: int | None = None
+        if track.duration_ms and owner.duration_ms:
+            duration_diff_ms = abs(track.duration_ms - owner.duration_ms)
+        suspect = assess_isrc_match_reliability(duration_diff_ms).suspect
+        if suspect:
+            logger.warning(
+                "isrc_collision_deferred",
+                isrc=track.isrc,
+                owner_track_id=owner.id,
+                owner_duration_ms=owner.duration_ms,
+                incoming_duration_ms=track.duration_ms,
+                incoming_title=track.title,
+            )
+        return suspect
+
+    async def _refresh_and_map(self, db_track: DBTrack) -> Track:
+        """Refresh relationships on a freshly inserted row and map to domain."""
 
         # Refresh with explicit eager loading of relationships to avoid lazy loading
         default_rels = self.mapper.get_default_relationships()

@@ -121,7 +121,10 @@ class UnlinkConnectorTrackUseCase:
             album=ct.album,
             duration_ms=ct.duration_ms,
             release_date=ct.release_date,
-            isrc=ct.isrc,
+            # Deliberately NOT ct.isrc: save_track upserts by ISRC, which
+            # would merge the orphan straight back onto the canonical the
+            # user just unlinked from. The ISRC stays on the connector track.
+            isrc=None,
             user_id=user_id,
         )
         saved_track = await track_repo.save_track(new_track)

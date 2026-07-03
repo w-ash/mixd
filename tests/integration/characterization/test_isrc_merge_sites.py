@@ -26,17 +26,17 @@ from src.infrastructure.persistence.database.db_models import (
 from src.infrastructure.persistence.repositories.factories import get_unit_of_work
 
 
-class TestSaveTrackIsrcClobber:
-    """Characterization (FM2a): pins CURRENT (buggy) behavior — saving a new
-    track whose ISRC already belongs to an existing canonical upserts into
-    that row and silently REPLACES its title/album/duration, even when the
-    15-second duration delta marks the collision suspect (a remaster reusing
-    the ISRC). Flipped by: ISRC guard at merge sites (suspect collision →
-    existing row untouched, review queued, new canonical without the
-    contested ISRC).
+class TestSaveTrackIsrcGuard:
+    """FLIPPED characterization (FM2a, fixed by ISRC guard at merge sites):
+    the original pin recorded save_track's ISRC-keyed upsert silently
+    replacing the owner's title/album/duration on a suspect (15s-off)
+    collision. Now a suspect collision never claims the contested ISRC —
+    the incoming track becomes a distinct canonical with isrc NULL and the
+    owner is untouched. Non-suspect (same-duration) merges retain the
+    pre-v0.8.18 replace behavior.
     """
 
-    async def test_suspect_isrc_collision_replaces_metadata(
+    async def test_suspect_isrc_collision_defers_instead_of_clobbering(
         self, db_session: AsyncSession
     ):
         uow = get_unit_of_work(db_session)
@@ -53,8 +53,7 @@ class TestSaveTrackIsrcClobber:
             )
         )
 
-        # 15s longer than the original: above the 10s suspect threshold —
-        # this exact input becomes the review-routed case post-fix.
+        # 15s longer than the original: above the 10s suspect threshold.
         returned = await track_repo.save_track(
             Track(
                 id=None,
@@ -66,10 +65,11 @@ class TestSaveTrackIsrcClobber:
             )
         )
 
-        # Upsert keyed (user_id, isrc): same canonical row...
-        assert returned.id == original.id
+        # A distinct canonical was created — no merge, no clobber...
+        assert returned.id != original.id
+        # ...and it does not claim the contested ISRC (NULLs are distinct).
+        assert returned.isrc is None
 
-        # ...whose metadata was silently replaced.
         row = (
             await db_session.execute(
                 select(DBTrack.title, DBTrack.album, DBTrack.duration_ms).where(
@@ -77,9 +77,39 @@ class TestSaveTrackIsrcClobber:
                 )
             )
         ).one()
-        assert row.title == "Gold Rush (2024 Remaster)"
-        assert row.album == "Remaster Compilation"
-        assert row.duration_ms == 215_000
+        assert row.title == "Gold Rush"
+        assert row.album == "Debut"
+        assert row.duration_ms == 200_000
+
+    async def test_non_suspect_isrc_collision_still_merges(
+        self, db_session: AsyncSession
+    ):
+        """Retained behavior: same-duration ISRC collision merges/updates."""
+        uow = get_unit_of_work(db_session)
+        track_repo = uow.get_track_repository()
+
+        original = await track_repo.save_track(
+            Track(
+                id=None,
+                title="Gold Rush",
+                artists=[Artist(name="Neon Priest")],
+                duration_ms=200_000,
+                isrc="USNP12400001",
+            )
+        )
+        returned = await track_repo.save_track(
+            Track(
+                id=None,
+                title="Gold Rush",
+                artists=[Artist(name="Neon Priest")],
+                album="Debut (Deluxe)",
+                duration_ms=200_500,  # within tolerance
+                isrc="USNP12400001",
+            )
+        )
+
+        assert returned.id == original.id
+        assert returned.album == "Debut (Deluxe)"
 
 
 class TestEnrichmentResaveDuplicatesCanonical:
