@@ -37,6 +37,20 @@ class ConnectorMappingSpec:
     confidence_evidence: dict[str, object] | None = None
 
 
+@define(frozen=True, slots=True)
+class PrimaryMappingDetail:
+    """Provenance of a track's primary mapping for one connector.
+
+    Carries the stored confidence and match method alongside the external id
+    so the identity fast path re-asserts real provenance instead of a
+    synthetic constant (v0.8.18 FM1b).
+    """
+
+    connector_id: str
+    confidence: int
+    match_method: str
+
+
 class MatchMethodStatRow(TypedDict):
     """Aggregated statistics for a single match_method + connector_name combination."""
 
@@ -142,6 +156,24 @@ class ConnectorRepositoryProtocol(Protocol):
 
         Returns:
             Dictionary mapping track_id to {connector_name: external_id} for primary mappings.
+        """
+        ...
+
+    def get_primary_mapping_details(
+        self, track_ids: list[UUID], connector: str
+    ) -> Awaitable[dict[UUID, PrimaryMappingDetail]]:
+        """Get primary-mapping provenance (id, confidence, method) per track.
+
+        Same primary-only join as ``get_connector_mappings``, widened with the
+        mapping row's stored confidence and match method — the identity fast
+        path reads these instead of synthesizing a constant.
+
+        Args:
+            track_ids: Track IDs to look up.
+            connector: Connector name (required — one detail per track).
+
+        Returns:
+            Dictionary mapping track_id to its primary mapping's detail.
         """
         ...
 

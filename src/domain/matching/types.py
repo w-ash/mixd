@@ -16,12 +16,6 @@ from src.domain.entities.track import Track
 type ProgressCallback = Callable[[int, int, str], Awaitable[None]]
 """Async progress callback: (completed_count, total, description)."""
 
-# Domain constants for pre-existing identity mappings found in the database.
-# When tracks already have connector mappings, these values represent the
-# synthetic MatchResult created to signal "already resolved."
-EXISTING_MAPPING_CONFIDENCE: Final[int] = 90
-EXISTING_MAPPING_METHOD: Final[str] = "existing_mapping"
-
 # Match methods that carry ISRC-grade evidence weight in scoring. "mbid" is
 # included for a future *verified*-MBID path — since v0.8.18 the Last.fm
 # provider no longer emits it (unverified Last.fm MBIDs are hints, not

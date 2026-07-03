@@ -84,15 +84,16 @@ class TestReingestRecordsFreshnessNotConfidence:
         assert row.last_seen_at is not None
 
 
-class TestFastPathSynthesizesConfidence:
-    """Characterization (FM1b): pins CURRENT (buggy) behavior — the identity
-    fast path discards stored mapping provenance and re-asserts every existing
-    mapping as a synthetic MatchResult(confidence=90, method="existing_mapping",
-    empty service_data, no evidence). Flipped by: Confidence integrity repair
-    (the real mapping row's confidence and method are returned).
+class TestFastPathReturnsStoredProvenance:
+    """FLIPPED characterization (FM1b, fixed by Confidence integrity repair):
+    the original pin recorded the fast path re-asserting every existing
+    mapping as a synthetic MatchResult(confidence=90,
+    method="existing_mapping"). Now the mapping row's stored confidence and
+    method are returned; the full evidence stays in the row (the fast path
+    never persists).
     """
 
-    async def test_existing_mapping_returns_synthetic_ninety(
+    async def test_existing_mapping_returns_stored_confidence_and_method(
         self, db_session: AsyncSession
     ):
         uow = get_unit_of_work(db_session)
@@ -119,9 +120,37 @@ class TestFastPathSynthesizesConfidence:
         match = results[track.id]
         assert match.success is True
         assert match.connector_id == "sp_fast_001"
-        # Stored 65/artist_title discarded in favor of the synthetic constant.
-        assert match.confidence == 90
-        assert match.match_method == "existing_mapping"
-        # Synthesis carries no provenance.
-        assert dict(match.service_data) == {}
-        assert match.evidence is None
+        # Real provenance, not a synthetic constant.
+        assert match.confidence == 65
+        assert match.match_method == "artist_title"
+
+    async def test_mixed_batch_returns_per_mapping_provenance(
+        self, db_session: AsyncSession
+    ):
+        """A direct-100 and a review-accepted-65 keep their own values."""
+        uow = get_unit_of_work(db_session)
+        track_repo = uow.get_track_repository()
+        connector_repo = uow.get_connector_repository()
+
+        direct = await track_repo.save_track(
+            Track(id=None, title="Direct", artists=[Artist(name="A")])
+        )
+        await connector_repo.map_track_to_connector(
+            direct, "spotify", "sp_direct_100", "direct", confidence=100
+        )
+        reviewed = await track_repo.save_track(
+            Track(id=None, title="Reviewed", artists=[Artist(name="B")])
+        )
+        await connector_repo.map_track_to_connector(
+            reviewed, "spotify", "sp_reviewed_65", "artist_title", confidence=65
+        )
+
+        service = uow.get_track_identity_service()
+        results = await service.get_existing_identity_mappings(
+            [direct.id, reviewed.id], "spotify"
+        )
+
+        assert results[direct.id].confidence == 100
+        assert results[direct.id].match_method == "direct"
+        assert results[reviewed.id].confidence == 65
+        assert results[reviewed.id].match_method == "artist_title"

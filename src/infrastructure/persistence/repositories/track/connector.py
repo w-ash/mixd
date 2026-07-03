@@ -34,6 +34,7 @@ from src.domain.repositories.connector import (
     ConnectorMappingSpec,
     FullMappingInfo,
     MatchMethodStatRow,
+    PrimaryMappingDetail,
 )
 from src.infrastructure.persistence.database.db_models import (
     DBConnectorTrack,
@@ -1040,6 +1041,48 @@ class TrackConnectorRepository:
             mappings_dict.setdefault(track_id, {})[conn_name] = conn_id
 
         return mappings_dict
+
+    @db_operation("get_primary_mapping_details")
+    async def get_primary_mapping_details(
+        self, track_ids: list[UUID], connector: str
+    ) -> dict[UUID, PrimaryMappingDetail]:
+        """Get primary-mapping provenance (id, confidence, method) per track.
+
+        The primary-only join of ``get_connector_mappings`` widened with the
+        mapping row's stored confidence and match method (v0.8.18 FM1b — the
+        fast path re-asserts real provenance, not a synthetic constant).
+        """
+        if not track_ids:
+            return {}
+
+        stmt = (
+            select(
+                self.mapping_repo.model_class.track_id,
+                self.connector_repo.model_class.connector_track_identifier,
+                self.mapping_repo.model_class.confidence,
+                self.mapping_repo.model_class.match_method,
+            )
+            .join(
+                self.connector_repo.model_class,
+                self.mapping_repo.model_class.connector_track_id
+                == self.connector_repo.model_class.id,
+            )
+            .where(
+                self.mapping_repo.model_class.track_id.in_(track_ids),
+                self.mapping_repo.model_class.is_primary.is_(True),
+                self.connector_repo.model_class.connector_name == connector,
+            )
+        )
+
+        result = await self.session.execute(stmt)
+        return {
+            track_id: PrimaryMappingDetail(
+                connector_id=conn_id,
+                confidence=confidence,
+                match_method=match_method,
+            )
+            for track_id, conn_id, confidence, match_method in result.tuples()
+        }
 
     @overload
     async def get_connector_metadata(

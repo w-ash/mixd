@@ -100,6 +100,60 @@ class TestPrimaryMappingQueries:
 
         assert result == {db_track.id: {"spotify": "new_sp_id"}}
 
+    async def test_get_primary_mapping_details_returns_provenance(
+        self, db_session: AsyncSession, test_data_tracker
+    ):
+        """Primary-only lookup carries the stored confidence and match method."""
+        db_track = DBTrack(title="Provenance Test", artists={"names": ["Artist"]})
+        db_session.add(db_track)
+        await db_session.flush()
+        test_data_tracker.add_track(db_track.id)
+
+        old_ct = DBConnectorTrack(
+            connector_name="spotify",
+            connector_track_identifier="old_sp_prov",
+            title="Provenance Test",
+            artists={"names": ["Artist"]},
+            raw_metadata={},
+        )
+        new_ct = DBConnectorTrack(
+            connector_name="spotify",
+            connector_track_identifier="new_sp_prov",
+            title="Provenance Test",
+            artists={"names": ["Artist"]},
+            raw_metadata={},
+        )
+        db_session.add_all([old_ct, new_ct])
+        await db_session.flush()
+
+        db_session.add_all([
+            DBTrackMapping(
+                track_id=db_track.id,
+                connector_track_id=old_ct.id,
+                connector_name="spotify",
+                match_method="direct",
+                confidence=100,
+                is_primary=False,
+            ),
+            DBTrackMapping(
+                track_id=db_track.id,
+                connector_track_id=new_ct.id,
+                connector_name="spotify",
+                match_method="artist_title",
+                confidence=65,
+                is_primary=True,
+            ),
+        ])
+        await db_session.commit()
+
+        repo = TrackConnectorRepository(db_session)
+        details = await repo.get_primary_mapping_details([db_track.id], "spotify")
+
+        detail = details[db_track.id]
+        assert detail.connector_id == "new_sp_prov"
+        assert detail.confidence == 65
+        assert detail.match_method == "artist_title"
+
     async def test_get_connector_metadata_returns_primary_metadata(
         self, db_session: AsyncSession, test_data_tracker
     ):

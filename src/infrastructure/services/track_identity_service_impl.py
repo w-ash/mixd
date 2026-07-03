@@ -110,32 +110,33 @@ class TrackIdentityServiceImpl(TrackIdentityServiceProtocol):
     async def get_existing_identity_mappings(
         self, track_ids: list[UUID], connector: str
     ) -> MatchResultsById:
-        """Retrieve existing identity mappings from database."""
-        # get_connector_mappings already filters by connector when provided
-        mappings = await self.connector_repo.get_connector_mappings(
+        """Retrieve existing identity mappings with their stored provenance.
+
+        Each MatchResult carries the mapping row's real confidence and match
+        method (v0.8.18 FM1b) — no synthetic constant stands in for stored
+        provenance. The full evidence stays in the row; nothing here is
+        re-persisted (the pipeline persists only newly accepted matches).
+        """
+        details = await self.connector_repo.get_primary_mapping_details(
             track_ids, connector
         )
 
-        if not mappings:
+        if not details:
             return {}
 
-        tracks_by_id = await self.track_repo.find_tracks_by_ids(list(mappings.keys()))
+        tracks_by_id = await self.track_repo.find_tracks_by_ids(list(details.keys()))
 
-        from src.domain.matching.types import (
-            EXISTING_MAPPING_CONFIDENCE,
-            EXISTING_MAPPING_METHOD,
-            MatchResult,
-        )
+        from src.domain.matching.types import MatchResult
 
         return {
             track_id: MatchResult(
                 track=tracks_by_id[track_id],
                 success=True,
-                connector_id=mapping_data.get(connector, ""),
-                confidence=EXISTING_MAPPING_CONFIDENCE,
-                match_method=EXISTING_MAPPING_METHOD,
+                connector_id=detail.connector_id,
+                confidence=detail.confidence,
+                match_method=detail.match_method,
             )
-            for track_id, mapping_data in mappings.items()
+            for track_id, detail in details.items()
             if track_id in tracks_by_id
         }
 
