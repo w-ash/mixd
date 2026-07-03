@@ -27,152 +27,17 @@ For the planning overview, see [README.md](README.md).
 
 ## Identity Resolution (2026-07 research)
 
-Findings, evidence, and the full design space live in [identity-resolution-design-space.md](identity-resolution-design-space.md) — FM-codes below reference its §1 failure-mode taxonomy. Stories are sequenced: the characterization net comes first; the D2 ledger story assumes the D1 repairs shipped.
+All eight stories from the identity/governance research passes are now **scheduled** (2026-07-02), sequenced by what each unblocks. Findings and evidence remain in [identity-resolution-design-space.md](identity-resolution-design-space.md) + [identity-governance-design-space.md](identity-governance-design-space.md):
 
-- [ ] **Characterization test net for identity flows**
-
-    **Story**: The user wants to harden identity resolution without silently changing what their library does today — several flows the memo touches (confidence bumping, fast-path synthesis, redirect handling, Last.fm identifier creation) have *no* test witnessing their current behavior, so any fix could regress matching invisibly. Pin the behavior first; then each fix commit flips an assertion instead of changing silence.
-
-    **Decisions**:
-    - **Pin bugs deliberately** (stale denorm sync, dangling cross-discovery canonical) — a failing-later assertion is the cheapest proof a fix landed, because the user can see exactly what changed.
-    - Tests live at the level of their subject (integration for repo/import flows, unit for scoring) so they survive refactors of the layer above.
-
-    **Spec**: the 9 characterization tests enumerated in the memo §4 (bump-to-100, fast-path synthesis, redirect denorm ordering, healing mask, Last.fm identifier trifecta, save_track ISRC clobber, cross-discovery dangling canonical, MB empty-metadata auto-accept, promotion-policy divergence). Use `tests.fixtures` factories; testcontainers for the integration set.
-
-    **Tests**: this story *is* tests; done = all 9 green against current behavior.
-
-    Effort: M | Dependencies: None | Status: Not Started
-
-- [ ] **Confidence integrity repair (memo D1: FM1a/1b/1d/1g)**
-
-    **Story**: The user wants a mapping's confidence score to still mean "how likely this is the right track" months after import — today re-imports silently promote 70-confidence guesses to a permanent 100 (FM1a), the re-resolution fast path replaces every stored score with a synthetic 90 (FM1b), and Last.fm's stale MBIDs earn near-certain scores (FM1d) — so the review queue and any future "verified" badge are built on corrupted numbers.
-
-    **Decisions**:
-    - **Re-encounter is a freshness signal, not evidence of correctness** — record `last seen` instead of overwriting confidence; the connector track existing again proves nothing about the canonical match.
-    - **Provenance over synthesis** — the fast path loads the real mapping row (confidence/method are already in `track_mappings`); no invented constant can stand in for it.
-    - **Last.fm MBIDs are hints, not identity** (MetaBrainz's own guidance) — score Last.fm matches as `artist_title` unless the MBID verifies against MusicBrainz (Track-vs-Recording + 301-merge aware).
-    - **Missing metadata is neutral, not a mismatch** — add MISSING comparison levels for title/artist; require minimal recording metadata before a MusicBrainz ISRC match can auto-accept (today it auto-accepts at ~98 with empty everything and the suspect check unreachable).
-
-    **Spec**: `repositories/track/connector.py` (`_bump_confidence_if_needed`), `track_identity_service_impl.py` (`get_existing_identity_mappings`), `lastfm/matching_provider.py` (method labeling), `domain/matching/probabilistic.py` + `algorithms.py` (MISSING levels), `musicbrainz/matching_provider.py` (metadata fetch before ISRC accept).
-
-    **Tests**: characterization flips for FM1a/1b/1g + new unit coverage for MISSING levels and Last.fm method demotion; existing `tests/unit/domain/matching/*` extended.
-
-    Effort: M | Dependencies: Characterization test net | Status: Not Started
-
-- [ ] **ISRC guard at merge sites (memo D1: FM2a/2c)**
-
-    **Story**: The user imports a 2024 remaster whose label reused the original ISRC and their original track's title, album, and duration get silently overwritten (`save_track` upserts by ISRC and replaces metadata) — or a Last.fm skeletal track and a Spotify match of the same recording end up as two half-mapped canonicals. ISRC reuse across versions is a documented industry reality (IFPI rules are violated at scale — ~295k multi-recording ISRCs in MusicBrainz's own report); the engine has a suspect check for exactly this, but none of the merge sites use it.
-
-    **Decisions**:
-    - **Reuse the existing domain check** (`assess_isrc_match_reliability`) at every ISRC-keyed merge/reuse site — no new heuristic; the engine already knows how.
-    - **On suspect: don't merge silently** — route to the review queue (or create a distinct canonical where the schema decision in memo D2.5 allows), because a wrong merge destroys user metadata and a queued item doesn't.
-    - Fix the cross-discovery dangling-canonical path (FM3b) in the same change — the reuse paths must merge-or-map, never both-and-neither.
-
-    **Spec**: `repositories/track/core.py:save_track` (upsert path), `spotify/inward_resolver.py` (ISRC dedup), `cross_discovery.py` (both reuse paths).
-
-    **Tests**: characterization flips for FM2a/FM3b; new integration case: same-ISRC different-duration import → review, not clobber.
-
-    Effort: M | Dependencies: Characterization test net | Status: Not Started
-
-- [ ] **Last.fm identifier unification (memo D1: FM3a/3c)**
-
-    **Story**: The user's Last.fm plays, loves, and matches for one track can fragment across up to four `connector_tracks` rows because three code paths mint identifiers differently (MBID-or-URL, URL + lowercased `artist::title`, case-preserved `artist::title`) — so play counts split and mappings disagree about which row is "the" track.
-
-    **Decisions**:
-    - **One scheme everywhere**: normalized `artist::title` via `make_lastfm_identifier`, applied at all three creation sites — it is the only identifier Last.fm itself keeps stable (URLs encode names and break on rename; its MBIDs are type-confused and stale).
-    - **Normalize through `track.getCorrection` before keying** — Last.fm's own canonicalization is the closest thing it has to an identity function, and it is currently unused.
-    - One-shot data migration folds existing variant rows (case variants, URL-vs-composite duplicates) with mapping/play reattachment.
-
-    **Spec**: `lastfm/conversions.py:144`, `lastfm/inward_resolver.py`, `cross_discovery.py:102`; Alembic data migration for the fold.
-
-    **Tests**: characterization flip for FM3a (three paths → one row); migration test: seeded variants fold without losing plays.
-
-    Effort: M | Dependencies: Characterization test net | Status: Not Started
-
-- [ ] **Healing correctness: denormalized-ID sync + one promotion policy (memo D1: FM4b/4c/4d)**
-
-    **Story**: The user resolves an old Spotify export and every redirected track ends up with its *dead* ID in the fast-path `spotify_id` column (the secondary stale mapping is synced last), which then masks the read-path healing that would have fixed it — and depending on which code path notices a missing primary, a different mapping gets promoted.
-
-    **Decisions**:
-    - **Sync the denormalized column only for primary mappings** — it exists to accelerate the fast path, and the fast path must see the live ID.
-    - **One promotion policy: highest confidence** — the mapper's first-in-iteration-order promotion contradicts `ensure_primary_for_connector`; two policies for one repair is worse than either.
-
-    **Spec**: `repositories/track/connector.py` (`map_track_to_connector` sync gating), `repositories/track/mapper.py` (promotion selection).
-
-    **Tests**: characterization flips for FM4c/4d; regression: redirect resolution leaves `spotify_id` = current ID.
-
-    Effort: S | Dependencies: Characterization test net | Status: Not Started
-
-- [ ] **Matching drift metrics (memo D1: FM5a)**
-
-    **Story**: The user wants to notice when matching silently degrades (a provider changes an API shape, a normalization regresses) *before* months of plays attach to wrong tracks — today failure surfaces only in debug logs and an unvisited review queue. Production ER systems converge on a small run-over-run metric set; mixd has none of it.
-
-    **Decisions**:
-    - **Counters, not dashboards**: fallback-resolution rate, read-path promotion count, dead-ID hits on touch, review inflow, confidence-band distribution per run — surfaced via the existing `stats --health` / integrity-check scaffold (v0.4.9), because that's where an operator already looks.
-    - Baseline-then-alert (record normal ranges empirically) rather than fixed thresholds — the published practice; no defensible magic numbers exist.
-
-    **Spec**: counters emitted from the four identity-write entry points; `get_match_method_stats` (`connector.py:1340`) extended; CLI/API surface via existing stats endpoints.
-
-    **Tests**: (unit) counters increment per outcome class; (integration) stats query returns per-method band distribution.
-
-    Effort: M | Dependencies: None (parallel to repairs) | Status: Not Started
-
-- [ ] **Mapping supersession + resolution event log (memo D2)**
-
-    **Story**: When a mapping changes — an ID dies, a re-match finds better, a human overrides — the user wants "we used to believe X" preserved: today the upsert overwrites method/confidence/evidence in place, flip-flops are invisible, and below-threshold rejections leave no memory, so the same wrong candidate is re-fetched and re-rejected forever. This is also the prerequisite substrate for v1.0.3's observation ledger and for ever calibrating the matcher from real outcomes.
-
-    **Decisions**:
-    - **Supersede, never overwrite**: `superseded_by_id` / `superseded_at` / typed reason on `track_mappings` (the Wikidata "withdrawn vs deprecated" distinction: *ID died* vs *we were wrong* must stay distinguishable, or accuracy analytics are poisoned).
-    - **Append-only resolution event log** with matcher version — rejects become negative cache (don't re-propose superseded-as-mismatch candidates); ListenBrainz's production pattern (no-match rows re-checked on exponential backoff, 1d→32d cap) is the model for retrying *absent* matches without hammering providers.
-    - **Debounce death**: an external ID is suspect after one failure, dead only after N consecutive failures over ≥T days (InternetArchiveBot: 3 over 9) — Spotify communities document spurious 404s on live IDs.
-    - **Every reader becomes supersession-aware by default** (repository-level live-rows filter + partial index) — half-aware tooling generating false alarms forever is Wikidata's documented cost of this pattern.
-
-    **Spec**: 2 migrations (`track_mappings` columns; `resolution_events` table, JSONB payload, BRIN on occurred_at); all four identity-write sites route through one application-service seam (which also collapses the "four entry points" drift, FM6a). Constants (N=3, T=9d, backoff cap 32d) are starting points, revisit.
-
-    **Tests**: (integration) re-match supersedes rather than overwrites, chain queryable; reject → negative-cache honored on next run; debounce: 2 failures ≠ dead; (unit) supersession-aware default filters.
-
-    Effort: L | Dependencies: Confidence integrity repair, ISRC guard | Status: Not Started
-
-- [ ] **Alias-aware artist comparison (memo §7 option C)**
-
-    **Story**: The user's "TEED" scrobbles and "Totally Enormous Extinct Dinosaurs" imports score as different artists in every match (text normalization cannot bridge abbreviations), dragging down track-match confidence and splitting artist views — before any v0.10.0 artist entity ships, the *matching layer* can treat MusicBrainz-verified aliases as equivalent.
-
-    **Decisions**:
-    - **Anchor on artist MBID, not name** — live probe: MusicBrainz has since made "TEED" the primary name and the full name the alias; direction inverts over time, so the table maps MBID → all names, refreshed periodically.
-    - Alias equivalence feeds `calculate_confidence`'s artist comparison as a pre-check (like the existing feat./ft. equivalences), not a new scoring tier.
-    - This is deliberately the minimal slice of the v0.10.0 Artist Identity epic — it improves *track* matching now and becomes the alias substrate for the artist entity later.
-
-    **Spec**: alias cache table (artist MBID, name, alias_type, locale, fetched_at); MB `inc=aliases` fetch via existing client (1 req/s budget shared — trickle); hook in `domain/matching/algorithms.py` artist comparison via an injected equivalence lookup (domain stays pure — data passed in, not fetched).
-
-    **Tests**: (unit) TEED ↔ full name scores as artist match with alias data present, mismatch without; (integration) alias fetch + cache round-trip.
-
-    Effort: M | Dependencies: None | Status: Not Started
+- ~~Characterization test net · Confidence integrity repair · ISRC guard · Last.fm identifier unification · Healing correctness · Matching drift metrics~~ → **[v0.8.18: Identity Integrity](v0.8.18.md)** — active-corruption repairs; must precede v0.10.0's artist identity (which mirrors track-matching patterns) and the v1.0.1 Apple Music connector
+- ~~Mapping supersession + resolution event log~~ → **[v1.0.0: Data Quality](v1.0.x.md#v100-data-quality)** — substrate for the manual-mapping UI, v1.0.1's platform-asserted successors, and the v1.0.3 ledger backfill
+- ~~Alias-aware artist comparison~~ → **[v0.10.0: First-Class Artists](v0.10.x.md#v0100-first-class-artists)** — first Artist Identity epic (depends on v0.8.18)
 
 ## Data Ownership
 
-The larger question — what "ownership of listening data" means architecturally (sovereign-server + exit rights vs Obsidian-style local-first) — is held open with an evidence ledger in [PDR-001](../decisions/PDR-001-data-ownership-model.md). The story below is direction-neutral groundwork: every candidate direction, including local-first, requires it.
+The larger question — what "ownership of listening data" means architecturally (sovereign-server + exit rights vs Obsidian-style local-first) — is held open with an evidence ledger in [PDR-001](../decisions/PDR-001-data-ownership-model.md).
 
-- [ ] **Continuous Personal Archive (exit rights made real)**
-
-    **Story**: The user wants their listening data to exist in a form they can hold — files in documented open formats, on storage they control — so that mixd (hosted or self-hosted) could disappear tomorrow without taking years of play history, likes, and playlists with it. Ownership through control-and-exit: the credibility mechanism behind Obsidian's "your notes are just files," delivered without rearchitecting a relational, always-on system into local-first.
-
-    **Decisions**:
-    - **Scheduled full export, not on-demand only** — ownership that requires remembering to click a button isn't ownership; a stale archive is a broken promise. Runs on the existing scheduler.
-    - **Documented open formats** (JSON/CSV per entity + a single SQLite bundle) — the archive must be usable *without mixd*; format documentation ships with the feature.
-    - **User-controlled destinations**: local download, and at least one push target (user's own S3/WebDAV/Dropbox) so hosted-instance users get the same guarantee as self-hosters.
-    - **Import path is part of the story** — an archive that can't round-trip into a fresh instance (or a friend's) is a backup, not an exit right. Full instance-migration (ID remapping) can follow later; round-trip fidelity for one user's data is the bar here.
-
-    **Spec**:
-    - Export bundle: all user-scoped tables (~28) as JSON/CSV + SQLite; manifest with schema version + export timestamp
-    - Scheduled job (existing scheduler infra); settings UI for cadence + destination
-    - `mixd archive export` / `mixd archive import` CLI equivalents
-
-    **Tests**:
-    - (integration) Export → import into a fresh instance round-trips plays/likes/playlists/tags with timestamps intact
-    - (integration) Archive of a user with 50k+ plays completes and is re-importable
-    - (unit) Manifest schema-version mismatch fails import with an actionable message
-
-    Effort: L | Dependencies: None | Status: Not Started
+- ~~**Continuous Personal Archive (exit rights made real)**~~ → Scheduled as **[v1.0.4: Data Sovereignty — Archive & Exit Rights](v1.0.x.md#v104-data-sovereignty--archive--exit-rights)** (2026-07-02) — deliberately the last pre-social milestone: exit rights ship before other people's data lives on hosted instances. Direction-neutral under PDR-001.
 
 ## Enrichment Sources
 

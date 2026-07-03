@@ -267,4 +267,4 @@ Separately: a fresh `scripts/diagnose_stale_spotify_ids.py` run would record the
 
 ## 9. Backlog stories
 
-Filed to [unscheduled.md → "Identity Resolution (2026-07 research)"](unscheduled.md#identity-resolution-2026-07-research) — see that section for the story set; each story cross-references taxonomy IDs from §1.
+Originally filed to unscheduled.md; **sequenced into the roadmap 2026-07-02**: the six D1 repairs → [v0.8.18 Identity Integrity](v0.8.18.md); mapping supersession + resolution event log (D2) → [v1.0.0 Data Quality](v1.0.x.md#v100-data-quality); alias-aware artist comparison → [v0.10.0 First-Class Artists](v0.10.x.md#v0100-first-class-artists). Each story cross-references taxonomy IDs from §1.

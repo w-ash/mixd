@@ -50,7 +50,7 @@ Recommendation: **(2)** — body complexity is the debt that regrows silently; a
 1. Promote the 8 basedpyright rules to `"error"` (free today — verify with a fresh run first).
 2. After each approved spoke lands, re-run the PLR census; when a rule's count hits 0, flip it from the `ignore` list in `pyproject.toml` **in that spoke's commit** (per the hub guardrail). Whatever is still nonzero at closeout gets fixed here or explicitly re-documented in pyproject's ignore rationale (updated comment, dated).
 3. Re-verify `uv run vulture` is clean against the whitelist after spokes 07/12/13/15 remove flagged items — prune stale whitelist entries.
-4. Full matrix green: `uv run pytest -m ""` · `uv run basedpyright src/` · `uv run ruff check .` · `pnpm --prefix web check && pnpm --prefix web build` · import-linter contract.
+4. Full matrix green: `uv run pytest -m ""` · `uv run basedpyright src/` · `uv run ruff check .` · `pnpm --prefix web check && pnpm --prefix web build` · ~~import-linter contract~~ *(tool never existed in the repo — see the Spec discrepancy note in the Closeout outcome above; deferred as dep-audit work order W10)*.
 5. Ship as the `0.8.17` closeout bump (each wave v0.8.13–v0.8.16 bumps at its own deploy): `pyproject.toml` version → `uv sync` → `pnpm --prefix web sync-api`; flip the README matrix rows to 🚀 Shipped.
 6. Fable code-reviews the aggregate sweep diff (call-site completeness, behavior preservation, layer boundaries) before the bump.
 

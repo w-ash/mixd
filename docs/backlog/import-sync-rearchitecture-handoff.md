@@ -323,9 +323,10 @@ consolidation — item 3 below). The following remain — candidates flagged but
 changed (judgment calls / adjacent):
 
 1. **`create_connector_playlist.py`** — its docstrings say "mirroring
-   update_connector_playlist," and it still has an `operation_summary` Result
-   property in the old style. Now that the push path is slim + shared, review it
-   for the same treatment (route its push/create through `connector_push`?).
+   update_connector_playlist." (Its old-style `operation_summary` Result property
+   was deleted in the v0.8.17 closeout — dead convention, zero consumers.) Now
+   that the push path is slim + shared, review it for the same treatment (route
+   its push/create through `connector_push`?).
 2. **`upsert_canonical_playlist`** (`playlist_upsert.py`) — a wrapper over
    Create/Update canonical use cases. The plan flagged it as possibly thin-able.
    Decide whether it earns its layer or the engine should call Create/Update
