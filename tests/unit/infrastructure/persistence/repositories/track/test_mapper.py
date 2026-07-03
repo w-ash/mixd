@@ -66,27 +66,24 @@ def _transient_mapping(
 
 
 class _PromoteSpy:
-    """Records (track_id, connector_name, connector_track_db_id) calls."""
+    """Records (track_id, connector_name) calls."""
 
     def __init__(self) -> None:
-        self.calls: list[tuple[UUID, str, UUID]] = []
+        self.calls: list[tuple[UUID, str]] = []
 
-    async def __call__(
-        self, track_id: UUID, connector_name: str, connector_track_db_id: UUID
-    ) -> bool:
-        self.calls.append((track_id, connector_name, connector_track_db_id))
-        return True
+    async def __call__(self, track_id: UUID, connector_name: str) -> None:
+        self.calls.append((track_id, connector_name))
 
 
-class TestDenormColumnMasksHealing:
-    """Characterization (FM4b): pins CURRENT (buggy) behavior — a non-null
-    denormalized ``spotify_id`` column pre-populates the identifier map before
-    the mapping walk, so the fallback/promotion pass never fires for that
-    connector. Flipped by: Healing correctness (v0.8.18 epic 5 — the walk runs
-    first; the column becomes a post-walk fallback).
+class TestWalkWinsOverDenormColumn:
+    """FLIPPED characterization (FM4b, fixed by Healing correctness): the
+    original pin recorded a non-null denormalized ``spotify_id`` column
+    pre-populating the identifier map before the mapping walk, masking the
+    fallback/promotion pass. Now the walk runs first and the column is a
+    post-walk fallback only.
     """
 
-    async def test_column_masks_live_nonprimary_mapping(self):
+    async def test_live_mapping_beats_stale_column_and_heals(self):
         track = _transient_track(spotify_id="sp_dead_col")
         mapping = _transient_mapping(
             track, identifier="sp_live_row", confidence=95, is_primary=False
@@ -99,13 +96,27 @@ class TestDenormColumnMasksHealing:
             track, promote_primary_fn=spy
         )
 
-        # The stale column shadows the live non-primary mapping...
-        assert domain_track.connector_track_identifiers["spotify"] == "sp_dead_col"
-        # ...and healing never fires while the column is non-empty.
+        # The live non-primary mapping wins over the stale column...
+        assert domain_track.connector_track_identifiers["spotify"] == "sp_live_row"
+        # ...and healing fires despite the non-empty column.
+        assert spy.calls == [(track.id, "spotify")]
+
+    async def test_column_serves_as_fallback_without_mappings(self):
+        """Fast path preserved: with no mappings, the column id is returned."""
+        track = _transient_track(spotify_id="sp_col_only")
+        track.mappings = []
+        track.likes = []
+        spy = _PromoteSpy()
+
+        domain_track = await TrackMapper._to_domain_with_session(
+            track, promote_primary_fn=spy
+        )
+
+        assert domain_track.connector_track_identifiers["spotify"] == "sp_col_only"
         assert spy.calls == []
 
     async def test_no_column_promotes_fallback(self):
-        """Control (survives the fix): with the column empty, healing fires."""
+        """With the column empty, healing fires as before."""
         track = _transient_track(spotify_id=None)
         mapping = _transient_mapping(
             track, identifier="sp_live_row", confidence=95, is_primary=False
@@ -119,19 +130,19 @@ class TestDenormColumnMasksHealing:
         )
 
         assert domain_track.connector_track_identifiers["spotify"] == "sp_live_row"
-        assert spy.calls == [(track.id, "spotify", mapping.connector_track_id)]
+        assert spy.calls == [(track.id, "spotify")]
 
 
-class TestMapperPromotesFirstInIterationOrder:
-    """Characterization (FM4c): pins CURRENT (buggy) behavior — with no
-    primary mapping, the mapper promotes the FIRST non-primary in iteration
-    order (docstring says "best"), while ``ensure_primary_for_connector``
-    promotes highest-confidence: two policies for one repair. Flipped by:
-    Healing correctness (v0.8.18 epic 5 — mapper selects highest confidence
-    and delegates to the repository's single policy).
+class TestMapperPromotesHighestConfidence:
+    """FLIPPED characterization (FM4c, fixed by Healing correctness): the
+    original pin recorded the mapper promoting the FIRST non-primary in
+    iteration order while ``ensure_primary_for_connector`` promoted highest
+    confidence — two policies for one repair. Now the mapper selects the
+    highest-confidence fallback for display and delegates the repair to the
+    repository's single policy.
     """
 
-    async def test_first_nonprimary_wins_over_higher_confidence(self):
+    async def test_highest_confidence_wins_regardless_of_order(self):
         track = _transient_track(spotify_id=None)
         low = _transient_mapping(track, identifier="sp_low", confidence=40)
         high = _transient_mapping(track, identifier="sp_high", confidence=95)
@@ -143,9 +154,9 @@ class TestMapperPromotesFirstInIterationOrder:
             track, promote_primary_fn=spy
         )
 
-        # First-in-order wins, despite the 95-confidence alternative.
-        assert domain_track.connector_track_identifiers["spotify"] == "sp_low"
-        assert spy.calls == [(track.id, "spotify", low.connector_track_id)]
+        # Highest confidence wins — matching ensure_primary_for_connector.
+        assert domain_track.connector_track_identifiers["spotify"] == "sp_high"
+        assert spy.calls == [(track.id, "spotify")]
 
 
 class TestExtractDbArtistNames:

@@ -28,16 +28,15 @@ from src.infrastructure.persistence.repositories.factories import get_unit_of_wo
 from tests.fixtures import seed_db_connector_track, seed_db_track
 
 
-class TestRedirectLeavesDeadIdInDenormColumn:
-    """Characterization (FM4d): pins CURRENT (buggy) behavior — resolving a
-    redirected Spotify ID writes the primary mapping (live ID) first and the
-    secondary stale mapping (dead requested ID) second, and the unconditional
-    denormalized-column sync leaves DBTrack.spotify_id holding the DEAD id.
-    Flipped by: Healing correctness (sync gated on the mapping becoming
-    primary; the column ends holding the live id).
+class TestRedirectLeavesLiveIdInDenormColumn:
+    """FLIPPED characterization (FM4d, fixed by Healing correctness): the
+    original pin recorded the stale-secondary write (dead requested ID,
+    written last) overwriting DBTrack.spotify_id via the unconditional sync.
+    The sync is now gated on the mapping becoming primary — redirect
+    resolution leaves the column holding the LIVE id.
     """
 
-    async def test_redirect_resolution_syncs_dead_id_to_column(
+    async def test_redirect_resolution_syncs_live_id_to_column(
         self, db_session: AsyncSession
     ):
         uow = get_unit_of_work(db_session)
@@ -64,20 +63,20 @@ class TestRedirectLeavesDeadIdInDenormColumn:
         track = result["sp_dead_001"]
         assert "sp_dead_001" in resolver.redirect_resolved_ids
 
-        # The primary mapping correctly holds the live id...
+        # The primary mapping holds the live id...
         mappings = await uow.get_connector_repository().get_connector_mappings(
             [track.id], "spotify"
         )
         assert mappings[track.id]["spotify"] == "sp_live_001"
 
-        # ...but the fast-path column holds the DEAD requested id, because the
-        # stale secondary mapping was written last and the sync is unconditional.
+        # ...and so does the fast-path column: the stale secondary write
+        # (auto_set_primary=False) no longer syncs the denormalized id.
         column_value = (
             await db_session.execute(
                 select(DBTrack.spotify_id).where(DBTrack.id == track.id)
             )
         ).scalar_one()
-        assert column_value == "sp_dead_001"
+        assert column_value == "sp_live_001"
 
 
 class TestEnsurePrimaryPromotesHighestConfidence:

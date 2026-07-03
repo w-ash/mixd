@@ -597,15 +597,19 @@ class TrackConnectorRepository:
                 .values(origin=origin)
             )
 
-        # Auto-set primary mapping if requested and track has an ID
+        # Auto-set primary mapping if requested and track has an ID. The
+        # denormalized fast-path column syncs ONLY when the mapping actually
+        # became primary — an unconditional sync let the redirect flow's
+        # stale-secondary write (auto_set_primary=False, written last) leave
+        # the dead ID in the column (v0.8.18 FM4d).
         if auto_set_primary and result_track.id:
-            _ = await self.ensure_primary_mapping(
+            primary_set = await self.ensure_primary_mapping(
                 result_track.id, connector, connector_id
             )
-
-        # Sync denormalized ID columns on canonical track so fast-path lookups work
-        if result_track.id:
-            await self._sync_denormalized_id(result_track.id, connector, connector_id)
+            if primary_set:
+                await self._sync_denormalized_id(
+                    result_track.id, connector, connector_id
+                )
 
         return result_track
 
