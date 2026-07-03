@@ -151,8 +151,61 @@ class TestCalculateConfidence:
 
         # Duration missing is neutral in Fellegi-Sunter (log(0.5/0.5) = 0)
         assert evidence.duration_score == 0.0
+        assert evidence.duration_missing is True
         # Should still score well from title + artist
         assert confidence >= 85
+
+    def test_missing_title_and_artist_are_neutral(self):
+        """Empty service title/artist classify as MISSING (LLR 0), not mismatch.
+
+        An empty-metadata ISRC match therefore scores on ISRC evidence alone
+        (weight ≈ +9.20 → confidence 100) instead of eating two false
+        mismatch penalties (v0.8.18 FM1g).
+        """
+        internal_track = {
+            "title": "Gold Rush",
+            "artists": ["Neon Priest"],
+            "duration_ms": 200000,
+        }
+        service_track = {
+            "title": "",
+            "artist": "",
+            "duration_ms": None,
+        }
+
+        confidence, evidence = calculate_confidence(
+            internal_track, service_track, "isrc", config
+        )
+
+        assert evidence.title_score == 0.0
+        assert evidence.artist_score == 0.0
+        assert evidence.title_similarity == 0.0
+        assert evidence.artist_similarity == 0.0
+        assert evidence.duration_missing is True
+        assert confidence == 100  # sigmoid(+9.2003) → 100
+
+    def test_evidence_as_dict_emits_duration_missing_only_when_true(self):
+        """duration_missing serializes like isrc_suspect: only when set."""
+        internal_track = {
+            "title": "Gold Rush",
+            "artists": ["Neon Priest"],
+            "duration_ms": 200000,
+        }
+        _, with_duration = calculate_confidence(
+            internal_track,
+            {"title": "Gold Rush", "artist": "Neon Priest", "duration_ms": 200000},
+            "artist_title",
+            config,
+        )
+        _, without_duration = calculate_confidence(
+            internal_track,
+            {"title": "Gold Rush", "artist": "Neon Priest", "duration_ms": None},
+            "artist_title",
+            config,
+        )
+
+        assert "duration_missing" not in with_duration.as_dict()
+        assert without_duration.as_dict()["duration_missing"] is True
 
     def test_artist_mismatch_reduces_confidence(self):
         """Artist mismatches should produce negative evidence and lower weight."""

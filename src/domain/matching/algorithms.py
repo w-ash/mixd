@@ -13,6 +13,7 @@ from rapidfuzz import fuzz
 from .config import MatchingConfig
 from .isrc_validation import assess_isrc_match_reliability
 from .probabilistic import (
+    DURATION_MISSING,
     AttributeResult,
     calculate_match_weight,
     classify_artist,
@@ -22,7 +23,7 @@ from .probabilistic import (
     weight_to_confidence,
 )
 from .text_normalization import are_phonetic_matches, normalize_for_comparison
-from .types import ConfidenceEvidence
+from .types import ISRC_GRADE_METHODS, ConfidenceEvidence
 
 
 class InternalTrackData(TypedDict):
@@ -175,7 +176,8 @@ def calculate_confidence(
     service_duration = service_track_data.get("duration_ms")
 
     # ── 1. Title comparison ─────────────────────────────────────────────
-    title_similarity = 0.0
+    # None = nothing to compare (missing is neutral, not a mismatch)
+    title_similarity: float | None = None
     title_is_variation = False
     title_is_phonetic = False
 
@@ -197,7 +199,7 @@ def calculate_confidence(
     )
 
     # ── 2. Artist comparison ────────────────────────────────────────────
-    artist_similarity = 0.0
+    artist_similarity: float | None = None
     artist_is_phonetic = False
 
     if internal_artists and service_artist:
@@ -231,7 +233,7 @@ def calculate_confidence(
 
     # ── 4. ISRC comparison ──────────────────────────────────────────────
     isrc_suspect = False
-    isrc_matched = match_method in ("isrc", "mbid")
+    isrc_matched = match_method in ISRC_GRADE_METHODS
     isrc_available = isrc_matched  # ISRC was available if it was used to match
 
     if isrc_matched:
@@ -265,11 +267,12 @@ def calculate_confidence(
         title_score=title_score,
         artist_score=artist_score,
         duration_score=duration_score,
-        title_similarity=title_similarity,
-        artist_similarity=artist_similarity,
+        title_similarity=title_similarity if title_similarity is not None else 0.0,
+        artist_similarity=artist_similarity if artist_similarity is not None else 0.0,
         duration_diff_ms=duration_diff_ms if duration_diff_ms is not None else 0,
         final_score=final_score,
         isrc_suspect=isrc_suspect,
+        duration_missing=duration_level is DURATION_MISSING,
         match_weight=match_weight,
     )
 

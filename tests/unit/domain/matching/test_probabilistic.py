@@ -13,6 +13,7 @@ from src.domain.matching.probabilistic import (
     ARTIST_HIGH_FUZZY,
     ARTIST_LOW_FUZZY,
     ARTIST_MISMATCH,
+    ARTIST_MISSING,
     ARTIST_PHONETIC,
     DURATION_CLOSE,
     DURATION_MISMATCH,
@@ -25,6 +26,7 @@ from src.domain.matching.probabilistic import (
     TITLE_EXACT,
     TITLE_HIGH_FUZZY,
     TITLE_MISMATCH,
+    TITLE_MISSING,
     TITLE_MODERATE_FUZZY,
     TITLE_PHONETIC,
     TITLE_VARIATION,
@@ -124,6 +126,12 @@ class TestClassifyTitle:
             is TITLE_EXACT
         )
 
+    def test_missing_title_is_neutral(self):
+        """None similarity (nothing to compare) is MISSING — LLR exactly 0."""
+        level = classify_title(None, is_phonetic_match=False, is_variation=False)
+        assert level is TITLE_MISSING
+        assert level.log_likelihood_ratio == 0.0
+
 
 class TestClassifyArtist:
     """Test artist comparison level classification."""
@@ -142,6 +150,12 @@ class TestClassifyArtist:
 
     def test_mismatch(self):
         assert classify_artist(0.3, is_phonetic_match=False) is ARTIST_MISMATCH
+
+    def test_missing_artist_is_neutral(self):
+        """None similarity (nothing to compare) is MISSING — LLR exactly 0."""
+        level = classify_artist(None, is_phonetic_match=False)
+        assert level is ARTIST_MISSING
+        assert level.log_likelihood_ratio == 0.0
 
 
 class TestClassifyDuration:

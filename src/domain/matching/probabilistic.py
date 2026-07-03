@@ -77,6 +77,9 @@ TITLE_VARIATION = ComparisonLevel(
 TITLE_MISMATCH = ComparisonLevel(
     "title_mismatch", m_probability=0.05, u_probability=0.60
 )
+TITLE_MISSING = ComparisonLevel(
+    "title_missing", m_probability=0.50, u_probability=0.50
+)  # Neutral — absence is uninformative under both hypotheses
 
 # ── Artist comparison levels ────────────────────────────────────────────
 
@@ -93,6 +96,9 @@ ARTIST_LOW_FUZZY = ComparisonLevel(
 ARTIST_MISMATCH = ComparisonLevel(
     "artist_mismatch", m_probability=0.05, u_probability=0.70
 )
+ARTIST_MISSING = ComparisonLevel(
+    "artist_missing", m_probability=0.50, u_probability=0.50
+)  # Neutral — mirrors DURATION_MISSING
 
 # ── Duration comparison levels ──────────────────────────────────────────
 
@@ -120,7 +126,7 @@ ISRC_ABSENT = ComparisonLevel(
 
 
 def classify_title(
-    similarity: float,
+    similarity: float | None,
     *,
     is_phonetic_match: bool,
     is_variation: bool,
@@ -129,11 +135,14 @@ def classify_title(
     """Classify a title comparison into the appropriate level.
 
     Args:
-        similarity: Raw similarity score (0.0-1.0).
+        similarity: Raw similarity score (0.0-1.0), or None when either side
+            has no title to compare (missing is neutral, not a mismatch).
         is_phonetic_match: Whether the titles match phonetically.
         is_variation: Whether a title variation was detected (live, remix, etc.).
         high_similarity_threshold: Threshold for "high fuzzy" tier.
     """
+    if similarity is None:
+        return TITLE_MISSING
     if similarity >= 1.0:
         return TITLE_EXACT
     if is_variation:
@@ -148,12 +157,18 @@ def classify_title(
 
 
 def classify_artist(
-    similarity: float,
+    similarity: float | None,
     *,
     is_phonetic_match: bool,
     high_similarity_threshold: float = 0.9,
 ) -> ComparisonLevel:
-    """Classify an artist comparison into the appropriate level."""
+    """Classify an artist comparison into the appropriate level.
+
+    ``None`` similarity means either side has no artist to compare —
+    neutral (missing), not a mismatch.
+    """
+    if similarity is None:
+        return ARTIST_MISSING
     if similarity >= 1.0:
         return ARTIST_EXACT
     if is_phonetic_match:

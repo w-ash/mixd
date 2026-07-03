@@ -22,6 +22,12 @@ type ProgressCallback = Callable[[int, int, str], Awaitable[None]]
 EXISTING_MAPPING_CONFIDENCE: Final[int] = 90
 EXISTING_MAPPING_METHOD: Final[str] = "existing_mapping"
 
+# Match methods that carry ISRC-grade evidence weight in scoring. "mbid" is
+# included for a future *verified*-MBID path — since v0.8.18 the Last.fm
+# provider no longer emits it (unverified Last.fm MBIDs are hints, not
+# identity; see docs/backlog/identity-resolution-design-space.md FM1d).
+ISRC_GRADE_METHODS: Final[tuple[str, ...]] = ("isrc", "mbid")
+
 
 class MatchFailureReason(Enum):
     """Reasons why a track match attempt failed.
@@ -85,6 +91,7 @@ class ConfidenceEvidence:
     duration_diff_ms: int = 0
     final_score: int = 0
     isrc_suspect: bool = False
+    duration_missing: bool = False
     match_weight: float = 0.0
 
     def as_dict(self) -> dict[str, object]:
@@ -101,6 +108,8 @@ class ConfidenceEvidence:
         }
         if self.isrc_suspect:
             result["isrc_suspect"] = True
+        if self.duration_missing:
+            result["duration_missing"] = True
         if self.match_weight:
             result["match_weight"] = round(self.match_weight, 4)
         return result

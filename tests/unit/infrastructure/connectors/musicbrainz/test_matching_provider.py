@@ -13,8 +13,6 @@ See docs/backlog/identity-resolution-design-space.md §4 (test 8).
 
 from unittest.mock import AsyncMock
 
-import pytest
-
 from src.config import create_evaluation_service
 from src.infrastructure.connectors.musicbrainz.matching_provider import (
     MusicBrainzProvider,
@@ -54,17 +52,16 @@ class TestIsrcMatchWithEmptyMetadata:
         assert raw["service_data"]["artist"] == ""
         assert raw["service_data"]["duration_ms"] is None
 
-    async def test_empty_metadata_isrc_match_auto_accepts(self):
-        """Empty metadata scores as mismatch, ISRC overwhelms it, auto-accept.
+    async def test_empty_metadata_isrc_match_cannot_auto_accept(self):
+        """Empty metadata is neutral; no duration → review, never auto-accept.
 
-        Characterization (FM1g): pins the exact arithmetic —
-        ISRC_EXACT ln(0.99/0.0001) = +9.2003, TITLE_MISMATCH ln(0.05/0.60)
-        = -2.4849, ARTIST_MISMATCH ln(0.05/0.70) = -2.6391, DURATION_MISSING
-        = 0.0; weight 4.0763 → sigmoid 0.98331 → confidence 98 ≥ 85
-        auto-accept, with isrc_suspect unreachable (no duration to compare).
-        Flipped by: Confidence integrity repair (missing title/artist become
-        neutral AND an isrc/mbid match with missing duration cannot
-        auto-accept — success False, review_required True).
+        FLIPPED characterization (FM1g, fixed by Confidence integrity repair):
+        the original pin recorded confidence 98 with empty title/artist scored
+        as MISMATCH (-2.4849/-2.6391) and auto-accept with the duration-based
+        suspect check unreachable. Now missing title/artist classify as
+        MISSING (LLR exactly 0, so ISRC_EXACT alone → confidence 100) and an
+        ISRC-grade match whose duration comparison is missing routes to
+        review — a human confirms what the suspect check cannot.
         """
         track = make_track(
             title="Gold Rush",
@@ -78,13 +75,13 @@ class TestIsrcMatchWithEmptyMetadata:
             track, raw, "musicbrainz"
         )
 
-        assert match.confidence == 98
-        assert match.success is True
-        assert match.review_required is False
+        assert match.confidence == 100
+        assert match.success is False
+        assert match.review_required is True
         assert match.evidence is not None
-        # The suspect check never ran: no duration on the service side.
         assert match.evidence.isrc_suspect is False
-        # Empty title/artist were scored as MISMATCH, not neutral.
-        assert match.evidence.title_score == pytest.approx(-2.4849, abs=1e-3)
-        assert match.evidence.artist_score == pytest.approx(-2.6391, abs=1e-3)
+        assert match.evidence.duration_missing is True
+        # Missing title/artist are neutral, not penalties.
+        assert match.evidence.title_score == 0.0
+        assert match.evidence.artist_score == 0.0
         assert match.evidence.duration_score == 0.0

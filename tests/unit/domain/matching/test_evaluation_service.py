@@ -84,7 +84,9 @@ class TestEvaluateSingleMatch:
 
     def test_successful_isrc_match_returns_high_confidence(self):
         """High-quality ISRC match should succeed with high confidence."""
-        track = make_track(1, title="Paranoid Android", artist="Radiohead")
+        track = make_track(
+            1, title="Paranoid Android", artist="Radiohead", duration_ms=240_000
+        )
         raw_match = _make_raw_match(
             connector_id="spotify:abc",
             match_method="isrc",
@@ -102,7 +104,7 @@ class TestEvaluateSingleMatch:
 
     def test_successful_match_updates_track_with_connector_id(self):
         """Accepted match should produce an updated track with the connector mapping."""
-        track = make_track(1)
+        track = make_track(1, duration_ms=240_000)
         raw_match = _make_raw_match(connector_id="spotify:xyz", match_method="isrc")
 
         result = self.service.evaluate_single_match(track, raw_match, "spotify")
@@ -124,6 +126,66 @@ class TestEvaluateSingleMatch:
 
         assert result.success is False
         assert result.track is track  # Same object, not modified
+
+    def test_isrc_match_without_duration_cannot_auto_accept(self):
+        """ISRC-grade evidence with no duration comparison routes to review.
+
+        The duration-based suspect check (assess_isrc_match_reliability) is
+        structurally unreachable without a duration on both sides — the match
+        may score at 100, but a human confirms it instead of auto-accepting.
+        """
+        track = make_track(1, title="Gold Rush", artist="Neon Priest")  # no duration
+        raw_match = _make_raw_match(
+            match_method="isrc",
+            title="Gold Rush",
+            artist="Neon Priest",
+            duration_ms=None,
+        )
+
+        result = self.service.evaluate_single_match(track, raw_match, "musicbrainz")
+
+        assert result.success is False
+        assert result.review_required is True
+        assert result.evidence is not None
+        assert result.evidence.duration_missing is True
+        # The track was NOT updated with the connector id (not accepted).
+        assert "musicbrainz" not in result.track.connector_track_identifiers
+
+    def test_isrc_match_with_duration_but_missing_titles_auto_accepts(self):
+        """Missing title/artist alone doesn't gate — the suspect check ran.
+
+        With durations on both sides the ISRC reliability check is reachable,
+        so neutral-missing text metadata may still auto-accept.
+        """
+        track = make_track(
+            1, title="Gold Rush", artist="Neon Priest", duration_ms=200_000
+        )
+        raw_match = _make_raw_match(
+            match_method="isrc", title="", artist="", duration_ms=200_000
+        )
+
+        result = self.service.evaluate_single_match(track, raw_match, "musicbrainz")
+
+        assert result.success is True
+        assert result.review_required is False
+        assert result.evidence is not None
+        assert result.evidence.duration_missing is False
+        assert result.evidence.isrc_suspect is False
+
+    def test_artist_title_match_without_duration_is_not_gated(self):
+        """The no-duration gate applies only to ISRC-grade methods."""
+        track = make_track(1, title="Gold Rush", artist="Neon Priest")
+        raw_match = _make_raw_match(
+            match_method="artist_title",
+            title="Gold Rush",
+            artist="Neon Priest",
+            duration_ms=None,
+        )
+
+        result = self.service.evaluate_single_match(track, raw_match, "spotify")
+
+        assert result.success is True
+        assert result.review_required is False
 
     def test_evidence_is_populated(self):
         """Match result should include confidence evidence details."""
@@ -151,7 +213,7 @@ class TestEvaluateRawMatches:
     def test_accepted_and_rejected_are_separated(self):
         """Batch evaluation separates accepted from rejected."""
         tracks = [
-            make_track(1, title="Good Match", artist="Artist"),
+            make_track(1, title="Good Match", artist="Artist", duration_ms=240_000),
             make_track(2, title="Bad Match", artist="Artist", duration_ms=240_000),
         ]
         raw_matches = {
@@ -178,7 +240,7 @@ class TestEvaluateRawMatches:
     def test_tracks_without_raw_matches_skipped(self):
         """Tracks with no corresponding raw match should be silently skipped."""
         tracks = [
-            make_track(1, title="Song", artist="Artist"),
+            make_track(1, title="Song", artist="Artist", duration_ms=240_000),
             make_track(2, title="Unmatched", artist="Artist"),
         ]
         raw_matches = {
@@ -212,8 +274,8 @@ class TestEvaluateRawMatches:
     def test_all_tracks_matched_returns_all(self):
         """When all tracks match well, all should appear in accepted."""
         tracks = [
-            make_track(1, title="Song 1", artist="Artist"),
-            make_track(2, title="Song 2", artist="Artist"),
+            make_track(1, title="Song 1", artist="Artist", duration_ms=240_000),
+            make_track(2, title="Song 2", artist="Artist", duration_ms=240_000),
         ]
         raw_matches = {
             1: _make_raw_match(

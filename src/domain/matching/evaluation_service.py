@@ -22,6 +22,7 @@ from src.domain.matching.algorithms import (
 )
 from src.domain.matching.config import MatchingConfig
 from src.domain.matching.types import (
+    ISRC_GRADE_METHODS,
     EvaluationResult,
     MatchResult,
     MatchResultsById,
@@ -118,6 +119,13 @@ class TrackMatchEvaluationService:
         review_required = not success and self.should_review_match(
             confidence, match_method
         )
+
+        # ISRC-grade evidence with no duration comparison leaves the
+        # duration-based suspect check structurally unreachable — such a
+        # match cannot auto-accept; a human confirms it instead.
+        if success and match_method in ISRC_GRADE_METHODS and evidence.duration_missing:
+            success = False
+            review_required = True
 
         # Create updated track with connector mapping if auto-accepted
         if success:
