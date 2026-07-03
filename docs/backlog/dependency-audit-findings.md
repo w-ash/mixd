@@ -1,5 +1,7 @@
 # Dependency Audit — Findings
 
+**Status**: Active — work orders W1–W10 unscheduled.
+
 > Docs-first pass from the [v0.8.17 sweep closeout](v0.8.13-0.8.17.md#v0817-sweep-closeout--ratchet--review) (2026-07-02, branch `sweep-closeout-v0.8.17`), sibling to the v0.8.12 code audit: every dependency **necessary**, on the **best-supported option** for its job, and **fully utilized** rather than shadowed by bespoke code. No runtime changes ship with this doc — each actionable finding is a work order at the bottom, scheduled separately.
 
 **Scope**: `pyproject.toml` (21 runtime + 12 dev), `web/package.json` (21 runtime + 20 dev), root `package.json` (1 dev). Tools: `uvx deptry .`, `pnpm --prefix web lint:dead` (knip), `uv pip list --outdated`, `pnpm outdated`, targeted usage greps.

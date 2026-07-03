@@ -1,5 +1,7 @@
 # Import/Sync Rearchitecture — Handoff
 
+**Status**: Complete (2026-06-25) — Phases 5–6 shipped as v0.8.7/v0.8.8.
+
 **For:** the next agent. Job (1) **code-review of Phases 1–4 is DONE** and its
 findings are remediated — see **§0a** for what it caught and fixed. Remaining
 job: **build the final phases** (5: use cases + REST API + direction model +

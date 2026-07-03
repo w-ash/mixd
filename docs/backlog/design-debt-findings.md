@@ -1,5 +1,7 @@
 # Design-Debt Review — Findings
 
+**Status**: Active — findings still feed future milestones.
+
 **Scope**: the second of two mid-2026 audits. The hygiene pass cleaned lint-visible debt (suppressions, dead symbols, copy-paste). This pass walked the codebase **use case by use case** against documented user goals, hunting over-engineering, accretion drift, misleading names, and disproportionate paths. Review-and-recommend only — no refactors were applied.
 
 **Method**: 30 flow rows walked end-to-end (page/CLI → route → use case → domain → repo/connector) against a fixed fitness rubric, scored against a local calibration bar (the v0.8.2 schedules flow); coupling/naming measured over 320 commits of git history; 8 hotspots deep-dived with **history-before-judgment** archaeology (every draft finding had to survive a refutation attempt before standing). Boundary respected: identity-resolution/matching internals were traversed but not judged — they belong to the parallel track in `identity-resolution-research-handoff.md`; observations are handed over in §8.
@@ -63,8 +65,8 @@ The handoff and `CLAUDE.md` carry several stale facts; surfacing them so they do
 
 | Claim | Reality |
 |---|---|
-| `docs/user-flows.md` (CLAUDE.md, handoff) | Does not exist. Canonical flows doc is **`docs/web-ui/01-user-flows.md`**. |
-| `US-AREA-N` flow IDs (`backlog-format.md`) | No such IDs exist. Flows are numbered sections **1.1–7.2**. |
+| `docs/user-flows.md` (CLAUDE.md, handoff) | Retired path — does not exist. Canonical flows doc is **`docs/web-ui/01-user-flows.md`**. |
+| `US-AREA-N` flow IDs (`backlog-format.md`) | Retired convention — no such IDs exist. Flows are numbered sections **1.1–7.2**. |
 | "69 use cases" | **56 use-case modules** (12,095 LOC). The count reconciles at the *class* level (`sync_likes.py` holds 3, `schedules.py` 5) — neither number is wrong, but the module/class distinction matters when sizing work. |
 | "80% coverage gate" | No `fail_under` in pyproject. **3,117 fast tests**; coverage **omits** `src/interface/cli/*` and `apple_music/*` — any CLI-touching refactor must build its characterization net first. |
 | Lead #7: "workflow delete in CLI, API endpoint zero consumers" | Resolved differently than implied: the hygiene pass (`1191128e`) **removed** `DELETE /workflows/{id}`; CLI delete remains as `DeleteWorkflowUseCase`'s **sole** consumer. Drift codified, now CLI-only. |
@@ -213,7 +215,7 @@ Under archaeology the over-engineering suspicion **inverts**. The architecture i
 - **Whole IA sections describe rebuilt designs**: 4.1's single Import Center with date pickers / cancel buttons / checkpoint tables → rebuilt as `/settings/sync` + `/settings/imports`; 5.1–5.3's three-state "Mixd Master/Connector Master/Manual" model predates a two-value `SyncDirection`.
 - **Promised features with no code**: 2.2 Metrics section + sparkline; 4.5 staleness thresholds (green/yellow/red); CC-1 cancellation narrative (correctly marked "needs implementation" in its status row but oversold in prose).
 
-The Status token appears to have once meant "the use case exists, endpoint needs wiring" but now reads as "shipped". **Recommendation**: a doc-truing pass is an **S** task with outsized value — it's the document every feature "starts from". Plus the two always-loaded references to fix: `CLAUDE.md`'s `docs/user-flows.md` link and `backlog-format.md`'s `US-AREA-N` convention.
+The Status token appears to have once meant "the use case exists, endpoint needs wiring" but now reads as "shipped". **Recommendation**: a doc-truing pass is an **S** task with outsized value — it's the document every feature "starts from". Plus the two always-loaded references to fix (both retired refs, fixed in v0.8.6): `CLAUDE.md`'s `docs/user-flows.md` link and `backlog-format.md`'s `US-AREA-N` convention.
 
 ---
 

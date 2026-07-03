@@ -1,5 +1,7 @@
 # Handoff: Design-Debt Review — Use-Case-by-Use-Case Fitness Audit
 
+**Status**: Complete (2026-06) — commission fulfilled; deliverable: [design-debt-findings.md](../design-debt-findings.md).
+
 **For**: a review agent starting fresh on this codebase.
 **Mission**: the codebase has grown substantially from its first design (v0.1 → v0.8.4, ~70k backend LOC, 69 use cases, 4 connectors' worth of infrastructure, dual CLI+Web presentation). A mid-2026 hygiene pass cleaned the lint-visible debt (suppressions, dead code, duplication detectable by tools). **This assignment is the other audit: design debt.** Walk the codebase *use case by use case* and ask, for each one: what is the user trying to accomplish? What is the system trying to accomplish in service of that? And is the code that accomplishes it modern, understandable, DRY, proportionate, well-named, and maintainable — or has accretion left it over-engineered, misnamed, or tangled?
 

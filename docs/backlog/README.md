@@ -52,18 +52,18 @@ Each milestone delivers a **vertical slice** — backend API + frontend page tog
 | **v0.3.1** | Imports + real-time progress | ✅ Completed | [details](completed/v0.3.x.md#v031-imports--real-time-progress-vertical-slice-2) |
 | **v0.3.2** | Track library + search | ✅ Completed | [details](completed/v0.3.x.md#v032-library--search-vertical-slice-3) |
 | **v0.3.3** | Dashboard + stats | ✅ Completed | [details](completed/v0.3.x.md#v033-dashboard--stats-vertical-slice-4) |
-| **v0.4.0** | Workflows (persistence, visualization, CRUD) | ✅ Completed | [details](v0.4.x.md#v040-workflow-persistence--visualization-vertical-slice-5a) |
-| **v0.4.1** | Workflow execution + run history | ✅ Completed | [details](v0.4.x.md#v041-workflow-execution--run-history-vertical-slice-5b) |
-| **v0.4.2** | Run-first workflow UX | ✅ Completed | [details](v0.4.x.md#v042-run-first-workflow-ux-vertical-slice-5c) |
-| **v0.4.3** | Visual workflow editor + versioning | ✅ Completed | [details](v0.4.x.md#v043-visual-workflow-editor--preview-vertical-slice-5d) |
-| **v0.4.4** | Connector playlist linking | ✅ Completed | [details](v0.4.x.md#v044-connector-playlist-linking-vertical-slice-6) |
-| **v0.4.5** | Code & test suite hardening | ✅ Completed | [details](v0.4.x.md#v045-code--test-suite-hardening) |
-| **v0.4.6** | Track provenance & duplicate merge | ✅ Completed | [details](v0.4.x.md#v046-track-provenance--merge-vertical-slice-7a) |
-| **v0.4.7** | Track relink & unlink | ✅ Completed | [details](v0.4.x.md#v047-track-relink--unlink-vertical-slice-7b) |
-| **v0.4.8** | Usability & self-explanatory interface pass | ✅ Completed | [details](v0.4.x.md#v048-usability--self-explanatory-interface-pass) |
-| **v0.4.9** | Data integrity & quality audit | ✅ Completed | [details](v0.4.x.md#v049-data-integrity--quality-audit) |
-| **v0.4.10** | Cross-service play history deduplication | ✅ Completed | [details](v0.4.x.md#v0410-cross-service-play-history-deduplication) |
-| **v0.4.11** | CLI unification & polish | ✅ Completed | [details](v0.4.x.md#v0411-cli-unification--polish) |
+| **v0.4.0** | Workflows (persistence, visualization, CRUD) | ✅ Completed | [details](completed/v0.4.x.md#v040-workflow-persistence--visualization-vertical-slice-5a) |
+| **v0.4.1** | Workflow execution + run history | ✅ Completed | [details](completed/v0.4.x.md#v041-workflow-execution--run-history-vertical-slice-5b) |
+| **v0.4.2** | Run-first workflow UX | ✅ Completed | [details](completed/v0.4.x.md#v042-run-first-workflow-ux-vertical-slice-5c) |
+| **v0.4.3** | Visual workflow editor + versioning | ✅ Completed | [details](completed/v0.4.x.md#v043-visual-workflow-editor--preview-vertical-slice-5d) |
+| **v0.4.4** | Connector playlist linking | ✅ Completed | [details](completed/v0.4.x.md#v044-connector-playlist-linking-vertical-slice-6) |
+| **v0.4.5** | Code & test suite hardening | ✅ Completed | [details](completed/v0.4.x.md#v045-code--test-suite-hardening) |
+| **v0.4.6** | Track provenance & duplicate merge | ✅ Completed | [details](completed/v0.4.x.md#v046-track-provenance--merge-vertical-slice-7a) |
+| **v0.4.7** | Track relink & unlink | ✅ Completed | [details](completed/v0.4.x.md#v047-track-relink--unlink-vertical-slice-7b) |
+| **v0.4.8** | Usability & self-explanatory interface pass | ✅ Completed | [details](completed/v0.4.x.md#v048-usability--self-explanatory-interface-pass) |
+| **v0.4.9** | Data integrity & quality audit | ✅ Completed | [details](completed/v0.4.x.md#v049-data-integrity--quality-audit) |
+| **v0.4.10** | Cross-service play history deduplication | ✅ Completed | [details](completed/v0.4.x.md#v0410-cross-service-play-history-deduplication) |
+| **v0.4.11** | CLI unification & polish | ✅ Completed | [details](completed/v0.4.x.md#v0411-cli-unification--polish) |
 | **v0.5.0** | CI/CD + environment hardening | ✅ Completed | [details](completed/v0.5.x.md#v050-cicd--environment-hardening) |
 | **v0.5.1** | PostgreSQL migration + optimization | ✅ Completed | [details](completed/v0.5.x.md#v051-postgresql-migration) |
 | **v0.5.2** | PostgreSQL-native feature adoption | ✅ Completed | [details](completed/v0.5.x.md#v052-postgresql-native-feature-adoption) |
@@ -89,15 +89,15 @@ Each milestone delivers a **vertical slice** — backend API + frontend page tog
 | **v0.6.10** | Neon platform integration & multi-user hardening | ✅ Completed | [details](completed/v0.6.x.md#v0610-neon-platform-integration--multi-user-hardening) |
 | **v0.6.11** | Likes sync resilience & Sync page redesign | ✅ Completed | [details](completed/v0.6.x.md#v0611-likes-sync-resilience--sync-page-redesign) |
 | **v0.6.12** | Explicit Any cleanup — zero Any codebase | ✅ Completed | [details](completed/v0.6.x.md#v0612-explicit-any-cleanup--zero-any-codebase) |
-| **v0.7.0** | Preference system — rate tracks as hmm/nah/yah/star | ✅ Completed | [details](v0.7.0-1.md#v070-preference-system) |
-| **v0.7.1** | Preference sync from likes — imported likes become preferences with original dates | ✅ Completed | [details](v0.7.0-1.md#v071-preference-sync-from-likes) |
+| **v0.7.0** | Preference system — rate tracks as hmm/nah/yah/star | ✅ Completed | [details](completed/v0.7.0-1.md#v070-preference-system) |
+| **v0.7.1** | Preference sync from likes — imported likes become preferences with original dates | ✅ Completed | [details](completed/v0.7.0-1.md#v071-preference-sync-from-likes) |
 | **v0.7.2** | Tagging system — categorize tracks by mood, energy, context | ✅ Completed | [details](completed/v0.7.2-3.md#v072-tagging-system) |
 | **v0.7.3** | Playlist browser — browse & import Spotify playlists | ✅ Completed | [details](completed/v0.7.2-3.md#v073-playlist-browser) |
 | **v0.7.4** | Tag & preference bootstrap — bulk-map playlists to tags/preferences | ✅ Completed | [details](completed/v0.7.4-5.md#v074-tag--preference-bootstrap) |
 | **v0.7.5** | Workflow integration & quick filters | ✅ Completed | [details](completed/v0.7.4-5.md#v075-workflow-integration--quick-filters) |
-| **v0.7.6** | Tag maintenance & single-playlist Spotify polish — tag mgmt page, force-refresh, route integration tests | 🚀 Shipped | [details](v0.7.6.md#v076-tag-maintenance--single-playlist-polish) |
-| **v0.7.7** | Operation Run Log — persisted import history + post-run toast | 🚀 Shipped | [details](v0.7.7.md#v077-operation-run-log) |
-| **v0.7.8** | Mobile responsiveness + visual regression baseline (Playwright `toHaveScreenshot`) | 🚀 Shipped | [details](v0.7.8.md#v078-mobile-responsiveness) |
+| **v0.7.6** | Tag maintenance & single-playlist Spotify polish — tag mgmt page, force-refresh, route integration tests | ✅ Completed | [details](completed/v0.7.6.md#v076-tag-maintenance--single-playlist-polish) |
+| **v0.7.7** | Operation Run Log — persisted import history + post-run toast | ✅ Completed | [details](completed/v0.7.7.md#v077-operation-run-log) |
+| **v0.7.8** | Mobile responsiveness + visual regression baseline (Playwright `toHaveScreenshot`) | ✅ Completed | [details](completed/v0.7.8.md#v078-mobile-responsiveness) |
 | **v0.8.0** | Run reliability & validation hardening | 🚀 Shipped | [details](v0.8.0-0.8.4.md#v080-run-reliability--validation-hardening) |
 | **v0.8.1** | Workflow engine swap (Prefect → stdlib asyncio) | 🚀 Shipped | [details](v0.8.0-0.8.4.md#v081-workflow-engine-swap-prefect-to-stdlib-asyncio) |
 | **v0.8.2** | Workflow scheduling — engine & CLI | 🚀 Shipped | [details](v0.8.0-0.8.4.md#v082-workflow-scheduling---engine--cli) |

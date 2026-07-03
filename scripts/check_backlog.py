@@ -96,16 +96,17 @@ def check_records() -> None:
         if md.name in ("README.md", "unscheduled.md") or VERSION_FILE.match(md.name):
             continue
         head = "\n".join(md.read_text().splitlines()[:15])
-        if "Status:" not in head:
+        if not re.search(r"\*\*Status\*\*:|Status:", head):
             warnings.append(f"{md.name}: one-off record missing a Status: header")
 
 
 def check_retired_refs() -> None:
     for md in sorted(BACKLOG.rglob("*.md")):
+        sink = warnings if COMPLETED in md.parents else errors
         for lineno, line in enumerate(md.read_text().splitlines(), 1):
             if "retired" in line.lower():
                 continue
-            errors.extend(
+            sink.extend(
                 f"{md.relative_to(REPO)}:{lineno} references retired convention {ref!r}"
                 for ref in RETIRED_REFS
                 if ref in line

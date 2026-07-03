@@ -1,6 +1,6 @@
 # Identity Governance — Design-Space Memo
 
-**Date**: 2026-07-02 · **Companion to**: [identity-resolution-design-space.md](identity-resolution-design-space.md) (extends its §2-D3) · **Status**: research deliverable, no code changed
+**Date**: 2026-07-02 · **Companion to**: [identity-resolution-design-space.md](identity-resolution-design-space.md) (extends its §2-D3) · **Status**: Active — research deliverable (no code changed); feeds PDR-001/002 and the sharing milestones
 
 **The question** (from the user): how much should mixd lean on its own internal identity solution vs an external authority like MusicBrainz — and how does multi-user change that? Constraints: no single human arbiter, no hired moderators, bad actors must not be able to corrupt shared state; per-user curation is power-user behavior; sharing between users needs *some* shared resolution. Mandate: map the possibility space, grounded in systems that already work, in music and adjacent spaces.
 

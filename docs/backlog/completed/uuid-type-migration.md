@@ -1,5 +1,7 @@
 # UUID Type Migration & Review Candidate Persistence
 
+**Status**: Complete (2026-04-04) — both sections shipped same day; the "Remaining" heading below is historical.
+
 ## Completed: UUID Type Migration (2026-04-04)
 
 **Goal:** Fix 106 basedpyright type errors from incomplete `int` → `UUID` migration for track IDs and workflow run IDs, plus ~15 unrelated type errors discovered in the same audit.

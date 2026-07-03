@@ -8,8 +8,23 @@ For active backlog, see [../](../).
 |---------------|------|----------|
 | **v0.2.x** | [v0.2.x.md](v0.2.x.md) | v0.2.7 |
 | **v0.3.x** | [v0.3.x.md](v0.3.x.md) | v0.3.0, v0.3.1, v0.3.2, v0.3.3 |
-| **v0.7.x (partial)** | [v0.7.2-3.md](v0.7.2-3.md) | v0.7.2 (Tagging), v0.7.3 (Playlist Browser) |
-| **Any Cleanup 1-3** | [explicit-any-cleanup-batches-1-3.md](explicit-any-cleanup-batches-1-3.md) | Domain + App XS (448→385) — early batches before v0.6.12 |
+| **v0.4.x** | [v0.4.x.md](v0.4.x.md) | v0.4.0–v0.4.11 |
+| **v0.5.x** | [v0.5.x.md](v0.5.x.md) | v0.5.0–v0.5.10 |
+| **v0.6.x** | [v0.6.x.md](v0.6.x.md) | v0.6.0–v0.6.12 (+ v0.6.0.post1) |
+| **v0.7.x** | [v0.7.0-1.md](v0.7.0-1.md) · [v0.7.2-3.md](v0.7.2-3.md) · [v0.7.4-5.md](v0.7.4-5.md) · [v0.7.6.md](v0.7.6.md) · [v0.7.7.md](v0.7.7.md) · [v0.7.8.md](v0.7.8.md) | v0.7.0–v0.7.8 (series archived whole, 2026-07-03) |
+
+## Records & handoffs
+
+Completed one-off records (handoffs, findings, migration notes) — see the `backlog-format` rule's One-off records lifecycle.
+
+| Record | What it was |
+|--------|-------------|
+| [explicit-any-cleanup-batches-1-3.md](explicit-any-cleanup-batches-1-3.md) | Domain + App XS Any-cleanup (448→385) — early batches before v0.6.12 |
+| [uuid-type-migration.md](uuid-type-migration.md) | int→UUID FK migration + review-candidate persistence (2026-04-04) |
+| [design-debt-review-handoff.md](design-debt-review-handoff.md) | Commission for the mid-2026 design-debt audit; deliverable stays active as [../design-debt-findings.md](../design-debt-findings.md) |
+| [v0.8.8-handoff.md](v0.8.8-handoff.md) | Orientation handoff for the v0.8.8 import/sync web UI |
+| [identity-resolution-research-handoff.md](identity-resolution-research-handoff.md) | Commission for the 2026-07 identity research; design-space memos stay active in the backlog root |
+| [import-sync-rearchitecture-handoff.md](import-sync-rearchitecture-handoff.md) | Phases 1–4 build log + phases 5–6 work order, shipped as v0.8.7/v0.8.8 |
 
 ---
 

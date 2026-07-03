@@ -1,6 +1,6 @@
 # Identity Resolution — Design-Space Memo
 
-**Date**: 2026-07-02 · **Commission**: [identity-resolution-research-handoff.md](identity-resolution-research-handoff.md) · **Status**: research deliverable, no code changed
+**Date**: 2026-07-02 · **Commission**: [identity-resolution-research-handoff.md](completed/identity-resolution-research-handoff.md) · **Status**: Active — research deliverable (no code changed); feeds v0.8.18, v0.10.0, v1.0.x
 
 **Mission recap**: map how mixd resolves track identity across Spotify / Last.fm / MusicBrainz today, measure it against 2026 entity-resolution practice and fresh provider documentation, assess Apple Music readiness plus an 8–10-service future, and lay out *directions with trade-offs* — not a chosen design. Scope extensions (2026-07-02): artist-level identity (§7) and the omni-integration breadth ring (§6).
 

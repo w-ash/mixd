@@ -1,5 +1,7 @@
 # Handoff: Identity Resolution Deep Dive — Research Pass
 
+**Status**: Complete (2026-07-02) — deliverables: [identity-resolution-design-space.md](../identity-resolution-design-space.md) + [identity-governance-design-space.md](../identity-governance-design-space.md).
+
 **For**: a research agent starting fresh on this codebase.
 **Mission**: understand how mixd maps a canonical track to its representations on Spotify, Last.fm, and MusicBrainz; research 2026 best practices for entity/identity resolution in the music domain; assess what folding Apple Music into this process requires; and produce a **design-space memo** (options with trade-offs, not a single answer) aimed at making identity resolution more robust, more fault-tolerant, and — where feasible — less fragile.
 
