@@ -107,7 +107,7 @@ Each milestone delivers a **vertical slice** — backend API + frontend page tog
 | **v0.8.15** | Sweep Wave 3 — frontend structure (QueryStates, search de-fork, page splits) | 🚀 Shipped | [details](v0.8.13-0.8.17.md#v0815-sweep-wave-3--frontend-structure) |
 | **v0.8.16** | Sweep Wave 4 — high-risk decompositions (executor flatten, connector contract) | 🚀 Shipped | [details](v0.8.13-0.8.17.md#v0816-sweep-wave-4--high-risk-decompositions) |
 | **v0.8.17** | Sweep closeout — ratchet, Fable review & dependency audit | 🚀 Shipped | [details](v0.8.13-0.8.17.md#v0817-sweep-closeout--ratchet--review) |
-| **v0.8.18** | Identity integrity — confidence repair, ISRC guards, drift metrics (2026-07 research D1; gates v0.10.0 artist identity, v1.0.1 Apple Music, v1.1.x–v1.2.x sharing) | 🔜 Not Started | [details](v0.8.18.md#v0818-identity-integrity) |
+| **v0.8.18** | Identity integrity — confidence repair, ISRC guards, drift metrics (2026-07 research D1; gates v0.10.0 artist identity, v1.0.1 Apple Music, v1.1.x–v1.2.x sharing) | 🔨 In Progress | [details](v0.8.18.md#v0818-identity-integrity) |
 | **v0.9.0** | Workflow assistant — right-panel chat (couplefins port) + shared tool registry | 🔜 Not Started | [details](v0.9.x.md#v090-workflow-assistant-right-panel-chat) |
 | **v0.9.1** | MCP server — mixd as a tool surface (stdio; consumes the v0.9.0 registry) | 🔜 Not Started | [details](v0.9.x.md#v091-mcp-server-mixd-as-a-tool-surface) |
 | **v0.9.3** | Follow-ups & hardening — placeholder, scoped after v0.9.0/v0.9.1 ship | 🔜 Not Started | [details](v0.9.x.md#v093-follow-ups--hardening-placeholder) |
