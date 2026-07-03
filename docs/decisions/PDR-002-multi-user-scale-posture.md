@@ -42,6 +42,7 @@
 | 2026-07-02 | [S] | Letterboxd/TMDb; Songlink (G3, verified) | Beloved sharing products run identity with zero user curation and zero/near-zero moderation staff — by removing gameable surfaces | Anchor-only sharing at every ring | The "easy solution" confirmed shipped |
 | 2026-07-02 | [S] | OSM "Jewtropolis" (2h revert, weeks-later downstream reappearance) | Revert speed at source doesn't bound stale-cache exposure — TTLs are part of the abuse posture | Ring 1+ cache design | Applied to v1.2.0 CDN spec |
 | 2026-07-02 | [A] | Mastodon growth-wave moderation strain; Bluesky 17× report growth | Open registration converts governance from structural to laborious, suddenly | Ring-2 trigger wording ("owner accepts the duty") | Directional but consistent across networks |
+| 2026-07-03 | [S] | Prod probe (v0.8.18 baseline run): `neondb_owner` has `rolbypassrls = t`; a session with `app.user_id` set to one user read both that user's and `default`-user rows | **RLS is inert on Neon today** — FORCE RLS does not override BYPASSRLS, so the entire policy layer is skipped when the app connects as the owner role; isolation rests solely on repository WHERE clauses (and FM6c-style gaps in those are live, not backstopped). Also: 424 tracks / 850 mappings of `default`-user residue exist post-migration-012 | Ring-1 prerequisite: hosted multi-user requires a dedicated non-BYPASSRLS application role before any second real user | Primary, verified in session; single-user today so no actual exposure yet |
 
 ## What would change my mind
 
