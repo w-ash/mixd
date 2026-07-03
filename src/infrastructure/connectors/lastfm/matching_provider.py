@@ -197,10 +197,13 @@ class LastFMProvider:
                 "lastfm_listeners": track_info.lastfm_listeners,
                 "lastfm_user_loved": track_info.lastfm_user_loved,
             }
-
-            # Determine match method based on available data
-            # Note: This is data classification, not business logic
-            match_method = "mbid" if track_info.lastfm_mbid else "artist_title"
+            # Preserve the MBID as provenance only — Last.fm MBIDs are
+            # type-confused and merge-stale ("never trust any MBIDs from the
+            # Last.fm API" — MetaBrainz), so they must not earn ISRC-grade
+            # "mbid" scoring. A future path may verify against MusicBrainz
+            # (Track-vs-Recording + 301-merge aware) to re-earn it.
+            if track_info.lastfm_mbid:
+                service_data["lastfm_mbid"] = track_info.lastfm_mbid
 
             # Return raw data - no confidence calculation or business logic
             if not track_info.lastfm_url:
@@ -208,7 +211,7 @@ class LastFMProvider:
 
             return RawProviderMatch(
                 connector_id=track_info.lastfm_url,
-                match_method=match_method,
+                match_method="artist_title",
                 service_data=service_data,
             )
 

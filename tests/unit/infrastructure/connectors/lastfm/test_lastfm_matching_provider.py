@@ -168,15 +168,22 @@ class TestLastFMProviderCreateRawMatch:
         assert result["service_data"]["lastfm_listeners"] == 25_000
         assert result["service_data"]["lastfm_user_loved"] is True
 
-    def test_match_method_is_mbid_when_mbid_present(self):
-        """Should classify match method as 'mbid' when MBID is available."""
+    def test_mbid_is_demoted_to_artist_title_scoring(self):
+        """An unverified Last.fm MBID must not earn ISRC-grade 'mbid' scoring.
+
+        FLIPPED (v0.8.18 FM1d): previously an MBID-bearing response was
+        labeled method 'mbid' (+9.2 log-odds — ISRC-tier evidence) despite
+        Last.fm MBIDs being type-confused and merge-stale. The MBID is
+        preserved as provenance in service_data for a future verified path.
+        """
         provider, _ = _make_provider()
         track_info = _make_lastfm_track_info(mbid="abc-123-def")
 
         result = provider._create_raw_match(track_info)
 
         assert result is not None
-        assert result["match_method"] == "mbid"
+        assert result["match_method"] == "artist_title"
+        assert result["service_data"]["lastfm_mbid"] == "abc-123-def"
 
     def test_match_method_is_artist_title_without_mbid(self):
         """Should classify match method as 'artist_title' when no MBID."""
@@ -187,6 +194,7 @@ class TestLastFMProviderCreateRawMatch:
 
         assert result is not None
         assert result["match_method"] == "artist_title"
+        assert "lastfm_mbid" not in result["service_data"]
 
     def test_returns_none_on_exception(self):
         """Should return None if data extraction fails."""

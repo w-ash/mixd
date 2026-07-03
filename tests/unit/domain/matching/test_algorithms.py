@@ -207,6 +207,34 @@ class TestCalculateConfidence:
         assert "duration_missing" not in with_duration.as_dict()
         assert without_duration.as_dict()["duration_missing"] is True
 
+    def test_isrc_grade_weight_is_method_gated(self):
+        """Only 'isrc'/'mbid' methods earn the ISRC evidence weight.
+
+        Guards the v0.8.18 FM1d demotion end-to-end: the same track pair
+        scored as 'artist_title' must weigh less than as 'mbid' — so a
+        provider that stops emitting 'mbid' actually stops the inflation.
+        """
+        internal_track = {
+            "title": "Gold Rush",
+            "artists": ["Neon Priest"],
+            "duration_ms": 200000,
+        }
+        service_track = {
+            "title": "Gold Rush",
+            "artist": "Neon Priest",
+            "duration_ms": 200000,
+        }
+
+        _, as_artist_title = calculate_confidence(
+            internal_track, service_track, "artist_title", config
+        )
+        _, as_mbid = calculate_confidence(internal_track, service_track, "mbid", config)
+
+        # ISRC_EXACT contributes ln(0.99/0.0001) ≈ +9.20 only via the method.
+        assert as_mbid.match_weight - as_artist_title.match_weight == pytest.approx(
+            9.2003, abs=1e-3
+        )
+
     def test_artist_mismatch_reduces_confidence(self):
         """Artist mismatches should produce negative evidence and lower weight."""
         internal_track = {
