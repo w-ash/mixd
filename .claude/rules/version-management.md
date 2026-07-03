@@ -48,6 +48,10 @@ PEP 440's `.postN` is reserved for **metadata-only fixes** (typo in a PyPI descr
 2. `pnpm --prefix web sync-api` — exports OpenAPI schema (picks up new version) + runs Orval codegen.
 3. Verify: `uv run python -c "from src import __version__; print(__version__)"` and `head -7 web/openapi.json`.
 4. Update docs (semantic content, not auto-derivable):
-   - `docs/backlog/README.md` — `Current Version` header + feature status cell.
+   - `CHANGELOG.md` — dated `## [X.Y.Z(.R)] — YYYY-MM-DD` entry: user-benefit lead sentence, technical bullets after, link to the version file section.
+   - `docs/backlog/README.md` — `Current Version` header + feature status cell + 1–3-line narrative entry (full entry lives in the changelog).
    - The relevant version file in `docs/backlog/` — check off completed items with implementation notes; leave the Post-Deploy Revisions epic open until feature closeout.
    - `docs/web-ui/` — update implementation status markers on endpoints, user flows, architecture.
+5. Tag the ship: `git tag vX.Y.Z[.R]` on the release commit — tags have drifted before (several v0.8.x ships untagged; the v0.8.17 mistag), so this is an explicit step, not an assumption.
+6. On a cycle-opening bump (`vX.(Y+1).0`): run the **cycle-close ritual** from the `backlog-format` rule — confirm completions with the user, archive the closed series, sweep completed records, trim the README narrative.
+7. `uv run python scripts/check_backlog.py` — backlog hygiene gate (links, archive index, matrix ↔ files, changelog entry for the new version).

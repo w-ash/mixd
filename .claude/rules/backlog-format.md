@@ -1,8 +1,8 @@
 ---
 paths:
   - "docs/backlog/**"
-  - "docs/completed/**"
   - "docs/web-ui/01-user-flows.md"
+  - "CHANGELOG.md"
 ---
 # Backlog Format
 
@@ -13,7 +13,9 @@ paths:
 - `docs/backlog/v0.X.x.md` — one file per minor version.
 - `docs/backlog/README.md` — roadmap, version matrix, tech decisions.
 - `docs/backlog/unscheduled.md` — uncommitted ideas (start new ideas here).
-- `docs/completed/` — archived minor series + index.
+- `docs/backlog/completed/` — archive: minor series + records & handoffs, indexed in its README.
+- `CHANGELOG.md` (repo root) — canonical release log, one dated entry per ship (see Lifecycle).
+- One-off records (handoffs, findings memos, migration records, research commissions) live in `docs/backlog/` root with a `Status:` header while active.
 
 ## Version File
 
@@ -66,6 +68,7 @@ An item is read by two audiences: a **human** skimming the roadmap (wants the us
 - **State each load-bearing fact once.** "Already shipped in vX.Y" → Dependencies (or one `Already in place (vX.Y): …` line); reference it elsewhere, don't restate it. Repetition (the same "ported from X" / "already built" note 5×) is the dominant readability tax — and never weave past-tense archaeology into forward-looking planning prose.
 - **Anchor as direction, not a frozen manifest.** Name the real ids/tables/endpoints once; frame constants (widths, TTLs, thresholds, rate limits, model versions) as "starting point, revisit" — especially in unscheduled items, where deep specs wait until scheduling. Decide before filing: no unresolved "X or Y" presented as spec; drop superlative roadmap framing.
 - **Make it skimmable.** Split walls of text into Story/Decisions/Spec/Tests; bullet blast-radius / tool-coverage lists instead of inline run-ons; bold the load-bearing constraint at the *start* of its bullet. Push doc-bug asides and incident IDs to a pointer into the design/findings doc. Group pure hygiene/refactor items under a labeled subhead so skimmers can skip them and Claude can still find them.
+- **Definition of ready.** A milestone may not be named "Next" in the README (nor start implementation) until every epic in its file has a persona-anchored **Story** and a **Tests** block. A file still on an older schema carries a `> ⚠️ needs story-format upgrade` banner until retrofitted.
 
 ## Post-Deploy Revisions epic (required per feature)
 
@@ -104,9 +107,32 @@ When the feature closes (`🚀 Shipped` → `✅ Completed`), the epic freezes a
 
 **`/ship` never writes `✅ Completed`.** That transition only happens when the user explicitly confirms a feature is stable.
 
+### Release log
+
+`CHANGELOG.md` at the repo root is the canonical release log. Every ship — feature or revision — gets a dated `## [0.X.Y(.R)] — YYYY-MM-DD` entry: **lead sentence = user benefit** (what the user can do now), technical bullets after, closing with a link to the version file section. The README narrative keeps only 1–3 lines per ship (bold version + date + one-sentence benefit + changelog link), and only for the **current + previous** minor cycle — older lines are deleted at cycle close (their content lives in `CHANGELOG.md` + the archived version files).
+
 ### Minor-series archival
 
-`git mv docs/backlog/v0.X.x.md docs/backlog/completed/` only when every feature in the series is `✅ Completed` — never per-feature.
+`git mv` the series' files to `docs/backlog/completed/` only when every feature in the series is `✅ Completed` — never per-feature. A series may span several files (`v0.7.0-1.md`, `v0.7.6.md`, …); they archive **together, wholesale, as-is** — never restructured.
+
+### Cycle-close ritual
+
+Archival is never a free-floating act — it happens here or not at all. When the first feature of a new minor cycle ships (`vX.(Y+1).0`), the same session must:
+
+1. Ask the user which of the previous cycle's `🚀 Shipped` features they confirm `✅ Completed`.
+2. If that closes the whole series: archive it now — `git mv` all its files to `completed/`, update the `completed/README.md` index, re-point README matrix links.
+3. Move `Complete`/`Superseded` one-off records (below) to `completed/` under its "Records & handoffs" index section.
+4. Trim the README narrative per the release-log retention rule above.
+
+`scripts/check_backlog.py` (version-bump bar) flags drift: broken links, stale archive index, all-✅ series left in root.
+
+### One-off records
+
+Handoffs, findings memos, migration records, and research commissions carry a `Status:` header line — `Active` / `Superseded` / `Complete (YYYY-MM-DD)`. Research references that future milestones still cite (e.g. design-space memos) stay `Active` in root; `Complete`/`Superseded` records move to `completed/` at the next cycle close.
+
+### Campaign hubs
+
+A campaign hub (e.g. `fable-sweep/`) tracks per-spoke status in exactly one place: the hub README's index. Spoke files and the version-schedule file link to that index rather than duplicating status lines — the v0.8.12–17 sweep hand-synced three copies of the same status and drifted.
 
 ## Conventions
 

@@ -99,6 +99,7 @@ Use existing factories from `tests.fixtures` (`make_track`, `make_mock_uow`).
 - `uv run pytest -m ""` (all tests including slow)
 - `uv run basedpyright src/` + `uv run ruff check .`
 - `uv run vulture` + `scripts/check_ratchet.sh` (CI runs vulture; a red step here shipped unnoticed for a month pre-v0.8.17)
+- `uv run python scripts/check_backlog.py` (backlog hygiene: links, archive index, matrix ↔ files, changelog entry)
 - `pnpm --prefix web check && pnpm --prefix web build`
 - Playwright visual gate — run in the CI-pinned Docker image (native macOS runs false-fail; procedure + current image tag in `web/e2e/README.md`):
   `docker run --rm -v "$PWD":/work -w /work/web mcr.microsoft.com/playwright:v1.61.1-noble bash -c "corepack enable && corepack prepare pnpm@11.5.2 --activate && pnpm install --frozen-lockfile && pnpm test:e2e"` (then rerun `pnpm --prefix web install` on the host)

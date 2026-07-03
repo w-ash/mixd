@@ -34,13 +34,7 @@ pyproject.toml  ──→  importlib.metadata.version("mixd")
                          └── OpenAPI schema → Orval types
 ```
 
-**To bump the version:**
-```bash
-# 1. Edit pyproject.toml (the ONE source of truth)
-# 2. Regenerate OpenAPI schema + Orval types:
-pnpm --prefix web sync-api
-# 3. Update docs/backlog/README.md manually (semantic content)
-```
+**To bump the version:** edit `pyproject.toml` (the ONE source of truth), then follow the full checklist in `.claude/rules/version-management.md` — `uv sync`, `pnpm --prefix web sync-api`, changelog entry, docs updates, git tag, backlog hygiene gate. That rule is the single authoritative procedure; this section deliberately doesn't duplicate it.
 
 ## Common Tasks
 
