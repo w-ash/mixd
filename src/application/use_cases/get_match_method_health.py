@@ -159,7 +159,9 @@ async def _compute_drift(
 ) -> MatchingDrift:
     """Assemble the drift-signals panel from repo queries + the stats already fetched."""
     pending_by_method = await review_repo.count_pending_by_method(user_id=user_id)
-    oldest_reviews, _total = await review_repo.list_pending_reviews(
+    # list_pending_reviews already returns the pending total — reuse it for
+    # review_pending_depth instead of a second identical count_pending() query.
+    oldest_reviews, pending_depth = await review_repo.list_pending_reviews(
         user_id=user_id, limit=1, sort_by="created_at_asc"
     )
     oldest_days = None
@@ -175,7 +177,7 @@ async def _compute_drift(
         review_inflow_30d=await review_repo.count_created_since(
             REVIEW_INFLOW_LONG_WINDOW_DAYS, user_id=user_id
         ),
-        review_pending_depth=await review_repo.count_pending(user_id=user_id),
+        review_pending_depth=pending_depth,
         review_oldest_pending_days=oldest_days,
         review_pending_by_method=pending_by_method,
         isrc_suspect_pending_count=pending_by_method.get(MatchMethod.ISRC_SUSPECT, 0),

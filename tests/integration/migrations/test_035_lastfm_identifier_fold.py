@@ -833,3 +833,99 @@ def test_035_fold_runs_under_non_superuser_owner_role(migration_db: str) -> None
         # The container is ephemeral (torn down by the fixture), so no role
         # cleanup is needed — just release the assertion engine.
         engine.dispose()
+
+
+def _lastfm_idents(conn: sa.Connection) -> set[str]:
+    return {
+        row[0]
+        for row in conn.execute(
+            sa.text(
+                "SELECT connector_track_identifier FROM connector_tracks "
+                "WHERE connector_name = 'lastfm'"
+            )
+        )
+    }
+
+
+def _ct_ident(conn: sa.Connection, cid: uuid.UUID) -> str:
+    return conn.execute(
+        sa.text(
+            "SELECT connector_track_identifier FROM connector_tracks WHERE id = :id"
+        ),
+        {"id": cid},
+    ).scalar_one()
+
+
+def test_035_survivor_rename_collision_completes(migration_db: str) -> None:
+    """A survivor whose CURRENT identifier equals ANOTHER group's target must not
+    trip the connector_tracks unique constraint (v0.8.18 review, finding #1).
+
+    Row X holds ``aaa::bbb`` but its stored metadata normalizes to ``zzz::www``;
+    row Y holds a URL but normalizes to ``aaa::bbb``. Group ``aaa::bbb`` (sorted
+    first) renames Y → ``aaa::bbb`` while X still occupies it — the pre-fix code
+    raised IntegrityError and rolled back the whole migration. The two-phase
+    park-then-assign rename must let both land.
+    """
+    cfg = _alembic_config()
+    engine = sa.create_engine(migration_db)
+    x_id, y_id = _uid(), _uid()
+
+    try:
+        command.upgrade(cfg, _PRE)
+        with engine.begin() as conn:
+            # X: identifier 'aaa::bbb', metadata normalizes to 'zzz::www'.
+            _insert_ct(conn, x_id, "aaa::bbb", "Zzz", "Www", {}, _NOW)
+            # Y: URL identifier, metadata normalizes to 'aaa::bbb'.
+            _insert_ct(
+                conn,
+                y_id,
+                "https://www.last.fm/music/Aaa/_/Bbb",
+                "Aaa",
+                "Bbb",
+                {},
+                _NOW,
+            )
+
+        # Must NOT raise (pre-fix: IntegrityError aborts the whole migration).
+        command.upgrade(cfg, _HEAD)
+
+        with engine.begin() as conn:
+            assert _ct_ident(conn, y_id) == "aaa::bbb"
+            assert _ct_ident(conn, x_id) == "zzz::www"
+            # Both rows survive; no temporary identifiers linger.
+            assert _lastfm_idents(conn) == {"aaa::bbb", "zzz::www"}
+    finally:
+        engine.dispose()
+
+
+def test_035_normalizes_whitespace_like_runtime_mint(migration_db: str) -> None:
+    """The fold key is recomputed with Python ``strip()`` (matching the runtime
+    mint), NOT SQL ``btrim`` (v0.8.18 review, finding #3).
+
+    A row already keyed on ``make_lastfm_identifier`` output but whose stored
+    title carries a trailing tab must be recognized as already-canonical and
+    left untouched. The pre-fix SQL used ``lower(btrim(title))`` which keeps the
+    tab, so it renamed the row to a ``…\\t``-suffixed key the runtime mint could
+    never reproduce — re-minting a duplicate on the next import.
+    """
+    cfg = _alembic_config()
+    engine = sa.create_engine(migration_db)
+    z_id = _uid()
+    canonical = "bob marley::redemption song"
+
+    try:
+        command.upgrade(cfg, _PRE)
+        with engine.begin() as conn:
+            # Identifier already canonical; stored title has a trailing TAB.
+            _insert_ct(
+                conn, z_id, canonical, "Bob Marley", "Redemption Song\t", {}, _NOW
+            )
+
+        command.upgrade(cfg, _HEAD)
+
+        with engine.begin() as conn:
+            # Unchanged — strip() drops the tab, so identifier == recomputed key.
+            assert _ct_ident(conn, z_id) == canonical
+            assert _lastfm_idents(conn) == {canonical}
+    finally:
+        engine.dispose()

@@ -3,7 +3,7 @@
  * Do not edit manually.
  * Mixd
  * Personal music metadata hub
- * OpenAPI spec version: 0.8.18
+ * OpenAPI spec version: 0.8.18.1
  */
 import type { LibraryTrackSchema } from './libraryTrackSchema.ts';
 import type { TrackFacetsSchema } from './trackFacetsSchema.ts';

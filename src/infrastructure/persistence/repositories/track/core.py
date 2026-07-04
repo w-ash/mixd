@@ -30,7 +30,10 @@ from src.domain.entities.preference import PREFERENCE_ORDER
 from src.domain.entities.sourced_metadata import SOURCE_PRIORITY
 from src.domain.exceptions import OptimisticLockError
 from src.domain.matching import normalize_for_comparison, strip_parentheticals
-from src.domain.matching.isrc_validation import assess_isrc_match_reliability
+from src.domain.matching.isrc_validation import (
+    assess_isrc_match_reliability,
+    compute_duration_diff_ms,
+)
 from src.domain.repositories.track import TrackFacets, TrackListingPage
 from src.infrastructure.persistence.database.db_models import (
     DBTrack,
@@ -394,8 +397,17 @@ class TrackRepository(BaseRepository[DBTrack, Track]):
                 # ISRC reuse across versions (remaster, re-release): don't
                 # claim the contested ISRC and don't clobber the owner's
                 # metadata — fall through the remaining keys (v0.8.18 FM2a).
-                # Callers with connector context queue the review; the ISRC
-                # itself stays available on connector_tracks.isrc.
+                #
+                # Every suspect defer is recorded by the warning log in
+                # _isrc_collision_is_suspect. Callers WITH connector context
+                # (Spotify import, cross-discovery, batch ingest) additionally
+                # queue an isrc_suspect review and keep the ISRC on
+                # connector_tracks.isrc. The direct-save path (local/manual
+                # playlist via playlist/core.py, source_connector=None) has no
+                # connector track to hold the ISRC or anchor a review, so its new
+                # canonical is created without the ISRC and the warning log is
+                # the only trail — acceptable, since a >10s-different recording
+                # is a genuinely distinct track, not a merge to force.
                 _ = values.pop("isrc", None)
             else:
                 return await self.upsert({"user_id": uid, "isrc": track.isrc}, values)
@@ -446,9 +458,9 @@ class TrackRepository(BaseRepository[DBTrack, Track]):
             return False
         owner_id, owner_duration_ms = owner
 
-        duration_diff_ms: int | None = None
-        if track.duration_ms and owner_duration_ms:
-            duration_diff_ms = abs(track.duration_ms - owner_duration_ms)
+        duration_diff_ms = compute_duration_diff_ms(
+            track.duration_ms, owner_duration_ms
+        )
         suspect = assess_isrc_match_reliability(duration_diff_ms).suspect
         if suspect:
             logger.warning(

@@ -129,10 +129,17 @@ class MatchReviewRepository(BaseRepository[DBMatchReview, MatchReview]):
     async def create_review(self, review: MatchReview) -> MatchReview:
         """Create a new match review entry.
 
-        Uses upsert to avoid duplicates on (track_id, connector_name, connector_track_id).
+        Uses upsert to avoid duplicates on
+        (user_id, track_id, connector_name, connector_track_id) — the full
+        ``uq_match_reviews_user_track_connector`` key. ``user_id`` MUST be in
+        the lookup: match_reviews is FORCE ROW LEVEL SECURITY with a USING-only
+        policy (reused as WITH CHECK), so an INSERT that omits it takes the
+        server_default 'default' and is rejected for any real tenant. The
+        sibling ``create_reviews_batch`` keys on the same four columns.
         """
         return await self.upsert(
             lookup_attrs={
+                "user_id": review.user_id,
                 "track_id": review.track_id,
                 "connector_name": review.connector_name,
                 "connector_track_id": review.connector_track_id,

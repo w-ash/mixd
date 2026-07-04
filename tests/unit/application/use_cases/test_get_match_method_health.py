@@ -243,7 +243,9 @@ class TestMatchMethodHealthDrift:
             7: 2,
             30: 9,
         }[days]
-        review_repo.count_pending.return_value = 4
+        # review_pending_depth is now taken from list_pending_reviews's total
+        # (reused instead of a second identical count_pending() query).
+        review_repo.list_pending_reviews.return_value = ([], 4)
         review_repo.count_pending_by_method.return_value = {
             "isrc_suspect": 3,
             "artist_title": 1,

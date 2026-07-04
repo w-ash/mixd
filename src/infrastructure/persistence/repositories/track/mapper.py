@@ -151,7 +151,17 @@ class TrackMapper(BaseModelMapper[DBTrack, Track]):
                     if connector_name in connector_track_identifiers:
                         continue
                     best = fallback_mappings.get(connector_name)
-                    if best is None or mapping.confidence > best.confidence:
+                    # Highest confidence, then lowest id — the SAME total order
+                    # ensure_primary_for_connector's query uses (confidence desc,
+                    # id asc), so display and promotion pick the same row on ties.
+                    if (
+                        best is None
+                        or mapping.confidence > best.confidence
+                        or (
+                            mapping.confidence == best.confidence
+                            and mapping.id < best.id
+                        )
+                    ):
                         fallback_mappings[connector_name] = mapping
 
         for connector_name, mapping in fallback_mappings.items():

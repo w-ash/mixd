@@ -32,7 +32,10 @@ from src.domain.entities import Artist, ConnectorTrack, Track, TrackMapping
 from src.domain.entities.match_review import MatchReview
 from src.domain.entities.shared import JsonDict, JsonValue
 from src.domain.exceptions import NotFoundError
-from src.domain.matching.isrc_validation import assess_isrc_match_reliability
+from src.domain.matching.isrc_validation import (
+    assess_isrc_match_reliability,
+    compute_duration_diff_ms,
+)
 from src.domain.matching.types import RawProviderMatch
 from src.domain.repositories.connector import (
     ConnectorMappingSpec,
@@ -873,9 +876,9 @@ class TrackConnectorRepository:
         if owner is None:
             return isrc
 
-        duration_diff_ms: int | None = None
-        if representative_track.duration_ms and owner.duration_ms:
-            duration_diff_ms = abs(representative_track.duration_ms - owner.duration_ms)
+        duration_diff_ms = compute_duration_diff_ms(
+            representative_track.duration_ms, owner.duration_ms
+        )
         if not assess_isrc_match_reliability(duration_diff_ms).suspect:
             return isrc
 
@@ -1020,14 +1023,21 @@ class TrackConnectorRepository:
     async def _get_remaining_mappings(
         self, track_id: UUID, connector_name: str
     ) -> list[TrackMapping]:
-        """Get all mappings for a (track, connector) pair, ordered by confidence desc."""
+        """Get all mappings for a (track, connector) pair, ordered by confidence desc.
+
+        The ``id`` ascending secondary key makes the ordering total: on an
+        equal-confidence tie ``remaining[0]`` is deterministic, and the mapper's
+        display-fallback selection applies the SAME (confidence desc, id asc)
+        tiebreak, so the displayed identifier and the promoted primary agree
+        (v0.8.18 FM4c: one promotion policy).
+        """
         result = await self.session.execute(
             select(DBTrackMapping)
             .where(
                 DBTrackMapping.track_id == track_id,
                 DBTrackMapping.connector_name == connector_name,
             )
-            .order_by(DBTrackMapping.confidence.desc())
+            .order_by(DBTrackMapping.confidence.desc(), DBTrackMapping.id.asc())
         )
         return [
             await TrackMappingMapper.to_domain(row) for row in result.scalars().all()

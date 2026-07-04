@@ -11,7 +11,10 @@ from src.config.constants import MatchMethod
 from src.domain.entities import Track
 from src.domain.entities.shared import JsonValue
 from src.domain.matching.evaluation_service import TrackMatchEvaluationService
-from src.domain.matching.isrc_validation import assess_isrc_match_reliability
+from src.domain.matching.isrc_validation import (
+    assess_isrc_match_reliability,
+    compute_duration_diff_ms,
+)
 from src.domain.matching.protocols import (
     DiscoveryOutcome,
     NewMapping,
@@ -234,9 +237,9 @@ class SpotifyCrossDiscoveryProvider:
         if isrc_track.id == probe_track.id:
             return None
 
-        duration_diff_ms: int | None = None
-        if best.duration_ms and isrc_track.duration_ms:
-            duration_diff_ms = abs(best.duration_ms - isrc_track.duration_ms)
+        duration_diff_ms = compute_duration_diff_ms(
+            best.duration_ms, isrc_track.duration_ms
+        )
 
         if assess_isrc_match_reliability(duration_diff_ms).suspect:
             # Suspect collision — don't merge. Queue a review against the ISRC

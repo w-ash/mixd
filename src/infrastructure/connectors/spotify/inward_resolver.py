@@ -27,7 +27,10 @@ from src.config.constants import MatchMethod, SpotifyConstants
 from src.domain.entities import Artist, Track
 from src.domain.entities.shared import JsonValue
 from src.domain.matching.evaluation_service import TrackMatchEvaluationService
-from src.domain.matching.isrc_validation import assess_isrc_match_reliability
+from src.domain.matching.isrc_validation import (
+    assess_isrc_match_reliability,
+    compute_duration_diff_ms,
+)
 from src.domain.repositories.uow import UnitOfWorkProtocol
 from src.infrastructure.connectors._shared.inward_track_resolver import (
     InwardTrackResolver,
@@ -304,11 +307,9 @@ class SpotifyInwardResolver(InwardTrackResolver):
         if isrc and isrc in existing_by_isrc:
             existing_track = existing_by_isrc[isrc]
 
-            duration_diff_ms: int | None = None
-            if spotify_track.duration_ms and existing_track.duration_ms:
-                duration_diff_ms = abs(
-                    spotify_track.duration_ms - existing_track.duration_ms
-                )
+            duration_diff_ms = compute_duration_diff_ms(
+                spotify_track.duration_ms, existing_track.duration_ms
+            )
 
             if assess_isrc_match_reliability(duration_diff_ms).suspect:
                 # Suspect collision — don't silently merge. Queue a review

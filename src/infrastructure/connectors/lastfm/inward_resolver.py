@@ -217,11 +217,15 @@ class LastfmInwardResolver(InwardTrackResolver):
         """Build an UNSAVED probe Track enriched from track.getInfo.
 
         Returns ``(probe, corrected_artist, corrected_title)``. The probe
-        carries title/artist plus any album, duration, and MBID (as a
-        musicbrainz connector identifier) from Last.fm's track.getInfo
-        response. No database write happens here — the probe is only saved by
-        the caller if cross-discovery does not reuse an existing canonical.
-        The MBID enables cross-service identity bridging.
+        carries title/artist plus any album and duration from Last.fm's
+        track.getInfo response. No database write happens here — the probe is
+        only saved by the caller if cross-discovery does not reuse an existing
+        canonical.
+
+        Last.fm's getInfo MBID is intentionally NOT attached as a musicbrainz
+        identity key — Last.fm returns an untrusted *track* MBID from its own
+        matching (not a recording MBID), so identity is resolved via ISRC /
+        ListenBrainz / fuzzy instead (FM1d). See the inline note below.
 
         ``corrected_artist``/``corrected_title`` are the Last.fm-CORRECTED
         names used by the caller to mint the PRIMARY connector identifier
@@ -255,20 +259,24 @@ class LastfmInwardResolver(InwardTrackResolver):
             )
             return probe, corrected_artist, corrected_title
 
-        connector_ids = dict(probe.connector_track_identifiers)
-        if info.lastfm_mbid and "musicbrainz" not in connector_ids:
-            connector_ids["musicbrainz"] = info.lastfm_mbid
-
+        # Last.fm's getInfo MBID is deliberately NOT written into the
+        # musicbrainz identity slot. Last.fm returns a *track* MBID from its own
+        # matching (not a recording MBID), and MetaBrainz guidance is to never
+        # trust Last.fm MBIDs (LB-431). Feeding one to save_track's mbid merge
+        # key (uq_tracks_user_mbid) would collapse distinct recordings that
+        # happen to share a stale/type-confused MBID. It is kept in the log for
+        # provenance until a MusicBrainz WS/2 verification path exists (backlog:
+        # MBID verification). FM1d: the matching layer already refuses these
+        # MBIDs ISRC-grade weight; the write path must match.
         probe = evolve(
             probe,
             album=info.lastfm_album_name,
             duration_ms=info.lastfm_duration,
-            connector_track_identifiers=connector_ids,
         )
         logger.debug(
             f"Enriched probe from track.getInfo: {artist_name} - {track_name} "
             f"(duration={info.lastfm_duration}, album={info.lastfm_album_name}, "
-            f"mbid={info.lastfm_mbid})"
+            f"unverified_lastfm_mbid={info.lastfm_mbid})"
         )
         corrected_artist = info.lastfm_artist_name or artist_name
         corrected_title = info.lastfm_title or track_name
@@ -315,6 +323,12 @@ class LastfmInwardResolver(InwardTrackResolver):
         composite (``MatchMethod.LASTFM_RAW_ALIAS``) so a future import
         carrying the same raw (uncorrected) spelling still hits the fast
         connector-mapping lookup instead of re-running getInfo/getCorrection.
+
+        The raw alias is minted with ``auto_set_primary=False`` — it is a
+        lookup convenience, not the canonical provenance. Without this it would
+        be the *last* writer and its ``ensure_primary_mapping`` would demote the
+        corrected ``LASTFM_IMPORT`` primary, so the fast-path provenance would
+        report the raw alias ("Secondary Cache") instead of the real import.
         """
         primary_id = make_lastfm_identifier(corrected_artist, corrected_title)
         await self._create_lastfm_mapping(
@@ -335,6 +349,7 @@ class LastfmInwardResolver(InwardTrackResolver):
                 raw_id,
                 uow,
                 match_method=MatchMethod.LASTFM_RAW_ALIAS,
+                auto_set_primary=False,
             )
 
     async def _create_lastfm_mapping(
@@ -346,8 +361,14 @@ class LastfmInwardResolver(InwardTrackResolver):
         uow: UnitOfWorkProtocol,
         *,
         match_method: str,
+        auto_set_primary: bool = True,
     ) -> None:
-        """Create a Last.fm connector mapping with domain-calculated confidence."""
+        """Create a Last.fm connector mapping with domain-calculated confidence.
+
+        ``auto_set_primary=False`` mints the mapping without promoting it to the
+        connector's primary — used for the raw-alias mapping so it never demotes
+        the corrected import primary (v0.8.18 FM1b provenance).
+        """
         raw_match = RawProviderMatch(
             connector_id=connector_id,
             match_method=MatchMethod.ARTIST_TITLE,
@@ -370,4 +391,5 @@ class LastfmInwardResolver(InwardTrackResolver):
             confidence=match_result.confidence,
             metadata={"artist_name": artist_name, "track_name": track_name},
             confidence_evidence=match_result.evidence_dict,
+            auto_set_primary=auto_set_primary,
         )

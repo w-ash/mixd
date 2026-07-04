@@ -158,6 +158,29 @@ class TestMapperPromotesHighestConfidence:
         assert domain_track.connector_track_identifiers["spotify"] == "sp_high"
         assert spy.calls == [(track.id, "spotify")]
 
+    async def test_equal_confidence_breaks_tie_on_lowest_id(self):
+        """On an equal-confidence tie, display picks the lowest mapping id — the
+        SAME total order (confidence desc, id asc) ensure_primary_for_connector's
+        query uses, so the displayed id and the promoted primary can't diverge
+        (v0.8.18 review). Without the id tiebreak this was iteration-order luck.
+        """
+        track = _transient_track(spotify_id=None)
+        first = _transient_mapping(track, identifier="sp_first", confidence=80)
+        second = _transient_mapping(track, identifier="sp_second", confidence=80)
+        # uuid7 is monotonic, so `first` has the lower id. Put it LAST in
+        # iteration order to prove selection is by id, not by list position.
+        assert first.id < second.id
+        track.mappings = [second, first]
+        track.likes = []
+        spy = _PromoteSpy()
+
+        domain_track = await TrackMapper._to_domain_with_session(
+            track, promote_primary_fn=spy
+        )
+
+        assert domain_track.connector_track_identifiers["spotify"] == "sp_first"
+        assert spy.calls == [(track.id, "spotify")]
+
 
 class TestExtractDbArtistNames:
     def test_extracts_string_names(self):

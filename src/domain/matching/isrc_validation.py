@@ -47,3 +47,16 @@ def assess_isrc_match_reliability(
         )
 
     return ISRCReliability(suspect=False)
+
+
+def compute_duration_diff_ms(a: int | None, b: int | None) -> int | None:
+    """Absolute duration difference in ms, or None if either side is unknown.
+
+    Companion to ``assess_isrc_match_reliability``, which every ISRC-suspect
+    call site feeds. A missing OR zero duration counts as unknown (returns
+    None) so an absent duration never reads as a 0ms "perfect" match — the
+    truthiness guard the call sites shared before this was centralized.
+    """
+    if a and b:
+        return abs(a - b)
+    return None

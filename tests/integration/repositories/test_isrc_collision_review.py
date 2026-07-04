@@ -63,6 +63,50 @@ class TestQueueIsrcCollisionReview:
         # The engine's own suspect check fired with real durations.
         assert row.confidence_evidence["isrc_suspect"] is True
 
+    async def test_queues_review_for_non_default_user(self, db_session: AsyncSession):
+        """create_review must persist the review under the REAL owner, not the
+        server_default 'default' user_id (v0.8.18 review, finding #4).
+
+        create_review previously omitted user_id from its upsert, so a
+        non-'default' tenant's review took the server_default 'default' — making
+        it invisible to that user's pending list / drift panel (and, under prod
+        RLS WITH CHECK, rejected outright). All other tests use 'default', which
+        masked it.
+        """
+        uow = get_unit_of_work(db_session)
+        owner = await uow.get_track_repository().save_track(
+            Track(
+                id=None,
+                title="Gold Rush",
+                artists=[Artist(name="Neon Priest")],
+                album="Debut",
+                duration_ms=200_000,
+                isrc="USNP12400001",
+                user_id="alice",
+            )
+        )
+
+        queued = await uow.get_connector_repository().queue_isrc_collision_review(
+            owner, "spotify", "sp_remaster_alice", _REMASTER_DATA, user_id="alice"
+        )
+        assert queued is True
+
+        row = (
+            await db_session.execute(
+                select(DBMatchReview).where(DBMatchReview.track_id == owner.id)
+            )
+        ).scalar_one()
+        # Owned by alice, not the server_default 'default'.
+        assert row.user_id == "alice"
+
+        # ...so it surfaces in alice's pending list (dedupe + drift filter by
+        # user_id; a 'default'-owned row would be invisible to her).
+        reviews, total = await uow.get_match_review_repository().list_pending_reviews(
+            user_id="alice"
+        )
+        assert total == 1
+        assert reviews[0].track_id == owner.id
+
     async def test_any_status_dedupe_blocks_requeue(self, db_session: AsyncSession):
         """A rejected review must not be resurrected by the next re-sync."""
         uow = get_unit_of_work(db_session)

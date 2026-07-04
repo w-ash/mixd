@@ -3,11 +3,15 @@
 Historically, Last.fm connector tracks were minted under several identifier
 schemes — full last.fm URLs, MusicBrainz UUIDs, ``lastfm:``-prefixed strings,
 and un-normalized (mixed-case / untrimmed) ``artist::title`` composites. The one
-canonical scheme is now ``make_lastfm_identifier`` output:
-``lower(btrim(artist)) || '::' || lower(btrim(title))``. This migration collapses
-every duplicate/variant row onto that key so a Last.fm track owns ONE connector
-row. Detection is uniform: a row needs work iff its identifier ≠ the recomputed
-key (covers URL / mbid / ``lastfm:`` / case / whitespace variants alike).
+canonical scheme is now ``make_lastfm_identifier`` output — Python
+``artist.strip().lower() + '::' + title.strip().lower()``. The fold key is
+recomputed in Python (see ``_norm``), NOT SQL: ``str.strip()`` removes all
+Unicode whitespace (tab / newline / NBSP) that SQL ``btrim`` leaves in place, so
+an SQL recompute would diverge from the runtime mint and rename rows to a key a
+later import could never reproduce. This migration collapses every
+duplicate/variant row onto that key so a Last.fm track owns ONE connector row.
+Detection is uniform: a row needs work iff its identifier ≠ the recomputed key
+(covers URL / mbid / ``lastfm:`` / case / whitespace variants alike).
 
 OFFLINE by design: the fold key is recomputed from STORED metadata
 (``artists->'names'->>0`` + ``title``), never a live API call. Last.fm's runtime
@@ -32,7 +36,13 @@ the most mappings, else the oldest ``created_at``:
 - ``raw_metadata`` shallow-merged (survivor wins); every loser identifier is
   appended to ``raw_metadata['folded_from']`` (a JSON array) for provenance.
 - the loser ``connector_tracks`` row is deleted; the survivor is renamed to
-  target when its identifier differs.
+  target when its identifier differs. Renames run in a SECOND phase that first
+  parks every to-be-renamed survivor at a unique temporary identifier, then
+  assigns final targets — so a survivor whose current identifier happens to
+  equal another group's target cannot trip the ``(connector_name,
+  connector_track_identifier)`` unique constraint mid-fold. Any residual row
+  still holding a target (e.g. an unfoldable/skipped row) is absorbed into the
+  survivor before its rename.
 
 ``connector_plays`` is UNTOUCHED — its identifiers are already
 ``make_lastfm_identifier`` output (see migration 033 / the Last.fm ingest path).
@@ -136,6 +146,20 @@ def _dedupe(values: Iterable[str]) -> list[str]:
     return out
 
 
+def _norm(value: str | None) -> str:
+    """Normalize one side of the fold key: strip + lowercase.
+
+    MUST stay byte-for-byte in lockstep with ``make_lastfm_identifier``
+    (src/infrastructure/connectors/lastfm/identifiers.py), which does
+    ``value.strip().lower() if value else ""``. The key is recomputed HERE in
+    Python, not in SQL, because Python ``str.strip()`` removes all Unicode
+    whitespace (tab / newline / NBSP) while Postgres ``btrim`` strips only ASCII
+    spaces — an SQL recompute would produce a key the runtime mint never yields.
+    Inlined (not imported) so this historical migration stays self-contained.
+    """
+    return value.strip().lower() if value else ""
+
+
 def _mapping_beats(cand: _Mapping, incumbent: _Mapping) -> bool:
     """Whether ``cand`` should win the (user, connector) unique conflict.
 
@@ -165,8 +189,8 @@ def _load_candidates(bind: sa.Connection) -> tuple[dict[str, list[_Candidate]], 
     result = bind.execute(
         sa.text(
             "SELECT ct.id, ct.connector_track_identifier, "
-            "lower(btrim(ct.artists->'names'->>0)) AS artist_key, "
-            "lower(btrim(ct.title)) AS title_key, "
+            "ct.artists->'names'->>0 AS artist_raw, "
+            "ct.title AS title_raw, "
             "ct.created_at, ct.raw_metadata, "
             "(SELECT count(*) FROM track_mappings tm "
             " WHERE tm.connector_track_id = ct.id) AS mapping_count "
@@ -179,8 +203,10 @@ def _load_candidates(bind: sa.Connection) -> tuple[dict[str, list[_Candidate]], 
     groups: dict[str, list[_Candidate]] = {}
     unfoldable = 0
     for row in result:
-        artist_key = cast("str | None", row[2])
-        title_key = cast("str | None", row[3])
+        # Recompute the key in Python (via _norm) so it matches the runtime mint
+        # exactly — raw metadata in, strip().lower() here, never SQL btrim/lower.
+        artist_key = _norm(cast("str | None", row[2]))
+        title_key = _norm(cast("str | None", row[3]))
         if not artist_key or not title_key:
             unfoldable += 1
             continue
@@ -404,18 +430,59 @@ def _reassert_primaries(
                     )
 
 
+def _find_occupant(
+    bind: sa.Connection, target: str, exclude_id: uuid.UUID
+) -> _Candidate | None:
+    """The lastfm connector_tracks row currently holding ``target``, if any.
+
+    Called in phase 2 before a survivor is renamed to ``target``. By then every
+    loser is deleted and every to-be-renamed survivor is parked at a temporary
+    identifier, so the only row that can still hold ``target`` is an
+    unfoldable/skipped one. Absorbing it into the survivor keeps the post-fold
+    identifier set unique. At most one row can match (the unique constraint).
+    """
+    row = bind.execute(
+        sa.text(
+            "SELECT ct.id, ct.connector_track_identifier, ct.created_at, "
+            "ct.raw_metadata, "
+            "(SELECT count(*) FROM track_mappings tm "
+            " WHERE tm.connector_track_id = ct.id) AS mapping_count "
+            "FROM connector_tracks ct "
+            "WHERE ct.connector_name = :lastfm "
+            "AND ct.connector_track_identifier = :target AND ct.id != :exclude"
+        ),
+        {"lastfm": _LASTFM, "target": target, "exclude": exclude_id},
+    ).first()
+    if row is None:
+        return None
+    raw = cast("object", row[3])
+    return _Candidate(
+        id=cast("uuid.UUID", row[0]),
+        identifier=cast("str", row[1]),
+        created_at=cast("datetime", row[2]),
+        raw_metadata=cast("dict[str, object]", raw) if isinstance(raw, dict) else {},
+        mapping_count=cast("int", row[4]),
+    )
+
+
 def _fold_group(
     bind: sa.Connection,
     target: str,
     members: list[_Candidate],
     affected: set[tuple[str, uuid.UUID]],
-) -> tuple[int, bool]:
-    """Fold one target group. Returns (losers folded, survivor renamed)."""
+) -> tuple[int, _Candidate | None, dict[str, object]]:
+    """Fold one target group's losers into its survivor.
+
+    Returns ``(losers_folded, survivor_to_rename_or_None, merged_metadata)``.
+    The identifier rename is NOT applied here: when the survivor's identifier
+    differs from ``target`` the survivor and its merged metadata are handed back
+    so ``upgrade`` can apply every rename together, collision-free (phase 2).
+    """
     survivor = _choose_survivor(members, target)
     losers = [m for m in members if m.id != survivor.id]
     needs_rename = survivor.identifier != target
     if not losers and not needs_rename:
-        return 0, False
+        return 0, None, {}
 
     survivor_meta = dict(survivor.raw_metadata)
     folded_from = _str_list(survivor_meta.get("folded_from"))
@@ -438,15 +505,11 @@ def _fold_group(
         survivor_meta["folded_from"] = deduped
 
     if needs_rename:
-        bind.execute(
-            sa.text(
-                "UPDATE connector_tracks "
-                "SET raw_metadata = CAST(:meta AS JSONB), "
-                "connector_track_identifier = :target WHERE id = :id"
-            ),
-            {"meta": json.dumps(survivor_meta), "target": target, "id": survivor.id},
-        )
-    elif losers:
+        # Defer the rename to phase 2; hand back the merged metadata to write
+        # alongside the final identifier assignment.
+        return len(losers), survivor, survivor_meta
+
+    if losers:
         bind.execute(
             sa.text(
                 "UPDATE connector_tracks SET raw_metadata = CAST(:meta AS JSONB) "
@@ -454,7 +517,7 @@ def _fold_group(
             ),
             {"meta": json.dumps(survivor_meta), "id": survivor.id},
         )
-    return len(losers), needs_rename
+    return len(losers), None, {}
 
 
 def upgrade() -> None:
@@ -468,11 +531,59 @@ def upgrade() -> None:
     groups, unfoldable = _load_candidates(bind)
     affected: set[tuple[str, uuid.UUID]] = set()
     folded_losers = 0
-    renamed = 0
+    # (survivor, target, merged_metadata) for each group whose survivor must be
+    # renamed — deferred so all renames run collision-free in phase 2 below.
+    renames: list[tuple[_Candidate, str, dict[str, object]]] = []
     for target in sorted(groups):
-        losers, was_renamed = _fold_group(bind, target, groups[target], affected)
+        losers, survivor, meta = _fold_group(bind, target, groups[target], affected)
         folded_losers += losers
-        renamed += int(was_renamed)
+        if survivor is not None:
+            renames.append((survivor, target, meta))
+
+    # Phase 2 — collision-safe renames. A survivor's CURRENT identifier may equal
+    # another (not-yet-renamed) group's target, so a naive per-group rename can
+    # trip the (connector_name, connector_track_identifier) unique constraint and
+    # abort the whole migration. Break the cycle: park every to-be-renamed
+    # survivor at a unique temp identifier first, then assign finals.
+    for survivor, _target, _meta in renames:
+        bind.execute(
+            sa.text(
+                "UPDATE connector_tracks SET connector_track_identifier = :tmp "
+                "WHERE id = :id"
+            ),
+            {"tmp": f"__fold_tmp_{survivor.id}__", "id": survivor.id},
+        )
+    absorbed = 0
+    for survivor, target, base_meta in renames:
+        meta = base_meta
+        # Any residual row still holding `target` (an unfoldable/skipped row) is a
+        # true duplicate on the final identifier — absorb it into the survivor.
+        occupant = _find_occupant(bind, target, survivor.id)
+        if occupant is not None:
+            _move_mappings(bind, occupant.id, survivor.id, affected)
+            _move_reviews(bind, occupant.id, survivor.id)
+            _repoint_playlist_tracks(bind, occupant.id, survivor.id)
+            meta = {**occupant.raw_metadata, **base_meta}
+            folded = _dedupe([
+                *_str_list(meta.get("folded_from")),
+                occupant.identifier,
+            ])
+            folded = [f for f in folded if f != target]
+            if folded:
+                meta["folded_from"] = folded
+            bind.execute(
+                sa.text("DELETE FROM connector_tracks WHERE id = :id"),
+                {"id": occupant.id},
+            )
+            absorbed += 1
+        bind.execute(
+            sa.text(
+                "UPDATE connector_tracks "
+                "SET raw_metadata = CAST(:meta AS JSONB), "
+                "connector_track_identifier = :target WHERE id = :id"
+            ),
+            {"meta": json.dumps(meta), "target": target, "id": survivor.id},
+        )
 
     _reassert_primaries(bind, affected)
 
@@ -483,7 +594,8 @@ def upgrade() -> None:
         "lastfm_identifier_fold_complete",
         groups=len(groups),
         folded_losers=folded_losers,
-        renamed_survivors=renamed,
+        renamed_survivors=len(renames),
+        absorbed_occupants=absorbed,
         unfoldable=unfoldable,
     )
 

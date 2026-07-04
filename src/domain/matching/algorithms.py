@@ -11,7 +11,7 @@ from attrs import define
 from rapidfuzz import fuzz
 
 from .config import MatchingConfig
-from .isrc_validation import assess_isrc_match_reliability
+from .isrc_validation import assess_isrc_match_reliability, compute_duration_diff_ms
 from .probabilistic import (
     DURATION_MISSING,
     AttributeResult,
@@ -223,11 +223,7 @@ def calculate_confidence(
     )
 
     # ── 3. Duration comparison ──────────────────────────────────────────
-    duration_diff_ms: int | None
-    if not internal_duration or not service_duration:
-        duration_diff_ms = None
-    else:
-        duration_diff_ms = abs(internal_duration - service_duration)
+    duration_diff_ms = compute_duration_diff_ms(internal_duration, service_duration)
 
     duration_level = classify_duration(duration_diff_ms)
 

@@ -217,10 +217,17 @@ class TestTrackInfoFailure:
 
 
 class TestMBIDEnrichment:
-    """Track enrichment should populate MBID from track.getInfo."""
+    """Last.fm's getInfo MBID must be quarantined, not used as a musicbrainz identity."""
 
-    async def test_enrichment_sets_mbid_from_track_info(self):
-        """When track.getInfo returns an MBID, it should be set on the enriched track."""
+    async def test_enrichment_quarantines_lastfm_mbid(self):
+        """A getInfo MBID must NOT become a musicbrainz connector identifier.
+
+        Last.fm returns an untrusted track-level MBID from its own matching
+        (LB-431). Writing it into connector_track_identifiers['musicbrainz']
+        would feed save_track's uq_tracks_user_mbid merge key and could collapse
+        two distinct recordings, so the resolver quarantines it (FM1d). Album and
+        duration enrichment still apply.
+        """
         lastfm_client = AsyncMock()
         test_mbid = "a1b2c3d4-e5f6-7890-abcd-ef1234567890"
         lastfm_client.get_track_info_comprehensive.return_value = MagicMock(
@@ -248,16 +255,15 @@ class TestMBIDEnrichment:
 
         assert "radiohead::creep" in result
 
-        # Verify save_track was called with connector_track_identifiers containing musicbrainz
         track_repo = uow.get_track_repository()
         save_calls = track_repo.save_track.call_args_list
-        # The enrichment call should include the MBID in connector_track_identifiers
-        enrichment_calls = [
-            c
-            for c in save_calls
-            if c.args[0].connector_track_identifiers.get("musicbrainz") == test_mbid
-        ]
-        assert len(enrichment_calls) >= 1
+        assert save_calls, "expected the enriched probe to be saved"
+        # The untrusted Last.fm MBID must never reach the musicbrainz identity slot.
+        for c in save_calls:
+            probe = c.args[0]
+            assert "musicbrainz" not in probe.connector_track_identifiers
+        # ...but non-identity enrichment (album, duration) still lands.
+        assert any(c.args[0].duration_ms == 238000 for c in save_calls)
 
     async def test_no_mbid_when_track_info_has_none(self):
         """When track.getInfo returns no MBID, connector_track_identifiers is unchanged."""
@@ -539,6 +545,12 @@ class TestCorrectedNameDualMapping:
             corrected_key: MatchMethod.LASTFM_IMPORT,
             raw_key: MatchMethod.LASTFM_RAW_ALIAS,
         }
+
+        # The raw alias is minted with auto_set_primary=False so it never demotes
+        # the corrected import primary (last-write-wins would otherwise promote it
+        # and report "Secondary Cache" as the track's provenance — v0.8.18 FM1b).
+        primary_by_id = {c.args[2]: c.kwargs["auto_set_primary"] for c in lastfm_calls}
+        assert primary_by_id == {corrected_key: True, raw_key: False}
 
         # Both mappings target the SAME canonical track.
         assert all(c.args[0] == saved_track for c in lastfm_calls)
