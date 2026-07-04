@@ -1,12 +1,11 @@
-"""Characterization test for Last.fm identifier fragmentation (FM3a).
+"""Characterization test for Last.fm identifier unification (FM3a → epic 4).
 
-Pins CURRENT (buggy) behavior: three code paths mint Last.fm connector
-identifiers with three different schemes, so one recording materializes as
-four distinct connector_tracks rows. Flipped by: Last.fm identifier
-unification (v0.8.18 epic 4 — every site mints the normalized
-make_lastfm_identifier key; one row per recording). The cross-discovery
-mint site changes earlier, in epic 3's rewrite — that commit updates this
-test's expected set before epic 4 collapses it to one row.
+Originally pinned CURRENT (buggy) behavior: three code paths minted Last.fm
+connector identifiers with three different schemes, so one recording
+materialized as up to four distinct connector_tracks rows. FLIPPED by v0.8.18
+epic 4 (Last.fm identifier unification): every mint site now produces
+``make_lastfm_identifier(artist, title)`` on the Last.fm-CORRECTED names, so
+one recording collapses to exactly ONE Last.fm connector_tracks row.
 
 See docs/backlog/identity-resolution-design-space.md §4 (test 5).
 """
@@ -32,31 +31,35 @@ from src.infrastructure.persistence.repositories.factories import get_unit_of_wo
 
 _URL = "https://www.last.fm/music/Neon+Priest/_/Gold+Rush"
 _MBID = "0198a4b6-1111-7222-8333-444455556666"
+_COMPOSITE = "neon priest::gold rush"
 
 
-class TestThreeMintSchemesFragmentOneTrack:
-    """Characterization (FM3a): one recording, still-fragmented mint paths.
-
-    Epic 3's cross-discovery rewrite removed the case-preserved composite the
-    ListenBrainz-reuse path used to mint — discovery now returns a reuse
-    *decision* and mints no Last.fm row of its own. That drops this from four
-    rows to THREE: the inward resolver's URL-primary + lowercased-composite and
-    the conversions path's MBID key. Epic 4 later collapses these to one.
+class TestAllMintSchemesConvergeOnOneRow:
+    """FLIPPED characterization (FM3a, fixed by Last.fm identifier unification):
+    the original pin recorded one recording fragmenting into THREE distinct
+    Last.fm connector_tracks rows — the inward resolver's URL-primary +
+    lowercased-composite-secondary, and the conversions path's MBID key. Every
+    mint site now produces the same normalized ``artist::title`` composite
+    (from Last.fm-CORRECTED names), and cross-discovery mints no Last.fm row
+    of its own — so the same three paths now converge on ONE row.
     """
 
-    async def test_one_recording_materializes_as_three_rows(
+    async def test_one_recording_materializes_as_one_row(
         self, db_session: AsyncSession
     ):
         uow = get_unit_of_work(db_session)
 
         # Path (b) FIRST — the inward resolver, before any canonical exists
-        # (otherwise canonical reuse short-circuits the mint). Mints the URL
-        # row (primary) plus the lowercased composite row (secondary).
+        # (otherwise canonical reuse short-circuits the mint). getInfo's
+        # autocorrect=1 returns corrected names matching the raw ones here
+        # (same words, just case), so only a single (primary) mapping mints.
         info = MagicMock()
         info.lastfm_url = _URL
         info.lastfm_album_name = "Debut"
         info.lastfm_duration = 200_000
         info.lastfm_mbid = None
+        info.lastfm_artist_name = "Neon Priest"
+        info.lastfm_title = "Gold Rush"
         lastfm_client = AsyncMock()
         lastfm_client.get_track_info_comprehensive.return_value = info
         resolver = LastfmInwardResolver(lastfm_client=lastfm_client)
@@ -65,8 +68,9 @@ class TestThreeMintSchemesFragmentOneTrack:
         )
         resolver_track = result["neon priest::gold rush"]
 
-        # Path (a) — the matching/enrichment conversion: mbid wins the
-        # `mbid or url or "lastfm:{title}"` chain, minting an MBID-keyed row.
+        # Path (a) — the matching/enrichment conversion: now mints the same
+        # normalized composite regardless of mbid/url (FM4a collapses the
+        # mbid-or-url-or-name fallback chain to a single scheme).
         ct = convert_lastfm_track_to_connector(
             LastFMTrackData.model_validate({
                 "name": "Gold Rush",
@@ -75,7 +79,7 @@ class TestThreeMintSchemesFragmentOneTrack:
                 "url": _URL,
             })
         )
-        assert ct.connector_track_identifier == _MBID
+        assert ct.connector_track_identifier == _COMPOSITE
         await uow.get_connector_repository().ingest_external_tracks_bulk(
             "lastfm", [ct], user_id="default"
         )
@@ -113,7 +117,9 @@ class TestThreeMintSchemesFragmentOneTrack:
         assert isinstance(discovered, ReuseExisting)
         assert discovered.track.id == spotify_canonical.id
 
-        # One recording → three distinct Last.fm connector_tracks rows.
+        # One recording → ONE Last.fm connector_tracks row: every mint site
+        # (inward resolver primary, conversions path, and cross-discovery's
+        # no-op) now agrees on the same normalized composite.
         identifiers = set(
             (
                 await db_session.execute(
@@ -123,8 +129,4 @@ class TestThreeMintSchemesFragmentOneTrack:
                 )
             ).scalars()
         )
-        assert identifiers == {
-            _URL,  # inward resolver primary (URL scheme)
-            "neon priest::gold rush",  # inward resolver secondary (lowercased)
-            _MBID,  # conversions path (mbid-or-url scheme)
-        }
+        assert identifiers == {_COMPOSITE}

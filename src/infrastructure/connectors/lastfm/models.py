@@ -210,6 +210,29 @@ class LastFMTrackInfoData(LastFMBaseModel):
     # mbid coercion inherited from LastFMBaseModel
 
 
+class LastFMCorrectionTrack(LastFMNamedModel):
+    """Track node nested inside track.getCorrection's correction.track."""
+
+    name: str = Field(default="")
+    artist: LastFMArtist = Field(default_factory=LastFMArtist)
+
+
+class LastFMCorrectionEntry(LastFMNamedModel):
+    """The correction node itself, wrapping the corrected track."""
+
+    track: LastFMCorrectionTrack = Field(default_factory=LastFMCorrectionTrack)
+
+
+class LastFMCorrectionsData(LastFMNamedModel):
+    """Top-level ``corrections`` node from a track.getCorrection JSON response.
+
+    ``correction`` is absent (None) when Last.fm has no correction on file —
+    i.e. the submitted artist/track is already canonical.
+    """
+
+    correction: LastFMCorrectionEntry | None = Field(default=None)
+
+
 class LastFMTrackData(LastFMBaseModel):
     """Loosely-structured track shape accepted by the playlist-item conversion seam.
 

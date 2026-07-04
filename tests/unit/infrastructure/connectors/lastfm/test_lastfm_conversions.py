@@ -1,12 +1,18 @@
 """Characterization + regression tests for Last.fm track→connector conversion.
 
 Locks the observable contract of ``LastFMConnector.convert_track_to_connector``
-(raw Last.fm track payload → ``ConnectorTrack``): the ``connector_track_identifier``
-fallback chain (mbid → url → ``lastfm:{title}``), the seconds→ms duration
+(raw Last.fm track payload → ``ConnectorTrack``): the seconds→ms duration
 conversion, the dict-or-str artist/album handling, and the presence-gated metric
 metadata. Written against the pre-refactor hand-walk implementation and left
 unchanged after the boundary refactor, proving identical output entities for
 identical raw payloads.
+
+FLIPPED (v0.8.18 FM4a): ``connector_track_identifier`` no longer follows the
+``mbid → url → "lastfm:{title}"`` fallback chain — it is always
+``make_lastfm_identifier(artist, title)``, the single scheme shared by every
+Last.fm mint site (mbid is preserved separately in
+``raw_metadata["lastfm_mbid"]``, so nothing is lost). See
+``TestConnectorIdentifierMinting`` below.
 
 The connector's ``convert_track_to_connector`` is the stable seam: it accepts a
 raw ``Mapping`` before and after the refactor, while the private
@@ -128,34 +134,43 @@ class TestDurationConversion:
         assert ct.duration_ms is None
 
 
-class TestConnectorIdentifierFallbackChain:
-    def test_mbid_wins(
+class TestConnectorIdentifierMinting:
+    """connector_track_identifier is always the normalized artist::title
+    composite — mbid/url no longer influence it (FM4a)."""
+
+    def test_mints_normalized_composite(
+        self, convert: Callable[[Mapping[str, JsonValue]], ConnectorTrack]
+    ) -> None:
+        ct = convert({"name": "Song", "artist": "Radiohead"})
+        assert ct.connector_track_identifier == "radiohead::song"
+
+    def test_mbid_and_url_do_not_affect_identifier(
         self, convert: Callable[[Mapping[str, JsonValue]], ConnectorTrack]
     ) -> None:
         ct = convert({
             "name": "Song",
+            "artist": "Radiohead",
             "mbid": "the-mbid",
             "url": "http://u",
         })
-        assert ct.connector_track_identifier == "the-mbid"
+        assert ct.connector_track_identifier == "radiohead::song"
 
-    def test_url_fallback_when_no_mbid(
-        self, convert: Callable[[Mapping[str, JsonValue]], ConnectorTrack]
-    ) -> None:
-        ct = convert({"name": "Song", "url": "http://u"})
-        assert ct.connector_track_identifier == "http://u"
-
-    def test_name_fallback_when_no_mbid_or_url(
+    def test_missing_artist_yields_composite_with_empty_artist(
         self, convert: Callable[[Mapping[str, JsonValue]], ConnectorTrack]
     ) -> None:
         ct = convert({"name": "Song"})
-        assert ct.connector_track_identifier == "lastfm:Song"
+        assert ct.connector_track_identifier == "::song"
 
-    def test_empty_mbid_falls_through_to_url(
+    def test_empty_mbid_does_not_affect_identifier(
         self, convert: Callable[[Mapping[str, JsonValue]], ConnectorTrack]
     ) -> None:
-        ct = convert({"name": "Song", "mbid": "", "url": "http://u"})
-        assert ct.connector_track_identifier == "http://u"
+        ct = convert({
+            "name": "Song",
+            "artist": "Radiohead",
+            "mbid": "",
+            "url": "http://u",
+        })
+        assert ct.connector_track_identifier == "radiohead::song"
 
 
 class TestRawMetadata:
@@ -213,7 +228,7 @@ class TestFullPayload:
             "url": "https://www.last.fm/music/Radiohead/_/Creep",
         })
         assert ct.connector_name == "lastfm"
-        assert ct.connector_track_identifier == "creep-mbid"
+        assert ct.connector_track_identifier == "radiohead::creep"
         assert ct.title == "Creep"
         assert ct.artists == [Artist(name="Radiohead")]
         assert ct.album == "Pablo Honey"

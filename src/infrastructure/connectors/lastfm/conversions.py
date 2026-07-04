@@ -19,6 +19,7 @@ from attrs import define, field
 from src.config import get_logger
 from src.domain.entities import Artist, ConnectorTrack, Track
 from src.domain.entities.shared import JsonDict
+from src.infrastructure.connectors.lastfm.identifiers import make_lastfm_identifier
 from src.infrastructure.connectors.lastfm.models import (
     LastFMTrackData,
     LastFMTrackInfoData,
@@ -141,8 +142,10 @@ def convert_lastfm_track_to_connector(track: LastFMTrackData) -> ConnectorTrack:
     if track.mbid:
         raw_metadata["lastfm_mbid"] = track.mbid
 
-    # Connector track ID: MBID, else URL, else a synthesized "lastfm:{title}".
-    connector_track_id = track.mbid or track.url or f"lastfm:{track.name}"
+    # Connector track ID: the normalized artist::title composite — the single
+    # Last.fm connector identifier scheme shared by every mint site. The MBID
+    # is not lost: it already lands in raw_metadata["lastfm_mbid"] above.
+    connector_track_id = make_lastfm_identifier(track.artist_name, track.name)
 
     return ConnectorTrack(
         connector_name="lastfm",

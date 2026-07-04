@@ -5,13 +5,24 @@ the shared InwardTrackResolver pattern. Each missing track is processed
 sequentially because Last.fm's track.getInfo API is per-track.
 
 Flow per missing track (reuse-before-create):
-1. Enrich via track.getInfo (duration, album, MBID, URL) into an in-memory
-   probe Track — NOTHING is saved yet.
+1. Enrich via track.getInfo (duration, album, MBID) into an in-memory
+   probe Track — NOTHING is saved yet. track.getInfo runs with
+   ``autocorrect=1``, so a successful response also carries Last.fm's
+   CORRECTED artist/title names for free. When getInfo fails or returns
+   nothing, track.getCorrection is tried as a one-shot fallback.
 2. Ask the ``CrossDiscoveryProvider`` whether an existing canonical should
    absorb this recording. On reuse, map the Last.fm identifier(s) onto that
    canonical and stop — no skeletal canonical is ever created.
 3. Otherwise build the canonical ONCE, fully enriched, save it, create the
    Last.fm connector mapping(s), then apply any new Spotify mapping + backfill.
+
+Identifier invariant: every Last.fm connector_track_identifier is
+``make_lastfm_identifier(artist, title)``, minted PRIMARILY from the
+CORRECTED names (``MatchMethod.LASTFM_IMPORT``). When the corrected composite
+differs from the raw one, a SECONDARY mapping is also minted on the raw
+composite (``MatchMethod.LASTFM_RAW_ALIAS``) so a future raw-spelled import
+still hits the fast connector-mapping lookup. Correction only ever runs when
+creating a NEW connector track — never per-play.
 """
 
 from typing import override
@@ -129,7 +140,7 @@ class LastfmInwardResolver(InwardTrackResolver):
         artist_name, track_name = parse_lastfm_identifier(identifier)
 
         # Step 1: Enrich via track.getInfo — data in hand, NO track saved yet.
-        probe, lastfm_url = await self._build_enriched_probe(
+        probe, corrected_artist, corrected_title = await self._build_enriched_probe(
             artist_name, track_name, user_id=user_id
         )
 
@@ -143,7 +154,12 @@ class LastfmInwardResolver(InwardTrackResolver):
 
         if isinstance(outcome, ReuseExisting):
             await self._map_lastfm_identifiers(
-                outcome.track, artist_name, track_name, lastfm_url, uow
+                outcome.track,
+                artist_name,
+                track_name,
+                corrected_artist,
+                corrected_title,
+                uow,
             )
             if outcome.spotify_id:
                 _ = await uow.get_connector_repository().map_track_to_connector(
@@ -176,7 +192,7 @@ class LastfmInwardResolver(InwardTrackResolver):
 
         canonical = await uow.get_track_repository().save_track(probe)
         await self._map_lastfm_identifiers(
-            canonical, artist_name, track_name, lastfm_url, uow
+            canonical, artist_name, track_name, corrected_artist, corrected_title, uow
         )
         result[identifier] = canonical
 
@@ -197,14 +213,26 @@ class LastfmInwardResolver(InwardTrackResolver):
         track_name: str,
         *,
         user_id: str,
-    ) -> tuple[Track, str | None]:
+    ) -> tuple[Track, str, str]:
         """Build an UNSAVED probe Track enriched from track.getInfo.
 
-        Returns ``(probe, lastfm_url)``. The probe carries title/artist plus any
-        album, duration, and MBID (as a musicbrainz connector identifier) from
-        Last.fm's track.getInfo response. No database write happens here — the
-        probe is only saved by the caller if cross-discovery does not reuse an
-        existing canonical. The MBID enables cross-service identity bridging.
+        Returns ``(probe, corrected_artist, corrected_title)``. The probe
+        carries title/artist plus any album, duration, and MBID (as a
+        musicbrainz connector identifier) from Last.fm's track.getInfo
+        response. No database write happens here — the probe is only saved by
+        the caller if cross-discovery does not reuse an existing canonical.
+        The MBID enables cross-service identity bridging.
+
+        ``corrected_artist``/``corrected_title`` are the Last.fm-CORRECTED
+        names used by the caller to mint the PRIMARY connector identifier
+        (see ``_map_lastfm_identifiers``). track.getInfo runs with
+        ``autocorrect=1``, so a successful response's ``lastfm_artist_name``/
+        ``lastfm_title`` already ARE the corrected pair — free. When getInfo
+        fails or returns nothing, ``track.getCorrection`` is tried as a
+        fallback; if that ALSO fails/returns nothing, the corrected pair
+        degrades to the raw ``(artist_name, track_name)`` — an accepted
+        residual (the mint still proceeds; at worst a future correctly-spelled
+        import creates a second, dedup-eligible mapping).
         """
         probe = Track(
             title=track_name,
@@ -219,10 +247,13 @@ class LastfmInwardResolver(InwardTrackResolver):
             logger.debug(
                 f"track.getInfo enrichment failed for {artist_name} - {track_name}: {e}"
             )
-            return probe, None
+            info = None
 
         if not info:
-            return probe, None
+            corrected_artist, corrected_title = await self._resolve_corrected_names(
+                artist_name, track_name
+            )
+            return probe, corrected_artist, corrected_title
 
         connector_ids = dict(probe.connector_track_identifiers)
         if info.lastfm_mbid and "musicbrainz" not in connector_ids:
@@ -239,32 +270,71 @@ class LastfmInwardResolver(InwardTrackResolver):
             f"(duration={info.lastfm_duration}, album={info.lastfm_album_name}, "
             f"mbid={info.lastfm_mbid})"
         )
-        return probe, info.lastfm_url
+        corrected_artist = info.lastfm_artist_name or artist_name
+        corrected_title = info.lastfm_title or track_name
+        return probe, corrected_artist, corrected_title
+
+    async def _resolve_corrected_names(
+        self, artist_name: str, track_name: str
+    ) -> tuple[str, str]:
+        """Fallback correction lookup, used only when track.getInfo yields nothing.
+
+        track.getCorrection returns Last.fm's autocorrected (title, artist)
+        pair. When it too is unavailable, degrades to the raw names — an
+        accepted residual; see ``_build_enriched_probe``.
+        """
+        correction = await self._lastfm_client.get_track_correction(
+            artist_name, track_name
+        )
+        if correction is None:
+            logger.debug(
+                f"No track.getCorrection result for {artist_name} - {track_name}; "
+                "minting from raw normalized names"
+            )
+            return artist_name, track_name
+
+        corrected_title, corrected_artist = correction
+        return corrected_artist, corrected_title
 
     async def _map_lastfm_identifiers(
         self,
         track: Track,
-        artist_name: str,
-        track_name: str,
-        lastfm_url: str | None,
+        raw_artist: str,
+        raw_title: str,
+        corrected_artist: str,
+        corrected_title: str,
         uow: UnitOfWorkProtocol,
     ) -> None:
         """Map the Last.fm identifier(s) onto ``track``.
 
-        Keeps the URL-primary + composite-secondary scheme: the canonical URL is
-        the primary connector id (or the normalized artist::title composite when
-        no URL is available), with the composite added as a secondary for fast
-        dedup lookups. (Task 4a later collapses this to a single key.)
+        Mints the PRIMARY mapping on the Last.fm-CORRECTED artist::title
+        composite (``MatchMethod.LASTFM_IMPORT``) — the connector identifier
+        invariant every Last.fm mint site now shares. When the corrected
+        composite differs from the raw one (autocorrect fixed a typo or
+        miscapitalization), ALSO mints a SECONDARY mapping on the raw
+        composite (``MatchMethod.LASTFM_RAW_ALIAS``) so a future import
+        carrying the same raw (uncorrected) spelling still hits the fast
+        connector-mapping lookup instead of re-running getInfo/getCorrection.
         """
-        fallback_id = make_lastfm_identifier(artist_name, track_name)
-        connector_id = lastfm_url or fallback_id
+        primary_id = make_lastfm_identifier(corrected_artist, corrected_title)
         await self._create_lastfm_mapping(
-            track, artist_name, track_name, connector_id, uow
+            track,
+            corrected_artist,
+            corrected_title,
+            primary_id,
+            uow,
+            match_method=MatchMethod.LASTFM_IMPORT,
         )
-        # Secondary artist::title mapping for fast dedup lookups
-        if connector_id != fallback_id:
+
+        raw_id = make_lastfm_identifier(raw_artist, raw_title)
+        if raw_id != primary_id:
             await self._create_lastfm_mapping(
-                track, artist_name, track_name, fallback_id, uow
+                track,
+                raw_artist,
+                raw_title,
+                raw_id,
+                uow,
+                match_method=MatchMethod.LASTFM_RAW_ALIAS,
             )
 
     async def _create_lastfm_mapping(
@@ -274,6 +344,8 @@ class LastfmInwardResolver(InwardTrackResolver):
         track_name: str,
         connector_id: str,
         uow: UnitOfWorkProtocol,
+        *,
+        match_method: str,
     ) -> None:
         """Create a Last.fm connector mapping with domain-calculated confidence."""
         raw_match = RawProviderMatch(
@@ -294,7 +366,7 @@ class LastfmInwardResolver(InwardTrackResolver):
             track,
             self.connector_name,
             connector_id,
-            MatchMethod.LASTFM_IMPORT,
+            match_method,
             confidence=match_result.confidence,
             metadata={"artist_name": artist_name, "track_name": track_name},
             confidence_evidence=match_result.evidence_dict,

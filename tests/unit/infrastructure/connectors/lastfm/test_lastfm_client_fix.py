@@ -211,3 +211,63 @@ class TestDoubleDecodeWorkaround:
         # é → %C3%A9 (pre-encoded; httpx will double-encode the % signs)
         assert params["artist"] == "Beyonc%C3%A9"
         assert params["track"] == "Halo"  # Plain ASCII unchanged
+
+
+class TestGetTrackCorrection:
+    """Tests for track.getCorrection (v0.8.18 FM4a) — the fallback correction
+    lookup used only when track.getInfo enrichment fails or returns nothing."""
+
+    async def test_returns_corrected_track_and_artist_names(self):
+        """Track name first, artist name second — matches the JSON's
+        correction.track.{name, artist.name} nesting order."""
+        client = _make_client()
+        mock_get = AsyncMock(
+            return_value=_make_ok_response({
+                "corrections": {
+                    "correction": {
+                        "index": "0",
+                        "track": {
+                            "name": "Stairway to Heaven",
+                            "artist": {"name": "Led Zeppelin"},
+                        },
+                    }
+                }
+            })
+        )
+        client._client.get = mock_get  # type: ignore[assignment]
+
+        result = await client.get_track_correction("led zepplin", "stairway heaven")
+
+        assert result == ("Stairway to Heaven", "Led Zeppelin")
+
+    async def test_no_correction_on_file_returns_none(self):
+        """An empty corrections node (already-canonical name) yields None."""
+        client = _make_client()
+        mock_get = AsyncMock(return_value=_make_ok_response({"corrections": {}}))
+        client._client.get = mock_get  # type: ignore[assignment]
+
+        result = await client.get_track_correction("Radiohead", "Creep")
+
+        assert result is None
+
+    async def test_api_error_returns_none(self):
+        """LastFMAPIError is suppressed by _api_call, returning None."""
+        client = _make_client()
+        mock_api_request = AsyncMock(side_effect=LastFMAPIError(6, "Track not found"))
+
+        with patch.object(LastFMAPIClient, "_api_request", mock_api_request):
+            result = await client.get_track_correction("Unknown", "Track")
+
+        assert result is None
+
+    async def test_not_configured_returns_none_without_request(self):
+        """No api_key configured short-circuits before any HTTP call."""
+        client = _make_client()
+        client.api_key = None
+        mock_get = AsyncMock(return_value=_make_ok_response())
+        client._client.get = mock_get  # type: ignore[assignment]
+
+        result = await client.get_track_correction("Radiohead", "Creep")
+
+        assert result is None
+        mock_get.assert_not_called()

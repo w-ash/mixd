@@ -34,6 +34,7 @@ from src.infrastructure.connectors.base import BaseAPIClient
 from src.infrastructure.connectors.lastfm.conversions import LastFMTrackInfo
 from src.infrastructure.connectors.lastfm.models import (
     LastFMAPIError,
+    LastFMCorrectionsData,
     LastFMRecentTracksPage,
     LastFMTrackEntry,
     LastFMTrackInfoData,
@@ -438,6 +439,49 @@ class LastFMAPIClient(BaseAPIClient):
 
         data = await self._api_request("track.getInfo", params)
         return _validate_track_info(data, has_user_data=bool(self.lastfm_username))
+
+    async def get_track_correction(
+        self, artist: str, track: str
+    ) -> tuple[str, str] | None:
+        """Get Last.fm's autocorrected (track, artist) pair via track.getCorrection.
+
+        Fallback used ONLY when track.getInfo enrichment fails or returns no
+        data while minting a NEW connector track's identifier — getInfo's own
+        ``autocorrect=1`` already yields corrected names in the common case,
+        so this is a rarely-hit path.
+
+        Returns:
+            ``(corrected_track_name, corrected_artist_name)`` — track name
+            first, matching the JSON's ``correction.track.{name, artist.name}``
+            nesting order — or ``None`` when Last.fm has no correction on file
+            (the submitted name is already canonical) or the request fails.
+        """
+        return await self._api_call(
+            "get_lastfm_track_correction",
+            self._get_track_correction_impl,
+            artist,
+            track,
+        )
+
+    async def _get_track_correction_impl(
+        self, artist: str, track: str
+    ) -> tuple[str, str] | None:
+        """Pure implementation without retry logic."""
+        if not self.is_configured:
+            return None
+
+        data = await self._api_request(
+            "track.getCorrection", {"artist": artist, "track": track}
+        )
+        corrections_node = data.get("corrections")
+        if not corrections_node:
+            return None
+
+        parsed = LastFMCorrectionsData.model_validate(corrections_node)
+        if parsed.correction is None or not parsed.correction.track.name:
+            return None
+
+        return parsed.correction.track.name, parsed.correction.track.artist.name
 
     # -------------------------------------------------------------------------
     # TRACK LOVE (WRITE)

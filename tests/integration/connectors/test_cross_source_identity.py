@@ -86,6 +86,8 @@ class TestSpotifyThenLastfm:
             lastfm_duration=180000,
             lastfm_album_name=None,
             lastfm_mbid=None,
+            lastfm_artist_name="Band",
+            lastfm_title="Different Song",
         )
 
         lastfm_resolver = LastfmInwardResolver(lastfm_client=lastfm_client)
@@ -278,6 +280,8 @@ class TestMixedResolutionPaths:
             lastfm_duration=180000,
             lastfm_album_name=None,
             lastfm_mbid=None,
+            lastfm_artist_name="Band C",
+            lastfm_title="Brand New Track",
         )
 
         resolver = LastfmInwardResolver(lastfm_client=lastfm_client)

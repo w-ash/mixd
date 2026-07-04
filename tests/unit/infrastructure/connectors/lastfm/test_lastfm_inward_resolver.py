@@ -1,8 +1,10 @@
 """Tests for LastfmInwardResolver.
 
 Validates that the Last.fm-specific inward resolver enriches via track.getInfo
-into an in-memory probe, uses URL-based connector IDs, builds the canonical
-once (reuse-before-create), and drives cross-service discovery via the
+into an in-memory probe, mints connector IDs on the normalized artist::title
+composite (from Last.fm-CORRECTED names, with a raw-alias secondary mapping
+when corrected differs from raw — v0.8.18 FM4a), builds the canonical once
+(reuse-before-create), and drives cross-service discovery via the
 CrossDiscoveryProvider protocol's ``discover`` → ``DiscoveryOutcome`` contract.
 """
 
@@ -11,6 +13,7 @@ from unittest.mock import AsyncMock, MagicMock
 from src.config.constants import MatchMethod
 from src.domain.entities import Track
 from src.domain.matching.protocols import NewMapping, Nothing
+from src.infrastructure.connectors.lastfm.identifiers import make_lastfm_identifier
 from src.infrastructure.connectors.lastfm.inward_resolver import (
     LastfmInwardResolver,
 )
@@ -41,7 +44,7 @@ def _make_uow(
 class TestCreatesEnrichedTrack:
     """New tracks should be built once and enriched via track.getInfo."""
 
-    async def test_creates_track_and_uses_url_connector_id(self):
+    async def test_creates_track_and_uses_composite_connector_id(self):
         lastfm_client = AsyncMock()
         lastfm_url = "https://www.last.fm/music/Radiohead/_/Creep"
         lastfm_client.get_track_info_comprehensive.return_value = MagicMock(
@@ -49,6 +52,8 @@ class TestCreatesEnrichedTrack:
             lastfm_duration=238000,
             lastfm_album_name="Pablo Honey",
             lastfm_mbid=None,
+            lastfm_artist_name="Radiohead",
+            lastfm_title="Creep",
         )
 
         cross_discovery = AsyncMock()
@@ -69,11 +74,12 @@ class TestCreatesEnrichedTrack:
         assert result["radiohead::creep"].id == 42
         assert metrics.created == 1
 
-        # Verify the connector mapping uses the URL
+        # Verify the connector mapping uses the normalized composite, not the URL
         map_calls = uow.get_connector_repository().map_track_to_connector.call_args_list
         lastfm_calls = [c for c in map_calls if c.args[1] == "lastfm"]
         connector_ids = [c.args[2] for c in lastfm_calls]
-        assert lastfm_url in connector_ids
+        assert connector_ids == [make_lastfm_identifier("Radiohead", "Creep")]
+        assert lastfm_url not in connector_ids
 
 
 class TestCrossDiscovery:
@@ -86,6 +92,8 @@ class TestCrossDiscovery:
             lastfm_duration=238000,
             lastfm_album_name="Pablo Honey",
             lastfm_mbid=None,
+            lastfm_artist_name="Radiohead",
+            lastfm_title="Creep",
         )
 
         cross_discovery = AsyncMock()
@@ -122,6 +130,9 @@ class TestCrossDiscovery:
             lastfm_url="https://www.last.fm/music/Radiohead/_/Creep",
             lastfm_duration=238000,
             lastfm_album_name="Pablo Honey",
+            lastfm_mbid=None,
+            lastfm_artist_name="Radiohead",
+            lastfm_title="Creep",
         )
 
         saved_track = make_track(id=42)
@@ -149,6 +160,9 @@ class TestDiscoveryRejected:
             lastfm_url="https://www.last.fm/music/Radiohead/_/Creep",
             lastfm_duration=238000,
             lastfm_album_name=None,
+            lastfm_mbid=None,
+            lastfm_artist_name="Radiohead",
+            lastfm_title="Creep",
         )
 
         cross_discovery = AsyncMock()
@@ -175,6 +189,8 @@ class TestTrackInfoFailure:
     async def test_enrichment_failure_uses_fallback_id(self):
         lastfm_client = AsyncMock()
         lastfm_client.get_track_info_comprehensive.return_value = None  # Failure
+        # getCorrection also has nothing on file — degrades to raw names.
+        lastfm_client.get_track_correction.return_value = None
 
         cross_discovery = AsyncMock()
         cross_discovery.discover.return_value = Nothing()
@@ -212,6 +228,8 @@ class TestMBIDEnrichment:
             lastfm_duration=238000,
             lastfm_album_name="Pablo Honey",
             lastfm_mbid=test_mbid,
+            lastfm_artist_name="Radiohead",
+            lastfm_title="Creep",
         )
 
         cross_discovery = AsyncMock()
@@ -249,6 +267,8 @@ class TestMBIDEnrichment:
             lastfm_duration=238000,
             lastfm_album_name="Pablo Honey",
             lastfm_mbid=None,
+            lastfm_artist_name="Radiohead",
+            lastfm_title="Creep",
         )
 
         cross_discovery = AsyncMock()
@@ -351,6 +371,9 @@ class TestCanonicalReuse:
             lastfm_url="https://www.last.fm/music/Radiohead/_/Creep",
             lastfm_duration=238000,
             lastfm_album_name="Pablo Honey",
+            lastfm_mbid=None,
+            lastfm_artist_name="Radiohead",
+            lastfm_title="Creep",
         )
 
         saved_track = make_track(id=42)
@@ -389,6 +412,9 @@ class TestCanonicalReuse:
             lastfm_url="https://www.last.fm/music/Band+C/_/New",
             lastfm_duration=200000,
             lastfm_album_name=None,
+            lastfm_mbid=None,
+            lastfm_artist_name="Band C",
+            lastfm_title="New",
         )
 
         resolver = LastfmInwardResolver(
@@ -435,6 +461,9 @@ class TestCanonicalReuse:
             lastfm_url="https://www.last.fm/music/Radiohead/_/Creep",
             lastfm_duration=238000,
             lastfm_album_name="Pablo Honey",
+            lastfm_mbid=None,
+            lastfm_artist_name="Radiohead",
+            lastfm_title="Creep",
         )
 
         resolver = LastfmInwardResolver(
@@ -460,3 +489,93 @@ class TestCanonicalReuse:
         assert metrics.reused == 0
         assert metrics.created == 1
         assert result["radiohead::creep"].id == 42  # Track creation created track
+
+
+class TestCorrectedNameDualMapping:
+    """FM4a: when Last.fm's autocorrect differs from the raw identifier, mint
+    a PRIMARY mapping on the corrected composite AND a SECONDARY
+    ``LASTFM_RAW_ALIAS`` mapping on the raw composite — both on the SAME
+    canonical — so a future raw-spelled import still hits the fast
+    connector-mapping lookup instead of re-running getInfo/getCorrection."""
+
+    async def test_corrected_name_primary_and_raw_name_secondary_alias(self):
+        lastfm_client = AsyncMock()
+        # autocorrect=1 fixes the misspelled raw artist "Led Zepplin".
+        lastfm_client.get_track_info_comprehensive.return_value = MagicMock(
+            lastfm_url="https://www.last.fm/music/Led+Zeppelin/_/Stairway+to+Heaven",
+            lastfm_duration=482000,
+            lastfm_album_name="Led Zeppelin IV",
+            lastfm_mbid=None,
+            lastfm_artist_name="Led Zeppelin",
+            lastfm_title="Stairway to Heaven",
+        )
+
+        cross_discovery = AsyncMock()
+        cross_discovery.discover.return_value = Nothing()
+
+        saved_track = make_track(id=42)
+        resolver = LastfmInwardResolver(
+            lastfm_client=lastfm_client,
+            cross_discovery=cross_discovery,
+        )
+
+        uow = _make_uow(saved_track=saved_track)
+        result, metrics = await resolver.resolve_to_canonical_tracks(
+            ["led zepplin::stairway to heaven"], uow, user_id="test-user"
+        )
+
+        assert "led zepplin::stairway to heaven" in result
+        assert metrics.created == 1
+
+        corrected_key = make_lastfm_identifier("Led Zeppelin", "Stairway to Heaven")
+        raw_key = make_lastfm_identifier("led zepplin", "stairway to heaven")
+        assert corrected_key != raw_key  # sanity: the two really do differ
+
+        map_calls = uow.get_connector_repository().map_track_to_connector.call_args_list
+        lastfm_calls = [c for c in map_calls if c.args[1] == "lastfm"]
+        methods_by_id = {c.args[2]: c.args[3] for c in lastfm_calls}
+
+        assert methods_by_id == {
+            corrected_key: MatchMethod.LASTFM_IMPORT,
+            raw_key: MatchMethod.LASTFM_RAW_ALIAS,
+        }
+
+        # Both mappings target the SAME canonical track.
+        assert all(c.args[0] == saved_track for c in lastfm_calls)
+
+    async def test_corrected_name_equals_raw_mints_only_primary(self):
+        """When autocorrect only changes case (normalizes to the same
+        composite), no secondary alias mapping is minted — a single mapping,
+        matching the pre-4a single-scheme case."""
+        lastfm_client = AsyncMock()
+        lastfm_client.get_track_info_comprehensive.return_value = MagicMock(
+            lastfm_url="https://www.last.fm/music/Radiohead/_/Creep",
+            lastfm_duration=238000,
+            lastfm_album_name="Pablo Honey",
+            lastfm_mbid=None,
+            lastfm_artist_name="Radiohead",
+            lastfm_title="Creep",
+        )
+
+        cross_discovery = AsyncMock()
+        cross_discovery.discover.return_value = Nothing()
+
+        saved_track = make_track(id=42)
+        resolver = LastfmInwardResolver(
+            lastfm_client=lastfm_client,
+            cross_discovery=cross_discovery,
+        )
+
+        uow = _make_uow(saved_track=saved_track)
+        result, metrics = await resolver.resolve_to_canonical_tracks(
+            ["radiohead::creep"], uow, user_id="test-user"
+        )
+
+        assert "radiohead::creep" in result
+        assert metrics.created == 1
+
+        map_calls = uow.get_connector_repository().map_track_to_connector.call_args_list
+        lastfm_calls = [c for c in map_calls if c.args[1] == "lastfm"]
+        assert len(lastfm_calls) == 1
+        assert lastfm_calls[0].args[2] == make_lastfm_identifier("Radiohead", "Creep")
+        assert lastfm_calls[0].args[3] == MatchMethod.LASTFM_IMPORT

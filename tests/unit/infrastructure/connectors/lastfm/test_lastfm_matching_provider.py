@@ -8,6 +8,7 @@ from unittest.mock import AsyncMock
 
 from src.domain.matching.types import MatchFailureReason
 from src.infrastructure.connectors.lastfm.conversions import LastFMTrackInfo
+from src.infrastructure.connectors.lastfm.identifiers import make_lastfm_identifier
 from src.infrastructure.connectors.lastfm.matching_provider import LastFMProvider
 from tests.fixtures.factories import make_track
 
@@ -127,19 +128,30 @@ class TestLastFMProviderFetchRawMatches:
         assert result.failures[0].reason == MatchFailureReason.NO_RESULTS
 
     async def test_track_with_lastfm_url_creates_valid_match(self):
-        """Track info with lastfm_url should produce a valid match."""
+        """Track info with lastfm_url should produce a match keyed by the
+        normalized artist::title composite — the URL is retained only as
+        provenance in service_data, not as the connector_id (FM4a: prod's 583
+        URL-keyed rows all came from this mint site)."""
         provider, connector = _make_provider()
         tracks = [make_track(id=1)]
 
         connector.get_track_info_batch.return_value = {
-            1: _make_lastfm_track_info(url="https://last.fm/music/Artist/_/Song"),
+            1: _make_lastfm_track_info(
+                title="Song",
+                artist="Artist",
+                url="https://last.fm/music/Artist/_/Song",
+            ),
         }
 
         result = await provider.fetch_raw_matches_for_tracks(tracks)
 
         assert len(result.matches) == 1
+        assert result.matches[1]["connector_id"] == make_lastfm_identifier(
+            "Artist", "Song"
+        )
         assert (
-            result.matches[1]["connector_id"] == "https://last.fm/music/Artist/_/Song"
+            result.matches[1]["service_data"]["lastfm_url"]
+            == "https://last.fm/music/Artist/_/Song"
         )
 
 

@@ -1,8 +1,11 @@
 """Tests for Last.fm connector ID consistency.
 
-Validates that the inward resolver uses the same connector ID format
-(Last.fm URLs) as conversions.py and matching_provider.py, preventing duplicate
-canonical tracks during history import.
+Validates that the inward resolver mints the same connector ID format
+(the normalized ``artist::title`` composite, ``make_lastfm_identifier``) as
+conversions.py and matching_provider.py, preventing duplicate canonical
+tracks during history import. FLIPPED (v0.8.18 FM4a): Last.fm URLs are no
+longer a connector_track_identifier scheme — every mint site now agrees on
+the normalized composite, minted from Last.fm-CORRECTED names when available.
 """
 
 from unittest.mock import AsyncMock, MagicMock
@@ -53,17 +56,21 @@ class TestLastfmIdentifierNormalization:
         assert id1 == id2
 
 
-class TestInwardResolverUsesUrlFormat:
-    """Integration-level test: the resolver should produce URL-based connector IDs."""
+class TestInwardResolverUsesCompositeFormat:
+    """The resolver mints the normalized artist::title composite — never a URL."""
 
-    async def test_new_track_uses_url_from_track_getinfo(self):
-        """When track.getInfo returns a URL, the connector mapping should use it."""
+    async def test_new_track_ignores_url_uses_composite(self):
+        """Even when track.getInfo returns a URL, the connector mapping uses
+        the normalized composite (from the corrected names), not the URL."""
         lastfm_client = AsyncMock()
         lastfm_url = "https://www.last.fm/music/Radiohead/_/Creep"
         lastfm_client.get_track_info_comprehensive.return_value = MagicMock(
             lastfm_url=lastfm_url,
             lastfm_duration=238000,
             lastfm_album_name="Pablo Honey",
+            lastfm_mbid=None,
+            lastfm_artist_name="Radiohead",
+            lastfm_title="Creep",
         )
 
         cross_discovery = AsyncMock()
@@ -81,19 +88,25 @@ class TestInwardResolverUsesUrlFormat:
             ["radiohead::creep"], uow, user_id="test-user"
         )
 
-        # The connector mapping should use the URL
+        # The connector mapping uses the composite, never the URL.
         map_calls = uow.get_connector_repository().map_track_to_connector.call_args_list
         lastfm_calls = [c for c in map_calls if c.args[1] == "lastfm"]
         connector_ids = [c.args[2] for c in lastfm_calls]
-        assert lastfm_url in connector_ids
+        assert connector_ids == [make_lastfm_identifier("Radiohead", "Creep")]
+        assert lastfm_url not in connector_ids
 
-    async def test_new_track_falls_back_when_no_url(self):
-        """When track.getInfo returns no URL, fall back to artist::title."""
+    async def test_getinfo_succeeds_without_names_falls_back_to_raw(self):
+        """getInfo succeeding but omitting corrected names degrades to the raw
+        pair inline — track.getCorrection is a fallback for getInfo FAILING,
+        not for a successful-but-nameless response, so it's never called."""
         lastfm_client = AsyncMock()
         lastfm_client.get_track_info_comprehensive.return_value = MagicMock(
             lastfm_url=None,
             lastfm_duration=None,
             lastfm_album_name=None,
+            lastfm_mbid=None,
+            lastfm_artist_name=None,
+            lastfm_title=None,
         )
 
         cross_discovery = AsyncMock()
@@ -114,8 +127,36 @@ class TestInwardResolverUsesUrlFormat:
         map_calls = uow.get_connector_repository().map_track_to_connector.call_args_list
         lastfm_calls = [c for c in map_calls if c.args[1] == "lastfm"]
         connector_ids = [c.args[2] for c in lastfm_calls]
-        # Should use artist::title fallback
-        assert any("::" in cid and "last.fm" not in cid for cid in connector_ids)
+        assert connector_ids == [make_lastfm_identifier("radiohead", "creep")]
+        lastfm_client.get_track_correction.assert_not_called()
+
+    async def test_getinfo_fails_and_no_correction_falls_back_to_raw_names(self):
+        """When track.getInfo fails outright, getCorrection is tried; when
+        that ALSO has nothing on file, mint from the raw normalized names."""
+        lastfm_client = AsyncMock()
+        lastfm_client.get_track_info_comprehensive.return_value = None
+        lastfm_client.get_track_correction.return_value = None
+
+        cross_discovery = AsyncMock()
+        cross_discovery.discover.return_value = Nothing()
+
+        resolver = LastfmInwardResolver(
+            lastfm_client=lastfm_client,
+            cross_discovery=cross_discovery,
+        )
+
+        saved_track = make_track(id=42)
+        uow = _make_uow(saved_track=saved_track)
+
+        result, metrics = await resolver.resolve_to_canonical_tracks(
+            ["radiohead::creep"], uow, user_id="test-user"
+        )
+
+        lastfm_client.get_track_correction.assert_called_once_with("radiohead", "creep")
+        map_calls = uow.get_connector_repository().map_track_to_connector.call_args_list
+        lastfm_calls = [c for c in map_calls if c.args[1] == "lastfm"]
+        connector_ids = [c.args[2] for c in lastfm_calls]
+        assert connector_ids == [make_lastfm_identifier("radiohead", "creep")]
 
     async def test_bulk_lookup_finds_existing_url_tracks(self):
         """Mapping lookup should find tracks stored with artist::title dedup key."""

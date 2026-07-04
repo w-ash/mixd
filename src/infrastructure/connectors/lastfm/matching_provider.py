@@ -30,6 +30,7 @@ from src.infrastructure.connectors._shared.failure_handling import (
 )
 from src.infrastructure.connectors.lastfm.connector import LastFMConnector
 from src.infrastructure.connectors.lastfm.conversions import LastFMTrackInfo
+from src.infrastructure.connectors.lastfm.identifiers import make_lastfm_identifier
 
 logger = get_logger(__name__)
 
@@ -183,7 +184,16 @@ class LastFMProvider:
             Raw provider match data, or None if creation fails.
         """
         try:
-            # Extract service data without any business logic
+            # Return raw data - no confidence calculation or business logic.
+            # Gated first: without a URL, Last.fm has no page to preserve as
+            # provenance, so there is nothing worth matching on either.
+            if not track_info.lastfm_url:
+                return None
+
+            # Extract service data without any business logic. The URL is
+            # kept only as provenance here — it is no longer the connector_id
+            # (that's now the normalized artist::title composite, the single
+            # scheme shared by every Last.fm mint site).
             service_data: dict[str, JsonValue] = {
                 "title": track_info.lastfm_title,
                 "artist": track_info.lastfm_artist_name,
@@ -191,6 +201,7 @@ class LastFMProvider:
                 if track_info.lastfm_artist_name
                 else [],
                 "duration_ms": track_info.lastfm_duration,
+                "lastfm_url": track_info.lastfm_url,
                 # LastFM specific data
                 "lastfm_user_playcount": track_info.lastfm_user_playcount,
                 "lastfm_global_playcount": track_info.lastfm_global_playcount,
@@ -205,12 +216,12 @@ class LastFMProvider:
             if track_info.lastfm_mbid:
                 service_data["lastfm_mbid"] = track_info.lastfm_mbid
 
-            # Return raw data - no confidence calculation or business logic
-            if not track_info.lastfm_url:
-                return None
+            connector_id = make_lastfm_identifier(
+                track_info.lastfm_artist_name or "", track_info.lastfm_title or ""
+            )
 
             return RawProviderMatch(
-                connector_id=track_info.lastfm_url,
+                connector_id=connector_id,
                 match_method="artist_title",
                 service_data=service_data,
             )

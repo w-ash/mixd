@@ -133,6 +133,8 @@ class TestEnrichmentResaveCreatesSingleCanonical:
         info.lastfm_album_name = "Debut"
         info.lastfm_duration = 100_000
         info.lastfm_mbid = None
+        info.lastfm_artist_name = "Neon Priest"
+        info.lastfm_title = "Orphaned"
         lastfm_client = AsyncMock()
         lastfm_client.get_track_info_comprehensive.return_value = info
 
@@ -200,6 +202,8 @@ class TestCrossDiscoveryReusesIsrcOwner:
         info.lastfm_album_name = "Pablo Honey"
         info.lastfm_duration = 238_000
         info.lastfm_mbid = None
+        info.lastfm_artist_name = "Radiohead"
+        info.lastfm_title = "Creep"
         lastfm_client = AsyncMock()
         lastfm_client.get_track_info_comprehensive.return_value = info
 

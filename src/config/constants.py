@@ -227,6 +227,11 @@ class MatchMethod:
     PLAY_RESOLVER: Final = "spotify_connector_play_resolver"
     LASTFM_DISCOVERY: Final = "lastfm_discovery"
     LASTFM_IMPORT: Final = "lastfm_import"
+    # Secondary mapping on the raw (pre-autocorrect) artist::title composite,
+    # added alongside a corrected-name primary mapping so a future import
+    # carrying the same raw spelling still hits the fast connector-mapping
+    # lookup instead of re-running getInfo/getCorrection.
+    LASTFM_RAW_ALIAS: Final = "lastfm_import_raw_alias"
     CANONICAL_REUSE: Final = "canonical_reuse"
     ISRC_MATCH: Final = "isrc_match"
     # ISRC collision with suspect duration delta — routed to review, not merged
@@ -261,6 +266,7 @@ class MatchMethod:
         "spotify_redirect": "Error Recovery",
         "direct_import_stale_id": "Secondary Cache",
         "search_fallback_stale_id": "Secondary Cache",
+        "lastfm_import_raw_alias": "Secondary Cache",
     }
 
     DESCRIPTIONS: Final[dict[str, str]] = {
@@ -277,6 +283,7 @@ class MatchMethod:
         "spotify_redirect": "Spotify ID relinking detected",
         "direct_import_stale_id": "Stale ID cache (redirect)",
         "search_fallback_stale_id": "Stale ID cache (fallback)",
+        "lastfm_import_raw_alias": "Last.fm raw-spelling alias (pre-autocorrect) cache",
     }
 
 
