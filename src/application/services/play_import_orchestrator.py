@@ -137,6 +137,10 @@ class PlayImportOrchestrator:
             "total_plays": len(connector_plays),
             "resolved_plays": 0,
             "error_count": 0,
+            "fallback_resolved": 0,
+            "redirect_resolved": 0,
+            "dead_ids_unresolved": 0,
+            "isrc_suspect_deferred": 0,
         }
 
         async with tracked_operation(
@@ -155,6 +159,18 @@ class PlayImportOrchestrator:
                     all_track_plays.extend(track_plays)
                     combined_metrics["resolved_plays"] += len(track_plays)
                     combined_metrics["error_count"] += metrics.get("error_count", 0)
+                    combined_metrics["fallback_resolved"] += metrics.get(
+                        "fallback_resolved", 0
+                    )
+                    combined_metrics["redirect_resolved"] += metrics.get(
+                        "redirect_resolved", 0
+                    )
+                    combined_metrics["dead_ids_unresolved"] += metrics.get(
+                        "dead_ids_unresolved", 0
+                    )
+                    combined_metrics["isrc_suspect_deferred"] += metrics.get(
+                        "isrc_suspect_deferred", 0
+                    )
 
                     await progress_emitter.emit_progress(
                         create_progress_event(
@@ -253,6 +269,40 @@ class PlayImportOrchestrator:
         if errors > 0:
             result.summary_metrics.add("errors", errors, "Errors", significance=4)
 
+        fallback_resolved = combined_metrics["fallback_resolved"]
+        redirect_resolved = combined_metrics["redirect_resolved"]
+        dead_ids_unresolved = combined_metrics["dead_ids_unresolved"]
+        isrc_suspect_deferred = combined_metrics["isrc_suspect_deferred"]
+
+        if fallback_resolved > 0:
+            result.summary_metrics.add(
+                "fallback_resolved",
+                fallback_resolved,
+                "Resolved via Search Fallback",
+                significance=5,
+            )
+        if redirect_resolved > 0:
+            result.summary_metrics.add(
+                "redirect_resolved",
+                redirect_resolved,
+                "Resolved via Spotify Redirect",
+                significance=6,
+            )
+        if dead_ids_unresolved > 0:
+            result.summary_metrics.add(
+                "dead_ids_unresolved",
+                dead_ids_unresolved,
+                "Dead IDs Unresolved",
+                significance=7,
+            )
+        if isrc_suspect_deferred > 0:
+            result.summary_metrics.add(
+                "isrc_suspect_deferred",
+                isrc_suspect_deferred,
+                "ISRC Suspect — Deferred to Review",
+                significance=8,
+            )
+
         return result
 
     def _create_empty_resolution_result(self) -> OperationResult:
@@ -311,6 +361,14 @@ class PlayImportOrchestrator:
         resolved = resolution_result.summary_metrics.get("resolved")
         resolution_filtered = resolution_result.summary_metrics.get("filtered")
         resolution_errors = resolution_result.summary_metrics.get("errors")
+        fallback_resolved = resolution_result.summary_metrics.get("fallback_resolved")
+        redirect_resolved = resolution_result.summary_metrics.get("redirect_resolved")
+        dead_ids_unresolved = resolution_result.summary_metrics.get(
+            "dead_ids_unresolved"
+        )
+        isrc_suspect_deferred = resolution_result.summary_metrics.get(
+            "isrc_suspect_deferred"
+        )
 
         total_errors = int(ingestion_errors + resolution_errors)
 
@@ -352,6 +410,35 @@ class PlayImportOrchestrator:
                 "Success Rate",
                 format="percent",
                 significance=6,
+            )
+
+        if fallback_resolved > 0:
+            result.summary_metrics.add(
+                "fallback_resolved",
+                int(fallback_resolved),
+                "Resolved via Search Fallback",
+                significance=7,
+            )
+        if redirect_resolved > 0:
+            result.summary_metrics.add(
+                "redirect_resolved",
+                int(redirect_resolved),
+                "Resolved via Spotify Redirect",
+                significance=8,
+            )
+        if dead_ids_unresolved > 0:
+            result.summary_metrics.add(
+                "dead_ids_unresolved",
+                int(dead_ids_unresolved),
+                "Dead IDs Unresolved",
+                significance=9,
+            )
+        if isrc_suspect_deferred > 0:
+            result.summary_metrics.add(
+                "isrc_suspect_deferred",
+                int(isrc_suspect_deferred),
+                "ISRC Suspect — Deferred to Review",
+                significance=10,
             )
 
         return result

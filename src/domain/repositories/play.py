@@ -91,6 +91,8 @@ class ResolutionMetrics(TypedDict, total=False):
     fallback_resolved: int
     redirect_resolved: int
     spotify_enhanced_count: int
+    dead_ids_unresolved: int
+    isrc_suspect_deferred: int
 
 
 class PlaysRepositoryProtocol(Protocol):

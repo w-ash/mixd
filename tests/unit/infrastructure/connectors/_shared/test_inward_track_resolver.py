@@ -261,6 +261,30 @@ class TestTrackResolutionMetrics:
         assert metrics.reused == 0
         assert metrics.total == 3
 
+    def test_metrics_defaults_redirects_and_fallbacks_to_zero(self):
+        """Connectors without a redirect/fallback concept (e.g. Last.fm) get 0s."""
+        metrics = TrackResolutionMetrics(existing=1, created=2, failed=0)
+        assert metrics.redirects == 0
+        assert metrics.fallbacks == 0
+
+    async def test_base_resolver_leaves_redirects_and_fallbacks_at_zero(self):
+        """The base InwardTrackResolver has no concept of redirects/fallbacks —
+        only SpotifyInwardResolver's override populates them."""
+        track = make_track(1, "Song")
+
+        uow = MagicMock()
+        connector_repo = AsyncMock()
+        connector_repo.find_tracks_by_connectors.return_value = {}
+        uow.get_connector_repository.return_value = connector_repo
+
+        resolver = FakeInwardResolver(batch_results={"id_a": track})
+        _, metrics = await resolver.resolve_to_canonical_tracks(
+            ["id_a"], uow, user_id="test-user"
+        )
+
+        assert metrics.redirects == 0
+        assert metrics.fallbacks == 0
+
 
 class TestCanonicalReuseHook:
     """Canonical reuse matches existing tracks before creating new ones."""

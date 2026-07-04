@@ -75,6 +75,7 @@ class SpotifyInwardResolver(InwardTrackResolver):
     _fallback_hints: dict[str, FallbackHint]
     _fallback_resolved_ids: set[str]
     _redirect_resolved_ids: set[str]
+    _isrc_suspect_deferred_ids: set[str]
 
     def __init__(
         self,
@@ -86,6 +87,7 @@ class SpotifyInwardResolver(InwardTrackResolver):
         self._fallback_hints = {}
         self._fallback_resolved_ids = set()
         self._redirect_resolved_ids = set()
+        self._isrc_suspect_deferred_ids = set()
 
     @property
     def fallback_resolved_ids(self) -> set[str]:
@@ -96,6 +98,17 @@ class SpotifyInwardResolver(InwardTrackResolver):
     def redirect_resolved_ids(self) -> set[str]:
         """IDs that were resolved via Spotify redirect (returned different .id)."""
         return self._redirect_resolved_ids
+
+    @property
+    def isrc_suspect_deferred_ids(self) -> set[str]:
+        """IDs whose ISRC collision was suspect and deferred to review.
+
+        Populated when ``_resolve_one_missing_track`` detects a duration
+        mismatch large enough to distrust the ISRC match — the incoming ID
+        gets its own canonical (ISRC withheld) and a review is queued
+        against the existing owner, rather than silently merging.
+        """
+        return self._isrc_suspect_deferred_ids
 
     def get_resolution_method(self, spotify_id: str) -> str:
         """How was this ID resolved? For downstream context tagging."""
@@ -127,9 +140,19 @@ class SpotifyInwardResolver(InwardTrackResolver):
         self._fallback_hints = fallback_hints or {}
         self._fallback_resolved_ids = set()
         self._redirect_resolved_ids = set()
-        return await super().resolve_to_canonical_tracks(
+        self._isrc_suspect_deferred_ids = set()
+        tracks, metrics = await super().resolve_to_canonical_tracks(
             connector_ids, uow, user_id=user_id
         )
+        # The base class builds TrackResolutionMetrics without knowledge of
+        # Spotify's redirect/fallback tracking (populated during
+        # _create_tracks_batch, above) — decorate the result with them here.
+        metrics = evolve(
+            metrics,
+            redirects=len(self._redirect_resolved_ids),
+            fallbacks=len(self._fallback_resolved_ids),
+        )
+        return tracks, metrics
 
     @override
     def _extract_reuse_metadata(self, identifier: str) -> ReuseMetadata | None:
@@ -312,6 +335,7 @@ class SpotifyInwardResolver(InwardTrackResolver):
                     f"ISRC suspect: queued review for spotify:{spotify_id} vs canonical "
                     f"{existing_track.id} (ISRC={isrc}, duration_diff_ms={duration_diff_ms})"
                 )
+                self._isrc_suspect_deferred_ids.add(spotify_id)
                 return await self._save_with_connector_mappings(
                     spotify_id,
                     spotify_track,

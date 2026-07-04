@@ -480,6 +480,8 @@ class TestResolverMetrics:
             "tracks_resolved",
             "fallback_resolved",
             "redirect_resolved",
+            "dead_ids_unresolved",
+            "isrc_suspect_deferred",
         }
         assert expected_keys == set(metrics.keys())
 

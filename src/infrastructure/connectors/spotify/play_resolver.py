@@ -317,6 +317,10 @@ class SpotifyConnectorPlayResolver:
             "tracks_resolved": tracks_resolved,
             "fallback_resolved": len(self._inward_resolver.fallback_resolved_ids),
             "redirect_resolved": len(self._inward_resolver.redirect_resolved_ids),
+            "dead_ids_unresolved": canonical_track_metrics["dead_ids_unresolved"],
+            "isrc_suspect_deferred": len(
+                self._inward_resolver.isrc_suspect_deferred_ids
+            ),
         }
 
     def _extract_spotify_id_from_connector_play(
@@ -383,6 +387,7 @@ class SpotifyConnectorPlayResolver:
         return tracks_map, {
             "new_tracks_count": metrics.created,
             "updated_tracks_count": metrics.existing,
+            "dead_ids_unresolved": metrics.failed,
         }
 
     def _create_empty_metrics(self) -> ResolutionMetrics:
@@ -400,4 +405,6 @@ class SpotifyConnectorPlayResolver:
             "tracks_resolved": 0,
             "fallback_resolved": 0,
             "redirect_resolved": 0,
+            "dead_ids_unresolved": 0,
+            "isrc_suspect_deferred": 0,
         }

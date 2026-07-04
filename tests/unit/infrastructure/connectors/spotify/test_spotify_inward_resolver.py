@@ -420,6 +420,65 @@ class TestFallbackSearch:
         assert resolver.fallback_resolved_ids == {"id2"}
 
 
+class TestRedirectAndFallbackMetrics:
+    """TrackResolutionMetrics.redirects/fallbacks are filled from the
+    resolver's own tracking sets (v0.8.18 Task 6b observability)."""
+
+    async def test_metrics_count_redirect_and_fallback_in_same_pass(self):
+        """A redirect and a search-fallback resolved in one call both count."""
+        old_id = "old_stale_id_0000000000"
+        new_id = "new_canonical_id_000000"
+        dead_id = "dead_id_000000000000000"
+        found_id = "found_id_00000000000000"
+
+        connector = AsyncMock()
+        # old_id redirects to new_id; dead_id is absent (resolved via fallback search)
+        connector.get_tracks_by_ids.return_value = {
+            old_id: make_spotify_track(new_id, "Redirected Song"),
+        }
+        connector.search_track.return_value = [
+            make_spotify_track(found_id, "My Song"),
+        ]
+
+        resolver = SpotifyInwardResolver(spotify_connector=connector)
+        uow, _, _ = _make_uow_with_repos()
+
+        hints = {dead_id: FallbackHint(artist_name="Artist", track_name="My Song")}
+        result, metrics = await resolver.resolve_to_canonical_tracks(
+            [old_id, dead_id],
+            uow,
+            fallback_hints=hints,
+            user_id="test-user",
+        )
+
+        assert old_id in result
+        assert dead_id in result
+        assert resolver.redirect_resolved_ids == {old_id}
+        assert resolver.fallback_resolved_ids == {dead_id}
+        assert metrics.redirects == 1
+        assert metrics.fallbacks == 1
+        assert metrics.created == 2
+
+    async def test_no_redirect_or_fallback_leaves_metrics_at_zero(self):
+        """A plain direct-import resolution reports zero redirects/fallbacks."""
+        track_id = "same_id_returned_00000"
+
+        connector = AsyncMock()
+        connector.get_tracks_by_ids.return_value = {
+            track_id: make_spotify_track(track_id, "Normal Song"),
+        }
+
+        resolver = SpotifyInwardResolver(spotify_connector=connector)
+        uow, _, _ = _make_uow_with_repos()
+
+        _, metrics = await resolver.resolve_to_canonical_tracks(
+            [track_id], uow, user_id="test-user"
+        )
+
+        assert metrics.redirects == 0
+        assert metrics.fallbacks == 0
+
+
 class TestCanonicalReuse:
     """Canonical Reuse: Spotify resolver reuses existing canonical tracks from fallback hints."""
 

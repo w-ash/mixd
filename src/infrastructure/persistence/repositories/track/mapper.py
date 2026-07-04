@@ -248,7 +248,7 @@ class TrackMapper(BaseModelMapper[DBTrack, Track]):
                 DBTrackMapping.connector_track, DBConnectorTrack
             )
             log.info(
-                "Promoted connector mapping to primary",
+                "read_path_promotion",
                 connector=connector_name,
                 external_id=conn_track.connector_track_identifier
                 if conn_track

@@ -12,6 +12,7 @@ import pytest
 
 from src.application.services.play_import_orchestrator import PlayImportOrchestrator
 from src.domain.entities import ConnectorTrackPlay, OperationResult, TrackPlay
+from src.domain.entities.progress import NullProgressEmitter
 from src.domain.repositories.play import LastfmImportParams, SpotifyImportParams
 from tests.fixtures.mocks import make_mock_uow
 
@@ -266,6 +267,93 @@ class TestCombinePhaseResults:
         metric_map = {m.name: m.value for m in result.summary_metrics.metrics}
         assert "success_rate" in metric_map
         assert metric_map["success_rate"] == pytest.approx(80.0)
+
+
+class TestSpotifyResolutionMetricsPropagation:
+    """fallback_resolved/redirect_resolved/dead_ids_unresolved/isrc_suspect_deferred
+    from the per-connector ResolutionMetrics dict must reach summary_metrics —
+    previously only error_count was extracted from the resolver's metrics dict,
+    so these counts were computed but silently dropped."""
+
+    async def test_resolution_phase_summary_metrics_carry_spotify_counts(
+        self, orchestrator, mock_resolver, mock_uow
+    ):
+        connector_plays = [_make_connector_play()]
+        mock_resolver.resolve_connector_plays.return_value = (
+            [_make_resolved_track_play()],
+            {
+                "error_count": 0,
+                "fallback_resolved": 2,
+                "redirect_resolved": 3,
+                "dead_ids_unresolved": 1,
+                "isrc_suspect_deferred": 4,
+            },
+        )
+
+        result = await orchestrator.execute_resolution_phase(
+            connector_plays,
+            mock_uow,
+            user_id="test-user",
+            progress_emitter=NullProgressEmitter(),
+        )
+
+        counts = result.to_counts()
+        assert counts["fallback_resolved"] == 2
+        assert counts["redirect_resolved"] == 3
+        assert counts["dead_ids_unresolved"] == 1
+        assert counts["isrc_suspect_deferred"] == 4
+
+    async def test_two_phase_import_final_result_carries_spotify_counts(
+        self, orchestrator, mock_resolver, mock_uow, mock_importer
+    ):
+        """The counts must survive all the way to the terminal combined
+        OperationResult — the one operation_runs.counts is built from."""
+        connector_plays = [_make_connector_play()]
+        mock_importer.import_plays.return_value = (
+            _make_ingestion_result(imported=1, raw_plays=1, duplicates=0),
+            connector_plays,
+        )
+        mock_resolver.resolve_connector_plays.return_value = (
+            [_make_resolved_track_play()],
+            {
+                "error_count": 0,
+                "fallback_resolved": 2,
+                "redirect_resolved": 3,
+                "dead_ids_unresolved": 1,
+                "isrc_suspect_deferred": 4,
+            },
+        )
+
+        result = await orchestrator.import_plays_two_phase(
+            mock_importer,
+            mock_uow,
+            user_id="test-user",
+            params=SpotifyImportParams(file_path=Path("/fake/path.json")),
+        )
+
+        assert result.operation_name == "Two-Phase Play Import"
+        counts = result.to_counts()
+        assert counts["fallback_resolved"] == 2
+        assert counts["redirect_resolved"] == 3
+        assert counts["dead_ids_unresolved"] == 1
+        assert counts["isrc_suspect_deferred"] == 4
+
+    def test_zero_counts_omitted_from_summary_metrics(self, orchestrator):
+        """Counters at zero should not clutter summary_metrics (matches the
+        existing filtered/errors conditional-add convention)."""
+        ingestion = _make_ingestion_result(imported=10, raw_plays=10, duplicates=0)
+
+        resolution = OperationResult(operation_name="Resolution", execution_time=0.0)
+        resolution.summary_metrics.add("total", 10, "Total", significance=0)
+        resolution.summary_metrics.add("resolved", 10, "Resolved", significance=1)
+
+        result = orchestrator._combine_phase_results(ingestion, resolution)
+
+        metric_names = {m.name for m in result.summary_metrics.metrics}
+        assert "fallback_resolved" not in metric_names
+        assert "redirect_resolved" not in metric_names
+        assert "dead_ids_unresolved" not in metric_names
+        assert "isrc_suspect_deferred" not in metric_names
 
 
 class TestIncrementalCommit:

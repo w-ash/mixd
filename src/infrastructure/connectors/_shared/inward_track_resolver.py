@@ -27,12 +27,19 @@ logger = get_logger(__name__)
 
 @define(frozen=True)
 class TrackResolutionMetrics:
-    """Outcome counts from an inward resolution pass."""
+    """Outcome counts from an inward resolution pass.
+
+    ``redirects``/``fallbacks`` are Spotify-specific (relinked/dead track ID
+    recovery — see ``SpotifyInwardResolver``); connectors without an
+    equivalent concept (e.g. Last.fm) leave them at the default 0.
+    """
 
     existing: int = 0
     reused: int = 0
     created: int = 0
     failed: int = 0
+    redirects: int = 0
+    fallbacks: int = 0
 
     @property
     def total(self) -> int:
