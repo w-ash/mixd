@@ -219,7 +219,7 @@ class TestReviewAcceptMergesDeferredCanonical:
         ).first()
         assert remaining is None
         # ...and the spotify mapping now lives on the owner.
-        mappings = await uow.get_connector_repository().get_connector_mappings(
+        details = await uow.get_connector_repository().get_primary_mapping_details(
             [owner.id], "spotify"
         )
-        assert mappings[owner.id]["spotify"] == "sp_remaster_001"
+        assert details[owner.id].connector_id == "sp_remaster_001"

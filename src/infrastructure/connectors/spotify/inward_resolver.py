@@ -112,9 +112,9 @@ class SpotifyInwardResolver(InwardTrackResolver):
 
     def get_resolution_method(self, spotify_id: str) -> str:
         """How was this ID resolved? For downstream context tagging."""
-        if spotify_id in self._redirect_resolved_ids:
+        if spotify_id in self.redirect_resolved_ids:
             return MatchMethod.SPOTIFY_REDIRECT
-        if spotify_id in self._fallback_resolved_ids:
+        if spotify_id in self.fallback_resolved_ids:
             return MatchMethod.SEARCH_FALLBACK
         return MatchMethod.PLAY_RESOLVER
 

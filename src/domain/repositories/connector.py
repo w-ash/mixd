@@ -148,31 +148,14 @@ class ConnectorRepositoryProtocol(Protocol):
         """
         ...
 
-    def get_connector_mappings(
-        self, track_ids: list[UUID], connector: str | None = None
-    ) -> Awaitable[dict[UUID, dict[str, str]]]:
-        """Get primary mappings between tracks and external connectors.
-
-        Returns only primary mappings — for tracks with multiple connector IDs
-        (e.g., Spotify relinking), only the active/current ID is returned.
-
-        Args:
-            track_ids: Track IDs to get mappings for.
-            connector: Optional connector name to filter by.
-
-        Returns:
-            Dictionary mapping track_id to {connector_name: external_id} for primary mappings.
-        """
-        ...
-
     def get_primary_mapping_details(
         self, track_ids: list[UUID], connector: str
     ) -> Awaitable[dict[UUID, PrimaryMappingDetail]]:
         """Get primary-mapping provenance (id, confidence, method) per track.
 
-        Same primary-only join as ``get_connector_mappings``, widened with the
-        mapping row's stored confidence and match method — the identity fast
-        path reads these instead of synthesizing a constant.
+        A primary-only track→connector join, widened with the mapping row's
+        stored confidence and match method — the identity fast path reads these
+        instead of synthesizing a constant.
 
         Args:
             track_ids: Track IDs to look up.

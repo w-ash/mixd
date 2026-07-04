@@ -61,9 +61,6 @@ class BusinessLimits:
     DEFAULT_LIBRARY_QUERY_LIMIT: Final = 50_000  # default for liked/played source nodes
     MAX_USER_LIMIT: Final = 1_000_000  # sanity guard for limit params
 
-    # Matching
-    FULL_CONFIDENCE_SCORE: Final = 100
-
     # Debug
     DEBUG_LOG_TRUNCATION_LIMIT: Final = 10
 
@@ -242,7 +239,6 @@ class MatchMethod:
 
     # Confidence scores for automated resolution strategies
     ISRC_MATCH_CONFIDENCE: Final = 95
-    LISTENBRAINZ_REUSE_CONFIDENCE: Final = 90
 
     CATEGORY_ORDER: Final[tuple[str, ...]] = (
         "Primary Import",

@@ -1076,65 +1076,15 @@ class TrackConnectorRepository:
         if external_id:
             await self._sync_denormalized_id(track_id, connector_name, external_id)
 
-    @db_operation("get_connector_mappings")
-    async def get_connector_mappings(
-        self,
-        track_ids: list[UUID],
-        connector: str | None = None,
-    ) -> dict[UUID, dict[str, str]]:
-        """Get external service IDs for internal tracks.
-
-        Args:
-            track_ids: Internal track IDs to lookup.
-            connector: Optional service filter (e.g., "spotify").
-
-        Returns:
-            Dict mapping track_id to {service_name: external_id}.
-        """
-        if not track_ids:
-            return {}
-
-        # Build efficient join between mappings and connector tracks (primary only)
-        stmt = (
-            select(
-                self.mapping_repo.model_class.track_id,
-                self.connector_repo.model_class.connector_name,
-                self.connector_repo.model_class.connector_track_identifier,
-            )
-            .join(
-                self.connector_repo.model_class,
-                self.mapping_repo.model_class.connector_track_id
-                == self.connector_repo.model_class.id,
-            )
-            .where(
-                self.mapping_repo.model_class.track_id.in_(track_ids),
-                self.mapping_repo.model_class.is_primary.is_(True),
-            )
-        )
-
-        if connector:
-            stmt = stmt.where(
-                self.connector_repo.model_class.connector_name == connector
-            )
-
-        # Execute and build response
-        result = await self.session.execute(stmt)
-
-        mappings_dict: dict[UUID, dict[str, str]] = {}
-        for track_id, conn_name, conn_id in result.tuples():
-            mappings_dict.setdefault(track_id, {})[conn_name] = conn_id
-
-        return mappings_dict
-
     @db_operation("get_primary_mapping_details")
     async def get_primary_mapping_details(
         self, track_ids: list[UUID], connector: str
     ) -> dict[UUID, PrimaryMappingDetail]:
         """Get primary-mapping provenance (id, confidence, method) per track.
 
-        The primary-only join of ``get_connector_mappings`` widened with the
-        mapping row's stored confidence and match method (v0.8.18 FM1b — the
-        fast path re-asserts real provenance, not a synthetic constant).
+        A primary-only track→connector join widened with the mapping row's
+        stored confidence and match method (v0.8.18 FM1b — the fast path
+        re-asserts real provenance, not a synthetic constant).
         """
         if not track_ids:
             return {}

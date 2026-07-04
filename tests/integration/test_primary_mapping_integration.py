@@ -48,58 +48,6 @@ class TestPrimaryMappingDatabaseIntegration:
 class TestPrimaryMappingQueries:
     """Data-driven tests verifying primary mapping filtering and promotion."""
 
-    async def test_get_connector_mappings_returns_only_primary(
-        self, db_session: AsyncSession, test_data_tracker
-    ):
-        """get_connector_mappings returns only the primary mapping's identifier."""
-        # 1 canonical track, 2 Spotify connector tracks, 2 mappings (old=non-primary, new=primary)
-        db_track = DBTrack(title="Mapping Test", artists={"names": ["Artist"]})
-        db_session.add(db_track)
-        await db_session.flush()
-        test_data_tracker.add_track(db_track.id)
-
-        old_ct = DBConnectorTrack(
-            connector_name="spotify",
-            connector_track_identifier="old_sp_id",
-            title="Mapping Test",
-            artists={"names": ["Artist"]},
-            raw_metadata={},
-        )
-        new_ct = DBConnectorTrack(
-            connector_name="spotify",
-            connector_track_identifier="new_sp_id",
-            title="Mapping Test",
-            artists={"names": ["Artist"]},
-            raw_metadata={},
-        )
-        db_session.add_all([old_ct, new_ct])
-        await db_session.flush()
-
-        db_session.add_all([
-            DBTrackMapping(
-                track_id=db_track.id,
-                connector_track_id=old_ct.id,
-                connector_name="spotify",
-                match_method="direct",
-                confidence=100,
-                is_primary=False,
-            ),
-            DBTrackMapping(
-                track_id=db_track.id,
-                connector_track_id=new_ct.id,
-                connector_name="spotify",
-                match_method="direct",
-                confidence=100,
-                is_primary=True,
-            ),
-        ])
-        await db_session.commit()
-
-        repo = TrackConnectorRepository(db_session)
-        result = await repo.get_connector_mappings([db_track.id], "spotify")
-
-        assert result == {db_track.id: {"spotify": "new_sp_id"}}
-
     async def test_get_primary_mapping_details_returns_provenance(
         self, db_session: AsyncSession, test_data_tracker
     ):

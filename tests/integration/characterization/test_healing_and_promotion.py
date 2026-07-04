@@ -64,10 +64,10 @@ class TestRedirectLeavesLiveIdInDenormColumn:
         assert "sp_dead_001" in resolver.redirect_resolved_ids
 
         # The primary mapping holds the live id...
-        mappings = await uow.get_connector_repository().get_connector_mappings(
+        details = await uow.get_connector_repository().get_primary_mapping_details(
             [track.id], "spotify"
         )
-        assert mappings[track.id]["spotify"] == "sp_live_001"
+        assert details[track.id].connector_id == "sp_live_001"
 
         # ...and so does the fast-path column: the stale secondary write
         # (auto_set_primary=False) no longer syncs the denormalized id.
