@@ -20,12 +20,14 @@ instantly via the bulk lookup fast path (no API call needed).
 import asyncio
 from typing import ClassVar, override
 
-from attrs import define
+from attrs import define, evolve
 
 from src.config import get_logger, settings
 from src.config.constants import MatchMethod, SpotifyConstants
 from src.domain.entities import Artist, Track
+from src.domain.entities.shared import JsonValue
 from src.domain.matching.evaluation_service import TrackMatchEvaluationService
+from src.domain.matching.isrc_validation import assess_isrc_match_reliability
 from src.domain.repositories.uow import UnitOfWorkProtocol
 from src.infrastructure.connectors._shared.inward_track_resolver import (
     InwardTrackResolver,
@@ -159,6 +161,7 @@ class SpotifyInwardResolver(InwardTrackResolver):
         *,
         match_method: str,
         confidence: int,
+        suppress_isrc: bool = False,
     ) -> Track:
         """Save a track and create connector mappings. Creates dual mappings when IDs differ.
 
@@ -168,9 +171,15 @@ class SpotifyInwardResolver(InwardTrackResolver):
         - The REQUESTED ID is stale but must be cached -> secondary mapping
         Both mappings point to the same canonical track, ensuring future lookups
         for either ID resolve instantly via the Mapping Lookup fast path.
+
+        ``suppress_isrc`` strips the ISRC before saving — used when the ISRC is
+        already claimed by a suspect-collision owner, so this new canonical
+        must not silently take it over.
         """
         current_id = spotify_track.id or requested_id
         track_data = create_track_from_spotify_data(current_id, spotify_track)
+        if suppress_isrc and track_data.isrc:
+            track_data = evolve(track_data, isrc=None)
         canonical_track = await uow.get_track_repository().save_track(track_data)
 
         # Primary mapping — always the current Spotify ID
@@ -240,6 +249,7 @@ class SpotifyInwardResolver(InwardTrackResolver):
                     spotify_metadata[spotify_id],
                     existing_by_isrc,
                     uow,
+                    user_id=user_id,
                 )
             except Exception as e:
                 logger.error(f"Failed to create track for {spotify_id}: {e}")
@@ -259,6 +269,8 @@ class SpotifyInwardResolver(InwardTrackResolver):
         spotify_track: SpotifyTrack,
         existing_by_isrc: dict[str, Track],
         uow: UnitOfWorkProtocol,
+        *,
+        user_id: str,
     ) -> Track:
         """Resolve one missing Spotify id to a canonical track (ISRC dedup or new)."""
         # Check if an existing canonical already owns this ISRC
@@ -268,6 +280,47 @@ class SpotifyInwardResolver(InwardTrackResolver):
 
         if isrc and isrc in existing_by_isrc:
             existing_track = existing_by_isrc[isrc]
+
+            duration_diff_ms: int | None = None
+            if spotify_track.duration_ms and existing_track.duration_ms:
+                duration_diff_ms = abs(
+                    spotify_track.duration_ms - existing_track.duration_ms
+                )
+
+            if assess_isrc_match_reliability(duration_diff_ms).suspect:
+                # Suspect collision — don't silently merge. Queue a review
+                # against the ISRC owner and create a distinct canonical
+                # without the contested ISRC.
+                primary_artist = (
+                    spotify_track.artists[0].name if spotify_track.artists else ""
+                )
+                service_data: dict[str, JsonValue] = {
+                    "title": spotify_track.name,
+                    "artist": primary_artist,
+                    "artists": [a.name for a in spotify_track.artists],
+                    "duration_ms": spotify_track.duration_ms,
+                    "isrc": isrc,
+                }
+                _ = await uow.get_connector_repository().queue_isrc_collision_review(
+                    existing_track,
+                    "spotify",
+                    spotify_id,
+                    service_data,
+                    user_id=user_id,
+                )
+                logger.info(
+                    f"ISRC suspect: queued review for spotify:{spotify_id} vs canonical "
+                    f"{existing_track.id} (ISRC={isrc}, duration_diff_ms={duration_diff_ms})"
+                )
+                return await self._save_with_connector_mappings(
+                    spotify_id,
+                    spotify_track,
+                    uow,
+                    match_method=MatchMethod.DIRECT_IMPORT,
+                    confidence=100,
+                    suppress_isrc=True,
+                )
+
             # Reuse existing canonical — just create the Spotify mapping
             await uow.get_connector_repository().map_track_to_connector(
                 existing_track,

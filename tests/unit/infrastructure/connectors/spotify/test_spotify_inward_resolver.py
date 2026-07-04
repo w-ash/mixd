@@ -653,3 +653,108 @@ class TestISRCDedup:
         # find_tracks_by_isrcs should not be called with empty list
         # (it's called once with empty list at most, which returns {})
         track_repo.save_track.assert_called_once()
+
+
+class TestISRCSuspectGuard:
+    """Suspect ISRC collisions (large duration mismatch) route to review, not merge."""
+
+    async def test_suspect_duration_diff_queues_review_and_saves_distinct_canonical(
+        self,
+    ):
+        """A >10s duration mismatch on ISRC reuse queues a review and creates a
+        distinct canonical with the contested ISRC stripped, instead of merging."""
+        existing_track = make_track(
+            42,
+            title="Same Song",
+            artist="Same Artist",
+            isrc="USRC17000001",
+            duration_ms=200_000,
+        )
+        spotify_id = "suspect_spotify_id_000"
+
+        connector = AsyncMock()
+        connector.get_tracks_by_ids.return_value = {
+            spotify_id: make_spotify_track(
+                spotify_id,
+                "Same Song",
+                "Same Artist",
+                duration_ms=260_000,  # 60s off existing_track -> suspect
+                external_ids=SpotifyExternalIds(isrc="USRC17000001"),
+            ),
+        }
+
+        resolver = SpotifyInwardResolver(spotify_connector=connector)
+        uow, track_repo, connector_repo = _make_uow_with_repos()
+        track_repo.find_tracks_by_isrcs.return_value = {"USRC17000001": existing_track}
+        saved_track = make_track(99, isrc=None)
+        track_repo.save_track.return_value = saved_track
+
+        result, metrics = await resolver.resolve_to_canonical_tracks(
+            [spotify_id], uow, user_id="test-user"
+        )
+
+        assert spotify_id in result
+        assert result[spotify_id] == saved_track
+
+        # Review queued against the ISRC owner — not a silent merge
+        connector_repo.queue_isrc_collision_review.assert_called_once()
+        review_call = connector_repo.queue_isrc_collision_review.call_args
+        assert review_call.args[0] == existing_track
+        assert review_call.args[1] == "spotify"
+        assert review_call.args[2] == spotify_id
+        service_data = review_call.args[3]
+        assert service_data["title"] == "Same Song"
+        assert service_data["artist"] == "Same Artist"
+        assert service_data["artists"] == ["Same Artist"]
+        assert service_data["duration_ms"] == 260_000
+        assert service_data["isrc"] == "USRC17000001"
+        assert review_call.kwargs["user_id"] == "test-user"
+
+        # A distinct canonical is saved WITHOUT the contested ISRC
+        track_repo.save_track.assert_called_once()
+        saved_track_data = track_repo.save_track.call_args.args[0]
+        assert saved_track_data.isrc is None
+
+        # No ISRC_MATCH mapping created (that would be a silent merge)
+        map_calls = connector_repo.map_track_to_connector.call_args_list
+        assert not any(call.args[3] == MatchMethod.ISRC_MATCH for call in map_calls)
+        assert any(call.args[3] == MatchMethod.DIRECT_IMPORT for call in map_calls)
+
+    async def test_non_suspect_duration_diff_still_reuses_existing_canonical(self):
+        """A small duration difference under the suspect threshold behaves exactly
+        as the unconditional-reuse path did before the suspect guard existed."""
+        existing_track = make_track(
+            42,
+            title="Same Song",
+            artist="Same Artist",
+            isrc="USRC17000003",
+            duration_ms=200_000,
+        )
+        spotify_id = "non_suspect_spotify_id"
+
+        connector = AsyncMock()
+        connector.get_tracks_by_ids.return_value = {
+            spotify_id: make_spotify_track(
+                spotify_id,
+                "Same Song",
+                "Same Artist",
+                duration_ms=205_000,  # 5s off — under the 10s suspect threshold
+                external_ids=SpotifyExternalIds(isrc="USRC17000003"),
+            ),
+        }
+
+        resolver = SpotifyInwardResolver(spotify_connector=connector)
+        uow, track_repo, connector_repo = _make_uow_with_repos()
+        track_repo.find_tracks_by_isrcs.return_value = {"USRC17000003": existing_track}
+
+        result, metrics = await resolver.resolve_to_canonical_tracks(
+            [spotify_id], uow, user_id="test-user"
+        )
+
+        assert spotify_id in result
+        assert result[spotify_id].id == 42
+
+        connector_repo.queue_isrc_collision_review.assert_not_called()
+        map_calls = connector_repo.map_track_to_connector.call_args_list
+        assert any(call.args[3] == MatchMethod.ISRC_MATCH for call in map_calls)
+        track_repo.save_track.assert_not_called()

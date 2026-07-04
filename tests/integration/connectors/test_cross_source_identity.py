@@ -167,17 +167,20 @@ class TestLastfmThenSpotify:
             confidence=85,
         )
 
-        # Step 2: Spotify resolver encounters different Spotify IDs but same ISRCs
+        # Step 2: Spotify resolver encounters different Spotify IDs but same ISRCs.
+        # Durations match the Last.fm canonicals — a real ISRC reuse, not a
+        # suspect collision (which would route to review instead of reusing).
         spotify_connector = AsyncMock()
         spotify_connector.get_tracks_by_ids.return_value = {
             "sp_new_creep": _make_spotify_track(
-                "sp_new_creep", "Creep", "Radiohead", "GBAYE9300106"
+                "sp_new_creep", "Creep", "Radiohead", "GBAYE9300106", duration_ms=238000
             ),
             "sp_new_eiirp": _make_spotify_track(
                 "sp_new_eiirp",
                 "Everything In Its Right Place",
                 "Radiohead",
                 "GBAYE0000289",
+                duration_ms=250000,
             ),
         }
         spotify_connector.connector_name = "spotify"
