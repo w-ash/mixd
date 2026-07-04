@@ -3,367 +3,57 @@ name: vitest-strategy-architect
 description: Use this skill when you need Vitest component testing strategy, React Testing Library patterns, Tanstack Query mocking with MSW, or Playwright E2E test design for mixd's web UI (v0.3.0+).
 ---
 
-> Related skill: `api-contracts` (REST endpoints, schemas, SSE events). Invoke alongside when designing integration tests that hit the API layer.
+# Frontend Test Strategy — mixd web UI
 
-You are a Vitest + React Testing Library + Playwright specialist for mixd's web UI testing (v0.3.0+). Your expertise covers component testing strategy, Tanstack Query mocking, and E2E test design with Playwright (Chromium only, desktop viewport).
+> Related skill: `api-contracts` (REST + SSE conventions). E2E editing specifics (incl. the visual-audit harness) auto-load from `.claude/rules/web-e2e-patterns.md` when touching `web/e2e/**` — don't restate them here.
 
-## Core Competencies
+## Test pyramid (60/35/5)
 
-### Frontend Test Pyramid (60/35/5)
+- **Component unit (60%)** — `src/**/*.test.tsx`, RTL, MSW-mocked API, <100ms each. Rendering + interactions.
+- **Integration (35%)** — same naming convention; real Tanstack Query against MSW, flows across components, <1s each.
+- **E2E (5%)** — `web/e2e/*.spec.ts`, Playwright, Chromium desktop only, critical flows only. **Run in the CI-pinned Docker image** — native macOS false-fails (procedure + current image tag in `web/e2e/README.md`).
 
-**Component Unit Tests (60%)** - `src/**/*.test.tsx`:
-- ✅ Fast (<100ms each)
-- ✅ Isolated (mock API calls, Tanstack Query)
-- ✅ Test component rendering and user interactions
-- ✅ Use React Testing Library (not Enzyme)
+Philosophy: test user behavior via accessible queries (`getByRole`/`getByLabelText`), never class names or implementation details. Prefer integration over isolated unit tests.
 
-**Integration Tests (35%)** - `src/**/*.test.tsx` (same naming convention):
-- ✅ Real Tanstack Query with MSW (Mock Service Worker)
-- ✅ Test data fetching + rendering
-- ✅ Test user flows across multiple components
-- ✅ Slower (<1s each)
+## Mixd test infrastructure
 
-**E2E Tests (5%)** - `e2e/**/*.spec.ts`:
-- ✅ Real backend API (or comprehensive MSW)
-- ✅ Playwright (Chromium only, desktop viewport)
-- ✅ Critical user flows only (login, create playlist, view tracks)
-- ✅ Slowest (several seconds each)
+**Setup** (`web/src/test/setup.ts`):
+- Bootstraps MSW server with the auto-generated Orval handlers (`web/src/api/generated/**/*.msw.ts`) — every test starts with default mock responses.
+- `beforeAll(server.listen)` / `afterEach(server.resetHandlers)` / `afterAll(server.close)`; wired via `vitest.config.ts` `setupFiles`.
 
-### Mixd Frontend Stack (v0.3.0+)
+**`renderWithProviders(ui, options?)`** (`web/src/test/test-utils.tsx`):
+- Wraps in a test QueryClient (`retry: false`, `gcTime: 0` — no cache bleed between tests) + `MemoryRouter` (configurable `initialEntries`).
+- Use for anything with hooks, routing, or queries; plain `render()` only for pure presentational components.
 
-**Testing Tools**:
-- Vitest (test runner, native ESM + TypeScript)
-- React Testing Library (component testing)
-- @testing-library/user-event (simulate user interactions)
-- MSW (Mock Service Worker - API mocking)
-- Playwright (E2E testing, Chromium only)
+**Per-test MSW overrides**:
 
-**Testing Philosophy**:
-- Test user behavior, not implementation details
-- Prefer integration tests over isolated unit tests
-- Keep E2E tests minimal (critical paths only)
-
-## Component Testing Patterns
-
-### React Testing Library Basics
-
-**Rendering Components**:
 ```tsx
-// ✅ CORRECT: Use render from React Testing Library
-import { render, screen } from '@testing-library/react'
-import { PlaylistCard } from './PlaylistCard'
-
-test('renders playlist name', () => {
-  const playlist = { id: '1', name: 'Current Obsessions', track_count: 15 }
-  render(<PlaylistCard playlist={playlist} />)
-
-  expect(screen.getByText('Current Obsessions')).toBeInTheDocument()
-  expect(screen.getByText('15 tracks')).toBeInTheDocument()
-})
-```
-
-**User Interactions**:
-```tsx
-import { render, screen } from '@testing-library/react'
-import userEvent from '@testing-library/user-event'
-
-test('clicking delete button calls onDelete', async () => {
-  const user = userEvent.setup()
-  const handleDelete = vi.fn()
-
-  render(<PlaylistCard playlist={playlist} onDelete={handleDelete} />)
-
-  await user.click(screen.getByRole('button', { name: /delete/i }))
-
-  expect(handleDelete).toHaveBeenCalledWith(playlist.id)
-})
-```
-
-**Querying Elements** (Prefer accessible queries):
-```tsx
-// ✅ BEST: Accessible queries (what users/screen readers see)
-screen.getByRole('button', { name: /save/i })
-screen.getByLabelText(/playlist name/i)
-screen.getByText(/current obsessions/i)
-
-// ⚠️ OK: Test IDs (when role/label not available)
-screen.getByTestId('playlist-card')
-
-// ❌ AVOID: Implementation details
-screen.getByClassName('playlist-card')  // Breaks when styling changes
-```
-
-### Mocking Tanstack Query
-
-**Component Tests with Mocked Queries** (use renderWithProviders):
-```tsx
-import { renderWithProviders } from '#/test/test-utils'
-import { screen, waitFor } from '@testing-library/react'
-
-test('displays playlist after loading', async () => {
-  // MSW handlers from Orval are pre-loaded in setup.ts
-  // Override specific endpoints per-test if needed:
-  // server.use(http.get("*/api/v1/playlists/:id", () => HttpResponse.json({...})))
-
-  renderWithProviders(<PlaylistView playlistId="1" />)
-
-  expect(screen.getByText(/loading/i)).toBeInTheDocument()
-
-  await waitFor(() => {
-    expect(screen.getByText('Test Playlist')).toBeInTheDocument()
-  })
-})
-```
-
-**Integration Tests with MSW** (use shared server from setup.ts):
-```tsx
-import { renderWithProviders } from '#/test/test-utils'
-import { screen, waitFor } from '@testing-library/react'
 import { http, HttpResponse } from 'msw'
 import { server } from '#/test/setup'
 
-test('fetches and displays playlist', async () => {
-  // Override the auto-generated MSW handler for this specific test
-  server.use(
-    http.get('*/api/v1/playlists/:id', ({ params }) => {
-      return HttpResponse.json({
-        id: Number(params.id),
-        name: 'Test Playlist',
-        track_count: 10,
-      })
-    })
-  )
-
-  renderWithProviders(<PlaylistView playlistId="1" />)
-
-  await waitFor(() => {
-    expect(screen.getByText('Test Playlist')).toBeInTheDocument()
-  })
-})
+server.use(http.get('*/api/v1/playlists/:id', ({ params }) =>
+  HttpResponse.json({ id: Number(params.id), name: 'Test Playlist' })))
 ```
 
-### Async Testing Patterns
+- The `*/` origin glob is required — it matches through the Vite proxy.
+- Simulate errors by overriding the handler to return `HttpResponse.json(..., { status: 500 })` — never mock `global.fetch`.
 
-**Waiting for Elements**:
-```tsx
-// ✅ CORRECT: Use waitFor for async updates
-await waitFor(() => {
-  expect(screen.getByText('Loaded!')).toBeInTheDocument()
-})
+**Path alias**: `#/` → `web/src/` in all test imports.
 
-// ✅ CORRECT: findBy queries wait automatically
-const element = await screen.findByText('Loaded!')
+**Async**: `await screen.findBy...` or `await waitFor(...)` for anything post-fetch; a bare `getBy` on async content is the most common failure.
 
-// ❌ WRONG: Direct query (may not be rendered yet)
-expect(screen.getByText('Loaded!')).toBeInTheDocument()  // Fails!
-```
+## Designing coverage for a change
 
-**Testing Error States**:
-```tsx
-test('displays error message on fetch failure', async () => {
-  global.fetch = vi.fn().mockRejectedValue(new Error('Network error'))
+1. What renders? → component tests for each visual state (loading/error/empty/success — `QueryStates` gives these for free; test the consumer's wiring, not the wrapper).
+2. What round-trips? → integration tests with MSW overrides for the success + at least one error path.
+3. Is it a critical user flow (import, sync, workflow run, playlist edit)? → at most one E2E spec; everything else stays at the MSW tier.
+4. Shared state pollution symptoms (pass alone, fail together) are already handled by `renderWithProviders`' fresh QueryClient — if you see them anyway, look for module-level state.
 
-  render(
-    <QueryClientProvider client={queryClient}>
-      <PlaylistView playlistId="1" />
-    </QueryClientProvider>
-  )
+## Commands
 
-  await waitFor(() => {
-    expect(screen.getByText(/error.*network/i)).toBeInTheDocument()
-  })
-})
-```
-
-## Playwright E2E Patterns
-
-> For **visual audits** (drive a page into every state via route-mocked fixtures and capture screenshots for review — distinct from flow tests and from the `visual.spec.ts` baseline gate), use the fixture-driven audit harness: `pnpm --prefix web test:e2e:audit`. Worked example + how to extend it to a new page live in `.claude/rules/web-e2e-patterns.md` § *Visual-audit harness* (auto-loads when editing `web/e2e/**`).
-
-### Critical User Flows (Chromium Only, Desktop)
-
-**Playlist CRUD Flow**:
-```typescript
-// e2e/playlists.spec.ts
-import { test, expect } from '@playwright/test'
-
-test('user can create, view, and delete playlist', async ({ page }) => {
-  // Navigate to playlists page
-  await page.goto('http://localhost:5173/playlists')
-
-  // Create playlist
-  await page.click('button:has-text("New Playlist")')
-  await page.fill('input[name="name"]', 'E2E Test Playlist')
-  await page.fill('textarea[name="description"]', 'Created by E2E test')
-  await page.click('button:has-text("Create")')
-
-  // Verify playlist appears in list
-  await expect(page.locator('text=E2E Test Playlist')).toBeVisible()
-
-  // Open playlist
-  await page.click('text=E2E Test Playlist')
-  await expect(page.locator('h1:has-text("E2E Test Playlist")')).toBeVisible()
-
-  // Delete playlist
-  await page.click('button[aria-label="Delete playlist"]')
-  await page.click('button:has-text("Confirm")')
-
-  // Verify playlist removed
-  await expect(page.locator('text=E2E Test Playlist')).not.toBeVisible()
-})
-```
-
-**Track Search Flow**:
-```typescript
-test('user can search and filter tracks', async ({ page }) => {
-  await page.goto('http://localhost:5173/tracks')
-
-  // Search for track
-  await page.fill('input[placeholder="Search tracks"]', 'Bohemian')
-
-  // Wait for results
-  await expect(page.locator('text=Bohemian Rhapsody')).toBeVisible()
-
-  // Filter by artist
-  await page.click('button:has-text("Filter")')
-  await page.fill('input[name="artist"]', 'Queen')
-  await page.click('button:has-text("Apply")')
-
-  // Verify filtered results
-  await expect(page.locator('text=Queen')).toBeVisible()
-})
-```
-
-### Playwright Configuration
-
-**Desktop Chromium Only** (config):
-```typescript
-// playwright.config.ts
-export default {
-  testDir: './e2e',
-  use: {
-    baseURL: 'http://localhost:5173',  // Vite dev server port
-    viewport: { width: 1280, height: 720 },  // Desktop only
-  },
-  projects: [
-    {
-      name: 'chromium',  // Only Chromium
-      use: { ...devices['Desktop Chrome'] },
-    },
-    // No Firefox, Safari, or mobile (hobbyist scope)
-  ],
-}
-```
-
-## Tool Usage
-
-### Bash Commands
-
-Bash access is **ONLY for test execution**:
-
-**Allowed:**
 ```bash
-# Vitest
-vitest run                          # All component tests
-vitest src/components/Playlist.test.tsx  # Single file
-vitest --coverage                   # Coverage report
-vitest --ui                         # Interactive UI (helpful for debugging)
-
-# Playwright
-playwright test                     # All E2E tests
-playwright test e2e/playlists.spec.ts  # Single spec
-playwright test --project=chromium  # Explicit project
-playwright show-report              # View HTML report
+pnpm --prefix web test                          # all Vitest
+pnpm --prefix web test src/pages/Library.test.tsx  # one file
+# E2E — CI-pinned Docker image (see CLAUDE.md version-bump bar for the full command)
+pnpm --prefix web test:e2e:audit                # fixture-driven visual audit harness
 ```
-
-**Forbidden:**
-- ❌ `vitest --watch` - No watch mode during consultation
-- ❌ `playwright test --headed` - Use headless only
-
-### Read/Glob/Grep Usage
-- ✅ Read existing test files for patterns
-- ✅ Search for Tanstack Query mocks
-- ✅ Analyze E2E test structure
-
-## Test Strategy Design Process
-
-When consulted for frontend test strategy:
-
-1. **Analyze Component/Feature**
-   - Presentational or container component?
-   - Data fetching involved (Tanstack Query)?
-   - User interactions (clicks, forms)?
-
-2. **Design Test Coverage**
-   - **Component unit**: What rendering scenarios?
-   - **Integration**: What API interactions?
-   - **E2E**: Critical user flows?
-   - Estimate: % component vs integration vs E2E
-
-3. **Specify Mocking Strategy**
-   - Mock Tanstack Query hooks?
-   - Use MSW for API mocking?
-   - Mock user events with @testing-library/user-event?
-
-4. **Define Test Cases**
-   - Happy path (successful rendering, data loading)
-   - Error states (network errors, validation failures)
-   - Loading states (skeletons, spinners)
-   - User interactions (button clicks, form submissions)
-
-5. **Recommend Test Organization**
-   - File naming: `Component.test.tsx` (all test types use the same convention)
-   - Test grouping: `describe` blocks for logical grouping
-   - Shared setup: beforeEach, afterEach
-
-## Mixd Test Infrastructure
-
-**Test Setup** (`web/src/test/setup.ts`):
-- Bootstraps MSW server with auto-generated Orval handlers
-- Runs `beforeAll(() => server.listen())`, `afterEach(() => server.resetHandlers())`, `afterAll(() => server.close())`
-- Referenced by `vitest.config.ts` as `setupFiles`
-
-**Test Utilities** (`web/src/test/test-utils.tsx`):
-- `renderWithProviders(ui, options?)` — wraps component with:
-  - Test QueryClient (`retry: false`, `gcTime: 0` — no cache bleed between tests)
-  - `MemoryRouter` with configurable `initialEntries`
-- Use for any component that depends on hooks, routing, or Tanstack Query
-- Simple presentational components: direct `render()` from `@testing-library/react`
-
-**Path Alias**:
-- `#/` maps to `web/src/` — use in all test imports: `import { renderWithProviders } from "#/test/test-utils"`
-
-**MSW Pattern**:
-- Auto-generated handlers from Orval live in `web/src/api/generated/**/*.msw.ts`
-- Pre-loaded in `setup.ts` — tests start with default mock responses
-- Override per-test: `server.use(http.get("*/api/v1/playlists", () => HttpResponse.json({...})))`
-- Glob prefix `*/` matches any origin — works with Vite proxy
-
-## Common Frontend Test Issues
-
-**Problem**: "Cannot find element" in test
-**Cause**: Element not rendered yet (async)
-**Fix**: Use `await screen.findByText()` or `await waitFor()`
-
-**Problem**: Tanstack Query hooks fail in tests
-**Cause**: Missing QueryClientProvider wrapper
-**Fix**: Wrap component in `<QueryClientProvider>` or use `renderWithProviders`
-
-**Problem**: E2E test flaky (passes sometimes, fails others)
-**Cause**: Race condition, element not ready
-**Fix**: Add explicit `await expect().toBeVisible()` waits
-
-**Problem**: Tests pass individually, fail together
-**Cause**: Shared state pollution (query cache)
-**Fix**: Create new QueryClient per test (already handled by `renderWithProviders`)
-
-## Success Criteria
-
-Your test strategies should:
-- ✅ Maintain 60/35/5 pyramid (component/integration/E2E)
-- ✅ Focus on user behavior (not implementation)
-- ✅ Use React Testing Library best practices
-- ✅ Mock Tanstack Query appropriately
-- ✅ Keep E2E tests minimal (critical paths only)
-- ✅ Be **immediately implementable** by main agent
-
-**Active During**: Frontend development, UI testing, component implementation

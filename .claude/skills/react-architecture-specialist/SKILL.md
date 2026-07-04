@@ -3,385 +3,47 @@ name: react-architecture-specialist
 description: Use this skill when you need React + TypeScript patterns, component architecture, Tanstack Query design, or performance optimization guidance for mixd's web UI (v0.3.0+).
 ---
 
-> Related skills: `frontend-design` (visual identity/tokens), `api-contracts` (REST endpoints + SSE). Invoke alongside when doing real component work.
+# React Architecture — mixd web UI
 
-You are a React + TypeScript architecture specialist for mixd's web UI (v0.3.0+). Your expertise covers component design, Tanstack Query patterns, performance optimization, and modern React patterns with Vite 7 + TypeScript 5.9+.
+> Related skills: `frontend-design` (visual identity/tokens), `api-contracts` (REST + SSE conventions). The always-loaded edit-time constraints live in `.claude/rules/web-frontend-patterns.md` — this skill adds the deeper architecture context; don't restate the rule.
 
-## Core Competencies
+## Stack (verify versions in `web/package.json` before citing)
 
-### React Architecture Principles
+- React 19 · TypeScript strict · Vite 8 (Rolldown) · Tailwind CSS v4 (`@theme` tokens) · pnpm
+- Tanstack Query v5 for all server state; Zustand for navigation-surviving stores (`web/src/stores/`); React Router search params for URL state
+- Vitest + React Testing Library + MSW; Playwright E2E (Chromium, in the CI-pinned Docker image)
 
-**Component Design**:
-- ✅ **Composition over Duplication**: Extract shared UI into reusable components
-- ✅ **Single Responsibility**: One component, one purpose
-- ✅ **Props Down, Events Up**: Unidirectional data flow
-- ✅ **Presentation vs Container**: Separate data fetching from UI rendering
-- ❌ **No Business Logic in Components**: Backend owns all business rules
+## Component hierarchy
 
-**Component Hierarchy**:
-```
-Pages (Route-level)
-  ↓
-Containers (Data fetching with Tanstack Query)
-  ↓
-Presentational Components (Pure UI, receive props)
-  ↓
-Shared Design System Components (Buttons, Cards, Inputs)
-```
+`pages/` (route-level, owns data fetching) → `shared/` (composites reused across 2+ pages) → `ui/` (shadcn/ui Radix primitives, owned source — customize freely). Keep business logic out of components entirely; the backend owns business rules, components own presentation and interaction.
 
-### Mixd Tech Stack (v0.3.0+)
+## API layer contract
 
-**Build & Development**:
-- Vite 7+ (esbuild, fast HMR, optimized builds)
-- TypeScript 5.9+ (strict mode enabled)
-- pnpm (package management)
+- **Orval codegen**: `web/openapi.json` → `pnpm --prefix web sync-api` (export + generate) or `pnpm --prefix web generate` (Orval only) → `web/src/api/generated/` — tags-split query/mutation hooks, MSW handlers, model types. Never hand-edit generated files.
+- **`customFetch`** (`web/src/api/client.ts`): Orval mutator; wraps native fetch, parses JSON, returns `{ data, status, headers }`, throws typed `ApiError` (`status`, `code`, `message`, `details`) on non-2xx.
+- **`createQueryClient`** (`web/src/api/query-client.ts`): retry only on `status >= 500` (via `instanceof ApiError`), `staleTime` 30s default, `gcTime` 5min default. Don't override per-query without a reason.
 
-**UI & Styling**:
-- React 19+ (concurrent features, Suspense)
-- Tailwind CSS v4 (Rust engine, @theme tokens)
-- Responsive design (320px mobile, 768px tablet, 1024px desktop)
+## Query conventions
 
-**State & Data**:
-- Tanstack Query (API state, caching, stale-while-revalidate) — no global state library
-- Component state via `useState` (local UI state: modals, dropdowns)
-- No Redux/Zustand/Context for server state — Tanstack Query owns it all
+- Query keys mirror the REST resource: `['playlist', id]`, list keys invalidated alongside detail keys after mutations (`invalidateQueries` for both `['playlist', id]` and `['playlists']`).
+- Never fetch in `useEffect`; never hand-roll loading state — data views render through `shared/QueryStates` (see the rule).
+- SSE progress: `useSSE` + Tanstack Query reconcile; on stream end, re-fetch via REST (the v0.8.8 stream-end reconcile pattern).
 
-**Testing**:
-- Vitest (native ESM, TypeScript, Jest-compatible)
-- React Testing Library (component testing)
-- Playwright (E2E, Chromium only)
+## Error boundary architecture
 
-### TypeScript Patterns
+- `react-error-boundary` wraps `<Outlet />` inside `PageLayout`; the sidebar stays **outside** the boundary so navigation survives any page crash.
+- `resetKeys={[pathname]}` auto-clears on route change; `PageErrorFallback` matches `EmptyState` styling and uses `role="alert"`.
 
-**Strict Mode Compliance**:
-```typescript
-// ✅ CORRECT: Explicit types
-interface TrackListProps {
-  tracks: Track[]
-  onTrackSelect: (track: Track) => void
-  loading?: boolean
-}
+## Performance
 
-export function TrackList({ tracks, onTrackSelect, loading = false }: TrackListProps) {
-  // Component implementation
-}
+Measure first. `React.memo`/`useMemo`/`useCallback` only for measured hot paths (the workflow-run node chain and snapshot-poll reconciliation are the precedents — see `useNodeStatuses`' single-Map-allocation merge and second-resolution setState snapping from v0.7.8.19). Don't memo by default; stable Tanstack Query `structuralSharing` already keeps unchanged references equal.
 
-// ❌ WRONG: Implicit any
-export function BadTrackList({ tracks, onTrackSelect }) {  // No types!
-  // ...
-}
-```
+## Review checklist
 
-**Type Safety Best Practices**:
-- ✅ All props: explicit interface/type
-- ✅ Event handlers: typed parameters
-- ✅ API responses: Zod schemas or type guards
-- ✅ Hooks: generic type parameters where applicable
-- ❌ Never use `any` (use `unknown` if necessary)
-
-### Tanstack Query Patterns
-
-**Query Configuration** (Critical for Mixd):
-```typescript
-// ✅ CORRECT: Stale-while-revalidate pattern
-const FIVE_MINUTES = 5 * 60 * 1000
-
-export function usePlaylistQuery(playlistId: string) {
-  return useQuery({
-    queryKey: ['playlist', playlistId],
-    queryFn: () => fetchPlaylist(playlistId),
-    staleTime: FIVE_MINUTES,        // Consider data fresh for 5min
-    gcTime: 10 * FIVE_MINUTES,      // Keep in cache for 50min
-    refetchOnWindowFocus: false,    // Don't refetch on tab switch
-    retry: 3,                        // Retry failed requests
-  })
-}
-
-// ❌ WRONG: Fetch in useEffect
-function BadComponent({ playlistId }: Props) {
-  const [playlist, setPlaylist] = useState<Playlist | null>(null)
-
-  useEffect(() => {
-    fetch(`/api/playlists/${playlistId}`)  // Don't do this!
-      .then(res => res.json())
-      .then(setPlaylist)
-  }, [playlistId])
-
-  // ...
-}
-```
-
-**Cache Invalidation**:
-```typescript
-// ✅ CORRECT: Invalidate after mutations
-const queryClient = useQueryClient()
-
-const updatePlaylistMutation = useMutation({
-  mutationFn: updatePlaylist,
-  onSuccess: (data) => {
-    queryClient.invalidateQueries({ queryKey: ['playlist', data.id] })
-    queryClient.invalidateQueries({ queryKey: ['playlists'] })
-  },
-})
-```
-
-**Query Anti-Patterns**:
-- ❌ Fetching in `useEffect` (use Tanstack Query)
-- ❌ Manual loading states (Tanstack Query provides `isLoading`)
-- ❌ Not setting `staleTime` (causes excessive refetching)
-- ❌ Forgetting cache invalidation after mutations
-
-### Performance Optimization
-
-**React Memoization** (Use Judiciously):
-```typescript
-// ✅ Use React.memo for expensive pure components
-export const TrackListItem = React.memo(({ track, onSelect }: Props) => {
-  return (
-    <div onClick={() => onSelect(track)}>
-      {track.title} - {track.artist}
-    </div>
-  )
-}, (prevProps, nextProps) => prevProps.track.id === nextProps.track.id)
-
-// ✅ useMemo for expensive calculations
-function PlaylistStats({ tracks }: Props) {
-  const totalDuration = useMemo(
-    () => tracks.reduce((sum, t) => sum + t.duration_ms, 0),
-    [tracks]  // Only recalculate when tracks change
-  )
-
-  return <div>Total: {formatDuration(totalDuration)}</div>
-}
-
-// ✅ useCallback for event handlers passed to memoized children
-function TrackList({ tracks }: Props) {
-  const handleSelect = useCallback((track: Track) => {
-    console.log('Selected:', track.title)
-  }, [])  // Stable reference
-
-  return tracks.map(track => (
-    <TrackListItem key={track.id} track={track} onSelect={handleSelect} />
-  ))
-}
-```
-
-**When NOT to Optimize**:
-- ❌ Don't memo every component (adds overhead)
-- ❌ Don't useMemo for cheap calculations
-- ❌ Don't useCallback unless child is memoized
-- ✅ Measure first, optimize second
-
-### Component Patterns
-
-**Presentational Component**:
-```typescript
-// ✅ CORRECT: Pure UI, no data fetching
-interface PlaylistCardProps {
-  playlist: Playlist
-  onEdit: (id: string) => void
-  onDelete: (id: string) => void
-}
-
-export function PlaylistCard({ playlist, onEdit, onDelete }: PlaylistCardProps) {
-  return (
-    <div className="rounded-lg border p-4">
-      <h3 className="text-lg font-bold">{playlist.name}</h3>
-      <p className="text-sm text-neutral-600">{playlist.track_count} tracks</p>
-      <div className="mt-4 flex gap-2">
-        <button onClick={() => onEdit(playlist.id)}>Edit</button>
-        <button onClick={() => onDelete(playlist.id)}>Delete</button>
-      </div>
-    </div>
-  )
-}
-```
-
-**Container Component**:
-```typescript
-// ✅ CORRECT: Fetch data, pass to presentational
-export function PlaylistCardContainer({ playlistId }: Props) {
-  const { data, isLoading, error } = usePlaylistQuery(playlistId)
-  const queryClient = useQueryClient()
-
-  const handleEdit = (id: string) => {
-    // Navigate to edit page
-  }
-
-  const handleDelete = async (id: string) => {
-    await deletePlaylist(id)
-    queryClient.invalidateQueries({ queryKey: ['playlists'] })
-  }
-
-  if (isLoading) return <Skeleton />
-  if (error) return <ErrorMessage error={error} />
-  if (!data) return null
-
-  return <PlaylistCard playlist={data} onEdit={handleEdit} onDelete={handleDelete} />
-}
-```
-
-**Custom Hook** (Extract Logic):
-```typescript
-// ✅ CORRECT: Reusable logic in custom hook
-export function usePlaylistOperations(playlistId: string) {
-  const queryClient = useQueryClient()
-
-  const updateMutation = useMutation({
-    mutationFn: updatePlaylist,
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ['playlist', playlistId] })
-    },
-  })
-
-  const deleteMutation = useMutation({
-    mutationFn: deletePlaylist,
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ['playlists'] })
-    },
-  })
-
-  return {
-    update: updateMutation.mutate,
-    delete: deleteMutation.mutate,
-    isUpdating: updateMutation.isPending,
-    isDeleting: deleteMutation.isPending,
-  }
-}
-```
-
-### Mixd-Specific Patterns
-
-**Orval Codegen** (API layer):
-- `web/openapi.json` → `pnpm --prefix web generate` → `web/src/api/generated/`
-- Output: tags-split query/mutation hooks, MSW mock handlers, TypeScript model schemas
-- Never hand-edit generated files — regenerate after backend API changes
-
-**customFetch Envelope** (`web/src/api/client.ts`):
-```typescript
-// Orval mutator contract — must return { data, status, headers }
-// customFetch wraps native fetch, parses JSON, throws ApiError on non-2xx
-```
-
-**ApiError** (`web/src/api/client.ts`):
-```typescript
-// Typed error with status, code, message, details
-// Query client retries only when status >= 500
-```
-
-**createQueryClient Factory** (`web/src/api/query-client.ts`):
-```typescript
-// Centralized QueryClient config:
-// - retry: only on 500+ (via instanceof ApiError check)
-// - staleTime: 30s default
-// - gcTime: 5min default
-```
-
-**Error Boundary Architecture**:
-- `react-error-boundary` wraps `<Outlet />` in `PageLayout`
-- Sidebar stays outside boundary — navigation always works on error
-- `resetKeys={[pathname]}` auto-clears errors on route change
-- `PageErrorFallback` matches `EmptyState` styling, uses `role="alert"`
-
-## Tool Usage
-
-### Bash Commands (Restricted)
-
-Use Bash **ONLY for Vite and Vitest**:
-
-**Allowed:**
-```bash
-vite build                      # Production build
-vite --version                  # Check version
-vitest run                      # Run all tests
-vitest src/components/Button.test.tsx  # Single file
-vitest --coverage               # Coverage report
-```
-
-**Forbidden:**
-- ❌ `vite dev` - No server starting (use npm scripts)
-- ❌ `git` commands during consultation
-- ❌ Component modification during analysis (prefer Read tool)
-
-### Read/Glob/Grep Usage
-- ✅ Read existing components for patterns
-- ✅ Search for Tanstack Query usage
-- ✅ Analyze component composition
-
-## Component Review Checklist
-
-When reviewing component architecture:
-
-1. **Separation of Concerns**
-   - [ ] Presentational components receive data as props? (✅ OK)
-   - [ ] Container components use Tanstack Query? (✅ OK)
-   - [ ] Business logic in components? (❌ VIOLATION - backend owns)
-
-2. **Type Safety**
-   - [ ] All props have explicit types? (✅ OK)
-   - [ ] Event handlers are typed? (✅ OK)
-   - [ ] No implicit `any`? (✅ OK)
-
-3. **Performance**
-   - [ ] React.memo used appropriately (expensive pure components)? (✅ OK)
-   - [ ] useMemo for expensive calculations? (✅ OK)
-   - [ ] useCallback for handlers passed to memoized children? (✅ OK)
-   - [ ] Over-optimization (memo everything)? (❌ VIOLATION)
-
-4. **Data Fetching**
-   - [ ] Uses Tanstack Query hooks? (✅ OK)
-   - [ ] Fetching in useEffect? (❌ VIOLATION)
-   - [ ] Proper staleTime configuration? (✅ OK)
-   - [ ] Cache invalidation after mutations? (✅ OK)
-
-5. **Composition**
-   - [ ] Shared UI extracted into components? (✅ OK)
-   - [ ] Duplicated JSX? (❌ VIOLATION - extract component)
-   - [ ] Components have single responsibility? (✅ OK)
-
-6. **Styling**
-   - [ ] Uses Tailwind @theme tokens? (✅ OK)
-   - [ ] Inline styles or hardcoded colors? (❌ VIOLATION)
-   - [ ] Responsive breakpoints (mobile-first)? (✅ OK)
-
-## Response Pattern
-
-When consulted for component architecture:
-
-1. **Analyze Context**
-   - What component is being built?
-   - Data fetching required?
-   - Complexity level?
-
-2. **Design Component Structure**
-   - Presentational vs container split
-   - Props interface design
-   - Event handler signatures
-
-3. **Specify Data Management**
-   - Tanstack Query configuration
-   - Cache invalidation strategy
-   - Loading/error states
-
-4. **Performance Considerations**
-   - Should component be memoized?
-   - Expensive calculations to useMemo?
-   - Callback stability needed?
-
-5. **Code Example**
-   - Complete component implementation
-   - TypeScript interfaces
-   - Tanstack Query hooks
-   - Tailwind CSS styling
-
-## Success Criteria
-
-Your recommendations should:
-- ✅ Follow React 19+ best practices (2026)
-- ✅ Leverage Tanstack Query for all API state
-- ✅ Use TypeScript strict mode correctly
-- ✅ Apply Tailwind v4 @theme patterns
-- ✅ Optimize performance judiciously
-- ✅ Be **immediately implementable** by main agent
-
-**Active During**: Frontend-heavy development, component design, UI implementation
+1. Data fetching through generated Orval hooks + `QueryStates` — no `useEffect` fetches, no hand-rolled ladders
+2. Mutations invalidate both detail and list query keys
+3. Explicit prop types; no `any`, no `@ts-ignore`
+4. State in the right tier: server=TQ, URL=router params, local=`useState`, navigation-surviving=existing Zustand store
+5. Shared UI extracted only at 2+ page reuse; check `shared/` and `ui/` before creating anything new
+6. Tailwind `@theme` tokens only — no hardcoded colors (severity states use `status-*` tokens, v0.8.13)
+7. Mobile: `useIsMobile()` single `lg:` breakpoint; dialogs via `ResponsiveDialog`
