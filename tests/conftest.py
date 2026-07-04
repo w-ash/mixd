@@ -45,6 +45,14 @@ def pytest_configure(config: pytest.Config) -> None:
         "postgresql+psycopg://guard:guard@localhost:1/DO_NOT_USE"
     )
 
+    # Force monochrome Rich/Click output. Some CI runners enable ANSI color
+    # detection where local shells don't; Typer's Rich-rendered error panels
+    # then style option names character-by-character (e.g. "--at" becomes
+    # two separately-styled segments with a reset code between the hyphens),
+    # breaking any CliRunner test that asserts a literal substring of styled
+    # text. NO_COLOR (https://no-color.org/) is honored by Rich and Click.
+    os.environ["NO_COLOR"] = "1"
+
 
 def pytest_collection_modifyitems(items: list[pytest.Item]) -> None:
     """Auto-apply unit/integration markers based on test file location.
