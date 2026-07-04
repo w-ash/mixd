@@ -61,6 +61,12 @@ class MatchMethodStatRow(TypedDict):
     avg_confidence: float
     min_confidence: int
     max_confidence: int
+    # Confidence-band distribution (mirrors SQL pack Q1): reject <50,
+    # review 50-84, accept 85-99, certain =100 (the FM1a inflation band).
+    band_reject: int
+    band_review: int
+    band_accept: int
+    band_certain: int
 
 
 class FullMappingInfo(TypedDict):
@@ -458,6 +464,29 @@ class ConnectorRepositoryProtocol(Protocol):
 
         Returns:
             Rows ordered by total_count descending.
+        """
+        ...
+
+    def count_stale_denormalized_ids(self, *, user_id: str) -> Awaitable[int]:
+        """Count tracks with a stale or dangling denormalized spotify_id.
+
+        Sums two disjoint failure modes (mirrors SQL pack Q7,
+        scripts/sql/identity-quantification.sql): a primary spotify mapping
+        exists but the column disagrees with its connector identifier, or
+        the column is set but no primary spotify mapping exists at all.
+
+        Epic 5 fixed the write flow that caused this drift; this watches the
+        stock drain via the read-path healing in ``ensure_primary_for_connector``.
+        """
+        ...
+
+    def count_confidence_evidence_divergence(self, *, user_id: str) -> Awaitable[int]:
+        """Count mappings bumped to confidence=100 while the evidence disagrees.
+
+        Mirrors SQL pack Q6 — ``confidence_evidence->>'final_score'`` is
+        below 100 even though the stored confidence was overwritten to the
+        ceiling (FM1a live corruption). NULL evidence (constant-assigned
+        mappings) is excluded naturally.
         """
         ...
 

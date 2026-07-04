@@ -7,7 +7,7 @@ review, including listing pending reviews and resolving (accept/reject).
 # pyright: reportUnknownArgumentType=false, reportUnknownVariableType=false, reportUnknownMemberType=false
 # Legitimate: SQLAlchemy JSON columns produce unknown types for artists field
 
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 from uuid import UUID
 
 import attrs
@@ -198,7 +198,6 @@ class MatchReviewRepository(BaseRepository[DBMatchReview, MatchReview]):
     @db_operation("count_stale_pending")
     async def count_stale_pending(self, older_than_days: int, *, user_id: str) -> int:
         """Count pending reviews older than the given threshold, scoped to user."""
-        from datetime import timedelta
 
         cutoff = datetime.now(UTC) - timedelta(days=older_than_days)
         stmt = select(func.count(DBMatchReview.id)).where(
@@ -208,6 +207,38 @@ class MatchReviewRepository(BaseRepository[DBMatchReview, MatchReview]):
         )
         result = await self.session.execute(stmt)
         return result.scalar_one()
+
+    @db_operation("count_created_since")
+    async def count_created_since(self, days: int, *, user_id: str) -> int:
+        """Count reviews (any status) created within the last N days, scoped to user.
+
+        Review-inflow signal — how fast new reviews are entering the queue,
+        independent of whether they've since been resolved.
+        """
+        cutoff = datetime.now(UTC) - timedelta(days=days)
+        stmt = select(func.count(DBMatchReview.id)).where(
+            DBMatchReview.user_id == user_id,
+            DBMatchReview.created_at >= cutoff,
+        )
+        result = await self.session.execute(stmt)
+        return result.scalar_one()
+
+    @db_operation("count_pending_by_method")
+    async def count_pending_by_method(self, *, user_id: str) -> dict[str, int]:
+        """Count pending reviews grouped by match_method, scoped to user."""
+        stmt = (
+            select(DBMatchReview.match_method, func.count(DBMatchReview.id))
+            .where(
+                DBMatchReview.status == ReviewStatus.PENDING,
+                DBMatchReview.user_id == user_id,
+            )
+            .group_by(DBMatchReview.match_method)
+        )
+        result = await self.session.execute(stmt)
+        # .all() materializes typed 2-tuples; dict() over that plain list avoids
+        # the dict(Result) mapping-protocol misfire (Result exposes .keys(), so
+        # dict() would treat it as a mapping and try to subscript it).
+        return dict(result.tuples().all())
 
 
 def _extract_artist_names(artists_data: object) -> list[str]:

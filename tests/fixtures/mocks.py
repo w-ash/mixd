@@ -103,6 +103,12 @@ def make_mock_connector_repo(**overrides) -> AsyncMock:
     repo.ensure_connector_tracks.return_value = overrides.pop(
         "ensure_connector_tracks", {}
     )
+    repo.count_stale_denormalized_ids.return_value = overrides.pop(
+        "count_stale_denormalized_ids", 0
+    )
+    repo.count_confidence_evidence_divergence.return_value = overrides.pop(
+        "count_confidence_evidence_divergence", 0
+    )
     for k, v in overrides.items():
         setattr(repo, k, v)
     return repo
@@ -211,6 +217,10 @@ def make_mock_match_review_repo(**overrides) -> AsyncMock:
     repo.update_review_status.return_value = overrides.pop("update_review_status", None)
     repo.count_pending.return_value = overrides.pop("count_pending", 0)
     repo.count_stale_pending.return_value = overrides.pop("count_stale_pending", 0)
+    repo.count_created_since.return_value = overrides.pop("count_created_since", 0)
+    repo.count_pending_by_method.return_value = overrides.pop(
+        "count_pending_by_method", {}
+    )
     for k, v in overrides.items():
         setattr(repo, k, v)
     return repo

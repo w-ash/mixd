@@ -25,11 +25,11 @@ class TestAllChecksPass:
         assert result.total_issues == 0
 
     @pytest.mark.asyncio
-    async def test_six_checks_returned(self, uow):
+    async def test_seven_checks_returned(self, uow):
         result = await CheckDataIntegrityUseCase().execute(
             CheckDataIntegrityCommand(user_id="test-user"), uow
         )
-        assert len(result.checks) == 6
+        assert len(result.checks) == 7
         names = {c.name for c in result.checks}
         assert names == {
             "multiple_primary_mappings",
@@ -38,6 +38,7 @@ class TestAllChecksPass:
             "duplicate_tracks",
             "stale_pending_reviews",
             "pending_reviews",
+            "stale_denormalized_ids",
         }
 
 
@@ -131,6 +132,22 @@ class TestWarnStatus:
         )
         assert stale_check.status == "warn"
         assert stale_check.count == 5
+
+    @pytest.mark.asyncio
+    async def test_stale_denormalized_ids_causes_warn(self):
+        uow = make_mock_uow()
+        connector_repo = uow.get_connector_repository()
+        connector_repo.count_stale_denormalized_ids.return_value = 3
+
+        result = await CheckDataIntegrityUseCase().execute(
+            CheckDataIntegrityCommand(user_id="test-user"), uow
+        )
+        stale_denorm_check = next(
+            c for c in result.checks if c.name == "stale_denormalized_ids"
+        )
+        assert stale_denorm_check.status == "warn"
+        assert stale_denorm_check.count == 3
+        assert result.overall_status == "warn"
 
 
 class TestPendingReviewsInformational:

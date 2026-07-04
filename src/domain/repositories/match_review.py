@@ -53,3 +53,19 @@ class MatchReviewRepositoryProtocol(Protocol):
     ) -> Awaitable[int]:
         """Count pending reviews older than the given threshold."""
         ...
+
+    def count_created_since(self, days: int, *, user_id: str) -> Awaitable[int]:
+        """Count reviews (any status) created within the last N days.
+
+        Review-inflow signal — how fast new reviews are entering the queue,
+        independent of whether they've since been resolved.
+        """
+        ...
+
+    def count_pending_by_method(self, *, user_id: str) -> Awaitable[dict[str, int]]:
+        """Count pending reviews grouped by match_method.
+
+        Used to isolate e.g. the ``isrc_suspect`` pending depth from the
+        overall queue.
+        """
+        ...

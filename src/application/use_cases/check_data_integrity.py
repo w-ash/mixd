@@ -101,6 +101,19 @@ class CheckDataIntegrityUseCase:
                 )
             )
 
+            # 7. Stale denormalized connector IDs (epic 5 fixed the write flow;
+            # this watches the stock drain via read-path healing)
+            stale_denorm_count = await connector_repo.count_stale_denormalized_ids(
+                user_id=command.user_id
+            )
+            checks.append(
+                IntegrityCheckResult(
+                    name="stale_denormalized_ids",
+                    status=_status_for(stale_denorm_count, warn_threshold=1),
+                    count=stale_denorm_count,
+                )
+            )
+
             overall = _worst_status(checks)
             return IntegrityReport(checks=checks, overall_status=overall)
 

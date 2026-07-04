@@ -20,6 +20,7 @@ from sqlalchemy import (
     delete,
     func,
     select,
+    text,
     update,
 )
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -57,6 +58,14 @@ from src.infrastructure.persistence.repositories.track.mapper import (
 )
 
 logger = get_logger(__name__)
+
+# Confidence-band thresholds for the matching-health distribution (mirror SQL
+# pack Q1): reject <50, review 50-84, accept 85-99, certain =100.
+_BAND_REVIEW_MIN = 50
+_BAND_REVIEW_MAX = 84
+_BAND_ACCEPT_MIN = 85
+_BAND_ACCEPT_MAX = 99
+_CONFIDENCE_CERTAIN = 100
 
 
 @define(frozen=True, slots=True)
@@ -1568,12 +1577,45 @@ class TrackConnectorRepository:
                 ),
                 func.min(DBTrackMapping.confidence).label("min_confidence"),
                 func.max(DBTrackMapping.confidence).label("max_confidence"),
+                # Confidence-band distribution in one scan (mirrors SQL pack
+                # Q1): reject <50, review 50-84, accept 85-99, certain =100.
+                func
+                .count()
+                .filter(DBTrackMapping.confidence < _BAND_REVIEW_MIN)
+                .label("band_reject"),
+                func
+                .count()
+                .filter(
+                    DBTrackMapping.confidence.between(
+                        _BAND_REVIEW_MIN, _BAND_REVIEW_MAX
+                    )
+                )
+                .label("band_review"),
+                func
+                .count()
+                .filter(
+                    DBTrackMapping.confidence.between(
+                        _BAND_ACCEPT_MIN, _BAND_ACCEPT_MAX
+                    )
+                )
+                .label("band_accept"),
+                func
+                .count()
+                .filter(DBTrackMapping.confidence == _CONFIDENCE_CERTAIN)
+                .label("band_certain"),
             )
             .where(DBTrackMapping.user_id == user_id)
             .group_by(DBTrackMapping.match_method, DBTrackMapping.connector_name)
             .order_by(func.count().desc())
         )
         result = await self.session.execute(stmt)
+        # 11 select() columns exceeds SQLAlchemy's typed-tuple overloads (capped
+        # at 10 — see _selectable_constructors.py), which fall back to
+        # Select[Any]. The declared annotation caps the Any spread to this one
+        # boundary line instead of leaking into every field below.
+        rows: Sequence[
+            tuple[str, str, int, int, float, int, int, int, int, int, int]
+        ] = result.tuples().all()
         return [
             MatchMethodStatRow(
                 match_method=match_method,
@@ -1583,6 +1625,10 @@ class TrackConnectorRepository:
                 avg_confidence=round(float(avg_confidence), 1),
                 min_confidence=min_confidence,
                 max_confidence=max_confidence,
+                band_reject=band_reject,
+                band_review=band_review,
+                band_accept=band_accept,
+                band_certain=band_certain,
             )
             for (
                 match_method,
@@ -1592,5 +1638,86 @@ class TrackConnectorRepository:
                 avg_confidence,
                 min_confidence,
                 max_confidence,
-            ) in result.tuples()
+                band_reject,
+                band_review,
+                band_accept,
+                band_certain,
+            ) in rows
         ]
+
+    @db_operation("count_stale_denormalized_ids")
+    async def count_stale_denormalized_ids(self, *, user_id: str) -> int:
+        """Count tracks with a stale or dangling denormalized spotify_id.
+
+        Sums two disjoint failure modes (mirrors SQL pack Q7,
+        scripts/sql/identity-quantification.sql):
+          - a primary spotify mapping exists but the column disagrees with
+            its connector identifier
+          - the column is set but no primary spotify mapping exists at all
+
+        Epic 5 fixed the write flow that caused this drift; this watches the
+        stock drain via the read-path healing in ``ensure_primary_for_connector``.
+        """
+        primary_spotify = (DBTrackMapping.connector_name == "spotify") & (
+            DBTrackMapping.is_primary.is_(True)
+        )
+        stmt = (
+            select(
+                func
+                .count()
+                .filter(
+                    DBTrackMapping.id.is_not(None),
+                    DBTrack.spotify_id.is_distinct_from(
+                        DBConnectorTrack.connector_track_identifier
+                    ),
+                )
+                .label("column_disagrees_with_primary"),
+                func
+                .count()
+                .filter(
+                    DBTrack.spotify_id.is_not(None),
+                    DBTrackMapping.id.is_(None),
+                )
+                .label("column_set_but_no_mapping"),
+            )
+            .select_from(DBTrack)
+            .outerjoin(
+                DBTrackMapping,
+                (DBTrackMapping.track_id == DBTrack.id)
+                & primary_spotify
+                & (DBTrackMapping.user_id == user_id),
+            )
+            .outerjoin(
+                DBConnectorTrack,
+                DBConnectorTrack.id == DBTrackMapping.connector_track_id,
+            )
+            .where(
+                DBTrack.user_id == user_id,
+                (DBTrack.spotify_id.is_not(None)) | (DBTrackMapping.id.is_not(None)),
+            )
+        )
+        result = await self.session.execute(stmt)
+        # .tuples().one() (not .one()) so the pair unpacks as (int, int)
+        # instead of an untyped Row.
+        disagrees, no_mapping = result.tuples().one()
+        return disagrees + no_mapping
+
+    @db_operation("count_confidence_evidence_divergence")
+    async def count_confidence_evidence_divergence(self, *, user_id: str) -> int:
+        """Count mappings bumped to confidence=100 while the evidence disagrees.
+
+        Mirrors SQL pack Q6 — NULL evidence (constant-assigned mappings) is
+        excluded naturally by the ``< 100`` comparison against SQL NULL.
+        """
+        # JSONB numeric extraction (``->>`` then ``::numeric``) as a raw predicate:
+        # SQLAlchemy's JSON-subscript comparator types Any under basedpyright, and a
+        # text() fragment keeps this typed without a suppression. The literal has no
+        # interpolation (user_id is bound via the ORM predicate), so it is
+        # injection-safe.
+        stmt = select(func.count()).where(
+            DBTrackMapping.user_id == user_id,
+            DBTrackMapping.confidence == _CONFIDENCE_CERTAIN,
+            text("(confidence_evidence->>'final_score')::numeric < 100"),
+        )
+        result = await self.session.execute(stmt)
+        return result.scalar_one()

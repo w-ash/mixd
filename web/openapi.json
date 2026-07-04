@@ -5238,6 +5238,35 @@
         "title": "ExportLastfmLikesRequest",
         "description": "Request body for triggering a Last.fm likes export."
       },
+      "FallbackShareSchema": {
+        "properties": {
+          "connector_name": {
+            "type": "string",
+            "title": "Connector Name"
+          },
+          "recent_total": {
+            "type": "integer",
+            "title": "Recent Total"
+          },
+          "recent_fallback": {
+            "type": "integer",
+            "title": "Recent Fallback"
+          },
+          "fallback_share": {
+            "type": "number",
+            "title": "Fallback Share"
+          }
+        },
+        "type": "object",
+        "required": [
+          "connector_name",
+          "recent_total",
+          "recent_fallback",
+          "fallback_share"
+        ],
+        "title": "FallbackShareSchema",
+        "description": "Recent search_fallback* share of total recent mappings for one connector."
+      },
       "FieldType": {
         "type": "string",
         "enum": [
@@ -5635,13 +5664,17 @@
           "recent_days": {
             "type": "integer",
             "title": "Recent Days"
+          },
+          "drift": {
+            "$ref": "#/components/schemas/MatchingDriftSchema"
           }
         },
         "type": "object",
         "required": [
           "stats",
           "total_mappings",
-          "recent_days"
+          "recent_days",
+          "drift"
         ],
         "title": "MatchMethodHealthSchema",
         "description": "Full match method health report response."
@@ -5802,6 +5835,73 @@
         "title": "MatchReviewSchema",
         "description": "Single match review item for API responses."
       },
+      "MatchingDriftSchema": {
+        "properties": {
+          "fallback_shares": {
+            "items": {
+              "$ref": "#/components/schemas/FallbackShareSchema"
+            },
+            "type": "array",
+            "title": "Fallback Shares"
+          },
+          "review_inflow_7d": {
+            "type": "integer",
+            "title": "Review Inflow 7D"
+          },
+          "review_inflow_30d": {
+            "type": "integer",
+            "title": "Review Inflow 30D"
+          },
+          "review_pending_depth": {
+            "type": "integer",
+            "title": "Review Pending Depth"
+          },
+          "review_oldest_pending_days": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Review Oldest Pending Days"
+          },
+          "review_pending_by_method": {
+            "additionalProperties": {
+              "type": "integer"
+            },
+            "type": "object",
+            "title": "Review Pending By Method"
+          },
+          "isrc_suspect_pending_count": {
+            "type": "integer",
+            "title": "Isrc Suspect Pending Count"
+          },
+          "confidence_evidence_divergence_count": {
+            "type": "integer",
+            "title": "Confidence Evidence Divergence Count"
+          },
+          "stale_denormalized_ids_count": {
+            "type": "integer",
+            "title": "Stale Denormalized Ids Count"
+          }
+        },
+        "type": "object",
+        "required": [
+          "fallback_shares",
+          "review_inflow_7d",
+          "review_inflow_30d",
+          "review_pending_depth",
+          "review_oldest_pending_days",
+          "review_pending_by_method",
+          "isrc_suspect_pending_count",
+          "confidence_evidence_divergence_count",
+          "stale_denormalized_ids_count"
+        ],
+        "title": "MatchingDriftSchema",
+        "description": "Drift signals for the matching-health dashboard.\n\nExploratory metrics with no fixed thresholds \u2014 baseline empirically and\ncompare week-over-week."
+      },
       "MergeTagsRequest": {
         "properties": {
           "source": {
@@ -5873,6 +5973,22 @@
           "max_confidence": {
             "type": "integer",
             "title": "Max Confidence"
+          },
+          "band_reject": {
+            "type": "integer",
+            "title": "Band Reject"
+          },
+          "band_review": {
+            "type": "integer",
+            "title": "Band Review"
+          },
+          "band_accept": {
+            "type": "integer",
+            "title": "Band Accept"
+          },
+          "band_certain": {
+            "type": "integer",
+            "title": "Band Certain"
           }
         },
         "type": "object",
@@ -5885,7 +6001,11 @@
           "recent_count",
           "avg_confidence",
           "min_confidence",
-          "max_confidence"
+          "max_confidence",
+          "band_reject",
+          "band_review",
+          "band_accept",
+          "band_certain"
         ],
         "title": "MethodHealthStatSchema",
         "description": "Single match method + connector aggregation row."

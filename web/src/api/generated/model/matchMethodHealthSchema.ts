@@ -5,6 +5,7 @@
  * Personal music metadata hub
  * OpenAPI spec version: 0.8.17.2
  */
+import type { MatchingDriftSchema } from './matchingDriftSchema.ts';
 import type { MethodHealthStatSchema } from './methodHealthStatSchema.ts';
 
 /**
@@ -14,4 +15,5 @@ export interface MatchMethodHealthSchema {
   stats: MethodHealthStatSchema[];
   total_mappings: number;
   recent_days: number;
+  drift: MatchingDriftSchema;
 }

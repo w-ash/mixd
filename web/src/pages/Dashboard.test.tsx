@@ -31,6 +31,10 @@ const mockMatchingHealth: MatchMethodHealthSchema = {
       avg_confidence: 100.0,
       min_confidence: 100,
       max_confidence: 100,
+      band_reject: 0,
+      band_review: 0,
+      band_accept: 0,
+      band_certain: 847,
     },
     {
       match_method: "artist_title",
@@ -42,6 +46,10 @@ const mockMatchingHealth: MatchMethodHealthSchema = {
       avg_confidence: 90.0,
       min_confidence: 85,
       max_confidence: 95,
+      band_reject: 0,
+      band_review: 0,
+      band_accept: 512,
+      band_certain: 0,
     },
     {
       match_method: "canonical_reuse",
@@ -53,6 +61,10 @@ const mockMatchingHealth: MatchMethodHealthSchema = {
       avg_confidence: 92.3,
       min_confidence: 87,
       max_confidence: 100,
+      band_reject: 0,
+      band_review: 0,
+      band_accept: 200,
+      band_certain: 42,
     },
     {
       match_method: "search_fallback",
@@ -64,10 +76,38 @@ const mockMatchingHealth: MatchMethodHealthSchema = {
       avg_confidence: 42.0,
       min_confidence: 30,
       max_confidence: 55,
+      band_reject: 10,
+      band_review: 5,
+      band_accept: 0,
+      band_certain: 0,
     },
   ],
   total_mappings: 1616,
   recent_days: 30,
+  drift: {
+    fallback_shares: [
+      {
+        connector_name: "spotify",
+        recent_total: 47,
+        recent_fallback: 2,
+        fallback_share: 0.0426,
+      },
+      {
+        connector_name: "lastfm",
+        recent_total: 43,
+        recent_fallback: 0,
+        fallback_share: 0,
+      },
+    ],
+    review_inflow_7d: 3,
+    review_inflow_30d: 11,
+    review_pending_depth: 5,
+    review_oldest_pending_days: 12.4,
+    review_pending_by_method: { isrc_suspect: 3, artist_title: 2 },
+    isrc_suspect_pending_count: 3,
+    confidence_evidence_divergence_count: 1,
+    stale_denormalized_ids_count: 0,
+  },
 };
 
 describe("Dashboard", () => {
@@ -243,6 +283,17 @@ describe("Matching Health Section", () => {
       stats: [],
       total_mappings: 0,
       recent_days: 30,
+      drift: {
+        fallback_shares: [],
+        review_inflow_7d: 0,
+        review_inflow_30d: 0,
+        review_pending_depth: 0,
+        review_oldest_pending_days: null,
+        review_pending_by_method: {},
+        isrc_suspect_pending_count: 0,
+        confidence_evidence_divergence_count: 0,
+        stale_denormalized_ids_count: 0,
+      },
     });
 
     renderWithProviders(<Dashboard />);

@@ -183,3 +183,79 @@ class TestMatchMethodStatsConfidence:
         assert row["max_confidence"] == 100
         # avg of 95, 85, 100 = 93.333... → rounded to 93.3
         assert row["avg_confidence"] == 93.3
+
+
+class TestMatchMethodStatsBands:
+    """Verify confidence-band distribution counts (FILTER aggregation, Q1)."""
+
+    async def test_band_distribution_per_method(self, db_session):
+        t1, t2, t3, t4 = (
+            _make_db_track(),
+            _make_db_track(),
+            _make_db_track(),
+            _make_db_track(),
+        )
+        ct1 = _make_connector_track("spotify")
+        ct2 = _make_connector_track("spotify")
+        ct3 = _make_connector_track("spotify")
+        ct4 = _make_connector_track("spotify")
+
+        await _insert_mapping(db_session, t1, ct1, "artist_title", 10)  # reject
+        await _insert_mapping(db_session, t2, ct2, "artist_title", 60)  # review
+        await _insert_mapping(db_session, t3, ct3, "artist_title", 90)  # accept
+        await _insert_mapping(db_session, t4, ct4, "artist_title", 100)  # certain
+        await db_session.commit()
+
+        uow = get_unit_of_work(db_session)
+        repo = uow.get_connector_repository()
+        result = await repo.get_match_method_stats(user_id="default")
+
+        assert len(result) == 1
+        row = result[0]
+        assert row["band_reject"] == 1
+        assert row["band_review"] == 1
+        assert row["band_accept"] == 1
+        assert row["band_certain"] == 1
+
+    async def test_band_boundaries(self, db_session):
+        """Boundary confidences land in the correct band (49/50/84/85/99/100)."""
+        tracks = [_make_db_track() for _ in range(6)]
+        cts = [_make_connector_track("spotify") for _ in range(6)]
+        confidences = [49, 50, 84, 85, 99, 100]
+
+        for track, ct, confidence in zip(tracks, cts, confidences, strict=True):
+            await _insert_mapping(db_session, track, ct, "artist_title", confidence)
+        await db_session.commit()
+
+        uow = get_unit_of_work(db_session)
+        repo = uow.get_connector_repository()
+        result = await repo.get_match_method_stats(user_id="default")
+
+        assert len(result) == 1
+        row = result[0]
+        assert row["total_count"] == 6
+        assert row["band_reject"] == 1  # 49
+        assert row["band_review"] == 2  # 50, 84
+        assert row["band_accept"] == 2  # 85, 99
+        assert row["band_certain"] == 1  # 100
+
+    async def test_bands_are_per_method_and_connector_group(self, db_session):
+        """Bands are scoped to each (match_method, connector_name) group, not global."""
+        t1, t2 = _make_db_track(), _make_db_track()
+        ct1 = _make_connector_track("spotify")
+        ct2 = _make_connector_track("lastfm")
+
+        await _insert_mapping(db_session, t1, ct1, "direct_import", 100)
+        await _insert_mapping(db_session, t2, ct2, "artist_title", 10)
+        await db_session.commit()
+
+        uow = get_unit_of_work(db_session)
+        repo = uow.get_connector_repository()
+        result = await repo.get_match_method_stats(user_id="default")
+
+        assert len(result) == 2
+        by_method = {row["match_method"]: row for row in result}
+        assert by_method["direct_import"]["band_certain"] == 1
+        assert by_method["direct_import"]["band_reject"] == 0
+        assert by_method["artist_title"]["band_reject"] == 1
+        assert by_method["artist_title"]["band_certain"] == 0

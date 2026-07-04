@@ -265,3 +265,281 @@ class TestStalePendingReviews:
         repo = MatchReviewRepository(db_session)
         count = await repo.count_stale_pending(user_id="default", older_than_days=30)
         assert count == 0
+
+
+class TestCountStaleDenormalizedIds:
+    """Stale/dangling denormalized spotify_id detection (Q7 mirror)."""
+
+    async def test_no_drift_on_clean_db(self, db_session: AsyncSession):
+        repo = TrackConnectorRepository(db_session)
+        count = await repo.count_stale_denormalized_ids(user_id="default")
+        assert count == 0
+
+    async def test_ignores_track_with_no_spotify_id_and_no_mapping(
+        self, db_session: AsyncSession
+    ):
+        track = DBTrack(title="Track", artists={"names": ["Artist"]})
+        db_session.add(track)
+        await db_session.flush()
+
+        repo = TrackConnectorRepository(db_session)
+        count = await repo.count_stale_denormalized_ids(user_id="default")
+        assert count == 0
+
+    async def test_ignores_agreeing_primary_mapping(self, db_session: AsyncSession):
+        uid = uuid4().hex[:8]
+        matching_id = f"sp_{uid}"
+        track = DBTrack(
+            title="Track", artists={"names": ["Artist"]}, spotify_id=matching_id
+        )
+        db_session.add(track)
+        ct = DBConnectorTrack(
+            connector_name="spotify",
+            connector_track_identifier=matching_id,
+            title="CT",
+            artists={"names": ["Artist"]},
+            raw_metadata={},
+            last_updated=datetime.now(UTC),
+        )
+        db_session.add(ct)
+        await db_session.flush()
+        await _seed_mapping(db_session, track.id, ct.id, is_primary=True)
+        await db_session.flush()
+
+        repo = TrackConnectorRepository(db_session)
+        count = await repo.count_stale_denormalized_ids(user_id="default")
+        assert count == 0
+
+    async def test_detects_column_disagrees_with_primary(
+        self, db_session: AsyncSession
+    ):
+        track_id = await _seed_track(db_session)  # spotify_id = "sp_<uid>"
+        ct_id = await _seed_connector_track(db_session)  # identifier = "ct_<uid>"
+        await _seed_mapping(db_session, track_id, ct_id, is_primary=True)
+
+        repo = TrackConnectorRepository(db_session)
+        count = await repo.count_stale_denormalized_ids(user_id="default")
+        assert count == 1
+
+    async def test_detects_column_set_but_no_mapping(self, db_session: AsyncSession):
+        await _seed_track(db_session)  # spotify_id set, no mapping at all
+
+        repo = TrackConnectorRepository(db_session)
+        count = await repo.count_stale_denormalized_ids(user_id="default")
+        assert count == 1
+
+    async def test_scoped_to_user(self, db_session: AsyncSession):
+        uid = uuid4().hex[:8]
+        track = DBTrack(
+            title="Other User Track",
+            artists={"names": ["Artist"]},
+            spotify_id=f"sp_{uid}",
+            user_id="other-user",
+        )
+        db_session.add(track)
+        await db_session.flush()
+
+        repo = TrackConnectorRepository(db_session)
+        assert await repo.count_stale_denormalized_ids(user_id="default") == 0
+        assert await repo.count_stale_denormalized_ids(user_id="other-user") == 1
+
+
+class TestCountConfidenceEvidenceDivergence:
+    """Bumped-confidence detection: confidence=100 but evidence disagrees (Q6 mirror)."""
+
+    async def test_no_divergence_on_clean_db(self, db_session: AsyncSession):
+        repo = TrackConnectorRepository(db_session)
+        count = await repo.count_confidence_evidence_divergence(user_id="default")
+        assert count == 0
+
+    async def test_ignores_null_evidence(self, db_session: AsyncSession):
+        track_id = await _seed_track(db_session)
+        ct_id = await _seed_connector_track(db_session)
+        mapping = DBTrackMapping(
+            track_id=track_id,
+            connector_track_id=ct_id,
+            connector_name="spotify",
+            match_method="direct_import",
+            confidence=100,
+            origin="automatic",
+            is_primary=True,
+        )
+        db_session.add(mapping)
+        await db_session.flush()
+
+        repo = TrackConnectorRepository(db_session)
+        count = await repo.count_confidence_evidence_divergence(user_id="default")
+        assert count == 0
+
+    async def test_ignores_agreeing_evidence(self, db_session: AsyncSession):
+        track_id = await _seed_track(db_session)
+        ct_id = await _seed_connector_track(db_session)
+        mapping = DBTrackMapping(
+            track_id=track_id,
+            connector_track_id=ct_id,
+            connector_name="spotify",
+            match_method="artist_title",
+            confidence=100,
+            confidence_evidence={"final_score": 100},
+            origin="automatic",
+            is_primary=True,
+        )
+        db_session.add(mapping)
+        await db_session.flush()
+
+        repo = TrackConnectorRepository(db_session)
+        count = await repo.count_confidence_evidence_divergence(user_id="default")
+        assert count == 0
+
+    async def test_detects_bumped_confidence(self, db_session: AsyncSession):
+        track_id = await _seed_track(db_session)
+        ct_id = await _seed_connector_track(db_session)
+        mapping = DBTrackMapping(
+            track_id=track_id,
+            connector_track_id=ct_id,
+            connector_name="spotify",
+            match_method="artist_title",
+            confidence=100,
+            confidence_evidence={"final_score": 82.5},
+            origin="automatic",
+            is_primary=True,
+        )
+        db_session.add(mapping)
+        await db_session.flush()
+
+        repo = TrackConnectorRepository(db_session)
+        count = await repo.count_confidence_evidence_divergence(user_id="default")
+        assert count == 1
+
+    async def test_ignores_lower_confidence_even_with_divergent_evidence(
+        self, db_session: AsyncSession
+    ):
+        """Only confidence=100 rows are in scope — a lower confidence is not 'bumped'."""
+        track_id = await _seed_track(db_session)
+        ct_id = await _seed_connector_track(db_session)
+        mapping = DBTrackMapping(
+            track_id=track_id,
+            connector_track_id=ct_id,
+            connector_name="spotify",
+            match_method="artist_title",
+            confidence=90,
+            confidence_evidence={"final_score": 82.5},
+            origin="automatic",
+            is_primary=True,
+        )
+        db_session.add(mapping)
+        await db_session.flush()
+
+        repo = TrackConnectorRepository(db_session)
+        count = await repo.count_confidence_evidence_divergence(user_id="default")
+        assert count == 0
+
+
+class TestCountCreatedSince:
+    """Review-inflow counting: reviews created within the last N days, any status."""
+
+    async def test_no_reviews_on_clean_db(self, db_session: AsyncSession):
+        repo = MatchReviewRepository(db_session)
+        count = await repo.count_created_since(7, user_id="default")
+        assert count == 0
+
+    async def test_counts_recent_regardless_of_status(self, db_session: AsyncSession):
+        track_id = await _seed_track(db_session)
+        ct_id = await _seed_connector_track(db_session)
+        review = DBMatchReview(
+            track_id=track_id,
+            connector_name="spotify",
+            connector_track_id=ct_id,
+            match_method="artist_title",
+            confidence=65,
+            match_weight=3.5,
+            status=ReviewStatus.ACCEPTED,
+        )
+        db_session.add(review)
+        await db_session.flush()
+
+        repo = MatchReviewRepository(db_session)
+        count = await repo.count_created_since(7, user_id="default")
+        assert count == 1
+
+    async def test_ignores_older_than_window(self, db_session: AsyncSession):
+        track_id = await _seed_track(db_session)
+        ct_id = await _seed_connector_track(db_session)
+        old_date = datetime.now(UTC) - timedelta(days=45)
+        review = DBMatchReview(
+            track_id=track_id,
+            connector_name="spotify",
+            connector_track_id=ct_id,
+            match_method="artist_title",
+            confidence=65,
+            match_weight=3.5,
+            status=ReviewStatus.PENDING,
+            created_at=old_date,
+            updated_at=old_date,
+        )
+        db_session.add(review)
+        await db_session.flush()
+
+        repo = MatchReviewRepository(db_session)
+        assert await repo.count_created_since(30, user_id="default") == 0
+        assert await repo.count_created_since(60, user_id="default") == 1
+
+
+class TestCountPendingByMethod:
+    """Pending-review counts grouped by match_method (e.g., isrc_suspect depth)."""
+
+    async def test_no_reviews_on_clean_db(self, db_session: AsyncSession):
+        repo = MatchReviewRepository(db_session)
+        result = await repo.count_pending_by_method(user_id="default")
+        assert result == {}
+
+    async def test_groups_pending_by_method_excludes_resolved(
+        self, db_session: AsyncSession
+    ):
+        track_id, ct_id = (
+            await _seed_track(db_session),
+            await _seed_connector_track(db_session),
+        )
+        track_id2, ct_id2 = (
+            await _seed_track(db_session),
+            await _seed_connector_track(db_session),
+        )
+        track_id3, ct_id3 = (
+            await _seed_track(db_session),
+            await _seed_connector_track(db_session),
+        )
+
+        db_session.add_all([
+            DBMatchReview(
+                track_id=track_id,
+                connector_name="spotify",
+                connector_track_id=ct_id,
+                match_method="isrc_suspect",
+                confidence=70,
+                match_weight=3.0,
+                status=ReviewStatus.PENDING,
+            ),
+            DBMatchReview(
+                track_id=track_id2,
+                connector_name="spotify",
+                connector_track_id=ct_id2,
+                match_method="isrc_suspect",
+                confidence=72,
+                match_weight=3.0,
+                status=ReviewStatus.PENDING,
+            ),
+            DBMatchReview(
+                track_id=track_id3,
+                connector_name="spotify",
+                connector_track_id=ct_id3,
+                match_method="artist_title",
+                confidence=65,
+                match_weight=3.0,
+                status=ReviewStatus.ACCEPTED,
+            ),
+        ])
+        await db_session.flush()
+
+        repo = MatchReviewRepository(db_session)
+        result = await repo.count_pending_by_method(user_id="default")
+        assert result == {"isrc_suspect": 2}

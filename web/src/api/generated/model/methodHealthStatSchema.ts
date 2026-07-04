@@ -19,4 +19,8 @@ export interface MethodHealthStatSchema {
   avg_confidence: number;
   min_confidence: number;
   max_confidence: number;
+  band_reject: number;
+  band_review: number;
+  band_accept: number;
+  band_certain: number;
 }

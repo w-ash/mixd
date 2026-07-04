@@ -4,6 +4,7 @@ from rich.panel import Panel
 from rich.table import Table
 import typer
 
+from src.application.use_cases.get_match_method_health import MatchingDrift
 from src.config.constants import MatchMethod
 from src.interface.cli.async_runner import run_async
 from src.interface.cli.cli_helpers import get_cli_user_id, handle_cli_error
@@ -181,6 +182,10 @@ def _run_matching_report() -> None:
             table.add_column("Last 30d", justify="right")
             table.add_column("Avg Conf", justify="right")
             table.add_column("Min", justify="right")
+            table.add_column("Reject", justify="right")
+            table.add_column("Review", justify="right")
+            table.add_column("Accept", justify="right")
+            table.add_column("Certain", justify="right")
 
             for stat in group:
                 table.add_row(
@@ -190,11 +195,62 @@ def _run_matching_report() -> None:
                     str(stat.recent_count),
                     f"{stat.avg_confidence:.1f}",
                     str(stat.min_confidence),
+                    str(stat.band_reject),
+                    str(stat.band_review),
+                    str(stat.band_accept),
+                    str(stat.band_certain),
                 )
 
             console.print(table)
+
+        _render_drift_panel(result.drift)
 
     try:
         run_async(_matching_async())
     except Exception as e:
         handle_cli_error(e, "Failed to get matching report")
+
+
+def _render_drift_panel(drift: MatchingDrift) -> None:
+    """Render the drift-signals panel: exploratory metrics, no fixed thresholds.
+
+    Baseline these empirically and compare week-over-week rather than
+    reading any single number as a pass/fail gate.
+    """
+    lines: list[str] = []
+
+    if drift.fallback_shares:
+        lines.append("[cyan]Fallback share (30d, per connector):[/cyan]")
+        lines.extend(
+            f"  {share.connector_name}: {share.fallback_share:.1%} "
+            f"({share.recent_fallback}/{share.recent_total})"
+            for share in drift.fallback_shares
+        )
+    else:
+        lines.append("[cyan]Fallback share (30d):[/cyan] no recent mappings")
+
+    lines.append(
+        f"[cyan]Review inflow:[/cyan] 7d={drift.review_inflow_7d}, "
+        f"30d={drift.review_inflow_30d}"
+    )
+    oldest = (
+        f"{drift.review_oldest_pending_days:.1f}d"
+        if drift.review_oldest_pending_days is not None
+        else "n/a"
+    )
+    lines.extend([
+        f"[cyan]Review queue:[/cyan] depth={drift.review_pending_depth}, "
+        f"oldest={oldest}",
+        f"[cyan]isrc_suspect pending:[/cyan] {drift.isrc_suspect_pending_count}",
+        "[cyan]Confidence/evidence divergence:[/cyan] "
+        f"{drift.confidence_evidence_divergence_count}",
+        f"[cyan]Stale denormalized IDs:[/cyan] {drift.stale_denormalized_ids_count}",
+    ])
+
+    console.print(
+        Panel(
+            "\n".join(lines),
+            title="Drift Signals",
+            subtitle="[dim]baseline empirically, compare week-over-week — no fixed thresholds[/dim]",
+        )
+    )
