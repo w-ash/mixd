@@ -1,12 +1,13 @@
 # Project Mixd — Planning
 
-**Current Version**: 0.8.17.2
-**Next**: [v0.8.18 Identity Integrity](v0.8.18.md) **or** [v0.9.0 Workflow assistant](v0.9.x.md) — the user's call. v0.8.18 repairs *active* mapping-confidence corruption (compounds with every playlist import) and gates v0.10.0 artist identity, v1.0.1 Apple Music, and all sharing milestones; v0.9.0 is the couplefins right-panel chat port (pre-work brief landed 2026-07-02, [details](v0.9.x.md)). Follow-up pool: the [dependency-audit work orders](dependency-audit-findings.md) (W1–W10) and the PLR0913/0917 flip decision ([spoke 26](fable-sweep/26-ratchet-closeout.md)).
+**Current Version**: 0.8.18
+**Next**: [v0.9.0 Workflow assistant](v0.9.x.md) — the couplefins right-panel chat port (pre-work brief landed 2026-07-02). v0.8.18 Identity Integrity shipped 2026-07-03, clearing the mapping-confidence corruption that gated v0.10.0 artist identity, v1.0.1 Apple Music, and the sharing milestones. Follow-up pool: the [dependency-audit work orders](dependency-audit-findings.md) (W1–W10) and the PLR0913/0917 flip decision ([spoke 26](fable-sweep/26-ratchet-closeout.md)).
 
 ## Shipped — current cycle (v0.8.x)
 
 Canonical release log: [CHANGELOG.md](../../CHANGELOG.md) (all ships, full entries). This narrative keeps one line per ship for the current + previous minor cycle only; older lines are pruned at cycle close.
 
+- **v0.8.18** (2026-07-03) — Identity Integrity: the matching layer stops corrupting its own confidence data — freshness-not-confidence re-imports, ISRC-reuse routes to review instead of clobbering, one Last.fm identity per track (migration 035), and drift metrics in `stats --matching`.
 - **v0.8.17.2** (2026-07-02) — CI flake fixed: CLI tests pin terminal size, so a green pipeline means green.
 - **v0.8.17.1** (2026-07-02) — version metadata corrected after a mistagged ship; deployed code unchanged.
 - **v0.8.17** (2026-07-02) — sweep closeout: ratchet re-census, noqa whodunit, visual-gate revival, dependency audit (W1–W10), identity-resolution research + the PDR system.
@@ -107,7 +108,7 @@ Each milestone delivers a **vertical slice** — backend API + frontend page tog
 | **v0.8.15** | Sweep Wave 3 — frontend structure (QueryStates, search de-fork, page splits) | 🚀 Shipped | [details](v0.8.13-0.8.17.md#v0815-sweep-wave-3--frontend-structure) |
 | **v0.8.16** | Sweep Wave 4 — high-risk decompositions (executor flatten, connector contract) | 🚀 Shipped | [details](v0.8.13-0.8.17.md#v0816-sweep-wave-4--high-risk-decompositions) |
 | **v0.8.17** | Sweep closeout — ratchet, Fable review & dependency audit | 🚀 Shipped | [details](v0.8.13-0.8.17.md#v0817-sweep-closeout--ratchet--review) |
-| **v0.8.18** | Identity integrity — confidence repair, ISRC guards, drift metrics (2026-07 research D1; gates v0.10.0 artist identity, v1.0.1 Apple Music, v1.1.x–v1.2.x sharing) | 🔨 In Progress | [details](v0.8.18.md#v0818-identity-integrity) |
+| **v0.8.18** | Identity integrity — confidence repair, ISRC guards, drift metrics (2026-07 research D1; gates v0.10.0 artist identity, v1.0.1 Apple Music, v1.1.x–v1.2.x sharing) | 🚀 Shipped | [details](v0.8.18.md#v0818-identity-integrity) |
 | **v0.9.0** | Workflow assistant — right-panel chat (couplefins port) + shared tool registry | 🔜 Not Started | [details](v0.9.x.md#v090-workflow-assistant-right-panel-chat) |
 | **v0.9.1** | MCP server — mixd as a tool surface (stdio; consumes the v0.9.0 registry) | 🔜 Not Started | [details](v0.9.x.md#v091-mcp-server-mixd-as-a-tool-surface) |
 | **v0.9.3** | Follow-ups & hardening — placeholder, scoped after v0.9.0/v0.9.1 ship | 🔜 Not Started | [details](v0.9.x.md#v093-follow-ups--hardening-placeholder) |
