@@ -4,20 +4,31 @@ Resolves Last.fm track identifiers (artist::title) to canonical tracks using
 the shared InwardTrackResolver pattern. Each missing track is processed
 sequentially because Last.fm's track.getInfo API is per-track.
 
-Flow per missing track:
-1. Create skeletal Track (title + artist only)
-2. Enrich via track.getInfo (duration, album, URL)
-3. Create connector mapping using URL (or artist::title fallback)
-4. Attempt cross-service discovery via ``CrossDiscoveryProvider`` protocol
+Flow per missing track (reuse-before-create):
+1. Enrich via track.getInfo (duration, album, MBID, URL) into an in-memory
+   probe Track — NOTHING is saved yet.
+2. Ask the ``CrossDiscoveryProvider`` whether an existing canonical should
+   absorb this recording. On reuse, map the Last.fm identifier(s) onto that
+   canonical and stop — no skeletal canonical is ever created.
+3. Otherwise build the canonical ONCE, fully enriched, save it, create the
+   Last.fm connector mapping(s), then apply any new Spotify mapping + backfill.
 """
 
 from typing import override
+
+from attrs import evolve
 
 from src.config import get_logger
 from src.config.constants import MatchMethod
 from src.domain.entities import Artist, Track
 from src.domain.matching.evaluation_service import TrackMatchEvaluationService
-from src.domain.matching.protocols import CrossDiscoveryProvider
+from src.domain.matching.protocols import (
+    CrossDiscoveryProvider,
+    DiscoveryOutcome,
+    NewMapping,
+    Nothing,
+    ReuseExisting,
+)
 from src.domain.matching.types import RawProviderMatch
 from src.domain.repositories.uow import UnitOfWorkProtocol
 from src.infrastructure.connectors._shared.inward_track_resolver import (
@@ -110,23 +121,141 @@ class LastfmInwardResolver(InwardTrackResolver):
     ) -> None:
         """Resolve a single Last.fm identifier into a canonical track.
 
-        Performs skeletal creation, enrichment, connector mapping(s), and
-        optional cross-service discovery. On success the track is stored in
-        ``result`` keyed by ``identifier``.
+        Reuse-before-create: enrich into an in-memory probe, ask cross-discovery
+        whether an existing canonical should absorb this recording, and only
+        build + save a new canonical when it should not. On success the resolved
+        track is stored in ``result`` keyed by ``identifier``.
         """
         artist_name, track_name = parse_lastfm_identifier(identifier)
 
-        # Step 1: Create skeletal track
-        track = await self._create_skeletal_track(artist_name, track_name, uow)
-        if not track:
-            return
-
-        # Step 2: Enrich via track.getInfo to get URL + metadata
-        track, lastfm_url = await self._enrich_from_track_info(
-            track, artist_name, track_name, uow
+        # Step 1: Enrich via track.getInfo — data in hand, NO track saved yet.
+        probe, lastfm_url = await self._build_enriched_probe(
+            artist_name, track_name, user_id=user_id
         )
 
-        # Step 3: Create connector mapping(s)
+        # Step 2: Reuse-before-create. Cross-discovery may resolve to an existing
+        # canonical, in which case NO skeletal row is ever written.
+        outcome: DiscoveryOutcome = Nothing()
+        if self._cross_discovery:
+            outcome = await self._cross_discovery.discover(
+                probe, artist_name, track_name, uow, user_id=user_id
+            )
+
+        if isinstance(outcome, ReuseExisting):
+            await self._map_lastfm_identifiers(
+                outcome.track, artist_name, track_name, lastfm_url, uow
+            )
+            if outcome.spotify_id:
+                _ = await uow.get_connector_repository().map_track_to_connector(
+                    outcome.track,
+                    "spotify",
+                    outcome.spotify_id,
+                    outcome.match_method,
+                    confidence=outcome.confidence,
+                    metadata=outcome.metadata,
+                    confidence_evidence=outcome.confidence_evidence,
+                )
+            result[identifier] = outcome.track
+            logger.info(
+                f"Cross-discovery reused canonical {outcome.track.id} for "
+                f"lastfm:{artist_name} - {track_name}"
+            )
+            return
+
+        # Step 3: No reuse — build the canonical ONCE, fully enriched. Folding the
+        # Spotify backfill in BEFORE the single save means the enriched row is
+        # inserted whole; there is no version-0 re-save that would INSERT a
+        # duplicate (the enrichment-orphan defect).
+        if isinstance(outcome, NewMapping):
+            probe = evolve(
+                probe,
+                album=probe.album or outcome.album,
+                duration_ms=probe.duration_ms or outcome.duration_ms,
+                isrc=probe.isrc or outcome.isrc,
+            )
+
+        canonical = await uow.get_track_repository().save_track(probe)
+        await self._map_lastfm_identifiers(
+            canonical, artist_name, track_name, lastfm_url, uow
+        )
+        result[identifier] = canonical
+
+        if isinstance(outcome, NewMapping):
+            _ = await uow.get_connector_repository().map_track_to_connector(
+                canonical,
+                "spotify",
+                outcome.spotify_id,
+                outcome.match_method,
+                confidence=outcome.confidence,
+                metadata=outcome.metadata,
+                confidence_evidence=outcome.confidence_evidence,
+            )
+
+    async def _build_enriched_probe(
+        self,
+        artist_name: str,
+        track_name: str,
+        *,
+        user_id: str,
+    ) -> tuple[Track, str | None]:
+        """Build an UNSAVED probe Track enriched from track.getInfo.
+
+        Returns ``(probe, lastfm_url)``. The probe carries title/artist plus any
+        album, duration, and MBID (as a musicbrainz connector identifier) from
+        Last.fm's track.getInfo response. No database write happens here — the
+        probe is only saved by the caller if cross-discovery does not reuse an
+        existing canonical. The MBID enables cross-service identity bridging.
+        """
+        probe = Track(
+            title=track_name,
+            artists=[Artist(name=artist_name)],
+            user_id=user_id,
+        )
+        try:
+            info = await self._lastfm_client.get_track_info_comprehensive(
+                artist_name, track_name
+            )
+        except Exception as e:
+            logger.debug(
+                f"track.getInfo enrichment failed for {artist_name} - {track_name}: {e}"
+            )
+            return probe, None
+
+        if not info:
+            return probe, None
+
+        connector_ids = dict(probe.connector_track_identifiers)
+        if info.lastfm_mbid and "musicbrainz" not in connector_ids:
+            connector_ids["musicbrainz"] = info.lastfm_mbid
+
+        probe = evolve(
+            probe,
+            album=info.lastfm_album_name,
+            duration_ms=info.lastfm_duration,
+            connector_track_identifiers=connector_ids,
+        )
+        logger.debug(
+            f"Enriched probe from track.getInfo: {artist_name} - {track_name} "
+            f"(duration={info.lastfm_duration}, album={info.lastfm_album_name}, "
+            f"mbid={info.lastfm_mbid})"
+        )
+        return probe, info.lastfm_url
+
+    async def _map_lastfm_identifiers(
+        self,
+        track: Track,
+        artist_name: str,
+        track_name: str,
+        lastfm_url: str | None,
+        uow: UnitOfWorkProtocol,
+    ) -> None:
+        """Map the Last.fm identifier(s) onto ``track``.
+
+        Keeps the URL-primary + composite-secondary scheme: the canonical URL is
+        the primary connector id (or the normalized artist::title composite when
+        no URL is available), with the composite added as a secondary for fast
+        dedup lookups. (Task 4a later collapses this to a single key.)
+        """
         fallback_id = make_lastfm_identifier(artist_name, track_name)
         connector_id = lastfm_url or fallback_id
         await self._create_lastfm_mapping(
@@ -137,103 +266,6 @@ class LastfmInwardResolver(InwardTrackResolver):
             await self._create_lastfm_mapping(
                 track, artist_name, track_name, fallback_id, uow
             )
-
-        result[identifier] = track
-
-        # Step 4: Attempt cross-service discovery (e.g. Spotify)
-        if self._cross_discovery:
-            await self._cross_discovery.attempt_discovery(
-                track, artist_name, track_name, uow, user_id=user_id
-            )
-
-    async def _create_skeletal_track(
-        self, artist_name: str, track_name: str, uow: UnitOfWorkProtocol
-    ) -> Track | None:
-        """Create a skeletal track with just title and artist."""
-        try:
-            track_data = Track(
-                title=track_name,
-                artists=[Artist(name=artist_name)],
-            )
-            return await uow.get_track_repository().save_track(track_data)
-        except Exception as e:
-            logger.error(
-                f"Failed to create skeletal track for {artist_name} - {track_name}: {e}"
-            )
-            return None
-
-    async def _enrich_from_track_info(
-        self,
-        track: Track,
-        artist_name: str,
-        track_name: str,
-        uow: UnitOfWorkProtocol,
-    ) -> tuple[Track, str | None]:
-        """Enrich track with track.getInfo data. Returns (track, lastfm_url).
-
-        Populates album, duration, and MBID (MusicBrainz Recording ID) from
-        Last.fm's track.getInfo response. MBID enables cross-service identity
-        bridging — tracks with the same MBID are the same recording.
-        """
-        try:
-            track, lastfm_url = await self._apply_track_info(
-                track, artist_name, track_name, uow
-            )
-        except Exception as e:
-            logger.debug(
-                f"track.getInfo enrichment failed for {artist_name} - {track_name}: {e}"
-            )
-            return track, None
-        else:
-            return track, lastfm_url
-
-    async def _apply_track_info(
-        self,
-        track: Track,
-        artist_name: str,
-        track_name: str,
-        uow: UnitOfWorkProtocol,
-    ) -> tuple[Track, str | None]:
-        """Fetch track.getInfo and apply enrichment. Returns (track, lastfm_url)."""
-        info = await self._lastfm_client.get_track_info_comprehensive(
-            artist_name, track_name
-        )
-        if not info:
-            return track, None
-
-        lastfm_url = info.lastfm_url
-        new_album = track.album or info.lastfm_album_name
-        new_duration = track.duration_ms or info.lastfm_duration
-        new_mbid = info.lastfm_mbid
-
-        # Build connector identifiers with MBID if available
-        new_connector_ids = dict(track.connector_track_identifiers)
-        if new_mbid and "musicbrainz" not in new_connector_ids:
-            new_connector_ids["musicbrainz"] = new_mbid
-
-        has_changes = (
-            new_album != track.album
-            or new_duration != track.duration_ms
-            or new_connector_ids != track.connector_track_identifiers
-        )
-
-        if has_changes:
-            enriched = Track(
-                id=track.id,
-                title=track.title,
-                artists=track.artists,
-                album=new_album,
-                duration_ms=new_duration,
-                isrc=track.isrc,
-                connector_track_identifiers=new_connector_ids,
-            )
-            track = await uow.get_track_repository().save_track(enriched)
-            logger.debug(
-                f"Enriched from track.getInfo: {artist_name} - {track_name} "
-                f"(duration={new_duration}, album={new_album}, mbid={new_mbid})"
-            )
-
-        return track, lastfm_url
 
     async def _create_lastfm_mapping(
         self,

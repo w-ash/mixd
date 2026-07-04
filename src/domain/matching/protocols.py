@@ -6,6 +6,8 @@ external implementations, following the dependency inversion principle.
 
 from typing import Protocol
 
+from attrs import define, field
+
 from src.domain.entities import Track
 from src.domain.repositories.uow import UnitOfWorkProtocol
 
@@ -51,6 +53,56 @@ class MatchProvider(Protocol):
         ...
 
 
+@define(frozen=True, slots=True)
+class ReuseExisting:
+    """Discovery resolved to an existing canonical — reuse it, create nothing new.
+
+    The caller maps its own connector identifier(s) onto ``track`` instead of
+    building a fresh canonical. When ``spotify_id`` is set, the caller also
+    creates that Spotify mapping on the reused canonical — the ISRC-collision
+    path found a Spotify id that belongs on the existing owner. When it is
+    ``None`` the reused canonical already carries the Spotify mapping (the
+    ListenBrainz path found the canonical *by* that Spotify id, so no new
+    mapping is needed).
+    """
+
+    track: Track
+    spotify_id: str | None = None
+    confidence: int = 0
+    match_method: str = ""
+    metadata: dict[str, object] = field(factory=dict)
+    confidence_evidence: dict[str, object] | None = None
+
+
+@define(frozen=True, slots=True)
+class NewMapping:
+    """Discovery found a Spotify match for a brand-new canonical.
+
+    The caller builds its canonical once, then creates the Spotify mapping and
+    backfills the canonical from ``album`` / ``duration_ms`` / ``isrc``. ``isrc``
+    is ``None`` when the match was a *suspect* ISRC collision — the contested
+    code was stripped and a review queued, so the new canonical never claims it.
+    """
+
+    spotify_id: str
+    confidence: int
+    match_method: str
+    metadata: dict[str, object] = field(factory=dict)
+    confidence_evidence: dict[str, object] | None = None
+    album: str | None = None
+    duration_ms: int | None = None
+    isrc: str | None = None
+
+
+@define(frozen=True, slots=True)
+class Nothing:
+    """Discovery found nothing usable — the caller proceeds with its own canonical."""
+
+
+type DiscoveryOutcome = ReuseExisting | NewMapping | Nothing
+"""What a :class:`CrossDiscoveryProvider` tells its caller to do."""
+
+
 class CrossDiscoveryProvider(Protocol):
     """Contract for cross-service track discovery.
 
@@ -59,17 +111,23 @@ class CrossDiscoveryProvider(Protocol):
     implementation. The wiring happens at the composition root.
     """
 
-    async def attempt_discovery(
+    async def discover(
         self,
-        track: Track,
+        probe_track: Track,
         artist_name: str,
         track_name: str,
         uow: UnitOfWorkProtocol,
         *,
         user_id: str,
-    ) -> bool:
-        """Attempt to discover and map a track in another service.
+    ) -> DiscoveryOutcome:
+        """Decide how an unsaved probe track should be mapped cross-service.
 
-        Returns True if a mapping was successfully created.
+        ``probe_track`` is an in-memory canonical the caller has NOT persisted
+        yet — reuse-before-create means discovery runs before any row is
+        written. Returns a :data:`DiscoveryOutcome`: reuse an existing canonical
+        (:class:`ReuseExisting`), create a new Spotify mapping + backfill
+        (:class:`NewMapping`), or do nothing (:class:`Nothing`). The provider
+        does not mutate the caller's canonical; it may perform its own side
+        effects (e.g. queuing an ISRC review).
         """
         ...

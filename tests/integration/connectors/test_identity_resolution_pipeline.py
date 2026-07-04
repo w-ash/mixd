@@ -178,13 +178,17 @@ class TestSpotifyISRCDedup:
 
 
 class TestCrossDiscoveryISRCCollision:
-    """Cross-discovery should map to existing canonical when ISRC collides."""
+    """Cross-discovery should decide to reuse the ISRC owner when it collides."""
 
-    async def test_maps_to_existing_track_on_isrc_collision(
+    async def test_returns_reuse_of_isrc_owner_on_collision(
         self, db_session, test_data_tracker
     ):
-        """When Spotify search finds a match with an ISRC owned by another
-        canonical, map to that canonical instead of enriching the current one."""
+        """When Spotify search finds a match whose ISRC is owned by another
+        canonical (non-suspect), discover() returns a ReuseExisting decision
+        pointing at that owner, carrying the Spotify mapping to create on it —
+        rather than minting a mapping onto the probe. The resolver is what
+        applies the decision (covered end-to-end in the characterization tests)."""
+        from src.domain.matching.protocols import ReuseExisting
         from src.infrastructure.connectors.spotify.cross_discovery import (
             SpotifyCrossDiscoveryProvider,
         )
@@ -204,15 +208,14 @@ class TestCrossDiscoveryISRCCollision:
         )
         test_data_tracker.add_track(track_a.id)
 
-        # Track B: new Last.fm skeletal track (no ISRC yet)
-        track_b = await track_repo.save_track(
-            Track(
-                id=None,
-                title="Creep",
-                artists=[Artist(name="Radiohead")],
-            )
+        # Probe: unsaved in-memory Last.fm canonical (no ISRC yet), same duration
+        # as Track A so the collision is non-suspect.
+        probe = Track(
+            id=None,
+            title="Creep",
+            artists=[Artist(name="Radiohead")],
+            duration_ms=238000,
         )
-        test_data_tracker.add_track(track_b.id)
 
         # Mock Spotify search returning a match with Track A's ISRC
         artist_mock = MagicMock()
@@ -232,20 +235,15 @@ class TestCrossDiscoveryISRCCollision:
         connector.connector_name = "spotify"
 
         provider = SpotifyCrossDiscoveryProvider(spotify_connector=connector)
-        result = await provider.attempt_discovery(
-            track_b, "Radiohead", "Creep", uow, user_id="default"
+        outcome = await provider.discover(
+            probe, "Radiohead", "Creep", uow, user_id="default"
         )
 
-        assert result is True
-
-        # Verify the mapping was created on Track A (ISRC owner), NOT Track B
-        mappings = await uow.get_connector_repository().find_tracks_by_connectors(
-            [("spotify", "sp_different_release")],
-            user_id="default",
-        )
-        assert ("spotify", "sp_different_release") in mappings
-        mapped_track = mappings["spotify", "sp_different_release"]
-        assert mapped_track.id == track_a.id
+        # Reuse the ISRC owner (Track A), with the found Spotify id to map onto it.
+        assert isinstance(outcome, ReuseExisting)
+        assert outcome.track.id == track_a.id
+        assert outcome.spotify_id == "sp_different_release"
+        assert outcome.match_method == MatchMethod.ISRC_MATCH
 
 
 class TestMBIDUpsertMerge:

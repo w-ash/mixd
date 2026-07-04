@@ -18,6 +18,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.config.constants import MatchMethod
 from src.domain.entities import Artist, Track
+from src.domain.matching.protocols import ReuseExisting
 from src.infrastructure.connectors.lastfm.conversions import (
     convert_lastfm_track_to_connector,
 )
@@ -34,9 +35,16 @@ _MBID = "0198a4b6-1111-7222-8333-444455556666"
 
 
 class TestThreeMintSchemesFragmentOneTrack:
-    """Characterization (FM3a): one recording, three mint paths, four rows."""
+    """Characterization (FM3a): one recording, still-fragmented mint paths.
 
-    async def test_one_recording_materializes_as_four_rows(
+    Epic 3's cross-discovery rewrite removed the case-preserved composite the
+    ListenBrainz-reuse path used to mint — discovery now returns a reuse
+    *decision* and mints no Last.fm row of its own. That drops this from four
+    rows to THREE: the inward resolver's URL-primary + lowercased-composite and
+    the conversions path's MBID key. Epic 4 later collapses these to one.
+    """
+
+    async def test_one_recording_materializes_as_three_rows(
         self, db_session: AsyncSession
     ):
         uow = get_unit_of_work(db_session)
@@ -72,8 +80,10 @@ class TestThreeMintSchemesFragmentOneTrack:
             "lastfm", [ct], user_id="default"
         )
 
-        # Path (c) — cross-discovery's ListenBrainz reuse: mints a
-        # case-PRESERVED composite (strip() without lower()).
+        # Path (c) — cross-discovery's ListenBrainz reuse. Post-epic-3 this
+        # returns a ReuseExisting *decision* and mints NO Last.fm row of its own
+        # (the resolver owns Last.fm mapping); the former case-preserved
+        # composite is gone.
         spotify_canonical = await uow.get_track_repository().save_track(
             Track(
                 id=None,
@@ -96,12 +106,14 @@ class TestThreeMintSchemesFragmentOneTrack:
             spotify_connector=AsyncMock(),
             listenbrainz_lookup=lb_lookup,
         )
-        discovered = await provider.attempt_discovery(
+        discovered = await provider.discover(
             resolver_track, "Neon Priest", "Gold Rush", uow, user_id="default"
         )
-        assert discovered is True
+        # Reuse decision points at the existing Spotify canonical; no mint.
+        assert isinstance(discovered, ReuseExisting)
+        assert discovered.track.id == spotify_canonical.id
 
-        # One recording → four distinct Last.fm connector_tracks rows.
+        # One recording → three distinct Last.fm connector_tracks rows.
         identifiers = set(
             (
                 await db_session.execute(
@@ -115,5 +127,4 @@ class TestThreeMintSchemesFragmentOneTrack:
             _URL,  # inward resolver primary (URL scheme)
             "neon priest::gold rush",  # inward resolver secondary (lowercased)
             _MBID,  # conversions path (mbid-or-url scheme)
-            "Neon Priest::Gold Rush",  # cross-discovery (case-preserved)
         }

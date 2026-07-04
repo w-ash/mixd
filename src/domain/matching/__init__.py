@@ -7,7 +7,14 @@ from .algorithms import (
     select_best_by_title_similarity,
 )
 from .config import MatchingConfig
-from .protocols import CrossDiscoveryProvider, MatchProvider
+from .protocols import (
+    CrossDiscoveryProvider,
+    DiscoveryOutcome,
+    MatchProvider,
+    NewMapping,
+    Nothing,
+    ReuseExisting,
+)
 from .text_normalization import normalize_for_comparison, strip_parentheticals
 from .types import (
     ConfidenceEvidence,
@@ -19,11 +26,15 @@ from .types import (
 __all__ = [
     "ConfidenceEvidence",
     "CrossDiscoveryProvider",
+    "DiscoveryOutcome",
     "EvaluationResult",
     "MatchProvider",
     "MatchResult",
     "MatchResultsById",
     "MatchingConfig",
+    "NewMapping",
+    "Nothing",
+    "ReuseExisting",
     "SimilarityResult",
     "calculate_confidence",
     "calculate_title_similarity",

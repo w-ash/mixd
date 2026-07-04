@@ -1,9 +1,11 @@
-"""Characterization tests for ISRC merge sites (FM2a, FM3b).
+"""Characterization tests for ISRC merge sites (FM2a, FM3b) — now FLIPPED.
 
-Pins CURRENT (buggy) behavior: save_track's ISRC-keyed upsert silently
-replaces the existing canonical's metadata, and the cross-discovery ISRC
-collision path leaves the recording split across canonicals. Flipped by:
-ISRC guard at merge sites (v0.8.18 epic 3).
+These originally pinned the CURRENT (buggy) behavior: save_track's ISRC-keyed
+upsert silently replaced the existing canonical's metadata, the Last.fm
+enrichment re-save INSERTed a duplicate canonical, and the cross-discovery
+ISRC collision path left the recording split across canonicals. All three are
+fixed by the ISRC guard at merge sites + reuse-before-create (v0.8.18 epic 3),
+so the assertions here now document the corrected behavior.
 
 See docs/backlog/identity-resolution-design-space.md §4 (tests 6, 7).
 """
@@ -112,18 +114,16 @@ class TestSaveTrackIsrcGuard:
         assert returned.album == "Debut (Deluxe)"
 
 
-class TestEnrichmentResaveDuplicatesCanonical:
-    """Characterization (FM3b-adjacent, found during v0.8.18 baseline): pins
-    CURRENT (buggy) behavior — the Last.fm enrichment re-save rebuilds the
-    Track without its version (0 → insert path) and with no identity keys,
-    so save_track INSERTS a duplicate canonical instead of updating the
-    skeletal one. The skeletal row is left orphaned (no mappings); mappings
-    and the resolver result attach to the enriched copy. Flipped by: ISRC
-    guard at merge sites (epic 3's reuse-before-create reorder builds the
-    canonical once, fully enriched).
+class TestEnrichmentResaveCreatesSingleCanonical:
+    """FLIPPED characterization (FM3b-adjacent, fixed by reuse-before-create):
+    the original pin recorded the Last.fm enrichment re-save INSERTing a
+    duplicate canonical (the enriched copy) and orphaning the skeletal row.
+    The reorder now builds the canonical ONCE, fully enriched, before any
+    save — so a resolution produces exactly one canonical row, and it is the
+    resolver's result carrying the enrichment and the Last.fm mappings.
     """
 
-    async def test_enrichment_orphans_the_skeletal_canonical(
+    async def test_enrichment_produces_single_enriched_canonical(
         self, db_session: AsyncSession
     ):
         uow = get_unit_of_work(db_session)
@@ -149,34 +149,33 @@ class TestEnrichmentResaveDuplicatesCanonical:
                 )
             )
         ).all()
-        # One resolution produced TWO canonical rows...
-        assert len(rows) == 2
-        by_id = {row.id: row.duration_ms for row in rows}
-        # ...the enriched copy is the resolver's result...
-        assert by_id[resolved.id] == 100_000
-        # ...and the skeletal original is orphaned: no metadata, no mappings.
-        (skeletal_id,) = set(by_id) - {resolved.id}
-        assert by_id[skeletal_id] is None
-        skeletal_mappings = (
+        # One resolution produces exactly ONE canonical row...
+        assert len(rows) == 1
+        (row,) = rows
+        # ...it IS the resolver's result, carrying the enrichment (no orphan)...
+        assert row.id == resolved.id
+        assert row.duration_ms == 100_000
+        # ...and it holds the Last.fm mappings (nothing dangling).
+        mappings = (
             await db_session.execute(
-                select(DBTrackMapping.id).where(DBTrackMapping.track_id == skeletal_id)
+                select(DBTrackMapping.id).where(DBTrackMapping.track_id == resolved.id)
             )
         ).all()
-        assert skeletal_mappings == []
+        assert mappings != []
 
 
-class TestCrossDiscoveryDanglingCanonical:
-    """Characterization (FM3b): pins CURRENT (buggy) behavior — the Last.fm
-    inward flow creates and maps a skeletal canonical BEFORE cross-discovery
-    runs; when discovery hits the ISRC-collision path it maps the found
-    Spotify ID onto the OTHER canonical owning the ISRC, leaving the
-    recording split: lastfm mappings on the skeletal side, the spotify
-    mapping on the ISRC owner. Flipped by: ISRC guard at merge sites
-    (reuse-before-create: one canonical ends up holding both connectors'
-    mappings; no dangling skeletal row).
+class TestCrossDiscoveryReusesIsrcOwner:
+    """FLIPPED characterization (FM3b, fixed by reuse-before-create): the
+    original pin recorded the Last.fm inward flow creating a skeletal canonical
+    BEFORE cross-discovery ran, so the ISRC-collision path split the recording
+    (lastfm mappings on the skeletal side, spotify mapping on the ISRC owner,
+    with a dangling skeletal row). Discovery now runs on an unsaved probe and
+    returns a reuse decision, so — for a non-suspect (same-duration) collision —
+    ONE canonical (the ISRC owner) ends up holding BOTH connectors' mappings,
+    keeps its ISRC, and no dangling canonical is created.
     """
 
-    async def test_isrc_collision_splits_recording_across_canonicals(
+    async def test_isrc_collision_reuses_owner_no_dangling_canonical(
         self, db_session: AsyncSession
     ):
         uow = get_unit_of_work(db_session)
@@ -184,7 +183,7 @@ class TestCrossDiscoveryDanglingCanonical:
 
         # Canonical A owns the ISRC. The "- Live" suffix keeps the resolver's
         # canonical-reuse lookup (which only strips parentheticals) from
-        # matching it, so the skeletal path runs.
+        # matching it, so cross-discovery — not canonical reuse — runs.
         track_a = await track_repo.save_track(
             Track(
                 id=None,
@@ -204,7 +203,8 @@ class TestCrossDiscoveryDanglingCanonical:
         lastfm_client = AsyncMock()
         lastfm_client.get_track_info_comprehensive.return_value = info
 
-        # Spotify search returns a match carrying A's ISRC.
+        # Spotify search returns a match carrying A's ISRC, same duration
+        # (non-suspect collision).
         artist_mock = MagicMock()
         artist_mock.name = "Radiohead"
         spotify_match = MagicMock()
@@ -231,10 +231,14 @@ class TestCrossDiscoveryDanglingCanonical:
         )
 
         resolved = result["radiohead::creep"]
-        # Two canonicals: the resolver's track is not the ISRC owner.
-        assert resolved.id != track_a.id
+        # ONE canonical holds everything: the resolver reused the ISRC owner.
+        assert resolved.id == track_a.id
 
-        # The lastfm mappings live on the resolver's canonical...
+        # No dangling canonical — exactly one Track row exists for this recording.
+        all_track_ids = set((await db_session.execute(select(DBTrack.id))).scalars())
+        assert all_track_ids == {track_a.id}
+
+        # Both connectors' mappings live on canonical A (the ISRC owner).
         lastfm_track_ids = set(
             (
                 await db_session.execute(
@@ -244,9 +248,8 @@ class TestCrossDiscoveryDanglingCanonical:
                 )
             ).scalars()
         )
-        assert lastfm_track_ids == {resolved.id}
+        assert lastfm_track_ids == {track_a.id}
 
-        # ...while the spotify mapping went to canonical A (the ISRC owner).
         spotify_mapping_track_id = (
             await db_session.execute(
                 select(DBTrackMapping.track_id)
@@ -259,10 +262,10 @@ class TestCrossDiscoveryDanglingCanonical:
         ).scalar_one()
         assert spotify_mapping_track_id == track_a.id
 
-        # The split recording: resolver's canonical never received the ISRC.
+        # The ISRC owner keeps its ISRC (non-suspect merge, nothing stripped).
         resolved_isrc = (
             await db_session.execute(
                 select(DBTrack.isrc).where(DBTrack.id == resolved.id)
             )
         ).scalar_one()
-        assert resolved_isrc is None
+        assert resolved_isrc == "GBAYE9300106"

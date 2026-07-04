@@ -8,6 +8,7 @@ canonical tracks during history import.
 from unittest.mock import AsyncMock, MagicMock
 
 from src.domain.entities import Track
+from src.domain.matching.protocols import Nothing
 from src.infrastructure.connectors.lastfm.identifiers import make_lastfm_identifier
 from src.infrastructure.connectors.lastfm.inward_resolver import (
     LastfmInwardResolver,
@@ -66,7 +67,7 @@ class TestInwardResolverUsesUrlFormat:
         )
 
         cross_discovery = AsyncMock()
-        cross_discovery.attempt_discovery.return_value = False
+        cross_discovery.discover.return_value = Nothing()
 
         resolver = LastfmInwardResolver(
             lastfm_client=lastfm_client,
@@ -96,7 +97,7 @@ class TestInwardResolverUsesUrlFormat:
         )
 
         cross_discovery = AsyncMock()
-        cross_discovery.attempt_discovery.return_value = False
+        cross_discovery.discover.return_value = Nothing()
 
         resolver = LastfmInwardResolver(
             lastfm_client=lastfm_client,

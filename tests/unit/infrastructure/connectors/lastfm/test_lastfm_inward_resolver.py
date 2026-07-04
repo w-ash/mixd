@@ -1,13 +1,16 @@
 """Tests for LastfmInwardResolver.
 
-Validates that the Last.fm-specific inward resolver correctly creates skeletal
-tracks, enriches via track.getInfo, uses URL-based connector IDs, and attempts
-cross-service discovery via the CrossDiscoveryProvider protocol.
+Validates that the Last.fm-specific inward resolver enriches via track.getInfo
+into an in-memory probe, uses URL-based connector IDs, builds the canonical
+once (reuse-before-create), and drives cross-service discovery via the
+CrossDiscoveryProvider protocol's ``discover`` → ``DiscoveryOutcome`` contract.
 """
 
 from unittest.mock import AsyncMock, MagicMock
 
+from src.config.constants import MatchMethod
 from src.domain.entities import Track
+from src.domain.matching.protocols import NewMapping, Nothing
 from src.infrastructure.connectors.lastfm.inward_resolver import (
     LastfmInwardResolver,
 )
@@ -35,8 +38,8 @@ def _make_uow(
     return uow
 
 
-class TestCreatesSkeletalTrackAndEnriches:
-    """New tracks should be created and enriched via track.getInfo."""
+class TestCreatesEnrichedTrack:
+    """New tracks should be built once and enriched via track.getInfo."""
 
     async def test_creates_track_and_uses_url_connector_id(self):
         lastfm_client = AsyncMock()
@@ -45,10 +48,11 @@ class TestCreatesSkeletalTrackAndEnriches:
             lastfm_url=lastfm_url,
             lastfm_duration=238000,
             lastfm_album_name="Pablo Honey",
+            lastfm_mbid=None,
         )
 
         cross_discovery = AsyncMock()
-        cross_discovery.attempt_discovery.return_value = False
+        cross_discovery.discover.return_value = Nothing()
 
         saved_track = make_track(id=42)
         resolver = LastfmInwardResolver(
@@ -81,10 +85,15 @@ class TestCrossDiscovery:
             lastfm_url="https://www.last.fm/music/Radiohead/_/Creep",
             lastfm_duration=238000,
             lastfm_album_name="Pablo Honey",
+            lastfm_mbid=None,
         )
 
         cross_discovery = AsyncMock()
-        cross_discovery.attempt_discovery.return_value = True
+        cross_discovery.discover.return_value = NewMapping(
+            spotify_id="spotify123",
+            confidence=90,
+            match_method=MatchMethod.LASTFM_DISCOVERY,
+        )
 
         saved_track = make_track(id=42)
         resolver = LastfmInwardResolver(
@@ -97,11 +106,15 @@ class TestCrossDiscovery:
             ["radiohead::creep"], uow, user_id="test-user"
         )
 
-        # Should have called attempt_discovery
-        cross_discovery.attempt_discovery.assert_called_once()
-        call_args = cross_discovery.attempt_discovery.call_args
+        # Should have called discover with the probe + artist/title positionally.
+        cross_discovery.discover.assert_called_once()
+        call_args = cross_discovery.discover.call_args
         assert call_args.args[1] == "radiohead"  # artist_name
         assert call_args.args[2] == "creep"  # track_name
+        # The first positional arg is the UNSAVED in-memory probe track.
+        probe = call_args.args[0]
+        assert isinstance(probe, Track)
+        assert call_args.kwargs["user_id"] == "test-user"
 
     async def test_no_discovery_when_provider_is_none(self):
         lastfm_client = AsyncMock()
@@ -139,7 +152,7 @@ class TestDiscoveryRejected:
         )
 
         cross_discovery = AsyncMock()
-        cross_discovery.attempt_discovery.return_value = False
+        cross_discovery.discover.return_value = Nothing()
 
         saved_track = make_track(id=42)
         resolver = LastfmInwardResolver(
@@ -164,7 +177,7 @@ class TestTrackInfoFailure:
         lastfm_client.get_track_info_comprehensive.return_value = None  # Failure
 
         cross_discovery = AsyncMock()
-        cross_discovery.attempt_discovery.return_value = False
+        cross_discovery.discover.return_value = Nothing()
 
         saved_track = make_track(id=42)
         resolver = LastfmInwardResolver(
@@ -202,7 +215,7 @@ class TestMBIDEnrichment:
         )
 
         cross_discovery = AsyncMock()
-        cross_discovery.attempt_discovery.return_value = False
+        cross_discovery.discover.return_value = Nothing()
 
         saved_track = make_track(id=42)
         resolver = LastfmInwardResolver(
@@ -239,7 +252,7 @@ class TestMBIDEnrichment:
         )
 
         cross_discovery = AsyncMock()
-        cross_discovery.attempt_discovery.return_value = False
+        cross_discovery.discover.return_value = Nothing()
 
         saved_track = make_track(id=42)
         resolver = LastfmInwardResolver(
