@@ -431,26 +431,31 @@ class TrackRepository(BaseRepository[DBTrack, Track]):
         merge behavior is retained for those).
         """
         owner = (
-            await self.session.execute(
-                select(DBTrack.id, DBTrack.duration_ms).where(
-                    DBTrack.user_id == user_id,
-                    DBTrack.isrc == track.isrc,
+            (
+                await self.session.execute(
+                    select(DBTrack.id, DBTrack.duration_ms).where(
+                        DBTrack.user_id == user_id,
+                        DBTrack.isrc == track.isrc,
+                    )
                 )
             )
-        ).first()
+            .tuples()
+            .first()
+        )
         if owner is None:
             return False
+        owner_id, owner_duration_ms = owner
 
         duration_diff_ms: int | None = None
-        if track.duration_ms and owner.duration_ms:
-            duration_diff_ms = abs(track.duration_ms - owner.duration_ms)
+        if track.duration_ms and owner_duration_ms:
+            duration_diff_ms = abs(track.duration_ms - owner_duration_ms)
         suspect = assess_isrc_match_reliability(duration_diff_ms).suspect
         if suspect:
             logger.warning(
                 "isrc_collision_deferred",
                 isrc=track.isrc,
-                owner_track_id=owner.id,
-                owner_duration_ms=owner.duration_ms,
+                owner_track_id=owner_id,
+                owner_duration_ms=owner_duration_ms,
                 incoming_duration_ms=track.duration_ms,
                 incoming_title=track.title,
             )
