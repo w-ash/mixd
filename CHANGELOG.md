@@ -6,6 +6,16 @@ linked backlog version file. Versioning follows mixd's four-segment
 `major.minor.feature.revision` scheme (`.claude/rules/version-management.md`), not strict
 SemVer. Format inspired by [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [0.8.18.3] — 2026-07-10
+
+**CI stops leaking Neon database branches — the orphan pile-up that maxed the project's monthly limit in a week is fixed and purged.** Every direct push to main was creating a `ci/pr-<sha>` branch (the `github.event.number || github.sha` fallback) that no cleanup path ever deleted — `neon-cleanup.yml` only fires on PR close. 40 orphans had accumulated since April.
+
+- **One-time purge** — all 40 orphaned `ci/pr-*` branches deleted; only `production` remains.
+- **Explicit delete for push runs** — `ci.yml` now ends push-triggered runs with `delete-branch-action@v3` (`if: always()`, gated on the create step having succeeded), so the branch is removed even when tests fail.
+- **TTL backstop** — every CI branch is created with `expires_at` (1 day for push, 7 days for PR) via `create-branch-action@v6`, so Neon auto-deletes anything orphaned by cancelled runs, runner crashes, or missed close events. PR-close deletion via `neon-cleanup.yml` is unchanged.
+
+→ [details](docs/backlog/v0.8.18.md#post-deploy-revisions)
+
 ## [0.8.18.2] — 2026-07-09
 
 **A dependency-freshness sweep — mostly internal currency, with one real client fix: filtering by multiple tags now serializes correctly.** Triaging the post-deploy Dependabot banner (42 alerts) showed ~41 were already remediated in the freshly-pushed lockfiles — the stale remote just hadn't re-scanned — and surfaced a handful of genuinely-behind direct deps worth taking while current.

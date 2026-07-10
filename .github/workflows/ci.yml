@@ -28,6 +28,14 @@ jobs:
         with:
           submodules: false
 
+      # TTL backstop: push branches expire in 1 day, PR branches in 7
+      # (neon-cleanup.yml only covers PR close; expiry catches everything else)
+      - name: Compute Neon branch expiry
+        id: neon-expiry
+        run: |
+          days=$([ "${{ github.event_name }}" = "push" ] && echo 1 || echo 7)
+          echo "expires_at=$(date -u -d "+${days} days" +%Y-%m-%dT%H:%M:%SZ)" >> "$GITHUB_OUTPUT"
+
       - name: Create Neon branch
         id: neon-branch
         uses: neondatabase/create-branch-action@v6
@@ -36,6 +44,7 @@ jobs:
           branch_name: ci/pr-${{ github.event.number || github.sha }}
           api_key: ${{ secrets.NEON_API_KEY }}
           database: neondb
+          expires_at: ${{ steps.neon-expiry.outputs.expires_at }}
 
       - name: Set DATABASE_URL
         run: echo "DATABASE_URL=${DB_URL/postgres:\/\//postgresql+psycopg:\/\/}" >> "$GITHUB_ENV"
@@ -79,6 +88,16 @@ jobs:
           base_branch: main
           api_key: ${{ secrets.NEON_API_KEY }}
           database: neondb
+
+      # Push-to-main runs have no PR-close event to trigger neon-cleanup.yml,
+      # so delete the branch as soon as the job is done with it
+      - name: Delete Neon branch (push runs)
+        if: always() && github.event_name == 'push' && steps.neon-branch.outcome == 'success'
+        uses: neondatabase/delete-branch-action@v3
+        with:
+          project_id: ${{ vars.NEON_PROJECT_ID }}
+          branch: ci/pr-${{ github.sha }}
+          api_key: ${{ secrets.NEON_API_KEY }}
 
   web:
     name: Web

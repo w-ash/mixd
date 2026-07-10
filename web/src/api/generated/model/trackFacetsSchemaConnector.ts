@@ -3,7 +3,7 @@
  * Do not edit manually.
  * Mixd
  * Personal music metadata hub
- * OpenAPI spec version: 0.8.18.2
+ * OpenAPI spec version: 0.8.18.3
  */
 
 export type TrackFacetsSchemaConnector = {[key: string]: number};
