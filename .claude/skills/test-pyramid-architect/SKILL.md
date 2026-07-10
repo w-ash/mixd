@@ -3,227 +3,43 @@ name: test-pyramid-architect
 description: Use this skill when you need pytest strategy design, async test debugging, fixture patterns, or test pyramid balance (60/35/5) for mixd backend.
 ---
 
-You are a pytest strategy specialist for the mixd backend test suite. Your expertise covers test design, async test debugging, fixture patterns, and maintaining the optimal test pyramid balance (60% unit, 35% integration, 5% E2E).
+# Backend Test Strategy — mixd
 
-## Core Competencies
+> Edit-time mechanics (fixtures, markers, directory placement, factories, structure) auto-load from `.claude/rules/test-patterns.md` when touching `tests/**` — this skill adds the strategy layer; don't restate the rule. Note: `unit`/`integration` markers are **auto-applied by directory** — never hand-add them.
 
-### Mixd Test Architecture
+## Pyramid (60/35/5)
 
-**Test Pyramid** (Target Ratios):
-- **Unit Tests (60%+)**: `tests/unit/` - Fast (<100ms), isolated, pure logic
-  - Domain: Pure business logic, no external dependencies
-  - Application: Use cases with mocked repositories
-  - Infrastructure: Connector logic with mocked API clients
-  - Config: Configuration and logging tests
+- **Unit (60%+)** — `tests/unit/`, <100ms, mocked deps. Domain = pure functions (no mocks); use cases = `make_mock_uow()`; connectors = `AsyncMock` HTTP clients.
+- **Integration (35%)** — `tests/integration/`, real PostgreSQL via `db_session` + `test_data_tracker`, <1s. Repositories and API routes are *always* this tier (real SQL / real request cycle).
+- **E2E (5%)** — complete CLI/user workflows, minimal mocking, critical paths only (import, sync, workflow execution).
 
-- **Integration Tests (35%)**: `tests/integration/` - Real DB/APIs (<1s each)
-  - Repository tests with real database
-  - Connector tests with real external APIs (marked `@pytest.mark.slow`)
-  - Use case end-to-end with real database
-  - Workflow execution tests
+Right level per change (from CLAUDE.md): domain=unit, use case=unit+mocks, repository=integration.
 
-- **E2E Tests (5%)**: `tests/` - Complete user workflows
-  - CLI command integration
-  - Critical user flows (import, sync, workflow execution)
+## Designing coverage for a change
 
-**Test Markers** (for filtering):
-```python
-@pytest.mark.unit          # Fast isolated tests (<100ms)
-@pytest.mark.integration   # Database/API integration
-@pytest.mark.slow          # Tests >1s (skipped by default)
-@pytest.mark.performance   # Tests >5s (skipped by default)
-@pytest.mark.diagnostic    # Investigation/profiling (skipped by default)
-```
+1. Which layer owns the behavior? Test there; don't retest it from the caller (trust the transform from the use case, the use case from the route).
+2. Happy path + at least one error/edge case per change (CLAUDE.md floor). Edge cases that earn their keep here: empty batches (batch-first code), duplicate keys against the real unique constraints, cross-user isolation (RLS + `WHERE user_id`).
+3. Async-specific cases: transaction boundaries (does it commit inside `async with uow`?), concurrent claims (the schedules/workflow-runs partial-unique guards), cancellation paths.
+4. Anything slow (>1s) gets `@pytest.mark.slow`; >5s `performance`; investigation scripts `diagnostic` — all three are skipped by default, so don't hide correctness assertions in them.
 
-### Async Test Patterns (Critical for Mixd)
+## Test-environment gotchas (source of most false confidence)
 
-**Fixture Usage** (MANDATORY):
-- ✅ **ALWAYS use `db_session` fixture** for database tests
-- ❌ **NEVER use `get_session()` directly** - causes lock conflicts
-- ✅ **Use `test_data_tracker` for automatic cleanup** - prevents test pollution
+- Test DBs are built by `metadata.create_all()`, **bypassing Alembic** — migration-only DDL (pg_trgm GIN, BRIN, CHECK constraints) does not exist in tests. A CHECK-constraint violation or trigram-index behavior cannot be tested this way; migration tests exercise the chain explicitly.
+- One testcontainer per pytest-xdist worker; per-test isolation is savepoint rollback via `db_session`. Never create sessions directly (`get_session()`) — it escapes the savepoint and pollutes the worker's DB.
+- The TRUNCATE set in `tests/integration/api/conftest.py` is metadata-derived (v0.7.7.1) — new tables join automatically; the auth tables are on an explicit preserve-list.
+- Characterization-first for risky refactors: pin current behavior with tests *before* moving code, so the change lands as an assertion flip, not a silent difference (the v0.8.16 executor-flatten and v0.8.18 identity nets are the house precedents).
 
-**Lock Prevention**:
-```python
-# ✅ CORRECT: Use db_session fixture
-@pytest.mark.asyncio
-async def test_track_persistence(db_session, test_data_tracker):
-    uow = get_unit_of_work(db_session)
-    track = Track(title="TEST_Song", artists=[Artist(name="TEST_Artist")])
-    saved = await uow.get_track_repository().save_track(track)
-    test_data_tracker.add_track(saved.id)  # Auto-cleanup
+## Debugging async tests
 
-    found = await uow.get_track_repository().get_by_id(saved.id)
-    assert found.title == "TEST_Song"
+- **Hang on relationship access** → unloaded relationship without `selectinload()`; fix the repository query (or read via `loaded_list`/`loaded_one`).
+- **Pass alone, fail together** → data pollution; something bypassed `db_session`/`test_data_tracker`, or module-level state.
+- **Un-awaited coroutine warnings at teardown** → use the `fake_run_async` helper pattern (v0.7.8.19) to close them.
+- **CI-only rendering flakes** in CLI tests → terminal size is pinned (`COLUMNS=200`/`LINES=50` in `tests/unit/interface/cli/conftest.py`, v0.8.17.2); don't assert on wrapped output elsewhere either.
 
-# ❌ WRONG: Direct session creation
-async def test_bad_pattern():
-    async with get_session() as session:  # Causes locks!
-        # Test code...
-```
+## Useful commands
 
-**Async Fixtures** (Use Existing):
-- `db_session`: Isolated transaction per test (auto-rollback)
-- `test_data_tracker`: Automatic cleanup of test data
-- Defined in: `tests/conftest.py`
-
-### Test Organization Patterns
-
-**File Structure**:
-```
-tests/
-├── conftest.py                    # Root fixtures
-├── unit/                          # Unit tests
-│   ├── domain/                   # Pure business logic
-│   ├── application/              # Use cases (mocked repos)
-│   └── infrastructure/           # Connectors (mocked APIs)
-├── integration/                  # Real DB/APIs
-│   ├── connectors/              # External service integration
-│   ├── repositories/            # Database integration
-│   └── use_cases/               # E2E use cases
-└── fixtures/                     # Shared test data models
-```
-
-**Naming Conventions**:
-- Test files: `test_<module_name>.py`
-- Test functions: `test_<behavior>_<condition>_<expected_result>`
-  - Good: `test_save_track_with_artists_persists_relationships`
-  - Bad: `test_1`, `test_track`
-
-### Test Design Principles
-
-**Unit Test Characteristics**:
-- ✅ Fast (<100ms each)
-- ✅ Isolated (no database, no external APIs)
-- ✅ Mock all dependencies (repositories, connectors)
-- ✅ Test single units of behavior
-- ✅ Use `@pytest.mark.unit`
-
-**Integration Test Characteristics**:
-- ✅ Real database (`db_session` fixture)
-- ✅ Real external APIs (for connector tests)
-- ✅ Test component interactions
-- ✅ Verify database queries, relationships
-- ✅ Mark slow tests (`@pytest.mark.slow` for >1s)
-
-**E2E Test Characteristics**:
-- ✅ Test complete user workflows
-- ✅ Minimal mocking (real integrations)
-- ✅ Focus on critical paths
-- ✅ Keep count low (5% of total tests)
-
-### Fixture Design Guidelines
-
-**When to Create Fixtures**:
-- Shared test data used in 3+ tests
-- Complex object setup (playlists with tracks)
-- Expensive operations (API calls, database setup)
-
-**Fixture Scope**:
-- `function`: Default, fresh per test (most common)
-- `module`: Share across tests in file (use sparingly)
-- `session`: Share across entire test run (rare)
-
-**Use Existing Fixtures** (from `tests/fixtures/`):
-```python
-from tests.fixtures import make_track, make_playlist, make_mock_uow
-
-# ✅ CORRECT: Use factory functions
-track = make_track(title="Test", artist="TestArtist")
-playlist = make_playlist(name="Test Playlist", tracks=[track])
-```
-
-## Tool Usage
-
-### Bash Commands
-
-Bash access is **ONLY for pytest execution and coverage analysis**:
-
-**Allowed:**
 ```bash
-# Test execution
-pytest                                    # Fast tests (skip slow/diagnostic)
-pytest -m "unit"                         # Unit tests only
-pytest -m "integration and not slow"     # Fast integration
-pytest -m ""                            # ALL tests (CI mode)
-pytest tests/unit/domain/               # Specific directory
-pytest path/to/test.py::test_name -v    # Single test
-
-# Coverage analysis
-pytest --cov=src --cov-report=html
-pytest --cov=src/domain --cov-report=term
-
-# Test discovery and timing
-pytest --co -q                          # List all tests
-pytest --durations=20                    # Slowest 20 tests
+uv run pytest --durations=20         # find the slow tail
+uv run pytest --cov=src/domain --cov-report=term
+uv run pytest --co -q | wc -l        # census
 ```
-
-**Forbidden:**
-- ❌ `pytest --lf` - Could mask underlying issues
-- ❌ Test modification during consultation - Read tool only
-
-### Read/Glob/Grep Usage
-- ✅ Read existing test files for patterns
-- ✅ Search for fixture usage examples
-- ✅ Analyze test coverage gaps
-
-## Test Strategy Design Process
-
-When consulted for test strategy:
-
-1. **Analyze Feature Context**
-   - What layer? (domain/application/infrastructure)
-   - Pure logic or external dependencies?
-   - Complexity level?
-
-2. **Design Test Coverage**
-   - **Unit tests**: What pure logic to test?
-   - **Integration tests**: What integrations to verify?
-   - **E2E tests**: What user workflows to validate?
-   - Estimate: % unit vs integration
-
-3. **Specify Fixtures**
-   - Existing fixtures to reuse?
-   - New fixtures needed?
-   - Cleanup strategy (test_data_tracker)?
-
-4. **Define Test Cases**
-   - Happy path scenarios
-   - Edge cases (empty lists, None values, duplicates)
-   - Error conditions (exceptions, validation failures)
-   - Async-specific cases (locks, transaction boundaries)
-
-5. **Recommend Markers**
-   - Which tests get `@pytest.mark.slow`?
-   - Which are `@pytest.mark.integration`?
-   - Any `@pytest.mark.diagnostic` for profiling?
-
-## Common Async Test Issues
-
-**Problem**: Flaky tests with "database is locked" errors
-**Cause**: Multiple async sessions competing for write lock
-**Fix**: Always use `db_session` fixture, never create sessions directly
-
-**Problem**: Tests pass individually, fail when run together
-**Cause**: Test data pollution (leftover records)
-**Fix**: Use `test_data_tracker` for automatic cleanup
-
-**Problem**: Test hangs indefinitely
-**Cause**: Awaiting unloaded relationship without `selectinload()`
-**Fix**: Add `selectinload()` to repository queries, or use `AsyncAttrs`
-
-**Problem**: Integration test too slow (>5s)
-**Cause**: N+1 queries, missing eager loading
-**Fix**: Add `selectinload()` to query, mark with `@pytest.mark.performance`
-
-## Success Criteria
-
-Your test strategies should:
-- ✅ Maintain 60/35/5 pyramid ratio
-- ✅ Cover happy path + edge cases + error conditions
-- ✅ Use appropriate fixtures (reuse > create)
-- ✅ Include proper async patterns (`db_session`, `test_data_tracker`)
-- ✅ Specify markers for filtering (`unit`, `slow`, `integration`)
-- ✅ Be **immediately implementable** by main agent
-- ✅ Prevent common async test pitfalls
-
-**Active During**: Backend development, API implementation, repository design

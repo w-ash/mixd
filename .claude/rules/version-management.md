@@ -25,15 +25,9 @@ Version lives in `pyproject.toml` only — single source of truth.
 | **feature** | `.5` | Named feature deliverable within the cycle | Per backlog's feature plan (e.g., `0.7.5` = workflow integration & quick filters) |
 | **revision** | `.1` | Post-ship revision of the feature | Every ship AFTER initial `X.Y.Z` goes live, until the user confirms stability |
 
-Mapping note: `feature` and `revision` are mixd's names. A .NET developer would recognize `revision` from `Major.Minor.Build.Revision`; mixd's third segment carries more weight than .NET's `Build` because each feature is a named deliverable.
+### `.postN` is unused
 
-### Why four segments (not `.postN`)
-
-PEP 440's `.postN` is reserved for **metadata-only fixes** (typo in a PyPI description, wrong classifier). Historical versions `0.7.5.post1` and `0.7.5.post2` shipped code iterations under that suffix — a misuse. Going forward:
-
-- `.postN` is unused by mixd.
-- Post-ship code revisions increment the **revision** segment (`0.7.5.1`, `0.7.5.2`, ...), regardless of size. A one-line fix and a 2000-line addition both ship as a revision bump. The size lives in the commit message (`fix:` / `feat:` / `refactor:` prefix) and `git diff`, not the version.
-- If the next ship on v0.7.5 is the third post-release change, it is `0.7.5.3` (continuing from the historical `.post2` count).
+Post-ship code revisions bump the **revision** segment regardless of size — a one-line fix and a 2000-line addition both ship as `0.7.5.N`; the commit prefix (`fix:`/`feat:`/`refactor:`) carries the nature, the version just counts. PEP 440's `.postN` is reserved for metadata-only fixes; the historical `0.7.5.post1/2` misused it — a later revision on such a version continues the count (`0.7.5.post2` → `0.7.5.3`), never re-tags history.
 
 ### When to bump which segment
 

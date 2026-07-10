@@ -111,13 +111,9 @@ When the feature closes (`🚀 Shipped` → `✅ Completed`), the epic freezes a
 
 `CHANGELOG.md` at the repo root is the canonical release log. Every ship — feature or revision — gets a dated `## [0.X.Y(.R)] — YYYY-MM-DD` entry: **lead sentence = user benefit** (what the user can do now), technical bullets after, closing with a link to the version file section. The README narrative keeps only 1–3 lines per ship (bold version + date + one-sentence benefit + changelog link), and only for the **current + previous** minor cycle — older lines are deleted at cycle close (their content lives in `CHANGELOG.md` + the archived version files).
 
-### Minor-series archival
+### Cycle-close ritual (the only archival path)
 
-`git mv` the series' files to `docs/backlog/completed/` only when every feature in the series is `✅ Completed` — never per-feature. A series may span several files (`v0.7.0-1.md`, `v0.7.6.md`, …); they archive **together, wholesale, as-is** — never restructured.
-
-### Cycle-close ritual
-
-Archival is never a free-floating act — it happens here or not at all. When the first feature of a new minor cycle ships (`vX.(Y+1).0`), the same session must:
+A minor series archives **wholesale** — `git mv` all its files (a series may span several: `v0.7.0-1.md`, `v0.7.6.md`, …) to `docs/backlog/completed/`, as-is, never restructured, never per-feature, only when every feature in it is `✅ Completed`. Archival happens at cycle close or not at all: when the first feature of a new minor cycle ships (`vX.(Y+1).0`), the same session must:
 
 1. Ask the user which of the previous cycle's `🚀 Shipped` features they confirm `✅ Completed`.
 2. If that closes the whole series: archive it now — `git mv` all its files to `completed/`, update the `completed/README.md` index, re-point README matrix links.
