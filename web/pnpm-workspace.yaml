@@ -8,7 +8,13 @@ onlyBuiltDependencies:
 # Migrated from package.json "pnpm.overrides" — pnpm 11.5+ reads overrides here.
 # Security floors for transitive deps; keep the minimum-safe versions pinned.
 overrides:
-  hono: '>=4.12.7'
+  hono: '>=4.12.25'
   fastify: '>=5.8.3'
   defu: '>=6.1.5'
   picomatch: '>=4.0.4'
+  # NOTE: a `better-auth: '>=1.6.11'` floor (to clear its Dependabot alerts) is
+  # NOT viable yet — @neondatabase/auth@0.4.2-beta (latest) exact-pins 1.4.18 and
+  # imports `apiKeyClient` from better-auth/client/plugins, an export removed in
+  # 1.6.x, so forcing the patched line fails the build (MISSING_EXPORT). Those
+  # advisories are server-side (oidc/oauth-provider), unreachable in our hosted-
+  # Neon client usage. Revisit when Neon ships an SDK on a fixed better-auth (W8).

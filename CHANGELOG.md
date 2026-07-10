@@ -6,6 +6,18 @@ linked backlog version file. Versioning follows mixd's four-segment
 `major.minor.feature.revision` scheme (`.claude/rules/version-management.md`), not strict
 SemVer. Format inspired by [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [0.8.18.2] — 2026-07-09
+
+**A dependency-freshness sweep — mostly internal currency, with one real client fix: filtering by multiple tags now serializes correctly.** Triaging the post-deploy Dependabot banner (42 alerts) showed ~41 were already remediated in the freshly-pushed lockfiles — the stale remote just hadn't re-scanned — and surfaced a handful of genuinely-behind direct deps worth taking while current.
+
+- **Multi-tag filter fix** — regenerating the API client under orval 8.20 fixed array query-param serialization: `tag` filters now explode to `?tag=a&tag=b` (matching FastAPI's `list[str]`) instead of comma-joining, which the old client got wrong.
+- **Backend** — uvicorn 0.49→0.51 (prod ASGI server), ruff 0.15.21, croniter, coverage, and transitive bumps via `uv lock --upgrade` (pydantic-core held to pydantic's pin). Full backend suite + basedpyright clean.
+- **Frontend** — @xyflow/react, radix-ui, react-router, lucide-react, and the dev toolchain (biome, vite, vitest, knip, msw, shadcn) to latest-in-range.
+- **TypeScript 6 → 7** — the native compiler generation, adopted with zero type errors across all 272 files.
+- **Security floor** — `hono` floored to `>=4.12.25`. The residual `better-auth` Dependabot alerts stay open: forcing the patched line breaks the build because `@neondatabase/auth@0.4.2-beta` pins 1.4.18 and imports an export removed in 1.6.x. Those advisories are server-side (Neon-hosted), unreachable in our client usage; blocked on a Neon SDK update.
+
+→ [details](docs/backlog/v0.8.18.md#post-deploy-revisions)
+
 ## [0.8.18.1] — 2026-07-04
 
 **A follow-up review of Identity Integrity closed four latent defects before they could bite in prod.** No new user-facing surface — this is correctness hardening on the v0.8.18 matching layer: the Last.fm identity fold (migration 035) no longer aborts when a survivor's current identifier collides with another group's target; Last.fm's untrusted MBIDs can no longer merge two distinct recordings into one track; match reviews raised by non-`default` users route to their real owner instead of vanishing onto the shared default; and the identifier a track *displays* now always matches the mapping the system *promotes* to primary.

@@ -1,12 +1,13 @@
 # Project Mixd — Planning
 
-**Current Version**: 0.8.18.1
+**Current Version**: 0.8.18.2
 **Next**: [v0.9.0 Workflow assistant](v0.9.x.md) — the couplefins right-panel chat port (pre-work brief landed 2026-07-02). v0.8.18 Identity Integrity shipped 2026-07-03, clearing the mapping-confidence corruption that gated v0.10.0 artist identity, v1.0.1 Apple Music, and the sharing milestones. Follow-up pool: the [dependency-audit work orders](dependency-audit-findings.md) (W1–W10) and the PLR0913/0917 flip decision ([spoke 26](fable-sweep/26-ratchet-closeout.md)).
 
 ## Shipped — current cycle (v0.8.x)
 
 Canonical release log: [CHANGELOG.md](../../CHANGELOG.md) (all ships, full entries). This narrative keeps one line per ship for the current + previous minor cycle only; older lines are pruned at cycle close.
 
+- **v0.8.18.2** (2026-07-09) — Dependency freshness sweep: backend + frontend deps to latest (uvicorn, the UI stack, TypeScript 7), an orval regen that fixes `tag` query-param serialization; `better-auth`'s alerts remain blocked on the beta Neon SDK.
 - **v0.8.18.1** (2026-07-04) — Identity-review hardening: migration 035 renames stop aborting on collisions, Last.fm's untrusted MBIDs can no longer merge distinct recordings, per-user reviews route to the right owner, and display/promotion agree on equal-confidence ties.
 - **v0.8.18** (2026-07-03) — Identity Integrity: the matching layer stops corrupting its own confidence data — freshness-not-confidence re-imports, ISRC-reuse routes to review instead of clobbering, one Last.fm identity per track (migration 035), and drift metrics in `stats --matching`.
 - **v0.8.17.2** (2026-07-02) — CI flake fixed: CLI tests pin terminal size, so a green pipeline means green.
