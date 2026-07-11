@@ -6,6 +6,19 @@ linked backlog version file. Versioning follows mixd's four-segment
 `major.minor.feature.revision` scheme (`.claude/rules/version-management.md`), not strict
 SemVer. Format inspired by [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [0.9.0] — 2026-07-11
+
+**Describe a playlist in plain English and get a real, editable workflow.** A persistent right-panel assistant (Cmd+K, edge tab when collapsed, full-screen `/chat` on mobile) turns "build me a chill weekend playlist" or "upbeat tracks I haven't played in 6 months" into a valid `WorkflowDef` — rendered in the same read-only graph the app uses everywhere else, refined in conversation, and saved to your workflow list on approval. This is the front door for anyone who'd never build a workflow from the node catalog by hand.
+
+- **Natural-language workflow generation** — the `generate_workflow_def` tool's input schema is derived mechanically from the node catalog (`config_fields.py`), so the model proposes DAGs that reference real nodes with correct parameters; validation failures return as structured tool errors the model self-corrects from in the same turn. No few-shot templates.
+- **In-graph preview + two-phase save** — a `WorkflowPreviewCard` embeds the existing `WorkflowGraph`; the assistant proposes `save_workflow` in the same turn, and nothing persists until you click Save (create) or Save changes (update an open workflow). Refinements replace the preview in place; superseded drafts collapse.
+- **Enriched domain primer** — the system prompt carries the full node taxonomy, connector/preference/tag model, and per-user library statistics, split so the stable primer caches while volatile stats and current-workflow context trail it uncached.
+- **Parity-classified tool registry** — every capability is a `ToolSpec` (read / write / agentic) that thinly adapts an application use case; a CI test asserts every one of the 81 use cases is classified, so "anything a human can do, the agent can do" can't silently rot. This registry is the foundation v0.9.1 fills, v0.9.2 deepens, and v0.9.3 exposes over MCP.
+- **Feedback loop** — thumbs up/down (with an optional note) on any generated draft persist to a new `chat_feedback` table, so prompt and tool-description iteration is grounded in real accept/reject signal.
+- **Under the hood** — 7-event SSE streaming, in-memory rate limiting (20/60s), two-phase confirmation store (5-min TTL, owner-checked), and untrusted-content tag-stripping, all ported from couplefins' production-tested v1.8.x agentic chat.
+
+→ [details](docs/backlog/v0.9.x.md#v090-workflow-assistant-agentic-foundation)
+
 ## [0.8.18.3] — 2026-07-10
 
 **CI stops leaking Neon database branches — the orphan pile-up that maxed the project's monthly limit in a week is fixed and purged.** Every direct push to main was creating a `ci/pr-<sha>` branch (the `github.event.number || github.sha` fallback) that no cleanup path ever deleted — `neon-cleanup.yml` only fires on PR close. 40 orphans had accumulated since April.
