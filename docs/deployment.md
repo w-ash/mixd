@@ -72,6 +72,13 @@ Required for full functionality:
      LASTFM_SECRET=...
    ```
 
+   Optional — the chat assistant (v0.9.0). Sets one deployment-wide key; when
+   unset the assistant is simply unavailable and the rest of the app is
+   unaffected. (Per-user keys are planned in v0.9.0.1 — see the backlog.)
+   ```bash
+   fly secrets set ANTHROPIC_API_KEY=sk-ant-...
+   ```
+
 5. Deploy:
    ```bash
    fly deploy
