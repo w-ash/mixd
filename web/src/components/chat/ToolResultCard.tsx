@@ -1,5 +1,18 @@
+import { lazy, Suspense } from "react";
 import { ConfirmationCard } from "#/components/chat/ConfirmationCard";
+import {
+  isGenerateWorkflowResult,
+  type SaveProposal,
+} from "#/components/chat/cards/workflow-preview-types";
 import type { ConfirmationState, ToolCall } from "#/stores/chat-store";
+
+// Lazy: the preview card pulls in React Flow + ELK, which must stay out of
+// the chat panel's initial bundle (it mounts on every page).
+const WorkflowPreviewCard = lazy(() =>
+  import("#/components/chat/cards/WorkflowPreviewCard").then((m) => ({
+    default: m.WorkflowPreviewCard,
+  })),
+);
 
 // --- Generic renderer (default for every tool without a bespoke card) ---
 //
@@ -118,29 +131,102 @@ function isPendingConfirmation(
   return (result as Record<string, unknown>).status === "pending_confirmation";
 }
 
+// --- Workflow preview helpers ---
+
+/** The live save_workflow proposal among a message's tool calls, if any. */
+function findSaveProposal(
+  siblings: ToolCall[] | undefined,
+): SaveProposal | undefined {
+  for (const sibling of siblings ?? []) {
+    if (sibling.name !== "save_workflow" || sibling.isError) continue;
+    if (!isPendingConfirmation(sibling.result)) continue;
+    return {
+      actionId: sibling.result.action_id,
+      mode: sibling.result.details.mode === "update" ? "update" : "create",
+    };
+  }
+  return undefined;
+}
+
+function hasGeneratePreview(siblings: ToolCall[] | undefined): boolean {
+  return (siblings ?? []).some(
+    (tc) =>
+      tc.name === "generate_workflow_def" &&
+      !tc.isError &&
+      isGenerateWorkflowResult(tc.result),
+  );
+}
+
 // --- Main dispatcher ---
 
 export function ToolResultCard({
   toolCall,
+  siblingToolCalls,
   confirmationState,
   onConfirm,
   onCancel,
+  onSendMessage,
 }: {
   toolCall: ToolCall;
+  /** All tool calls of the containing message — sibling context for dispatch. */
+  siblingToolCalls?: ToolCall[];
   confirmationState?: ConfirmationState;
   onConfirm?: (actionId: string) => void;
   onCancel?: (actionId: string) => void;
+  onSendMessage?: (text: string) => void;
 }) {
   if (toolCall.result === undefined || toolCall.isError) return null;
   const result = toolCall.result;
 
+  // The workflow preview owns the save affordance (Save/Discard on the card),
+  // so a sibling save proposal renders nothing of its own.
+  if (
+    toolCall.name === "generate_workflow_def" &&
+    isGenerateWorkflowResult(result)
+  ) {
+    return (
+      <Suspense
+        fallback={
+          <p className="rounded-lg border border-border-muted px-4 py-2 font-body text-xs text-text-muted">
+            Loading preview…
+          </p>
+        }
+      >
+        <WorkflowPreviewCard
+          toolCallId={toolCall.id}
+          result={result}
+          saveProposal={findSaveProposal(siblingToolCalls)}
+          onConfirm={onConfirm}
+          onCancel={onCancel}
+          onSendMessage={onSendMessage}
+        />
+      </Suspense>
+    );
+  }
+
   // Mutation tools return pending_confirmation → render the approval gate.
   if (isPendingConfirmation(result) && onConfirm && onCancel) {
+    if (
+      toolCall.name === "save_workflow" &&
+      hasGeneratePreview(siblingToolCalls)
+    ) {
+      return null; // the preview card in this message is the approval gate
+    }
+    // The embedded definition is a JSON wall the graph already shows —
+    // confirmation details keep the human-readable summary only.
+    const details =
+      toolCall.name === "save_workflow"
+        ? Object.fromEntries(
+            Object.entries(result.details).filter(
+              ([key]) => key !== "definition",
+            ),
+          )
+        : result.details;
     return (
       <ConfirmationCard
         actionId={result.action_id}
         description={result.description}
-        details={result.details}
+        details={details}
         toolName={toolCall.name}
         state={confirmationState ?? "pending"}
         onConfirm={onConfirm}

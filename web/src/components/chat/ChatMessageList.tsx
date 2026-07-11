@@ -9,10 +9,12 @@ export function ChatMessageList({
   messages,
   onConfirm,
   onCancel,
+  onSendMessage,
 }: {
   messages: ChatMessageType[];
   onConfirm?: (actionId: string) => void;
   onCancel?: (actionId: string) => void;
+  onSendMessage?: (text: string) => void;
 }) {
   const confirmationStates = useChatStore((s) => s.confirmationStates);
   const lastMessageRef = useCallback((node: HTMLDivElement | null) => {
@@ -31,6 +33,7 @@ export function ChatMessageList({
             confirmationStates={confirmationStates}
             onConfirm={onConfirm}
             onCancel={onCancel}
+            onSendMessage={onSendMessage}
           />
         </div>
       ))}

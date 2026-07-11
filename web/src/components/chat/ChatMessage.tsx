@@ -198,11 +198,13 @@ export const ChatMessage = memo(function ChatMessage({
   confirmationStates,
   onConfirm,
   onCancel,
+  onSendMessage,
 }: {
   message: ChatMessageType;
   confirmationStates?: Record<string, ConfirmationState>;
   onConfirm?: (actionId: string) => void;
   onCancel?: (actionId: string) => void;
+  onSendMessage?: (text: string) => void;
 }) {
   const isUser = message.role === "user";
   const content = message.content;
@@ -264,11 +266,13 @@ export const ChatMessage = memo(function ChatMessage({
               <ToolResultCard
                 key={`result-${tc.id}`}
                 toolCall={tc}
+                siblingToolCalls={message.toolCalls}
                 confirmationState={
                   actionId ? confirmationStates?.[actionId] : undefined
                 }
                 onConfirm={onConfirm}
                 onCancel={onCancel}
+                onSendMessage={onSendMessage}
               />
             );
           })}

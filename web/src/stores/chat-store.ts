@@ -281,3 +281,74 @@ export const useChatStore = create<ChatState>()((set) => ({
 
   setCurrentWorkflowDraft: (draft) => set({ currentWorkflowDraft: draft }),
 }));
+
+// --- Pure helpers over conversation state -----------------------------------
+
+interface SaveProposalDetails {
+  definition?: unknown;
+  workflow_id?: unknown;
+}
+
+/**
+ * Absorb a save_workflow proposal into `currentWorkflowDraft`. Called from the
+ * stream callbacks on every tool result; ignores everything that isn't a
+ * pending save proposal. The proposal's `details` carry the full normalized
+ * definition, so the draft is complete from this single event — refine turns
+ * replace it wholesale (keyed by the fresh action_id).
+ */
+export function absorbWorkflowDraft(
+  name: string,
+  result: unknown,
+  isError: boolean,
+): void {
+  if (name !== "save_workflow" || isError) return;
+  if (!result || typeof result !== "object") return;
+  const r = result as {
+    status?: unknown;
+    action_id?: unknown;
+    details?: SaveProposalDetails;
+  };
+  if (r.status !== "pending_confirmation" || typeof r.action_id !== "string") {
+    return;
+  }
+  const workflowId = r.details?.workflow_id;
+  useChatStore.getState().setCurrentWorkflowDraft({
+    action_id: r.action_id,
+    def: r.details?.definition,
+    source:
+      typeof workflowId === "string" ? { workflow_id: workflowId } : "new",
+  });
+}
+
+/**
+ * The id of the newest generate_workflow_def tool call in the conversation —
+ * older preview cards compare against it and collapse as superseded.
+ */
+export function findLatestGenerateToolCallId(
+  messages: ChatMessage[],
+): string | null {
+  for (let i = messages.length - 1; i >= 0; i--) {
+    const calls = messages[i].toolCalls ?? [];
+    for (let j = calls.length - 1; j >= 0; j--) {
+      if (calls[j].name === "generate_workflow_def" && !calls[j].isError) {
+        return calls[j].id;
+      }
+    }
+  }
+  return null;
+}
+
+/**
+ * The user message that triggered the assistant message containing the given
+ * id — the `prompt` recorded with feedback on a generated workflow.
+ */
+export function findTriggeringPrompt(
+  messages: ChatMessage[],
+  messageId: string,
+): string | null {
+  const index = messages.findIndex((m) => m.id === messageId);
+  for (let i = (index === -1 ? messages.length : index) - 1; i >= 0; i--) {
+    if (messages[i].role === "user") return messages[i].content;
+  }
+  return null;
+}

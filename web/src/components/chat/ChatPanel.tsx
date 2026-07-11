@@ -13,6 +13,7 @@ import { useKeyboardShortcut } from "#/hooks/useKeyboardShortcut";
 import { EFFORT_API_VALUES, EFFORT_OPTIONS } from "#/lib/effort";
 import { cn } from "#/lib/utils";
 import {
+  absorbWorkflowDraft,
   MESSAGE_CAP,
   SOFT_WARN_THRESHOLD,
   useChatStore,
@@ -35,8 +36,10 @@ function buildCallbacks(assistantId: string): ChatSSECallbacks {
     onToken: (text) => store.appendToken(assistantId, text),
     onToolStart: (name, id, kind) =>
       store.addToolCall(assistantId, id, name, kind),
-    onToolResult: (_name, id, summary, isError) =>
-      store.setToolResult(assistantId, id, summary, isError),
+    onToolResult: (name, id, summary, isError) => {
+      store.setToolResult(assistantId, id, summary, isError);
+      absorbWorkflowDraft(name, summary, isError);
+    },
     onCodeStart: (id, command) =>
       store.addCodeExecution(assistantId, id, command),
     onCodeResult: (id, stdout, stderr, returnCode) =>
@@ -192,6 +195,7 @@ export function ChatPanel({ fullScreen = false }: { fullScreen?: boolean }) {
           messages={messages}
           onConfirm={handleConfirm}
           onCancel={handleCancel}
+          onSendMessage={sendQuestion}
         />
       ) : (
         <SuggestedQuestions onSelect={sendQuestion} />

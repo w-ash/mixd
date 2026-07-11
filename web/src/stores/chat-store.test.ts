@@ -1,6 +1,13 @@
 import { beforeEach, describe, expect, it } from "vitest";
 
-import { MESSAGE_CAP, SOFT_WARN_THRESHOLD, useChatStore } from "./chat-store";
+import {
+  absorbWorkflowDraft,
+  findLatestGenerateToolCallId,
+  findTriggeringPrompt,
+  MESSAGE_CAP,
+  SOFT_WARN_THRESHOLD,
+  useChatStore,
+} from "./chat-store";
 
 function reset() {
   useChatStore.setState({
@@ -172,6 +179,93 @@ describe("chat-store", () => {
 
       useChatStore.getState().setCurrentWorkflowDraft(null);
       expect(useChatStore.getState().currentWorkflowDraft).toBeNull();
+    });
+  });
+});
+
+describe("conversation helpers", () => {
+  beforeEach(() => {
+    useChatStore.setState({
+      messages: [],
+      confirmationStates: {},
+      currentWorkflowDraft: null,
+    });
+  });
+
+  const savePending = (actionId: string, workflowId?: string) => ({
+    status: "pending_confirmation",
+    action_id: actionId,
+    description: "Save it",
+    details: {
+      mode: workflowId ? "update" : "create",
+      definition: { name: "Mix" },
+      ...(workflowId ? { workflow_id: workflowId } : {}),
+    },
+  });
+
+  describe("absorbWorkflowDraft", () => {
+    it("absorbs a create proposal as a new-workflow draft", () => {
+      absorbWorkflowDraft("save_workflow", savePending("a1"), false);
+      expect(useChatStore.getState().currentWorkflowDraft).toEqual({
+        action_id: "a1",
+        def: { name: "Mix" },
+        source: "new",
+      });
+    });
+
+    it("absorbs an update proposal keyed to its workflow", () => {
+      absorbWorkflowDraft("save_workflow", savePending("a2", "wf-1"), false);
+      expect(useChatStore.getState().currentWorkflowDraft).toEqual({
+        action_id: "a2",
+        def: { name: "Mix" },
+        source: { workflow_id: "wf-1" },
+      });
+    });
+
+    it("ignores errors, other tools, and non-pending results", () => {
+      absorbWorkflowDraft("save_workflow", savePending("a3"), true);
+      absorbWorkflowDraft("describe_node", savePending("a4"), false);
+      absorbWorkflowDraft("save_workflow", { status: "confirmed" }, false);
+      expect(useChatStore.getState().currentWorkflowDraft).toBeNull();
+    });
+  });
+
+  describe("findLatestGenerateToolCallId", () => {
+    it("returns the newest non-error generate call across messages", () => {
+      const messages = [
+        {
+          id: "m1",
+          role: "assistant" as const,
+          content: "",
+          toolCalls: [{ id: "g1", name: "generate_workflow_def" }],
+        },
+        {
+          id: "m2",
+          role: "assistant" as const,
+          content: "",
+          toolCalls: [
+            { id: "g2", name: "generate_workflow_def" },
+            { id: "g3", name: "generate_workflow_def", isError: true },
+          ],
+        },
+      ];
+      expect(findLatestGenerateToolCallId(messages)).toBe("g2");
+      expect(findLatestGenerateToolCallId([])).toBeNull();
+    });
+  });
+
+  describe("findTriggeringPrompt", () => {
+    it("finds the nearest preceding user message", () => {
+      const messages = [
+        { id: "u1", role: "user" as const, content: "build a mix" },
+        { id: "a1", role: "assistant" as const, content: "done" },
+        { id: "u2", role: "user" as const, content: "make it longer" },
+        { id: "a2", role: "assistant" as const, content: "sure" },
+      ];
+      expect(findTriggeringPrompt(messages, "a2")).toBe("make it longer");
+      expect(findTriggeringPrompt(messages, "a1")).toBe("build a mix");
+      expect(findTriggeringPrompt(messages, "missing")).toBe("make it longer");
+      expect(findTriggeringPrompt([], "x")).toBeNull();
     });
   });
 });
