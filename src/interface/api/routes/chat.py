@@ -29,6 +29,10 @@ from src.application.use_cases.get_dashboard_stats import (
     GetDashboardStatsCommand,
     GetDashboardStatsUseCase,
 )
+from src.application.use_cases.record_chat_feedback import (
+    RecordChatFeedbackCommand,
+    RecordChatFeedbackUseCase,
+)
 from src.application.use_cases.workflow_crud import (
     GetWorkflowCommand,
     GetWorkflowUseCase,
@@ -40,7 +44,11 @@ from src.domain.exceptions import NotFoundError
 from src.interface.api.chat_sse import QueueItem, stream_chat_response
 from src.interface.api.deps import get_current_user_id, get_llm_client
 from src.interface.api.rate_limit import InMemoryRateLimiter
-from src.interface.api.schemas.chat import ChatRequest
+from src.interface.api.schemas.chat import (
+    ChatFeedbackRequest,
+    ChatFeedbackResponse,
+    ChatRequest,
+)
 
 logger = get_logger(__name__)
 
@@ -156,6 +164,25 @@ def _bridge(
                 queue.put_nowait(event)
 
     return _run
+
+
+@router.post("/chat/feedback", status_code=201)
+async def post_chat_feedback(
+    body: ChatFeedbackRequest,
+    user_id: str = Depends(get_current_user_id),
+) -> ChatFeedbackResponse:
+    command = RecordChatFeedbackCommand(
+        user_id=user_id,
+        prompt=body.prompt,
+        generated_workflow_def=body.generated_workflow_def,
+        signal=body.signal,
+        note=body.note,
+    )
+    result = await execute_use_case(
+        lambda uow: RecordChatFeedbackUseCase().execute(command, uow),
+        user_id=user_id,
+    )
+    return ChatFeedbackResponse(id=result.feedback_id)
 
 
 @router.post("/chat")

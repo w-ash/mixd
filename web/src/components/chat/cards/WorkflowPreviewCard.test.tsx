@@ -1,7 +1,9 @@
-import { fireEvent, screen } from "@testing-library/react";
+import { fireEvent, screen, waitFor } from "@testing-library/react";
+import { HttpResponse, http } from "msw";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 import { useChatStore } from "#/stores/chat-store";
+import { server } from "#/test/setup";
 import { renderWithProviders } from "#/test/test-utils";
 
 import { WorkflowPreviewCard } from "./WorkflowPreviewCard";
@@ -175,6 +177,62 @@ describe("WorkflowPreviewCard", () => {
     );
 
     expect(screen.getByText(/needs an enricher/)).toBeInTheDocument();
+  });
+});
+
+describe("feedback thumbs", () => {
+  it("thumbs-up posts feedback with the triggering prompt", async () => {
+    useChatStore.setState({
+      messages: [
+        { id: "u1", role: "user", content: "build me a chill mix" },
+        { id: "a1", role: "assistant", content: "" },
+      ],
+    });
+    let received: Record<string, unknown> | null = null;
+    server.use(
+      http.post("*/api/v1/chat/feedback", async ({ request }) => {
+        received = (await request.json()) as Record<string, unknown>;
+        return HttpResponse.json({ id: "f1" }, { status: 201 });
+      }),
+    );
+
+    renderWithProviders(
+      <WorkflowPreviewCard toolCallId="g1" messageId="a1" result={RESULT} />,
+    );
+    fireEvent.click(screen.getByRole("button", { name: "Good draft" }));
+
+    await waitFor(() => expect(received).not.toBeNull());
+    expect(received).toMatchObject({
+      prompt: "build me a chill mix",
+      signal: "positive",
+      note: null,
+    });
+    expect(screen.getByText(/thanks for the feedback/i)).toBeInTheDocument();
+  });
+
+  it("thumbs-down opens a note field and sends it", async () => {
+    let received: Record<string, unknown> | null = null;
+    server.use(
+      http.post("*/api/v1/chat/feedback", async ({ request }) => {
+        received = (await request.json()) as Record<string, unknown>;
+        return HttpResponse.json({ id: "f1" }, { status: 201 });
+      }),
+    );
+
+    renderWithProviders(
+      <WorkflowPreviewCard toolCallId="g1" result={RESULT} />,
+    );
+    fireEvent.click(screen.getByRole("button", { name: "Poor draft" }));
+    fireEvent.change(screen.getByLabelText("Feedback note"), {
+      target: { value: "wrong genre entirely" },
+    });
+    fireEvent.click(screen.getByRole("button", { name: "Send feedback" }));
+
+    await waitFor(() => expect(received).not.toBeNull());
+    expect(received).toMatchObject({
+      signal: "negative",
+      note: "wrong genre entirely",
+    });
   });
 });
 

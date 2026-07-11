@@ -161,6 +161,7 @@ function hasGeneratePreview(siblings: ToolCall[] | undefined): boolean {
 
 export function ToolResultCard({
   toolCall,
+  messageId,
   siblingToolCalls,
   confirmationState,
   onConfirm,
@@ -168,6 +169,8 @@ export function ToolResultCard({
   onSendMessage,
 }: {
   toolCall: ToolCall;
+  /** Id of the containing message — lets cards find their triggering prompt. */
+  messageId?: string;
   /** All tool calls of the containing message — sibling context for dispatch. */
   siblingToolCalls?: ToolCall[];
   confirmationState?: ConfirmationState;
@@ -194,6 +197,7 @@ export function ToolResultCard({
       >
         <WorkflowPreviewCard
           toolCallId={toolCall.id}
+          messageId={messageId}
           result={result}
           saveProposal={findSaveProposal(siblingToolCalls)}
           onConfirm={onConfirm}

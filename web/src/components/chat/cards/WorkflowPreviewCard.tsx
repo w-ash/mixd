@@ -1,11 +1,22 @@
-import { Check, ExternalLink, Loader2, X } from "lucide-react";
+import {
+  Check,
+  ExternalLink,
+  Loader2,
+  ThumbsDown,
+  ThumbsUp,
+  X,
+} from "lucide-react";
+import { useState } from "react";
 import { Link } from "react-router";
 
+import { usePostChatFeedbackApiV1ChatFeedbackPost } from "#/api/generated/chat/chat";
+import type { ChatFeedbackRequest } from "#/api/generated/model";
 import { WorkflowGraph } from "#/components/shared/WorkflowGraph";
 import { Button } from "#/components/ui/button";
 import { cn } from "#/lib/utils";
 import {
   findLatestGenerateToolCallId,
+  findTriggeringPrompt,
   useChatStore,
 } from "#/stores/chat-store";
 
@@ -13,6 +24,108 @@ import type {
   GenerateWorkflowResult,
   SaveProposal,
 } from "./workflow-preview-types";
+
+// --- Feedback row -------------------------------------------------------------
+
+/**
+ * Thumbs on a generated draft. Explicit thumbs are the only recorded
+ * feedback — a save is its own durable acceptance signal. Thumbs-down opens
+ * a note field first (the most actionable feedback per the v0.9.0 spec);
+ * thumbs-up posts immediately.
+ */
+function FeedbackRow({
+  workflowDef,
+  messageId,
+}: {
+  workflowDef: GenerateWorkflowResult["workflow_def"];
+  messageId?: string;
+}) {
+  const [submitted, setSubmitted] = useState(false);
+  const [noteOpen, setNoteOpen] = useState(false);
+  const [note, setNote] = useState("");
+  const feedback = usePostChatFeedbackApiV1ChatFeedbackPost();
+
+  const submit = (signal: "positive" | "negative", noteText?: string) => {
+    const prompt =
+      (messageId &&
+        findTriggeringPrompt(useChatStore.getState().messages, messageId)) ||
+      "";
+    feedback.mutate({
+      data: {
+        prompt,
+        // Structurally JSON either way; the generated JsonValueInput union
+        // doesn't unify with the typed task shape.
+        generated_workflow_def:
+          workflowDef as unknown as ChatFeedbackRequest["generated_workflow_def"],
+        signal,
+        note: noteText || null,
+      },
+    });
+    setSubmitted(true);
+    setNoteOpen(false);
+  };
+
+  if (submitted) {
+    return (
+      <p className="mt-2 font-body text-xs text-text-muted">
+        Thanks for the feedback.
+      </p>
+    );
+  }
+
+  return (
+    <div className="mt-2 border-t border-border-muted pt-2">
+      <div className="flex items-center justify-between gap-2">
+        <span className="font-body text-xs text-text-muted">
+          Was this draft helpful?
+        </span>
+        <div className="flex items-center gap-1">
+          <button
+            type="button"
+            aria-label="Good draft"
+            onClick={() => submit("positive")}
+            className="rounded-md p-1.5 text-text-muted transition-colors hover:text-status-success"
+          >
+            <ThumbsUp className="size-3.5" />
+          </button>
+          <button
+            type="button"
+            aria-label="Poor draft"
+            aria-expanded={noteOpen}
+            onClick={() => setNoteOpen((open) => !open)}
+            className={cn(
+              "rounded-md p-1.5 text-text-muted transition-colors hover:text-destructive",
+              noteOpen && "text-destructive",
+            )}
+          >
+            <ThumbsDown className="size-3.5" />
+          </button>
+        </div>
+      </div>
+      {noteOpen && (
+        <div className="mt-2 flex flex-col gap-2">
+          <textarea
+            value={note}
+            onChange={(e) => setNote(e.target.value)}
+            placeholder="What was off about it? (optional)"
+            aria-label="Feedback note"
+            rows={2}
+            maxLength={2000}
+            className="w-full rounded-md border border-border bg-surface-sunken px-2 py-1.5 font-body text-xs text-text placeholder:text-text-muted"
+          />
+          <Button
+            size="sm"
+            variant="secondary"
+            className="self-end"
+            onClick={() => submit("negative", note.trim())}
+          >
+            Send feedback
+          </Button>
+        </div>
+      )}
+    </div>
+  );
+}
 
 // --- Card ---------------------------------------------------------------------
 
@@ -28,6 +141,7 @@ import type {
  */
 export function WorkflowPreviewCard({
   toolCallId,
+  messageId,
   result,
   saveProposal,
   onConfirm,
@@ -35,6 +149,7 @@ export function WorkflowPreviewCard({
   onSendMessage,
 }: {
   toolCallId: string;
+  messageId?: string;
   result: GenerateWorkflowResult;
   saveProposal?: SaveProposal;
   onConfirm?: (actionId: string) => void;
@@ -179,6 +294,8 @@ export function WorkflowPreviewCard({
           </Link>
         )}
       </div>
+
+      <FeedbackRow workflowDef={def} messageId={messageId} />
     </div>
   );
 }

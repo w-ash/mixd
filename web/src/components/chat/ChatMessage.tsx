@@ -266,6 +266,7 @@ export const ChatMessage = memo(function ChatMessage({
               <ToolResultCard
                 key={`result-${tc.id}`}
                 toolCall={tc}
+                messageId={message.id}
                 siblingToolCalls={message.toolCalls}
                 confirmationState={
                   actionId ? confirmationStates?.[actionId] : undefined
