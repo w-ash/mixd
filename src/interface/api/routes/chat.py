@@ -18,13 +18,25 @@ from src.application.chat.events import TextDelta
 from src.application.chat.pending_actions import pending_action_store
 from src.application.chat.system_prompt import build_system_prompt
 from src.application.chat.use_case import ChatCommand, ChatUseCase
+from src.application.runner import execute_use_case
 from src.application.tools.registry import (
     build_tools,
     execute_confirmed_action,
     execute_tool,
 )
+from src.application.use_cases.get_dashboard_stats import (
+    DashboardStatsResult,
+    GetDashboardStatsCommand,
+    GetDashboardStatsUseCase,
+)
+from src.application.use_cases.workflow_crud import (
+    GetWorkflowCommand,
+    GetWorkflowUseCase,
+)
 from src.config import get_logger
 from src.config.settings import settings
+from src.domain.entities.workflow import Workflow
+from src.domain.exceptions import NotFoundError
 from src.interface.api.chat_sse import QueueItem, stream_chat_response
 from src.interface.api.deps import get_current_user_id, get_llm_client
 from src.interface.api.rate_limit import InMemoryRateLimiter
@@ -67,12 +79,53 @@ async def _handle_confirmation(body: ChatRequest, user_id: str) -> str | None:
     )
 
 
+async def _fetch_library_stats(user_id: str) -> DashboardStatsResult | None:
+    """Fetch per-user library stats for the system prompt; never kill chat.
+
+    Stats are prompt garnish — any failure degrades to a "stats unavailable"
+    line rather than a 500 before the stream even opens.
+    """
+    command = GetDashboardStatsCommand(user_id=user_id)
+    try:
+        return await execute_use_case(
+            lambda uow: GetDashboardStatsUseCase().execute(command, uow),
+            user_id=user_id,
+        )
+    except Exception:
+        logger.warning("chat_library_stats_unavailable", exc_info=True)
+        return None
+
+
+async def _fetch_current_workflow(
+    workflow_id: UUID | None, user_id: str
+) -> Workflow | None:
+    """Resolve the workflow the frontend reports as open in the editor.
+
+    A stale or foreign id degrades to no context — the panel may race a
+    deletion, and that must never 500 the chat.
+    """
+    if workflow_id is None:
+        return None
+    command = GetWorkflowCommand(user_id=user_id, workflow_id=workflow_id)
+    try:
+        result = await execute_use_case(
+            lambda uow: GetWorkflowUseCase().execute(command, uow),
+            user_id=user_id,
+        )
+    except NotFoundError:
+        logger.warning("chat_current_workflow_not_found", workflow_id=str(workflow_id))
+        return None
+    return result.workflow
+
+
 async def _build_command(
     body: ChatRequest, user_id: str, confirmation_context: str | None
 ) -> ChatCommand:
-    """Build the ChatCommand (Phase 2 adds per-user library-stat context here)."""
+    """Build the ChatCommand, injecting per-user context into the prompt."""
     today = body.client_date or datetime.now(UTC).date()
-    system = build_system_prompt(today)
+    library_stats = await _fetch_library_stats(user_id)
+    current_workflow = await _fetch_current_workflow(body.current_workflow_id, user_id)
+    system = build_system_prompt(library_stats, current_workflow, today)
     messages: list[dict[str, object]] = [
         {"role": m.role, "content": m.content} for m in body.messages
     ]

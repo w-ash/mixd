@@ -145,6 +145,7 @@ export async function sendChatMessage(
   signal: AbortSignal,
   confirmation?: ConfirmationPayload,
   effort?: string,
+  currentWorkflowId?: string,
 ): Promise<void> {
   const body: Record<string, unknown> = {
     messages,
@@ -152,6 +153,9 @@ export async function sendChatMessage(
   };
   if (confirmation) body.confirmation = confirmation;
   if (effort) body.effort = effort;
+  if (currentWorkflowId !== undefined) {
+    body.current_workflow_id = currentWorkflowId;
+  }
 
   const headers: Record<string, string> = {
     "Content-Type": "application/json",

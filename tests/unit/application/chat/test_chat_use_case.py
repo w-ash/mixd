@@ -54,7 +54,7 @@ class _FakeLLM:
 def _command(*, max_turns: int = 3) -> ChatCommand:
     return ChatCommand(
         messages=[{"role": "user", "content": "hi"}],
-        system=build_system_prompt(date(2026, 7, 11)),
+        system=build_system_prompt(None, None, date(2026, 7, 11)),
         tools=build_tools(),
         model_id="test-model",
         max_turns=max_turns,

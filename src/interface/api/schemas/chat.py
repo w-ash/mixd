@@ -2,6 +2,7 @@
 
 from datetime import date
 from typing import Literal, Self
+from uuid import UUID
 
 from pydantic import BaseModel, Field, model_validator
 
@@ -37,6 +38,9 @@ class ChatRequest(BaseModel):
     # Per-request effort override (the UI control lands in v0.9.2). Falls back
     # to ChatConfig.effort.
     effort: EffortLevel | None = None
+    # The workflow open in the editor (route `/workflows/:id/edit`), so the
+    # server can inject its context into the system prompt. None off that route.
+    current_workflow_id: UUID | None = None
 
     @model_validator(mode="after")
     def _check_total_content_size(self) -> Self:

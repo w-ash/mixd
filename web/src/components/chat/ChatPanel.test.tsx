@@ -60,6 +60,30 @@ describe("ChatPanel", () => {
     expect(effort).toBe("high"); // "standard" default -> high
   });
 
+  it("passes the current workflow id when the editor route is open", () => {
+    renderWithProviders(<ChatPanel />, {
+      routerProps: { initialEntries: ["/workflows/abc-123/edit"] },
+    });
+    fireEvent.click(
+      screen.getByRole("button", { name: /friday-night dinner playlist/i }),
+    );
+
+    const currentWorkflowId = mockSend.mock.calls.at(-1)?.[5];
+    expect(currentWorkflowId).toBe("abc-123");
+  });
+
+  it("sends no workflow id outside the editor route", () => {
+    renderWithProviders(<ChatPanel />, {
+      routerProps: { initialEntries: ["/"] },
+    });
+    fireEvent.click(
+      screen.getByRole("button", { name: /friday-night dinner playlist/i }),
+    );
+
+    const currentWorkflowId = mockSend.mock.calls.at(-1)?.[5];
+    expect(currentWorkflowId).toBeUndefined();
+  });
+
   it("renders streamed tokens into the assistant message", () => {
     renderWithProviders(<ChatPanel />);
     fireEvent.click(

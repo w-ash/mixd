@@ -1,5 +1,6 @@
 import { MessageSquarePlus, RotateCcw, X } from "lucide-react";
 import { useCallback, useState } from "react";
+import { matchPath, useLocation } from "react-router";
 
 import {
   type ChatSSECallbacks,
@@ -51,8 +52,17 @@ function buildCallbacks(assistantId: string): ChatSSECallbacks {
   };
 }
 
+/** Matches the workflow editor route to derive the workflow-in-context id. */
+function matchWorkflowEditId(pathname: string): string | undefined {
+  return matchPath("/workflows/:id/edit", pathname)?.params.id;
+}
+
 /** Open an SSE stream for the freshly-created assistant message. */
-function startStream(assistantId: string, confirmation?: ConfirmationPayload) {
+function startStream(
+  assistantId: string,
+  currentWorkflowId?: string,
+  confirmation?: ConfirmationPayload,
+) {
   if (!assistantId) return;
   const store = useChatStore.getState();
   // Send the history minus the empty placeholder being generated and any
@@ -68,6 +78,7 @@ function startStream(assistantId: string, confirmation?: ConfirmationPayload) {
     controller.signal,
     confirmation,
     EFFORT_API_VALUES[store.effort],
+    currentWorkflowId,
   );
 }
 
@@ -78,20 +89,25 @@ export function ChatPanel({ fullScreen = false }: { fullScreen?: boolean }) {
   const effort = useChatStore((s) => s.effort);
   const setEffort = useChatStore((s) => s.setEffort);
   const [limitError, setLimitError] = useState<string | null>(null);
+  const { pathname } = useLocation();
+  const currentWorkflowId = matchWorkflowEditId(pathname);
 
-  const sendQuestion = useCallback((text: string) => {
-    const store = useChatStore.getState();
-    if (store.isStreaming) return;
+  const sendQuestion = useCallback(
+    (text: string) => {
+      const store = useChatStore.getState();
+      if (store.isStreaming) return;
 
-    if (store.messages.length >= MESSAGE_CAP) {
-      setLimitError(LIMIT_FULL_MESSAGE);
-      return;
-    }
+      if (store.messages.length >= MESSAGE_CAP) {
+        setLimitError(LIMIT_FULL_MESSAGE);
+        return;
+      }
 
-    setLimitError(null);
-    store.addUserMessage(text);
-    startStream(store.startAssistantMessage());
-  }, []);
+      setLimitError(null);
+      store.addUserMessage(text);
+      startStream(store.startAssistantMessage(), currentWorkflowId);
+    },
+    [currentWorkflowId],
+  );
 
   const handleRegenerate = useCallback(() => {
     const store = useChatStore.getState();
@@ -100,8 +116,8 @@ export function ChatPanel({ fullScreen = false }: { fullScreen?: boolean }) {
     if (last?.role !== "assistant") return;
 
     store.removeLastAssistantMessage();
-    startStream(store.startAssistantMessage());
-  }, []);
+    startStream(store.startAssistantMessage(), currentWorkflowId);
+  }, [currentWorkflowId]);
 
   const handleNewConversation = useCallback(() => {
     const store = useChatStore.getState();
@@ -110,25 +126,31 @@ export function ChatPanel({ fullScreen = false }: { fullScreen?: boolean }) {
     setLimitError(null);
   }, []);
 
-  const handleConfirm = useCallback((actionId: string) => {
-    const store = useChatStore.getState();
-    if (store.isStreaming) return;
-    store.setConfirmationState(actionId, "confirmed");
-    startStream(store.startAssistantMessage(), {
-      action_id: actionId,
-      approved: true,
-    });
-  }, []);
+  const handleConfirm = useCallback(
+    (actionId: string) => {
+      const store = useChatStore.getState();
+      if (store.isStreaming) return;
+      store.setConfirmationState(actionId, "confirmed");
+      startStream(store.startAssistantMessage(), currentWorkflowId, {
+        action_id: actionId,
+        approved: true,
+      });
+    },
+    [currentWorkflowId],
+  );
 
-  const handleCancel = useCallback((actionId: string) => {
-    const store = useChatStore.getState();
-    if (store.isStreaming) return;
-    store.setConfirmationState(actionId, "cancelled");
-    startStream(store.startAssistantMessage(), {
-      action_id: actionId,
-      approved: false,
-    });
-  }, []);
+  const handleCancel = useCallback(
+    (actionId: string) => {
+      const store = useChatStore.getState();
+      if (store.isStreaming) return;
+      store.setConfirmationState(actionId, "cancelled");
+      startStream(store.startAssistantMessage(), currentWorkflowId, {
+        action_id: actionId,
+        approved: false,
+      });
+    },
+    [currentWorkflowId],
+  );
 
   const handleStop = useCallback(() => {
     abortController?.abort();

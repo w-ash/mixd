@@ -42,15 +42,19 @@ class _FakeStream:
 class _FakeLLM:
     def __init__(self, turns: list[_Turn]) -> None:
         self._turns = list(turns)
+        self.requests: list[LLMRequest] = []
 
     @asynccontextmanager
     async def stream(self, request: LLMRequest) -> AsyncIterator[_FakeStream]:
+        self.requests.append(request)
         events, response = self._turns.pop(0)
         yield _FakeStream(events, response)
 
 
-def _inject_llm(monkeypatch: pytest.MonkeyPatch, turns: list[_Turn]) -> None:
-    monkeypatch.setattr(chat_route, "get_llm_client", lambda: _FakeLLM(turns))
+def _inject_llm(monkeypatch: pytest.MonkeyPatch, turns: list[_Turn]) -> _FakeLLM:
+    fake = _FakeLLM(turns)
+    monkeypatch.setattr(chat_route, "get_llm_client", lambda: fake)
+    return fake
 
 
 def _parse_sse(text: str) -> list[dict[str, object]]:
@@ -152,6 +156,80 @@ async def test_rate_limit_returns_429(
 
     assert second.status_code == 429
     assert second.json()["error"]["code"] == "RATE_LIMIT_EXCEEDED"
+
+
+def _reply_only(text: str = "ok") -> list[_Turn]:
+    return [
+        (
+            [TextDelta(text=text)],
+            LLMResponse(stop_reason="end_turn", content=[]),
+        )
+    ]
+
+
+def _system_text(request: LLMRequest) -> str:
+    return "\n".join(str(block["text"]) for block in request.system)
+
+
+async def test_system_prompt_carries_user_context_block(
+    client: httpx.AsyncClient, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    fake = _inject_llm(monkeypatch, _reply_only())
+
+    resp = await client.post(
+        "/api/v1/chat", json={"messages": [{"role": "user", "content": "hi"}]}
+    )
+
+    assert resp.status_code == 200
+    system = _system_text(fake.requests[0])
+    assert "<user_context>" in system
+    assert "<current_workflow>" not in system
+    # Stats resolve against the real (seeded-or-empty) test DB — the block
+    # must render either real numbers or the explicit fallback, never vanish.
+    assert "tracks" in system or "unavailable" in system
+
+
+async def test_system_prompt_carries_current_workflow_when_id_sent(
+    client: httpx.AsyncClient, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    from tests.integration.api.conftest import valid_workflow_definition
+
+    created = await client.post(
+        "/api/v1/workflows", json={"definition": valid_workflow_definition()}
+    )
+    assert created.status_code == 201
+    workflow_id = created.json()["id"]
+
+    fake = _inject_llm(monkeypatch, _reply_only())
+    resp = await client.post(
+        "/api/v1/chat",
+        json={
+            "messages": [{"role": "user", "content": "tweak it"}],
+            "current_workflow_id": workflow_id,
+        },
+    )
+
+    assert resp.status_code == 200
+    system = _system_text(fake.requests[0])
+    assert "<current_workflow>" in system
+    assert workflow_id in system
+
+
+async def test_stale_current_workflow_id_degrades_to_no_context(
+    client: httpx.AsyncClient, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    fake = _inject_llm(monkeypatch, _reply_only())
+
+    resp = await client.post(
+        "/api/v1/chat",
+        json={
+            "messages": [{"role": "user", "content": "hi"}],
+            "current_workflow_id": str(uuid4()),
+        },
+    )
+
+    assert resp.status_code == 200
+    assert "<current_workflow>" not in _system_text(fake.requests[0])
 
 
 async def test_expired_confirmation_returns_action_expired(
