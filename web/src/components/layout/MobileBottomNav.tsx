@@ -3,6 +3,7 @@ import {
   LayoutDashboard,
   Library,
   type LucideIcon,
+  MessageCircle,
   MoreHorizontal,
 } from "lucide-react";
 import { useState } from "react";
@@ -22,6 +23,7 @@ const PRIMARY_ROUTES: readonly PrimaryRoute[] = [
   { to: "/", label: "Home", Icon: LayoutDashboard, end: true },
   { to: "/library", label: "Library", Icon: Library },
   { to: "/workflows", label: "Workflows", Icon: GitBranch },
+  { to: "/chat", label: "Ask", Icon: MessageCircle },
 ];
 
 const tabClass =

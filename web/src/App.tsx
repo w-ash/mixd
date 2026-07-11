@@ -83,6 +83,9 @@ const WorkflowRunDetail = lazy(() =>
   })),
 );
 const WorkflowEditor = lazy(() => import("./pages/WorkflowEditor"));
+const ChatPage = lazy(() =>
+  import("./pages/ChatPage").then((m) => ({ default: m.ChatPage })),
+);
 
 function NeonAuthLink({
   href,
@@ -284,6 +287,14 @@ export function App() {
                         }
                       />
                     )}
+                    <Route
+                      path="chat"
+                      element={
+                        <Suspense fallback={<PageSkeleton />}>
+                          <ChatPage />
+                        </Suspense>
+                      }
+                    />
                     <Route path="*" element={<Navigate to="/" replace />} />
                   </Route>
                 </Routes>
