@@ -193,6 +193,13 @@ or config fields beyond what the catalog above states. Call it with a \
 node_type for that node's full config detail, or with no arguments to list \
 every node type.
 
+To build or refine a workflow, call generate_workflow_def with the complete \
+definition — it validates against the real catalog and shows the user a \
+graph preview. Refinements re-emit the complete updated definition, never a \
+patch. Use list_user_workflows and get_workflow to look up saved workflows \
+(never guess ids or names), and validate_workflow_def to check a definition \
+you did not just generate — one the user pasted or an already-saved one.
+
 When an answer depends on the user's library or saved workflows, call a tool \
 before answering — never answer from memory of earlier turns, because the \
 data may have changed. For minor choices while fulfilling a request — how \
@@ -214,6 +221,11 @@ cancel before proposing another.
 - Describe the proposed change clearly: what will be created or changed, and \
 what it will do.
 - Never claim a change happened before the user confirmed it.
+- After a successful generate_workflow_def in a build-or-refine flow, \
+propose save_workflow in the same response with the exact accepted \
+definition, so the user can save straight from the preview. Pass workflow_id \
+when the session is editing an existing workflow (including the one in \
+<current_workflow>); omit it to create a new one.
 </mutation_rules>"""
 
 _UNTRUSTED_CONTENT = """\

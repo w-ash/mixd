@@ -183,7 +183,7 @@ async def test_system_prompt_carries_user_context_block(
     assert resp.status_code == 200
     system = _system_text(fake.requests[0])
     assert "<user_context>" in system
-    assert "<current_workflow>" not in system
+    assert "The user has this workflow open" not in system
     # Stats resolve against the real (seeded-or-empty) test DB — the block
     # must render either real numbers or the explicit fallback, never vanish.
     assert "tracks" in system or "unavailable" in system
@@ -211,7 +211,7 @@ async def test_system_prompt_carries_current_workflow_when_id_sent(
 
     assert resp.status_code == 200
     system = _system_text(fake.requests[0])
-    assert "<current_workflow>" in system
+    assert "The user has this workflow open" in system
     assert workflow_id in system
 
 
@@ -229,7 +229,147 @@ async def test_stale_current_workflow_id_degrades_to_no_context(
     )
 
     assert resp.status_code == 200
-    assert "<current_workflow>" not in _system_text(fake.requests[0])
+    assert "The user has this workflow open" not in _system_text(fake.requests[0])
+
+
+_VALID_DEF = {
+    "id": "chill-weekend",
+    "name": "Chill Weekend",
+    "tasks": [
+        {"id": "src", "type": "source.liked_tracks", "config": {"limit": 100}},
+        {
+            "id": "dest",
+            "type": "destination.create_playlist",
+            "config": {"name": "Chill Weekend"},
+            "upstream": ["src"],
+        },
+    ],
+}
+
+
+def _tool_turn(*calls: ToolUseBlock) -> _Turn:
+    return (
+        list(calls),
+        LLMResponse(
+            stop_reason="tool_use",
+            content=list(calls),
+            raw_content=[
+                {"type": "tool_use", "id": c.id, "name": c.name, "input": c.input}
+                for c in calls
+            ],
+        ),
+    )
+
+
+def _end_turn(text: str) -> _Turn:
+    return ([TextDelta(text=text)], LLMResponse(stop_reason="end_turn", content=[]))
+
+
+async def test_generate_result_carries_workflow_def(
+    client: httpx.AsyncClient, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    generate = ToolUseBlock(
+        id="g1", name="generate_workflow_def", input={"workflow_def": _VALID_DEF}
+    )
+    _inject_llm(monkeypatch, [_tool_turn(generate), _end_turn("Here's the preview.")])
+
+    resp = await client.post(
+        "/api/v1/chat", json={"messages": [{"role": "user", "content": "build it"}]}
+    )
+
+    assert resp.status_code == 200
+    events = _parse_sse(resp.text)
+    result = next(e for e in events if e["type"] == "tool_result")
+    assert result["is_error"] is False
+    assert result["summary"]["status"] == "valid"
+    assert result["summary"]["workflow_def"]["name"] == "Chill Weekend"
+    # Normalized echo: config/upstream present on every task for the graph.
+    assert result["summary"]["workflow_def"]["tasks"][0]["upstream"] == []
+
+
+async def test_invalid_generate_streams_error_result_and_loop_continues(
+    client: httpx.AsyncClient, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    bad = ToolUseBlock(
+        id="g1",
+        name="generate_workflow_def",
+        input={
+            "workflow_def": {
+                "id": "x",
+                "name": "X",
+                "tasks": [{"id": "a", "type": "source.bogus", "config": {}}],
+            }
+        },
+    )
+    _inject_llm(monkeypatch, [_tool_turn(bad), _end_turn("Let me fix that.")])
+
+    resp = await client.post(
+        "/api/v1/chat", json={"messages": [{"role": "user", "content": "build it"}]}
+    )
+
+    events = _parse_sse(resp.text)
+    result = next(e for e in events if e["type"] == "tool_result")
+    assert result["is_error"] is True
+    assert "unknown node type" in str(result["summary"])
+    # The loop survived the error result and streamed the follow-up turn.
+    assert any(e["type"] == "token" for e in events)
+    assert events[-1]["type"] == "done"
+
+
+async def test_generate_and_save_in_one_turn_then_confirm_persists_once(
+    client: httpx.AsyncClient, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    generate = ToolUseBlock(
+        id="g1", name="generate_workflow_def", input={"workflow_def": _VALID_DEF}
+    )
+    save = ToolUseBlock(
+        id="s1", name="save_workflow", input={"workflow_def": _VALID_DEF}
+    )
+    _inject_llm(
+        monkeypatch, [_tool_turn(generate, save), _end_turn("Preview + save ready.")]
+    )
+
+    resp = await client.post(
+        "/api/v1/chat", json={"messages": [{"role": "user", "content": "build it"}]}
+    )
+    events = _parse_sse(resp.text)
+    save_result = next(
+        e for e in events if e["type"] == "tool_result" and e["name"] == "save_workflow"
+    )
+    assert save_result["summary"]["status"] == "pending_confirmation"
+    assert save_result["summary"]["details"]["mode"] == "create"
+    action_id = save_result["summary"]["action_id"]
+
+    # Nothing persisted before confirmation.
+    listing = await client.get("/api/v1/workflows")
+    names_before = [w["name"] for w in listing.json()["data"]]
+    assert "Chill Weekend" not in names_before
+
+    # Approve: the route claims + executes before the model turn.
+    _inject_llm(monkeypatch, [_end_turn("Saved!")])
+    confirm = await client.post(
+        "/api/v1/chat",
+        json={
+            "messages": [{"role": "user", "content": "build it"}],
+            "confirmation": {"action_id": action_id, "approved": True},
+        },
+    )
+    assert confirm.status_code == 200
+
+    listing = await client.get("/api/v1/workflows")
+    names_after = [w["name"] for w in listing.json()["data"]]
+    assert names_after.count("Chill Weekend") == 1
+
+    # A second approval of the same action is single-use → 409.
+    _inject_llm(monkeypatch, [_end_turn("again?")])
+    replay = await client.post(
+        "/api/v1/chat",
+        json={
+            "messages": [{"role": "user", "content": "again"}],
+            "confirmation": {"action_id": action_id, "approved": True},
+        },
+    )
+    assert replay.status_code == 409
 
 
 async def test_expired_confirmation_returns_action_expired(

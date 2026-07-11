@@ -44,7 +44,7 @@ def _tasks_changed(old_def: WorkflowDef, new_def: WorkflowDef) -> bool:
     return old_def.tasks != new_def.tasks
 
 
-def _generate_change_summary(old_def: WorkflowDef, new_def: WorkflowDef) -> str:
+def generate_change_summary(old_def: WorkflowDef, new_def: WorkflowDef) -> str:
     """Generate a human-readable summary of changes between two definitions."""
     old_by_id = {t.id: t for t in old_def.tasks}
     new_by_id = {t.id: t for t in new_def.tasks}
@@ -305,7 +305,7 @@ class UpdateWorkflowUseCase:
             if tasks_differ:
                 version_repo = uow.get_workflow_version_repository()
                 next_ver = await version_repo.get_max_version_number(existing.id) + 1
-                change_summary = _generate_change_summary(
+                change_summary = generate_change_summary(
                     existing.definition, command.definition
                 )
                 snapshot = WorkflowVersion(

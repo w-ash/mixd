@@ -22,10 +22,11 @@ from typing import Literal, cast
 
 from attrs import define
 
-from src.application.chat import tool_executor
+from src.application.chat import confirmed_actions, tool_executor
 from src.application.chat.pending_actions import PendingAction
 from src.application.chat.protocols import ToolContext, ToolDispatch
 from src.application.chat.user_data import strip_user_data
+from src.application.chat.workflow_schema import build_workflow_def_schema
 from src.domain.entities.shared import JsonValue
 from src.domain.exceptions import ToolExecutionError
 
@@ -85,6 +86,78 @@ TOOLS: tuple[ToolSpec, ...] = (
         dispatch=tool_executor.handle_describe_node,
         use_cases=(),  # static-catalog helper — exposes no application use case
         kind="read",
+    ),
+    ToolSpec(
+        name="list_user_workflows",
+        description=(
+            "Call this to see the user's saved workflows — name, description, "
+            "task count, and the workflow_id that get_workflow and "
+            "save_workflow take. Call it before referring to, updating, or "
+            "answering questions about saved workflows so ids and names are "
+            "real, never guessed."
+        ),
+        input_schema=tool_executor.LIST_USER_WORKFLOWS_INPUT_SCHEMA,
+        dispatch=tool_executor.handle_list_user_workflows,
+        use_cases=("ListWorkflowsUseCase",),
+        kind="read",
+    ),
+    ToolSpec(
+        name="get_workflow",
+        description=(
+            "Call this to fetch one saved workflow's complete definition by "
+            "its workflow_id (from list_user_workflows). Use it before "
+            "refining an existing workflow so the edit starts from what is "
+            "actually saved, and to answer questions about what a specific "
+            "workflow does."
+        ),
+        input_schema=tool_executor.GET_WORKFLOW_INPUT_SCHEMA,
+        dispatch=tool_executor.handle_get_workflow,
+        use_cases=("GetWorkflowUseCase",),
+        kind="read",
+    ),
+    ToolSpec(
+        name="generate_workflow_def",
+        description=(
+            "Call this with a complete workflow definition whenever you "
+            "build or refine a workflow for the user — it validates the "
+            "definition against the node catalog and DAG rules and renders "
+            "a graph preview the user sees. Always pass the full definition "
+            "(every task), never a partial edit. If validation fails you get "
+            "the exact failures back; fix them and call again."
+        ),
+        input_schema=build_workflow_def_schema(),
+        dispatch=tool_executor.handle_generate_workflow_def,
+        use_cases=(),  # pure validation/preview — persists nothing
+        kind="read",
+    ),
+    ToolSpec(
+        name="validate_workflow_def",
+        description=(
+            "Use this to check a workflow definition you did not just "
+            "generate — one the user pasted, or a saved workflow fetched via "
+            "get_workflow — against the node catalog and DAG rules. Returns "
+            "findings as data (valid flag, errors, warnings) for you to "
+            "report; it does not render a preview or change anything."
+        ),
+        input_schema=tool_executor.VALIDATE_WORKFLOW_DEF_INPUT_SCHEMA,
+        dispatch=tool_executor.handle_validate_workflow_def,
+        use_cases=(),  # pure validation — persists nothing
+        kind="read",
+    ),
+    ToolSpec(
+        name="save_workflow",
+        description=(
+            "Call this to propose persisting a workflow definition after a "
+            "successful generate_workflow_def — pass the exact definition it "
+            "accepted, plus workflow_id when updating an existing workflow "
+            "(omit it to create). The save is a proposal: nothing persists "
+            "until the user confirms on the card this returns."
+        ),
+        input_schema=tool_executor.SAVE_WORKFLOW_INPUT_SCHEMA,
+        dispatch=tool_executor.handle_save_workflow,
+        use_cases=("CreateWorkflowUseCase", "UpdateWorkflowUseCase"),
+        kind="write",
+        executor=confirmed_actions.exec_save_workflow,
     ),
 )
 
@@ -153,12 +226,15 @@ async def execute_confirmed_action(action: PendingAction, user_id: str) -> JsonV
 
 # --- Parity accounting (asserted by test_registry_parity.py) ---------------
 
-# Human-only by product decision (D4). mixd's human-only capabilities —
-# connector OAuth/token flows, account management, ``mixd admin reset`` — are
-# not application use cases (they live in the connector/interface layer), so
-# none of the 81 use-case classes are blacklisted. The set exists so a future
-# use case that IS human-only lands here explicitly rather than growing a tool.
-BLACKLISTED_USE_CASES: frozenset[str] = frozenset()
+# Human-only by product decision (D4). mixd's broader human-only capabilities
+# — connector OAuth/token flows, account management, ``mixd admin reset`` —
+# are not application use cases (they live in the connector/interface layer).
+# RecordChatFeedbackUseCase is the set's first member: feedback *about the
+# assistant* comes from the human thumbs UI only — the agent must never file
+# feedback on itself.
+BLACKLISTED_USE_CASES: frozenset[str] = frozenset({
+    "RecordChatFeedbackUseCase",
+})
 
 # Excluded because chat has no file input/output channel, not by policy.
 MECHANICALLY_EXCLUDED_USE_CASES: frozenset[str] = frozenset({
@@ -186,7 +262,6 @@ NOT_YET_COVERED: frozenset[str] = frozenset({
     "CreateConnectorPlaylistUseCase",
     "CreatePlaylistAssignmentUseCase",
     "CreatePlaylistLinkUseCase",
-    "CreateWorkflowUseCase",
     "DeleteCanonicalPlaylistUseCase",
     "DeletePlaylistAssignmentUseCase",
     "DeletePlaylistLinkUseCase",
@@ -208,7 +283,6 @@ NOT_YET_COVERED: frozenset[str] = frozenset({
     "GetTrackDetailsUseCase",
     "GetTrackPlaylistsUseCase",
     "GetWorkflowRunUseCase",
-    "GetWorkflowUseCase",
     "GetWorkflowVersionUseCase",
     "ImportConnectorPlaylistsAsCanonicalUseCase",
     "ImportSpotifyLikesUseCase",
@@ -224,7 +298,6 @@ NOT_YET_COVERED: frozenset[str] = frozenset({
     "ListTagsUseCase",
     "ListTracksUseCase",
     "ListWorkflowRunsUseCase",
-    "ListWorkflowsUseCase",
     "ListWorkflowVersionsUseCase",
     "MatchAndIdentifyTracksUseCase",
     "MergeTagsUseCase",
@@ -254,6 +327,5 @@ NOT_YET_COVERED: frozenset[str] = frozenset({
     "UpdateCanonicalPlaylistUseCase",
     "UpdateConnectorPlaylistUseCase",
     "UpdatePlaylistLinkUseCase",
-    "UpdateWorkflowUseCase",
     "UpsertScheduleUseCase",
 })

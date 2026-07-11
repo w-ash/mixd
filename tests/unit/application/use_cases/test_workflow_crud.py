@@ -24,7 +24,7 @@ from src.application.use_cases.workflow_crud import (
     ListWorkflowsUseCase,
     UpdateWorkflowCommand,
     UpdateWorkflowUseCase,
-    _generate_change_summary,
+    generate_change_summary,
 )
 from src.domain.exceptions import NotFoundError
 from tests.fixtures import (
@@ -339,7 +339,7 @@ class TestGenerateChangeSummary:
             ),
         ]
         new = make_workflow_def(tasks=new_tasks)
-        assert "Added 1 node" in _generate_change_summary(old, new)
+        assert "Added 1 node" in generate_change_summary(old, new)
 
     def test_removed_nodes(self) -> None:
         from src.domain.entities.workflow import WorkflowTaskDef
@@ -357,7 +357,7 @@ class TestGenerateChangeSummary:
         ]
         old = make_workflow_def(tasks=old_tasks)
         new = make_workflow_def(tasks=[old_tasks[0]])
-        assert "Removed 1 node" in _generate_change_summary(old, new)
+        assert "Removed 1 node" in generate_change_summary(old, new)
 
 
 class TestDeleteWorkflow:

@@ -63,13 +63,17 @@ class TestBlockLayout:
         assert "4321" not in primer
 
     def test_current_workflow_block_present_only_when_passed(self):
+        # The primer *mentions* <current_workflow> in its mutation rules, so
+        # probe block structure: no third block without a workflow, and the
+        # third block IS the workflow context when one is passed.
         without = build_system_prompt(_STATS, None, _TODAY)
-        assert not any("<current_workflow>" in t for t in _texts(without))
+        assert len(without) == 2
 
         workflow = make_workflow()
         with_wf = build_system_prompt(_STATS, workflow, _TODAY)
+        assert len(with_wf) == 3
         block = _texts(with_wf)[-1]
-        assert "<current_workflow>" in block
+        assert block.startswith("<current_workflow>")
         assert str(workflow.id) in block
         assert workflow.definition.name in block
 
