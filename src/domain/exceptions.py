@@ -16,6 +16,46 @@ class NotFoundError(Exception):
     """Raised when a requested entity does not exist."""
 
 
+class ToolExecutionError(DomainError):
+    """Raised when a chat-assistant tool fails or is invoked incorrectly.
+
+    The chat tool loop catches this and returns it to the model as an error
+    tool result (never a stack trace), so the model can self-correct in-turn.
+    """
+
+
+class ActionExpiredError(DomainError):
+    """Raised when a pending mutation confirmation has expired or never existed.
+
+    The chat route maps this to the ``ACTION_EXPIRED`` SSE error code so the
+    frontend can prompt the user to re-request the action.
+    """
+
+
+class ForbiddenError(DomainError):
+    """Raised when a user tries to confirm or cancel another user's action."""
+
+
+class MaxRoundsExceededError(DomainError):
+    """Raised when the agentic tool loop exceeds its round budget."""
+
+
+class ResponseTruncatedError(DomainError):
+    """Raised when a model turn stops on ``max_tokens`` (output was truncated)."""
+
+
+class RateLimitExceededError(DomainError):
+    """Raised when a user exceeds the in-memory chat rate limit."""
+
+
+class ChatUnavailableError(DomainError):
+    """Raised when the chat assistant is unconfigured (no ``ANTHROPIC_API_KEY``)."""
+
+
+class AnthropicApiError(DomainError):
+    """Wraps an error from the Anthropic SDK so the loop maps it to an SSE code."""
+
+
 class TracklistInvariantError(DomainError):
     """Raised when a tracklist violates workflow invariants."""
 

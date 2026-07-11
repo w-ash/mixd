@@ -191,6 +191,7 @@ def create_app() -> FastAPI:
 
     # Mount routers
     from src.interface.api.routes.auth import router as auth_router
+    from src.interface.api.routes.chat import router as chat_router
     from src.interface.api.routes.connectors import router as connectors_router
     from src.interface.api.routes.imports import router as imports_router
     from src.interface.api.routes.operation_runs import (
@@ -232,6 +233,7 @@ def create_app() -> FastAPI:
     app.include_router(reviews_router, prefix="/api/v1")
     app.include_router(schedules_router, prefix="/api/v1")
     app.include_router(settings_router, prefix="/api/v1")
+    app.include_router(chat_router, prefix="/api/v1")
 
     # Serve built frontend if web/dist/ exists
     _mount_static(app)

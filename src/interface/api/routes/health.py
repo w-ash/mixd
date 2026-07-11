@@ -34,10 +34,16 @@ async def health_check() -> JSONResponse:
             detail=info.detail,
         )
 
-    content: dict[str, str] = {
+    from src.config.settings import settings
+
+    chat_available = bool(settings.credentials.anthropic_api_key.get_secret_value())
+
+    content: dict[str, str | bool] = {
         "status": "ok" if db_ok else "degraded",
         "version": __version__,
         "database": "connected" if db_ok else "unavailable",
+        # Gates the chat panel — false when ANTHROPIC_API_KEY is unset.
+        "chat_available": chat_available,
     }
     if db_error_message:
         content["database_error"] = db_error_message

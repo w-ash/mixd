@@ -9,6 +9,7 @@ from typing import cast
 
 from fastapi import Depends, Request
 
+from src.application.chat.protocols import LLMClientProtocol
 from src.config.constants import BusinessLimits
 from src.domain.exceptions import ConnectorNotConnectedError
 from src.infrastructure.connectors._shared.token_storage import get_token_storage
@@ -50,3 +51,14 @@ def require_connector_connected(service: str) -> Callable[..., Awaitable[None]]:
             raise ConnectorNotConnectedError(service)
 
     return _dep
+
+
+def get_llm_client() -> LLMClientProtocol:
+    """Resolve the chat LLM client (the injection seam tests override).
+
+    Raises ``ChatUnavailableError`` when ``ANTHROPIC_API_KEY`` is unset, which
+    the exception handlers map to a 503 ``CHAT_UNAVAILABLE`` envelope.
+    """
+    from src.infrastructure.chat.anthropic_adapter import get_anthropic_adapter
+
+    return get_anthropic_adapter()

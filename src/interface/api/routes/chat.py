@@ -1,0 +1,119 @@
+"""Chat endpoint — a thin POST+SSE bridge delegating to ChatUseCase.
+
+Confirmation and rate-limiting run synchronously before the stream opens (their
+errors become the HTTP error envelope); everything after is streamed as SSE.
+Route handler stays within the 5-10 line budget via small helpers.
+"""
+
+import asyncio
+from collections.abc import Awaitable, Callable
+from datetime import UTC, datetime
+import json
+from uuid import UUID
+
+from fastapi import APIRouter, Depends
+from fastapi.responses import StreamingResponse
+
+from src.application.chat.events import TextDelta
+from src.application.chat.pending_actions import pending_action_store
+from src.application.chat.system_prompt import build_system_prompt
+from src.application.chat.use_case import ChatCommand, ChatUseCase
+from src.application.tools.registry import (
+    build_tools,
+    execute_confirmed_action,
+    execute_tool,
+)
+from src.config import get_logger
+from src.config.settings import settings
+from src.interface.api.chat_sse import QueueItem, stream_chat_response
+from src.interface.api.deps import get_current_user_id, get_llm_client
+from src.interface.api.rate_limit import InMemoryRateLimiter
+from src.interface.api.schemas.chat import ChatRequest
+
+logger = get_logger(__name__)
+
+router = APIRouter(tags=["chat"])
+
+_chat_limiter = InMemoryRateLimiter(
+    max_requests=settings.chat.rate_limit_requests,
+    window_seconds=settings.chat.rate_limit_window_seconds,
+)
+
+
+async def _handle_confirmation(body: ChatRequest, user_id: str) -> str | None:
+    """Process a confirmation, if present, before the model turn.
+
+    Returns a context string to append to the conversation so the model can
+    acknowledge the outcome, or None when there is no confirmation.
+    """
+    if body.confirmation is None:
+        return None
+    action_id = UUID(body.confirmation.action_id)
+    if body.confirmation.approved:
+        action = pending_action_store.claim(action_id, user_id)
+        result = await execute_confirmed_action(action, user_id)
+        logger.info(
+            "chat_action_confirmed", action_id=str(action_id), tool=action.tool_name
+        )
+        return (
+            f"[The user confirmed the proposed action. "
+            f"Result: {json.dumps(result)}. Acknowledge the change briefly.]"
+        )
+    pending_action_store.cancel(action_id, user_id)
+    logger.info("chat_action_cancelled", action_id=str(action_id))
+    return (
+        "[The user cancelled the proposed action. "
+        "Acknowledge the cancellation briefly.]"
+    )
+
+
+async def _build_command(
+    body: ChatRequest, user_id: str, confirmation_context: str | None
+) -> ChatCommand:
+    """Build the ChatCommand (Phase 2 adds per-user library-stat context here)."""
+    today = body.client_date or datetime.now(UTC).date()
+    system = build_system_prompt(today)
+    messages: list[dict[str, object]] = [
+        {"role": m.role, "content": m.content} for m in body.messages
+    ]
+    if confirmation_context is not None:
+        messages.append({"role": "user", "content": confirmation_context})
+    return ChatCommand(
+        messages=messages,
+        system=system,
+        tools=build_tools(),
+        model_id=settings.chat.model_id,
+        max_turns=settings.chat.max_turns,
+        max_tokens=settings.chat.max_tokens,
+        effort=body.effort or settings.chat.effort,
+        user_id=user_id,
+    )
+
+
+def _bridge(
+    use_case: ChatUseCase, command: ChatCommand
+) -> Callable[[asyncio.Queue[QueueItem]], Awaitable[None]]:
+    """Wrap the event generator into a queue-based run function for SSE."""
+
+    async def _run(queue: asyncio.Queue[QueueItem]) -> None:
+        async for event in use_case.execute(command):
+            if isinstance(event, TextDelta):
+                queue.put_nowait(event.text)
+            else:
+                queue.put_nowait(event)
+
+    return _run
+
+
+@router.post("/chat")
+async def post_chat(
+    body: ChatRequest,
+    user_id: str = Depends(get_current_user_id),
+) -> StreamingResponse:
+    # Resolved in-body (not a second Depends): an unset key raises
+    # ChatUnavailableError here -> 503 CHAT_UNAVAILABLE before any streaming.
+    llm = get_llm_client()
+    _chat_limiter.check(user_id)
+    confirmation_context = await _handle_confirmation(body, user_id)
+    command = await _build_command(body, user_id, confirmation_context)
+    return stream_chat_response(_bridge(ChatUseCase(llm, execute_tool), command))

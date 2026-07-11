@@ -140,6 +140,12 @@ class CredentialsConfig(BaseModel):
         description="Last.fm password. Required for authenticated write operations.",
     )
 
+    anthropic_api_key: SecretStr = Field(
+        default=SecretStr(""),
+        description="Anthropic API key. Required for the chat assistant; when "
+        "unset the chat panel is disabled and the API returns CHAT_UNAVAILABLE.",
+    )
+
 
 class ConnectorAPIConfig(BaseModel):
     """Per-connector API tuning: batch sizes, retry policy, rate limiting."""
@@ -458,6 +464,51 @@ class SchedulerConfig(BaseModel):
         return self
 
 
+type EffortLevel = Literal["low", "medium", "high", "xhigh", "max"]
+
+
+class ChatConfig(BaseModel):
+    """Chat-assistant (agentic workspace) configuration.
+
+    Ported from couplefins v1.8.x as starting points — model is intentionally
+    user-configurable via ``CHAT__MODEL_ID`` so switching between
+    ``claude-opus-4-8`` (default) and the cheaper ``claude-sonnet-5`` is an env
+    change, not a code change. Both require adaptive thinking set explicitly at
+    the adapter (they run thinking-off when the field is omitted).
+    """
+
+    model_id: str = Field(
+        default="claude-opus-4-8",
+        description="Anthropic model ID. Set CHAT__MODEL_ID=claude-sonnet-5 for "
+        "~half the cost. Adaptive thinking is set explicitly regardless.",
+    )
+    max_turns: PositiveInt = Field(
+        default=24,
+        description="Max model turns per request before the agentic loop stops.",
+    )
+    max_tokens: PositiveInt = Field(
+        default=16384,
+        description="Max output tokens per model turn.",
+    )
+    effort: EffortLevel = Field(
+        default="high",
+        description="Default reasoning effort (output_config.effort). Overridable "
+        "per request once the UI control lands in v0.9.2.",
+    )
+    rate_limit_requests: PositiveInt = Field(
+        default=20,
+        description="In-memory per-user request cap within the rate-limit window.",
+    )
+    rate_limit_window_seconds: PositiveInt = Field(
+        default=60,
+        description="Sliding window (seconds) for the per-user rate limiter.",
+    )
+    max_messages: PositiveInt = Field(
+        default=50,
+        description="Max messages accepted per request (mirrors the frontend cap).",
+    )
+
+
 class Settings(BaseSettings):
     """Main application settings with environment variable support.
 
@@ -499,6 +550,7 @@ class Settings(BaseSettings):
     server: ServerConfig = Field(default_factory=ServerConfig)
     security: SecurityConfig = Field(default_factory=SecurityConfig)
     scheduler: SchedulerConfig = Field(default_factory=SchedulerConfig)
+    chat: ChatConfig = Field(default_factory=ChatConfig)
 
     # Top-level settings
     data_dir: Path = Field(
@@ -526,6 +578,7 @@ class Settings(BaseSettings):
         "lastfm_secret": ("credentials", None),
         "lastfm_username": ("credentials", None),
         "lastfm_password": ("credentials", None),
+        "anthropic_api_key": ("credentials", None),
         # Server
         "server_host": ("server", "host"),
         "server_port": ("server", "port"),

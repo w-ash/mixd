@@ -28,6 +28,7 @@ dependencies = [
     "pyjwt[crypto]>=2.13.0",
     "orjson>=3.11.9",
     "croniter>=6.2.2",
+    "anthropic>=0.116,<1",
 ]
 
 [project.scripts]
@@ -147,6 +148,15 @@ unfixable = []
 ]
 "src/infrastructure/connectors/_shared/connector_status.py" = [
     "RUF029",   # status_fn Protocol requires async callables even for stateless probes
+]
+"src/application/chat/tool_executor.py" = [
+    "RUF029",   # ToolDispatch protocol requires async dispatchers even without await
+    "ARG001",   # dispatchers share one (tool_input, ctx) signature; not all use both
+]
+"src/application/chat/use_case.py" = [
+    "ASYNC119", # streaming proxy MUST yield inside the LLM stream context; the SSE
+                # bridge's try/finally cancels the task on disconnect, which closes
+                # the context via GeneratorExit — cleanup is guaranteed cross-function
 ]
 "tests/**/*.py" = [
     "S101",     # Allow assert in tests

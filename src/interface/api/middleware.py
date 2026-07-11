@@ -21,6 +21,8 @@ the type checker honest without suppressions:
    event of a type mismatch.)
 """
 
+from collections.abc import Awaitable, Callable
+
 from fastapi import FastAPI, Request
 from fastapi.responses import JSONResponse
 from sqlalchemy.exc import DatabaseError
@@ -28,11 +30,15 @@ from sqlalchemy.exc import DatabaseError
 from src.application.workflows.definition.validation import ConnectorNotAvailableError
 from src.config import get_logger
 from src.domain.exceptions import (
+    ActionExpiredError,
+    ChatUnavailableError,
     ConfirmationRequiredError,
     ConnectorNotConnectedError,
+    ForbiddenError,
     LastfmAuthRequiredError,
     NotFoundError,
     OptimisticLockError,
+    RateLimitExceededError,
     ScheduleAlreadyExistsError,
     ScheduleInvariantError,
     SpotifyAuthRequiredError,
@@ -266,8 +272,40 @@ def register_exception_handlers(app: FastAPI) -> None:
             },
         )
 
+    def _simple_handler(
+        exc_type: type[Exception], status_code: int, code: str
+    ) -> Callable[[Request, Exception], Awaitable[JSONResponse]]:
+        """Build a code+status envelope handler for a simple domain exception."""
+
+        async def handler(_request: Request, exc: Exception) -> JSONResponse:
+            if not isinstance(exc, exc_type):  # pragma: no cover — dispatch guards
+                return await generic_error_handler(_request, exc)
+            return JSONResponse(
+                status_code=status_code,
+                content={"error": {"code": code, "message": str(exc)}},
+            )
+
+        return handler
+
     app.add_exception_handler(NotFoundError, not_found_handler)
     app.add_exception_handler(OptimisticLockError, optimistic_lock_handler)
+    # Chat assistant (v0.9.0): pre-stream errors surface as the HTTP error
+    # envelope (in-stream errors become SSE `error` events; see chat_sse.py).
+    app.add_exception_handler(
+        ChatUnavailableError,
+        _simple_handler(ChatUnavailableError, 503, "CHAT_UNAVAILABLE"),
+    )
+    app.add_exception_handler(
+        RateLimitExceededError,
+        _simple_handler(RateLimitExceededError, 429, "RATE_LIMIT_EXCEEDED"),
+    )
+    app.add_exception_handler(
+        ActionExpiredError,
+        _simple_handler(ActionExpiredError, 409, "ACTION_EXPIRED"),
+    )
+    app.add_exception_handler(
+        ForbiddenError, _simple_handler(ForbiddenError, 403, "FORBIDDEN")
+    )
     app.add_exception_handler(ConfirmationRequiredError, confirmation_required_handler)
     app.add_exception_handler(WorkflowAlreadyRunningError, workflow_running_handler)
     app.add_exception_handler(ScheduleAlreadyExistsError, schedule_exists_handler)
