@@ -17,7 +17,8 @@ Enforces the lifecycle conventions in ``.claude/rules/backlog-format.md``:
 - one-off records (handoffs, findings, migration notes) in the backlog
   root carry a ``Status:`` header
 - no references to retired conventions (``docs/user-flows.md``,
-  ``US-AREA-``) outside explicit "retired" annotations
+  ``US-AREA-``) outside explicit "retired" annotations; ``completed/``
+  is exempt — archives legitimately describe then-current conventions
 - ``CHANGELOG.md`` has an entry for the current ``pyproject.toml`` version
 
 Exit code 1 on errors; warnings are printed but do not fail the gate.
@@ -102,11 +103,12 @@ def check_records() -> None:
 
 def check_retired_refs() -> None:
     for md in sorted(BACKLOG.rglob("*.md")):
-        sink = warnings if COMPLETED in md.parents else errors
+        if COMPLETED in md.parents:
+            continue  # frozen history — then-current conventions are expected
         for lineno, line in enumerate(md.read_text().splitlines(), 1):
             if "retired" in line.lower():
                 continue
-            sink.extend(
+            errors.extend(
                 f"{md.relative_to(REPO)}:{lineno} references retired convention {ref!r}"
                 for ref in RETIRED_REFS
                 if ref in line

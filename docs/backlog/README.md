@@ -1,7 +1,7 @@
 # Project Mixd — Planning
 
 **Current Version**: 0.8.18.3
-**Next**: [v0.9.0 Workflow assistant](v0.9.x.md) — the couplefins right-panel chat port (pre-work brief landed 2026-07-02). v0.8.18 Identity Integrity shipped 2026-07-03, clearing the mapping-confidence corruption that gated v0.10.0 artist identity, v1.0.1 Apple Music, and the sharing milestones. Follow-up pool: the [dependency-audit work orders](dependency-audit-findings.md) (W1–W10) and the PLR0913/0917 flip decision ([spoke 26](fable-sweep/26-ratchet-closeout.md)).
+**Next**: [v0.9.0 Workflow assistant](v0.9.x.md) — first milestone of the [v0.9.x Agentic Workspace series](v0.9.x.md) (couplefins v1.8.x port; re-scoped 2026-07-10 around bidirectional human↔agent parity). v0.8.18 Identity Integrity shipped 2026-07-03, clearing the mapping-confidence corruption that gated v0.10.0 artist identity, v1.0.1 Apple Music, and the sharing milestones. Follow-up pool: the [dependency-audit work orders](dependency-audit-findings.md) (W1–W10) and the PLR0913/0917 flip decision ([spoke 26](fable-sweep/26-ratchet-closeout.md)).
 
 ## Shipped — current cycle (v0.8.x)
 
@@ -112,9 +112,11 @@ Each milestone delivers a **vertical slice** — backend API + frontend page tog
 | **v0.8.16** | Sweep Wave 4 — high-risk decompositions (executor flatten, connector contract) | 🚀 Shipped | [details](v0.8.13-0.8.17.md#v0816-sweep-wave-4--high-risk-decompositions) |
 | **v0.8.17** | Sweep closeout — ratchet, Fable review & dependency audit | 🚀 Shipped | [details](v0.8.13-0.8.17.md#v0817-sweep-closeout--ratchet--review) |
 | **v0.8.18** | Identity integrity — confidence repair, ISRC guards, drift metrics (2026-07 research D1; gates v0.10.0 artist identity, v1.0.1 Apple Music, v1.1.x–v1.2.x sharing) | 🚀 Shipped | [details](v0.8.18.md#v0818-identity-integrity) |
-| **v0.9.0** | Workflow assistant — right-panel chat (couplefins port) + shared tool registry | 🔜 Not Started | [details](v0.9.x.md#v090-workflow-assistant-right-panel-chat) |
-| **v0.9.1** | MCP server — mixd as a tool surface (stdio; consumes the v0.9.0 registry) | 🔜 Not Started | [details](v0.9.x.md#v091-mcp-server-mixd-as-a-tool-surface) |
-| **v0.9.3** | Follow-ups & hardening — placeholder, scoped after v0.9.0/v0.9.1 ship | 🔜 Not Started | [details](v0.9.x.md#v093-follow-ups--hardening-placeholder) |
+| **v0.9.0** | Workflow assistant — right-panel agentic chat (couplefins v1.8.x port) + parity-classified tool registry | 🔜 Not Started | [details](v0.9.x.md#v090-workflow-assistant-agentic-foundation) |
+| **v0.9.1** | Full capability parity — every read/mutation as a confirmable tool; agent activity visible in the UI | 🔜 Not Started | [details](v0.9.x.md#v091-full-capability-parity-in-app) |
+| **v0.9.2** | Agentic depth — programmatic tool calling, research subagent, tool search, context management | 🔜 Not Started | [details](v0.9.x.md#v092-agentic-depth) |
+| **v0.9.3** | MCP server — mixd as a tool surface (stdio, stateless; Tasks for long ops; consumes the registry) | 🔜 Not Started | [details](v0.9.x.md#v093-mcp-server-mixd-as-a-tool-surface) |
+| **v0.9.4** | Follow-ups & hardening — placeholder, scoped after the v0.9.x ships | 🔜 Not Started | [details](v0.9.x.md#v094-follow-ups--hardening-placeholder) |
 | **v0.10.0** | First-class artists | 🔜 Not Started | [details](v0.10.x.md#v0100-first-class-artists) |
 | **v0.10.1** | First-class albums | 🔜 Not Started | [details](v0.10.x.md#v0101-first-class-albums) |
 | **v0.10.2** | Physical media & Discogs | 🔜 Not Started | [details](v0.10.x.md#v0102-physical-media--discogs) |
@@ -149,7 +151,7 @@ See [docs/personas.md](../personas.md) for full persona definitions.
 | v0.7.x | Preferences + tags + playlist bootstrap | Replaces 4 Spotify playlists with hmm/nah/yah/star, bulk-imports hundreds of themed playlists as tags | Explores tag system, builds taxonomies, workflow nodes for preferences/tags | Likes/dislikes via simple toggle, quick filters for "what should I listen to?" |
 | v0.7.8 | Mobile responsiveness | Phone for status checks ("did the overnight sync work?"), laptop for deep curation and workflow editing | Self-host UX feels polished on any viewport; workflow editor stays desktop-only by design | Phone is the primary device — full feature parity except editor; bottom nav, sheet dialogs, no horizontal scroll |
 | v0.8.x | Scheduling + templates | Automates the weekly ritual | Templates as onboarding entry point | Scheduling means playlists stay fresh without effort |
-| v0.9.x | LLM-assisted creation + MCP surface | Power use — complex intent in natural language; agents can run scheduled maintenance | Interesting tech to explore; mixd plugs into existing local-LLM toolchains via MCP | THE adoption enabler — changes who can use mixd; indirect benefit when third-party agents grow workflows over mixd |
+| v0.9.x | Agentic workspace — in-app assistant + MCP surface | Delegates the Sunday ritual sentence by sentence — batch maintenance, analysis, imports with live progress | The parity contract is the draw: anything the app can do, their agents (in-app or via MCP from Claude Desktop/Cursor) can do | THE adoption enabler — natural-language workflows change who can use mixd; everyday actions without learning the UI |
 | v0.10.x | Artists, albums, physical | Deeper library modeling, Discogs integration | Rich data model to explore | Browsing by artist/album is intuitive |
 | v1.0.x | Data quality + connectors + cross-user identity | Fixes mappings, finds gaps, adds Rekordbox; v1.0.3 makes shared playlists trustworthy | Apple Music broadens self-host appeal; v1.0.3's audit ledger is full data-sovereignty | More services = less lock-in; v1.0.3 makes friend-shared links resolve correctly without trust |
 | v1.1.x | Social layer | Share curated playlists, discover curators | Public API surface, federation potential | Shareable links, follows — the growth mechanism |
