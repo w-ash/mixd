@@ -5,6 +5,7 @@ Split from the former monolithic ``interfaces.py``.
 
 from typing import Protocol, Self
 
+from src.domain.repositories.chat_feedback import ChatFeedbackRepositoryProtocol
 from src.domain.repositories.checkpoint import CheckpointRepositoryProtocol
 from src.domain.repositories.connector import (
     ConnectorPlaylistRepositoryProtocol,
@@ -171,4 +172,8 @@ class UnitOfWorkProtocol(Protocol):
 
     def get_track_merge_service(self) -> TrackMergeServiceProtocol:
         """Get track merge service using this unit of work's transaction."""
+        ...
+
+    def get_chat_feedback_repository(self) -> ChatFeedbackRepositoryProtocol:
+        """Get chat feedback repository for thumbs-up/down on generated workflows."""
         ...

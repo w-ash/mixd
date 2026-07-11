@@ -10,6 +10,7 @@ from typing import Self
 
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from src.domain.repositories.chat_feedback import ChatFeedbackRepositoryProtocol
 from src.domain.repositories.checkpoint import CheckpointRepositoryProtocol
 from src.domain.repositories.connector import (
     ConnectorPlaylistRepositoryProtocol,
@@ -312,3 +313,11 @@ class DatabaseUnitOfWork:
         from src.infrastructure.services.track_merge_service import TrackMergeService
 
         return TrackMergeService()
+
+    def get_chat_feedback_repository(self) -> ChatFeedbackRepositoryProtocol:
+        """Get chat feedback repository for thumbs-up/down on generated workflows."""
+        from src.infrastructure.persistence.repositories.chat_feedback import (
+            ChatFeedbackRepository,
+        )
+
+        return ChatFeedbackRepository(self._session)

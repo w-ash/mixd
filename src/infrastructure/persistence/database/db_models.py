@@ -27,6 +27,7 @@ from sqlalchemy import (
     Index,
     MetaData,
     String,
+    Text,
     UniqueConstraint,
     inspect,
     text,
@@ -1518,3 +1519,26 @@ class DBSchedule(BaseEntity):
     consecutive_failures: Mapped[int] = mapped_column(
         nullable=False, default=0, server_default="0"
     )
+
+
+class DBChatFeedback(BaseEntity):
+    """A human thumbs-up/thumbs-down on an assistant-generated workflow definition.
+
+    Write-once: rows are inserted and never updated (no update path in the
+    repository). No RLS policy — like ``schedules`` — per-user isolation is
+    enforced by the repository's ``WHERE user_id`` filter rather than a
+    database policy (migration 036). The CHECK constraint on ``signal`` lives
+    in migration 036 only, per the codebase convention (CHECKs never in
+    ``__table_args__``).
+    """
+
+    __tablename__: str = "chat_feedback"
+    __table_args__: tuple[SchemaItem, ...] = (
+        Index("ix_chat_feedback_user_id", "user_id"),
+    )
+
+    user_id: Mapped[str] = mapped_column(String(), nullable=False)
+    prompt: Mapped[str] = mapped_column(Text(), nullable=False)
+    generated_workflow_def: Mapped[JsonDict] = mapped_column(PgJsonb, nullable=False)
+    signal: Mapped[str] = mapped_column(String(), nullable=False)
+    note: Mapped[str | None] = mapped_column(Text(), nullable=True)
