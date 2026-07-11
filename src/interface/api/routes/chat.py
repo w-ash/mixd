@@ -131,9 +131,14 @@ async def _build_command(
 ) -> ChatCommand:
     """Build the ChatCommand, injecting per-user context into the prompt."""
     today = body.client_date or datetime.now(UTC).date()
-    library_stats = await _fetch_library_stats(user_id)
-    current_workflow = await _fetch_current_workflow(body.current_workflow_id, user_id)
-    system = build_system_prompt(library_stats, current_workflow, today)
+    # Independent per-request reads — resolve them concurrently so the prompt
+    # context costs the slower of the two, not their sum, before streaming.
+    async with asyncio.TaskGroup() as tg:
+        stats_task = tg.create_task(_fetch_library_stats(user_id))
+        workflow_task = tg.create_task(
+            _fetch_current_workflow(body.current_workflow_id, user_id)
+        )
+    system = build_system_prompt(stats_task.result(), workflow_task.result(), today)
     messages: list[dict[str, object]] = [
         {"role": m.role, "content": m.content} for m in body.messages
     ]

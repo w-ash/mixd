@@ -254,6 +254,62 @@ describe("conversation helpers", () => {
     });
   });
 
+  describe("removeLastAssistantMessage clears an owned draft", () => {
+    it("drops currentWorkflowDraft when the removed turn proposed it", () => {
+      useChatStore.setState({
+        messages: [
+          { id: "u1", role: "user", content: "build it" },
+          {
+            id: "a1",
+            role: "assistant",
+            content: "",
+            toolCalls: [
+              {
+                id: "s1",
+                name: "save_workflow",
+                result: { status: "pending_confirmation", action_id: "act-1" },
+              },
+            ],
+          },
+        ],
+        currentWorkflowDraft: {
+          action_id: "act-1",
+          def: {},
+          source: "new",
+        },
+      });
+
+      useChatStore.getState().removeLastAssistantMessage();
+      expect(useChatStore.getState().currentWorkflowDraft).toBeNull();
+    });
+
+    it("keeps a draft owned by an earlier surviving turn", () => {
+      useChatStore.setState({
+        messages: [
+          {
+            id: "a1",
+            role: "assistant",
+            content: "",
+            toolCalls: [
+              {
+                id: "s1",
+                name: "save_workflow",
+                result: { status: "pending_confirmation", action_id: "act-1" },
+              },
+            ],
+          },
+          { id: "a2", role: "assistant", content: "no proposal here" },
+        ],
+        currentWorkflowDraft: { action_id: "act-1", def: {}, source: "new" },
+      });
+
+      useChatStore.getState().removeLastAssistantMessage();
+      expect(useChatStore.getState().currentWorkflowDraft?.action_id).toBe(
+        "act-1",
+      );
+    });
+  });
+
   describe("findTriggeringPrompt", () => {
     it("finds the nearest preceding user message", () => {
       const messages = [

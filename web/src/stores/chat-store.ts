@@ -51,8 +51,9 @@ export type ConfirmationState =
   | "cancelled";
 
 /**
- * The workflow the assistant is proposing to create or edit. Populated by a
- * later phase (tool results carry the draft); dormant in Phase 0. `source`
+ * The workflow the assistant is proposing to create or edit. Populated by
+ * `absorbWorkflowDraft` from each `save_workflow` tool result; the preview
+ * card reads it to render Save/Discard, keyed by `action_id`. `source`
  * distinguishes a brand-new workflow from an edit to an existing one.
  */
 export interface WorkflowDraft {
@@ -219,7 +220,18 @@ export const useChatStore = create<ChatState>()((set) => ({
     set((s) => {
       const last = s.messages.at(-1);
       if (last?.role !== "assistant") return s;
-      return { messages: s.messages.slice(0, -1) };
+      // Regenerating discards the turn — including any save proposal it made.
+      // Drop the draft when this message owned it, so a preview card can't
+      // offer to confirm an action_id whose origin turn no longer exists.
+      const draftOwnedHere = (last.toolCalls ?? []).some(
+        (tc) =>
+          (tc.result as { action_id?: string } | undefined)?.action_id ===
+          s.currentWorkflowDraft?.action_id,
+      );
+      return {
+        messages: s.messages.slice(0, -1),
+        ...(draftOwnedHere ? { currentWorkflowDraft: null } : {}),
+      };
     }),
 
   // Tool + code executions

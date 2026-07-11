@@ -28,8 +28,8 @@ export function PageLayout() {
   useKeyboardShortcut(["cmd", "k"], togglePanel);
 
   if (isMobile) {
-    // Mobile keeps its full-screen chat route for a later phase — the desktop
-    // side panel doesn't mount here.
+    // Mobile reaches chat through the full-screen `/chat` route (ChatPage);
+    // the desktop side panel doesn't mount here.
     return <MobileShell />;
   }
 
