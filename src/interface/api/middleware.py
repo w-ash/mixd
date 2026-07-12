@@ -35,6 +35,7 @@ from src.domain.exceptions import (
     ConfirmationRequiredError,
     ConnectorNotConnectedError,
     ForbiddenError,
+    InvalidApiKeyError,
     LastfmAuthRequiredError,
     NotFoundError,
     OptimisticLockError,
@@ -305,6 +306,10 @@ def register_exception_handlers(app: FastAPI) -> None:
     )
     app.add_exception_handler(
         ForbiddenError, _simple_handler(ForbiddenError, 403, "FORBIDDEN")
+    )
+    app.add_exception_handler(
+        InvalidApiKeyError,
+        _simple_handler(InvalidApiKeyError, 400, "INVALID_API_KEY"),
     )
     app.add_exception_handler(ConfirmationRequiredError, confirmation_required_handler)
     app.add_exception_handler(WorkflowAlreadyRunningError, workflow_running_handler)

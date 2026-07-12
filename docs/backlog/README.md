@@ -1,12 +1,13 @@
 # Project Mixd — Planning
 
-**Current Version**: 0.9.0
+**Current Version**: 0.9.0.1
 **Next**: [v0.9.1 Full capability parity](v0.9.x.md#v091-full-capability-parity-in-app) — every read/mutation a user can perform becomes a confirmable registry tool, long operations stream progress into chat, and agent actions surface in the same UI a human uses. v0.9.0 Workflow Assistant shipped 2026-07-11 (the agentic foundation + natural-language workflow generation). Follow-up pool: the [dependency-audit work orders](dependency-audit-findings.md) (W1–W10) and the PLR0913/0917 flip decision ([spoke 26](fable-sweep/26-ratchet-closeout.md)).
 
 ## Shipped — current cycle (v0.9.x)
 
 Canonical release log: [CHANGELOG.md](../../CHANGELOG.md) (all ships, full entries). This narrative keeps one line per ship for the current + previous minor cycle only; older lines are pruned at cycle close.
 
+- **v0.9.0.1** (2026-07-11) — Per-user, opt-in AI assistant: each user brings their own Anthropic key (validated live, stored encrypted, write-only), and the whole chat surface stays hidden until they connect one — no shared key, no broken affordance.
 - **v0.9.0** (2026-07-11) — Workflow Assistant: a persistent right-panel chat turns a plain-English request ("build me a chill weekend playlist") into a real, editable WorkflowDef previewed in the graph renderer and saved on approval — on a parity-classified tool registry the later v0.9.x milestones and the MCP server all consume.
 
 ## Shipped — previous cycle (v0.8.x)

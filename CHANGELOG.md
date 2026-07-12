@@ -6,6 +6,17 @@ linked backlog version file. Versioning follows mixd's four-segment
 `major.minor.feature.revision` scheme (`.claude/rules/version-management.md`), not strict
 SemVer. Format inspired by [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [0.9.0.1] — 2026-07-11
+
+**The AI assistant is now yours alone — bring your own Anthropic key, and until you do, it simply isn't there.** v0.9.0 mounted the chat surface for everyone behind one shared deployment key; that broke mixd's multi-user principle (one person's key and spend serving all) and showed a chat affordance that only errored when used. Now the assistant is per-user and opt-in: connect a key in Settings → Assistant (or `mixd assistant connect`), and the whole surface — Cmd+K, edge tab, side panel, mobile `/chat` and the "Ask" tab — appears only for you. No key, no assistant; no shared key, no broken button.
+
+- **Per-user, encrypted, write-only credential** — the key is stored encrypted in the existing per-user token store (RLS-scoped, same discipline as connector tokens) and is never echoed back in any response.
+- **Single resolution rule** — `resolve_chat_credential()` is the one place precedence lives (your key → optional single-tenant server fallback → none); `get_llm_client` and the `/assistant/status` capability signal both derive from it. A stored key that fails to decrypt fails closed rather than silently falling back to the shared server key.
+- **Validated at connect, not first use** — a pasted key is checked with a minimal live completion, so a key with no billing is rejected up front instead of 500-ing on the first real message.
+- **Frontend gated on a `useChatAvailable()` signal** — every assistant mount point consumes it; a desktop `/chat` deep-link waits for the gate to resolve before deciding, and cached Anthropic clients are closed on API shutdown.
+
+→ [details](docs/backlog/v0.9.x.md#post-deploy-revisions)
+
 ## [0.9.0] — 2026-07-11
 
 **Describe a playlist in plain English and get a real, editable workflow.** A persistent right-panel assistant (Cmd+K, edge tab when collapsed, full-screen `/chat` on mobile) turns "build me a chill weekend playlist" or "upbeat tracks I haven't played in 6 months" into a valid `WorkflowDef` — rendered in the same read-only graph the app uses everywhere else, refined in conversation, and saved to your workflow list on approval. This is the front door for anyone who'd never build a workflow from the node catalog by hand.

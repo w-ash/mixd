@@ -11,10 +11,14 @@ v0.9.0 (no server tool is in the tool list), so v0.9.2 inherits it verified.
 
 from collections.abc import AsyncGenerator, AsyncIterator
 from contextlib import asynccontextmanager
-from functools import cache
 from typing import cast
 
-from anthropic import AsyncAnthropic
+from anthropic import (
+    AsyncAnthropic,
+    AuthenticationError,
+    BadRequestError,
+    PermissionDeniedError,
+)
 from anthropic.lib.streaming import BetaAsyncMessageStream
 from anthropic.types.beta import (
     BetaMessageParam,
@@ -39,9 +43,7 @@ from src.application.chat.protocols import (
     LLMStreamEvent,
     ToolUseBlock,
 )
-from src.config.settings import settings
 from src.domain.entities.shared import JsonDict
-from src.domain.exceptions import ChatUnavailableError
 
 # Tool-result clearing (context editing, beta): once the conversation passes the
 # trigger, the oldest tool results are cleared server-side, keeping the most
@@ -291,6 +293,14 @@ class AnthropicAdapter:
     def __init__(self, client: AsyncAnthropic) -> None:
         self._client = client
 
+    async def aclose(self) -> None:
+        """Close the underlying ``AsyncAnthropic`` (and its httpx pool).
+
+        Named to match the connector ``aclose()`` convention even though the SDK
+        exposes ``close()``; called by :func:`aclose_all_adapters` on shutdown.
+        """
+        await self._client.close()
+
     @asynccontextmanager
     async def stream(self, request: LLMRequest) -> AsyncGenerator[_AdapterStream]:
         # Adaptive thinking must be explicit — Opus 4.8 and Sonnet 5 run without
@@ -311,21 +321,71 @@ class AnthropicAdapter:
             yield _AdapterStream(sdk_stream)
 
 
-def build_anthropic_adapter() -> AnthropicAdapter:
-    """Build the adapter from settings, or raise if the chat is unconfigured."""
-    api_key = settings.credentials.anthropic_api_key.get_secret_value()
-    if not api_key:
-        raise ChatUnavailableError(
-            "The chat assistant is not configured (ANTHROPIC_API_KEY is unset)."
-        )
-    return AnthropicAdapter(AsyncAnthropic(api_key=api_key))
+# One adapter (and httpx pool) per distinct credential. Bounded in practice by
+# the number of active keys — one per per-user key plus the server fallback.
+_adapters: dict[str, AnthropicAdapter] = {}
 
 
-@cache
-def get_anthropic_adapter() -> AnthropicAdapter:
-    """Process-wide adapter (one AsyncAnthropic, so httpx connections are reused).
+def get_anthropic_adapter_for_key(api_key: str) -> AnthropicAdapter:
+    """Adapter for a specific API key, cached so each distinct key reuses one
+    ``AsyncAnthropic`` (and its httpx connection pool).
 
-    ``functools.cache`` does not cache exceptions, so while the key is unset each
-    call re-raises ``ChatUnavailableError``; the first successful build is cached.
+    Keyed on the *credential*, not the user id: a rotated key builds a fresh
+    adapter automatically, and a removed key's entry is dropped via
+    :func:`evict_adapter_cache`.
     """
-    return build_anthropic_adapter()
+    adapter = _adapters.get(api_key)
+    if adapter is None:
+        adapter = _adapters[api_key] = AnthropicAdapter(AsyncAnthropic(api_key=api_key))
+    return adapter
+
+
+def evict_adapter_cache() -> None:
+    """Drop cached adapters after a key is saved or removed.
+
+    Ref-drop only (no close): a chat turn already streaming holds its adapter
+    alive by refcount, so clearing here never tears down an in-flight pool. The
+    dropped-but-idle client's pool is reclaimed on GC, and any survivor is closed
+    on shutdown by :func:`aclose_all_adapters`. Clearing all (rather than one
+    entry) needs no key bookkeeping and is cheap — rebuilds are lazy.
+    """
+    _adapters.clear()
+
+
+async def aclose_all_adapters() -> None:
+    """Close every cached ``AsyncAnthropic`` (httpx pools) — call on API shutdown.
+
+    Safe to await at shutdown when nothing is streaming; this is the guaranteed
+    close path that ``evict_adapter_cache`` deliberately leaves to GC mid-life.
+    """
+    for adapter in list(_adapters.values()):
+        await adapter.aclose()
+    _adapters.clear()
+
+
+_VALIDATION_MODEL = "claude-haiku-4-5-20251001"  # cheapest current model
+
+
+async def validate_anthropic_key(api_key: str) -> bool:
+    """Return True if ``api_key`` can actually run a completion.
+
+    Sends a minimal live completion (``max_tokens=1``) rather than a metadata
+    probe, so a key that authenticates but has no billing/credit is rejected
+    here instead of failing on the user's first real message. A bad key (401/403)
+    or an unusable one (400 "credit balance too low") returns False; transport
+    errors propagate so the caller can distinguish "bad key" from "couldn't
+    reach Anthropic". The token cost is negligible and lands on the caller's own key.
+    """
+    client = AsyncAnthropic(api_key=api_key)
+    try:
+        await client.messages.create(
+            model=_VALIDATION_MODEL,
+            max_tokens=1,
+            messages=[{"role": "user", "content": "hi"}],
+        )
+    except AuthenticationError, PermissionDeniedError, BadRequestError:
+        return False
+    else:
+        return True
+    finally:
+        await client.close()

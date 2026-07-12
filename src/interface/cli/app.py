@@ -147,6 +147,7 @@ def _register_commands() -> None:
     # Import command modules here to avoid circular imports
     from src.interface.cli import (
         admin_commands,
+        assistant_commands,
         connector_commands,
         history_commands,
         likes_commands,
@@ -207,6 +208,13 @@ def _register_commands() -> None:
         connector_commands.app,
         name="connectors",
         help="Check music service connector status",
+        rich_help_panel="⚙️ System",
+    )
+
+    app.add_typer(
+        assistant_commands.app,
+        name="assistant",
+        help="Connect the AI assistant with your Anthropic API key",
         rich_help_panel="⚙️ System",
     )
 

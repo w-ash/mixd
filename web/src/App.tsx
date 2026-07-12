@@ -49,6 +49,9 @@ const Integrations = lazy(() =>
     default: m.Integrations,
   })),
 );
+const Assistant = lazy(() =>
+  import("./pages/settings/Assistant").then((m) => ({ default: m.Assistant })),
+);
 const Sync = lazy(() =>
   import("./pages/settings/Sync").then((m) => ({ default: m.Sync })),
 );
@@ -274,6 +277,14 @@ export function App() {
                       element={
                         <Suspense fallback={<PageSkeleton />}>
                           <ImportHistoryPage />
+                        </Suspense>
+                      }
+                    />
+                    <Route
+                      path="settings/assistant"
+                      element={
+                        <Suspense fallback={<PageSkeleton />}>
+                          <Assistant />
                         </Suspense>
                       }
                     />

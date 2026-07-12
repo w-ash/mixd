@@ -56,6 +56,16 @@ class AnthropicApiError(DomainError):
     """Wraps an error from the Anthropic SDK so the loop maps it to an SSE code."""
 
 
+class InvalidApiKeyError(DomainError):
+    """Raised when a user-supplied Anthropic API key fails format or auth checks.
+
+    The assistant settings routes (v0.9.0.1 BYO-key) raise this when a pasted key
+    is malformed or rejected by Anthropic; the API layer maps it to a 400
+    ``INVALID_API_KEY`` envelope so the settings UI can surface it inline. The
+    rejected key is never stored.
+    """
+
+
 class TracklistInvariantError(DomainError):
     """Raised when a tracklist violates workflow invariants."""
 

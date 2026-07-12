@@ -3,7 +3,7 @@
  * Do not edit manually.
  * Mixd
  * Personal music metadata hub
- * OpenAPI spec version: 0.9.0
+ * OpenAPI spec version: 0.9.0.1
  */
 
 export * from './activeAssignmentSchema.ts';
@@ -14,6 +14,8 @@ export * from './applyResultSchema.ts';
 export * from './artistSchema.ts';
 export * from './assignmentActionType.ts';
 export * from './assignmentSchema.ts';
+export * from './assistantStatusResponse.ts';
+export * from './assistantStatusResponseSource.ts';
 export * from './batchTagRequest.ts';
 export * from './batchTagResponse.ts';
 export * from './bodyImportSpotifyHistoryApiV1ImportsSpotifyHistoryPost.ts';
@@ -29,6 +31,8 @@ export * from './checkpointStatusSchema.ts';
 export * from './configFieldOptionSchema.ts';
 export * from './configFieldSchema.ts';
 export * from './confirmationInput.ts';
+export * from './connectKeyRequest.ts';
+export * from './connectKeyResponse.ts';
 export * from './connectorAuthError.ts';
 export * from './connectorAuthMethod.ts';
 export * from './connectorCategory.ts';
@@ -140,6 +144,8 @@ export * from './syncLinkRequest.ts';
 export * from './syncPreviewResponse.ts';
 export * from './tagOperationResult.ts';
 export * from './tagSummarySchema.ts';
+export * from './testKeyRequest.ts';
+export * from './testKeyResponse.ts';
 export * from './trackDetailSchema.ts';
 export * from './trackDetailSchemaLikeStatus.ts';
 export * from './trackFacetsSchema.ts';

@@ -53,7 +53,11 @@ class _FakeLLM:
 
 def _inject_llm(monkeypatch: pytest.MonkeyPatch, turns: list[_Turn]) -> _FakeLLM:
     fake = _FakeLLM(turns)
-    monkeypatch.setattr(chat_route, "get_llm_client", lambda: fake)
+
+    async def _get(_user_id: str) -> _FakeLLM:
+        return fake
+
+    monkeypatch.setattr(chat_route, "get_llm_client", _get)
     return fake
 
 
@@ -125,7 +129,7 @@ async def test_chat_unavailable_when_key_unset(
 ) -> None:
     from src.domain.exceptions import ChatUnavailableError
 
-    def _raise() -> object:
+    async def _raise(_user_id: str) -> object:
         raise ChatUnavailableError("no key")
 
     monkeypatch.setattr(chat_route, "get_llm_client", _raise)

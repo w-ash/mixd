@@ -10,6 +10,7 @@ import {
   Plug,
   RefreshCw,
   Settings,
+  Sparkles,
   Tag,
 } from "lucide-react";
 import { NavLink, useLocation } from "react-router";
@@ -46,6 +47,7 @@ const navItems: NavItem[] = [
     Icon: Settings,
     children: [
       { to: "/settings/integrations", label: "Integrations", Icon: Plug },
+      { to: "/settings/assistant", label: "Assistant", Icon: Sparkles },
       { to: "/settings/sync", label: "Sync", Icon: RefreshCw },
       { to: "/settings/tags", label: "Tags", Icon: Tag },
       { to: "/settings/imports", label: "Import History", Icon: History },

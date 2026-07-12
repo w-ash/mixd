@@ -3,7 +3,7 @@
   "info": {
     "title": "Mixd",
     "description": "Personal music metadata hub",
-    "version": "0.9.0"
+    "version": "0.9.0.1"
   },
   "paths": {
     "/api/v1/connectors/{service}/auth-url": {
@@ -4341,6 +4341,121 @@
           }
         }
       }
+    },
+    "/api/v1/assistant/status": {
+      "get": {
+        "tags": [
+          "assistant"
+        ],
+        "summary": "Get Assistant Status",
+        "operationId": "get_assistant_status_api_v1_assistant_status_get",
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AssistantStatusResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/assistant/key": {
+      "put": {
+        "tags": [
+          "assistant"
+        ],
+        "summary": "Put Assistant Key",
+        "operationId": "put_assistant_key_api_v1_assistant_key_put",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ConnectKeyRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ConnectKeyResponse"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      },
+      "delete": {
+        "tags": [
+          "assistant"
+        ],
+        "summary": "Delete Assistant Key",
+        "operationId": "delete_assistant_key_api_v1_assistant_key_delete",
+        "responses": {
+          "204": {
+            "description": "Successful Response"
+          }
+        }
+      }
+    },
+    "/api/v1/assistant/key/test": {
+      "post": {
+        "tags": [
+          "assistant"
+        ],
+        "summary": "Probe Assistant Key",
+        "operationId": "probe_assistant_key_api_v1_assistant_key_test_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/TestKeyRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/TestKeyResponse"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
     }
   },
   "components": {
@@ -4526,6 +4641,35 @@
         ],
         "title": "AssignmentSchema",
         "description": "One PlaylistAssignment row, serialized for the wire."
+      },
+      "AssistantStatusResponse": {
+        "properties": {
+          "connected": {
+            "type": "boolean",
+            "title": "Connected"
+          },
+          "source": {
+            "anyOf": [
+              {
+                "type": "string",
+                "enum": [
+                  "user",
+                  "server"
+                ]
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Source"
+          }
+        },
+        "type": "object",
+        "required": [
+          "connected"
+        ],
+        "title": "AssistantStatusResponse",
+        "description": "Per-user capability signal that gates the whole chat surface."
       },
       "BatchTagRequest": {
         "properties": {
@@ -4947,6 +5091,41 @@
         ],
         "title": "ConfirmationInput",
         "description": "A user's approve/cancel decision on a proposed mutation."
+      },
+      "ConnectKeyRequest": {
+        "properties": {
+          "api_key": {
+            "type": "string",
+            "maxLength": 512,
+            "minLength": 1,
+            "title": "Api Key"
+          }
+        },
+        "type": "object",
+        "required": [
+          "api_key"
+        ],
+        "title": "ConnectKeyRequest",
+        "description": "A pasted Anthropic API key to validate and store for the current user."
+      },
+      "ConnectKeyResponse": {
+        "properties": {
+          "connected": {
+            "type": "boolean",
+            "const": true,
+            "title": "Connected",
+            "default": true
+          },
+          "source": {
+            "type": "string",
+            "const": "user",
+            "title": "Source",
+            "default": "user"
+          }
+        },
+        "type": "object",
+        "title": "ConnectKeyResponse",
+        "description": "Confirmation that the key was validated and stored (never echoes the key)."
       },
       "ConnectorAuthError": {
         "type": "string",
@@ -7995,6 +8174,50 @@
         ],
         "title": "TagSummarySchema",
         "description": "Tag with usage count, namespace/value split, and last-used timestamp.\n\nUsed by the autocomplete dropdown and the Tag Management page.\n``namespace`` is the prefix before the first colon (``mood``,\n``energy``, ``context``); ``value`` is everything after. Tags\nwithout a colon have ``namespace=None`` and ``value=tag``."
+      },
+      "TestKeyRequest": {
+        "properties": {
+          "api_key": {
+            "anyOf": [
+              {
+                "type": "string",
+                "maxLength": 512
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Api Key"
+          }
+        },
+        "type": "object",
+        "title": "TestKeyRequest",
+        "description": "Test a candidate key, or (when omitted) the user's stored key."
+      },
+      "TestKeyResponse": {
+        "properties": {
+          "ok": {
+            "type": "boolean",
+            "title": "Ok"
+          },
+          "detail": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Detail"
+          }
+        },
+        "type": "object",
+        "required": [
+          "ok"
+        ],
+        "title": "TestKeyResponse",
+        "description": "Result of a live key-validation probe (a minimal completion)."
       },
       "TrackDetailSchema": {
         "properties": {

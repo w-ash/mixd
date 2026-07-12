@@ -1,13 +1,24 @@
+import { HttpResponse, http } from "msw";
 import { describe, expect, it } from "vitest";
 
+import { server } from "#/test/setup";
 import {
   mockMatchMedia,
   renderWithProviders,
   screen,
   userEvent,
+  waitFor,
 } from "#/test/test-utils";
 
 import { MobileBottomNav } from "./MobileBottomNav";
+
+function stubChat(connected: boolean) {
+  server.use(
+    http.get("*/api/v1/assistant/status", () =>
+      HttpResponse.json({ connected, source: connected ? "user" : null }),
+    ),
+  );
+}
 
 describe("MobileBottomNav", () => {
   it("renders the four primary tabs", () => {
@@ -47,5 +58,22 @@ describe("MobileBottomNav", () => {
     expect(
       screen.getByRole("link", { name: /playlists/i }),
     ).toBeInTheDocument();
+  });
+
+  it("hides the Ask tab when the assistant is unavailable", async () => {
+    stubChat(false);
+    renderWithProviders(<MobileBottomNav />);
+
+    expect(await screen.findByText("Home")).toBeInTheDocument();
+    await waitFor(() =>
+      expect(screen.queryByText("Ask")).not.toBeInTheDocument(),
+    );
+  });
+
+  it("shows the Ask tab once a key is connected", async () => {
+    stubChat(true);
+    renderWithProviders(<MobileBottomNav />);
+
+    expect(await screen.findByText("Ask")).toBeInTheDocument();
   });
 });

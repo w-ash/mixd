@@ -2,6 +2,7 @@ import { Loader2 } from "lucide-react";
 import { lazy, Suspense, useCallback } from "react";
 
 import { ChatEdgeTab } from "#/components/chat/ChatEdgeTab";
+import { useChatAvailable } from "#/hooks/useChatAvailable";
 import { useIsMobile } from "#/hooks/useIsMobile";
 import { useKeyboardShortcut } from "#/hooks/useKeyboardShortcut";
 import { useChatStore } from "#/stores/chat-store";
@@ -19,12 +20,15 @@ const ChatPanel = lazy(() =>
 export function PageLayout() {
   const isMobile = useIsMobile();
   const isPanelOpen = useChatStore((s) => s.isPanelOpen);
+  // Per-user gate (v0.9.0.1): no Anthropic key → no assistant surface at all.
+  const { available: chatAvailable } = useChatAvailable();
 
   const togglePanel = useCallback(() => {
+    if (!chatAvailable) return;
     useChatStore.getState().togglePanel();
-  }, []);
+  }, [chatAvailable]);
 
-  // Cmd/Ctrl+K toggles the assistant panel from anywhere in the app.
+  // Cmd/Ctrl+K toggles the assistant panel — inert until a key is connected.
   useKeyboardShortcut(["cmd", "k"], togglePanel);
 
   if (isMobile) {
@@ -40,21 +44,22 @@ export function PageLayout() {
       <main id="main-content" className="flex-1 overflow-y-auto px-page py-8">
         <RouteOutlet />
       </main>
-      {isPanelOpen ? (
-        <div className="hidden w-96 shrink-0 border-l border-border bg-surface-sunken md:flex">
-          <Suspense
-            fallback={
-              <div className="flex flex-1 items-center justify-center">
-                <Loader2 className="size-4 animate-spin text-text-muted" />
-              </div>
-            }
-          >
-            <ChatPanel />
-          </Suspense>
-        </div>
-      ) : (
-        <ChatEdgeTab />
-      )}
+      {chatAvailable &&
+        (isPanelOpen ? (
+          <div className="hidden w-96 shrink-0 border-l border-border bg-surface-sunken md:flex">
+            <Suspense
+              fallback={
+                <div className="flex flex-1 items-center justify-center">
+                  <Loader2 className="size-4 animate-spin text-text-muted" />
+                </div>
+              }
+            >
+              <ChatPanel />
+            </Suspense>
+          </div>
+        ) : (
+          <ChatEdgeTab />
+        ))}
     </div>
   );
 }

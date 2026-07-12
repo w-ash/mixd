@@ -133,6 +133,10 @@ async def lifespan(_app: FastAPI) -> AsyncGenerator[None]:
             with contextlib.suppress(asyncio.CancelledError):
                 await task
         await manager.unsubscribe(sub_id)
+        # Close cached Anthropic clients so their httpx pools don't leak on exit.
+        from src.infrastructure.chat.anthropic_adapter import aclose_all_adapters
+
+        await aclose_all_adapters()
 
 
 def create_app() -> FastAPI:
@@ -190,6 +194,7 @@ def create_app() -> FastAPI:
     register_exception_handlers(app)
 
     # Mount routers
+    from src.interface.api.routes.assistant import router as assistant_router
     from src.interface.api.routes.auth import router as auth_router
     from src.interface.api.routes.chat import router as chat_router
     from src.interface.api.routes.connectors import router as connectors_router
@@ -234,6 +239,7 @@ def create_app() -> FastAPI:
     app.include_router(schedules_router, prefix="/api/v1")
     app.include_router(settings_router, prefix="/api/v1")
     app.include_router(chat_router, prefix="/api/v1")
+    app.include_router(assistant_router, prefix="/api/v1")
 
     # Serve built frontend if web/dist/ exists
     _mount_static(app)

@@ -6,6 +6,7 @@ import {
   Plug,
   RefreshCw,
   Settings as SettingsIcon,
+  Sparkles,
   Tag,
 } from "lucide-react";
 import { NavLink } from "react-router";
@@ -29,6 +30,7 @@ interface SheetLink {
 const SHEET_LINKS: readonly SheetLink[] = [
   { to: "/playlists", label: "Playlists", Icon: ListMusic },
   { to: "/settings/integrations", label: "Integrations", Icon: Plug },
+  { to: "/settings/assistant", label: "Assistant", Icon: Sparkles },
   { to: "/settings/sync", label: "Sync", Icon: RefreshCw },
   { to: "/settings/tags", label: "Tags", Icon: Tag },
   { to: "/settings/imports", label: "Import History", Icon: History },

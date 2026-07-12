@@ -10,6 +10,7 @@ import { useState } from "react";
 import { NavLink } from "react-router";
 
 import { MobileMoreSheet } from "#/components/layout/MobileMoreSheet";
+import { useChatAvailable } from "#/hooks/useChatAvailable";
 import { cn } from "#/lib/utils";
 
 interface PrimaryRoute {
@@ -19,12 +20,18 @@ interface PrimaryRoute {
   end?: boolean;
 }
 
-const PRIMARY_ROUTES: readonly PrimaryRoute[] = [
+const BASE_ROUTES: readonly PrimaryRoute[] = [
   { to: "/", label: "Home", Icon: LayoutDashboard, end: true },
   { to: "/library", label: "Library", Icon: Library },
   { to: "/workflows", label: "Workflows", Icon: GitBranch },
-  { to: "/chat", label: "Ask", Icon: MessageCircle },
 ];
+
+// The assistant "Ask" tab appears only when the current user has a key.
+const CHAT_ROUTE: PrimaryRoute = {
+  to: "/chat",
+  label: "Ask",
+  Icon: MessageCircle,
+};
 
 const tabClass =
   "relative flex flex-1 flex-col items-center justify-center gap-1 px-2 py-2 font-display text-[11px] transition-colors min-h-[56px]";
@@ -34,6 +41,10 @@ const inactiveClass = "text-text-muted hover:text-text";
 
 export function MobileBottomNav() {
   const [moreOpen, setMoreOpen] = useState(false);
+  const { available: chatAvailable } = useChatAvailable();
+  const primaryRoutes = chatAvailable
+    ? [...BASE_ROUTES, CHAT_ROUTE]
+    : BASE_ROUTES;
 
   return (
     <>
@@ -42,7 +53,7 @@ export function MobileBottomNav() {
         className="fixed bottom-0 left-0 right-0 z-40 border-t border-border bg-surface-sunken pb-safe lg:hidden"
       >
         <div className="flex items-stretch">
-          {PRIMARY_ROUTES.map(({ to, label, Icon, end }) => (
+          {primaryRoutes.map(({ to, label, Icon, end }) => (
             <NavLink
               key={to}
               to={to}

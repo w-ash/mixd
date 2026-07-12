@@ -2,6 +2,7 @@ import { useEffect } from "react";
 import { useNavigate } from "react-router";
 
 import { ChatPanel } from "#/components/chat/ChatPanel";
+import { useChatAvailable } from "#/hooks/useChatAvailable";
 import { useIsMobile } from "#/hooks/useIsMobile";
 import { useChatStore } from "#/stores/chat-store";
 
@@ -18,15 +19,27 @@ const CHAT_HEIGHT_CLASS = "h-[calc(100svh-11rem)]";
 export function ChatPage() {
   const isMobile = useIsMobile();
   const navigate = useNavigate();
+  const { available, isLoading } = useChatAvailable();
 
   useEffect(() => {
+    // Wait for the per-user gate before deciding — otherwise a desktop
+    // deep-link/refresh redirects home while `available` is still false and the
+    // panel never opens.
+    if (isLoading) return;
     if (!isMobile) {
-      useChatStore.getState().setPanelOpen(true);
+      // Desktop deep-link: open the side panel and bounce home.
+      if (available) useChatStore.getState().setPanelOpen(true);
       navigate("/", { replace: true });
+      return;
     }
-  }, [isMobile, navigate]);
+    // Mobile with no key: this route shouldn't be reachable (the nav tab is
+    // hidden), but guard direct navigation by sending them to connect a key.
+    if (!available) {
+      navigate("/settings/assistant", { replace: true });
+    }
+  }, [isMobile, available, isLoading, navigate]);
 
-  if (!isMobile) return null;
+  if (!isMobile || !available) return null;
 
   return (
     <div className={CHAT_HEIGHT_CLASS}>

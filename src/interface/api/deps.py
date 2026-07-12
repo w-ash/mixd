@@ -5,13 +5,13 @@ request-scoped context from the ASGI scope.
 """
 
 from collections.abc import Awaitable, Callable
-from typing import cast
+from typing import Literal, cast
 
 from fastapi import Depends, Request
 
 from src.application.chat.protocols import LLMClientProtocol
 from src.config.constants import BusinessLimits
-from src.domain.exceptions import ConnectorNotConnectedError
+from src.domain.exceptions import ChatUnavailableError, ConnectorNotConnectedError
 from src.infrastructure.connectors._shared.token_storage import get_token_storage
 from src.interface.api.auth_gate import JWTClaims
 
@@ -53,12 +53,33 @@ def require_connector_connected(service: str) -> Callable[..., Awaitable[None]]:
     return _dep
 
 
-def get_llm_client() -> LLMClientProtocol:
-    """Resolve the chat LLM client (the injection seam tests override).
+async def get_llm_client(user_id: str) -> LLMClientProtocol:
+    """Resolve the acting user's chat LLM client (the injection seam tests override).
 
-    Raises ``ChatUnavailableError`` when ``ANTHROPIC_API_KEY`` is unset, which
-    the exception handlers map to a 503 ``CHAT_UNAVAILABLE`` envelope.
+    Precedence (user key → server fallback → none) lives in one place —
+    ``resolve_chat_credential``. When it yields nothing, raises
+    ``ChatUnavailableError`` → 503 ``CHAT_UNAVAILABLE``. One user's key never
+    resolves for another (RLS-scoped storage keyed by ``user_id``).
     """
-    from src.infrastructure.chat.anthropic_adapter import get_anthropic_adapter
+    from src.infrastructure.chat.anthropic_adapter import get_anthropic_adapter_for_key
+    from src.infrastructure.chat.credentials import resolve_chat_credential
 
-    return get_anthropic_adapter()
+    resolved = await resolve_chat_credential(user_id)
+    if resolved is None:
+        raise ChatUnavailableError(
+            "The chat assistant is not configured. Add your Anthropic API key in "
+            "Settings > Assistant."
+        )
+    return get_anthropic_adapter_for_key(resolved[0])
+
+
+async def resolve_chat_source(user_id: str) -> Literal["user", "server"] | None:
+    """Report which credential (if any) would serve this user's chat turn.
+
+    Drives the per-user ``GET /assistant/status`` capability signal the frontend
+    gate consumes. ``None`` means no assistant is available for this user.
+    """
+    from src.infrastructure.chat.credentials import resolve_chat_credential
+
+    resolved = await resolve_chat_credential(user_id)
+    return resolved[1] if resolved else None

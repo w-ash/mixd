@@ -195,9 +195,10 @@ async def post_chat(
     body: ChatRequest,
     user_id: str = Depends(get_current_user_id),
 ) -> StreamingResponse:
-    # Resolved in-body (not a second Depends): an unset key raises
-    # ChatUnavailableError here -> 503 CHAT_UNAVAILABLE before any streaming.
-    llm = get_llm_client()
+    # Resolved in-body (not a second Depends): a user with no key (and no
+    # server fallback) raises ChatUnavailableError here -> 503 CHAT_UNAVAILABLE
+    # before any streaming. The user's own key wins over the server fallback.
+    llm = await get_llm_client(user_id)
     _chat_limiter.check(user_id)
     confirmation_context = await _handle_confirmation(body, user_id)
     command = await _build_command(body, user_id, confirmation_context)
