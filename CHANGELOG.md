@@ -6,6 +6,18 @@ linked backlog version file. Versioning follows mixd's four-segment
 `major.minor.feature.revision` scheme (`.claude/rules/version-management.md`), not strict
 SemVer. Format inspired by [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [0.9.1] — 2026-07-11
+
+**Ask the assistant to do anything you can do in the app.** v0.9.0 could build workflows and little else; v0.9.1 makes the parity contract real — every read a user can perform in the web UI or CLI is a chat tool, every mutation is a two-phase-confirmed tool, long-running imports/syncs/runs stream their progress into the conversation, and whatever the assistant does lands in the same run log a human uses. "Which starred tracks haven't I played in six months? Tag them `context:revival` and add them to my Revival playlist" is now one conversation, end to end.
+
+- **31 tools, parity closed** — the shared registry grew from 6 to 31 tools (14 read / 17 write). Every one of mixd's 82 application use cases is now either covered by a chat tool or explicitly excluded (blacklisted / mechanically-excluded / internal), enforced by CI: `NOT_YET_COVERED` is empty and the tripwire test asserts it stays that way. A generated `docs/web-ui/capability-matrix.md` (freshness-tested) is the audit.
+- **Consolidated by intent, not use case** — tools are shaped around what a user wants ("manage tags", "query library"), 74 use cases collapsed to 31 tools via `operation`/`scope`/`view` discriminators, so the model reliably picks the right one.
+- **Every mutation is a proposal** — write tools return a before/after preview; the confirmation card shows exactly what changes, with a distinct destructive-action banner (delete / merge / unlink) before anything commits.
+- **Long-running operations in chat** — imports, playlist syncs, bulk assignment applies, and workflow runs launch from chat with the same live progress card the Sync page uses (reusing the existing operations SSE), and land in the run log attributed to the assistant (new `operation_runs.initiated_by`, migration `037`, Assistant badge in the import history).
+- **Prompt-injection defense** — user-library free text (track titles, playlist/tag names) reaches the model wrapped in `<user_data>` tags and the frontend raw; a leaked title can't smuggle instructions.
+
+→ [details](docs/backlog/v0.9.x.md#v091-full-capability-parity-in-app)
+
 ## [0.9.0.1] — 2026-07-11
 
 **The AI assistant is now yours alone — bring your own Anthropic key, and until you do, it simply isn't there.** v0.9.0 mounted the chat surface for everyone behind one shared deployment key; that broke mixd's multi-user principle (one person's key and spend serving all) and showed a chat affordance that only errored when used. Now the assistant is per-user and opt-in: connect a key in Settings → Assistant (or `mixd assistant connect`), and the whole surface — Cmd+K, edge tab, side panel, mobile `/chat` and the "Ask" tab — appears only for you. No key, no assistant; no shared key, no broken button.

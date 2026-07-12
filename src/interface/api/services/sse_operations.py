@@ -74,6 +74,7 @@ async def prepare_sse_operation_with_emitter(
     user_id: str,
     operation_type: str,
     request_params: JsonDict | None = None,
+    initiated_by: str = "manual",
 ) -> tuple[str, UUID, OperationBoundEmitter]:
     """Pre-generate operation_id, register SSE queue, build a bound emitter,
     and write the ``OperationRun`` audit row at kickoff.
@@ -103,6 +104,7 @@ async def prepare_sse_operation_with_emitter(
         operation_type=operation_type,
         operation_id=operation_id,
         request_params=request_params,
+        initiated_by=initiated_by,
     )
     await get_operation_registry().register(operation_id)
     emitter = OperationBoundEmitter(
@@ -272,6 +274,7 @@ async def launch_sse_operation(
     coro_factory: Callable[[OperationBoundEmitter], Awaitable[object]],
     name_prefix: str = "import",
     request_params: JsonDict | None = None,
+    initiated_by: str = "manual",
 ) -> OperationStartedResponse:
     """Run the standard kickoff → background → return-202 shape.
 
@@ -288,11 +291,16 @@ async def launch_sse_operation(
 
     ``request_params`` is persisted on the audit row so a retryable operation can
     be re-invoked from the run alone — connector config strings only.
+
+    ``initiated_by`` attributes the run in the log — defaults to "manual" so all
+    existing callers are unaffected; the chat→launcher wiring passes "assistant"
+    for AI-agent-initiated background operations.
     """
     operation_id, run_id, emitter = await prepare_sse_operation_with_emitter(
         user_id=user_id,
         operation_type=operation_type,
         request_params=request_params,
+        initiated_by=initiated_by,
     )
     # Human-readable parent-op description (e.g. "import_lastfm_history" →
     # "Import Lastfm History") for the top-level `started` event.

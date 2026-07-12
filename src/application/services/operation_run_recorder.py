@@ -29,6 +29,7 @@ async def start_run(
     operation_id: str | None = None,
     triggered_by_schedule_id: UUID | None = None,
     request_params: JsonDict | None = None,
+    initiated_by: str = "manual",
 ) -> UUID:
     """Insert an ``OperationRun`` row at operation kickoff.
 
@@ -39,7 +40,9 @@ async def start_run(
     scheduled sync's audit row traces back to its schedule (None for
     user-initiated operations). ``request_params`` records how to re-invoke the
     operation (connector config) so "Retry failed only" can rebuild the call from
-    the row — connector strings only, never ids or user_id.
+    the row — connector strings only, never ids or user_id. ``initiated_by``
+    attributes the run in the log — "manual" (the user, default), "assistant"
+    (an AI-agent-launched background op), or "schedule".
     """
 
     async def _create(uow: UnitOfWorkProtocol) -> UUID:
@@ -51,6 +54,7 @@ async def start_run(
             operation_id=operation_id,
             triggered_by_schedule_id=triggered_by_schedule_id,
             request_params=request_params or {},
+            initiated_by=initiated_by,
         )
         async with uow:
             repo = uow.get_operation_run_repository()

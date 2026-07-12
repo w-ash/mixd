@@ -1,4 +1,4 @@
-import { ChevronDown } from "lucide-react";
+import { ChevronDown, Sparkles } from "lucide-react";
 import { useEffect, useState } from "react";
 import { useSearchParams } from "react-router";
 import type {
@@ -31,6 +31,20 @@ const OPERATION_LABELS: Record<string, string> = {
 
 function operationLabel(operationType: string): string {
   return OPERATION_LABELS[operationType] ?? operationType;
+}
+
+/**
+ * Attribution badge for an assistant-initiated run. Sits next to the status
+ * badge so agent activity is visible in the same log a human reads — trusting
+ * the agent never requires trusting one's memory of the chat.
+ */
+function AssistantBadge() {
+  return (
+    <span className="inline-flex items-center gap-1 rounded-full bg-primary/15 px-2 py-0.5 font-display text-[10px] font-medium text-primary">
+      <Sparkles className="size-2.5" aria-hidden />
+      Assistant
+    </span>
+  );
 }
 
 function CountsLine({
@@ -199,6 +213,7 @@ export function ImportHistoryPage() {
                           {operationLabel(run.operation_type)}
                         </span>
                         <RunStatusBadge status={run.status} />
+                        {run.initiated_by === "assistant" && <AssistantBadge />}
                       </div>
                       <div className="truncate font-mono text-xs text-text-muted">
                         Started {formatDateTime(run.started_at)}

@@ -3,7 +3,7 @@
   "info": {
     "title": "Mixd",
     "description": "Personal music metadata hub",
-    "version": "0.9.0.1"
+    "version": "0.9.1"
   },
   "paths": {
     "/api/v1/connectors/{service}/auth-url": {
@@ -6552,6 +6552,10 @@
           "retryable": {
             "type": "boolean",
             "title": "Retryable"
+          },
+          "initiated_by": {
+            "type": "string",
+            "title": "Initiated By"
           }
         },
         "type": "object",
@@ -6564,7 +6568,8 @@
           "status",
           "counts",
           "issues",
-          "retryable"
+          "retryable",
+          "initiated_by"
         ],
         "title": "OperationRunDetailSchema",
         "description": "Full audit-log row including the issues array."
@@ -6662,6 +6667,10 @@
           "retryable": {
             "type": "boolean",
             "title": "Retryable"
+          },
+          "initiated_by": {
+            "type": "string",
+            "title": "Initiated By"
           }
         },
         "type": "object",
@@ -6674,7 +6683,8 @@
           "status",
           "counts",
           "issue_count",
-          "retryable"
+          "retryable",
+          "initiated_by"
         ],
         "title": "OperationRunSummarySchema",
         "description": "Lightweight row for the list view (no full ``issues`` payload).\n\nThe list endpoint returns this shape; full ``issues`` come back from\nthe per-run detail endpoint so a 100-issue run doesn't bloat the\nlist response."

@@ -3,7 +3,7 @@
  * Do not edit manually.
  * Mixd
  * Personal music metadata hub
- * OpenAPI spec version: 0.9.0.1
+ * OpenAPI spec version: 0.9.1
  */
 import type { FallbackShareSchema } from './fallbackShareSchema.ts';
 import type { MatchingDriftSchemaReviewPendingByMethod } from './matchingDriftSchemaReviewPendingByMethod.ts';

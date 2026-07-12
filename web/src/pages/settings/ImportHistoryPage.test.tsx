@@ -24,6 +24,7 @@ function makeSummary(
     counts: { tracks: 100 },
     issue_count: 0,
     retryable: false,
+    initiated_by: "manual",
     ...overrides,
   };
 }
@@ -83,6 +84,26 @@ describe("ImportHistoryPage", () => {
     expect(screen.getByText("Error")).toBeInTheDocument();
   });
 
+  it("shows the Assistant badge only for an assistant-initiated run", async () => {
+    setupListMock([
+      makeSummary({
+        id: "00000000-0000-0000-0000-000000000001",
+        operation_type: "import_spotify_likes",
+        initiated_by: "assistant",
+      }),
+      makeSummary({
+        id: "00000000-0000-0000-0000-000000000002",
+        operation_type: "apply_assignments_bulk",
+        initiated_by: "manual",
+      }),
+    ]);
+    renderWithProviders(<ImportHistoryPage />);
+
+    // Exactly one Assistant badge — the manual run does not get one.
+    await screen.findByText("Spotify likes import");
+    expect(screen.getAllByText("Assistant")).toHaveLength(1);
+  });
+
   it("auto-expands the row matching ?run=<id> on mount and fetches detail", async () => {
     const targetId = "00000000-0000-0000-0000-000000000042";
     setupListMock([makeSummary({ id: targetId, issue_count: 1 })]);
@@ -96,6 +117,7 @@ describe("ImportHistoryPage", () => {
       counts: { tracks: 100 },
       issues: [{ track_id: "abc", reason: "no_match" }],
       retryable: false,
+      initiated_by: "manual",
     });
 
     renderWithProviders(<ImportHistoryPage />, {

@@ -31,6 +31,88 @@ describe("ConfirmationCard", () => {
     expect(screen.getByText("24")).toBeInTheDocument();
   });
 
+  it("renders standard `changes` lines as a list when present", () => {
+    render(
+      <ConfirmationCard
+        {...BASE_PROPS}
+        state="pending"
+        details={{
+          operation: "rename",
+          changes: ["Rename tag 'chill' → 'mellow'", "Affects 42 tracks"],
+          tag_id: "tag-9",
+        }}
+      />,
+    );
+    expect(
+      screen.getByText("Rename tag 'chill' → 'mellow'"),
+    ).toBeInTheDocument();
+    expect(screen.getByText("Affects 42 tracks")).toBeInTheDocument();
+    // Raw commit params are not dumped when `changes` drives the display.
+    expect(screen.queryByText("tag id")).not.toBeInTheDocument();
+    expect(screen.queryByText("tag-9")).not.toBeInTheDocument();
+  });
+
+  it("renders the warning banner distinctly for destructive severity", () => {
+    render(
+      <ConfirmationCard
+        {...BASE_PROPS}
+        state="pending"
+        details={{
+          operation: "delete",
+          severity: "destructive",
+          warning: "This permanently deletes the tag and cannot be undone.",
+          changes: ["Delete tag 'archive'", "Affects 8 tracks"],
+          tag_id: "tag-3",
+        }}
+      />,
+    );
+    const alert = screen.getByRole("alert");
+    expect(alert).toHaveTextContent(
+      "This permanently deletes the tag and cannot be undone.",
+    );
+    // Changes still render alongside the warning.
+    expect(screen.getByText("Delete tag 'archive'")).toBeInTheDocument();
+  });
+
+  it("renders a soft (non-destructive) warning in a muted banner", () => {
+    // A `warning` without `severity: "destructive"` still surfaces — e.g. the
+    // delete-link / delete-assignment dispatchers attach a soft caveat. It must
+    // reach the user, just without the red destructive treatment.
+    render(
+      <ConfirmationCard
+        {...BASE_PROPS}
+        state="pending"
+        details={{
+          operation: "delete",
+          changes: ["Delete sync link link-7"],
+          warning:
+            "removes the sync link; the playlist and connector data stay intact",
+        }}
+      />,
+    );
+    const alert = screen.getByRole("alert");
+    expect(alert).toHaveTextContent(
+      "removes the sync link; the playlist and connector data stay intact",
+    );
+    // Muted styling, not the destructive red treatment.
+    expect(alert.className).toContain("text-text-muted");
+    expect(alert.className).not.toContain("text-destructive");
+  });
+
+  it("does not render a warning banner when no warning is present", () => {
+    // BASE_PROPS.details carries no `warning` key.
+    render(<ConfirmationCard {...BASE_PROPS} state="pending" />);
+    expect(screen.queryByRole("alert")).not.toBeInTheDocument();
+  });
+
+  it("falls back to the generic display when `changes` is absent", () => {
+    // BASE_PROPS.details has no `changes` key.
+    render(<ConfirmationCard {...BASE_PROPS} state="pending" />);
+    expect(screen.getByText("track count")).toBeInTheDocument();
+    expect(screen.getByText("Friday Mix")).toBeInTheDocument();
+    expect(screen.queryByRole("alert")).not.toBeInTheDocument();
+  });
+
   it("calls onConfirm with the actionId when Confirm is clicked", async () => {
     const onConfirm = vi.fn();
     render(

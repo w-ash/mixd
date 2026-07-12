@@ -34,6 +34,7 @@ async def launch_playlist_link_sync(
     user_id: str,
     direction_override: str | None,
     confirm_token: str | None,
+    initiated_by: str = "manual",
 ) -> OperationStartedResponse:
     """Confirm (synchronously) then launch a background playlist-link sync.
 
@@ -63,6 +64,7 @@ async def launch_playlist_link_sync(
         operation_type="sync_playlist_link",
         coro_factory=_sync,
         name_prefix="playlist_sync",
+        initiated_by=initiated_by,
     )
 
 

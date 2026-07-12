@@ -1423,6 +1423,13 @@ class DBOperationRun(BaseEntity):
         nullable=True,
         index=True,
     )
+    # Attribution: who initiated this run — "manual" (default), "assistant"
+    # (an AI-agent-launched background op), or "schedule". Rendered as a badge
+    # in the run log so agent activity is visible alongside human-initiated
+    # runs. Migration 037.
+    initiated_by: Mapped[str] = mapped_column(
+        String(16), nullable=False, default="manual", server_default="manual"
+    )
 
 
 class DBSchedule(BaseEntity):

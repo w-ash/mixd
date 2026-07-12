@@ -8,7 +8,7 @@ dispatch path without a live Anthropic key. describe_node needs no DB.
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
 import json
-from uuid import uuid4
+from uuid import UUID, uuid4, uuid7
 
 import httpx
 import pytest
@@ -374,6 +374,77 @@ async def test_generate_and_save_in_one_turn_then_confirm_persists_once(
         },
     )
     assert replay.status_code == 409
+
+
+async def test_confirming_run_workflow_streams_operation_started(
+    client: httpx.AsyncClient, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A confirmed long-running tool launches the op and streams a progress card.
+
+    The real ``launch_chat_operation`` runs (mapping run_workflow → the workflow
+    launcher); only the interface launcher it delegates to is stubbed, so no run
+    row is created and no background task fires. The confirm path must emit a
+    ``tool_result`` frame whose summary is the ``operation_started`` envelope.
+    """
+
+    from src.interface.api.schemas.workflows import WorkflowRunStartedResponse
+    import src.interface.api.services.chat_operations as chat_ops
+
+    workflow_id = str(uuid4())
+    run_id = uuid7()
+
+    # Propose: the model calls run_workflow, which stores a pending action.
+    propose = ToolUseBlock(
+        id="r1", name="run_workflow", input={"workflow_id": workflow_id}
+    )
+    _inject_llm(monkeypatch, [_tool_turn(propose), _end_turn("Ready to run.")])
+    resp = await client.post(
+        "/api/v1/chat", json={"messages": [{"role": "user", "content": "run it"}]}
+    )
+    assert resp.status_code == 200
+    events = _parse_sse(resp.text)
+    proposal = next(
+        e for e in events if e["type"] == "tool_result" and e["name"] == "run_workflow"
+    )
+    assert proposal["summary"]["status"] == "pending_confirmation"
+    action_id = proposal["summary"]["action_id"]
+
+    # Stub the interface launcher the mapping delegates to (no DB / no bg task).
+    calls: list[tuple[object, str]] = []
+
+    async def _fake_launch(wf_id: object, user_id: str) -> WorkflowRunStartedResponse:
+        calls.append((wf_id, user_id))
+        return WorkflowRunStartedResponse(operation_id="op-abc", run_id=run_id)
+
+    monkeypatch.setattr(chat_ops, "launch_workflow_run", _fake_launch)
+
+    # Confirm: the route claims the action, launches, and emits the progress card.
+    _inject_llm(monkeypatch, [_end_turn("Kicked it off.")])
+    confirm = await client.post(
+        "/api/v1/chat",
+        json={
+            "messages": [{"role": "user", "content": "run it"}],
+            "confirmation": {"action_id": action_id, "approved": True},
+        },
+    )
+    assert confirm.status_code == 200
+
+    assert calls == [(UUID(workflow_id), "default")]
+    confirm_events = _parse_sse(confirm.text)
+    launched = next(
+        e
+        for e in confirm_events
+        if e["type"] == "tool_result" and e["name"] == "run_workflow"
+    )
+    assert launched["summary"] == {
+        "status": "operation_started",
+        "operation_id": "op-abc",
+        "run_id": str(run_id),
+        "description": f"Run workflow {workflow_id}",
+    }
+    # The model still narrates afterward, and the stream terminates cleanly.
+    assert any(e["type"] == "token" for e in confirm_events)
+    assert confirm_events[-1]["type"] == "done"
 
 
 async def test_expired_confirmation_returns_action_expired(

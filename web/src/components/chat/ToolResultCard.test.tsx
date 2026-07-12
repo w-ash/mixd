@@ -12,6 +12,29 @@ vi.mock("#/components/shared/WorkflowGraph", () => ({
   ),
 }));
 
+// The operation-progress card opens an SSE stream on mount — stub the hook so
+// the dispatch test stays a pure render check.
+vi.mock("#/hooks/useOperationProgress", () => ({
+  useOperationProgress: () => ({
+    progress: {
+      status: "running",
+      current: 1,
+      total: 10,
+      message: "Importing plays…",
+      description: "Import Last.fm history",
+      completionPercentage: 10,
+      itemsPerSecond: null,
+      etaSeconds: null,
+      counts: null,
+      subOperation: null,
+      subOperationHistory: {},
+    },
+    isActive: true,
+    isConnected: true,
+    error: null,
+  }),
+}));
+
 const GENERATE_CALL: ToolCall = {
   id: "g1",
   name: "generate_workflow_def",
@@ -105,6 +128,30 @@ describe("ToolResultCard dispatch", () => {
     expect(screen.getByRole("button", { name: "Confirm" })).toBeInTheDocument();
     // The definition JSON wall is stripped from the generic details view.
     expect(screen.queryByText(/definition/)).not.toBeInTheDocument();
+  });
+
+  it("routes an operation_started result to the progress card", () => {
+    renderWithProviders(
+      <ToolResultCard
+        toolCall={{
+          id: "op1",
+          name: "import_lastfm_history",
+          result: {
+            status: "operation_started",
+            operation_id: "op-123",
+            run_id: "run-456",
+            description: "Import Last.fm history",
+          },
+        }}
+      />,
+    );
+
+    expect(screen.getByText("Import Last.fm history")).toBeInTheDocument();
+    expect(screen.getByText("Importing plays…")).toBeInTheDocument();
+    expect(screen.getByRole("link", { name: /open run/i })).toHaveAttribute(
+      "href",
+      "/settings/imports?run=run-456",
+    );
   });
 
   it("keeps the generic card for ordinary read results", () => {

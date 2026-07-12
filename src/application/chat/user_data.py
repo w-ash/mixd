@@ -3,23 +3,28 @@
 Music metadata is attacker-controllable text: a track title, playlist name, or
 tag can contain instructions. Free-text values that originate from the user's
 library must reach the model labeled as data, never as instructions. The
-convention has one marker and three boundaries:
+convention is *eager wrapping* at the dispatcher, with three boundaries:
 
-- **Marker** (v0.9.1): dispatchers mark user-originated strings with a
-  ``UserData`` ``str`` subclass carrying the raw value.
-- **Model boundary (wrap)**: serializing a tool result into model context runs
-  ``wrap_for_model``, enclosing marked values in ``<user_data>`` tags.
+- **Wrap (dispatchers)**: a dispatcher building a tool result calls :func:`wrap`
+  on every user-originated display string (track/artist/album titles, playlist
+  and tag names, notes) — the ``dispatchers._common.user_text`` helper does this
+  — so the value enters the result already enclosed in ``<user_data>`` tags.
+  Keeping the result plain ``str``/JSON (not a marker object) means no bespoke
+  type threads through the dispatch signatures and no ``str`` subclass (which
+  would trip ruff FURB189).
+- **Model boundary**: the result is serialized into model context verbatim, so
+  the model sees the wrapped text quoted as data.
 - **Frontend boundary (strip)**: tool-result event summaries pass through
-  :func:`strip_user_data` before the SSE stream, so the frontend renders raw
+  :func:`strip_user_data` before the SSE stream, so the frontend renders the raw
   values and needs no strip sites of its own.
 - **Input boundary (sanitize)**: ``registry.execute_tool`` applies
   :func:`strip_user_data` to every incoming tool_input, so wrapped values the
-  model echoes back can never break lookups or persist.
+  model echoes back as tool arguments can never break lookups or persist.
 
-v0.9.0 ships the strip boundary (the input sanitizer) and the :func:`wrap`
-primitive; the ``UserData`` marker and ``wrap_for_model`` land in v0.9.1 with
-the first tools that return user-library text. The tag literals live ONLY in
-this module (plus the prompt text that teaches the model the convention).
+The tag literals live ONLY in this module (plus the prompt text that teaches the
+model the convention). Write dispatchers wrap only *display* fields, never the
+structured/id fields the confirmed executor commits from, so a wrapped value
+never persists.
 """
 
 import re

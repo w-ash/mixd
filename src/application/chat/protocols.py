@@ -24,6 +24,7 @@ from src.application.chat.events import (
     ServerToolStartEvent,
     TextDelta,
 )
+from src.application.chat.pending_actions import PendingAction
 from src.config.settings import EffortLevel
 from src.domain.entities.shared import JsonDict, JsonValue
 
@@ -33,6 +34,21 @@ class ToolContext:
     """Per-request context injected into every tool dispatcher."""
 
     user_id: str
+
+
+class OperationLauncher(Protocol):
+    """Launches the long-running operation a confirmed chat action describes.
+
+    Long-running tools (imports, playlist syncs, workflow runs) cannot be
+    launched from the application layer — the SSE operation machinery (operation
+    registry, progress broker, background dispatch) is interface-layer. So the
+    FastAPI chat route injects this launcher into the confirmed-action path; the
+    implementation maps the action's ``tool_name`` + ``details`` to the right
+    interface launcher and returns the ``{operation_id, run_id}`` handle the
+    chat panel subscribes to via the existing ``/operations/{id}/progress`` SSE.
+    """
+
+    async def __call__(self, action: PendingAction, user_id: str) -> JsonDict: ...
 
 
 # An async tool dispatcher: validated args + context -> JSON-serializable result.

@@ -25,6 +25,7 @@ async def _seed_run(
     issues: list | None = None,
     operation_id: str | None = None,
     request_params: dict | None = None,
+    initiated_by: str = "manual",
 ) -> OperationRun:
     """Persist one OperationRun row and return the saved domain entity."""
     run = make_operation_run(
@@ -36,6 +37,7 @@ async def _seed_run(
         issues=issues,
         operation_id=operation_id,
         request_params=request_params if request_params is not None else {},
+        initiated_by=initiated_by,
     )
 
     async def _do(uow):
@@ -135,6 +137,16 @@ class TestListOperationRuns:
         assert "issues" not in row
         assert row["issue_count"] == 2
 
+    async def test_summary_exposes_initiated_by(
+        self, client: httpx.AsyncClient
+    ) -> None:
+        """The list row carries the attribution so the UI can badge agent runs."""
+        await _seed_run(initiated_by="assistant")
+
+        response = await client.get("/api/v1/operation-runs")
+        assert response.status_code == 200
+        assert response.json()["data"][0]["initiated_by"] == "assistant"
+
 
 class TestActiveOperationAwareness:
     """GET /api/v1/operation-runs?status=running — the operation-awareness query.
@@ -191,6 +203,16 @@ class TestGetOperationRun:
         assert body["id"] == str(run.id)
         assert body["counts"] == {"tracks": 100}
         assert body["issues"] == [{"track_id": "abc", "reason": "no_match"}]
+        # Manual is the default attribution for a directly-initiated run.
+        assert body["initiated_by"] == "manual"
+
+    async def test_detail_exposes_assistant_attribution(
+        self, client: httpx.AsyncClient
+    ) -> None:
+        run = await _seed_run(initiated_by="assistant")
+
+        body = (await client.get(f"/api/v1/operation-runs/{run.id}")).json()
+        assert body["initiated_by"] == "assistant"
 
     async def test_non_existent_returns_404(self, client: httpx.AsyncClient) -> None:
         from uuid import uuid7

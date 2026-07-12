@@ -1,5 +1,7 @@
 import { lazy, Suspense } from "react";
 import { ConfirmationCard } from "#/components/chat/ConfirmationCard";
+import { OperationProgressCard } from "#/components/chat/cards/OperationProgressCard";
+import { isOperationStartedResult } from "#/components/chat/cards/operation-progress-types";
 import {
   isGenerateWorkflowResult,
   type SaveProposal,
@@ -237,6 +239,12 @@ export function ToolResultCard({
         onCancel={onCancel}
       />
     );
+  }
+
+  // A long-running tool's confirmation reports a started background operation —
+  // render live SSE progress inline instead of a static key/value dump.
+  if (isOperationStartedResult(result)) {
+    return <OperationProgressCard result={result} />;
   }
 
   // Every read tool renders through the generic key/value card until a bespoke

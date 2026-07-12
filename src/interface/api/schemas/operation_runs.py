@@ -34,6 +34,9 @@ class OperationRunSummarySchema(BaseModel):
     # Server truth for the "Retry failed only" action (OperationRun.is_retryable),
     # so the UI never re-derives retryability from operation_type.
     retryable: bool
+    # Attribution: "manual" (default), "assistant" (AI-agent-launched), or
+    # "schedule". Drives the "Assistant" badge in the run log.
+    initiated_by: str
 
 
 class OperationRunDetailSchema(BaseModel):
@@ -50,6 +53,9 @@ class OperationRunDetailSchema(BaseModel):
     counts: JsonDict
     issues: list[JsonDict]
     retryable: bool
+    # Attribution: "manual" (default), "assistant" (AI-agent-launched), or
+    # "schedule". Drives the "Assistant" badge in the run log.
+    initiated_by: str
 
 
 class OperationRunListResponse(BaseModel):

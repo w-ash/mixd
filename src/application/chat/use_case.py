@@ -141,9 +141,10 @@ class ChatUseCase:
             for tu in response.content:
                 try:
                     summary = await self._execute_tool(tu.name, tu.input, ctx)
-                    # The event boundary strips any tag literals so the frontend
-                    # always renders raw values. (wrap_for_model at the model
-                    # boundary lands in v0.9.1 with the first library-text tool.)
+                    # Dispatchers eagerly wrap attacker-controllable library text
+                    # in <user_data> tags (see user_data.py). The model content
+                    # keeps the tags (quoted as data); the event boundary strips
+                    # them so the frontend renders the raw values.
                     yield ToolResultEvent(
                         name=tu.name,
                         tool_use_id=tu.id,

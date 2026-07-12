@@ -52,6 +52,7 @@ class OperationRunRepository(BaseRepository[DBOperationRun, OperationRun]):
             request_params=dict(run.request_params),
             operation_id=run.operation_id,
             triggered_by_schedule_id=run.triggered_by_schedule_id,
+            initiated_by=run.initiated_by,
         )
         self.session.add(db_row)
         await self.session.flush()

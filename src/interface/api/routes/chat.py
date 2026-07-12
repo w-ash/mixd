@@ -14,8 +14,8 @@ from uuid import UUID
 from fastapi import APIRouter, Depends
 from fastapi.responses import StreamingResponse
 
-from src.application.chat.events import TextDelta
-from src.application.chat.pending_actions import pending_action_store
+from src.application.chat.events import TextDelta, ToolResultEvent
+from src.application.chat.pending_actions import PendingAction, pending_action_store
 from src.application.chat.system_prompt import build_system_prompt
 from src.application.chat.use_case import ChatCommand, ChatUseCase
 from src.application.runner import execute_use_case
@@ -39,6 +39,7 @@ from src.application.use_cases.workflow_crud import (
 )
 from src.config import get_logger
 from src.config.settings import settings
+from src.domain.entities.shared import JsonValue
 from src.domain.entities.workflow import Workflow
 from src.domain.exceptions import NotFoundError
 from src.interface.api.chat_sse import QueueItem, stream_chat_response
@@ -49,6 +50,7 @@ from src.interface.api.schemas.chat import (
     ChatFeedbackResponse,
     ChatRequest,
 )
+from src.interface.api.services.chat_operations import launch_chat_operation
 
 logger = get_logger(__name__)
 
@@ -60,31 +62,57 @@ _chat_limiter = InMemoryRateLimiter(
 )
 
 
-async def _handle_confirmation(body: ChatRequest, user_id: str) -> str | None:
+async def _handle_confirmation(
+    body: ChatRequest, user_id: str
+) -> tuple[str | None, ToolResultEvent | None]:
     """Process a confirmation, if present, before the model turn.
 
-    Returns a context string to append to the conversation so the model can
-    acknowledge the outcome, or None when there is no confirmation.
+    Returns a ``(context, launch_event)`` pair: a context string to append to the
+    conversation so the model narrates the outcome, plus a synthetic
+    ``ToolResultEvent`` when a long-running operation was launched (so the panel
+    can render a progress card). Both are ``None`` when there is no confirmation.
     """
     if body.confirmation is None:
-        return None
+        return None, None
     action_id = UUID(body.confirmation.action_id)
     if body.confirmation.approved:
         action = pending_action_store.claim(action_id, user_id)
-        result = await execute_confirmed_action(action, user_id)
+        result = await execute_confirmed_action(
+            action, user_id, operation_launcher=launch_chat_operation
+        )
         logger.info(
             "chat_action_confirmed", action_id=str(action_id), tool=action.tool_name
         )
-        return (
+        context = (
             f"[The user confirmed the proposed action. "
             f"Result: {json.dumps(result)}. Acknowledge the change briefly.]"
         )
+        return context, _launch_event(action, result)
     pending_action_store.cancel(action_id, user_id)
     logger.info("chat_action_cancelled", action_id=str(action_id))
     return (
         "[The user cancelled the proposed action. "
-        "Acknowledge the cancellation briefly.]"
+        "Acknowledge the cancellation briefly.]",
+        None,
     )
+
+
+def _launch_event(action: PendingAction, result: JsonValue) -> ToolResultEvent | None:
+    """Build the synthetic ``tool_result`` frame for a launched operation.
+
+    A ``launches_operation`` confirm returns an ``operation_started`` envelope;
+    surfacing it as a tool-result-style event (not just model text) lets the chat
+    panel's ``ToolResultCard`` dispatch a live progress card on
+    ``summary.status == "operation_started"``. Synchronous writes (e.g.
+    save_workflow) return no such status, so they get no card.
+    """
+    if isinstance(result, dict) and result.get("status") == "operation_started":
+        return ToolResultEvent(
+            name=action.tool_name,
+            tool_use_id=str(action.action_id),
+            summary=result,
+        )
+    return None
 
 
 async def _fetch_library_stats(user_id: str) -> DashboardStatsResult | None:
@@ -157,11 +185,20 @@ async def _build_command(
 
 
 def _bridge(
-    use_case: ChatUseCase, command: ChatCommand
+    use_case: ChatUseCase,
+    command: ChatCommand,
+    launch_event: ToolResultEvent | None = None,
 ) -> Callable[[asyncio.Queue[QueueItem]], Awaitable[None]]:
-    """Wrap the event generator into a queue-based run function for SSE."""
+    """Wrap the event generator into a queue-based run function for SSE.
+
+    A ``launch_event`` (present when the confirmation launched a background
+    operation) is emitted first, so the panel renders its progress card before
+    the model's narration streams in.
+    """
 
     async def _run(queue: asyncio.Queue[QueueItem]) -> None:
+        if launch_event is not None:
+            queue.put_nowait(launch_event)
         async for event in use_case.execute(command):
             if isinstance(event, TextDelta):
                 queue.put_nowait(event.text)
@@ -200,6 +237,8 @@ async def post_chat(
     # before any streaming. The user's own key wins over the server fallback.
     llm = await get_llm_client(user_id)
     _chat_limiter.check(user_id)
-    confirmation_context = await _handle_confirmation(body, user_id)
+    confirmation_context, launch_event = await _handle_confirmation(body, user_id)
     command = await _build_command(body, user_id, confirmation_context)
-    return stream_chat_response(_bridge(ChatUseCase(llm, execute_tool), command))
+    return stream_chat_response(
+        _bridge(ChatUseCase(llm, execute_tool), command, launch_event)
+    )

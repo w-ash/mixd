@@ -5,7 +5,10 @@
 set -euo pipefail
 cd "$(dirname "$0")/.."
 
-BASE_WHITELIST=63
+# 63 → 70 at v0.9.1: the 4 agent-parity classification frozensets (consumed by the
+# parity test + capability-matrix generator, not within src/) plus 3 v0.9.0 chat
+# names (voice attrs fields, a settings field) that vulture couldn't see used.
+BASE_WHITELIST=70
 BASE_NOQA=13
 BASE_TYPE_IGNORE=0
 BASE_PYRIGHT_IGNORE=18

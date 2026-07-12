@@ -101,6 +101,7 @@ async def list_operation_runs(
                 counts=dict(r.counts),
                 issue_count=len(r.issues),
                 retryable=r.is_retryable,
+                initiated_by=r.initiated_by,
             )
             for r in result.runs
         ],
@@ -137,6 +138,7 @@ async def get_operation_run(
         counts=dict(run.counts),
         issues=list(run.issues),
         retryable=run.is_retryable,
+        initiated_by=run.initiated_by,
     )
 
 

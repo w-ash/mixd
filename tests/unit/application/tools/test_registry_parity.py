@@ -78,11 +78,14 @@ def test_every_use_case_is_classified_exactly_once() -> None:
             assert not overlap, f"Use case in both {a} and {b}: {overlap}"
 
 
-def test_not_yet_covered_shrinks_toward_empty() -> None:
-    # A tripwire: NOT_YET_COVERED is v0.9.1's backlog. It must never grow past
-    # the full surface, and by the end of v0.9.1 it should be empty.
-    assert NOT_YET_COVERED, "If empty, tighten this test to assert emptiness (v0.9.1)"
-    assert _discover_use_case_classes() >= NOT_YET_COVERED
+def test_not_yet_covered_is_empty() -> None:
+    # v0.9.1 closed the parity contract: every use case is covered or explicitly
+    # excluded. NOT_YET_COVERED must stay empty — a new use case that needs a
+    # tool must grow one (or an exclusion), not sit in a backlog set.
+    assert frozenset() == NOT_YET_COVERED, (
+        f"Parity is closed — cover these or add them to an exclusion bucket: "
+        f"{set(NOT_YET_COVERED)}"
+    )
 
 
 # --- Registry quality invariants -------------------------------------------
@@ -118,12 +121,14 @@ def test_non_agentic_tools_have_a_dispatcher() -> None:
         assert spec.dispatch is not None, f"{spec.name}: missing dispatcher"
 
 
-def test_write_tools_carry_a_confirmation_executor() -> None:
+def test_write_tools_carry_a_confirmation_path() -> None:
+    # Every write commits after confirmation via exactly one path: a synchronous
+    # ``executor`` or a long-running ``launches_operation`` (interface launcher).
     for spec in TOOLS:
         if spec.kind == "write":
-            assert spec.executor is not None, (
-                f"{spec.name}: write tools must route through two-phase "
-                "confirmation (executor required)"
+            assert (spec.executor is not None) ^ spec.launches_operation, (
+                f"{spec.name}: a write tool needs exactly one of executor / "
+                "launches_operation"
             )
 
 

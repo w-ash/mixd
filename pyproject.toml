@@ -1,6 +1,6 @@
 [project]
 name = "mixd"
-version = "0.9.0.1"
+version = "0.9.1"
 description = "Music metadata integration and playlist management platform"
 authors = [{name = "Ash Wright", email = "a@ashwright.net"}]
 readme = "README.md"
@@ -152,6 +152,12 @@ unfixable = []
 "src/application/chat/tool_executor.py" = [
     "RUF029",   # ToolDispatch protocol requires async dispatchers even without await
     "ARG001",   # dispatchers share one (tool_input, ctx) signature; not all use both
+]
+"src/application/chat/dispatchers/*_write.py" = [
+    "RUF029",   # write dispatchers propose (no I/O) but ToolDispatch requires async
+]
+"src/application/chat/dispatchers/long_ops.py" = [
+    "RUF029",   # long-op tools propose (no I/O) but ToolDispatch requires async
 ]
 "src/application/chat/use_case.py" = [
     "ASYNC119", # streaming proxy MUST yield inside the LLM stream context; the SSE

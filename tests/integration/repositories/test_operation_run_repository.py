@@ -56,6 +56,29 @@ class TestCreateAndRead:
         assert created.issues == []
         assert created.request_params == {}
 
+    async def test_initiated_by_round_trips(self, db_session: AsyncSession) -> None:
+        """An assistant-initiated run persists and reads back its attribution."""
+        repo = OperationRunRepository(db_session)
+        run = make_operation_run(initiated_by="assistant")
+
+        created = await repo.create(run)
+        fetched = await repo.get_by_id_for_user(created.id, user_id=created.user_id)
+
+        assert created.initiated_by == "assistant"
+        assert fetched is not None
+        assert fetched.initiated_by == "assistant"
+
+    async def test_initiated_by_defaults_to_manual(
+        self, db_session: AsyncSession
+    ) -> None:
+        """A run created without an explicit attribution reads back as manual."""
+        repo = OperationRunRepository(db_session)
+        run = make_operation_run()
+
+        created = await repo.create(run)
+
+        assert created.initiated_by == "manual"
+
     async def test_get_by_id_for_user_returns_match(
         self, db_session: AsyncSession
     ) -> None:

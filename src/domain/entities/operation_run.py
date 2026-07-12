@@ -56,6 +56,11 @@ class OperationRun:
     # Provenance: the schedule that fired this run, if any (None for runs the
     # user kicked off directly). ON DELETE SET NULL preserves history.
     triggered_by_schedule_id: UUID | None = None
+    # Attribution: who initiated this run — "manual" (the user, default),
+    # "assistant" (an AI-agent-launched background operation), or "schedule".
+    # Surfaced in the run log so an agent-initiated op is visible without
+    # trusting one's memory of the chat.
+    initiated_by: str = "manual"
     created_at: datetime = field(factory=utc_now_factory)
     updated_at: datetime = field(factory=utc_now_factory)
     id: UUID = field(factory=uuid7)

@@ -89,3 +89,14 @@ added_at_dates  # Track metadata key: reader (sort_by_date) has no production wr
 
 # --- Test-only methods (public API exercised by tests, not yet consumed in prod) ---
 get_playlist_with_all_tracks  # SpotifyOperations — tested, called via connector
+
+# --- v0.9.x agent parity: classification API consumed outside src/ (parity test + matrix generator + v0.9.3 MCP) ---
+BLACKLISTED_USE_CASES  # registry parity bucket — used by test_registry_parity + generate_capability_matrix
+MECHANICALLY_EXCLUDED_USE_CASES  # registry parity bucket
+INTERNAL_USE_CASES  # registry parity bucket
+NOT_YET_COVERED  # empty as of v0.9.1; the parity tripwire test asserts it stays empty
+
+# --- v0.9.0 chat: voice-protocol attrs fields + chat config field (consumed dynamically / via settings) ---
+voice_examples  # Voice attrs field rendered into the system prompt via the voice registry
+rules  # Voice attrs field rendered into the system prompt
+max_messages  # ChatSettings field — conversation cap read via the settings object

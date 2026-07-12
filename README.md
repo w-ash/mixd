@@ -6,6 +6,8 @@ Streaming services lock your listening history, likes, and playlists behind prop
 
 ## What You Can Do
 
+Everything you can do in the web UI or CLI, the in-app AI assistant can do too — a [parity contract](docs/web-ui/capability-matrix.md) enforced in CI, so the assistant never falls behind the app.
+
 ### Own Your Data
 
 Import your music data into a unified PostgreSQL database that *you* host and control.
