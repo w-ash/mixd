@@ -150,3 +150,38 @@ async def test_runaway_tool_loop_hits_the_round_budget() -> None:
         await _collect(
             ChatUseCase(_FakeLLM(turns), execute_tool), _command(max_turns=2)
         )
+
+
+async def test_sandbox_only_rounds_hit_the_larger_backstop() -> None:
+    # Sandbox-called rounds (caller != "direct") are cheap and don't count as
+    # model turns, so a runaway sandbox loop must still terminate — at the
+    # max_turns * _SANDBOX_ROUNDS_PER_TURN backstop, not the model-turn budget.
+    # With max_turns=1 the model-turn budget alone would allow a single round;
+    # five sandbox-only rounds run before the backstop trips.
+    sandbox_turn: _Turn = (
+        [
+            ToolUseBlock(
+                id="t",
+                name="describe_node",
+                input={},
+                caller="code_execution_20260120",
+            )
+        ],
+        LLMResponse(
+            stop_reason="tool_use",
+            content=[
+                ToolUseBlock(
+                    id="t",
+                    name="describe_node",
+                    input={},
+                    caller="code_execution_20260120",
+                )
+            ],
+            raw_content=[{"type": "tool_use", "id": "t"}],
+        ),
+    )
+    turns = [sandbox_turn for _ in range(20)]
+    with pytest.raises(MaxRoundsExceededError):
+        await _collect(
+            ChatUseCase(_FakeLLM(turns), execute_tool), _command(max_turns=1)
+        )

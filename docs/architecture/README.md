@@ -20,6 +20,7 @@ Dependencies only flow inward, creating a stable core surrounded by adaptable in
 | [Session Management](session-management.md) | How database sessions are managed | Transaction philosophy, 3 session patterns, PostgreSQL configuration |
 | [Tech Stack](tech-stack.md) | Why we chose these technologies | Core decisions, supporting libraries, extensibility, scalability |
 | [Database Schema](database.md) | Physical schema reference | Tables, columns, relationships, indexes, migrations |
+| [Context Engineering: Tool Routing](context-engineering-tool-routing.md) | How the AI assistant stays accurate and cheap as tools grow | Progressive disclosure, page-contextual routing, prompt-cache-invariant prefix/tail split, portable recipe |
 
 ## Quick Navigation
 
@@ -28,6 +29,7 @@ Dependencies only flow inward, creating a stable core surrounded by adaptable in
 - **Writing a workflow node?** Read [Workflow System](workflow-system.md) — the database-first constraint is critical
 - **Touching database sessions?** See [Session Management](session-management.md) for the 3 session patterns
 - **Adding a new connector?** See [Tech Stack](tech-stack.md) for the self-contained connector structure
+- **Adding an AI-assistant tool, or building an agent elsewhere?** Read [Context Engineering: Tool Routing](context-engineering-tool-routing.md) — the tool-loading posture and the cache-invariant routing pattern
 
 ## See Also
 

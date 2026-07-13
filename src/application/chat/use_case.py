@@ -71,7 +71,7 @@ class ChatUseCase:
 
     async def execute(self, command: ChatCommand) -> AsyncGenerator[ChatEvent]:
         messages = list(command.messages)
-        ctx = ToolContext(user_id=command.user_id)
+        ctx = ToolContext(user_id=command.user_id, llm=self._llm)
         # Sandbox container carried across turns of this loop (v0.9.2); the API
         # requires it back when a sandbox-called tool's result is returned.
         container_id: str | None = None
@@ -177,4 +177,8 @@ class ChatUseCase:
                 {"role": "user", "content": tool_results},
             ])
 
-        raise MaxRoundsExceededError(f"Exceeded {command.max_turns} tool rounds")
+        raise MaxRoundsExceededError(
+            f"Exceeded the {command.max_turns}-turn budget "
+            f"({command.max_turns * _SANDBOX_ROUNDS_PER_TURN} rounds including "
+            "sandbox-called rounds)"
+        )

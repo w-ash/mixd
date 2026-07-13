@@ -1,12 +1,13 @@
 # Project Mixd — Planning
 
-**Current Version**: 0.9.1
-**Next**: [v0.9.2 Agentic Depth](v0.9.x.md#v092-agentic-depth) — programmatic tool calling over batch library ops, a read-only research subagent, tool search for the now-large registry, and context management + a user-facing effort control. v0.9.1 Full Capability Parity shipped 2026-07-11 (31 tools, parity contract closed). Follow-up pool: the [dependency-audit work orders](dependency-audit-findings.md) (W1–W10) and the PLR0913/0917 flip decision ([spoke 26](fable-sweep/26-ratchet-closeout.md)).
+**Current Version**: 0.9.2
+**Next**: [v0.9.3 MCP Server](v0.9.x.md#v093-mcp-server-mixd-as-a-tool-surface) — mixd as a tool surface (stdio, stateless; Tasks for long ops; consumes the parity registry). v0.9.2 Agentic Depth shipped 2026-07-12 (programmatic tool calling, research subagent, tool search + page-contextual routing; registry at 34 tools). Follow-up pool: the [dependency-audit work orders](dependency-audit-findings.md) (W1–W10) and the PLR0913/0917 flip decision ([spoke 26](fable-sweep/26-ratchet-closeout.md)).
 
 ## Shipped — current cycle (v0.9.x)
 
 Canonical release log: [CHANGELOG.md](../../CHANGELOG.md) (all ships, full entries). This narrative keeps one line per ship for the current + previous minor cycle only; older lines are pruned at cycle close.
 
+- **v0.9.2** (2026-07-12) — Agentic depth: the assistant now composes batch library operations in a server-side Python sandbox (only the answer re-enters the conversation), delegates deep investigations to a read-only research subagent that returns one dense summary, and reaches the 34-tool registry through BM25 tool search — with a curated hot set that follows the UI section you're on so the cached prompt prefix stays page-invariant.
 - **v0.9.1** (2026-07-11) — Full capability parity: the in-app assistant's shared registry grew to 31 tools covering every read and mutation a user can perform, with two-phase confirmation on writes, long-running imports/syncs/runs streaming progress into chat, and agent-initiated operations attributed in the run log. The parity contract is CI-enforced (`NOT_YET_COVERED` empty) with a generated capability matrix.
 - **v0.9.0.1** (2026-07-11) — Per-user, opt-in AI assistant: each user brings their own Anthropic key (validated live, stored encrypted, write-only), and the whole chat surface stays hidden until they connect one — no shared key, no broken affordance.
 - **v0.9.0** (2026-07-11) — Workflow Assistant: a persistent right-panel chat turns a plain-English request ("build me a chill weekend playlist") into a real, editable WorkflowDef previewed in the graph renderer and saved on approval — on a parity-classified tool registry the later v0.9.x milestones and the MCP server all consume.
@@ -120,7 +121,7 @@ Each milestone delivers a **vertical slice** — backend API + frontend page tog
 | **v0.8.18** | Identity integrity — confidence repair, ISRC guards, drift metrics (2026-07 research D1; gates v0.10.0 artist identity, v1.0.1 Apple Music, v1.1.x–v1.2.x sharing) | 🚀 Shipped | [details](v0.8.18.md#v0818-identity-integrity) |
 | **v0.9.0** | Workflow assistant — right-panel agentic chat (couplefins v1.8.x port) + parity-classified tool registry | 🚀 Shipped | [details](v0.9.x.md#v090-workflow-assistant-agentic-foundation) |
 | **v0.9.1** | Full capability parity — every read/mutation as a confirmable tool; agent activity visible in the UI | 🚀 Shipped | [details](v0.9.x.md#v091-full-capability-parity-in-app) |
-| **v0.9.2** | Agentic depth — programmatic tool calling, research subagent, tool search, context management | 🔜 Not Started | [details](v0.9.x.md#v092-agentic-depth) |
+| **v0.9.2** | Agentic depth — programmatic tool calling, research subagent, tool search, context management, page-contextual tool routing | 🚀 Shipped | [details](v0.9.x.md#v092-agentic-depth) |
 | **v0.9.3** | MCP server — mixd as a tool surface (stdio, stateless; Tasks for long ops; consumes the registry) | 🔜 Not Started | [details](v0.9.x.md#v093-mcp-server-mixd-as-a-tool-surface) |
 | **v0.9.4** | Follow-ups & hardening — placeholder, scoped after the v0.9.x ships | 🔜 Not Started | [details](v0.9.x.md#v094-follow-ups--hardening-placeholder) |
 | **v0.10.0** | First-class artists | 🔜 Not Started | [details](v0.10.x.md#v0100-first-class-artists) |

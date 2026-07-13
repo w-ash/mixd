@@ -6,6 +6,18 @@ linked backlog version file. Versioning follows mixd's four-segment
 `major.minor.feature.revision` scheme (`.claude/rules/version-management.md`), not strict
 SemVer. Format inspired by [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [0.9.2] — 2026-07-12
+
+**Ask for batch answers and deep analysis without watching the assistant grind.** With full parity the assistant could already do everything — but one visible tool call at a time, every intermediate result flowing through its context. v0.9.2 makes it efficient and long-horizon capable: "how many of my 2024 discoveries did I star, by month?" runs as one sandbox script over the read tools instead of hundreds of round trips, and "compare my listening this spring vs last spring and tell me what changed" is delegated to a research subagent that reads widely and hands back a single summary — the working thread stays fast and on-topic.
+
+- **Code-execution sandbox + programmatic tool calling** — read tools are sandbox-callable (`allowed_callers` stamped in `build_tools`, reads only — mutations never), so the model writes Python that aggregates over the library and only the aggregate re-enters the conversation. A batch mutation composed in the sandbox still commits through one confirmable write proposal carrying the full change list. Gated by `CHAT__ENABLE_CODE_EXECUTION` (default on; disabling degrades cleanly to direct calls). A separate sandbox-round backstop (`max_turns × 5`) keeps a runaway code loop from starving the model-turn budget.
+- **Research subagent (`delegate_analysis`)** — a fresh read-only loop at low effort with a bounded turn budget (12); its entire output is one dense summary string in the parent conversation, so a deep investigation costs the main context one tool result instead of a nested transcript. Read-only by construction (`build_subagent_tools()` is the read slice only — no writes, no sandbox, no nested delegation).
+- **Tool search + deferred loading** — at 34 tools the registry flipped **deferred-first**: 7 tools load upfront (4 hot reads + 3 agentic), the rest are discovered on demand via a BM25 `tool_search` tool, with a system-prompt "search before you claim you can't" nudge. Discovered schemas append rather than swap, preserving the tools/system prompt cache.
+- **Page-contextual tool routing** — the web client sends the coarse UI section you're on and its tools promote into the loaded set (rule-based, ≤3/page to hold the ~10-tool accuracy ceiling). Promoted tools ride the *uncached tail* so the cached core prefix is page-invariant — navigating between pages never re-pays for the tool schemas. Strictly additive: an unrouted page degrades to the static core + search. The restructure also fixed a latent bug where the cache breakpoint had been landing on a `{type,name}` server-tool block that rejects `cache_control`.
+- **Context management + effort control** — the Quick/Standard/Thorough selector (low/high/xhigh, persisted locally, default Standard) rides every request; the subagent always runs at low effort regardless of the parent's selection.
+
+→ [details](docs/backlog/v0.9.x.md#v092-agentic-depth)
+
 ## [0.9.1] — 2026-07-11
 
 **Ask the assistant to do anything you can do in the app.** v0.9.0 could build workflows and little else; v0.9.1 makes the parity contract real — every read a user can perform in the web UI or CLI is a chat tool, every mutation is a two-phase-confirmed tool, long-running imports/syncs/runs stream their progress into the conversation, and whatever the assistant does lands in the same run log a human uses. "Which starred tracks haven't I played in six months? Tag them `context:revival` and add them to my Revival playlist" is now one conversation, end to end.

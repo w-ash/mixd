@@ -134,3 +134,6 @@ The tools the assistant calls, in registry (prompt) order.
 | apply_playlist_assignments | write | Call this to apply tag/preference assignment rules across the library, populating playlists in bulk — omit assignment_ids to apply all, or pass specific ones. |
 | sync_playlist_link | write | Call this to run a playlist sync link now — pass its link_id from query_playlist_links. |
 | import_data | write | Call this to import listening data from a connector — Last.fm play history or Spotify likes. |
+| code_execution | agentic | Server-side Python sandbox for batch computation over the user's library. |
+| delegate_analysis | agentic | Use this to delegate a deep, multi-step investigation of the user's library to a research subagent — 'compare my listening this spring vs last spring and tell me what changed', 'which starred tracks fell out of rotation this year and why'. |
+| tool_search_tool_bm25 | agentic | Server-side BM25 search over the deferred tool set. |

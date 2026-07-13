@@ -316,5 +316,8 @@ SPECS: list[dict[str, object]] = [
             "GetPlayedTracksUseCase",
         ),
         "kind": "read",
+        # Hot set: library search is the most common read — loaded upfront rather
+        # than discovered via tool_search.
+        "defer_loading": False,
     },
 ]

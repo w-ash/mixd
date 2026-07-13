@@ -507,6 +507,21 @@ class ChatConfig(BaseModel):
         default=50,
         description="Max messages accepted per request (mirrors the frontend cap).",
     )
+    enable_code_execution: bool = Field(
+        default=True,
+        description="Expose the code-execution sandbox (programmatic tool calling) "
+        "and mark read tools sandbox-callable. mixd is BYO-key, so each user pays "
+        "their own sandbox-hour cost; disable to degrade cleanly to direct calls.",
+    )
+    subagent_max_turns: PositiveInt = Field(
+        default=12,
+        description="Max turns for the delegate_analysis research subagent loop.",
+    )
+    subagent_effort: EffortLevel = Field(
+        default="low",
+        description="Reasoning effort for the research subagent — always low, "
+        "independent of the parent request's user-selected effort.",
+    )
 
 
 class Settings(BaseSettings):

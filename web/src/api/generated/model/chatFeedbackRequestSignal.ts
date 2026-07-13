@@ -3,7 +3,7 @@
  * Do not edit manually.
  * Mixd
  * Personal music metadata hub
- * OpenAPI spec version: 0.9.1
+ * OpenAPI spec version: 0.9.2
  */
 
 export type ChatFeedbackRequestSignal = typeof ChatFeedbackRequestSignal[keyof typeof ChatFeedbackRequestSignal];

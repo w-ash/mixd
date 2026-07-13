@@ -175,7 +175,10 @@ async def _build_command(
     return ChatCommand(
         messages=messages,
         system=system,
-        tools=build_tools(),
+        tools=build_tools(
+            enable_code_execution=settings.chat.enable_code_execution,
+            page=body.page,
+        ),
         model_id=settings.chat.model_id,
         max_turns=settings.chat.max_turns,
         max_tokens=settings.chat.max_tokens,

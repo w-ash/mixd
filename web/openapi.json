@@ -3,7 +3,7 @@
   "info": {
     "title": "Mixd",
     "description": "Personal music metadata hub",
-    "version": "0.9.1"
+    "version": "0.9.2"
   },
   "paths": {
     "/api/v1/connectors/{service}/auth-url": {
@@ -4881,6 +4881,18 @@
               }
             ],
             "title": "Current Workflow Id"
+          },
+          "page": {
+            "anyOf": [
+              {
+                "type": "string",
+                "maxLength": 64
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Page"
           }
         },
         "type": "object",

@@ -8,9 +8,10 @@ protocol surface stays stable as the loop grows.
 ``ToolContext`` is the injection point threaded from the FastAPI route through
 the agentic loop into every dispatcher. It carries the acting user's id so RLS
 scoping matches the web UI (every dispatcher runs through
-``execute_use_case(..., user_id=ctx.user_id)``). The LLM handle that v0.9.2's
-agentic tools (delegate_analysis) will need is added to this context then —
-kept out now so the surface stays minimal.
+``execute_use_case(..., user_id=ctx.user_id)``) and the LLM handle the
+``delegate_analysis`` research subagent (v0.9.2) uses to spawn its own loop.
+The handle is optional: only agentic tools need it, and the ``ChatUseCase``
+always supplies it, so dispatcher tests can construct a context without one.
 """
 
 from collections.abc import AsyncIterator, Awaitable, Callable, Mapping
@@ -31,9 +32,15 @@ from src.domain.entities.shared import JsonDict, JsonValue
 
 @define(frozen=True, slots=True)
 class ToolContext:
-    """Per-request context injected into every tool dispatcher."""
+    """Per-request context injected into every tool dispatcher.
+
+    ``llm`` is the handle the ``delegate_analysis`` subagent needs to spawn a
+    fresh loop; it is ``None`` for contexts built outside a live chat turn
+    (dispatcher unit tests), where no agentic tool is exercised.
+    """
 
     user_id: str
+    llm: LLMClientProtocol | None = None
 
 
 class OperationLauncher(Protocol):

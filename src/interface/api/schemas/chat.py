@@ -42,6 +42,10 @@ class ChatRequest(BaseModel):
     # The workflow open in the editor (route `/workflows/:id/edit`), so the
     # server can inject its context into the system prompt. None off that route.
     current_workflow_id: UUID | None = None
+    # The coarse UI section the user is on (e.g. "playlists", "library"), used
+    # for rule-based tool routing: tools relevant to the section load eagerly
+    # while the rest stay behind tool-search. Unknown/absent → no promotion.
+    page: str | None = Field(default=None, max_length=64)
 
     @model_validator(mode="after")
     def _check_total_content_size(self) -> Self:

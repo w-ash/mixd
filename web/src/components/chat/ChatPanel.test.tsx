@@ -84,6 +84,30 @@ describe("ChatPanel", () => {
     expect(currentWorkflowId).toBeUndefined();
   });
 
+  it("sends the current UI section for tool routing", () => {
+    renderWithProviders(<ChatPanel />, {
+      routerProps: { initialEntries: ["/playlists/xyz"] },
+    });
+    fireEvent.click(
+      screen.getByRole("button", { name: /friday-night dinner playlist/i }),
+    );
+
+    const page = mockSend.mock.calls.at(-1)?.[6];
+    expect(page).toBe("playlists");
+  });
+
+  it("sends no section on an unrouted page", () => {
+    renderWithProviders(<ChatPanel />, {
+      routerProps: { initialEntries: ["/settings/account"] },
+    });
+    fireEvent.click(
+      screen.getByRole("button", { name: /friday-night dinner playlist/i }),
+    );
+
+    const page = mockSend.mock.calls.at(-1)?.[6];
+    expect(page).toBeUndefined();
+  });
+
   it("renders streamed tokens into the assistant message", () => {
     renderWithProviders(<ChatPanel />);
     fireEvent.click(

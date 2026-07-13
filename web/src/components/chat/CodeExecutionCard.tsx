@@ -3,9 +3,8 @@ import { useState } from "react";
 import { cn } from "#/lib/utils";
 import type { CodeExecution } from "#/stores/chat-store";
 
-// DORMANT (Phase 0): the assistant does not run code yet. Shipped so the
-// message renderer already knows how to display a code execution once the
-// later phase streams `codeExecutions` frames.
+// Renders one sandbox execution: the assistant streams `code_start`/`code_result`
+// frames (v0.9.2) which the store collects into `message.codeExecutions`.
 
 const monoBlockClass =
   "overflow-x-auto rounded-lg bg-surface-sunken p-3 font-mono text-xs leading-normal text-text";

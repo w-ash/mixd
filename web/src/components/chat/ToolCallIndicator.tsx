@@ -25,6 +25,18 @@ function humanize(name: string): string {
   return name.replace(/^(get|search|list)_/, "").replaceAll("_", " ");
 }
 
+// Status copy varies by side-effect class: reads look things up, writes propose
+// a mutation, and agentic tools (delegate_analysis) run a delegated research
+// loop — a distinct verb so the user reads it as more than a lookup.
+function statusText(toolCall: ToolCall, label: string): string {
+  if (toolCall.result !== undefined) {
+    return toolCall.kind === "agentic" ? `Ran ${label}` : `Checked ${label}`;
+  }
+  if (toolCall.kind === "agentic") return `Running ${label}…`;
+  if (toolCall.kind === "write") return `Proposing ${label}…`;
+  return `Looking up ${label}…`;
+}
+
 export function ToolCallIndicator({ toolCall }: { toolCall: ToolCall }) {
   const label = TOOL_LABELS[toolCall.name] ?? humanize(toolCall.name);
   const isDone = toolCall.result !== undefined;
@@ -36,11 +48,7 @@ export function ToolCallIndicator({ toolCall }: { toolCall: ToolCall }) {
       ) : (
         <Loader2 className="size-3 animate-spin" />
       )}
-      {isDone
-        ? `Checked ${label}`
-        : toolCall.kind === "write"
-          ? `Proposing ${label}…`
-          : `Looking up ${label}…`}
+      {statusText(toolCall, label)}
     </span>
   );
 }

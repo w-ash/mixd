@@ -71,5 +71,7 @@ SPECS: list[dict[str, object]] = [
         "dispatch": handle_list_tags,
         "use_cases": ("ListTagsUseCase",),
         "kind": "read",
+        # Hot set: tag/preference basics — loaded upfront rather than searched.
+        "defer_loading": False,
     },
 ]

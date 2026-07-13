@@ -22,13 +22,27 @@ describe("ToolCallIndicator", () => {
     expect(screen.getByText("Looking up liked tracks…")).toBeInTheDocument();
   });
 
-  it("shows Looking up (never Proposing) for agentic tools", () => {
+  it("shows Running for in-flight agentic tools (never Proposing)", () => {
     render(
       <ToolCallIndicator
         toolCall={{ id: "1", name: "delegate_analysis", kind: "agentic" }}
       />,
     );
-    expect(screen.getByText("Looking up deep analysis…")).toBeInTheDocument();
+    expect(screen.getByText("Running deep analysis…")).toBeInTheDocument();
+  });
+
+  it("shows Ran once an agentic tool completes", () => {
+    render(
+      <ToolCallIndicator
+        toolCall={{
+          id: "1",
+          name: "delegate_analysis",
+          kind: "agentic",
+          result: { summary: "…" },
+        }}
+      />,
+    );
+    expect(screen.getByText("Ran deep analysis")).toBeInTheDocument();
   });
 
   it("humanizes an unknown tool name", () => {

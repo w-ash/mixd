@@ -60,11 +60,29 @@ function matchWorkflowEditId(pathname: string): string | undefined {
   return matchPath("/workflows/:id/edit", pathname)?.params.id;
 }
 
+// The coarse UI section the user is on, keyed by first path segment (index →
+// dashboard). Only sections the server routes tools for are emitted; anything
+// else sends no page and degrades to the static core + tool-search. Keep these
+// keys in sync with `_PAGE_TOOL_HINTS` in src/application/tools/registry.py.
+const SECTION_BY_SEGMENT: Record<string, string> = {
+  "": "dashboard",
+  playlists: "playlists",
+  library: "library",
+  workflows: "workflows",
+  imports: "imports",
+};
+
+function pageSection(pathname: string): string | undefined {
+  const segment = pathname.split("/").filter(Boolean)[0] ?? "";
+  return SECTION_BY_SEGMENT[segment];
+}
+
 /** Open an SSE stream for the freshly-created assistant message. */
 function startStream(
   assistantId: string,
   currentWorkflowId?: string,
   confirmation?: ConfirmationPayload,
+  page?: string,
 ) {
   if (!assistantId) return;
   const store = useChatStore.getState();
@@ -82,6 +100,7 @@ function startStream(
     confirmation,
     EFFORT_API_VALUES[store.effort],
     currentWorkflowId,
+    page,
   );
 }
 
@@ -94,6 +113,7 @@ export function ChatPanel({ fullScreen = false }: { fullScreen?: boolean }) {
   const [limitError, setLimitError] = useState<string | null>(null);
   const { pathname } = useLocation();
   const currentWorkflowId = matchWorkflowEditId(pathname);
+  const page = pageSection(pathname);
 
   const sendQuestion = useCallback(
     (text: string) => {
@@ -107,9 +127,14 @@ export function ChatPanel({ fullScreen = false }: { fullScreen?: boolean }) {
 
       setLimitError(null);
       store.addUserMessage(text);
-      startStream(store.startAssistantMessage(), currentWorkflowId);
+      startStream(
+        store.startAssistantMessage(),
+        currentWorkflowId,
+        undefined,
+        page,
+      );
     },
-    [currentWorkflowId],
+    [currentWorkflowId, page],
   );
 
   const handleRegenerate = useCallback(() => {
@@ -119,8 +144,13 @@ export function ChatPanel({ fullScreen = false }: { fullScreen?: boolean }) {
     if (last?.role !== "assistant") return;
 
     store.removeLastAssistantMessage();
-    startStream(store.startAssistantMessage(), currentWorkflowId);
-  }, [currentWorkflowId]);
+    startStream(
+      store.startAssistantMessage(),
+      currentWorkflowId,
+      undefined,
+      page,
+    );
+  }, [currentWorkflowId, page]);
 
   const handleNewConversation = useCallback(() => {
     const store = useChatStore.getState();
@@ -134,12 +164,14 @@ export function ChatPanel({ fullScreen = false }: { fullScreen?: boolean }) {
       const store = useChatStore.getState();
       if (store.isStreaming) return;
       store.setConfirmationState(actionId, "confirmed");
-      startStream(store.startAssistantMessage(), currentWorkflowId, {
-        action_id: actionId,
-        approved: true,
-      });
+      startStream(
+        store.startAssistantMessage(),
+        currentWorkflowId,
+        { action_id: actionId, approved: true },
+        page,
+      );
     },
-    [currentWorkflowId],
+    [currentWorkflowId, page],
   );
 
   const handleCancel = useCallback(
@@ -147,12 +179,14 @@ export function ChatPanel({ fullScreen = false }: { fullScreen?: boolean }) {
       const store = useChatStore.getState();
       if (store.isStreaming) return;
       store.setConfirmationState(actionId, "cancelled");
-      startStream(store.startAssistantMessage(), currentWorkflowId, {
-        action_id: actionId,
-        approved: false,
-      });
+      startStream(
+        store.startAssistantMessage(),
+        currentWorkflowId,
+        { action_id: actionId, approved: false },
+        page,
+      );
     },
-    [currentWorkflowId],
+    [currentWorkflowId, page],
   );
 
   const handleStop = useCallback(() => {

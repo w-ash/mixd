@@ -3,7 +3,7 @@
  * Do not edit manually.
  * Mixd
  * Personal music metadata hub
- * OpenAPI spec version: 0.9.1
+ * OpenAPI spec version: 0.9.2
  */
 import type { ChatMessageInput } from './chatMessageInput.ts';
 import type { ConfirmationInput } from './confirmationInput.ts';
@@ -19,4 +19,5 @@ export interface ChatRequest {
   client_date?: string | null;
   effort?: EffortLevel | null;
   current_workflow_id?: string | null;
+  page?: string | null;
 }

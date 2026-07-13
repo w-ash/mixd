@@ -98,6 +98,12 @@ def test_tool_names_are_unique() -> None:
 
 def test_descriptions_lead_with_a_when_to_call_sentence() -> None:
     for spec in TOOLS:
+        # Server tools (dispatch is None: code_execution, tool_search) carry a raw
+        # {type, name} schema and their description is never sent to the API, so
+        # the when-to-call standard doesn't apply. Dispatched tools — including
+        # agentic delegate_analysis — are model-facing and must comply.
+        if spec.dispatch is None:
+            continue
         assert len(spec.description) >= 50, f"{spec.name}: description too short"
         assert _WHEN_TO_CALL.match(spec.description), (
             f"{spec.name}: description must lead with a when-to-call sentence "
@@ -107,6 +113,10 @@ def test_descriptions_lead_with_a_when_to_call_sentence() -> None:
 
 def test_input_schemas_are_valid_object_schemas() -> None:
     for spec in TOOLS:
+        # Server tools carry a raw {type, name} server-tool block, not a JSON
+        # Schema; only dispatched tools have a validatable object schema.
+        if spec.dispatch is None:
+            continue
         schema = spec.input_schema
         assert schema.get("type") == "object", f"{spec.name}: not an object schema"
         assert schema.get("additionalProperties") is False, (
@@ -133,7 +143,97 @@ def test_write_tools_carry_a_confirmation_path() -> None:
 
 
 def test_build_tools_stamps_one_cache_breakpoint() -> None:
-    tools = registry.build_tools()
-    breakpoints = [t for t in tools if "cache_control" in t]
-    assert len(breakpoints) == 1, "exactly one ephemeral cache breakpoint expected"
-    assert all({"name", "description", "input_schema"} <= t.keys() for t in tools)
+    # Both surfaces: with the sandbox on (all agentic tools present) and off
+    # (code_execution dropped). The breakpoint must never land on a server tool —
+    # a raw {type, name} block rejects cache_control and would 400 the request.
+    for enable in (True, False):
+        tools = registry.build_tools(enable_code_execution=enable)
+        breakpoints = [t for t in tools if "cache_control" in t]
+        assert len(breakpoints) == 1, "exactly one ephemeral cache breakpoint expected"
+        # The stamped tool must be a dispatched {name, description, input_schema}
+        # wrapper, never a {type, name} server-tool block.
+        assert "input_schema" in breakpoints[0], (
+            f"cache breakpoint landed on a server tool: {breakpoints[0]}"
+        )
+    # Dispatched tools carry the {name, description, input_schema} wrapper; server
+    # tools emit their raw {type, name} block instead.
+    for t in tools:
+        if "type" in t:
+            assert {"type", "name"} <= t.keys(), f"malformed server tool: {t}"
+        else:
+            assert {"name", "description", "input_schema"} <= t.keys()
+
+
+def test_tool_search_and_agentic_tools_are_never_deferred() -> None:
+    by_name = {s.name: s for s in TOOLS}
+    # A deferred search tool could never be found — it must always load.
+    assert by_name["tool_search_tool_bm25"].defer_loading is False
+    # Agentic capabilities are never deferred (the model under-reaches for them
+    # otherwise) — also enforced at construction, asserted here as the contract.
+    for spec in TOOLS:
+        if spec.kind == "agentic":
+            assert spec.defer_loading is False, spec.name
+
+
+def test_hot_set_stays_small_and_nonempty() -> None:
+    # Accuracy degrades past ~10 upfront tools; keep the loaded set well under
+    # that, and never empty (the API 400s "All tools have defer_loading set").
+    # Every page must respect the ceiling, since page routing promotes tools.
+    pages = [None, *registry._PAGE_TOOL_HINTS]
+    for enable in (True, False):
+        for page in pages:
+            loaded = [
+                t
+                for t in registry.build_tools(enable_code_execution=enable, page=page)
+                if "defer_loading" not in t
+            ]
+            assert loaded, "at least one tool must always be non-deferred"
+            names = [t.get("name") or t.get("type") for t in loaded]
+            assert len(loaded) <= 10, f"too many upfront tools on {page!r}: {names}"
+
+
+def test_page_routing_promotes_within_the_cached_core() -> None:
+    # A page's hinted tools become loaded (no defer_loading); off-page they stay
+    # deferred. Crucially the cached prefix — the tools up to and including the
+    # breakpoint — must be identical across pages, so navigation never busts the
+    # tools cache. Promoted tools ride the uncached tail past the breakpoint.
+    def cached_prefix(page: str | None) -> list[str]:
+        tools = registry.build_tools(page=page)
+        cut = next(i for i, t in enumerate(tools) if "cache_control" in t)
+        return [str(t.get("name") or t.get("type")) for t in tools[: cut + 1]]
+
+    baseline = cached_prefix(None)
+    for page in registry._PAGE_TOOL_HINTS:
+        assert cached_prefix(page) == baseline, f"page {page!r} shifted the cache"
+
+    loaded_names = {
+        str(t["name"])
+        for t in registry.build_tools(page="playlists")
+        if "defer_loading" not in t and "name" in t
+    }
+    assert {"query_playlists", "query_playlist_links"} <= loaded_names
+    # The same tools are deferred when the user is elsewhere.
+    off_page = registry.build_tools(page="library")
+    deferred = {t.get("name") for t in off_page if t.get("defer_loading")}
+    assert "query_playlist_links" in deferred
+
+
+def test_read_tools_are_sandbox_callable_only_when_enabled() -> None:
+    # allowed_callers is stamped uniformly on read tools by build_tools (not a
+    # ToolSpec field); write and server tools never get it, so mutations stay
+    # two-phase and the sandbox can't invoke them.
+    read_names = {s.name for s in TOOLS if s.kind == "read"}
+
+    enabled = {t["name"]: t for t in registry.build_tools(enable_code_execution=True)}
+    for name, tool in enabled.items():
+        if name in read_names:
+            assert tool.get("allowed_callers") == ["direct", "code_execution_20260120"]
+        else:
+            assert "allowed_callers" not in tool
+    assert "code_execution" in enabled
+
+    disabled = {
+        t.get("name"): t for t in registry.build_tools(enable_code_execution=False)
+    }
+    assert "code_execution" not in disabled
+    assert all("allowed_callers" not in t for t in disabled.values())

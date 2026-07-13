@@ -146,6 +146,7 @@ export async function sendChatMessage(
   confirmation?: ConfirmationPayload,
   effort?: string,
   currentWorkflowId?: string,
+  page?: string,
 ): Promise<void> {
   const body: Record<string, unknown> = {
     messages,
@@ -156,6 +157,8 @@ export async function sendChatMessage(
   if (currentWorkflowId !== undefined) {
     body.current_workflow_id = currentWorkflowId;
   }
+  // The coarse UI section the user is on, for server-side tool routing.
+  if (page !== undefined) body.page = page;
 
   const headers: Record<string, string> = {
     "Content-Type": "application/json",

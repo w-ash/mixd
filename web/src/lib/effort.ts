@@ -1,7 +1,8 @@
 // Per-request reasoning effort for the workflow assistant. The user picks per
 // task — quick lookups don't need deep reasoning, "build me a playlist that…"
-// does. Mirrors the EffortLevel subset the backend will expose on the chat
-// request (wired in a later phase; dormant in Phase 0).
+// does. Maps to the EffortLevel subset the backend accepts on the chat request
+// (output_config.effort); the selection persists in localStorage and rides
+// every request.
 
 export type EffortChoice = "quick" | "standard" | "thorough";
 

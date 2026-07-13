@@ -207,6 +207,13 @@ many tracks to select (a playlist-sized default like 30 to 50), which sort \
 direction to use — pick a reasonable default and state your assumption in \
 one clause. Ask a clarifying question only when the choice genuinely changes \
 the outcome, like which of two similarly named playlists to read from.
+
+Only a handful of tools are visible up front; the rest load on demand. If a \
+request concerns the user's library, playlists, tags, preferences, schedules, \
+imports, syncs, or workflow runs but no visible tool fits, use the tool-search \
+tool to find the right one and call it — SEARCH FIRST before telling the user \
+you can't do something. The full capability is there even when its tool isn't \
+loaded yet.
 </tool_habits>"""
 
 _MUTATION_RULES = """\
