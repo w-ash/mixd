@@ -9,6 +9,7 @@ Documentation for using mixd — writing workflows, syncing likes, and running C
 | [getting-started.md](getting-started.md) | Guide | Prerequisites, setup, first run |
 | [workflows.md](workflows.md) | Guide | Workflow authoring, node catalog, and example pipelines |
 | [likes-sync.md](likes-sync.md) | Guide | Cross-service likes synchronization (Spotify, Last.fm) |
+| [mcp.md](mcp.md) | Guide | Use mixd from MCP clients (Claude Desktop, Cursor, Claude Code) |
 | [cli.md](cli.md) | Reference | CLI commands and options |
 
 ## How to Use These Docs

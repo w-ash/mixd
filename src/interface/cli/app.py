@@ -1,6 +1,7 @@
 """Main CLI application entry point and command routing."""
 
 from pathlib import Path
+import sys
 from typing import Annotated
 
 import typer
@@ -10,6 +11,16 @@ from src.config import setup_logging
 from src.interface.cli.console import get_console, print_banner
 
 VERSION = __version__
+
+# The `mixd mcp` command group keeps stdout clean for machine consumers —
+# JSON-RPC for `serve`, config JSON for `install --print`. structlog defaults to
+# a stdout PrintLogger until setup_logging() runs, so import-time debug logs (the
+# console singletons initialise below and in cli_helpers) would land on stdout.
+# Pin logging to stderr before the first such log fires; the callback reaffirms
+# it per-invocation. (Human `install` guidance still prints via the Rich console,
+# which is independent of the structlog handler.)
+if "mcp" in sys.argv[1:]:
+    setup_logging(console_stream=sys.stderr)
 
 # Use shared console for consistent CLI formatting
 console = get_console()
@@ -91,14 +102,22 @@ def whoami_command() -> None:
 
 @app.callback()
 def init_cli(
+    ctx: typer.Context,
     verbose: Annotated[
         bool,
         typer.Option("--verbose", "-v", help="Enable verbose output"),
     ] = False,
 ) -> None:
     """Initialize Mixd CLI with Rich console management."""
-    setup_logging(verbose)
+    # The `mixd mcp` group keeps stdout clean for machine consumers (JSON-RPC for
+    # serve, config JSON for install --print), so route logging to stderr and skip
+    # the console-printing startup checks. A stray stdout byte would corrupt a
+    # serve session's protocol stream or an install --print pipe.
+    mcp_group = ctx.invoked_subcommand == "mcp"
+    setup_logging(verbose, console_stream=sys.stderr if mcp_group else None)
     Path("data").mkdir(exist_ok=True)
+    if mcp_group:
+        return
 
     from src.config import log_startup_warnings
 
@@ -151,6 +170,7 @@ def _register_commands() -> None:
         connector_commands,
         history_commands,
         likes_commands,
+        mcp_commands,
         playlist_commands,
         preference_commands,
         review_commands,
@@ -244,6 +264,13 @@ def _register_commands() -> None:
         name="tag",
         help="Tag tracks and browse your tag vocabulary",
         rich_help_panel="🎵 Track Operations",
+    )
+
+    app.add_typer(
+        mcp_commands.app,
+        name="mcp",
+        help="Expose mixd to MCP clients (Claude Desktop, Cursor, …)",
+        rich_help_panel="⚙️ System",
     )
 
     app.add_typer(

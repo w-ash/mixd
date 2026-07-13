@@ -1,6 +1,6 @@
 [project]
 name = "mixd"
-version = "0.9.2"
+version = "0.9.3"
 description = "Music metadata integration and playlist management platform"
 authors = [{name = "Ash Wright", email = "a@ashwright.net"}]
 readme = "README.md"
@@ -29,6 +29,14 @@ dependencies = [
     "orjson>=3.11.9",
     "croniter>=6.2.2",
     "anthropic>=0.116,<1",
+    # v0.9.3 MCP server. Pinned to the pre-final beta on purpose: the 2026-07-28
+    # stateless spec + stable v2 SDK land 2026-07-28. RE-VERIFY CHECKPOINT: on/after
+    # 2026-07-28 bump to stable v2 and re-run tests/integration/interface/mcp before
+    # starting the gated Tasks-extension epic.
+    "mcp==2.0.0b1",
+    # Direct-pinned so uv accepts this transitive pre-release without enabling
+    # pre-releases globally (mcp 2.0.0b1 hard-requires mcp-types==2.0.0b1).
+    "mcp-types==2.0.0b1",
 ]
 
 [project.scripts]
@@ -158,6 +166,10 @@ unfixable = []
 ]
 "src/application/chat/dispatchers/long_ops.py" = [
     "RUF029",   # long-op tools propose (no I/O) but ToolDispatch requires async
+]
+"src/interface/mcp/server.py" = [
+    "RUF029",   # MCP SDK's request-handler protocol requires async handlers even
+                # when a handler (tools/list) does no I/O
 ]
 "src/application/chat/use_case.py" = [
     "ASYNC119", # streaming proxy MUST yield inside the LLM stream context; the SSE

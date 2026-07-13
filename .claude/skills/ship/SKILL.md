@@ -1,6 +1,6 @@
 ---
 name: ship
-description: Ship a completed backlog version — reconcile against stories, run all health checks with zero tolerance, bump version, and commit. Use after all implementation for a version is done.
+description: Ship a completed backlog version — reconcile against stories, run all health checks with zero tolerance, bump version, commit, and land the release commit on main so it's ready to deploy. Use after all implementation for a version is done.
 user-invocable: true
 disable-model-invocation: true
 allowed-tools: Bash Read Edit Grep Glob
@@ -23,7 +23,7 @@ Mixd uses `major.minor.feature.revision` — see the `version-management` rule. 
 
 ## Step 0: Pre-flight checks
 
-- Run `git status` to see the current state. If there are unexpected untracked or modified files beyond implementation work, warn the user before proceeding.
+- Run `git status` to see the current state. If there are unexpected untracked or modified files beyond implementation work, warn the user before proceeding. Note the current branch — ship work usually lives on a `feat/…` branch, and Step 9 lands it on `main` (the deploy source) as part of getting the release ready to deploy.
 - Read `docs/backlog/README.md` to identify the current feature row and what comes next.
 - Read `pyproject.toml` to check the current version.
 
@@ -217,14 +217,37 @@ If the commit fails (it shouldn't after Step 7c, but just in case):
 - If hooks auto-fixed files: re-stage and retry once
 - If it fails again: STOP and report. Do NOT use `--no-verify`.
 
-## Step 9: Tag and deploy
+## Step 9: Land on main, tag, and deploy
 
-After the commit succeeds:
+The whole point of `/ship` is to leave the release **ready to deploy**, and `deploy` sources from `main` — so a release commit stranded on a feature branch is not shipped. Land it on `main`, tag the deployable commit, then hand off to `deploy`.
 
-1. Create the version tag: run `git tag v{VERSION}` (e.g., `git tag v0.6.6`).
-2. Let the user know what's ready and how to deploy when they choose to:
+### 9a: Land the release commit on `main`
 
-> Version is committed and tagged locally. When you're ready to deploy, run `deploy` in your terminal.
+Ship work usually happens on a `feat/…` branch, so the commit from Step 8 must be brought onto `main` before it's deployable. Do this **before** tagging, so the tag marks the commit that actually deploys.
+
+1. If already on `main`, skip to 9b.
+2. Otherwise, check whether `main` can fast-forward to the release commit:
+   `git merge-base --is-ancestor main HEAD` (exit 0 = yes).
+   - **Fast-forward possible** (`main` is an ancestor of the release commit — the common case, since the feature branch was cut from `main`): land it with a linear, no-merge-commit fast-forward:
+     ```
+     git checkout main
+     git merge --ff-only <feature-branch>
+     ```
+     End on `main` — `deploy` pushes the current branch, and you want that to be `main`.
+   - **`main` has diverged** (not fast-forwardable — someone pushed to `main` since the branch was cut): **STOP. Do not force, rebase, or pick a merge strategy on your own.** Show the user both sides (`git log --oneline main..HEAD` and `HEAD..main`) and ask how they want to reconcile (rebase the feature branch onto `main`, or a merge commit). Resume only after they choose.
+3. Never `git push` here — pushing stays with `deploy` (Step 9c), so the user keeps the final go/no-go.
+
+### 9b: Tag the deployable commit
+
+Now that the release commit is on `main`, tag it:
+
+- Run `git tag v{VERSION}` (e.g., `git tag v0.6.6`). Because the fast-forward preserved the SHA, the tag lands on the exact commit that will deploy.
+
+### 9c: Hand off to deploy
+
+Let the user know what's ready and how to deploy when they choose to:
+
+> Version is committed, landed on `main`, and tagged locally. When you're ready to deploy, run `deploy` in your terminal.
 
 ### What `deploy` does
 

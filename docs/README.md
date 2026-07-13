@@ -10,6 +10,7 @@ Guides and references for using mixd — writing workflows, syncing likes, runni
 |----------|------|-------------|
 | [guides/workflows.md](guides/workflows.md) | Guide | Workflow authoring and node catalog |
 | [guides/likes-sync.md](guides/likes-sync.md) | Guide | Cross-service likes synchronization |
+| [guides/mcp.md](guides/mcp.md) | Guide | Use mixd from MCP clients (Claude Desktop, Cursor, Claude Code) |
 | [guides/cli.md](guides/cli.md) | Reference | CLI commands and options |
 
 ## Developer Documentation

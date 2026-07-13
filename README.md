@@ -6,7 +6,7 @@ Streaming services lock your listening history, likes, and playlists behind prop
 
 ## What You Can Do
 
-Everything you can do in the web UI or CLI, the in-app AI assistant can do too — a [parity contract](docs/web-ui/capability-matrix.md) enforced in CI, so the assistant never falls behind the app.
+Everything you can do in the web UI or CLI, the in-app AI assistant can do too — a [parity contract](docs/web-ui/capability-matrix.md) enforced in CI, so the assistant never falls behind the app. The same tools are exposed to external agents over the [Model Context Protocol](docs/guides/mcp.md), so you can drive your library from Claude Desktop, Cursor, or Claude Code.
 
 ### Own Your Data
 
@@ -53,19 +53,29 @@ A full-featured web UI for browsing and managing your music library.
 - **Live execution** — watch workflows run node-by-node with real-time SSE progress, then inspect per-track decisions in run history
 - **Track operations** — provenance tracking, duplicate merge, manual relink/unlink, match review for gray-zone mappings
 
+### AI Assistant & Agents
+
+Drive your whole library in plain English — from an in-app assistant or your own agent. Every capability is a tool in one shared registry, so the assistant, agentic features, and external clients never drift from the app.
+
+- **In-app assistant** — describe what you want ("build a playlist of upbeat tracks I haven't played in six months", "tag everything in Revival with `context:sunday`") and the assistant does it. Anything you can do in the web UI or CLI, it can do — a [parity contract](docs/web-ui/capability-matrix.md) enforced in CI.
+- **Nothing mutates silently** — every write is two-phase: the assistant previews exactly what will change and commits only on your confirmation.
+- **Agentic depth** — it composes batch operations in a code sandbox, delegates deep analysis to a research subagent, and manages long sessions with tool search + per-request effort, so multi-step asks stay fast and affordable.
+- **Bring your own key, per user** — opt in with your own Anthropic API key; each user's assistant is scoped to their own library via the same row-level security the web UI uses.
+- **Model Context Protocol** — the same tools are exposed to external MCP clients (Claude Desktop, Cursor, Claude Code) over stdio, so you can point an existing agent at mixd. See the [MCP guide](docs/guides/mcp.md).
+
 ## How It Works
 
-Two interfaces (CLI + Web) over a shared application core, built on Clean Architecture with domain-driven design.
+Three surfaces (CLI, Web, and AI agents) over a shared application core, built on Clean Architecture with domain-driven design. The assistant and MCP server are thin transports over one **tool registry** — a parity-classified set of `ToolSpec`s adapting the same use cases the CLI and Web call — which is what keeps agent capabilities in lockstep with the app.
 
 ```
-CLI (Typer + Rich)  ─┐
-                     ├→ Use Cases → Domain Logic ← Connectors (Spotify, Last.fm, MusicBrainz)
-Web (React + FastAPI)┘                           ← PostgreSQL/SQLAlchemy (async)
+CLI (Typer + Rich)       ─┐
+Web (React + FastAPI)    ─┼→ Use Cases → Domain Logic ← Connectors (Spotify, Last.fm, MusicBrainz)
+AI assistant + MCP agents─┘  (via shared tool registry)  ← PostgreSQL/SQLAlchemy (async)
 ```
 
 Workflows are declarative pipelines: **Source → Enrich → Filter → Sort → Select → Destination**. Tracks flow through nodes that compose freely. The pipeline engine — a stdlib-`asyncio` executor — runs each DAG level concurrently and tracks progress; retries live in the connector layer.
 
-**Stack**: Python 3.14, PostgreSQL + SQLAlchemy 2.0 async (psycopg3), attrs, httpx, FastAPI, React 19, Vite 8, Biome, Tailwind CSS v4, Tanstack Query
+**Stack**: Python 3.14, PostgreSQL + SQLAlchemy 2.0 async (psycopg3), attrs, httpx, FastAPI, React 19, Vite 8, Biome, Tailwind CSS v4, Tanstack Query, Anthropic Claude + Model Context Protocol (agentic assistant)
 
 ## Quick Start
 
@@ -88,13 +98,16 @@ mixd workflow                     # Interactive workflow browser
 
 # Launch the web UI
 pnpm dev                            # Starts PostgreSQL + API + Vite dev server
+
+# Drive mixd from an MCP client (Claude Desktop, Cursor, Claude Code)
+mixd mcp install                    # Print the config snippet to register mixd
 ```
 
-Full setup: [docs/development.md](docs/development.md) — CLI reference: [docs/guides/cli.md](docs/guides/cli.md)
+Full setup: [docs/development.md](docs/development.md) — CLI reference: [docs/guides/cli.md](docs/guides/cli.md) — MCP setup: [docs/guides/mcp.md](docs/guides/mcp.md)
 
 ## Documentation
 
-- **Using mixd?** → [docs/guides/](docs/guides/) — workflows, likes sync, CLI reference
+- **Using mixd?** → [docs/guides/](docs/guides/) — workflows, likes sync, CLI reference, MCP
 - **Contributing?** → [docs/development.md](docs/development.md) then [docs/architecture/](docs/architecture/)
 - **Roadmap & backlog** → [docs/backlog/](docs/backlog/)
 - **Full index** → [docs/README.md](docs/README.md)

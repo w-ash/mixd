@@ -99,41 +99,45 @@ internal plumbing). This table is generated from
 
 ## Chat tools
 
-The tools the assistant calls, in registry (prompt) order.
+The tools the assistant calls, in registry (prompt) order. The **MCP**
+column is what the `mixd mcp serve` stdio server exposes to external
+clients (v0.9.3): read + synchronous write tools are exposed; agentic
+tools and long-running (operation-launching) writes stay chat-only for
+now — the latter pending the gated Tasks-extension epic.
 
-| Tool | Kind | Description |
-| --- | --- | --- |
-| describe_node | read | Call this before proposing or editing a workflow to confirm which node types exist and what parameters each takes. |
-| list_user_workflows | read | Call this to see the user's saved workflows — name, description, task count, and the workflow_id that get_workflow and save_workflow take. |
-| get_workflow | read | Call this to fetch one saved workflow's complete definition by its workflow_id (from list_user_workflows). |
-| generate_workflow_def | read | Call this with a complete workflow definition whenever you build or refine a workflow for the user — it validates the definition against the node catalog and DAG rules and renders a graph preview the user sees. |
-| validate_workflow_def | read | Use this to check a workflow definition you did not just generate — one the user pasted, or a saved workflow fetched via get_workflow — against the node catalog and DAG rules. |
-| save_workflow | write | Call this to propose persisting a workflow definition after a successful generate_workflow_def — pass the exact definition it accepted, plus workflow_id when updating an existing workflow (omit it to create). |
-| query_library | read | Call this to read the user's track library: search or list tracks (scope 'all'), inspect one track's full detail (scope 'all' with track_id), or pull the liked, preferred, or recently played slices (scope 'liked'/'preferred'/'played'). |
-| list_tags | read | Call this to see the user's tags with how many tracks carry each and when each was last used. |
-| query_playlists | read | Call this to read the user's playlists before answering questions about them, referencing one, or proposing changes — so names and ids are real, never guessed. |
-| query_playlist_links | read | Call this to see how a canonical playlist connects to external services, or to preview a sync before running it. |
-| query_stats | read | Call this to read the user's library health and stats. |
-| query_operations | read | Call this to read the user's background-operation history and sync state. |
-| preview_workflow | read | Call this to dry-run a complete workflow definition against the user's real library and see the tracks it would produce, before saving or running it. |
-| query_workflow_history | read | Call this to read workflow run history or version history. |
-| query_schedules | read | Call this to read the user's automation schedules before answering questions about when a workflow or sync runs, or proposing a schedule change. |
-| merge_tracks | write | Call this to propose merging two duplicate canonical tracks into one. |
-| manage_track_matches | write | Call this to propose a change to how a connector track is matched to a canonical track. |
-| manage_tags | write | Call this to propose a tag change on the user's library. |
-| set_preferences | write | Call this to propose a preference change on the user's library. |
-| manage_playlist | write | Call this to propose creating, renaming, or deleting a canonical playlist. |
-| manage_playlist_entries | write | Call this to propose changing a canonical playlist's entries. |
-| manage_connector_playlist | write | Call this to propose refreshing the local cache of external connector playlists. |
-| manage_playlist_link | write | Call this to propose a sync-link change between a canonical Mixd playlist and an external connector playlist. |
-| manage_playlist_assignments | write | Call this to propose a metadata-assignment change on a cached connector playlist. |
-| manage_workflow | write | Call this to propose a change to the user's saved workflows. |
-| manage_schedule | write | Call this to propose a change to a workflow's or sync's automated schedule. |
-| run_workflow | write | Call this to run one of the user's saved workflows now — pass its workflow_id. |
-| import_connector_playlists | write | Call this to import external connector playlists (e.g. |
-| apply_playlist_assignments | write | Call this to apply tag/preference assignment rules across the library, populating playlists in bulk — omit assignment_ids to apply all, or pass specific ones. |
-| sync_playlist_link | write | Call this to run a playlist sync link now — pass its link_id from query_playlist_links. |
-| import_data | write | Call this to import listening data from a connector — Last.fm play history or Spotify likes. |
-| code_execution | agentic | Server-side Python sandbox for batch computation over the user's library. |
-| delegate_analysis | agentic | Use this to delegate a deep, multi-step investigation of the user's library to a research subagent — 'compare my listening this spring vs last spring and tell me what changed', 'which starred tracks fell out of rotation this year and why'. |
-| tool_search_tool_bm25 | agentic | Server-side BM25 search over the deferred tool set. |
+| Tool | Kind | MCP | Description |
+| --- | --- | --- | --- |
+| describe_node | read | exposed | Call this before proposing or editing a workflow to confirm which node types exist and what parameters each takes. |
+| list_user_workflows | read | exposed | Call this to see the user's saved workflows — name, description, task count, and the workflow_id that get_workflow and save_workflow take. |
+| get_workflow | read | exposed | Call this to fetch one saved workflow's complete definition by its workflow_id (from list_user_workflows). |
+| generate_workflow_def | read | exposed | Call this with a complete workflow definition whenever you build or refine a workflow for the user — it validates the definition against the node catalog and DAG rules and renders a graph preview the user sees. |
+| validate_workflow_def | read | exposed | Use this to check a workflow definition you did not just generate — one the user pasted, or a saved workflow fetched via get_workflow — against the node catalog and DAG rules. |
+| save_workflow | write | exposed | Call this to propose persisting a workflow definition after a successful generate_workflow_def — pass the exact definition it accepted, plus workflow_id when updating an existing workflow (omit it to create). |
+| query_library | read | exposed | Call this to read the user's track library: search or list tracks (scope 'all'), inspect one track's full detail (scope 'all' with track_id), or pull the liked, preferred, or recently played slices (scope 'liked'/'preferred'/'played'). |
+| list_tags | read | exposed | Call this to see the user's tags with how many tracks carry each and when each was last used. |
+| query_playlists | read | exposed | Call this to read the user's playlists before answering questions about them, referencing one, or proposing changes — so names and ids are real, never guessed. |
+| query_playlist_links | read | exposed | Call this to see how a canonical playlist connects to external services, or to preview a sync before running it. |
+| query_stats | read | exposed | Call this to read the user's library health and stats. |
+| query_operations | read | exposed | Call this to read the user's background-operation history and sync state. |
+| preview_workflow | read | exposed | Call this to dry-run a complete workflow definition against the user's real library and see the tracks it would produce, before saving or running it. |
+| query_workflow_history | read | exposed | Call this to read workflow run history or version history. |
+| query_schedules | read | exposed | Call this to read the user's automation schedules before answering questions about when a workflow or sync runs, or proposing a schedule change. |
+| merge_tracks | write | exposed | Call this to propose merging two duplicate canonical tracks into one. |
+| manage_track_matches | write | exposed | Call this to propose a change to how a connector track is matched to a canonical track. |
+| manage_tags | write | exposed | Call this to propose a tag change on the user's library. |
+| set_preferences | write | exposed | Call this to propose a preference change on the user's library. |
+| manage_playlist | write | exposed | Call this to propose creating, renaming, or deleting a canonical playlist. |
+| manage_playlist_entries | write | exposed | Call this to propose changing a canonical playlist's entries. |
+| manage_connector_playlist | write | exposed | Call this to propose refreshing the local cache of external connector playlists. |
+| manage_playlist_link | write | exposed | Call this to propose a sync-link change between a canonical Mixd playlist and an external connector playlist. |
+| manage_playlist_assignments | write | exposed | Call this to propose a metadata-assignment change on a cached connector playlist. |
+| manage_workflow | write | exposed | Call this to propose a change to the user's saved workflows. |
+| manage_schedule | write | exposed | Call this to propose a change to a workflow's or sync's automated schedule. |
+| run_workflow | write | chat-only (pending Tasks) | Call this to run one of the user's saved workflows now — pass its workflow_id. |
+| import_connector_playlists | write | chat-only (pending Tasks) | Call this to import external connector playlists (e.g. |
+| apply_playlist_assignments | write | chat-only (pending Tasks) | Call this to apply tag/preference assignment rules across the library, populating playlists in bulk — omit assignment_ids to apply all, or pass specific ones. |
+| sync_playlist_link | write | chat-only (pending Tasks) | Call this to run a playlist sync link now — pass its link_id from query_playlist_links. |
+| import_data | write | chat-only (pending Tasks) | Call this to import listening data from a connector — Last.fm play history or Spotify likes. |
+| code_execution | agentic | chat-only (agentic) | Server-side Python sandbox for batch computation over the user's library. |
+| delegate_analysis | agentic | chat-only (agentic) | Use this to delegate a deep, multi-step investigation of the user's library to a research subagent — 'compare my listening this spring vs last spring and tell me what changed', 'which starred tracks fell out of rotation this year and why'. |
+| tool_search_tool_bm25 | agentic | chat-only (agentic) | Server-side BM25 search over the deferred tool set. |

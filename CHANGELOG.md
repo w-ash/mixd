@@ -6,6 +6,18 @@ linked backlog version file. Versioning follows mixd's four-segment
 `major.minor.feature.revision` scheme (`.claude/rules/version-management.md`), not strict
 SemVer. Format inspired by [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [0.9.3] — 2026-07-12
+
+**Point your own agent at mixd.** The tool surface the in-app assistant drives is now an MCP server, so any MCP-aware client — Claude Desktop, Cursor, Claude Code — can read from and act on your library over a local stdio connection. "Find my starred tracks from last year that aren't on my Friday playlist and add them" runs from your desktop agent, against the same parity-complete registry, with the same never-silent write confirmation.
+
+- **`mixd mcp serve` / `mixd mcp install`** — a low-level stdio MCP server built from the shared `TOOLS` registry (`src/interface/mcp/server.py`); `install` prints the client config snippet (Claude Desktop / Cursor / Claude Code), pinning `MIXD_USER_ID` for non-default users so an agent acts on the right tenant's library. Identity resolves exactly as every CLI command does (`MIXD_USER_ID` → `DEFAULT_USER_ID`) — no new credential surface.
+- **26 tools exposed, one shared classifier** — read + synchronous-write tools are exposed; the 3 `agentic` tools (sandbox, subagent, tool search) stay chat-only (an MCP client brings its own loop) and the 5 long-running writes are gated (see below). `src/interface/mcp/exposure.py` is the single classifier both the server and the generated capability matrix consume, so the doc can't drift from what's actually exposed. Annotations (`readOnlyHint`/`destructiveHint`/…) are derived from each tool's `kind`.
+- **In-band two-phase confirmation** — every write previews first: a call without `confirm=true` returns `{ status: "needs_confirmation", confirm_token, preview }`; a second call with the token and unchanged arguments commits. It reuses the chat `pending_action_store` + `execute_confirmed_action` (one preview renderer, two surfaces); expired/unknown tokens re-preview, args drift is rejected, and tokens are single-use with a 5-minute TTL.
+- **stdout stays pure JSON-RPC** — structlog routes to stderr before the first import-time log for any `mixd mcp` command (early argv guard + a `console_stream` kwarg), so protocol output is never corrupted; `mcp install --print` likewise emits pure JSON for piping.
+- **Long-running ops deferred, not forgotten** — imports, workflow runs, and playlist syncs need the MCP Tasks extension (and an `OperationLauncher` decoupled from FastAPI); they show `chat-only (pending Tasks)` in the matrix and flip to exposed when the post-2026-07-28 stable SDK lands. The SDK is pinned to `mcp==2.0.0b1` with a re-verify checkpoint baked into `pyproject.toml`.
+
+→ [details](docs/backlog/v0.9.x.md#v093-mcp-server-mixd-as-a-tool-surface)
+
 ## [0.9.2] — 2026-07-12
 
 **Ask for batch answers and deep analysis without watching the assistant grind.** With full parity the assistant could already do everything — but one visible tool call at a time, every intermediate result flowing through its context. v0.9.2 makes it efficient and long-horizon capable: "how many of my 2024 discoveries did I star, by month?" runs as one sandbox script over the read tools instead of hundreds of round trips, and "compare my listening this spring vs last spring and tell me what changed" is delegated to a research subagent that reads widely and hands back a single summary — the working thread stays fast and on-topic.

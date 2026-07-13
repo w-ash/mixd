@@ -25,7 +25,7 @@ import logging
 import logging.handlers
 from pathlib import Path
 import sys
-from typing import cast, override
+from typing import TextIO, cast, override
 
 from rich.console import Console
 import structlog
@@ -56,7 +56,9 @@ def _shared_processors() -> list[structlog.types.Processor]:
     ]
 
 
-def setup_logging(verbose: bool = False) -> None:
+def setup_logging(
+    verbose: bool = False, *, console_stream: TextIO | None = None
+) -> None:
     """Configure structlog with dual output: pretty console + flat JSON file.
 
     Uses stdlib integration mode — all Python loggers (Uvicorn, etc.)
@@ -64,6 +66,10 @@ def setup_logging(verbose: bool = False) -> None:
 
     Args:
         verbose: Enable DEBUG console output and richer tracebacks.
+        console_stream: Where the console handler writes. Defaults to stdout.
+            The stdio MCP server (``mixd mcp serve``) passes ``sys.stderr`` here
+            because stdout is its JSON-RPC protocol channel — any log byte on
+            stdout would corrupt the stream.
     """
     console_level = "DEBUG" if verbose else settings.logging.console_level
 
@@ -99,7 +105,7 @@ def setup_logging(verbose: bool = False) -> None:
         "notset": "\033[38;5;245m",
     }
 
-    console_handler = logging.StreamHandler(sys.stdout)
+    console_handler = logging.StreamHandler(console_stream or sys.stdout)
     console_handler.setLevel(logging.getLevelNamesMapping()[console_level])
     console_handler.setFormatter(
         structlog.stdlib.ProcessorFormatter(

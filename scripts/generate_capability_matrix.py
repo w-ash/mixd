@@ -30,6 +30,16 @@ from src.application.tools.registry import (
     TOOLS,
 )
 import src.application.use_cases as use_cases_pkg
+from src.interface.mcp.exposure import mcp_exposure
+
+# Human-readable MCP-exposure cell per tool (v0.9.3). Derived from the same
+# ``mcp_exposure`` classifier the stdio server uses, so the doc can't drift from
+# what the server actually exposes.
+_MCP_LABEL: dict[str, str] = {
+    "exposed": "exposed",
+    "agentic": "chat-only (agentic)",
+    "pending_tasks": "chat-only (pending Tasks)",
+}
 
 _OUTPUT_PATH = (
     Path(__file__).resolve().parents[1] / "docs" / "web-ui" / "capability-matrix.md"
@@ -180,13 +190,18 @@ def build_matrix() -> str:
         "",
         "## Chat tools",
         "",
-        "The tools the assistant calls, in registry (prompt) order.",
+        "The tools the assistant calls, in registry (prompt) order. The **MCP**",
+        "column is what the `mixd mcp serve` stdio server exposes to external",
+        "clients (v0.9.3): read + synchronous write tools are exposed; agentic",
+        "tools and long-running (operation-launching) writes stay chat-only for",
+        "now — the latter pending the gated Tasks-extension epic.",
         "",
-        "| Tool | Kind | Description |",
-        "| --- | --- | --- |",
+        "| Tool | Kind | MCP | Description |",
+        "| --- | --- | --- | --- |",
     ])
     lines.extend(
-        f"| {spec.name} | {spec.kind} | {_first_sentence(spec.description)} |"
+        f"| {spec.name} | {spec.kind} | {_MCP_LABEL[mcp_exposure(spec)]} "
+        f"| {_first_sentence(spec.description)} |"
         for spec in TOOLS
     )
     lines.append("")
