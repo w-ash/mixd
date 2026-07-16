@@ -224,6 +224,15 @@ def create_app() -> FastAPI:
 
     app.include_router(webhooks_router)
 
+    # Remote MCP surface (v0.9.5) — only when a signing key is configured.
+    # No prefix: OAuth/MCP clients fetch discovery documents unauthenticated.
+    if settings.mcp_oauth.enabled:
+        from src.interface.api.oauth.keys import get_signing_material
+        from src.interface.api.routes.well_known import router as well_known_router
+
+        get_signing_material()  # fail fast on a malformed key at startup
+        app.include_router(well_known_router)
+
     app.include_router(health_router, prefix="/api/v1")
     app.include_router(stats_router, prefix="/api/v1")
     app.include_router(playlists_router, prefix="/api/v1")

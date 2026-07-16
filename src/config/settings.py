@@ -20,6 +20,7 @@ import contextlib
 import os
 from pathlib import Path
 from typing import Annotated, ClassVar, Literal, Self, cast
+from urllib.parse import urlparse
 
 from dotenv import dotenv_values
 from pydantic import BaseModel, Field, SecretStr, model_validator
@@ -391,6 +392,67 @@ class SecurityConfig(BaseModel):
     )
 
 
+class McpOAuthConfig(BaseModel):
+    """Remote MCP OAuth configuration (v0.9.5).
+
+    The remote MCP surface — the Streamable-HTTP transport at ``/mcp`` plus the
+    in-app OAuth 2.1 authorization server — is enabled iff ``signing_key`` is
+    set, mirroring the ``neon_auth_url`` gating pattern. Local stdio MCP
+    (``mixd mcp serve``) is unaffected by any of these values.
+
+    Access as ``settings.mcp_oauth.*``; override via ``MCP_OAUTH__*`` env or
+    the flat aliases ``MCP_RESOURCE_URI`` / ``MCP_OAUTH_SIGNING_KEY``.
+    """
+
+    resource_uri: str = Field(
+        default="http://localhost:8000/mcp",
+        description="Canonical MCP resource URI — the RFC 8707 audience every "
+        "access token is bound to. Production: https://mixd.me/mcp.",
+    )
+    signing_key: SecretStr = Field(
+        default=SecretStr(""),
+        description="Ed25519 private key for OAuth access-token signing, as "
+        "PKCS8 PEM or base64-wrapped PEM (Fly-secret friendly). Empty = the "
+        "whole remote-MCP surface is disabled. Generate via scripts in "
+        "docs/deployment.md.",
+    )
+    issuer: str = Field(
+        default="",
+        description="OAuth issuer URL (RFC 8414). Empty = derived from "
+        "resource_uri origin (e.g. https://mixd.me).",
+    )
+    allowed_hosts: list[str] = Field(
+        default=["mixd.me", "mixd.fly.dev", "localhost", "127.0.0.1"],
+        description="Host headers the MCP transport's DNS-rebinding guard "
+        "accepts. Ports are matched permissively by the transport wiring.",
+    )
+    access_token_ttl_seconds: PositiveInt = Field(
+        default=3600,
+        description="Access-token lifetime. Starting point, revisit.",
+    )
+    refresh_token_ttl_seconds: PositiveInt = Field(
+        default=2_592_000,
+        description="Refresh-token lifetime (30 days). Rotated on every use.",
+    )
+    authorization_code_ttl_seconds: PositiveInt = Field(
+        default=300,
+        description="Authorization-code lifetime (RFC 6749 recommends <=10min).",
+    )
+
+    @property
+    def enabled(self) -> bool:
+        """Whether the remote MCP surface (transport + AS) is active."""
+        return bool(self.signing_key.get_secret_value())
+
+    @property
+    def issuer_url(self) -> str:
+        """Effective issuer: explicit setting or the resource URI's origin."""
+        if self.issuer:
+            return self.issuer.rstrip("/")
+        parsed = urlparse(self.resource_uri)
+        return f"{parsed.scheme}://{parsed.netloc}"
+
+
 class SchedulerConfig(BaseModel):
     """In-process workflow/sync scheduler tuning.
 
@@ -566,6 +628,7 @@ class Settings(BaseSettings):
     security: SecurityConfig = Field(default_factory=SecurityConfig)
     scheduler: SchedulerConfig = Field(default_factory=SchedulerConfig)
     chat: ChatConfig = Field(default_factory=ChatConfig)
+    mcp_oauth: McpOAuthConfig = Field(default_factory=McpOAuthConfig)
 
     # Top-level settings
     data_dir: Path = Field(
@@ -606,6 +669,9 @@ class Settings(BaseSettings):
         "allowed_emails": ("server", None),
         # Security
         "token_encryption_key": ("security", None),
+        # Remote MCP (v0.9.5)
+        "mcp_resource_uri": ("mcp_oauth", "resource_uri"),
+        "mcp_oauth_signing_key": ("mcp_oauth", "signing_key"),
         # CLI identity
         "mixd_user_id": ("cli", "user_id"),
     }

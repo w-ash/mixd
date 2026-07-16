@@ -5,7 +5,7 @@ Literal log level types reject invalid values at construction time, while
 accepting boundary values.
 """
 
-from pydantic import ValidationError
+from pydantic import SecretStr, ValidationError
 import pytest
 
 from src.config.settings import (
@@ -16,6 +16,7 @@ from src.config.settings import (
     ImportConfig,
     LoggingConfig,
     MatchingConfig,
+    McpOAuthConfig,
     SchedulerConfig,
 )
 
@@ -319,3 +320,30 @@ class TestDataDirIsCwdIndependent:
         created = ensure_data_dir()
         assert created.is_absolute()
         assert created.is_dir()
+
+
+class TestMcpOAuthConfig:
+    """Remote-MCP OAuth settings (v0.9.5): gating and issuer derivation."""
+
+    def test_disabled_by_default(self):
+        config = McpOAuthConfig()
+        assert config.enabled is False
+        assert config.resource_uri == "http://localhost:8000/mcp"
+
+    def test_enabled_when_signing_key_set(self):
+        config = McpOAuthConfig(signing_key=SecretStr("-----BEGIN PRIVATE KEY-----"))
+        assert config.enabled is True
+
+    def test_issuer_derived_from_resource_uri_origin(self):
+        config = McpOAuthConfig(resource_uri="https://mixd.me/mcp")
+        assert config.issuer_url == "https://mixd.me"
+
+    def test_explicit_issuer_wins_and_is_normalized(self):
+        config = McpOAuthConfig(
+            resource_uri="https://mixd.me/mcp", issuer="https://other.example/"
+        )
+        assert config.issuer_url == "https://other.example"
+
+    def test_ttls_reject_non_positive(self):
+        with pytest.raises(ValidationError):
+            McpOAuthConfig(access_token_ttl_seconds=0)
