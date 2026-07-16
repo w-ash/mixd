@@ -86,6 +86,11 @@ const WorkflowRunDetail = lazy(() =>
   })),
 );
 const WorkflowEditor = lazy(() => import("./pages/WorkflowEditor"));
+const OAuthConsentPage = lazy(() =>
+  import("./pages/OAuthConsentPage").then((m) => ({
+    default: m.OAuthConsentPage,
+  })),
+);
 const ChatPage = lazy(() =>
   import("./pages/ChatPage").then((m) => ({ default: m.ChatPage })),
 );
@@ -149,6 +154,24 @@ export function App() {
                       />
                     </>
                   )}
+                  {/* OAuth consent (v0.9.5): auth-guarded but chrome-free —
+                      a focused decision card, not an app page. */}
+                  <Route
+                    path="oauth/consent"
+                    element={
+                      authEnabled ? (
+                        <AuthGuard>
+                          <Suspense fallback={<PageSkeleton />}>
+                            <OAuthConsentPage />
+                          </Suspense>
+                        </AuthGuard>
+                      ) : (
+                        <Suspense fallback={<PageSkeleton />}>
+                          <OAuthConsentPage />
+                        </Suspense>
+                      )
+                    }
+                  />
                   <Route
                     element={
                       authEnabled ? (

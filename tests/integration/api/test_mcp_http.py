@@ -14,86 +14,30 @@ allowlist rejection, host-header (DNS-rebinding) rejection, and the
 protected-resource-metadata documents.
 """
 
-import asyncio
-from collections.abc import AsyncGenerator, AsyncIterator
+from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
 import json
 
-from cryptography.hazmat.primitives import serialization
-from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PrivateKey
 from fastapi import FastAPI
 import httpx
 from mcp.client.session import ClientSession
 from mcp.client.streamable_http import streamable_http_client
 from mcp_types import TextContent
-from pydantic import SecretStr
 import pytest
 
 from src.config import settings
 from src.infrastructure.persistence.database.db_connection import get_session
-from src.interface.api.app import create_app
 from src.interface.api.oauth.tokens import mint_access_token
 from src.interface.mcp.server import exposed_specs
 from tests.fixtures import seed_db_track
-from tests.integration.api.conftest import _test_db_env, _truncate_all_tables
 
 RESOURCE_URI = "http://localhost/mcp"
 
 
-def _generate_pem() -> str:
-    return (
-        Ed25519PrivateKey
-        .generate()
-        .private_bytes(
-            serialization.Encoding.PEM,
-            serialization.PrivateFormat.PKCS8,
-            serialization.NoEncryption(),
-        )
-        .decode()
-    )
-
-
 @pytest.fixture
-async def mcp_app(
-    postgres_url: str,
-    _init_test_schema: None,
-    monkeypatch: pytest.MonkeyPatch,
-) -> AsyncGenerator[FastAPI]:
-    """The full app with the remote-MCP surface enabled, transport running.
-
-    ``ASGITransport`` never runs the lifespan, so the session manager's task
-    group is entered here directly — the piece of the lifespan the transport
-    needs.
-    """
-    monkeypatch.setattr(settings.mcp_oauth, "signing_key", SecretStr(_generate_pem()))
-    monkeypatch.setattr(settings.mcp_oauth, "resource_uri", RESOURCE_URI)
-    monkeypatch.setattr(settings.mcp_oauth, "issuer", "")
-    monkeypatch.setattr(settings.server, "allowed_emails", "")
-    with _test_db_env(postgres_url):
-        await _truncate_all_tables()
-        app = create_app()
-        manager = app.state.mcp_session_manager
-        assert manager is not None
-
-        # manager.run() owns an anyio cancel scope, which must be entered and
-        # exited in the SAME task — pytest-asyncio tears fixtures down in a
-        # different task, so a dedicated runner task owns the context instead.
-        started = asyncio.Event()
-        stop = asyncio.Event()
-
-        async def _run_manager() -> None:
-            async with manager.run():
-                started.set()
-                await stop.wait()
-
-        runner = asyncio.create_task(_run_manager())
-        await started.wait()
-        try:
-            yield app
-        finally:
-            stop.set()
-            await runner
-            await _truncate_all_tables()
+async def mcp_app(mcp_enabled_app: FastAPI) -> FastAPI:
+    """Alias over the shared conftest fixture (transport already running)."""
+    return mcp_enabled_app
 
 
 def _token(sub: str = "user-a", email: str = "a@example.com") -> str:

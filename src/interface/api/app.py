@@ -242,8 +242,18 @@ def create_app() -> FastAPI:
 
     app.include_router(webhooks_router)
 
-    # Remote MCP surface (v0.9.5) — only when a signing key is configured.
-    # No prefix: OAuth/MCP clients fetch discovery documents unauthenticated.
+    # Remote MCP surface (v0.9.5). The APIRouters (JWKS, consent) register
+    # unconditionally so the exported OpenAPI schema — and the Orval codegen
+    # downstream of it — never depends on deployment config; their handlers
+    # degrade to 404 when the surface is disabled. The protocol routes
+    # (/authorize, /token, /mcp, RFC 9728) are raw Starlette routes invisible
+    # to OpenAPI and mount only when a signing key is configured.
+    from src.interface.api.routes.oauth_consent import router as oauth_consent_router
+    from src.interface.api.routes.well_known import router as well_known_router
+
+    app.include_router(well_known_router)
+    app.include_router(oauth_consent_router, prefix="/api/v1")
+
     app.state.mcp_session_manager = None
     if settings.mcp_oauth.enabled:
         from typing import cast
@@ -255,7 +265,7 @@ def create_app() -> FastAPI:
         from starlette.routing import Route
 
         from src.interface.api.oauth.keys import get_signing_material
-        from src.interface.api.routes.well_known import router as well_known_router
+        from src.interface.api.oauth.routes import build_oauth_as_routes
         from src.interface.mcp.http import (
             build_mcp_asgi_app,
             resolve_request_user_id,
@@ -265,7 +275,10 @@ def create_app() -> FastAPI:
         from src.interface.mcp.server import build_server
 
         get_signing_material()  # fail fast on a malformed key at startup
-        app.include_router(well_known_router)
+
+        # In-app OAuth 2.1 authorization server: /authorize, /token,
+        # /register, RFC 8414 metadata (all no-prefix, client-facing).
+        app.router.routes.extend(build_oauth_as_routes())
 
         # RFC 9728 Protected Resource Metadata: the SDK route lands at
         # /.well-known/oauth-protected-resource/mcp (well-known prefix + the

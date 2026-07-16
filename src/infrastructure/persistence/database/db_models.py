@@ -1572,3 +1572,87 @@ class DBPendingAction(BaseEntity):
     tool_input: Mapped[JsonDict] = mapped_column(PgJsonb, nullable=False)
     description: Mapped[str] = mapped_column(Text(), nullable=False)
     details: Mapped[JsonDict] = mapped_column(PgJsonb, nullable=False)
+
+
+class DBOAuthClient(BaseEntity):
+    """An OAuth client known to the in-app authorization server (v0.9.5).
+
+    ``kind='dcr'`` rows are RFC 7591 dynamic registrations; ``kind='cimd'``
+    rows cache fetched Client-ID-Metadata documents (client_id = the https
+    metadata URL). ``client_info`` holds the full RFC 7591 metadata dump.
+    No RLS — AS system table with no user context at the token endpoint
+    (migration 039); the CHECK on ``kind`` lives in the migration only.
+    """
+
+    __tablename__: str = "oauth_clients"
+
+    client_id: Mapped[str] = mapped_column(String(), nullable=False, unique=True)
+    kind: Mapped[str] = mapped_column(String(), nullable=False)
+    client_info: Mapped[JsonDict] = mapped_column(PgJsonb, nullable=False)
+
+
+class DBOAuthAuthorizationRequest(BaseEntity):
+    """An authorization request parked while the user completes consent.
+
+    Created by the /authorize endpoint, consumed (deleted) by the consent
+    API's approve/deny call. Short-lived; stale rows are evicted
+    opportunistically. No RLS (migration 039).
+    """
+
+    __tablename__: str = "oauth_authorization_requests"
+
+    client_id: Mapped[str] = mapped_column(String(), nullable=False)
+    client_name: Mapped[str | None] = mapped_column(String(), nullable=True)
+    params: Mapped[JsonDict] = mapped_column(PgJsonb, nullable=False)
+
+
+class DBOAuthAuthorizationCode(BaseEntity):
+    """An issued authorization code (hashed), single-use at exchange.
+
+    ``code_hash`` is SHA-256 of the code string — a DB leak must not yield
+    redeemable codes. Consumed via atomic DELETE…RETURNING so two racing
+    /token calls can't both exchange it. No RLS (migration 039).
+    """
+
+    __tablename__: str = "oauth_authorization_codes"
+
+    code_hash: Mapped[str] = mapped_column(String(), nullable=False, unique=True)
+    client_id: Mapped[str] = mapped_column(String(), nullable=False)
+    user_id: Mapped[str] = mapped_column(String(), nullable=False)
+    email: Mapped[str] = mapped_column(String(), nullable=False)
+    scopes: Mapped[str] = mapped_column(String(), nullable=False)
+    code_challenge: Mapped[str] = mapped_column(String(), nullable=False)
+    redirect_uri: Mapped[str] = mapped_column(String(), nullable=False)
+    redirect_uri_provided_explicitly: Mapped[bool] = mapped_column(nullable=False)
+    resource: Mapped[str | None] = mapped_column(String(), nullable=True)
+    expires_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False
+    )
+
+
+class DBOAuthRefreshToken(BaseEntity):
+    """A rotating refresh token (hashed) with replay-revocable family.
+
+    Rotation marks the old generation ``revoked_at`` (kept, not deleted) and
+    inserts the new one under the same ``family_id`` — presenting a revoked
+    token is replay evidence and deletes the whole family. No RLS
+    (migration 039).
+    """
+
+    __tablename__: str = "oauth_refresh_tokens"
+    __table_args__: tuple[SchemaItem, ...] = (
+        Index("ix_oauth_refresh_tokens_family_id", "family_id"),
+    )
+
+    token_hash: Mapped[str] = mapped_column(String(), nullable=False, unique=True)
+    family_id: Mapped[UuidType] = mapped_column(PgUuidCol(as_uuid=True), nullable=False)
+    client_id: Mapped[str] = mapped_column(String(), nullable=False)
+    user_id: Mapped[str] = mapped_column(String(), nullable=False)
+    email: Mapped[str] = mapped_column(String(), nullable=False)
+    scopes: Mapped[str] = mapped_column(String(), nullable=False)
+    expires_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False
+    )
+    revoked_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True), nullable=True
+    )

@@ -201,3 +201,63 @@ def mock_connector_provider() -> Iterator[dict[str, object]]:
         lambda _self: stub_provider,
     ):
         yield stubs
+
+
+@pytest.fixture
+async def mcp_enabled_app(
+    postgres_url: str,
+    _init_test_schema: None,
+    monkeypatch: pytest.MonkeyPatch,
+):
+    """The full app with the remote-MCP surface (v0.9.5) enabled.
+
+    Configures a fresh Ed25519 signing key + localhost resource URI, builds
+    the app, and runs the Streamable-HTTP session manager in a dedicated task
+    (``ASGITransport`` never runs the lifespan, and ``manager.run()`` owns an
+    anyio cancel scope that must enter and exit in the SAME task —
+    pytest-asyncio tears fixtures down in a different one).
+    """
+    import asyncio
+
+    from cryptography.hazmat.primitives import serialization
+    from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PrivateKey
+    from pydantic import SecretStr
+
+    from src.config import settings
+
+    pem = (
+        Ed25519PrivateKey
+        .generate()
+        .private_bytes(
+            serialization.Encoding.PEM,
+            serialization.PrivateFormat.PKCS8,
+            serialization.NoEncryption(),
+        )
+        .decode()
+    )
+    monkeypatch.setattr(settings.mcp_oauth, "signing_key", SecretStr(pem))
+    monkeypatch.setattr(settings.mcp_oauth, "resource_uri", "http://localhost/mcp")
+    monkeypatch.setattr(settings.mcp_oauth, "issuer", "")
+    monkeypatch.setattr(settings.server, "allowed_emails", "")
+    with _test_db_env(postgres_url):
+        await _truncate_all_tables()
+        app = create_app()
+        manager = app.state.mcp_session_manager
+        assert manager is not None
+
+        started = asyncio.Event()
+        stop = asyncio.Event()
+
+        async def _run_manager() -> None:
+            async with manager.run():
+                started.set()
+                await stop.wait()
+
+        runner = asyncio.create_task(_run_manager())
+        await started.wait()
+        try:
+            yield app
+        finally:
+            stop.set()
+            await runner
+            await _truncate_all_tables()
