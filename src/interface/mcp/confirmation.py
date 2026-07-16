@@ -83,7 +83,7 @@ async def handle_write_call(
         return await _preview(spec, arguments, ctx)
 
     try:
-        action = pending_action_store.claim(action_id, ctx.user_id)
+        action = await pending_action_store.claim(action_id, ctx.user_id)
     except ActionExpiredError:
         # Expired or unknown token → a fresh preview, never a stale commit.
         return await _preview(spec, arguments, ctx)

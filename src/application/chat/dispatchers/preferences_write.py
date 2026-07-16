@@ -141,7 +141,9 @@ async def handle_set_preferences(
             ],
         }
 
-    return propose_action(ctx, "set_preferences", tool_input, description, details)
+    return await propose_action(
+        ctx, "set_preferences", tool_input, description, details
+    )
 
 
 async def exec_set_preferences(action: PendingAction, user_id: str) -> JsonValue:

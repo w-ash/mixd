@@ -52,8 +52,10 @@ from tests.fixtures.mocks import (
     make_mock_workflow_run_repo,
     make_tracking_emitter,
 )
+from tests.fixtures.pending_actions import InMemoryPendingActionStore
 
 __all__ = [
+    "InMemoryPendingActionStore",
     "fake_run_async",
     "make_connector_playlist",
     "make_connector_playlist_item",

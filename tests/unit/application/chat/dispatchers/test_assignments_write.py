@@ -13,7 +13,7 @@ from uuid import UUID, uuid4
 import pytest
 
 from src.application.chat.dispatchers import _common, assignments_write
-from src.application.chat.pending_actions import PendingAction, PendingActionStore
+from src.application.chat.pending_actions import PendingAction
 from src.application.chat.protocols import ToolContext
 from src.application.use_cases.apply_playlist_assignments import (
     ApplyPlaylistAssignmentsResult,
@@ -29,13 +29,14 @@ from src.application.use_cases.delete_playlist_assignment import (
 )
 from src.domain.entities.playlist_assignment import PlaylistAssignment
 from src.domain.exceptions import NotFoundError, ToolExecutionError
+from tests.fixtures import InMemoryPendingActionStore
 
 _CTX = ToolContext(user_id="default")
 
 
 @pytest.fixture
-def fresh_store(monkeypatch: pytest.MonkeyPatch) -> PendingActionStore:
-    store = PendingActionStore()
+def fresh_store(monkeypatch: pytest.MonkeyPatch) -> InMemoryPendingActionStore:
+    store = InMemoryPendingActionStore()
     monkeypatch.setattr(_common, "pending_action_store", store)
     return store
 
@@ -69,7 +70,7 @@ def _apply_result() -> ApplyPlaylistAssignmentsResult:
 
 class TestManagePlaylistAssignmentsPropose:
     async def test_create_proposes_pending_confirmation(
-        self, fresh_store: PendingActionStore
+        self, fresh_store: InMemoryPendingActionStore
     ) -> None:
         cp_id = uuid4()
         result = await assignments_write.handle_manage_playlist_assignments(
@@ -90,11 +91,11 @@ class TestManagePlaylistAssignmentsPropose:
         assert details["action_value"] == "star"
         assert details["changes"]
 
-        action = fresh_store.claim(UUID(result["action_id"]), "default")
+        action = await fresh_store.claim(UUID(result["action_id"]), "default")
         assert action.tool_name == "manage_playlist_assignments"
 
     async def test_bad_action_type_rejected(
-        self, fresh_store: PendingActionStore
+        self, fresh_store: InMemoryPendingActionStore
     ) -> None:
         with pytest.raises(ToolExecutionError, match="action_type"):
             await assignments_write.handle_manage_playlist_assignments(
@@ -108,7 +109,7 @@ class TestManagePlaylistAssignmentsPropose:
             )
 
     async def test_delete_missing_assignment_id_rejected(
-        self, fresh_store: PendingActionStore
+        self, fresh_store: InMemoryPendingActionStore
     ) -> None:
         with pytest.raises(ToolExecutionError, match="assignment_id"):
             await assignments_write.handle_manage_playlist_assignments(
@@ -117,9 +118,9 @@ class TestManagePlaylistAssignmentsPropose:
 
 
 class TestExecManagePlaylistAssignments:
-    def _action(self, details: dict[str, object]) -> PendingAction:
-        store = PendingActionStore()
-        return store.create(
+    async def _action(self, details: dict[str, object]) -> PendingAction:
+        store = InMemoryPendingActionStore()
+        return await store.create(
             user_id="default",
             tool_name="manage_playlist_assignments",
             tool_input={},
@@ -140,7 +141,7 @@ class TestExecManagePlaylistAssignments:
                 )
             ),
         )
-        action = self._action({
+        action = await self._action({
             "operation": "create",
             "connector_playlist_id": str(cp_id),
             "action_type": "set_preference",
@@ -170,7 +171,7 @@ class TestExecManagePlaylistAssignments:
                 )
             ),
         )
-        action = self._action({
+        action = await self._action({
             "operation": "create_and_apply",
             "connector_playlist_id": str(cp_id),
             "action_type": "set_preference",
@@ -192,7 +193,7 @@ class TestExecManagePlaylistAssignments:
             "execute_use_case",
             _fake_runner(DeletePlaylistAssignmentResult(deleted=True)),
         )
-        action = self._action({
+        action = await self._action({
             "operation": "delete",
             "assignment_id": str(assignment_id),
         })
@@ -212,7 +213,7 @@ class TestExecManagePlaylistAssignments:
             raise ValueError("action_value for set_preference must be one of ...")
 
         monkeypatch.setattr(_common, "execute_use_case", _raise)
-        action = self._action({
+        action = await self._action({
             "operation": "create",
             "connector_playlist_id": str(uuid4()),
             "action_type": "set_preference",
@@ -229,7 +230,10 @@ class TestExecManagePlaylistAssignments:
             raise NotFoundError("gone")
 
         monkeypatch.setattr(_common, "execute_use_case", _raise)
-        action = self._action({"operation": "delete", "assignment_id": str(uuid4())})
+        action = await self._action({
+            "operation": "delete",
+            "assignment_id": str(uuid4()),
+        })
 
         with pytest.raises(ToolExecutionError, match="no longer exists"):
             await assignments_write.exec_manage_playlist_assignments(action, "default")

@@ -13,7 +13,7 @@ from uuid import UUID, uuid4
 import pytest
 
 from src.application.chat.dispatchers import _common, workflows_write
-from src.application.chat.pending_actions import PendingAction, PendingActionStore
+from src.application.chat.pending_actions import PendingAction
 from src.application.chat.protocols import ToolContext
 from src.application.use_cases.schedules import (
     DeleteScheduleResult,
@@ -28,7 +28,7 @@ from src.application.use_cases.workflow_crud import (
 from src.application.use_cases.workflow_versions import RevertWorkflowVersionResult
 from src.domain.entities.schedule import Schedule
 from src.domain.exceptions import NotFoundError, ToolExecutionError
-from tests.fixtures import make_workflow, make_workflow_def
+from tests.fixtures import InMemoryPendingActionStore, make_workflow, make_workflow_def
 
 _CTX = ToolContext(user_id="default")
 
@@ -56,8 +56,8 @@ _VALID_DEF = {
 
 
 @pytest.fixture
-def fresh_store(monkeypatch: pytest.MonkeyPatch) -> PendingActionStore:
-    store = PendingActionStore()
+def fresh_store(monkeypatch: pytest.MonkeyPatch) -> InMemoryPendingActionStore:
+    store = InMemoryPendingActionStore()
     monkeypatch.setattr(_common, "pending_action_store", store)
     return store
 
@@ -69,8 +69,8 @@ def _fake_use_case_runner(result: object):
     return _run
 
 
-def _action(tool_name: str, details: dict[str, object]) -> PendingAction:
-    return PendingActionStore().create(
+async def _action(tool_name: str, details: dict[str, object]) -> PendingAction:
+    return await InMemoryPendingActionStore().create(
         user_id="default",
         tool_name=tool_name,
         tool_input={},
@@ -91,7 +91,7 @@ def _make_schedule(**kwargs: object) -> Schedule:
 
 class TestManageWorkflowPropose:
     async def test_instantiate_proposes_pending_confirmation(
-        self, fresh_store: PendingActionStore
+        self, fresh_store: InMemoryPendingActionStore
     ) -> None:
         result = await workflows_write.handle_manage_workflow(
             {"operation": "instantiate", "workflow_def": _VALID_DEF}, _CTX
@@ -105,11 +105,11 @@ class TestManageWorkflowPropose:
         assert details["workflow_def"]["name"] == "Chill Weekend"
         assert "severity" not in details
 
-        action = fresh_store.claim(UUID(result["action_id"]), "default")
+        action = await fresh_store.claim(UUID(result["action_id"]), "default")
         assert action.tool_name == "manage_workflow"
 
     async def test_duplicate_carries_workflow_id(
-        self, fresh_store: PendingActionStore
+        self, fresh_store: InMemoryPendingActionStore
     ) -> None:
         workflow_id = uuid4()
         result = await workflows_write.handle_manage_workflow(
@@ -120,7 +120,9 @@ class TestManageWorkflowPropose:
         assert result["details"]["workflow_id"] == str(workflow_id)
         assert "severity" not in result["details"]
 
-    async def test_delete_is_destructive(self, fresh_store: PendingActionStore) -> None:
+    async def test_delete_is_destructive(
+        self, fresh_store: InMemoryPendingActionStore
+    ) -> None:
         result = await workflows_write.handle_manage_workflow(
             {"operation": "delete", "workflow_id": str(uuid4())}, _CTX
         )
@@ -131,7 +133,7 @@ class TestManageWorkflowPropose:
         assert "version history" in details["warning"]
 
     async def test_revert_version_carries_version(
-        self, fresh_store: PendingActionStore
+        self, fresh_store: InMemoryPendingActionStore
     ) -> None:
         workflow_id = uuid4()
         result = await workflows_write.handle_manage_workflow(
@@ -147,7 +149,7 @@ class TestManageWorkflowPropose:
         assert result["details"]["version"] == 3
 
     async def test_revert_version_above_page_size_default_accepted(
-        self, fresh_store: PendingActionStore
+        self, fresh_store: InMemoryPendingActionStore
     ) -> None:
         # definition_version climbs past the 500 page-size default; a real
         # ordinal version like 600 must not be rejected by the coercion.
@@ -163,7 +165,7 @@ class TestManageWorkflowPropose:
         assert result["details"]["version"] == 600
 
     async def test_instantiate_invalid_def_rejected(
-        self, fresh_store: PendingActionStore
+        self, fresh_store: InMemoryPendingActionStore
     ) -> None:
         with pytest.raises(ToolExecutionError, match="workflow_def"):
             await workflows_write.handle_manage_workflow(
@@ -171,7 +173,7 @@ class TestManageWorkflowPropose:
             )
 
     async def test_revert_missing_version_rejected(
-        self, fresh_store: PendingActionStore
+        self, fresh_store: InMemoryPendingActionStore
     ) -> None:
         with pytest.raises(ToolExecutionError, match="version"):
             await workflows_write.handle_manage_workflow(
@@ -179,7 +181,7 @@ class TestManageWorkflowPropose:
             )
 
     async def test_bad_workflow_id_rejected(
-        self, fresh_store: PendingActionStore
+        self, fresh_store: InMemoryPendingActionStore
     ) -> None:
         with pytest.raises(ToolExecutionError, match="workflow_id"):
             await workflows_write.handle_manage_workflow(
@@ -187,7 +189,7 @@ class TestManageWorkflowPropose:
             )
 
     async def test_unknown_operation_rejected(
-        self, fresh_store: PendingActionStore
+        self, fresh_store: InMemoryPendingActionStore
     ) -> None:
         with pytest.raises(ToolExecutionError, match="operation"):
             await workflows_write.handle_manage_workflow({"operation": "bogus"}, _CTX)
@@ -206,7 +208,7 @@ class TestExecManageWorkflow:
             "execute_use_case",
             _fake_use_case_runner(InstantiateWorkflowResult(workflow=workflow)),
         )
-        action = _action(
+        action = await _action(
             "manage_workflow",
             {"operation": "instantiate", "workflow_def": _VALID_DEF},
         )
@@ -224,7 +226,7 @@ class TestExecManageWorkflow:
             "execute_use_case",
             _fake_use_case_runner(DuplicateWorkflowResult(workflow=workflow)),
         )
-        action = _action(
+        action = await _action(
             "manage_workflow",
             {"operation": "duplicate", "workflow_id": str(uuid4())},
         )
@@ -241,7 +243,7 @@ class TestExecManageWorkflow:
             "execute_use_case",
             _fake_use_case_runner(DeleteWorkflowResult(workflow_id=workflow_id)),
         )
-        action = _action(
+        action = await _action(
             "manage_workflow",
             {"operation": "delete", "workflow_id": str(workflow_id)},
         )
@@ -260,7 +262,7 @@ class TestExecManageWorkflow:
             "execute_use_case",
             _fake_use_case_runner(RevertWorkflowVersionResult(workflow=workflow)),
         )
-        action = _action(
+        action = await _action(
             "manage_workflow",
             {
                 "operation": "revert_version",
@@ -281,7 +283,7 @@ class TestExecManageWorkflow:
             raise NotFoundError("gone")
 
         monkeypatch.setattr(_common, "execute_use_case", _raise)
-        action = _action(
+        action = await _action(
             "manage_workflow",
             {"operation": "delete", "workflow_id": str(uuid4())},
         )
@@ -297,7 +299,7 @@ class TestExecManageWorkflow:
 
 class TestManageSchedulePropose:
     async def test_upsert_proposes_pending_confirmation(
-        self, fresh_store: PendingActionStore
+        self, fresh_store: InMemoryPendingActionStore
     ) -> None:
         workflow_id = uuid4()
         result = await workflows_write.handle_manage_schedule(
@@ -323,11 +325,11 @@ class TestManageSchedulePropose:
         assert details["timezone"] == "America/Los_Angeles"
         assert "severity" not in details
 
-        action = fresh_store.claim(UUID(result["action_id"]), "default")
+        action = await fresh_store.claim(UUID(result["action_id"]), "default")
         assert action.tool_name == "manage_schedule"
 
     async def test_upsert_defaults_daily_utc(
-        self, fresh_store: PendingActionStore
+        self, fresh_store: InMemoryPendingActionStore
     ) -> None:
         result = await workflows_write.handle_manage_schedule(
             {"operation": "upsert", "sync_target": "lastfm:plays"}, _CTX
@@ -341,7 +343,7 @@ class TestManageSchedulePropose:
         assert details["timezone"] == "UTC"
 
     async def test_toggle_carries_enabled(
-        self, fresh_store: PendingActionStore
+        self, fresh_store: InMemoryPendingActionStore
     ) -> None:
         result = await workflows_write.handle_manage_schedule(
             {"operation": "toggle", "workflow_id": str(uuid4()), "enabled": False},
@@ -352,7 +354,9 @@ class TestManageSchedulePropose:
         assert result["details"]["enabled"] is False
         assert "Disable" in result["description"]
 
-    async def test_delete_is_destructive(self, fresh_store: PendingActionStore) -> None:
+    async def test_delete_is_destructive(
+        self, fresh_store: InMemoryPendingActionStore
+    ) -> None:
         result = await workflows_write.handle_manage_schedule(
             {"operation": "delete", "sync_target": "lastfm:plays"}, _CTX
         )
@@ -363,12 +367,14 @@ class TestManageSchedulePropose:
         assert details["warning"]
 
     async def test_neither_target_rejected(
-        self, fresh_store: PendingActionStore
+        self, fresh_store: InMemoryPendingActionStore
     ) -> None:
         with pytest.raises(ToolExecutionError, match="exactly one"):
             await workflows_write.handle_manage_schedule({"operation": "delete"}, _CTX)
 
-    async def test_both_targets_rejected(self, fresh_store: PendingActionStore) -> None:
+    async def test_both_targets_rejected(
+        self, fresh_store: InMemoryPendingActionStore
+    ) -> None:
         with pytest.raises(ToolExecutionError, match="exactly one"):
             await workflows_write.handle_manage_schedule(
                 {
@@ -380,7 +386,7 @@ class TestManageSchedulePropose:
             )
 
     async def test_toggle_missing_enabled_rejected(
-        self, fresh_store: PendingActionStore
+        self, fresh_store: InMemoryPendingActionStore
     ) -> None:
         with pytest.raises(ToolExecutionError, match="enabled"):
             await workflows_write.handle_manage_schedule(
@@ -403,7 +409,7 @@ class TestExecManageSchedule:
                 UpsertScheduleResult(schedule=schedule, created=True)
             ),
         )
-        action = _action(
+        action = await _action(
             "manage_schedule",
             {
                 "operation": "upsert",
@@ -430,7 +436,7 @@ class TestExecManageSchedule:
             "execute_use_case",
             _fake_use_case_runner(ToggleScheduleResult(schedule=schedule)),
         )
-        action = _action(
+        action = await _action(
             "manage_schedule",
             {
                 "operation": "toggle",
@@ -452,7 +458,7 @@ class TestExecManageSchedule:
             "execute_use_case",
             _fake_use_case_runner(DeleteScheduleResult(schedule_id=schedule_id)),
         )
-        action = _action(
+        action = await _action(
             "manage_schedule",
             {
                 "operation": "delete",
@@ -473,7 +479,7 @@ class TestExecManageSchedule:
             raise ValueError("unknown timezone")
 
         monkeypatch.setattr(_common, "execute_use_case", _raise)
-        action = _action(
+        action = await _action(
             "manage_schedule",
             {
                 "operation": "upsert",

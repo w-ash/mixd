@@ -66,7 +66,7 @@ async def handle_run_workflow(
         "workflow_id": str(workflow_id),
         "changes": [f"Run workflow {workflow_id} now"],
     }
-    return propose_action(
+    return await propose_action(
         ctx, "run_workflow", tool_input, f"Run workflow {workflow_id}", details
     )
 
@@ -117,7 +117,7 @@ async def handle_import_connector_playlists(
         ],
     }
     description = f"Import {len(identifiers)} {connector} playlist(s)"
-    return propose_action(
+    return await propose_action(
         ctx, "import_connector_playlists", tool_input, description, details
     )
 
@@ -158,7 +158,7 @@ async def handle_apply_playlist_assignments(
         "assignment_ids": assignment_ids,
         "changes": [f"Apply {scope} to populate playlists"],
     }
-    return propose_action(
+    return await propose_action(
         ctx,
         "apply_playlist_assignments",
         tool_input,
@@ -212,7 +212,7 @@ async def handle_sync_playlist_link(
         "confirm_token": opt_str(tool_input, "confirm_token"),
         "changes": [f"Sync playlist link {link_id}"],
     }
-    return propose_action(
+    return await propose_action(
         ctx, "sync_playlist_link", tool_input, f"Sync playlist link {link_id}", details
     )
 
@@ -265,7 +265,7 @@ async def handle_import_data(
         "force": opt_bool(tool_input, "force", default=False),
         "changes": [f"Import {source.replace('_', ' ')}"],
     }
-    return propose_action(
+    return await propose_action(
         ctx, "import_data", tool_input, f"Import {source.replace('_', ' ')}", details
     )
 

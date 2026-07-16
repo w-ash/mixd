@@ -127,7 +127,9 @@ MANAGE_PLAYLIST_INPUT_SCHEMA: JsonDict = {
 }
 
 
-def _propose_create(tool_input: Mapping[str, JsonValue], ctx: ToolContext) -> JsonValue:
+async def _propose_create(
+    tool_input: Mapping[str, JsonValue], ctx: ToolContext
+) -> JsonValue:
     name = require_str(tool_input, "name")
     description = opt_str(tool_input, "description")
     changes = [f"A new empty playlist named {name!r} is created"]
@@ -139,12 +141,14 @@ def _propose_create(tool_input: Mapping[str, JsonValue], ctx: ToolContext) -> Js
         "description": description,
         "changes": changes,
     }
-    return propose_action(
+    return await propose_action(
         ctx, "manage_playlist", tool_input, f"Create playlist {name!r}", details
     )
 
 
-def _propose_update(tool_input: Mapping[str, JsonValue], ctx: ToolContext) -> JsonValue:
+async def _propose_update(
+    tool_input: Mapping[str, JsonValue], ctx: ToolContext
+) -> JsonValue:
     playlist_id = require_uuid(tool_input, "playlist_id")
     name = opt_str(tool_input, "name")
     description = opt_str(tool_input, "description")
@@ -165,7 +169,7 @@ def _propose_update(tool_input: Mapping[str, JsonValue], ctx: ToolContext) -> Js
         "description": description,
         "changes": changes,
     }
-    return propose_action(
+    return await propose_action(
         ctx,
         "manage_playlist",
         tool_input,
@@ -174,7 +178,9 @@ def _propose_update(tool_input: Mapping[str, JsonValue], ctx: ToolContext) -> Js
     )
 
 
-def _propose_delete(tool_input: Mapping[str, JsonValue], ctx: ToolContext) -> JsonValue:
+async def _propose_delete(
+    tool_input: Mapping[str, JsonValue], ctx: ToolContext
+) -> JsonValue:
     playlist_id = require_uuid(tool_input, "playlist_id")
     details: JsonDict = {
         "operation": "delete",
@@ -186,7 +192,7 @@ def _propose_delete(tool_input: Mapping[str, JsonValue], ctx: ToolContext) -> Js
         "severity": "destructive",
         "warning": "permanently deletes the playlist",
     }
-    return propose_action(
+    return await propose_action(
         ctx,
         "manage_playlist",
         tool_input,
@@ -207,10 +213,10 @@ async def handle_manage_playlist(
     """
     operation = require_choice(tool_input, "operation", _PLAYLIST_OPERATIONS)
     if operation == "create":
-        return _propose_create(tool_input, ctx)
+        return await _propose_create(tool_input, ctx)
     if operation == "update":
-        return _propose_update(tool_input, ctx)
-    return _propose_delete(tool_input, ctx)
+        return await _propose_update(tool_input, ctx)
+    return await _propose_delete(tool_input, ctx)
 
 
 async def _exec_create(d: JsonDict, user_id: str) -> JsonValue:
@@ -366,7 +372,9 @@ MANAGE_PLAYLIST_ENTRIES_INPUT_SCHEMA: JsonDict = {
 }
 
 
-def _propose_add(tool_input: Mapping[str, JsonValue], ctx: ToolContext) -> JsonValue:
+async def _propose_add(
+    tool_input: Mapping[str, JsonValue], ctx: ToolContext
+) -> JsonValue:
     playlist_id = require_uuid(tool_input, "playlist_id")
     track_ids = require_uuid_list(tool_input, "track_ids")
     position: int | None = None
@@ -384,7 +392,7 @@ def _propose_add(tool_input: Mapping[str, JsonValue], ctx: ToolContext) -> JsonV
             f"{len(track_ids)} track(s) are added to playlist {playlist_id} at {where}"
         ],
     }
-    return propose_action(
+    return await propose_action(
         ctx,
         "manage_playlist_entries",
         tool_input,
@@ -393,7 +401,9 @@ def _propose_add(tool_input: Mapping[str, JsonValue], ctx: ToolContext) -> JsonV
     )
 
 
-def _propose_remove(tool_input: Mapping[str, JsonValue], ctx: ToolContext) -> JsonValue:
+async def _propose_remove(
+    tool_input: Mapping[str, JsonValue], ctx: ToolContext
+) -> JsonValue:
     playlist_id = require_uuid(tool_input, "playlist_id")
     entry_ids = require_uuid_list(tool_input, "entry_ids")
     details: JsonDict = {
@@ -404,7 +414,7 @@ def _propose_remove(tool_input: Mapping[str, JsonValue], ctx: ToolContext) -> Js
             f"{len(entry_ids)} entry(ies) are removed from playlist {playlist_id}"
         ],
     }
-    return propose_action(
+    return await propose_action(
         ctx,
         "manage_playlist_entries",
         tool_input,
@@ -413,7 +423,7 @@ def _propose_remove(tool_input: Mapping[str, JsonValue], ctx: ToolContext) -> Js
     )
 
 
-def _propose_reorder(
+async def _propose_reorder(
     tool_input: Mapping[str, JsonValue], ctx: ToolContext
 ) -> JsonValue:
     playlist_id = require_uuid(tool_input, "playlist_id")
@@ -427,7 +437,7 @@ def _propose_reorder(
             f"({len(entry_ids)} entries, full list)"
         ],
     }
-    return propose_action(
+    return await propose_action(
         ctx,
         "manage_playlist_entries",
         tool_input,
@@ -436,7 +446,9 @@ def _propose_reorder(
     )
 
 
-def _propose_repair(tool_input: Mapping[str, JsonValue], ctx: ToolContext) -> JsonValue:
+async def _propose_repair(
+    tool_input: Mapping[str, JsonValue], ctx: ToolContext
+) -> JsonValue:
     playlist_id = require_uuid(tool_input, "playlist_id")
     details: JsonDict = {
         "operation": "repair",
@@ -446,7 +458,7 @@ def _propose_repair(tool_input: Mapping[str, JsonValue], ctx: ToolContext) -> Js
             "against known track mappings"
         ],
     }
-    return propose_action(
+    return await propose_action(
         ctx,
         "manage_playlist_entries",
         tool_input,
@@ -467,12 +479,12 @@ async def handle_manage_playlist_entries(
     """
     operation = require_choice(tool_input, "operation", _ENTRY_OPERATIONS)
     if operation == "add":
-        return _propose_add(tool_input, ctx)
+        return await _propose_add(tool_input, ctx)
     if operation == "remove":
-        return _propose_remove(tool_input, ctx)
+        return await _propose_remove(tool_input, ctx)
     if operation == "reorder":
-        return _propose_reorder(tool_input, ctx)
-    return _propose_repair(tool_input, ctx)
+        return await _propose_reorder(tool_input, ctx)
+    return await _propose_repair(tool_input, ctx)
 
 
 async def _exec_add(d: JsonDict, user_id: str) -> JsonValue:

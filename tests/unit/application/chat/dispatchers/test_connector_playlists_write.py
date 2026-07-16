@@ -12,7 +12,7 @@ from uuid import UUID
 import pytest
 
 from src.application.chat.dispatchers import _common, connector_playlists_write
-from src.application.chat.pending_actions import PendingAction, PendingActionStore
+from src.application.chat.pending_actions import PendingAction
 from src.application.chat.protocols import ToolContext
 from src.application.services.connector_playlist_sync_service import RefreshFailure
 from src.application.use_cases.refresh_connector_playlists import (
@@ -20,13 +20,14 @@ from src.application.use_cases.refresh_connector_playlists import (
 )
 from src.domain.entities.shared import ConnectorPlaylistIdentifier
 from src.domain.exceptions import NotFoundError, ToolExecutionError
+from tests.fixtures import InMemoryPendingActionStore
 
 _CTX = ToolContext(user_id="default")
 
 
 @pytest.fixture
-def fresh_store(monkeypatch: pytest.MonkeyPatch) -> PendingActionStore:
-    store = PendingActionStore()
+def fresh_store(monkeypatch: pytest.MonkeyPatch) -> InMemoryPendingActionStore:
+    store = InMemoryPendingActionStore()
     monkeypatch.setattr(_common, "pending_action_store", store)
     return store
 
@@ -40,7 +41,7 @@ def _fake_runner(result: object):
 
 class TestManageConnectorPlaylistPropose:
     async def test_proposes_pending_confirmation(
-        self, fresh_store: PendingActionStore
+        self, fresh_store: InMemoryPendingActionStore
     ) -> None:
         result = await connector_playlists_write.handle_manage_connector_playlist(
             {
@@ -61,11 +62,11 @@ class TestManageConnectorPlaylistPropose:
         assert "severity" not in details
         assert details["changes"]
 
-        action = fresh_store.claim(UUID(result["action_id"]), "default")
+        action = await fresh_store.claim(UUID(result["action_id"]), "default")
         assert action.tool_name == "manage_connector_playlist"
 
     async def test_missing_identifiers_rejected(
-        self, fresh_store: PendingActionStore
+        self, fresh_store: InMemoryPendingActionStore
     ) -> None:
         with pytest.raises(ToolExecutionError, match="identifiers"):
             await connector_playlists_write.handle_manage_connector_playlist(
@@ -73,7 +74,7 @@ class TestManageConnectorPlaylistPropose:
             )
 
     async def test_unknown_operation_rejected(
-        self, fresh_store: PendingActionStore
+        self, fresh_store: InMemoryPendingActionStore
     ) -> None:
         with pytest.raises(ToolExecutionError, match="refresh"):
             await connector_playlists_write.handle_manage_connector_playlist(
@@ -87,9 +88,9 @@ class TestManageConnectorPlaylistPropose:
 
 
 class TestExecManageConnectorPlaylist:
-    def _action(self) -> PendingAction:
-        store = PendingActionStore()
-        return store.create(
+    async def _action(self) -> PendingAction:
+        store = InMemoryPendingActionStore()
+        return await store.create(
             user_id="default",
             tool_name="manage_connector_playlist",
             tool_input={},
@@ -118,7 +119,7 @@ class TestExecManageConnectorPlaylist:
         monkeypatch.setattr(_common, "execute_use_case", _fake_runner(result))
 
         out = await connector_playlists_write.exec_manage_connector_playlist(
-            self._action(), "default"
+            await self._action(), "default"
         )
 
         assert out["status"] == "confirmed"
@@ -137,5 +138,5 @@ class TestExecManageConnectorPlaylist:
 
         with pytest.raises(ToolExecutionError, match="could not be found"):
             await connector_playlists_write.exec_manage_connector_playlist(
-                self._action(), "default"
+                await self._action(), "default"
             )

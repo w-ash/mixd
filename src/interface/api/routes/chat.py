@@ -79,7 +79,7 @@ async def _handle_confirmation(
         return None, None
     action_id = UUID(body.confirmation.action_id)
     if body.confirmation.approved:
-        action = pending_action_store.claim(action_id, user_id)
+        action = await pending_action_store.claim(action_id, user_id)
         result = await execute_confirmed_action(
             action, user_id, operation_launcher=launch_chat_operation
         )
@@ -91,7 +91,7 @@ async def _handle_confirmation(
             f"Result: {json.dumps(result)}. Acknowledge the change briefly.]"
         )
         return context, _launch_event(action, result)
-    pending_action_store.cancel(action_id, user_id)
+    await pending_action_store.cancel(action_id, user_id)
     logger.info("chat_action_cancelled", action_id=str(action_id))
     return (
         "[The user cancelled the proposed action. "

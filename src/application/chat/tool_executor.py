@@ -356,4 +356,4 @@ async def handle_save_workflow(
             "changes": changes,
             "definition": normalized,
         }
-    return propose_action(ctx, "save_workflow", tool_input, description, details)
+    return await propose_action(ctx, "save_workflow", tool_input, description, details)

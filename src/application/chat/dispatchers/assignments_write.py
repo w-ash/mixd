@@ -160,7 +160,7 @@ async def handle_manage_playlist_assignments(
             "changes": [f"Delete assignment {assignment_id}"],
         }
 
-    return propose_action(
+    return await propose_action(
         ctx, "manage_playlist_assignments", tool_input, description, details
     )
 

@@ -136,7 +136,7 @@ def require_str_list(args: Mapping[str, JsonValue], key: str) -> list[str]:
 # --- two-phase proposal -----------------------------------------------------
 
 
-def propose_action(
+async def propose_action(
     ctx: ToolContext,
     tool_name: str,
     tool_input: Mapping[str, JsonValue],
@@ -150,7 +150,7 @@ def propose_action(
     back to commit — plus, for write tools, a human-readable ``changes`` list and
     an optional destructive ``warning`` the ConfirmationCard renders.
     """
-    action = pending_action_store.create(
+    action = await pending_action_store.create(
         user_id=ctx.user_id,
         tool_name=tool_name,
         tool_input=dict(tool_input),

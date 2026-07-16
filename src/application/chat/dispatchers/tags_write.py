@@ -190,7 +190,7 @@ async def handle_manage_tags(
             "changes": [f"Delete tag '{tag}' from all tracks"],
         }
 
-    return propose_action(ctx, "manage_tags", tool_input, description, details)
+    return await propose_action(ctx, "manage_tags", tool_input, description, details)
 
 
 def _confirmed(action: PendingAction, operation: str, **extra: JsonValue) -> JsonDict:

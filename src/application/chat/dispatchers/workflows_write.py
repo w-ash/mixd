@@ -192,7 +192,9 @@ async def handle_manage_workflow(
             "changes": [f"Restore workflow {workflow_id} to version {version}"],
         }
 
-    return propose_action(ctx, "manage_workflow", tool_input, description, details)
+    return await propose_action(
+        ctx, "manage_workflow", tool_input, description, details
+    )
 
 
 async def exec_manage_workflow(action: PendingAction, user_id: str) -> JsonValue:
@@ -446,7 +448,9 @@ async def handle_manage_schedule(
             "changes": [f"Delete the schedule for {target}"],
         }
 
-    return propose_action(ctx, "manage_schedule", tool_input, description, details)
+    return await propose_action(
+        ctx, "manage_schedule", tool_input, description, details
+    )
 
 
 async def exec_manage_schedule(action: PendingAction, user_id: str) -> JsonValue:

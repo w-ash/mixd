@@ -18,7 +18,7 @@ from uuid import UUID, uuid4
 import pytest
 
 from src.application.chat.dispatchers import _common, playlists_write
-from src.application.chat.pending_actions import PendingAction, PendingActionStore
+from src.application.chat.pending_actions import PendingAction
 from src.application.chat.protocols import ToolContext
 from src.application.use_cases.add_playlist_tracks import AddPlaylistTracksResult
 from src.application.use_cases.create_canonical_playlist import (
@@ -43,14 +43,14 @@ from src.application.use_cases.update_canonical_playlist import (
 )
 from src.domain.entities.shared import JsonDict
 from src.domain.exceptions import NotFoundError, ToolExecutionError
-from tests.fixtures import make_playlist
+from tests.fixtures import InMemoryPendingActionStore, make_playlist
 
 _CTX = ToolContext(user_id="default")
 
 
 @pytest.fixture
-def fresh_store(monkeypatch: pytest.MonkeyPatch) -> PendingActionStore:
-    store = PendingActionStore()
+def fresh_store(monkeypatch: pytest.MonkeyPatch) -> InMemoryPendingActionStore:
+    store = InMemoryPendingActionStore()
     monkeypatch.setattr(_common, "pending_action_store", store)
     return store
 
@@ -84,8 +84,8 @@ def _raising_runner(exc: Exception):
     return _run
 
 
-def _action(operation: str, details: JsonDict, tool_name: str) -> PendingAction:
-    return PendingActionStore().create(
+async def _action(operation: str, details: JsonDict, tool_name: str) -> PendingAction:
+    return await InMemoryPendingActionStore().create(
         user_id="default",
         tool_name=tool_name,
         tool_input={},
@@ -101,7 +101,7 @@ def _action(operation: str, details: JsonDict, tool_name: str) -> PendingAction:
 
 class TestManagePlaylistPropose:
     async def test_create_proposes_pending_confirmation(
-        self, fresh_store: PendingActionStore
+        self, fresh_store: InMemoryPendingActionStore
     ) -> None:
         result = await playlists_write.handle_manage_playlist(
             {"operation": "create", "name": "Focus", "description": "deep work"}, _CTX
@@ -116,17 +116,17 @@ class TestManagePlaylistPropose:
         # No destructive metadata on a non-destructive op.
         assert "severity" not in details
 
-        action = fresh_store.claim(UUID(result["action_id"]), "default")
+        action = await fresh_store.claim(UUID(result["action_id"]), "default")
         assert action.tool_name == "manage_playlist"
 
     async def test_create_without_name_is_actionable(
-        self, fresh_store: PendingActionStore
+        self, fresh_store: InMemoryPendingActionStore
     ) -> None:
         with pytest.raises(ToolExecutionError, match="name"):
             await playlists_write.handle_manage_playlist({"operation": "create"}, _CTX)
 
     async def test_update_requires_name_or_description(
-        self, fresh_store: PendingActionStore
+        self, fresh_store: InMemoryPendingActionStore
     ) -> None:
         with pytest.raises(ToolExecutionError, match="at least one"):
             await playlists_write.handle_manage_playlist(
@@ -134,7 +134,7 @@ class TestManagePlaylistPropose:
             )
 
     async def test_update_proposes_metadata_change(
-        self, fresh_store: PendingActionStore
+        self, fresh_store: InMemoryPendingActionStore
     ) -> None:
         pid = str(uuid4())
         result = await playlists_write.handle_manage_playlist(
@@ -149,7 +149,7 @@ class TestManagePlaylistPropose:
         assert any("unchanged" in c for c in details["changes"])
 
     async def test_update_bad_playlist_uuid_rejected_before_pending(
-        self, fresh_store: PendingActionStore
+        self, fresh_store: InMemoryPendingActionStore
     ) -> None:
         # Coercion happens up front: a non-UUID id raises rather than sitting in
         # a pending action the confirmed executor would choke on.
@@ -161,7 +161,7 @@ class TestManagePlaylistPropose:
         assert not fresh_store._actions
 
     async def test_delete_bad_playlist_uuid_rejected_before_pending(
-        self, fresh_store: PendingActionStore
+        self, fresh_store: InMemoryPendingActionStore
     ) -> None:
         with pytest.raises(ToolExecutionError, match="playlist_id"):
             await playlists_write.handle_manage_playlist(
@@ -170,7 +170,7 @@ class TestManagePlaylistPropose:
         assert not fresh_store._actions
 
     async def test_delete_proposes_destructive_confirmation(
-        self, fresh_store: PendingActionStore
+        self, fresh_store: InMemoryPendingActionStore
     ) -> None:
         pid = str(uuid4())
         result = await playlists_write.handle_manage_playlist(
@@ -197,7 +197,7 @@ class TestExecManagePlaylist:
                 )
             ),
         )
-        action = _action(
+        action = await _action(
             "create",
             {"operation": "create", "name": "Focus", "description": None},
             "manage_playlist",
@@ -229,7 +229,7 @@ class TestExecManagePlaylist:
 
         monkeypatch.setattr(UpdateCanonicalPlaylistUseCase, "execute", _capture)
         monkeypatch.setattr(_common, "execute_use_case", _runner_invoking())
-        action = _action(
+        action = await _action(
             "update",
             {
                 "operation": "update",
@@ -266,7 +266,7 @@ class TestExecManagePlaylist:
                 )
             ),
         )
-        action = _action(
+        action = await _action(
             "delete",
             {"operation": "delete", "playlist_id": str(UUID(int=7))},
             "manage_playlist",
@@ -286,7 +286,7 @@ class TestExecManagePlaylist:
             "execute_use_case",
             _raising_runner(NotFoundError("gone")),
         )
-        action = _action(
+        action = await _action(
             "delete",
             {"operation": "delete", "playlist_id": str(uuid4())},
             "manage_playlist",
@@ -303,7 +303,7 @@ class TestExecManagePlaylist:
 
 class TestManagePlaylistEntriesPropose:
     async def test_add_proposes_pending_confirmation(
-        self, fresh_store: PendingActionStore
+        self, fresh_store: InMemoryPendingActionStore
     ) -> None:
         pid, tid = uuid4(), uuid4()
         result = await playlists_write.handle_manage_playlist_entries(
@@ -322,11 +322,11 @@ class TestManagePlaylistEntriesPropose:
         assert details["track_ids"] == [str(tid)]
         assert details["position"] == 2
 
-        action = fresh_store.claim(UUID(result["action_id"]), "default")
+        action = await fresh_store.claim(UUID(result["action_id"]), "default")
         assert action.tool_name == "manage_playlist_entries"
 
     async def test_add_defaults_position_to_none(
-        self, fresh_store: PendingActionStore
+        self, fresh_store: InMemoryPendingActionStore
     ) -> None:
         result = await playlists_write.handle_manage_playlist_entries(
             {
@@ -339,7 +339,7 @@ class TestManagePlaylistEntriesPropose:
         assert result["details"]["position"] is None
 
     async def test_add_without_track_ids_is_actionable(
-        self, fresh_store: PendingActionStore
+        self, fresh_store: InMemoryPendingActionStore
     ) -> None:
         with pytest.raises(ToolExecutionError, match="track_ids"):
             await playlists_write.handle_manage_playlist_entries(
@@ -348,7 +348,7 @@ class TestManagePlaylistEntriesPropose:
             )
 
     async def test_remove_proposes_pending_confirmation(
-        self, fresh_store: PendingActionStore
+        self, fresh_store: InMemoryPendingActionStore
     ) -> None:
         pid, eid = uuid4(), uuid4()
         result = await playlists_write.handle_manage_playlist_entries(
@@ -358,7 +358,7 @@ class TestManagePlaylistEntriesPropose:
         assert result["details"]["entry_ids"] == [str(eid)]
 
     async def test_reorder_proposes_full_list(
-        self, fresh_store: PendingActionStore
+        self, fresh_store: InMemoryPendingActionStore
     ) -> None:
         pid, e1, e2 = uuid4(), uuid4(), uuid4()
         result = await playlists_write.handle_manage_playlist_entries(
@@ -372,7 +372,7 @@ class TestManagePlaylistEntriesPropose:
         assert result["details"]["entry_ids"] == [str(e1), str(e2)]
 
     async def test_repair_needs_only_playlist_id(
-        self, fresh_store: PendingActionStore
+        self, fresh_store: InMemoryPendingActionStore
     ) -> None:
         pid = uuid4()
         result = await playlists_write.handle_manage_playlist_entries(
@@ -382,7 +382,7 @@ class TestManagePlaylistEntriesPropose:
         assert result["details"]["playlist_id"] == str(pid)
 
     async def test_bad_playlist_uuid_is_actionable(
-        self, fresh_store: PendingActionStore
+        self, fresh_store: InMemoryPendingActionStore
     ) -> None:
         with pytest.raises(ToolExecutionError, match="playlist_id"):
             await playlists_write.handle_manage_playlist_entries(
@@ -402,7 +402,7 @@ class TestExecManagePlaylistEntries:
                 AddPlaylistTracksResult(playlist=make_playlist(id=pid), added=2)
             ),
         )
-        action = _action(
+        action = await _action(
             "add",
             {
                 "operation": "add",
@@ -429,7 +429,7 @@ class TestExecManagePlaylistEntries:
                 RemovePlaylistEntriesResult(playlist=make_playlist(id=pid), removed=1)
             ),
         )
-        action = _action(
+        action = await _action(
             "remove",
             {
                 "operation": "remove",
@@ -455,7 +455,7 @@ class TestExecManagePlaylistEntries:
                 ReorderPlaylistEntriesResult(playlist=make_playlist(id=pid))
             ),
         )
-        action = _action(
+        action = await _action(
             "reorder",
             {
                 "operation": "reorder",
@@ -480,7 +480,7 @@ class TestExecManagePlaylistEntries:
                 RepairUnresolvedEntriesResult(repaired=3, still_unresolved=1)
             ),
         )
-        action = _action(
+        action = await _action(
             "repair",
             {"operation": "repair", "playlist_id": str(uuid4())},
             "manage_playlist_entries",
@@ -500,7 +500,7 @@ class TestExecManagePlaylistEntries:
             "execute_use_case",
             _raising_runner(NotFoundError("stale entry")),
         )
-        action = _action(
+        action = await _action(
             "remove",
             {
                 "operation": "remove",

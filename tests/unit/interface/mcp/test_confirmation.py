@@ -11,12 +11,12 @@ from uuid import UUID, uuid4
 
 import pytest
 
-from src.application.chat.pending_actions import PendingActionStore
 from src.application.chat.protocols import ToolContext
 from src.application.tools.registry import _SPECS_BY_NAME
 from src.domain.entities.shared import JsonValue
 from src.domain.exceptions import ToolExecutionError
 from src.interface.mcp import confirmation
+from tests.fixtures import InMemoryPendingActionStore
 
 _CTX = ToolContext(user_id="default")
 _SPEC = _SPECS_BY_NAME["manage_tags"]
@@ -31,9 +31,9 @@ def _batch_tag_args(tag: str = "jazz", n: int = 3) -> dict[str, JsonValue]:
 
 
 @pytest.fixture
-def store(monkeypatch: pytest.MonkeyPatch) -> PendingActionStore:
+def store(monkeypatch: pytest.MonkeyPatch) -> InMemoryPendingActionStore:
     """A fresh store shared by both the propose (via _common) and claim bindings."""
-    fresh = PendingActionStore()
+    fresh = InMemoryPendingActionStore()
     monkeypatch.setattr(confirmation, "pending_action_store", fresh)
     monkeypatch.setattr(
         "src.application.chat.dispatchers._common.pending_action_store", fresh
@@ -56,7 +56,7 @@ def committed(monkeypatch: pytest.MonkeyPatch) -> list[object]:
 
 class TestPreview:
     async def test_first_call_previews_and_stores_without_committing(
-        self, store: PendingActionStore, committed: list[object]
+        self, store: InMemoryPendingActionStore, committed: list[object]
     ) -> None:
         result = await confirmation.handle_write_call(_SPEC, _batch_tag_args(), _CTX)
 
@@ -65,13 +65,13 @@ class TestPreview:
         assert result["confirm_token"]
         assert "preview" in result
         # Stored for confirmation, and nothing committed.
-        assert store.claim(UUID(result["confirm_token"]), "default")
+        assert await store.claim(UUID(result["confirm_token"]), "default")
         assert committed == []
 
 
 class TestCommit:
     async def test_confirm_with_valid_token_commits_once(
-        self, store: PendingActionStore, committed: list[object]
+        self, store: InMemoryPendingActionStore, committed: list[object]
     ) -> None:
         args = _batch_tag_args()
         preview = await confirmation.handle_write_call(_SPEC, dict(args), _CTX)
@@ -85,7 +85,7 @@ class TestCommit:
         assert len(committed) == 1
 
     async def test_confirm_true_without_token_errors(
-        self, store: PendingActionStore
+        self, store: InMemoryPendingActionStore
     ) -> None:
         with pytest.raises(ToolExecutionError, match="confirm_token"):
             await confirmation.handle_write_call(
@@ -95,7 +95,7 @@ class TestCommit:
 
 class TestExpiredAndDrift:
     async def test_expired_or_unknown_token_re_previews(
-        self, store: PendingActionStore, committed: list[object]
+        self, store: InMemoryPendingActionStore, committed: list[object]
     ) -> None:
         # A well-formed but unknown token → fresh preview, never a stale commit.
         result = await confirmation.handle_write_call(
@@ -108,7 +108,7 @@ class TestExpiredAndDrift:
         assert committed == []
 
     async def test_malformed_token_re_previews(
-        self, store: PendingActionStore, committed: list[object]
+        self, store: InMemoryPendingActionStore, committed: list[object]
     ) -> None:
         result = await confirmation.handle_write_call(
             _SPEC,
@@ -120,7 +120,7 @@ class TestExpiredAndDrift:
         assert committed == []
 
     async def test_args_drift_is_rejected(
-        self, store: PendingActionStore, committed: list[object]
+        self, store: InMemoryPendingActionStore, committed: list[object]
     ) -> None:
         preview = await confirmation.handle_write_call(_SPEC, _batch_tag_args(), _CTX)
         token = preview["confirm_token"]  # type: ignore[index]

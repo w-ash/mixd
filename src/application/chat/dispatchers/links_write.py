@@ -160,7 +160,9 @@ async def handle_manage_playlist_link(
             "changes": [f"Delete sync link {link_id}"],
         }
 
-    return propose_action(ctx, "manage_playlist_link", tool_input, description, details)
+    return await propose_action(
+        ctx, "manage_playlist_link", tool_input, description, details
+    )
 
 
 def _project_link(link: PlaylistLink) -> JsonDict:

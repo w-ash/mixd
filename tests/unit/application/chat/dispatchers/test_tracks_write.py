@@ -12,18 +12,18 @@ from uuid import UUID, uuid4
 import pytest
 
 from src.application.chat.dispatchers import _common, tracks_write
-from src.application.chat.pending_actions import PendingAction, PendingActionStore
+from src.application.chat.pending_actions import PendingAction
 from src.application.chat.protocols import ToolContext
 from src.application.use_cases.get_track_details import PlaySummary, TrackDetailsResult
 from src.domain.exceptions import NotFoundError, ToolExecutionError
-from tests.fixtures import make_track
+from tests.fixtures import InMemoryPendingActionStore, make_track
 
 _CTX = ToolContext(user_id="default")
 
 
 @pytest.fixture
-def fresh_store(monkeypatch: pytest.MonkeyPatch) -> PendingActionStore:
-    store = PendingActionStore()
+def fresh_store(monkeypatch: pytest.MonkeyPatch) -> InMemoryPendingActionStore:
+    store = InMemoryPendingActionStore()
     monkeypatch.setattr(_common, "pending_action_store", store)
     return store
 
@@ -47,7 +47,7 @@ def _details_result(track_id: UUID) -> TrackDetailsResult:
 
 class TestMergeTracksPropose:
     async def test_proposes_destructive_pending_confirmation(
-        self, fresh_store: PendingActionStore
+        self, fresh_store: InMemoryPendingActionStore
     ) -> None:
         winner_id, loser_id = uuid4(), uuid4()
 
@@ -67,18 +67,20 @@ class TestMergeTracksPropose:
         assert str(loser_id) in result["description"]
 
         # The proposal is claimable by its owner — i.e. actually stored.
-        action = fresh_store.claim(UUID(result["action_id"]), "default")
+        action = await fresh_store.claim(UUID(result["action_id"]), "default")
         assert action.tool_name == "merge_tracks"
 
     async def test_bad_uuid_stores_nothing(
-        self, fresh_store: PendingActionStore
+        self, fresh_store: InMemoryPendingActionStore
     ) -> None:
         with pytest.raises(ToolExecutionError, match="winner_id"):
             await tracks_write.handle_merge_tracks(
                 {"winner_id": "not-a-uuid", "loser_id": str(uuid4())}, _CTX
             )
 
-    async def test_self_merge_rejected(self, fresh_store: PendingActionStore) -> None:
+    async def test_self_merge_rejected(
+        self, fresh_store: InMemoryPendingActionStore
+    ) -> None:
         same = str(uuid4())
         with pytest.raises(ToolExecutionError, match="different tracks"):
             await tracks_write.handle_merge_tracks(
@@ -87,9 +89,9 @@ class TestMergeTracksPropose:
 
 
 class TestExecMergeTracks:
-    def _action(self, winner_id: UUID, loser_id: UUID) -> PendingAction:
-        store = PendingActionStore()
-        return store.create(
+    async def _action(self, winner_id: UUID, loser_id: UUID) -> PendingAction:
+        store = InMemoryPendingActionStore()
+        return await store.create(
             user_id="default",
             tool_name="merge_tracks",
             tool_input={},
@@ -110,7 +112,7 @@ class TestExecMergeTracks:
             "execute_use_case",
             _fake_use_case_runner(_details_result(winner_id)),
         )
-        action = self._action(winner_id, loser_id)
+        action = await self._action(winner_id, loser_id)
 
         result = await tracks_write.exec_merge_tracks(action, "default")
 
@@ -124,7 +126,7 @@ class TestExecMergeTracks:
             raise NotFoundError("gone")
 
         monkeypatch.setattr(_common, "execute_use_case", _raise)
-        action = self._action(uuid4(), uuid4())
+        action = await self._action(uuid4(), uuid4())
 
         with pytest.raises(ToolExecutionError, match="no longer exists"):
             await tracks_write.exec_merge_tracks(action, "default")

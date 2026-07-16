@@ -12,20 +12,21 @@ from uuid import UUID, uuid4
 import pytest
 
 from src.application.chat.dispatchers import _common, links_write
-from src.application.chat.pending_actions import PendingAction, PendingActionStore
+from src.application.chat.pending_actions import PendingAction
 from src.application.chat.protocols import ToolContext
 from src.application.use_cases.create_playlist_link import CreatePlaylistLinkResult
 from src.application.use_cases.delete_playlist_link import DeletePlaylistLinkResult
 from src.application.use_cases.update_playlist_link import UpdatePlaylistLinkResult
 from src.domain.entities.playlist_link import PlaylistLink, SyncDirection
 from src.domain.exceptions import NotFoundError, ToolExecutionError
+from tests.fixtures import InMemoryPendingActionStore
 
 _CTX = ToolContext(user_id="default")
 
 
 @pytest.fixture
-def fresh_store(monkeypatch: pytest.MonkeyPatch) -> PendingActionStore:
-    store = PendingActionStore()
+def fresh_store(monkeypatch: pytest.MonkeyPatch) -> InMemoryPendingActionStore:
+    store = InMemoryPendingActionStore()
     monkeypatch.setattr(_common, "pending_action_store", store)
     return store
 
@@ -49,7 +50,7 @@ def _make_link(link_id: UUID, direction: SyncDirection) -> PlaylistLink:
 
 class TestManagePlaylistLinkPropose:
     async def test_create_proposes_pending_confirmation(
-        self, fresh_store: PendingActionStore
+        self, fresh_store: InMemoryPendingActionStore
     ) -> None:
         playlist_id = uuid4()
         result = await links_write.handle_manage_playlist_link(
@@ -69,11 +70,11 @@ class TestManagePlaylistLinkPropose:
         assert details["direction"] == "pull"  # default
         assert details["changes"]
 
-        action = fresh_store.claim(UUID(result["action_id"]), "default")
+        action = await fresh_store.claim(UUID(result["action_id"]), "default")
         assert action.tool_name == "manage_playlist_link"
 
     async def test_delete_carries_moderate_warning_not_destructive(
-        self, fresh_store: PendingActionStore
+        self, fresh_store: InMemoryPendingActionStore
     ) -> None:
         link_id = uuid4()
         result = await links_write.handle_manage_playlist_link(
@@ -87,7 +88,7 @@ class TestManagePlaylistLinkPropose:
         assert "severity" not in details
 
     async def test_update_bad_direction_rejected(
-        self, fresh_store: PendingActionStore
+        self, fresh_store: InMemoryPendingActionStore
     ) -> None:
         with pytest.raises(ToolExecutionError, match="direction"):
             await links_write.handle_manage_playlist_link(
@@ -100,7 +101,7 @@ class TestManagePlaylistLinkPropose:
             )
 
     async def test_create_missing_playlist_id_rejected(
-        self, fresh_store: PendingActionStore
+        self, fresh_store: InMemoryPendingActionStore
     ) -> None:
         with pytest.raises(ToolExecutionError, match="playlist_id"):
             await links_write.handle_manage_playlist_link(
@@ -110,9 +111,9 @@ class TestManagePlaylistLinkPropose:
 
 
 class TestExecManagePlaylistLink:
-    def _action(self, details: dict[str, object]) -> PendingAction:
-        store = PendingActionStore()
-        return store.create(
+    async def _action(self, details: dict[str, object]) -> PendingAction:
+        store = InMemoryPendingActionStore()
+        return await store.create(
             user_id="default",
             tool_name="manage_playlist_link",
             tool_input={},
@@ -131,7 +132,7 @@ class TestExecManagePlaylistLink:
                 CreatePlaylistLinkResult(link=_make_link(link_id, SyncDirection.PUSH))
             ),
         )
-        action = self._action({
+        action = await self._action({
             "operation": "create",
             "playlist_id": str(uuid4()),
             "connector": "spotify",
@@ -155,7 +156,7 @@ class TestExecManagePlaylistLink:
                 UpdatePlaylistLinkResult(link=_make_link(link_id, SyncDirection.PULL))
             ),
         )
-        action = self._action({
+        action = await self._action({
             "operation": "update",
             "link_id": str(link_id),
             "direction": "pull",
@@ -173,7 +174,7 @@ class TestExecManagePlaylistLink:
             "execute_use_case",
             _fake_runner(DeletePlaylistLinkResult(deleted=True)),
         )
-        action = self._action({"operation": "delete", "link_id": str(link_id)})
+        action = await self._action({"operation": "delete", "link_id": str(link_id)})
 
         out = await links_write.exec_manage_playlist_link(action, "default")
 
@@ -188,7 +189,7 @@ class TestExecManagePlaylistLink:
             raise NotFoundError("gone")
 
         monkeypatch.setattr(_common, "execute_use_case", _raise)
-        action = self._action({
+        action = await self._action({
             "operation": "update",
             "link_id": str(uuid4()),
             "direction": "pull",

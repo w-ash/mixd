@@ -83,7 +83,7 @@ async def handle_merge_tracks(
         ),
     }
     description = f"Merge track {loser_id} into {winner_id}"
-    return propose_action(ctx, "merge_tracks", tool_input, description, details)
+    return await propose_action(ctx, "merge_tracks", tool_input, description, details)
 
 
 async def exec_merge_tracks(action: PendingAction, user_id: str) -> JsonValue:

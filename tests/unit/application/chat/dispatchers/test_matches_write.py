@@ -13,20 +13,21 @@ from uuid import UUID, uuid4
 import pytest
 
 from src.application.chat.dispatchers import _common, matches_write
-from src.application.chat.pending_actions import PendingAction, PendingActionStore
+from src.application.chat.pending_actions import PendingAction
 from src.application.chat.protocols import ToolContext
 from src.application.use_cases.relink_connector_track import RelinkConnectorTrackResult
 from src.application.use_cases.resolve_match_review import ResolveMatchReviewResult
 from src.application.use_cases.unlink_connector_track import UnlinkConnectorTrackResult
 from src.domain.entities.match_review import MatchReview
 from src.domain.exceptions import NotFoundError, ToolExecutionError
+from tests.fixtures import InMemoryPendingActionStore
 
 _CTX = ToolContext(user_id="default")
 
 
 @pytest.fixture
-def fresh_store(monkeypatch: pytest.MonkeyPatch) -> PendingActionStore:
-    store = PendingActionStore()
+def fresh_store(monkeypatch: pytest.MonkeyPatch) -> InMemoryPendingActionStore:
+    store = InMemoryPendingActionStore()
     monkeypatch.setattr(_common, "pending_action_store", store)
     return store
 
@@ -38,8 +39,8 @@ def _fake_use_case_runner(result: object):
     return _run
 
 
-def _action(details: dict[str, object]) -> PendingAction:
-    return PendingActionStore().create(
+async def _action(details: dict[str, object]) -> PendingAction:
+    return await InMemoryPendingActionStore().create(
         user_id="default",
         tool_name="manage_track_matches",
         tool_input={},
@@ -50,7 +51,7 @@ def _action(details: dict[str, object]) -> PendingAction:
 
 class TestManageTrackMatchesPropose:
     async def test_relink_proposes_pending_confirmation(
-        self, fresh_store: PendingActionStore
+        self, fresh_store: InMemoryPendingActionStore
     ) -> None:
         mapping_id, new_id, current_id = uuid4(), uuid4(), uuid4()
 
@@ -73,10 +74,12 @@ class TestManageTrackMatchesPropose:
         # relink is not destructive.
         assert "severity" not in details
 
-        action = fresh_store.claim(UUID(result["action_id"]), "default")
+        action = await fresh_store.claim(UUID(result["action_id"]), "default")
         assert action.tool_name == "manage_track_matches"
 
-    async def test_unlink_is_destructive(self, fresh_store: PendingActionStore) -> None:
+    async def test_unlink_is_destructive(
+        self, fresh_store: InMemoryPendingActionStore
+    ) -> None:
         result = await matches_write.handle_manage_track_matches(
             {
                 "operation": "unlink",
@@ -92,7 +95,7 @@ class TestManageTrackMatchesPropose:
         assert details["warning"] == "severs the connector mapping"
 
     async def test_resolve_review_carries_action(
-        self, fresh_store: PendingActionStore
+        self, fresh_store: InMemoryPendingActionStore
     ) -> None:
         review_id = uuid4()
         result = await matches_write.handle_manage_track_matches(
@@ -109,7 +112,7 @@ class TestManageTrackMatchesPropose:
         assert "Accept" in result["description"]
 
     async def test_unknown_operation_rejected(
-        self, fresh_store: PendingActionStore
+        self, fresh_store: InMemoryPendingActionStore
     ) -> None:
         with pytest.raises(ToolExecutionError, match="operation"):
             await matches_write.handle_manage_track_matches(
@@ -117,7 +120,7 @@ class TestManageTrackMatchesPropose:
             )
 
     async def test_relink_missing_field_rejected(
-        self, fresh_store: PendingActionStore
+        self, fresh_store: InMemoryPendingActionStore
     ) -> None:
         with pytest.raises(ToolExecutionError, match="new_track_id"):
             await matches_write.handle_manage_track_matches(
@@ -140,7 +143,7 @@ class TestExecManageTrackMatches:
                 RelinkConnectorTrackResult(old_track_id=old_id, new_track_id=new_id)
             ),
         )
-        action = _action({
+        action = await _action({
             "operation": "relink",
             "mapping_id": str(uuid4()),
             "new_track_id": str(new_id),
@@ -167,7 +170,7 @@ class TestExecManageTrackMatches:
                 )
             ),
         )
-        action = _action({
+        action = await _action({
             "operation": "unlink",
             "mapping_id": str(mapping_id),
             "current_track_id": str(uuid4()),
@@ -185,7 +188,7 @@ class TestExecManageTrackMatches:
         # the committed ids.
         mapping_id, track_id = uuid4(), uuid4()
         monkeypatch.setattr(_common, "execute_use_case", _fake_use_case_runner(None))
-        action = _action({
+        action = await _action({
             "operation": "set_primary",
             "mapping_id": str(mapping_id),
             "track_id": str(track_id),
@@ -217,7 +220,7 @@ class TestExecManageTrackMatches:
                 ResolveMatchReviewResult(review=review, mapping_created=True)
             ),
         )
-        action = _action({
+        action = await _action({
             "operation": "resolve_review",
             "review_id": str(review.id),
             "action": "accept",
@@ -236,7 +239,7 @@ class TestExecManageTrackMatches:
             raise NotFoundError("gone")
 
         monkeypatch.setattr(_common, "execute_use_case", _raise)
-        action = _action({
+        action = await _action({
             "operation": "set_primary",
             "mapping_id": str(uuid4()),
             "track_id": str(uuid4()),
@@ -252,7 +255,7 @@ class TestExecManageTrackMatches:
             raise ValueError("already resolved")
 
         monkeypatch.setattr(_common, "execute_use_case", _raise)
-        action = _action({
+        action = await _action({
             "operation": "resolve_review",
             "review_id": str(uuid4()),
             "action": "reject",

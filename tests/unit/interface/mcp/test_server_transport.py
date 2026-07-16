@@ -17,9 +17,9 @@ from mcp import ClientSession
 from mcp.shared.memory import create_client_server_memory_streams
 import pytest
 
-from src.application.chat.pending_actions import PendingActionStore
 from src.domain.entities.shared import JsonValue
 from src.interface.mcp import confirmation, server
+from tests.fixtures import InMemoryPendingActionStore
 
 
 @asynccontextmanager
@@ -111,7 +111,7 @@ class TestCallTool:
     async def test_write_two_phase_over_the_wire(
         self, monkeypatch: pytest.MonkeyPatch
     ) -> None:
-        fresh = PendingActionStore()
+        fresh = InMemoryPendingActionStore()
         monkeypatch.setattr(confirmation, "pending_action_store", fresh)
         monkeypatch.setattr(
             "src.application.chat.dispatchers._common.pending_action_store", fresh

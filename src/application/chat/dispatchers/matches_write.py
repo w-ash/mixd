@@ -109,7 +109,9 @@ MANAGE_TRACK_MATCHES_INPUT_SCHEMA: JsonDict = {
 }
 
 
-def _propose_relink(tool_input: Mapping[str, JsonValue], ctx: ToolContext) -> JsonValue:
+async def _propose_relink(
+    tool_input: Mapping[str, JsonValue], ctx: ToolContext
+) -> JsonValue:
     mapping_id = require_uuid(tool_input, "mapping_id")
     new_track_id = require_uuid(tool_input, "new_track_id")
     current_track_id = require_uuid(tool_input, "current_track_id")
@@ -127,10 +129,14 @@ def _propose_relink(tool_input: Mapping[str, JsonValue], ctx: ToolContext) -> Js
         f"Relink mapping {mapping_id} from track {current_track_id} "
         f"to track {new_track_id}"
     )
-    return propose_action(ctx, "manage_track_matches", tool_input, description, details)
+    return await propose_action(
+        ctx, "manage_track_matches", tool_input, description, details
+    )
 
 
-def _propose_unlink(tool_input: Mapping[str, JsonValue], ctx: ToolContext) -> JsonValue:
+async def _propose_unlink(
+    tool_input: Mapping[str, JsonValue], ctx: ToolContext
+) -> JsonValue:
     mapping_id = require_uuid(tool_input, "mapping_id")
     current_track_id = require_uuid(tool_input, "current_track_id")
     details: JsonDict = {
@@ -145,10 +151,12 @@ def _propose_unlink(tool_input: Mapping[str, JsonValue], ctx: ToolContext) -> Js
         "warning": "severs the connector mapping",
     }
     description = f"Unlink mapping {mapping_id} from track {current_track_id}"
-    return propose_action(ctx, "manage_track_matches", tool_input, description, details)
+    return await propose_action(
+        ctx, "manage_track_matches", tool_input, description, details
+    )
 
 
-def _propose_set_primary(
+async def _propose_set_primary(
     tool_input: Mapping[str, JsonValue], ctx: ToolContext
 ) -> JsonValue:
     mapping_id = require_uuid(tool_input, "mapping_id")
@@ -163,10 +171,12 @@ def _propose_set_primary(
         ],
     }
     description = f"Set mapping {mapping_id} as primary for track {track_id}"
-    return propose_action(ctx, "manage_track_matches", tool_input, description, details)
+    return await propose_action(
+        ctx, "manage_track_matches", tool_input, description, details
+    )
 
 
-def _propose_resolve_review(
+async def _propose_resolve_review(
     tool_input: Mapping[str, JsonValue], ctx: ToolContext
 ) -> JsonValue:
     review_id = require_uuid(tool_input, "review_id")
@@ -184,7 +194,9 @@ def _propose_resolve_review(
         "changes": [f"Match review {review_id} is {review_action}ed — {outcome}"],
     }
     description = f"{verb} match review {review_id}"
-    return propose_action(ctx, "manage_track_matches", tool_input, description, details)
+    return await propose_action(
+        ctx, "manage_track_matches", tool_input, description, details
+    )
 
 
 async def handle_manage_track_matches(
@@ -199,12 +211,12 @@ async def handle_manage_track_matches(
     """
     operation = require_choice(tool_input, "operation", _OPERATIONS)
     if operation == "relink":
-        return _propose_relink(tool_input, ctx)
+        return await _propose_relink(tool_input, ctx)
     if operation == "unlink":
-        return _propose_unlink(tool_input, ctx)
+        return await _propose_unlink(tool_input, ctx)
     if operation == "set_primary":
-        return _propose_set_primary(tool_input, ctx)
-    return _propose_resolve_review(tool_input, ctx)
+        return await _propose_set_primary(tool_input, ctx)
+    return await _propose_resolve_review(tool_input, ctx)
 
 
 async def _exec_relink(d: JsonDict, user_id: str) -> JsonValue:

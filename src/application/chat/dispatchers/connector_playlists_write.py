@@ -106,7 +106,7 @@ async def handle_manage_connector_playlist(
             f"local cache" + (" (force)" if force else "")
         ],
     }
-    return propose_action(
+    return await propose_action(
         ctx, "manage_connector_playlist", tool_input, description, details
     )
 

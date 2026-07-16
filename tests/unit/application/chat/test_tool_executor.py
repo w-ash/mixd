@@ -12,7 +12,6 @@ import pytest
 
 from src.application.chat import confirmed_actions, tool_executor
 from src.application.chat.dispatchers import _common
-from src.application.chat.pending_actions import PendingActionStore
 from src.application.chat.protocols import ToolContext
 from src.application.tools import registry
 from src.application.use_cases.workflow_crud import (
@@ -26,7 +25,11 @@ from src.domain.exceptions import (
     NotFoundError,
     ToolExecutionError,
 )
-from tests.fixtures import make_workflow, make_workflow_def
+from tests.fixtures import (
+    InMemoryPendingActionStore,
+    make_workflow,
+    make_workflow_def,
+)
 
 _CTX = ToolContext(user_id="default")
 
@@ -58,8 +61,8 @@ _INVALID_DEF = {
 
 
 @pytest.fixture
-def fresh_store(monkeypatch: pytest.MonkeyPatch) -> PendingActionStore:
-    store = PendingActionStore()
+def fresh_store(monkeypatch: pytest.MonkeyPatch) -> InMemoryPendingActionStore:
+    store = InMemoryPendingActionStore()
     # save_workflow proposes through dispatchers._common.propose_action (C5),
     # so the fresh store must replace the one that helper closes over.
     monkeypatch.setattr(_common, "pending_action_store", store)
@@ -161,7 +164,7 @@ class TestValidateWorkflowDef:
 
 class TestSaveWorkflowPropose:
     async def test_create_proposes_pending_confirmation(
-        self, fresh_store: PendingActionStore
+        self, fresh_store: InMemoryPendingActionStore
     ) -> None:
         result = await tool_executor.handle_save_workflow(
             {"workflow_def": _VALID_DEF}, _CTX
@@ -174,12 +177,12 @@ class TestSaveWorkflowPropose:
         # The proposal is claimable by its owner — i.e. actually stored.
         from uuid import UUID
 
-        action = fresh_store.claim(UUID(result["action_id"]), "default")
+        action = await fresh_store.claim(UUID(result["action_id"]), "default")
         assert action.tool_name == "save_workflow"
         assert action.details["definition"]["name"] == "Chill Weekend"
 
     async def test_update_carries_change_summary(
-        self, fresh_store: PendingActionStore, monkeypatch: pytest.MonkeyPatch
+        self, fresh_store: InMemoryPendingActionStore, monkeypatch: pytest.MonkeyPatch
     ) -> None:
         existing = make_workflow(definition=make_workflow_def(name="Old Name"))
         monkeypatch.setattr(
@@ -198,7 +201,7 @@ class TestSaveWorkflowPropose:
         assert result["details"]["changes"]  # non-empty human-readable summary
 
     async def test_invalid_def_stores_nothing(
-        self, fresh_store: PendingActionStore
+        self, fresh_store: InMemoryPendingActionStore
     ) -> None:
         with pytest.raises(ToolExecutionError):
             await tool_executor.handle_save_workflow(
@@ -207,10 +210,10 @@ class TestSaveWorkflowPropose:
 
         # No claimable action exists — the store never saw a create.
         with pytest.raises(ActionExpiredError):
-            fresh_store.claim(uuid4(), "default")
+            await fresh_store.claim(uuid4(), "default")
 
     async def test_bad_workflow_id_rejected(
-        self, fresh_store: PendingActionStore
+        self, fresh_store: InMemoryPendingActionStore
     ) -> None:
         with pytest.raises(ToolExecutionError, match="workflow_id must be a UUID"):
             await tool_executor.handle_save_workflow(
@@ -267,8 +270,10 @@ class TestListAndGetWorkflows:
 
 
 class TestExecSaveWorkflow:
-    async def _propose(self, store: PendingActionStore, details_extra: dict) -> object:
-        return store.create(
+    async def _propose(
+        self, store: InMemoryPendingActionStore, details_extra: dict
+    ) -> object:
+        return await store.create(
             user_id="default",
             tool_name="save_workflow",
             tool_input={},
@@ -277,7 +282,7 @@ class TestExecSaveWorkflow:
         )
 
     async def test_create_commits_through_use_case(
-        self, fresh_store: PendingActionStore, monkeypatch: pytest.MonkeyPatch
+        self, fresh_store: InMemoryPendingActionStore, monkeypatch: pytest.MonkeyPatch
     ) -> None:
         saved = make_workflow()
         monkeypatch.setattr(
@@ -294,7 +299,7 @@ class TestExecSaveWorkflow:
         assert result["definition_version"] == saved.definition_version
 
     async def test_update_commits_through_use_case(
-        self, fresh_store: PendingActionStore, monkeypatch: pytest.MonkeyPatch
+        self, fresh_store: InMemoryPendingActionStore, monkeypatch: pytest.MonkeyPatch
     ) -> None:
         saved = make_workflow(definition_version=2)
         monkeypatch.setattr(
@@ -311,7 +316,7 @@ class TestExecSaveWorkflow:
         assert result["definition_version"] == 2
 
     async def test_deleted_workflow_at_confirm_time_is_actionable(
-        self, fresh_store: PendingActionStore, monkeypatch: pytest.MonkeyPatch
+        self, fresh_store: InMemoryPendingActionStore, monkeypatch: pytest.MonkeyPatch
     ) -> None:
         async def _raise(factory, user_id: str | None = None):
             raise NotFoundError("gone")
@@ -325,7 +330,7 @@ class TestExecSaveWorkflow:
             await confirmed_actions.exec_save_workflow(action, "default")
 
     async def test_validation_failure_at_confirm_time_is_actionable(
-        self, fresh_store: PendingActionStore, monkeypatch: pytest.MonkeyPatch
+        self, fresh_store: InMemoryPendingActionStore, monkeypatch: pytest.MonkeyPatch
     ) -> None:
         async def _raise(factory, user_id: str | None = None):
             raise ValueError("Task 'a' has unknown node type")
