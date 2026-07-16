@@ -14,6 +14,8 @@ import ast
 from pathlib import Path
 import re
 
+import pytest
+
 from src.application.tools import registry
 from src.application.tools.registry import (
     BLACKLISTED_USE_CASES,
@@ -142,22 +144,27 @@ def test_write_tools_carry_a_confirmation_path() -> None:
             )
 
 
-def test_build_tools_stamps_one_cache_breakpoint() -> None:
-    # Both surfaces: with the sandbox on (all agentic tools present) and off
-    # (code_execution dropped). The breakpoint must never land on a server tool —
-    # a raw {type, name} block rejects cache_control and would 400 the request.
+def test_build_tools_stamps_cache_breakpoints_per_tier() -> None:
+    # Two-tier caching: the invariant prefix always carries a breakpoint; a page
+    # that promotes tools adds a second on the promoted segment. No page promotes
+    # nothing-then-something, so the count is exactly 1 (pageless / bare page) or
+    # 2 (a promoting page). A breakpoint must never land on a server tool — a raw
+    # {type, name} block rejects cache_control and would 400 the request.
     for enable in (True, False):
-        tools = registry.build_tools(enable_code_execution=enable)
-        breakpoints = [t for t in tools if "cache_control" in t]
-        assert len(breakpoints) == 1, "exactly one ephemeral cache breakpoint expected"
-        # The stamped tool must be a dispatched {name, description, input_schema}
-        # wrapper, never a {type, name} server-tool block.
-        assert "input_schema" in breakpoints[0], (
-            f"cache breakpoint landed on a server tool: {breakpoints[0]}"
-        )
+        pageless = registry.build_tools(enable_code_execution=enable)
+        assert len([t for t in pageless if "cache_control" in t]) == 1
+
+        promoting = registry.build_tools(enable_code_execution=enable, page="workflows")
+        breakpoints = [t for t in promoting if "cache_control" in t]
+        assert len(breakpoints) == 2, "prefix + promoted segment each cache-stamped"
+        for bp in breakpoints:
+            # A dispatched {name, description, input_schema} wrapper, never a raw
+            # {type, name} server-tool block.
+            assert "input_schema" in bp, f"cache breakpoint on a server tool: {bp}"
+
     # Dispatched tools carry the {name, description, input_schema} wrapper; server
     # tools emit their raw {type, name} block instead.
-    for t in tools:
+    for t in pageless:
         if "type" in t:
             assert {"type", "name"} <= t.keys(), f"malformed server tool: {t}"
         else:
@@ -192,17 +199,20 @@ def test_hot_set_stays_small_and_nonempty() -> None:
             assert len(loaded) <= 10, f"too many upfront tools on {page!r}: {names}"
 
 
-def test_page_routing_promotes_within_the_cached_core() -> None:
+def test_page_routing_keeps_the_prefix_invariant() -> None:
     # A page's hinted tools become loaded (no defer_loading); off-page they stay
-    # deferred. Crucially the cached prefix — the tools up to and including the
-    # breakpoint — must be identical across pages, so navigation never busts the
-    # tools cache. Promoted tools ride the uncached tail past the breakpoint.
+    # deferred. Crucially the cached PREFIX — the tools up to and including the
+    # FIRST breakpoint — must be identical across pages, so navigation never busts
+    # the core cache. Promoted tools ride their own segment past that breakpoint.
     def cached_prefix(page: str | None) -> list[str]:
         tools = registry.build_tools(page=page)
         cut = next(i for i, t in enumerate(tools) if "cache_control" in t)
         return [str(t.get("name") or t.get("type")) for t in tools[: cut + 1]]
 
     baseline = cached_prefix(None)
+    # The demoted flagship workflow tools must NOT be in the invariant prefix.
+    assert "generate_workflow_def" not in baseline
+    assert "describe_node" not in baseline
     for page in registry._PAGE_TOOL_HINTS:
         assert cached_prefix(page) == baseline, f"page {page!r} shifted the cache"
 
@@ -216,6 +226,53 @@ def test_page_routing_promotes_within_the_cached_core() -> None:
     off_page = registry.build_tools(page="library")
     deferred = {t.get("name") for t in off_page if t.get("defer_loading")}
     assert "query_playlist_links" in deferred
+
+
+def test_workflow_page_promotes_the_demoted_flagship_tools() -> None:
+    # describe_node / generate_workflow_def are deferred globally (reclaiming a hot
+    # slot on the 4 non-workflow pages) but promoted back into the loaded set on
+    # the workflows page, where the generation flow needs them upfront.
+    on_page = {
+        str(t["name"])
+        for t in registry.build_tools(page="workflows")
+        if "defer_loading" not in t and "name" in t
+    }
+    assert {"describe_node", "generate_workflow_def"} <= on_page
+
+    off_page = registry.build_tools(page="library")
+    deferred = {t.get("name") for t in off_page if t.get("defer_loading")}
+    assert {"describe_node", "generate_workflow_def"} <= deferred
+
+
+def test_page_hint_map_is_valid_and_bounded() -> None:
+    # The import-time validator already ran (importing registry would have failed
+    # otherwise); assert the invariants it guards, and that it actually rejects
+    # the three drift modes rather than passing vacuously.
+    registry._validate_page_hints()  # current map is well-formed
+    assert registry._MAX_PROMOTED_PER_PAGE >= 1
+    for page, names in registry._PAGE_TOOL_HINTS.items():
+        assert page in registry._CANONICAL_PAGES
+        assert len(names) <= registry._MAX_PROMOTED_PER_PAGE
+        for name in names:
+            spec = registry._SPECS_BY_NAME[name]
+            assert spec.defer_loading
+            assert spec.kind == "read"
+
+    # Drift modes the validator must catch (patch the module map, expect ValueError).
+    original = registry._PAGE_TOOL_HINTS
+    bad_maps = [
+        {"not_a_page": ("query_stats",)},  # unknown page key
+        {"library": ("no_such_tool",)},  # unknown tool name
+        {"library": ("save_workflow",)},  # a write tool, not a deferred read
+        {"library": tuple(["query_stats"] * (registry._MAX_PROMOTED_PER_PAGE + 1))},
+    ]
+    try:
+        for bad in bad_maps:
+            registry._PAGE_TOOL_HINTS = bad  # type: ignore[assignment]
+            with pytest.raises(ValueError):
+                registry._validate_page_hints()
+    finally:
+        registry._PAGE_TOOL_HINTS = original  # type: ignore[assignment]
 
 
 def test_read_tools_are_sandbox_callable_only_when_enabled() -> None:

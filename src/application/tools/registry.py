@@ -157,7 +157,8 @@ _CORE_TOOLS: tuple[ToolSpec, ...] = (
         dispatch=tool_executor.handle_describe_node,
         use_cases=(),  # static-catalog helper — exposes no application use case
         kind="read",
-        defer_loading=False,  # hot set: the workflow-generation flow needs it upfront
+        # Deferred off-page; promoted into the loaded set on the workflows page
+        # (see _PAGE_TOOL_HINTS) so non-workflow pages reclaim the hot slot.
     ),
     ToolSpec(
         name="list_user_workflows",
@@ -201,7 +202,10 @@ _CORE_TOOLS: tuple[ToolSpec, ...] = (
         dispatch=tool_executor.handle_generate_workflow_def,
         use_cases=(),  # pure validation/preview — persists nothing
         kind="read",
-        defer_loading=False,  # hot set: the flagship workflow-generation tool
+        # Deferred off-page; promoted on the workflows page (see _PAGE_TOOL_HINTS).
+        # Its schema is the registry's largest, so keeping it out of the invariant
+        # prefix reclaims cache budget on every non-workflow page; on the workflows
+        # page the promoted-segment breakpoint (build_tools) caches it per-turn.
     ),
     ToolSpec(
         name="validate_workflow_def",
@@ -416,19 +420,83 @@ def _stamp_cache(tools: list[dict[str, object]], idx: int) -> None:
 #
 # Rule-based context routing: the web client sends the coarse UI section the
 # user is on, and the deferred read tools relevant to that section are promoted
-# into the loaded set. Rule-based (not semantic) keeps it deterministic and
-# free — a UI route is the cleanest domain signal there is. Held to <=3 names
-# per page so the loaded set stays under the ~10-tool ceiling past which
-# selection accuracy degrades (OpenAI's own guidance; corroborated across the
-# 2026 progressive-disclosure literature). Promoted tools ride the UNCACHED tail
-# (see ``build_tools``), so navigating between pages never busts the cached core.
+# into the loaded set. Rule-based (not semantic) is the right call at this scale
+# — the 2026 tool-routing literature puts the embedding-router crossover at 50+
+# tools; below it (mixd exposes ~34) a validated rule map is deterministic, free,
+# and more accurate than a retriever, and a UI route is the cleanest domain
+# signal there is. Each page's promotions ride a dedicated cache breakpoint (the
+# promoted segment in ``build_tools``), so the invariant core stays cached across
+# navigation while a section's tools cache per-turn.
+#
+# Canonical page keys — the backend is the source of truth; the web client's
+# SECTION_BY_SEGMENT map (web/src/components/chat/ChatPanel.tsx) mirrors this set
+# and is kept in sync by hand. Unknown/absent pages promote nothing.
+_CANONICAL_PAGES: frozenset[str] = frozenset({
+    "dashboard",
+    "playlists",
+    "library",
+    "workflows",
+    "imports",
+})
+
 _PAGE_TOOL_HINTS: Mapping[str, tuple[str, ...]] = {
     "playlists": ("query_playlists", "query_playlist_links"),
     "library": ("query_playlists", "query_stats"),
-    "workflows": ("list_user_workflows", "get_workflow", "query_workflow_history"),
+    "workflows": (
+        "list_user_workflows",
+        "get_workflow",
+        "query_workflow_history",
+        "describe_node",
+        "generate_workflow_def",
+    ),
     "dashboard": ("query_stats", "query_operations"),
     "imports": ("query_operations",),
 }
+
+# The per-page promotion ceiling, DERIVED not hand-set: the loaded set must stay
+# under the ~10-tool accuracy ceiling, and everything not deferred (the invariant
+# prefix reads + the agentic server blocks) is always loaded, so a page may
+# promote at most ``10 - <always-loaded>`` deferred reads.
+_TOOL_CEILING = 10
+_MAX_PROMOTED_PER_PAGE = _TOOL_CEILING - sum(1 for s in TOOLS if not s.defer_loading)
+
+
+def _validate_page_hints() -> None:
+    """Fail at import if the hint map drifts from the registry.
+
+    Same posture as ``ToolSpec.__attrs_post_init__``: an invalid routing table
+    cannot exist past import. Guards the three ways the hand-maintained map rots
+    — an unknown page key, a tool name that no longer exists (or stopped being a
+    deferred read), and silent breach of the derived per-page ceiling.
+    """
+    for page, names in _PAGE_TOOL_HINTS.items():
+        if page not in _CANONICAL_PAGES:
+            raise ValueError(
+                f"_PAGE_TOOL_HINTS: {page!r} is not a canonical page "
+                f"({sorted(_CANONICAL_PAGES)})"
+            )
+        if len(names) > _MAX_PROMOTED_PER_PAGE:
+            raise ValueError(
+                f"_PAGE_TOOL_HINTS[{page!r}]: promotes {len(names)} tools, "
+                f"exceeds the derived ceiling of {_MAX_PROMOTED_PER_PAGE}"
+            )
+        for name in names:
+            spec = _SPECS_BY_NAME.get(name)
+            if spec is None:
+                raise ValueError(f"_PAGE_TOOL_HINTS[{page!r}]: unknown tool {name!r}")
+            if not spec.defer_loading:
+                raise ValueError(
+                    f"_PAGE_TOOL_HINTS[{page!r}]: {name!r} is already loaded "
+                    "(not deferred) — promoting it is a no-op that wastes budget"
+                )
+            if spec.kind != "read":
+                raise ValueError(
+                    f"_PAGE_TOOL_HINTS[{page!r}]: {name!r} is {spec.kind!r}; "
+                    "only deferred reads may be promoted"
+                )
+
+
+_validate_page_hints()
 
 
 def _promoted_tool_names(page: str | None) -> frozenset[str]:
@@ -443,17 +511,21 @@ def _promoted_tool_names(page: str | None) -> frozenset[str]:
 def build_tools(
     *, enable_code_execution: bool = True, page: str | None = None
 ) -> list[dict[str, object]]:
-    """Anthropic tool list: a cached core prefix followed by an uncached tail.
+    """Anthropic tool list in three cache tiers: prefix, promoted, rest.
 
-    The prefix is the always-hot curated core (a handful of reads plus the
-    dispatched agentic tools); its last entry carries the single tools-array
-    cache breakpoint. The prefix is page-INVARIANT, so navigating between UI
-    sections never invalidates it. The tail holds the deferred pool (surfaced on
-    demand via tool-search), the raw server-tool blocks (which reject a cache
-    stamp), and whatever ``page`` promotes for the current section — all
-    loaded-but-uncached, so per-page variation costs only a few re-sent schemas.
+    - **prefix** — the always-hot curated core (a handful of reads plus the
+      dispatched agentic tools). Page-INVARIANT; its last entry carries the
+      primary cache breakpoint, so navigating between UI sections never
+      invalidates it.
+    - **promoted** — the deferred reads ``page`` surfaces for the current section
+      (see ``_PAGE_TOOL_HINTS``). Carries its own breakpoint, so a section's
+      tools cache across that section's turns and only the promoted segment is
+      rewritten on navigation — the prefix cache survives. Empty (no breakpoint)
+      when the page promotes nothing.
+    - **rest** — the raw server-tool blocks (which reject a cache stamp) and the
+      deferred pool (surfaced on demand via tool-search). Uncached.
 
-    Order within each group follows registry order (deterministic — reordering
+    Order within each tier follows registry order (deterministic — reordering
     invalidates the cache). ``enable_code_execution`` marks read tools
     sandbox-callable (``allowed_callers``) and exposes the ``code_execution``
     server tool; off, it is dropped and the surface degrades to direct calls.
@@ -461,27 +533,29 @@ def build_tools(
     block verbatim — the API rejects the ``{name, description, input_schema}``
     wrapper for them.
     """
-    promoted = _promoted_tool_names(page)
+    promoted_names = _promoted_tool_names(page)
     prefix: list[dict[str, object]] = []  # always-hot, cached, page-invariant
-    tail: list[dict[str, object]] = []  # server tools + deferred/promoted pool
+    promoted: list[dict[str, object]] = []  # page-promoted reads, cached per page
+    rest: list[dict[str, object]] = []  # server blocks + deferred pool, uncached
     for spec in TOOLS:
         if spec.name == "code_execution" and not enable_code_execution:
             continue
         if spec.dispatch is None and spec.kind == "agentic":
-            tail.append(dict(spec.input_schema))  # raw server-tool block
+            rest.append(dict(spec.input_schema))  # raw server-tool block
             continue
         tool = _tool_dict(spec)
         if enable_code_execution and spec.kind == "read":
             tool["allowed_callers"] = list(_READ_ALLOWED_CALLERS)
         if not spec.defer_loading:
             prefix.append(tool)  # curated core + dispatched agentic
-        elif spec.name in promoted:
-            tail.append(tool)  # page-promoted: loaded for this section, uncached
+        elif spec.name in promoted_names:
+            promoted.append(tool)  # page-promoted: loaded + cached for this section
         else:
             tool["defer_loading"] = True
-            tail.append(tool)  # deferred: discovered via tool_search
+            rest.append(tool)  # deferred: discovered via tool_search
     _stamp_cache(prefix, len(prefix) - 1)
-    return prefix + tail
+    _stamp_cache(promoted, len(promoted) - 1)  # no-op when the page promotes nothing
+    return prefix + promoted + rest
 
 
 # The research subagent's hot set: the reads an investigation reaches for most.
@@ -574,10 +648,21 @@ async def execute_confirmed_action(
                 f"{action.tool_name} launches a background operation, which is "
                 "unavailable in this context"
             )
-        return await operation_launcher(action, user_id)
-    if spec.executor is None:
+        commit: Awaitable[JsonValue] = operation_launcher(action, user_id)
+    elif spec.executor is not None:
+        commit = spec.executor(action, user_id)
+    else:
         raise ToolExecutionError(f"{action.tool_name} is not a confirmable mutation")
-    return await spec.executor(action, user_id)
+    # Mirror execute_tool's blanket guard: a non-ToolExecutionError from an
+    # executor/launcher (DatabaseError, KeyError on action.details) would escape
+    # as a JSON-RPC protocol error over MCP or a 500 on the chat path, with the
+    # confirm token already burned. Normalize it to a ToolExecutionError.
+    try:
+        return await commit
+    except ToolExecutionError:
+        raise
+    except Exception as e:
+        raise ToolExecutionError(f"{action.tool_name} failed: {e}") from e
 
 
 # --- Parity accounting (asserted by test_registry_parity.py) ---------------
