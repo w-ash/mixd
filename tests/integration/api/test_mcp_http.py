@@ -253,10 +253,10 @@ class TestDiscoveryDocuments:
                 assert resp.status_code == 200, path
                 doc = resp.json()
                 assert doc["resource"] == RESOURCE_URI
-                # AnyHttpUrl serializes bare origins with a trailing slash;
-                # the AS metadata (Phase D) uses the same model, so the two
-                # documents advertise the identical issuer string.
-                assert doc["authorization_servers"] == ["http://localhost/"]
+                # Canonical no-trailing-slash issuer (RFC 8414 exact-string
+                # comparison): the metadata models preserve empty URL paths
+                # when fed strings, so both documents advertise the same form.
+                assert doc["authorization_servers"] == ["http://localhost"]
 
     async def test_jwks_served(self, mcp_app: FastAPI) -> None:
         async with _raw_client(mcp_app) as client:

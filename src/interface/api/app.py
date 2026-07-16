@@ -246,6 +246,8 @@ def create_app() -> FastAPI:
     # No prefix: OAuth/MCP clients fetch discovery documents unauthenticated.
     app.state.mcp_session_manager = None
     if settings.mcp_oauth.enabled:
+        from typing import cast
+
         from mcp.server.auth.routes import create_protected_resource_routes
         from mcp.server.streamable_http_manager import StreamableHTTPSessionManager
         from mcp.server.transport_security import TransportSecuritySettings
@@ -268,10 +270,13 @@ def create_app() -> FastAPI:
         # RFC 9728 Protected Resource Metadata: the SDK route lands at
         # /.well-known/oauth-protected-resource/mcp (well-known prefix + the
         # resource's path); an alias at the bare path covers clients that
-        # probe the path-less form.
+        # probe the path-less form. URLs are passed as strings so the metadata
+        # model's url_preserve_empty_path keeps the issuer in its canonical
+        # no-trailing-slash form (RFC 8414 comparison is exact-string; a
+        # pre-built AnyHttpUrl would bake the slash in first).
         prm_routes = create_protected_resource_routes(
-            resource_url=AnyHttpUrl(settings.mcp_oauth.resource_uri),
-            authorization_servers=[AnyHttpUrl(settings.mcp_oauth.issuer_url)],
+            resource_url=cast("AnyHttpUrl", settings.mcp_oauth.resource_uri),
+            authorization_servers=[cast("AnyHttpUrl", settings.mcp_oauth.issuer_url)],
         )
         app.router.routes.extend(prm_routes)
         app.router.routes.append(
