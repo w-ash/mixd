@@ -21,6 +21,7 @@ from collections.abc import Mapping
 from uuid import UUID
 
 from src.application.chat.dispatchers._common import (
+    commit,
     opt_choice,
     propose_action,
     require_choice,
@@ -29,7 +30,6 @@ from src.application.chat.dispatchers._common import (
 )
 from src.application.chat.pending_actions import PendingAction
 from src.application.chat.protocols import ToolContext
-from src.application.runner import execute_use_case
 from src.application.use_cases.create_playlist_link import (
     CreatePlaylistLinkCommand,
     CreatePlaylistLinkUseCase,
@@ -44,7 +44,7 @@ from src.application.use_cases.update_playlist_link import (
 )
 from src.domain.entities.playlist_link import PlaylistLink, SyncDirection
 from src.domain.entities.shared import ConnectorPlaylistIdentifier, JsonDict, JsonValue
-from src.domain.exceptions import NotFoundError, ToolExecutionError
+from src.domain.exceptions import ToolExecutionError
 
 _OPERATIONS = ("create", "update", "delete")
 _DIRECTIONS = ("pull", "push")
@@ -164,7 +164,13 @@ async def handle_manage_playlist_link(
 
 
 def _project_link(link: PlaylistLink) -> JsonDict:
-    """Compact model-facing view of a link — ids raw, direction as its value."""
+    """Compact model-facing view of a link — ids raw, direction as its value.
+
+    Deliberate write-confirmation subset of the canonical full projection in
+    ``links.py::_project_link`` (8 fields incl. last_synced/status); when a new
+    link field is added there, consciously decide whether the confirmation echo
+    needs it too.
+    """
     return {
         "link_id": str(link.id),
         "connector_name": link.connector_name,
@@ -192,18 +198,15 @@ async def exec_manage_playlist_link(action: PendingAction, user_id: str) -> Json
             ),
             sync_direction=_to_sync_direction(str(details["direction"])),
         )
-        try:
-            created = await execute_use_case(
-                lambda uow: CreatePlaylistLinkUseCase().execute(command, uow),
-                user_id=user_id,
-            )
-        except NotFoundError as e:
-            raise ToolExecutionError(
+        created = await commit(
+            lambda uow: CreatePlaylistLinkUseCase().execute(command, uow),
+            user_id,
+            not_found=(
                 "The playlist could not be found — it may have been deleted "
                 "since this link was proposed. Re-check and try again."
-            ) from e
-        except ValueError as e:
-            raise ToolExecutionError(f"The link could not be created: {e}") from e
+            ),
+            invalid_prefix="The link could not be created",
+        )
         return {
             "status": "confirmed",
             "operation": operation,
@@ -217,18 +220,15 @@ async def exec_manage_playlist_link(action: PendingAction, user_id: str) -> Json
             link_id=UUID(str(details["link_id"])),
             sync_direction=_to_sync_direction(str(details["direction"])),
         )
-        try:
-            updated = await execute_use_case(
-                lambda uow: UpdatePlaylistLinkUseCase().execute(update_command, uow),
-                user_id=user_id,
-            )
-        except NotFoundError as e:
-            raise ToolExecutionError(
+        updated = await commit(
+            lambda uow: UpdatePlaylistLinkUseCase().execute(update_command, uow),
+            user_id,
+            not_found=(
                 "The link no longer exists — it may have been deleted since this "
                 "update was proposed. Re-check and try again."
-            ) from e
-        except ValueError as e:
-            raise ToolExecutionError(f"The link could not be updated: {e}") from e
+            ),
+            invalid_prefix="The link could not be updated",
+        )
         return {
             "status": "confirmed",
             "operation": operation,
@@ -241,18 +241,15 @@ async def exec_manage_playlist_link(action: PendingAction, user_id: str) -> Json
             user_id=user_id,
             link_id=UUID(str(details["link_id"])),
         )
-        try:
-            deleted = await execute_use_case(
-                lambda uow: DeletePlaylistLinkUseCase().execute(delete_command, uow),
-                user_id=user_id,
-            )
-        except NotFoundError as e:
-            raise ToolExecutionError(
+        deleted = await commit(
+            lambda uow: DeletePlaylistLinkUseCase().execute(delete_command, uow),
+            user_id,
+            not_found=(
                 "The link no longer exists — it may have already been deleted. "
                 "Nothing to do."
-            ) from e
-        except ValueError as e:
-            raise ToolExecutionError(f"The link could not be deleted: {e}") from e
+            ),
+            invalid_prefix="The link could not be deleted",
+        )
         return {
             "status": "confirmed",
             "operation": operation,

@@ -298,3 +298,14 @@ class TestUnknownTool:
         action = _action("not_a_tool", {})
         with pytest.raises(ToolExecutionError, match="not a launchable"):
             await chat_operations.launch_chat_operation(action, _USER)
+
+
+class TestLauncherRegistrySync:
+    def test_launchers_cover_exactly_the_operation_tools(self) -> None:
+        # Every registry tool that launches a long op must have a launcher, and
+        # no launcher may exist for a tool that doesn't — otherwise a confirmed
+        # op either 500s (missing launcher) or references a dead mapping.
+        from src.application.tools.registry import TOOLS
+
+        expected = {spec.name for spec in TOOLS if spec.launches_operation}
+        assert set(chat_operations._LAUNCHERS) == expected

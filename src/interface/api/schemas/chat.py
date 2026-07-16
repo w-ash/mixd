@@ -1,17 +1,17 @@
 """Request schemas for the chat endpoint."""
 
 from datetime import date
+import json
 from typing import Literal, Self
 from uuid import UUID
 
 from pydantic import BaseModel, Field, model_validator
 
-from src.config.settings import EffortLevel
+from src.config.settings import EffortLevel, settings
 from src.domain.entities.shared import JsonValue
 
 _MAX_CONTENT_PER_MESSAGE = 20_480  # 20 KB
 _MAX_TOTAL_CONTENT = 102_400  # 100 KB
-_MAX_MESSAGES = 50
 
 
 class ChatMessageInput(BaseModel):
@@ -31,7 +31,7 @@ class ConfirmationInput(BaseModel):
 class ChatRequest(BaseModel):
     """A chat request: message history plus optional confirmation and effort."""
 
-    messages: list[ChatMessageInput] = Field(..., max_length=_MAX_MESSAGES)
+    messages: list[ChatMessageInput]
     confirmation: ConfirmationInput | None = None
     # The browser's local calendar date, so "this month" / "last 6 months"
     # resolve to the user's clock, not UTC. Falls back to server UTC when absent.
@@ -46,6 +46,17 @@ class ChatRequest(BaseModel):
     # for rule-based tool routing: tools relevant to the section load eagerly
     # while the rest stay behind tool-search. Unknown/absent → no promotion.
     page: str | None = Field(default=None, max_length=64)
+
+    @model_validator(mode="after")
+    def _check_message_count(self) -> Self:
+        # A validator, not a Field(max_length=…): Field constraints must be
+        # literal constants, and the cap is the runtime-configurable
+        # ChatConfig.max_messages (its sole consumer — mirrors the frontend cap).
+        limit = settings.chat.max_messages
+        if len(self.messages) > limit:
+            msg = f"Too many messages ({len(self.messages)}); the limit is {limit}"
+            raise ValueError(msg)
+        return self
 
     @model_validator(mode="after")
     def _check_total_content_size(self) -> Self:
@@ -69,6 +80,19 @@ class ChatFeedbackRequest(BaseModel):
     generated_workflow_def: dict[str, JsonValue]
     signal: Literal["positive", "negative"]
     note: str | None = Field(default=None, max_length=_MAX_FEEDBACK_NOTE)
+
+    @model_validator(mode="after")
+    def _check_workflow_def_size(self) -> Self:
+        # generated_workflow_def is otherwise unbounded — cap the serialized size
+        # the same way ChatRequest caps total message content.
+        size = len(json.dumps(self.generated_workflow_def))
+        if size > _MAX_TOTAL_CONTENT:
+            msg = (
+                f"generated_workflow_def ({size} bytes) exceeds the "
+                f"{_MAX_TOTAL_CONTENT}-byte limit"
+            )
+            raise ValueError(msg)
+        return self
 
 
 class ChatFeedbackResponse(BaseModel):

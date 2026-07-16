@@ -38,6 +38,7 @@ vi.mock("#/hooks/useOperationProgress", () => ({
 const GENERATE_CALL: ToolCall = {
   id: "g1",
   name: "generate_workflow_def",
+  kind: "read",
   result: {
     status: "valid",
     workflow_def: {
@@ -74,9 +75,7 @@ const SAVE_CALL: ToolCall = {
 beforeEach(() => {
   useChatStore.setState({
     messages: [],
-    isStreaming: false,
     confirmationStates: {},
-    currentWorkflowDraft: null,
   });
 });
 
@@ -136,6 +135,7 @@ describe("ToolResultCard dispatch", () => {
         toolCall={{
           id: "op1",
           name: "import_lastfm_history",
+          kind: "write",
           result: {
             status: "operation_started",
             operation_id: "op-123",
@@ -160,6 +160,7 @@ describe("ToolResultCard dispatch", () => {
         toolCall={{
           id: "t1",
           name: "list_user_workflows",
+          kind: "read",
           result: { total_count: 2 },
         }}
       />,

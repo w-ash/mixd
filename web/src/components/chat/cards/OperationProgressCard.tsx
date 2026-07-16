@@ -1,6 +1,7 @@
 import { ExternalLink } from "lucide-react";
 import { Link } from "react-router";
 
+import { ChatCard } from "#/components/chat/ChatCard";
 import { OperationProgress } from "#/components/shared/OperationProgress";
 import { useOperationProgress } from "#/hooks/useOperationProgress";
 
@@ -26,27 +27,30 @@ export function OperationProgressCard({
   const { progress } = useOperationProgress(result.operation_id);
 
   return (
-    <div className="w-full rounded-lg border-l-2 border-primary bg-surface px-4 py-3">
-      <div className="mb-2 flex items-baseline justify-between gap-2">
-        <p className="font-display text-xs font-medium text-text">
-          {result.description}
-        </p>
-        {result.run_id && (
-          <Link
-            to={`/settings/imports?run=${result.run_id}`}
-            className="inline-flex shrink-0 items-center gap-1 font-display text-xs text-primary underline-offset-2 hover:underline"
-          >
-            <ExternalLink className="size-3" />
-            Open run
-          </Link>
-        )}
-      </div>
-
+    <ChatCard
+      className="w-full"
+      header={
+        <div className="mb-2 flex items-baseline justify-between gap-2">
+          <p className="font-display text-xs font-medium text-text">
+            {result.description}
+          </p>
+          {result.run_id && (
+            <Link
+              to={`/settings/imports?run=${result.run_id}`}
+              className="inline-flex shrink-0 items-center gap-1 font-display text-xs text-primary underline-offset-2 hover:underline"
+            >
+              <ExternalLink className="size-3" />
+              Open run
+            </Link>
+          )}
+        </div>
+      }
+    >
       {progress ? (
         <OperationProgress progress={progress} />
       ) : (
         <p className="font-body text-xs text-text-muted">Connecting…</p>
       )}
-    </div>
+    </ChatCard>
   );
 }

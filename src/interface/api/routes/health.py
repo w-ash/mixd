@@ -36,14 +36,19 @@ async def health_check() -> JSONResponse:
 
     from src.config.settings import settings
 
-    chat_available = bool(settings.credentials.anthropic_api_key.get_secret_value())
+    # NOT a chat-availability gate: since v0.9.0.1 the real gate is per-user
+    # (GET /assistant/status resolves the user's BYO key or the server fallback).
+    # This reports only whether the *server* fallback key is set — false on a
+    # BYO-only deployment where chat still works fine per user.
+    server_anthropic_key_configured = bool(
+        settings.credentials.anthropic_api_key.get_secret_value()
+    )
 
     content: dict[str, str | bool] = {
         "status": "ok" if db_ok else "degraded",
         "version": __version__,
         "database": "connected" if db_ok else "unavailable",
-        # Gates the chat panel — false when ANTHROPIC_API_KEY is unset.
-        "chat_available": chat_available,
+        "server_anthropic_key_configured": server_anthropic_key_configured,
     }
     if db_error_message:
         content["database_error"] = db_error_message

@@ -11,6 +11,7 @@ from uuid import uuid4
 import pytest
 
 from src.application.chat import confirmed_actions, tool_executor
+from src.application.chat.dispatchers import _common
 from src.application.chat.pending_actions import PendingActionStore
 from src.application.chat.protocols import ToolContext
 from src.application.tools import registry
@@ -59,7 +60,9 @@ _INVALID_DEF = {
 @pytest.fixture
 def fresh_store(monkeypatch: pytest.MonkeyPatch) -> PendingActionStore:
     store = PendingActionStore()
-    monkeypatch.setattr(tool_executor, "pending_action_store", store)
+    # save_workflow proposes through dispatchers._common.propose_action (C5),
+    # so the fresh store must replace the one that helper closes over.
+    monkeypatch.setattr(_common, "pending_action_store", store)
     return store
 
 

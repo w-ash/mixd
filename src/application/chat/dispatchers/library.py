@@ -11,10 +11,10 @@ compact, user-data-marked dict.
 """
 
 from collections.abc import Mapping
-from datetime import datetime
 from uuid import UUID
 
 from src.application.chat.dispatchers._common import (
+    iso,
     opt_choice,
     opt_int,
     opt_str,
@@ -128,10 +128,6 @@ QUERY_LIBRARY_INPUT_SCHEMA: JsonDict = {
 }
 
 
-def _iso(value: datetime | None) -> str | None:
-    return value.isoformat() if value is not None else None
-
-
 def _require_preference_state(
     args: Mapping[str, JsonValue], key: str
 ) -> PreferenceState:
@@ -229,8 +225,8 @@ async def _track_detail(track_id: UUID, ctx: ToolContext) -> JsonValue:
     detail = project_track(result.track, preference=result.preference, tags=result.tags)
     detail["play_summary"] = {
         "total_plays": result.play_summary.total_plays,
-        "first_played": _iso(result.play_summary.first_played),
-        "last_played": _iso(result.play_summary.last_played),
+        "first_played": iso(result.play_summary.first_played),
+        "last_played": iso(result.play_summary.last_played),
     }
     detail["playlists"] = [
         {"playlist_id": str(p.id), "name": user_text(p.name)} for p in result.playlists

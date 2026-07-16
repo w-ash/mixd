@@ -107,7 +107,7 @@ class TestExecSetPreferences:
     ) -> None:
         track_id = uuid4()
         monkeypatch.setattr(
-            preferences_write,
+            _common,
             "execute_use_case",
             _fake_runner(
                 SetTrackPreferenceResult(track_id=track_id, state="star", changed=True)
@@ -130,7 +130,7 @@ class TestExecSetPreferences:
     ) -> None:
         track_id = uuid4()
         monkeypatch.setattr(
-            preferences_write,
+            _common,
             "execute_use_case",
             _fake_runner(
                 SetTrackPreferenceResult(track_id=track_id, state=None, changed=True)
@@ -149,7 +149,7 @@ class TestExecSetPreferences:
         self, fresh_store: PendingActionStore, monkeypatch: pytest.MonkeyPatch
     ) -> None:
         monkeypatch.setattr(
-            preferences_write,
+            _common,
             "execute_use_case",
             _fake_runner(
                 SyncPreferencesFromLikesResult(created=5, upgraded=2, skipped=1)
@@ -169,7 +169,7 @@ class TestExecSetPreferences:
         async def _raise(factory: object, user_id: str | None = None) -> object:
             raise NotFoundError("gone")
 
-        monkeypatch.setattr(preferences_write, "execute_use_case", _raise)
+        monkeypatch.setattr(_common, "execute_use_case", _raise)
         action = _pending(
             fresh_store,
             {"operation": "set", "track_id": str(uuid4()), "state": "yah"},

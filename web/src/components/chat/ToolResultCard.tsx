@@ -3,10 +3,13 @@ import { ConfirmationCard } from "#/components/chat/ConfirmationCard";
 import { OperationProgressCard } from "#/components/chat/cards/OperationProgressCard";
 import { isOperationStartedResult } from "#/components/chat/cards/operation-progress-types";
 import {
+  findSaveProposal,
+  hasGeneratePreview,
   isGenerateWorkflowResult,
-  type SaveProposal,
+  isPendingConfirmation,
+  projectSaveDetails,
 } from "#/components/chat/cards/workflow-preview-types";
-import type { ConfirmationState, ToolCall } from "#/stores/chat-store";
+import type { ToolCall } from "#/stores/chat-store";
 
 // Lazy: the preview card pulls in React Flow + ELK, which must stay out of
 // the chat panel's initial bundle (it mounts on every page).
@@ -117,55 +120,12 @@ export function GenericToolResultCard({
   );
 }
 
-// --- Pending confirmation detection ---
-
-interface PendingConfirmationResult {
-  status: "pending_confirmation";
-  action_id: string;
-  description: string;
-  details: Record<string, unknown>;
-}
-
-function isPendingConfirmation(
-  result: unknown,
-): result is PendingConfirmationResult {
-  if (!result || typeof result !== "object") return false;
-  return (result as Record<string, unknown>).status === "pending_confirmation";
-}
-
-// --- Workflow preview helpers ---
-
-/** The live save_workflow proposal among a message's tool calls, if any. */
-function findSaveProposal(
-  siblings: ToolCall[] | undefined,
-): SaveProposal | undefined {
-  for (const sibling of siblings ?? []) {
-    if (sibling.name !== "save_workflow" || sibling.isError) continue;
-    if (!isPendingConfirmation(sibling.result)) continue;
-    return {
-      actionId: sibling.result.action_id,
-      mode: sibling.result.details.mode === "update" ? "update" : "create",
-    };
-  }
-  return undefined;
-}
-
-function hasGeneratePreview(siblings: ToolCall[] | undefined): boolean {
-  return (siblings ?? []).some(
-    (tc) =>
-      tc.name === "generate_workflow_def" &&
-      !tc.isError &&
-      isGenerateWorkflowResult(tc.result),
-  );
-}
-
 // --- Main dispatcher ---
 
 export function ToolResultCard({
   toolCall,
   messageId,
   siblingToolCalls,
-  confirmationState,
   onConfirm,
   onCancel,
   onSendMessage,
@@ -175,7 +135,6 @@ export function ToolResultCard({
   messageId?: string;
   /** All tool calls of the containing message — sibling context for dispatch. */
   siblingToolCalls?: ToolCall[];
-  confirmationState?: ConfirmationState;
   onConfirm?: (actionId: string) => void;
   onCancel?: (actionId: string) => void;
   onSendMessage?: (text: string) => void;
@@ -183,6 +142,9 @@ export function ToolResultCard({
   if (toolCall.result === undefined || toolCall.isError) return null;
   const result = toolCall.result;
 
+  // This is a hand-written routing chain, not a name→card map — when a second
+  // bespoke card lands, convert this to a `Record<toolName, Card>` dispatch.
+  //
   // The workflow preview owns the save affordance (Save/Discard on the card),
   // so a sibling save proposal renders nothing of its own.
   if (
@@ -218,15 +180,9 @@ export function ToolResultCard({
     ) {
       return null; // the preview card in this message is the approval gate
     }
-    // The embedded definition is a JSON wall the graph already shows —
-    // confirmation details keep the human-readable summary only.
     const details =
       toolCall.name === "save_workflow"
-        ? Object.fromEntries(
-            Object.entries(result.details).filter(
-              ([key]) => key !== "definition",
-            ),
-          )
+        ? projectSaveDetails(result.details)
         : result.details;
     return (
       <ConfirmationCard
@@ -234,7 +190,6 @@ export function ToolResultCard({
         description={result.description}
         details={details}
         toolName={toolCall.name}
-        state={confirmationState ?? "pending"}
         onConfirm={onConfirm}
         onCancel={onCancel}
       />

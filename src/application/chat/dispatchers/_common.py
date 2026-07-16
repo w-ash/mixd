@@ -16,18 +16,20 @@ Three concerns the domain dispatcher modules all reuse:
   model boundary quotes it as data.
 """
 
-from collections.abc import Mapping, Sequence
+from collections.abc import Awaitable, Callable, Mapping, Sequence
 from datetime import datetime
 from uuid import UUID
 
 from src.application.chat.pending_actions import pending_action_store
 from src.application.chat.protocols import ToolContext
 from src.application.chat.user_data import wrap
+from src.application.runner import execute_use_case
 from src.domain.entities.playlist import Playlist
 from src.domain.entities.preference import PreferenceState
 from src.domain.entities.shared import JsonDict, JsonValue
 from src.domain.entities.track import Track
-from src.domain.exceptions import ToolExecutionError
+from src.domain.exceptions import NotFoundError, ToolExecutionError
+from src.domain.repositories.uow import UnitOfWorkProtocol
 
 # --- argument coercion ------------------------------------------------------
 
@@ -163,10 +165,38 @@ def propose_action(
     }
 
 
+# --- commit envelope --------------------------------------------------------
+
+
+async def commit[TResult](
+    factory: Callable[[UnitOfWorkProtocol], Awaitable[TResult]],
+    user_id: str,
+    *,
+    not_found: str,
+    invalid_prefix: str,
+) -> TResult:
+    """Run a write use case, mapping commit-time failures to actionable errors.
+
+    A target that vanished between propose and confirm (``NotFoundError``) or a
+    command that no longer validates (``ValueError`` — e.g. a use-case guard or a
+    definition a deploy tightened rules on) surfaces as a ``ToolExecutionError``
+    the model can act on rather than a raw failure. Each call site supplies its
+    own ``not_found`` sentence and ``invalid_prefix`` (the ``ValueError`` text is
+    appended as ``f"{invalid_prefix}: {e}"``).
+    """
+    try:
+        return await execute_use_case(factory, user_id=user_id)
+    except NotFoundError as e:
+        raise ToolExecutionError(not_found) from e
+    except ValueError as e:
+        raise ToolExecutionError(f"{invalid_prefix}: {e}") from e
+
+
 # --- entity projection ------------------------------------------------------
 
 
-def _iso(value: datetime | None) -> str | None:
+def iso(value: datetime | None) -> str | None:
+    """ISO-8601 string for a datetime, or ``None``."""
     return value.isoformat() if value is not None else None
 
 
@@ -214,5 +244,5 @@ def project_playlist(playlist: Playlist) -> JsonDict:
         "name": user_text(playlist.name),
         "description": user_text(playlist.description),
         "track_count": playlist.track_count,
-        "updated_at": _iso(playlist.updated_at),
+        "updated_at": iso(playlist.updated_at),
     }

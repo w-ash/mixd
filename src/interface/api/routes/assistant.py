@@ -13,7 +13,7 @@ credential management, of which this is the same shape.
 
 from fastapi import APIRouter, Depends
 
-from src.domain.exceptions import InvalidApiKeyError
+from src.domain.exceptions import ChatUnavailableError, InvalidApiKeyError
 from src.infrastructure.chat.anthropic_adapter import (
     evict_adapter_cache,
     validate_anthropic_key,
@@ -25,6 +25,7 @@ from src.infrastructure.chat.credentials import (
     save_user_anthropic_key,
 )
 from src.interface.api.deps import get_current_user_id, resolve_chat_source
+from src.interface.api.rate_limit import InMemoryRateLimiter
 from src.interface.api.schemas.assistant import (
     AssistantStatusResponse,
     ConnectKeyRequest,
@@ -34,6 +35,12 @@ from src.interface.api.schemas.assistant import (
 )
 
 router = APIRouter(tags=["assistant"])
+
+# Both key-write paths run a live Anthropic completion, which makes them a
+# validation oracle (submit-and-observe to brute-force keys) and a cost lever.
+# A tight per-user budget throttles that without impeding legitimate use — a
+# user connects/tests their key a handful of times, not dozens per minute.
+_key_probe_limiter = InMemoryRateLimiter(max_requests=5, window_seconds=60)
 
 
 @router.get("/assistant/status")
@@ -49,11 +56,14 @@ async def put_assistant_key(
     body: ConnectKeyRequest,
     user_id: str = Depends(get_current_user_id),
 ) -> ConnectKeyResponse:
+    _key_probe_limiter.check(user_id)
     key = body.api_key.strip()
     if not looks_like_anthropic_key(key):
         raise InvalidApiKeyError(
             "That doesn't look like an Anthropic API key (expected 'sk-ant-…')."
         )
+    # A transport/5xx failure raises ChatUnavailableError (→ 503) rather than a
+    # false "rejected" — the middleware maps it to an actionable envelope.
     if not await validate_anthropic_key(key):
         raise InvalidApiKeyError(
             "Anthropic rejected that key. Check it was copied in full and that "
@@ -69,10 +79,16 @@ async def probe_assistant_key(
     body: TestKeyRequest,
     user_id: str = Depends(get_current_user_id),
 ) -> TestKeyResponse:
+    _key_probe_limiter.check(user_id)
     key = (body.api_key or "").strip() or await load_user_anthropic_key(user_id)
     if not key:
         return TestKeyResponse(ok=False, detail="No API key stored to test.")
-    ok = await validate_anthropic_key(key)
+    try:
+        ok = await validate_anthropic_key(key)
+    except ChatUnavailableError as exc:
+        # Couldn't reach Anthropic — report as a soft failure the user can retry,
+        # not a hard "rejected" verdict on the key.
+        return TestKeyResponse(ok=False, detail=str(exc))
     return TestKeyResponse(ok=ok, detail=None if ok else "Anthropic rejected the key.")
 
 

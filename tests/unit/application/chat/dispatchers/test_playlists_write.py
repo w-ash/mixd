@@ -148,6 +148,27 @@ class TestManagePlaylistPropose:
         assert details["description"] is None
         assert any("unchanged" in c for c in details["changes"])
 
+    async def test_update_bad_playlist_uuid_rejected_before_pending(
+        self, fresh_store: PendingActionStore
+    ) -> None:
+        # Coercion happens up front: a non-UUID id raises rather than sitting in
+        # a pending action the confirmed executor would choke on.
+        with pytest.raises(ToolExecutionError, match="playlist_id"):
+            await playlists_write.handle_manage_playlist(
+                {"operation": "update", "playlist_id": "not-a-uuid", "name": "X"},
+                _CTX,
+            )
+        assert not fresh_store._actions
+
+    async def test_delete_bad_playlist_uuid_rejected_before_pending(
+        self, fresh_store: PendingActionStore
+    ) -> None:
+        with pytest.raises(ToolExecutionError, match="playlist_id"):
+            await playlists_write.handle_manage_playlist(
+                {"operation": "delete", "playlist_id": "not-a-uuid"}, _CTX
+            )
+        assert not fresh_store._actions
+
     async def test_delete_proposes_destructive_confirmation(
         self, fresh_store: PendingActionStore
     ) -> None:
@@ -168,7 +189,7 @@ class TestExecManagePlaylist:
     ) -> None:
         pid = uuid4()
         monkeypatch.setattr(
-            playlists_write,
+            _common,
             "execute_use_case",
             _runner_returning(
                 CreateCanonicalPlaylistResult(
@@ -207,7 +228,7 @@ class TestExecManagePlaylist:
             )
 
         monkeypatch.setattr(UpdateCanonicalPlaylistUseCase, "execute", _capture)
-        monkeypatch.setattr(playlists_write, "execute_use_case", _runner_invoking())
+        monkeypatch.setattr(_common, "execute_use_case", _runner_invoking())
         action = _action(
             "update",
             {
@@ -235,7 +256,7 @@ class TestExecManagePlaylist:
         self, monkeypatch: pytest.MonkeyPatch
     ) -> None:
         monkeypatch.setattr(
-            playlists_write,
+            _common,
             "execute_use_case",
             _runner_returning(
                 DeleteCanonicalPlaylistResult(
@@ -261,7 +282,7 @@ class TestExecManagePlaylist:
         self, monkeypatch: pytest.MonkeyPatch
     ) -> None:
         monkeypatch.setattr(
-            playlists_write,
+            _common,
             "execute_use_case",
             _raising_runner(NotFoundError("gone")),
         )
@@ -375,7 +396,7 @@ class TestExecManagePlaylistEntries:
     ) -> None:
         pid = uuid4()
         monkeypatch.setattr(
-            playlists_write,
+            _common,
             "execute_use_case",
             _runner_returning(
                 AddPlaylistTracksResult(playlist=make_playlist(id=pid), added=2)
@@ -402,7 +423,7 @@ class TestExecManagePlaylistEntries:
     ) -> None:
         pid = uuid4()
         monkeypatch.setattr(
-            playlists_write,
+            _common,
             "execute_use_case",
             _runner_returning(
                 RemovePlaylistEntriesResult(playlist=make_playlist(id=pid), removed=1)
@@ -428,7 +449,7 @@ class TestExecManagePlaylistEntries:
     ) -> None:
         pid = uuid4()
         monkeypatch.setattr(
-            playlists_write,
+            _common,
             "execute_use_case",
             _runner_returning(
                 ReorderPlaylistEntriesResult(playlist=make_playlist(id=pid))
@@ -453,7 +474,7 @@ class TestExecManagePlaylistEntries:
         self, monkeypatch: pytest.MonkeyPatch
     ) -> None:
         monkeypatch.setattr(
-            playlists_write,
+            _common,
             "execute_use_case",
             _runner_returning(
                 RepairUnresolvedEntriesResult(repaired=3, still_unresolved=1)
@@ -475,7 +496,7 @@ class TestExecManagePlaylistEntries:
         self, monkeypatch: pytest.MonkeyPatch
     ) -> None:
         monkeypatch.setattr(
-            playlists_write,
+            _common,
             "execute_use_case",
             _raising_runner(NotFoundError("stale entry")),
         )

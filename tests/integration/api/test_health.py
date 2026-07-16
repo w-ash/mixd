@@ -19,6 +19,10 @@ class TestHealthEndpoint:
         body = response.json()
         assert body["status"] == "ok"
         assert body["version"] == __version__
+        # chat_available was removed (X2): the real chat gate is per-user
+        # (/assistant/status), so the honest server-only field replaces it.
+        assert "chat_available" not in body
+        assert isinstance(body["server_anthropic_key_configured"], bool)
 
     async def test_health_content_type_is_json(self, client: httpx.AsyncClient) -> None:
         response = await client.get("/api/v1/health")

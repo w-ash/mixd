@@ -1,7 +1,6 @@
 import { useCallback } from "react";
 
 import type { ChatMessage as ChatMessageType } from "#/stores/chat-store";
-import { useChatStore } from "#/stores/chat-store";
 
 import { ChatMessage } from "./ChatMessage";
 
@@ -16,7 +15,6 @@ export function ChatMessageList({
   onCancel?: (actionId: string) => void;
   onSendMessage?: (text: string) => void;
 }) {
-  const confirmationStates = useChatStore((s) => s.confirmationStates);
   const lastMessageRef = useCallback((node: HTMLDivElement | null) => {
     node?.scrollIntoView({ behavior: "smooth" });
   }, []);
@@ -30,7 +28,6 @@ export function ChatMessageList({
         >
           <ChatMessage
             message={m}
-            confirmationStates={confirmationStates}
             onConfirm={onConfirm}
             onCancel={onCancel}
             onSendMessage={onSendMessage}

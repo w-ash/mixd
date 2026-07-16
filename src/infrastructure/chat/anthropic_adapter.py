@@ -14,6 +14,7 @@ from contextlib import asynccontextmanager
 from typing import cast
 
 from anthropic import (
+    APIError,
     AsyncAnthropic,
     AuthenticationError,
     BadRequestError,
@@ -44,6 +45,7 @@ from src.application.chat.protocols import (
     ToolUseBlock,
 )
 from src.domain.entities.shared import JsonDict
+from src.domain.exceptions import ChatUnavailableError
 
 # Tool-result clearing (context editing, beta): once the conversation passes the
 # trigger, the oldest tool results are cleared server-side, keeping the most
@@ -372,11 +374,15 @@ async def validate_anthropic_key(api_key: str) -> bool:
     Sends a minimal live completion (``max_tokens=1``) rather than a metadata
     probe, so a key that authenticates but has no billing/credit is rejected
     here instead of failing on the user's first real message. A bad key (401/403)
-    or an unusable one (400 "credit balance too low") returns False; transport
-    errors propagate so the caller can distinguish "bad key" from "couldn't
-    reach Anthropic". The token cost is negligible and lands on the caller's own key.
+    or an unusable one (400 "credit balance too low") returns False.
+
+    A short timeout and no retries bound this validation-oracle path. Transport,
+    rate-limit, and 5xx failures (incl. 529 overloaded) can't tell a good key
+    from a bad one, so they raise ``ChatUnavailableError`` (a 503, "couldn't
+    reach Anthropic") rather than masquerading as False or bubbling up as a 500.
+    The token cost is negligible and lands on the caller's own key.
     """
-    client = AsyncAnthropic(api_key=api_key)
+    client = AsyncAnthropic(api_key=api_key, timeout=10.0, max_retries=0)
     try:
         await client.messages.create(
             model=_VALIDATION_MODEL,
@@ -385,6 +391,10 @@ async def validate_anthropic_key(api_key: str) -> bool:
         )
     except AuthenticationError, PermissionDeniedError, BadRequestError:
         return False
+    except APIError as exc:
+        raise ChatUnavailableError(
+            "Couldn't reach Anthropic to validate the key. Please try again shortly."
+        ) from exc
     else:
         return True
     finally:

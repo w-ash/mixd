@@ -42,9 +42,7 @@ const RESULT: GenerateWorkflowResult = {
 function resetStore() {
   useChatStore.setState({
     messages: [],
-    isStreaming: false,
     confirmationStates: {},
-    currentWorkflowDraft: null,
   });
 }
 
@@ -129,7 +127,9 @@ describe("WorkflowPreviewCard", () => {
           id: "m2",
           role: "assistant",
           content: "",
-          toolCalls: [{ id: "g2", name: "generate_workflow_def" }],
+          toolCalls: [
+            { id: "g2", name: "generate_workflow_def", kind: "read" },
+          ],
         },
       ],
     });
@@ -207,7 +207,30 @@ describe("feedback thumbs", () => {
       signal: "positive",
       note: null,
     });
-    expect(screen.getByText(/thanks for the feedback/i)).toBeInTheDocument();
+    // The thanks message is driven by the mutation's success state (F5), which
+    // settles a tick after the request is received.
+    await waitFor(() =>
+      expect(screen.getByText(/thanks for the feedback/i)).toBeInTheDocument(),
+    );
+  });
+
+  it("re-enables the thumbs and shows an error when feedback fails", async () => {
+    server.use(
+      http.post("*/api/v1/chat/feedback", () =>
+        HttpResponse.json({ error: "nope" }, { status: 500 }),
+      ),
+    );
+
+    renderWithProviders(
+      <WorkflowPreviewCard toolCallId="g1" result={RESULT} />,
+    );
+    fireEvent.click(screen.getByRole("button", { name: "Good draft" }));
+
+    await waitFor(() =>
+      expect(screen.getByRole("alert")).toHaveTextContent(/couldn't send/i),
+    );
+    // Buttons come back so the user can retry rather than being stuck.
+    expect(screen.getByRole("button", { name: "Good draft" })).toBeEnabled();
   });
 
   it("thumbs-down opens a note field and sends it", async () => {

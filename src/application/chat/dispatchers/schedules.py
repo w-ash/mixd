@@ -10,10 +10,10 @@ user-data-marked dict.
 """
 
 from collections.abc import Mapping
-from datetime import datetime
 from uuid import UUID
 
 from src.application.chat.dispatchers._common import (
+    iso,
     opt_str,
     opt_uuid,
     user_text,
@@ -54,10 +54,6 @@ QUERY_SCHEDULES_INPUT_SCHEMA: JsonDict = {
 }
 
 
-def _iso(value: datetime | None) -> str | None:
-    return value.isoformat() if value is not None else None
-
-
 def _project_schedule(
     schedule: Schedule, *, target_label: str | None = None
 ) -> JsonDict:
@@ -79,8 +75,8 @@ def _project_schedule(
         "day_of_week": schedule.day_of_week,
         "timezone": schedule.timezone,
         "status": schedule.status,
-        "next_run_at": _iso(schedule.next_run_at),
-        "last_run_at": _iso(schedule.last_run_at),
+        "next_run_at": iso(schedule.next_run_at),
+        "last_run_at": iso(schedule.last_run_at),
         "last_run_status": schedule.last_run_status,
         "run_count": schedule.run_count,
     }

@@ -13,19 +13,19 @@ from collections.abc import Mapping
 from uuid import UUID
 
 from src.application.chat.dispatchers._common import (
+    commit,
     project_track,
     propose_action,
     require_uuid,
 )
 from src.application.chat.pending_actions import PendingAction
 from src.application.chat.protocols import ToolContext
-from src.application.runner import execute_use_case
 from src.application.use_cases.merge_tracks import (
     MergeTrackAndFetchDetailsUseCase,
     MergeTracksCommand,
 )
 from src.domain.entities.shared import JsonDict, JsonValue
-from src.domain.exceptions import NotFoundError, ToolExecutionError
+from src.domain.exceptions import ToolExecutionError
 
 MERGE_TRACKS_INPUT_SCHEMA: JsonDict = {
     "type": "object",
@@ -99,19 +99,16 @@ async def exec_merge_tracks(action: PendingAction, user_id: str) -> JsonValue:
         winner_id=UUID(str(d["winner_id"])),
         loser_id=UUID(str(d["loser_id"])),
     )
-    try:
-        result = await execute_use_case(
-            lambda uow: MergeTrackAndFetchDetailsUseCase().execute(command, uow),
-            user_id=user_id,
-        )
-    except NotFoundError as e:
-        raise ToolExecutionError(
+    result = await commit(
+        lambda uow: MergeTrackAndFetchDetailsUseCase().execute(command, uow),
+        user_id,
+        not_found=(
             "One of the tracks no longer exists — it may have been merged or "
             "deleted since this merge was proposed. Re-check the tracks and try "
             "again."
-        ) from e
-    except ValueError as e:
-        raise ToolExecutionError(f"The merge is no longer valid: {e}") from e
+        ),
+        invalid_prefix="The merge is no longer valid",
+    )
 
     return {"status": "confirmed", "merged_track": project_track(result.track)}
 

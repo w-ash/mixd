@@ -132,7 +132,7 @@ class TestExecManagePlaylistAssignments:
     ) -> None:
         cp_id = uuid4()
         monkeypatch.setattr(
-            assignments_write,
+            _common,
             "execute_use_case",
             _fake_runner(
                 CreatePlaylistAssignmentResult(
@@ -161,7 +161,7 @@ class TestExecManagePlaylistAssignments:
     ) -> None:
         cp_id = uuid4()
         monkeypatch.setattr(
-            assignments_write,
+            _common,
             "execute_use_case",
             _fake_runner(
                 CreateAndApplyAssignmentResult(
@@ -188,7 +188,7 @@ class TestExecManagePlaylistAssignments:
     async def test_delete_commits(self, monkeypatch: pytest.MonkeyPatch) -> None:
         assignment_id = uuid4()
         monkeypatch.setattr(
-            assignments_write,
+            _common,
             "execute_use_case",
             _fake_runner(DeletePlaylistAssignmentResult(deleted=True)),
         )
@@ -211,7 +211,7 @@ class TestExecManagePlaylistAssignments:
         async def _raise(factory: object, user_id: str | None = None) -> object:
             raise ValueError("action_value for set_preference must be one of ...")
 
-        monkeypatch.setattr(assignments_write, "execute_use_case", _raise)
+        monkeypatch.setattr(_common, "execute_use_case", _raise)
         action = self._action({
             "operation": "create",
             "connector_playlist_id": str(uuid4()),
@@ -228,7 +228,7 @@ class TestExecManagePlaylistAssignments:
         async def _raise(factory: object, user_id: str | None = None) -> object:
             raise NotFoundError("gone")
 
-        monkeypatch.setattr(assignments_write, "execute_use_case", _raise)
+        monkeypatch.setattr(_common, "execute_use_case", _raise)
         action = self._action({"operation": "delete", "assignment_id": str(uuid4())})
 
         with pytest.raises(ToolExecutionError, match="no longer exists"):

@@ -125,7 +125,7 @@ class TestExecManagePlaylistLink:
     ) -> None:
         link_id = uuid4()
         monkeypatch.setattr(
-            links_write,
+            _common,
             "execute_use_case",
             _fake_runner(
                 CreatePlaylistLinkResult(link=_make_link(link_id, SyncDirection.PUSH))
@@ -149,7 +149,7 @@ class TestExecManagePlaylistLink:
     async def test_update_commits(self, monkeypatch: pytest.MonkeyPatch) -> None:
         link_id = uuid4()
         monkeypatch.setattr(
-            links_write,
+            _common,
             "execute_use_case",
             _fake_runner(
                 UpdatePlaylistLinkResult(link=_make_link(link_id, SyncDirection.PULL))
@@ -169,7 +169,7 @@ class TestExecManagePlaylistLink:
     async def test_delete_commits(self, monkeypatch: pytest.MonkeyPatch) -> None:
         link_id = uuid4()
         monkeypatch.setattr(
-            links_write,
+            _common,
             "execute_use_case",
             _fake_runner(DeletePlaylistLinkResult(deleted=True)),
         )
@@ -187,7 +187,7 @@ class TestExecManagePlaylistLink:
         async def _raise(factory: object, user_id: str | None = None) -> object:
             raise NotFoundError("gone")
 
-        monkeypatch.setattr(links_write, "execute_use_case", _raise)
+        monkeypatch.setattr(_common, "execute_use_case", _raise)
         action = self._action({
             "operation": "update",
             "link_id": str(uuid4()),

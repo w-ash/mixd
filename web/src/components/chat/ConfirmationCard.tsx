@@ -1,15 +1,15 @@
 import { AlertTriangle, Check, Loader2, X } from "lucide-react";
+import { ChatCard } from "#/components/chat/ChatCard";
 import { GenericToolResultCard } from "#/components/chat/ToolResultCard";
 import { Button } from "#/components/ui/button";
 import { cn } from "#/lib/utils";
-import type { ConfirmationState } from "#/stores/chat-store";
+import { useChatStore } from "#/stores/chat-store";
 
 interface ConfirmationCardProps {
   actionId: string;
   description: string;
   details: Record<string, unknown>;
   toolName: string;
-  state: ConfirmationState;
   onConfirm: (actionId: string) => void;
   onCancel: (actionId: string) => void;
 }
@@ -41,10 +41,14 @@ export function ConfirmationCard({
   actionId,
   description,
   details,
-  state,
   onConfirm,
   onCancel,
 }: ConfirmationCardProps) {
+  // The card owns its confirmation state directly (no prop-drilling): the
+  // panel's handlers write confirmationStates keyed by action_id.
+  const state = useChatStore(
+    (s) => s.confirmationStates[actionId] ?? "pending",
+  );
   const isPending = state === "pending";
   const isLoading = state === "loading";
   const isResolved = state === "confirmed" || state === "cancelled";
@@ -54,17 +58,15 @@ export function ConfirmationCard({
   const warning = asString(details.warning);
 
   return (
-    <div
-      className={cn(
-        "rounded-lg border-l-2 bg-surface px-4 py-3",
-        isDestructive ? "border-destructive" : "border-primary",
-        isResolved && "opacity-75",
-      )}
+    <ChatCard
+      variant={isDestructive ? "destructive" : "primary"}
+      dimmed={isResolved}
+      header={
+        <p className="mb-2 font-display text-xs font-medium text-text">
+          {description}
+        </p>
+      }
     >
-      <p className="mb-2 font-display text-xs font-medium text-text">
-        {description}
-      </p>
-
       {changes && changes.length > 0 ? (
         <ul className="space-y-1 text-xs text-text">
           {changes.map((line, index) => (
@@ -142,6 +144,6 @@ export function ConfirmationCard({
           </>
         )}
       </div>
-    </div>
+    </ChatCard>
   );
 }

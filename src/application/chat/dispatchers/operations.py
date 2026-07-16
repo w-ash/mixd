@@ -13,16 +13,17 @@ answers "what ran recently?" as well as list paging.
 """
 
 from collections.abc import Mapping
-from datetime import datetime
 from typing import Literal, cast
 
 from src.application.chat.dispatchers._common import (
+    iso,
     opt_int,
     opt_str,
     require_choice,
     require_str,
     require_str_list,
     require_uuid,
+    user_text,
 )
 from src.application.chat.protocols import ToolContext
 from src.application.runner import execute_use_case
@@ -46,9 +47,27 @@ _STATUSES = ("running", "complete", "error", "cancelled")
 _ENTITY_TYPES = ("likes", "plays")
 
 
-def _iso(value: datetime | None) -> str | None:
-    """ISO-8601 string for a datetime, or None."""
-    return value.isoformat() if value is not None else None
+def _is_identifier_key(key: str) -> bool:
+    """True for keys naming an id/identifier — kept raw, never quoted as text."""
+    lowered = key.lower()
+    return lowered in ("id", "identifier") or lowered.endswith(("_id", "_identifier"))
+
+
+def _project_issue(issue: JsonDict) -> JsonDict:
+    """Project one operation-run issue, marking its attacker-influenceable text.
+
+    ``issues`` are JSONB payloads whose free-text fields (notably ``message``)
+    are built from ``str(exc)`` / connector fetch failures, so a hostile
+    connector name or error can carry injection text. Every non-identifier
+    string value is wrapped as ``<user_data>``; id/identifier keys (and any
+    non-string structured values) pass through raw so ids stay committable.
+    """
+    return {
+        key: user_text(value)
+        if isinstance(value, str) and not _is_identifier_key(key)
+        else value
+        for key, value in issue.items()
+    }
 
 
 def _run_summary(run: OperationRun) -> JsonDict:
@@ -57,8 +76,8 @@ def _run_summary(run: OperationRun) -> JsonDict:
         "run_id": str(run.id),
         "operation_type": run.operation_type,
         "status": run.status,
-        "started_at": _iso(run.started_at),
-        "ended_at": _iso(run.ended_at),
+        "started_at": iso(run.started_at),
+        "ended_at": iso(run.ended_at),
         "counts": run.counts,
     }
 
@@ -89,10 +108,10 @@ async def _view_run_detail(
         "run_id": str(run.id),
         "operation_type": run.operation_type,
         "status": run.status,
-        "started_at": _iso(run.started_at),
-        "ended_at": _iso(run.ended_at),
+        "started_at": iso(run.started_at),
+        "ended_at": iso(run.ended_at),
         "counts": run.counts,
-        "issues": list(run.issues),
+        "issues": [_project_issue(i) for i in run.issues],
         "operation_id": run.operation_id,
     }
 
@@ -148,7 +167,7 @@ async def _view_sync_checkpoint(
         "view": "sync_checkpoint",
         "service": status.service,
         "entity_type": status.entity_type,
-        "last_sync_timestamp": _iso(status.last_sync_timestamp),
+        "last_sync_timestamp": iso(status.last_sync_timestamp),
         "has_previous_sync": status.has_previous_sync,
         "local_count": status.local_count,
         "remote_total": status.remote_total,

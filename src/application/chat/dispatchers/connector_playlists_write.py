@@ -18,6 +18,7 @@ they are committed verbatim (never wrapped as ``<user_data>`` display text).
 from collections.abc import Mapping
 
 from src.application.chat.dispatchers._common import (
+    commit,
     opt_bool,
     propose_action,
     require_str,
@@ -25,14 +26,13 @@ from src.application.chat.dispatchers._common import (
 )
 from src.application.chat.pending_actions import PendingAction
 from src.application.chat.protocols import ToolContext
-from src.application.runner import execute_use_case
 from src.application.use_cases.refresh_connector_playlists import (
     RefreshConnectorPlaylistsCommand,
     RefreshConnectorPlaylistsResult,
     RefreshConnectorPlaylistsUseCase,
 )
 from src.domain.entities.shared import ConnectorPlaylistIdentifier, JsonDict, JsonValue
-from src.domain.exceptions import NotFoundError, ToolExecutionError
+from src.domain.exceptions import ToolExecutionError
 
 MANAGE_CONNECTOR_PLAYLIST_INPUT_SCHEMA: JsonDict = {
     "type": "object",
@@ -151,21 +151,16 @@ async def exec_manage_connector_playlist(
         connector_playlist_identifiers=identifiers,
         force=force,
     )
-    try:
-        result = await execute_use_case(
-            lambda uow: RefreshConnectorPlaylistsUseCase().execute(command, uow),
-            user_id=user_id,
-        )
-    except NotFoundError as e:
-        raise ToolExecutionError(
+    result = await commit(
+        lambda uow: RefreshConnectorPlaylistsUseCase().execute(command, uow),
+        user_id,
+        not_found=(
             "The connector or one of the playlists could not be found — it may "
             "have been removed since this refresh was proposed. Re-check and try "
             "again."
-        ) from e
-    except ValueError as e:
-        raise ToolExecutionError(
-            f"The refresh failed validation at confirm time: {e}"
-        ) from e
+        ),
+        invalid_prefix="The refresh failed validation at confirm time",
+    )
 
     return {
         "status": "confirmed",

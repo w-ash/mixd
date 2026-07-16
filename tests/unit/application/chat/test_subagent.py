@@ -21,6 +21,7 @@ from src.application.chat.protocols import (
     ToolUseBlock,
 )
 from src.application.chat.subagent import _TRUNCATION_PREFIX, run_subagent
+from src.application.chat.user_data import wrap
 from src.application.tools.registry import TOOLS, build_subagent_tools
 from src.config.settings import ChatConfig
 from src.domain.entities.shared import JsonValue
@@ -114,7 +115,23 @@ async def test_returns_the_final_answer_as_summary() -> None:
         ([TextDelta(text="Spring plays doubled.")], LLMResponse("end_turn", [])),
     ]
     result = await _run(turns, cfg=_cfg())
-    assert result == {"summary": "Spring plays doubled."}
+    # The summary re-enters the write-capable main model, so it is wrapped as
+    # <user_data> (C1) — never as bare, trusted instructions.
+    assert result == {"summary": wrap("Spring plays doubled.")}
+
+
+async def test_summary_is_wrapped_as_user_data() -> None:
+    # A subagent summary is built from attacker-controllable library text and
+    # feeds back into the main, write-capable model. It must arrive quoted as
+    # data so an embedded instruction can't be executed.
+    turns: list[_Turn] = [
+        ([TextDelta(text="Findings here.")], LLMResponse("end_turn", [])),
+    ]
+    result = await _run(turns, cfg=_cfg())
+    summary = result["summary"]
+    assert isinstance(summary, str)
+    assert summary.startswith("<user_data>")
+    assert summary.endswith("</user_data>")
 
 
 async def test_narration_before_a_tool_call_is_dropped() -> None:
@@ -132,13 +149,13 @@ async def test_narration_before_a_tool_call_is_dropped() -> None:
     ]
     result = await _run(turns, cfg=_cfg())
     # Only text after the last tool call is the answer — preamble is process.
-    assert result == {"summary": "The answer is 42."}
+    assert result == {"summary": wrap("The answer is 42.")}
 
 
 async def test_empty_output_reports_no_findings() -> None:
     turns: list[_Turn] = [([], LLMResponse("end_turn", []))]
     result = await _run(turns, cfg=_cfg())
-    assert result == {"summary": "The analysis produced no findings."}
+    assert result == {"summary": wrap("The analysis produced no findings.")}
 
 
 async def test_turn_limit_returns_partial_with_prefix() -> None:
@@ -156,7 +173,9 @@ async def test_turn_limit_returns_partial_with_prefix() -> None:
     result = await _run([tool_turn, tool_turn], cfg=_cfg(subagent_max_turns=1))
     summary = result["summary"]
     assert isinstance(summary, str)
-    assert summary.startswith(_TRUNCATION_PREFIX)
+    # The partial is wrapped as <user_data> like any summary (C1), so the
+    # truncation prefix sits just inside the opening tag.
+    assert summary.startswith(f"<user_data>{_TRUNCATION_PREFIX}")
     assert "partial finding" in summary
 
 

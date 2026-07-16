@@ -8,9 +8,9 @@ use case is missing or awkward, it is fixed at the source.
 """
 
 from collections.abc import Mapping
-from datetime import datetime
 
 from src.application.chat.dispatchers._common import (
+    iso,
     opt_bool,
     opt_choice,
     opt_int,
@@ -94,10 +94,6 @@ QUERY_PLAYLISTS_INPUT_SCHEMA: JsonDict = {
 }
 
 
-def _iso(value: datetime | None) -> str | None:
-    return value.isoformat() if value is not None else None
-
-
 def _project_connector_view(view: ConnectorPlaylistView) -> JsonDict:
     """Compact model-facing view of a connector playlist with import status."""
     return {
@@ -116,7 +112,7 @@ def _project_entry(entry: PlaylistEntry, position: int) -> JsonDict:
     return {
         "position": position,
         "track": project_track(entry.track) if entry.track is not None else None,
-        "added_at": _iso(entry.added_at),
+        "added_at": iso(entry.added_at),
     }
 
 

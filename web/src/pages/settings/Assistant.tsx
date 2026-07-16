@@ -3,6 +3,7 @@ import { useState } from "react";
 
 import { ApiError } from "#/api/client";
 import { PageHeader } from "#/components/layout/PageHeader";
+import { QueryErrorState } from "#/components/shared/QueryErrorState";
 import { SectionHeader } from "#/components/shared/SectionHeader";
 import { Button } from "#/components/ui/button";
 import { Input } from "#/components/ui/input";
@@ -13,11 +14,11 @@ import { toasts } from "#/lib/toasts";
 
 const CONSOLE_URL = "https://console.anthropic.com/settings/keys";
 
-// Clean, modern surface: a barely-perceptible tonal gradient between the two
-// warm surface tokens (no color gradient — flat, not skeuomorphic), a hairline
-// border, and the system's silky soft drop shadow.
+// Matches the sibling settings cards (Account / Sync): a hairline border on the
+// elevated surface with the system's soft drop shadow — same radius and padding
+// so the settings pages read as one family.
 const cardClass =
-  "rounded-2xl border border-border/60 bg-gradient-to-b from-surface-elevated to-surface p-6 shadow-elevated";
+  "rounded-xl border border-border bg-surface-elevated p-5 shadow-elevated";
 
 function connectErrorMessage(error: unknown): string | null {
   if (error instanceof ApiError) return error.message;
@@ -48,7 +49,7 @@ function NotConnected() {
         title="Connect the assistant"
         description="The AI assistant runs on your own Anthropic API key, so your usage and spend stay yours."
       />
-      <div className={`space-y-5 ${cardClass}`}>
+      <div className={`space-y-4 ${cardClass}`}>
         <ol className="list-decimal space-y-1.5 pl-5 text-sm text-text-muted">
           <li>
             Create a key in the{" "}
@@ -109,7 +110,7 @@ function Connected({ source }: { source: "user" | "server" }) {
         title="AI assistant"
         description="Manage the Anthropic credential powering your assistant."
       />
-      <div className={`space-y-5 ${cardClass}`}>
+      <div className={`space-y-4 ${cardClass}`}>
         <div className="flex items-center gap-3">
           <span className="flex size-9 shrink-0 items-center justify-center rounded-full bg-status-success/10">
             <CheckCircle2 className="size-5 text-status-success" />
@@ -146,7 +147,7 @@ function Connected({ source }: { source: "user" | "server" }) {
 }
 
 export function Assistant() {
-  const { available, source, isLoading } = useChatAvailable();
+  const { available, source, isLoading, isError, error } = useChatAvailable();
 
   return (
     <div>
@@ -163,8 +164,15 @@ export function Assistant() {
       {isLoading ? (
         <div className="space-y-3">
           <Skeleton className="h-3 w-32" />
-          <Skeleton className="h-40 w-full rounded-2xl" />
+          <Skeleton className="h-40 w-full rounded-xl" />
         </div>
+      ) : isError ? (
+        // A failed status query must not fall through to the connect form —
+        // that would misleadingly imply no key is connected.
+        <QueryErrorState
+          error={error}
+          heading="Couldn't load assistant status"
+        />
       ) : available && source ? (
         <Connected source={source} />
       ) : (

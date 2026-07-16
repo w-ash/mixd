@@ -110,21 +110,26 @@ class ChatUseCase:
                 stop_reason=response.stop_reason,
             )
             container_id = response.container_id or container_id
-            sandbox_only = bool(response.content) and all(
-                tu.caller != "direct" for tu in response.content
-            )
-            if not sandbox_only:
-                model_turns += 1
 
             if response.stop_reason == "pause_turn":
-                # A paused turn carries no client tool_use blocks, so handle it
-                # before the empty-content return below. Echo the assistant turn
-                # back and re-request; the API resumes it.
+                # A paused turn carries no client tool_use blocks and burns no
+                # model turn — its empty content would otherwise read as a
+                # sandbox_only=False round and wrongly consume the budget. Handle
+                # it before the counting and the empty-content return below: echo
+                # the assistant turn back and re-request; the API resumes it. The
+                # range(max_turns * _SANDBOX_ROUNDS_PER_TURN) cap still backstops
+                # a pathological pause loop.
                 messages.append({
                     "role": "assistant",
                     "content": response.raw_content,
                 })
                 continue
+
+            sandbox_only = bool(response.content) and all(
+                tu.caller != "direct" for tu in response.content
+            )
+            if not sandbox_only:
+                model_turns += 1
 
             if response.stop_reason == "max_tokens":
                 raise ResponseTruncatedError(

@@ -29,11 +29,9 @@ function seedMessages(items: Partial<ChatMessage>[]) {
 function resetStore() {
   useChatStore.setState({
     messages: [],
-    isStreaming: false,
     abortController: null,
     isPanelOpen: false,
     confirmationStates: {},
-    currentWorkflowDraft: null,
   });
 }
 

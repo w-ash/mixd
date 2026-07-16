@@ -174,7 +174,7 @@ describe("ChatMessage", () => {
         <ChatMessage
           message={makeMessage({
             content: "Let me check that.",
-            toolCalls: [{ id: "tc-1", name: "search_tracks" }],
+            toolCalls: [{ id: "tc-1", name: "search_tracks", kind: "read" }],
           })}
         />,
       );
@@ -190,6 +190,7 @@ describe("ChatMessage", () => {
               {
                 id: "tc-1",
                 name: "search_tracks",
+                kind: "read",
                 result: { total_count: 3, showing: 3 },
               },
             ],
@@ -209,6 +210,7 @@ describe("ChatMessage", () => {
               {
                 id: "tc-1",
                 name: "search_tracks",
+                kind: "read",
                 result: { error: "failed" },
                 isError: true,
               },

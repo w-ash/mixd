@@ -18,10 +18,11 @@ case the web UI calls (identical RLS scoping and validation), mapping
 commit-time ``NotFoundError``/``ValueError`` back to actionable errors.
 """
 
-from collections.abc import Awaitable, Callable, Mapping
+from collections.abc import Mapping
 from uuid import UUID
 
 from src.application.chat.dispatchers._common import (
+    commit,
     opt_int,
     opt_str,
     opt_uuid,
@@ -33,7 +34,6 @@ from src.application.chat.dispatchers._common import (
 from src.application.chat.pending_actions import PendingAction
 from src.application.chat.protocols import ToolContext
 from src.application.chat.workflow_schema import workflow_def_to_dict
-from src.application.runner import execute_use_case
 from src.application.use_cases.schedules import (
     DeleteScheduleCommand,
     DeleteScheduleUseCase,
@@ -57,8 +57,7 @@ from src.application.use_cases.workflow_versions import (
 from src.domain.entities.schedule import Schedule
 from src.domain.entities.shared import JsonDict, JsonValue
 from src.domain.entities.workflow import Workflow, parse_workflow_def
-from src.domain.exceptions import NotFoundError, ToolExecutionError
-from src.domain.repositories.uow import UnitOfWorkProtocol
+from src.domain.exceptions import ToolExecutionError
 
 _MAX_HOUR = 23
 _MAX_MINUTE = 59
@@ -67,28 +66,12 @@ _MAX_DAY_OF_WEEK = 6
 _WORKFLOW_OPERATIONS = ("instantiate", "duplicate", "delete", "revert_version")
 _SCHEDULE_OPERATIONS = ("upsert", "toggle", "delete")
 
-
-async def _commit[TResult](
-    factory: Callable[[UnitOfWorkProtocol], Awaitable[TResult]], user_id: str
-) -> TResult:
-    """Run a use case, mapping commit-time failures to actionable errors.
-
-    A target that vanished between propose and confirm (``NotFoundError``) or a
-    command that no longer validates (``ValueError`` — e.g. a bad timezone, or a
-    definition a deploy tightened rules on) surfaces as a ``ToolExecutionError``
-    the model can act on instead of a raw failure.
-    """
-    try:
-        return await execute_use_case(factory, user_id=user_id)
-    except NotFoundError as e:
-        raise ToolExecutionError(
-            "The target no longer exists — it may have been deleted since this "
-            "action was proposed. Re-check it and try again."
-        ) from e
-    except ValueError as e:
-        raise ToolExecutionError(
-            f"The operation failed validation at confirm time: {e}"
-        ) from e
+# Shared commit-time failure messages for this module's write use cases.
+_COMMIT_NOT_FOUND = (
+    "The target no longer exists — it may have been deleted since this action "
+    "was proposed. Re-check it and try again."
+)
+_COMMIT_INVALID_PREFIX = "The operation failed validation at confirm time"
 
 
 # --- manage_workflow --------------------------------------------------------
@@ -196,7 +179,11 @@ async def handle_manage_workflow(
             raise ToolExecutionError(
                 "'version' is required for revert_version and must be an integer"
             )
-        version = opt_int(tool_input, "version", default=1, minimum=1)
+        # definition_version bumps on every edit, so valid versions climb well
+        # past the 500 page-size default; allow ordinal version numbers.
+        version = opt_int(
+            tool_input, "version", default=1, minimum=1, maximum=1_000_000
+        )
         description = f"Revert workflow {workflow_id} to version {version}"
         details = {
             "operation": operation,
@@ -219,8 +206,11 @@ async def exec_manage_workflow(action: PendingAction, user_id: str) -> JsonValue
             raise ToolExecutionError("Pending action is missing its workflow_def")
         definition = parse_workflow_def(raw)
         command = InstantiateWorkflowCommand(user_id=user_id, definition=definition)
-        result = await _commit(
-            lambda uow: InstantiateWorkflowUseCase().execute(command, uow), user_id
+        result = await commit(
+            lambda uow: InstantiateWorkflowUseCase().execute(command, uow),
+            user_id,
+            not_found=_COMMIT_NOT_FOUND,
+            invalid_prefix=_COMMIT_INVALID_PREFIX,
         )
         return {
             "status": "confirmed",
@@ -232,8 +222,11 @@ async def exec_manage_workflow(action: PendingAction, user_id: str) -> JsonValue
         dup_command = DuplicateWorkflowCommand(
             user_id=user_id, workflow_id=UUID(str(details["workflow_id"]))
         )
-        dup = await _commit(
-            lambda uow: DuplicateWorkflowUseCase().execute(dup_command, uow), user_id
+        dup = await commit(
+            lambda uow: DuplicateWorkflowUseCase().execute(dup_command, uow),
+            user_id,
+            not_found=_COMMIT_NOT_FOUND,
+            invalid_prefix=_COMMIT_INVALID_PREFIX,
         )
         return {
             "status": "confirmed",
@@ -245,8 +238,11 @@ async def exec_manage_workflow(action: PendingAction, user_id: str) -> JsonValue
         del_command = DeleteWorkflowCommand(
             user_id=user_id, workflow_id=UUID(str(details["workflow_id"]))
         )
-        deleted = await _commit(
-            lambda uow: DeleteWorkflowUseCase().execute(del_command, uow), user_id
+        deleted = await commit(
+            lambda uow: DeleteWorkflowUseCase().execute(del_command, uow),
+            user_id,
+            not_found=_COMMIT_NOT_FOUND,
+            invalid_prefix=_COMMIT_INVALID_PREFIX,
         )
         return {
             "status": "confirmed",
@@ -260,9 +256,11 @@ async def exec_manage_workflow(action: PendingAction, user_id: str) -> JsonValue
             workflow_id=UUID(str(details["workflow_id"])),
             version=int(str(details["version"])),
         )
-        reverted = await _commit(
+        reverted = await commit(
             lambda uow: RevertWorkflowVersionUseCase().execute(rev_command, uow),
             user_id,
+            not_found=_COMMIT_NOT_FOUND,
+            invalid_prefix=_COMMIT_INVALID_PREFIX,
         )
         return {
             "status": "confirmed",
@@ -347,7 +345,13 @@ def _resolve_target(
 
 
 def _project_schedule(schedule: Schedule) -> JsonDict:
-    """Compact model-facing view of a Schedule — target ids raw."""
+    """Compact model-facing view of a Schedule — target ids raw.
+
+    Deliberate write-confirmation subset of the canonical full projection in
+    ``schedules.py::_project_schedule`` (adds next_run_at/last_run_at); when a
+    new schedule field is added there, consciously decide whether this
+    confirmation echo needs it too.
+    """
     return {
         "schedule_id": str(schedule.id),
         "workflow_id": str(schedule.workflow_id)
@@ -469,8 +473,11 @@ async def exec_manage_schedule(action: PendingAction, user_id: str) -> JsonValue
             day_of_week=int(str(day_of_week)) if day_of_week is not None else None,
             timezone=str(details["timezone"]),
         )
-        upserted = await _commit(
-            lambda uow: UpsertScheduleUseCase().execute(command, uow), user_id
+        upserted = await commit(
+            lambda uow: UpsertScheduleUseCase().execute(command, uow),
+            user_id,
+            not_found=_COMMIT_NOT_FOUND,
+            invalid_prefix=_COMMIT_INVALID_PREFIX,
         )
         return {
             "status": "confirmed",
@@ -486,8 +493,11 @@ async def exec_manage_schedule(action: PendingAction, user_id: str) -> JsonValue
             workflow_id=workflow_id,
             sync_target=sync_target,
         )
-        toggled = await _commit(
-            lambda uow: ToggleScheduleUseCase().execute(toggle_command, uow), user_id
+        toggled = await commit(
+            lambda uow: ToggleScheduleUseCase().execute(toggle_command, uow),
+            user_id,
+            not_found=_COMMIT_NOT_FOUND,
+            invalid_prefix=_COMMIT_INVALID_PREFIX,
         )
         return {
             "status": "confirmed",
@@ -499,8 +509,11 @@ async def exec_manage_schedule(action: PendingAction, user_id: str) -> JsonValue
         delete_command = DeleteScheduleCommand(
             user_id=user_id, workflow_id=workflow_id, sync_target=sync_target
         )
-        deleted = await _commit(
-            lambda uow: DeleteScheduleUseCase().execute(delete_command, uow), user_id
+        deleted = await commit(
+            lambda uow: DeleteScheduleUseCase().execute(delete_command, uow),
+            user_id,
+            not_found=_COMMIT_NOT_FOUND,
+            invalid_prefix=_COMMIT_INVALID_PREFIX,
         )
         return {
             "status": "confirmed",

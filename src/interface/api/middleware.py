@@ -30,21 +30,19 @@ from sqlalchemy.exc import DatabaseError
 from src.application.workflows.definition.validation import ConnectorNotAvailableError
 from src.config import get_logger
 from src.domain.exceptions import (
-    ActionExpiredError,
-    ChatUnavailableError,
     ConfirmationRequiredError,
     ConnectorNotConnectedError,
-    ForbiddenError,
     InvalidApiKeyError,
     LastfmAuthRequiredError,
     NotFoundError,
     OptimisticLockError,
-    RateLimitExceededError,
     ScheduleAlreadyExistsError,
     ScheduleInvariantError,
     SpotifyAuthRequiredError,
+    ToolExecutionError,
     WorkflowAlreadyRunningError,
 )
+from src.interface.api.error_codes import CHAT_ERROR_CODES
 
 logger = get_logger(__name__)
 
@@ -292,20 +290,17 @@ def register_exception_handlers(app: FastAPI) -> None:
     app.add_exception_handler(OptimisticLockError, optimistic_lock_handler)
     # Chat assistant (v0.9.0): pre-stream errors surface as the HTTP error
     # envelope (in-stream errors become SSE `error` events; see chat_sse.py).
+    # The code/status table is shared with chat_sse so a code can't drift between
+    # the two paths (see error_codes.CHAT_ERROR_CODES).
+    for exc_type, (code, status_code) in CHAT_ERROR_CODES.items():
+        app.add_exception_handler(
+            exc_type, _simple_handler(exc_type, status_code, code)
+        )
+    # ToolExecutionError at confirm time (pre-stream) — 422 with the same code
+    # string the SSE path emits, so the frontend handles one code on both paths.
     app.add_exception_handler(
-        ChatUnavailableError,
-        _simple_handler(ChatUnavailableError, 503, "CHAT_UNAVAILABLE"),
-    )
-    app.add_exception_handler(
-        RateLimitExceededError,
-        _simple_handler(RateLimitExceededError, 429, "RATE_LIMIT_EXCEEDED"),
-    )
-    app.add_exception_handler(
-        ActionExpiredError,
-        _simple_handler(ActionExpiredError, 409, "ACTION_EXPIRED"),
-    )
-    app.add_exception_handler(
-        ForbiddenError, _simple_handler(ForbiddenError, 403, "FORBIDDEN")
+        ToolExecutionError,
+        _simple_handler(ToolExecutionError, 422, "TOOL_EXECUTION_ERROR"),
     )
     app.add_exception_handler(
         InvalidApiKeyError,

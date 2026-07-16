@@ -160,38 +160,38 @@ export async function sendChatMessage(
   // The coarse UI section the user is on, for server-side tool routing.
   if (page !== undefined) body.page = page;
 
-  const headers: Record<string, string> = {
-    "Content-Type": "application/json",
-  };
-  const token = await getAuthToken();
-  if (token) headers.Authorization = `Bearer ${token}`;
-
-  const response = await fetch("/api/v1/chat", {
-    method: "POST",
-    headers,
-    body: JSON.stringify(body),
-    signal,
-  });
-
-  if (!response.ok) {
-    let code = "REQUEST_FAILED";
-    let message = `HTTP ${response.status}`;
-    try {
-      const errBody = (await response.json()) as {
-        error?: { code?: string; message?: string };
-      };
-      if (errBody.error) {
-        code = errBody.error.code ?? code;
-        message = errBody.error.message ?? message;
-      }
-    } catch {
-      // ignore parse errors
-    }
-    callbacks.onError(code, message);
-    return;
-  }
-
   try {
+    const headers: Record<string, string> = {
+      "Content-Type": "application/json",
+    };
+    const token = await getAuthToken();
+    if (token) headers.Authorization = `Bearer ${token}`;
+
+    const response = await fetch("/api/v1/chat", {
+      method: "POST",
+      headers,
+      body: JSON.stringify(body),
+      signal,
+    });
+
+    if (!response.ok) {
+      let code = "REQUEST_FAILED";
+      let message = `HTTP ${response.status}`;
+      try {
+        const errBody = (await response.json()) as {
+          error?: { code?: string; message?: string };
+        };
+        if (errBody.error) {
+          code = errBody.error.code ?? code;
+          message = errBody.error.message ?? message;
+        }
+      } catch {
+        // ignore parse errors
+      }
+      callbacks.onError(code, message);
+      return;
+    }
+
     const { completed } = await readSSEStream(
       response,
       handleChatEvents(callbacks),
@@ -204,10 +204,12 @@ export async function sendChatMessage(
       );
     }
   } catch (error) {
+    // A user-initiated abort is not an error — the store already finalized the
+    // message on stop, so stay silent rather than flashing a failure.
     if (signal.aborted) return;
     callbacks.onError(
-      "STREAM_ERROR",
-      error instanceof Error ? error.message : "Stream reading failed",
+      "NETWORK_ERROR",
+      error instanceof Error ? error.message : "Network request failed",
     );
   }
 }

@@ -8,6 +8,11 @@ interface ChatAvailability {
   source: AssistantStatusResponseSource | null;
   /** True while the status is still resolving (gate should render nothing). */
   isLoading: boolean;
+  /** True when the status query failed. Gate consumers ignore it (fail closed);
+   *  the settings page surfaces an explicit error instead of the connect form. */
+  isError: boolean;
+  /** The status query error, when {@link isError}. */
+  error: unknown;
 }
 
 /**
@@ -21,18 +26,21 @@ interface ChatAvailability {
  * Fails closed: while loading, or on any error, `available` is false.
  */
 export function useChatAvailable(): ChatAvailability {
-  const { data, isLoading } = useGetAssistantStatusApiV1AssistantStatusGet({
-    query: {
-      // Availability rarely changes mid-session; refetch on focus so a key
-      // connected in another tab lights up the surface without a reload.
-      staleTime: 60_000,
-    },
-  });
+  const { data, isLoading, isError, error } =
+    useGetAssistantStatusApiV1AssistantStatusGet({
+      query: {
+        // Availability rarely changes mid-session; refetch on focus so a key
+        // connected in another tab lights up the surface without a reload.
+        staleTime: 60_000,
+      },
+    });
 
   const status = data?.status === 200 ? data.data : undefined;
   return {
     available: status?.connected ?? false,
     source: status?.source ?? null,
     isLoading,
+    isError,
+    error,
   };
 }

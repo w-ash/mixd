@@ -29,6 +29,7 @@ what the v0.9.3 plan prescribes.
 
 from collections.abc import Mapping
 import json
+from typing import cast
 
 from mcp.server.context import ServerRequestContext
 from mcp.server.lowlevel import Server
@@ -43,6 +44,7 @@ from mcp_types import (
 )
 
 from src.application.chat.protocols import ToolContext
+from src.application.chat.user_data import strip_user_data
 from src.application.tools.registry import TOOLS, ToolSpec, execute_tool
 from src.config import get_logger
 from src.domain.entities.shared import JsonValue
@@ -159,7 +161,12 @@ def _build_call_handler(user_id: str):
             # Actionable error as a tool result (the model self-corrects in-turn),
             # not a protocol error.
             return _text_result({"error": str(e)}, is_error=True)
-        return _text_result(result)
+        # Strip <user_data> tags before they reach the client (covers read
+        # results and the write-preview payload). The tags are a chat-side
+        # prompt-injection defense the model is taught to read; an MCP client is
+        # untaught, so here they are noise, not defense — the host's own model
+        # never sees them wrapped, so stripping loses nothing.
+        return _text_result(cast("JsonValue", strip_user_data(result)))
 
     return _handle_call_tool
 

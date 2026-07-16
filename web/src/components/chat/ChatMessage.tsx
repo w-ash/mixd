@@ -4,10 +4,7 @@ import { Streamdown } from "streamdown";
 import "streamdown/styles.css";
 
 import { cn } from "#/lib/utils";
-import type {
-  ChatMessage as ChatMessageType,
-  ConfirmationState,
-} from "#/stores/chat-store";
+import type { ChatMessage as ChatMessageType } from "#/stores/chat-store";
 
 import { CodeExecutionCard } from "./CodeExecutionCard";
 import { ToolCallIndicator } from "./ToolCallIndicator";
@@ -195,13 +192,11 @@ function CopyButton({ content }: { content: string }) {
 // messages, so streaming one message doesn't re-render the whole list.
 export const ChatMessage = memo(function ChatMessage({
   message,
-  confirmationStates,
   onConfirm,
   onCancel,
   onSendMessage,
 }: {
   message: ChatMessageType;
-  confirmationStates?: Record<string, ConfirmationState>;
   onConfirm?: (actionId: string) => void;
   onCancel?: (actionId: string) => void;
   onSendMessage?: (text: string) => void;
@@ -259,24 +254,17 @@ export const ChatMessage = memo(function ChatMessage({
               <ToolCallIndicator key={tc.id} toolCall={tc} />
             ))}
           </div>
-          {message.toolCalls.map((tc) => {
-            const result = tc.result as Record<string, unknown> | undefined;
-            const actionId = result?.action_id as string | undefined;
-            return (
-              <ToolResultCard
-                key={`result-${tc.id}`}
-                toolCall={tc}
-                messageId={message.id}
-                siblingToolCalls={message.toolCalls}
-                confirmationState={
-                  actionId ? confirmationStates?.[actionId] : undefined
-                }
-                onConfirm={onConfirm}
-                onCancel={onCancel}
-                onSendMessage={onSendMessage}
-              />
-            );
-          })}
+          {message.toolCalls.map((tc) => (
+            <ToolResultCard
+              key={`result-${tc.id}`}
+              toolCall={tc}
+              messageId={message.id}
+              siblingToolCalls={message.toolCalls}
+              onConfirm={onConfirm}
+              onCancel={onCancel}
+              onSendMessage={onSendMessage}
+            />
+          ))}
         </div>
       )}
       {showCopy && <CopyButton content={content} />}

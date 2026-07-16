@@ -18,7 +18,7 @@ from collections.abc import Mapping
 import json
 from uuid import UUID
 
-from src.application.chat.pending_actions import pending_action_store
+from src.application.chat.dispatchers._common import propose_action
 from src.application.chat.protocols import ToolContext
 from src.application.chat.workflow_schema import workflow_def_to_dict
 from src.application.runner import execute_use_case
@@ -126,34 +126,6 @@ async def handle_describe_node(
 
 
 # --- shared helpers for the workflow tools ----------------------------------
-
-
-def _propose_action(
-    ctx: ToolContext,
-    tool_name: str,
-    tool_input: Mapping[str, JsonValue],
-    description: str,
-    details: JsonDict,
-) -> JsonDict:
-    """Store a pending action and return the pending_confirmation payload.
-
-    The contract the frontend keys on: ``status``/``action_id``/``description``
-    /``details``. ``details`` keeps raw values — the confirmed executor reads
-    them back directly.
-    """
-    action = pending_action_store.create(
-        user_id=ctx.user_id,
-        tool_name=tool_name,
-        tool_input=dict(tool_input),
-        description=description,
-        details=details,
-    )
-    return {
-        "status": "pending_confirmation",
-        "action_id": str(action.action_id),
-        "description": description,
-        "details": details,
-    }
 
 
 def _parse_workflow_input(
@@ -384,4 +356,4 @@ async def handle_save_workflow(
             "changes": changes,
             "definition": normalized,
         }
-    return _propose_action(ctx, "save_workflow", tool_input, description, details)
+    return propose_action(ctx, "save_workflow", tool_input, description, details)

@@ -13,9 +13,9 @@ import { useKeyboardShortcut } from "#/hooks/useKeyboardShortcut";
 import { EFFORT_API_VALUES, EFFORT_OPTIONS } from "#/lib/effort";
 import { cn } from "#/lib/utils";
 import {
-  absorbWorkflowDraft,
   MESSAGE_CAP,
   SOFT_WARN_THRESHOLD,
+  selectIsStreaming,
   useChatStore,
 } from "#/stores/chat-store";
 
@@ -28,29 +28,41 @@ const LIMIT_FULL_MESSAGE =
 
 const closePanel = () => useChatStore.getState().setPanelOpen(false);
 
-/** Wire the SSE callbacks to the store for a given assistant message. */
-function buildCallbacks(assistantId: string): ChatSSECallbacks {
+/**
+ * Wire the SSE callbacks to the store for a given assistant message. When the
+ * turn is resolving a confirmation, the terminal callbacks also commit the
+ * card's state: `onDone` records confirmed/cancelled, while `onError` rolls the
+ * card back to `pending` so its buttons reappear for a retry.
+ */
+function buildCallbacks(
+  assistantId: string,
+  confirmation?: ConfirmationPayload,
+): ChatSSECallbacks {
   const store = useChatStore.getState();
-  const clearController = () => store.setAbortController(null);
   return {
     onToken: (text) => store.appendToken(assistantId, text),
     onToolStart: (name, id, kind) =>
       store.addToolCall(assistantId, id, name, kind),
-    onToolResult: (name, id, summary, isError) => {
-      store.setToolResult(assistantId, id, summary, isError);
-      absorbWorkflowDraft(name, summary, isError);
-    },
+    onToolResult: (name, id, summary, isError) =>
+      store.setToolResult(assistantId, id, name, summary, isError),
     onCodeStart: (id, command) =>
       store.addCodeExecution(assistantId, id, command),
     onCodeResult: (id, stdout, stderr, returnCode) =>
       store.setCodeResult(assistantId, id, stdout, stderr, returnCode),
     onDone: () => {
       store.completeMessage(assistantId);
-      clearController();
+      if (confirmation) {
+        store.setConfirmationState(
+          confirmation.action_id,
+          confirmation.approved ? "confirmed" : "cancelled",
+        );
+      }
     },
     onError: (code, message) => {
       store.setMessageError(assistantId, code, message);
-      clearController();
+      if (confirmation) {
+        store.setConfirmationState(confirmation.action_id, "pending");
+      }
     },
   };
 }
@@ -95,7 +107,7 @@ function startStream(
   store.setAbortController(controller);
   void sendChatMessage(
     apiMessages,
-    buildCallbacks(assistantId),
+    buildCallbacks(assistantId, confirmation),
     controller.signal,
     confirmation,
     EFFORT_API_VALUES[store.effort],
@@ -106,8 +118,7 @@ function startStream(
 
 export function ChatPanel({ fullScreen = false }: { fullScreen?: boolean }) {
   const messages = useChatStore((s) => s.messages);
-  const isStreaming = useChatStore((s) => s.isStreaming);
-  const abortController = useChatStore((s) => s.abortController);
+  const isStreaming = useChatStore(selectIsStreaming);
   const effort = useChatStore((s) => s.effort);
   const setEffort = useChatStore((s) => s.setEffort);
   const [limitError, setLimitError] = useState<string | null>(null);
@@ -118,7 +129,7 @@ export function ChatPanel({ fullScreen = false }: { fullScreen?: boolean }) {
   const sendQuestion = useCallback(
     (text: string) => {
       const store = useChatStore.getState();
-      if (store.isStreaming) return;
+      if (selectIsStreaming(store)) return;
 
       if (store.messages.length >= MESSAGE_CAP) {
         setLimitError(LIMIT_FULL_MESSAGE);
@@ -139,7 +150,7 @@ export function ChatPanel({ fullScreen = false }: { fullScreen?: boolean }) {
 
   const handleRegenerate = useCallback(() => {
     const store = useChatStore.getState();
-    if (store.isStreaming) return;
+    if (selectIsStreaming(store)) return;
     const last = store.messages.at(-1);
     if (last?.role !== "assistant") return;
 
@@ -159,40 +170,47 @@ export function ChatPanel({ fullScreen = false }: { fullScreen?: boolean }) {
     setLimitError(null);
   }, []);
 
-  const handleConfirm = useCallback(
-    (actionId: string) => {
+  // One resolution path for both Save/Confirm and Discard/Cancel. The card goes
+  // to `loading` immediately, then the stream's terminal callback commits it to
+  // confirmed/cancelled (onDone) or rolls it back to pending (onError).
+  const resolveConfirmation = useCallback(
+    (actionId: string, approved: boolean) => {
       const store = useChatStore.getState();
-      if (store.isStreaming) return;
-      store.setConfirmationState(actionId, "confirmed");
+      if (selectIsStreaming(store)) return;
+      // Guard the cap BEFORE flipping the card to loading — otherwise
+      // startAssistantMessage returns "" and the card sticks in loading.
+      if (store.messages.length >= MESSAGE_CAP) {
+        setLimitError(LIMIT_FULL_MESSAGE);
+        return;
+      }
+      store.setConfirmationState(actionId, "loading");
       startStream(
         store.startAssistantMessage(),
         currentWorkflowId,
-        { action_id: actionId, approved: true },
+        { action_id: actionId, approved },
         page,
       );
     },
     [currentWorkflowId, page],
+  );
+
+  const handleConfirm = useCallback(
+    (actionId: string) => resolveConfirmation(actionId, true),
+    [resolveConfirmation],
   );
 
   const handleCancel = useCallback(
-    (actionId: string) => {
-      const store = useChatStore.getState();
-      if (store.isStreaming) return;
-      store.setConfirmationState(actionId, "cancelled");
-      startStream(
-        store.startAssistantMessage(),
-        currentWorkflowId,
-        { action_id: actionId, approved: false },
-        page,
-      );
-    },
-    [currentWorkflowId, page],
+    (actionId: string) => resolveConfirmation(actionId, false),
+    [resolveConfirmation],
   );
 
   const handleStop = useCallback(() => {
-    abortController?.abort();
-    useChatStore.getState().setAbortController(null);
-  }, [abortController]);
+    const store = useChatStore.getState();
+    store.abortController?.abort();
+    // The SSE reader returns cleanly on abort (no onDone/onError), so finalize
+    // the streaming message here or the UI stays stuck in the thinking state.
+    store.stopStreaming();
+  }, []);
 
   // Escape closes the panel (not on the full-screen mobile route).
   useKeyboardShortcut(["Escape"], closePanel, !fullScreen);

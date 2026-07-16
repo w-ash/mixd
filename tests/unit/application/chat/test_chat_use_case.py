@@ -118,6 +118,31 @@ async def test_pause_turn_continues_the_loop() -> None:
     assert texts[-1].text == "done"
 
 
+async def test_paused_rounds_do_not_burn_the_model_turn_budget() -> None:
+    # A pause_turn round carries empty content, which would otherwise read as a
+    # non-sandbox round and consume a model turn (C2). With max_turns=1 several
+    # paused rounds must still resolve to the trailing end_turn, not trip the
+    # budget with MaxRoundsExceededError.
+    pause_turn: _Turn = (
+        [],
+        LLMResponse(
+            stop_reason="pause_turn",
+            content=[],
+            raw_content=[{"type": "text", "text": "thinking"}],
+        ),
+    )
+    turns: list[_Turn] = [
+        pause_turn,
+        pause_turn,
+        pause_turn,
+        ([TextDelta(text="done")], LLMResponse(stop_reason="end_turn", content=[])),
+    ]
+    events = await _collect(
+        ChatUseCase(_FakeLLM(turns), execute_tool), _command(max_turns=1)
+    )
+    assert [e.text for e in events if isinstance(e, TextDelta)] == ["done"]
+
+
 async def test_max_tokens_raises_truncation_error() -> None:
     turns: list[_Turn] = [([], LLMResponse(stop_reason="max_tokens", content=[]))]
     with pytest.raises(ResponseTruncatedError):

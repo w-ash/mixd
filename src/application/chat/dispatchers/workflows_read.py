@@ -20,10 +20,10 @@ dict (the application layer imports inward only, never interface schemas).
 """
 
 from collections.abc import Mapping, Sequence
-from datetime import datetime
 from uuid import UUID
 
 from src.application.chat.dispatchers._common import (
+    iso,
     opt_choice,
     opt_int,
     opt_uuid,
@@ -64,10 +64,6 @@ _PREVIEW_HEAD_LIMIT = 20
 
 _RESOURCES: tuple[str, ...] = ("runs", "versions")
 _RUN_SCOPES: tuple[str, ...] = ("history", "active", "latest")
-
-
-def _iso(value: datetime | None) -> str | None:
-    return value.isoformat() if value is not None else None
 
 
 # --- preview_workflow -------------------------------------------------------
@@ -242,9 +238,9 @@ def _project_run(run: WorkflowRun) -> JsonDict:
         "workflow_id": str(run.workflow_id),
         "run_number": run.run_number,
         "status": run.status,
-        "created_at": _iso(run.created_at),
-        "started_at": _iso(run.started_at),
-        "completed_at": _iso(run.completed_at),
+        "created_at": iso(run.created_at),
+        "started_at": iso(run.started_at),
+        "completed_at": iso(run.completed_at),
         "duration_ms": run.duration_ms,
         "output_track_count": run.output_track_count,
         "node_count": len(run.nodes),
@@ -262,7 +258,7 @@ def _project_version(version: WorkflowVersion) -> JsonDict:
     return {
         "version": version.version,
         "change_summary": version.change_summary,
-        "created_at": _iso(version.created_at),
+        "created_at": iso(version.created_at),
     }
 
 
@@ -400,7 +396,9 @@ async def _query_versions(
 async def _version_detail(
     tool_input: Mapping[str, JsonValue], ctx: ToolContext, workflow_id: UUID
 ) -> JsonValue:
-    number = opt_int(tool_input, "version", default=1, minimum=1)
+    # definition_version bumps on every edit, so valid versions climb well past
+    # the 500 page-size default; allow ordinal version numbers.
+    number = opt_int(tool_input, "version", default=1, minimum=1, maximum=1_000_000)
     command = GetWorkflowVersionCommand(
         user_id=ctx.user_id, workflow_id=workflow_id, version=number
     )

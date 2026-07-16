@@ -12,18 +12,18 @@ Two operations: ``set`` writes (or, with a null state, clears) one track's
 preference; ``sync_from_likes`` derives preferences from imported likes.
 """
 
-from collections.abc import Awaitable, Callable, Mapping
+from collections.abc import Mapping
 from datetime import UTC, datetime
 from uuid import UUID
 
 from src.application.chat.dispatchers._common import (
+    commit,
     propose_action,
     require_choice,
     require_uuid,
 )
 from src.application.chat.pending_actions import PendingAction
 from src.application.chat.protocols import ToolContext
-from src.application.runner import execute_use_case
 from src.application.use_cases.set_track_preference import (
     SetTrackPreferenceCommand,
     SetTrackPreferenceUseCase,
@@ -35,14 +35,20 @@ from src.application.use_cases.sync_preferences_from_likes import (
 from src.domain.entities.preference import PreferenceState
 from src.domain.entities.shared import JsonDict, JsonValue
 from src.domain.entities.sourced_metadata import MetadataSource
-from src.domain.exceptions import NotFoundError, ToolExecutionError
-from src.domain.repositories.uow import UnitOfWorkProtocol
+from src.domain.exceptions import ToolExecutionError
 
 # Agent-initiated preference writes are manual edits — same source the UI uses.
 _AGENT_SOURCE: MetadataSource = "manual"
 
 _OPERATIONS = ("set", "sync_from_likes")
 _STATES = ("hmm", "nah", "yah", "star")
+
+# Shared commit-time failure messages for this module's preference use cases.
+_COMMIT_NOT_FOUND = (
+    "The change could not be applied — the track no longer exists. It may have "
+    "been removed since the change was proposed."
+)
+_COMMIT_INVALID_PREFIX = "The preference change failed validation at confirm time"
 
 
 SET_PREFERENCES_INPUT_SCHEMA: JsonDict = {
@@ -138,23 +144,6 @@ async def handle_set_preferences(
     return propose_action(ctx, "set_preferences", tool_input, description, details)
 
 
-async def _commit[TResult](
-    factory: Callable[[UnitOfWorkProtocol], Awaitable[TResult]], user_id: str
-) -> TResult:
-    """Run a preference use case, mapping commit-time failures to errors."""
-    try:
-        return await execute_use_case(factory, user_id=user_id)
-    except NotFoundError as e:
-        raise ToolExecutionError(
-            "The change could not be applied — the track no longer exists. It "
-            "may have been removed since the change was proposed."
-        ) from e
-    except ValueError as e:
-        raise ToolExecutionError(
-            f"The preference change failed validation at confirm time: {e}"
-        ) from e
-
-
 async def exec_set_preferences(action: PendingAction, user_id: str) -> JsonValue:
     """Commit the proposed preference change via its use case.
 
@@ -177,8 +166,11 @@ async def exec_set_preferences(action: PendingAction, user_id: str) -> JsonValue
             source=_AGENT_SOURCE,
             preferred_at=datetime.now(UTC),
         )
-        result = await _commit(
-            lambda uow: SetTrackPreferenceUseCase().execute(command, uow), user_id
+        result = await commit(
+            lambda uow: SetTrackPreferenceUseCase().execute(command, uow),
+            user_id,
+            not_found=_COMMIT_NOT_FOUND,
+            invalid_prefix=_COMMIT_INVALID_PREFIX,
         )
         return {
             "status": "confirmed",
@@ -191,9 +183,11 @@ async def exec_set_preferences(action: PendingAction, user_id: str) -> JsonValue
 
     if operation == "sync_from_likes":
         sync_command = SyncPreferencesFromLikesCommand(user_id=user_id)
-        synced = await _commit(
+        synced = await commit(
             lambda uow: SyncPreferencesFromLikesUseCase().execute(sync_command, uow),
             user_id,
+            not_found=_COMMIT_NOT_FOUND,
+            invalid_prefix=_COMMIT_INVALID_PREFIX,
         )
         return {
             "status": "confirmed",

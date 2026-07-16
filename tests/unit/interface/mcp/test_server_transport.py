@@ -85,6 +85,23 @@ class TestCallTool:
             result = await session.call_tool("query_library", {"view": "search"})
         assert _text(result) == {"tool": "query_library", "ok": True}
 
+    async def test_user_data_tags_stripped_from_result(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        # Dispatchers wrap user-originated strings in <user_data> tags as a
+        # chat-side prompt-injection defense. MCP clients are untaught, so the
+        # tags must not reach them — the server strips them before the wire (K2).
+        async def _fake_execute(name: str, args: object, ctx: object) -> JsonValue:
+            return {"name": "<user_data>Playlist</user_data>", "ok": True}
+
+        monkeypatch.setattr(server, "execute_tool", _fake_execute)
+        async with _connected_client() as session:
+            result = await session.call_tool("query_library", {"view": "search"})
+        raw = result.content[0].text  # type: ignore[attr-defined]
+        assert "<user_data>" not in raw
+        assert "</user_data>" not in raw
+        assert _text(result) == {"name": "Playlist", "ok": True}
+
     async def test_unknown_tool_returns_error_result(self) -> None:
         async with _connected_client() as session:
             result = await session.call_tool("does_not_exist", {})

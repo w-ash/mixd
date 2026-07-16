@@ -19,13 +19,13 @@ from typing import Literal, cast
 from uuid import UUID
 
 from src.application.chat.dispatchers._common import (
+    commit,
     propose_action,
     require_choice,
     require_uuid,
 )
 from src.application.chat.pending_actions import PendingAction
 from src.application.chat.protocols import ToolContext
-from src.application.runner import execute_use_case
 from src.application.use_cases.relink_connector_track import (
     RelinkConnectorTrackCommand,
     RelinkConnectorTrackUseCase,
@@ -43,10 +43,16 @@ from src.application.use_cases.unlink_connector_track import (
     UnlinkConnectorTrackUseCase,
 )
 from src.domain.entities.shared import JsonDict, JsonValue
-from src.domain.exceptions import NotFoundError, ToolExecutionError
 
 _OPERATIONS = ("relink", "unlink", "set_primary", "resolve_review")
 _REVIEW_ACTIONS = ("accept", "reject")
+
+# Shared commit-time failure messages for this module's match use cases.
+_COMMIT_NOT_FOUND = (
+    "The mapping, track, or review no longer exists — it may have changed since "
+    "this action was proposed. Re-check the match and try again."
+)
+_COMMIT_INVALID_PREFIX = "The match operation is no longer valid"
 
 MANAGE_TRACK_MATCHES_INPUT_SCHEMA: JsonDict = {
     "type": "object",
@@ -208,9 +214,11 @@ async def _exec_relink(d: JsonDict, user_id: str) -> JsonValue:
         new_track_id=UUID(str(d["new_track_id"])),
         current_track_id=UUID(str(d["current_track_id"])),
     )
-    result = await execute_use_case(
+    result = await commit(
         lambda uow: RelinkConnectorTrackUseCase().execute(command, uow),
-        user_id=user_id,
+        user_id,
+        not_found=_COMMIT_NOT_FOUND,
+        invalid_prefix=_COMMIT_INVALID_PREFIX,
     )
     return {
         "status": "confirmed",
@@ -226,9 +234,11 @@ async def _exec_unlink(d: JsonDict, user_id: str) -> JsonValue:
         mapping_id=UUID(str(d["mapping_id"])),
         current_track_id=UUID(str(d["current_track_id"])),
     )
-    result = await execute_use_case(
+    result = await commit(
         lambda uow: UnlinkConnectorTrackUseCase().execute(command, uow),
-        user_id=user_id,
+        user_id,
+        not_found=_COMMIT_NOT_FOUND,
+        invalid_prefix=_COMMIT_INVALID_PREFIX,
     )
     orphan = result.orphan_track_id
     return {
@@ -247,9 +257,11 @@ async def _exec_set_primary(d: JsonDict, user_id: str) -> JsonValue:
     )
     # SetPrimaryMappingUseCase.execute returns None — the confirmation echoes
     # the committed ids rather than a Result object.
-    await execute_use_case(
+    await commit(
         lambda uow: SetPrimaryMappingUseCase().execute(command, uow),
-        user_id=user_id,
+        user_id,
+        not_found=_COMMIT_NOT_FOUND,
+        invalid_prefix=_COMMIT_INVALID_PREFIX,
     )
     return {
         "status": "confirmed",
@@ -265,9 +277,11 @@ async def _exec_resolve_review(d: JsonDict, user_id: str) -> JsonValue:
         review_id=UUID(str(d["review_id"])),
         action=cast("Literal['accept', 'reject']", str(d["action"])),
     )
-    result = await execute_use_case(
+    result = await commit(
         lambda uow: ResolveMatchReviewUseCase().execute(command, uow),
-        user_id=user_id,
+        user_id,
+        not_found=_COMMIT_NOT_FOUND,
+        invalid_prefix=_COMMIT_INVALID_PREFIX,
     )
     return {
         "status": "confirmed",
@@ -288,22 +302,13 @@ async def exec_manage_track_matches(action: PendingAction, user_id: str) -> Json
     """
     d = action.details
     operation = str(d["operation"])
-    try:
-        if operation == "relink":
-            return await _exec_relink(d, user_id)
-        if operation == "unlink":
-            return await _exec_unlink(d, user_id)
-        if operation == "set_primary":
-            return await _exec_set_primary(d, user_id)
-        return await _exec_resolve_review(d, user_id)
-    except NotFoundError as e:
-        raise ToolExecutionError(
-            "The mapping, track, or review no longer exists — it may have "
-            "changed since this action was proposed. Re-check the match and try "
-            "again."
-        ) from e
-    except ValueError as e:
-        raise ToolExecutionError(f"The match operation is no longer valid: {e}") from e
+    if operation == "relink":
+        return await _exec_relink(d, user_id)
+    if operation == "unlink":
+        return await _exec_unlink(d, user_id)
+    if operation == "set_primary":
+        return await _exec_set_primary(d, user_id)
+    return await _exec_resolve_review(d, user_id)
 
 
 SPECS: list[dict[str, object]] = [

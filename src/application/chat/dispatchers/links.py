@@ -7,9 +7,9 @@ echo it back and reject a plan that changed since preview.
 """
 
 from collections.abc import Mapping
-from datetime import datetime
 
 from src.application.chat.dispatchers._common import (
+    iso,
     opt_choice,
     opt_str,
     require_uuid,
@@ -68,10 +68,6 @@ QUERY_PLAYLIST_LINKS_INPUT_SCHEMA: JsonDict = {
 }
 
 
-def _iso(value: datetime | None) -> str | None:
-    return value.isoformat() if value is not None else None
-
-
 def _project_link(link: PlaylistLink) -> JsonDict:
     """Compact model-facing view of a connector link — ids raw, name marked."""
     return {
@@ -80,7 +76,7 @@ def _project_link(link: PlaylistLink) -> JsonDict:
         "connector_playlist_name": user_text(link.connector_playlist_name),
         "sync_direction": link.sync_direction.value,
         "sync_status": link.sync_status.value,
-        "last_synced": _iso(link.last_synced),
+        "last_synced": iso(link.last_synced),
         "last_sync_tracks_added": link.last_sync_tracks_added,
         "last_sync_tracks_removed": link.last_sync_tracks_removed,
     }

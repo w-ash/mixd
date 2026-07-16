@@ -25,15 +25,12 @@ from src.application.tools.registry import TOOLS
 from src.config import get_logger
 from src.domain.entities.shared import JsonDict
 from src.domain.exceptions import (
-    ActionExpiredError,
     AnthropicApiError,
-    ChatUnavailableError,
-    ForbiddenError,
     MaxRoundsExceededError,
-    RateLimitExceededError,
     ResponseTruncatedError,
     ToolExecutionError,
 )
+from src.interface.api.error_codes import CHAT_ERROR_CODES
 
 logger = get_logger(__name__)
 
@@ -56,11 +53,12 @@ _KEEPALIVE_INTERVAL_SECONDS = 15.0
 # read-vs-write from tool names.
 _TOOL_KINDS: dict[str, str] = {spec.name: spec.kind for spec in TOOLS}
 
-_ERROR_CODE_MAP: dict[type[BaseException], str] = {
-    ActionExpiredError: "ACTION_EXPIRED",
-    ForbiddenError: "FORBIDDEN",
-    RateLimitExceededError: "RATE_LIMIT_EXCEEDED",
-    ChatUnavailableError: "CHAT_UNAVAILABLE",
+# Codes shared with the HTTP path (error_codes.CHAT_ERROR_CODES) plus the
+# in-stream-only exceptions that never surface as an HTTP status. Building the
+# shared half from the one table keeps the two paths' code strings in lockstep.
+_ERROR_CODE_MAP: dict[type[Exception], str] = {
+    exc: code for exc, (code, _status) in CHAT_ERROR_CODES.items()
+} | {
     ToolExecutionError: "TOOL_EXECUTION_ERROR",
     MaxRoundsExceededError: "MAX_ROUNDS_EXCEEDED",
     ResponseTruncatedError: "RESPONSE_TRUNCATED",
@@ -127,11 +125,15 @@ def _format_item(item: StreamItem) -> str:
 def _terminal_line(exc: BaseException | None) -> str:
     """The final SSE line: a typed error, or done."""
     if exc is not None:
-        logger.error("chat_stream_error", error=str(exc))
+        code = _map_error_code(exc)
+        logger.error("chat_stream_error", error=str(exc), exc_info=exc)
+        # Unmapped exceptions (INTERNAL_ERROR) must not leak internals over the
+        # wire — the HTTP path hides them, so the SSE path does too.
+        message = str(exc) if code != "INTERNAL_ERROR" else "An internal error occurred"
         return _sse_line({
             "type": "error",
-            "code": _map_error_code(exc),
-            "message": str(exc),
+            "code": code,
+            "message": message,
         })
     return _sse_line({"type": "done"})
 

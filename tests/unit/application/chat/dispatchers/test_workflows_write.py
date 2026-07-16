@@ -146,6 +146,22 @@ class TestManageWorkflowPropose:
         assert result["details"]["operation"] == "revert_version"
         assert result["details"]["version"] == 3
 
+    async def test_revert_version_above_page_size_default_accepted(
+        self, fresh_store: PendingActionStore
+    ) -> None:
+        # definition_version climbs past the 500 page-size default; a real
+        # ordinal version like 600 must not be rejected by the coercion.
+        result = await workflows_write.handle_manage_workflow(
+            {
+                "operation": "revert_version",
+                "workflow_id": str(uuid4()),
+                "version": 600,
+            },
+            _CTX,
+        )
+
+        assert result["details"]["version"] == 600
+
     async def test_instantiate_invalid_def_rejected(
         self, fresh_store: PendingActionStore
     ) -> None:
@@ -186,7 +202,7 @@ class TestExecManageWorkflow:
     async def test_instantiate_commits(self, monkeypatch: pytest.MonkeyPatch) -> None:
         workflow = make_workflow(definition=make_workflow_def(name="Chill Weekend"))
         monkeypatch.setattr(
-            workflows_write,
+            _common,
             "execute_use_case",
             _fake_use_case_runner(InstantiateWorkflowResult(workflow=workflow)),
         )
@@ -204,7 +220,7 @@ class TestExecManageWorkflow:
     async def test_duplicate_commits(self, monkeypatch: pytest.MonkeyPatch) -> None:
         workflow = make_workflow()
         monkeypatch.setattr(
-            workflows_write,
+            _common,
             "execute_use_case",
             _fake_use_case_runner(DuplicateWorkflowResult(workflow=workflow)),
         )
@@ -221,7 +237,7 @@ class TestExecManageWorkflow:
     async def test_delete_commits(self, monkeypatch: pytest.MonkeyPatch) -> None:
         workflow_id = uuid4()
         monkeypatch.setattr(
-            workflows_write,
+            _common,
             "execute_use_case",
             _fake_use_case_runner(DeleteWorkflowResult(workflow_id=workflow_id)),
         )
@@ -240,7 +256,7 @@ class TestExecManageWorkflow:
     ) -> None:
         workflow = make_workflow()
         monkeypatch.setattr(
-            workflows_write,
+            _common,
             "execute_use_case",
             _fake_use_case_runner(RevertWorkflowVersionResult(workflow=workflow)),
         )
@@ -264,7 +280,7 @@ class TestExecManageWorkflow:
         async def _raise(factory, user_id: str | None = None):
             raise NotFoundError("gone")
 
-        monkeypatch.setattr(workflows_write, "execute_use_case", _raise)
+        monkeypatch.setattr(_common, "execute_use_case", _raise)
         action = _action(
             "manage_workflow",
             {"operation": "delete", "workflow_id": str(uuid4())},
@@ -381,7 +397,7 @@ class TestExecManageSchedule:
     async def test_upsert_commits(self, monkeypatch: pytest.MonkeyPatch) -> None:
         schedule = _make_schedule()
         monkeypatch.setattr(
-            workflows_write,
+            _common,
             "execute_use_case",
             _fake_use_case_runner(
                 UpsertScheduleResult(schedule=schedule, created=True)
@@ -410,7 +426,7 @@ class TestExecManageSchedule:
     async def test_toggle_commits(self, monkeypatch: pytest.MonkeyPatch) -> None:
         schedule = _make_schedule(status="disabled")
         monkeypatch.setattr(
-            workflows_write,
+            _common,
             "execute_use_case",
             _fake_use_case_runner(ToggleScheduleResult(schedule=schedule)),
         )
@@ -432,7 +448,7 @@ class TestExecManageSchedule:
     async def test_delete_commits(self, monkeypatch: pytest.MonkeyPatch) -> None:
         schedule_id = uuid4()
         monkeypatch.setattr(
-            workflows_write,
+            _common,
             "execute_use_case",
             _fake_use_case_runner(DeleteScheduleResult(schedule_id=schedule_id)),
         )
@@ -456,7 +472,7 @@ class TestExecManageSchedule:
         async def _raise(factory, user_id: str | None = None):
             raise ValueError("unknown timezone")
 
-        monkeypatch.setattr(workflows_write, "execute_use_case", _raise)
+        monkeypatch.setattr(_common, "execute_use_case", _raise)
         action = _action(
             "manage_schedule",
             {

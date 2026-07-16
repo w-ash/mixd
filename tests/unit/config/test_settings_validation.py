@@ -302,3 +302,20 @@ class TestEnvIgnoreEmpty:
         s = Settings()
         # Should use default (50), not crash on int("")
         assert s.api.lastfm.batch_size == 50
+
+
+class TestDataDirIsCwdIndependent:
+    """data_dir must be absolute so `mixd mcp serve` (cwd=/) resolves it (K3)."""
+
+    def test_default_data_dir_is_absolute(self) -> None:
+        from src.config.settings import Settings
+
+        assert Settings().data_dir.is_absolute()
+
+    def test_ensure_data_dir_creates_and_returns_absolute(self) -> None:
+        # No import-time mkdir; creation is lazy and cwd-independent.
+        from src.config.settings import ensure_data_dir
+
+        created = ensure_data_dir()
+        assert created.is_absolute()
+        assert created.is_dir()

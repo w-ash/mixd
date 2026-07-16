@@ -115,9 +115,7 @@ class TestExecManageConnectorPlaylist:
                 )
             ],
         )
-        monkeypatch.setattr(
-            connector_playlists_write, "execute_use_case", _fake_runner(result)
-        )
+        monkeypatch.setattr(_common, "execute_use_case", _fake_runner(result))
 
         out = await connector_playlists_write.exec_manage_connector_playlist(
             self._action(), "default"
@@ -135,7 +133,7 @@ class TestExecManageConnectorPlaylist:
         async def _raise(factory: object, user_id: str | None = None) -> object:
             raise NotFoundError("gone")
 
-        monkeypatch.setattr(connector_playlists_write, "execute_use_case", _raise)
+        monkeypatch.setattr(_common, "execute_use_case", _raise)
 
         with pytest.raises(ToolExecutionError, match="could not be found"):
             await connector_playlists_write.exec_manage_connector_playlist(

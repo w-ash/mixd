@@ -134,7 +134,7 @@ class TestExecManageTrackMatches:
     async def test_relink_commits(self, monkeypatch: pytest.MonkeyPatch) -> None:
         old_id, new_id = uuid4(), uuid4()
         monkeypatch.setattr(
-            matches_write,
+            _common,
             "execute_use_case",
             _fake_use_case_runner(
                 RelinkConnectorTrackResult(old_track_id=old_id, new_track_id=new_id)
@@ -159,7 +159,7 @@ class TestExecManageTrackMatches:
     ) -> None:
         mapping_id, orphan_id = uuid4(), uuid4()
         monkeypatch.setattr(
-            matches_write,
+            _common,
             "execute_use_case",
             _fake_use_case_runner(
                 UnlinkConnectorTrackResult(
@@ -184,9 +184,7 @@ class TestExecManageTrackMatches:
         # SetPrimaryMappingUseCase.execute returns None — the confirmation echoes
         # the committed ids.
         mapping_id, track_id = uuid4(), uuid4()
-        monkeypatch.setattr(
-            matches_write, "execute_use_case", _fake_use_case_runner(None)
-        )
+        monkeypatch.setattr(_common, "execute_use_case", _fake_use_case_runner(None))
         action = _action({
             "operation": "set_primary",
             "mapping_id": str(mapping_id),
@@ -213,7 +211,7 @@ class TestExecManageTrackMatches:
             status="accepted",
         )
         monkeypatch.setattr(
-            matches_write,
+            _common,
             "execute_use_case",
             _fake_use_case_runner(
                 ResolveMatchReviewResult(review=review, mapping_created=True)
@@ -237,7 +235,7 @@ class TestExecManageTrackMatches:
         async def _raise(factory, user_id: str | None = None):
             raise NotFoundError("gone")
 
-        monkeypatch.setattr(matches_write, "execute_use_case", _raise)
+        monkeypatch.setattr(_common, "execute_use_case", _raise)
         action = _action({
             "operation": "set_primary",
             "mapping_id": str(uuid4()),
@@ -253,7 +251,7 @@ class TestExecManageTrackMatches:
         async def _raise(factory, user_id: str | None = None):
             raise ValueError("already resolved")
 
-        monkeypatch.setattr(matches_write, "execute_use_case", _raise)
+        monkeypatch.setattr(_common, "execute_use_case", _raise)
         action = _action({
             "operation": "resolve_review",
             "review_id": str(uuid4()),

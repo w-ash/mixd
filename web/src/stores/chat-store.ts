@@ -20,8 +20,8 @@ export type ToolKind = "read" | "write" | "agentic";
 export interface ToolCall {
   id: string;
   name: string;
-  /** Sent by the backend on tool_start; absent on frames from older streams. */
-  kind?: ToolKind;
+  /** Side-effect class. Coerced once at the untyped-JSON SSE boundary. */
+  kind: ToolKind;
   result?: unknown;
   isError?: boolean;
 }
@@ -50,27 +50,13 @@ export type ConfirmationState =
   | "confirmed"
   | "cancelled";
 
-/**
- * The workflow the assistant is proposing to create or edit. Populated by
- * `absorbWorkflowDraft` from each `save_workflow` tool result; the preview
- * card reads it to render Save/Discard, keyed by `action_id`. `source`
- * distinguishes a brand-new workflow from an edit to an existing one.
- */
-export interface WorkflowDraft {
-  action_id: string;
-  def: unknown;
-  source: "new" | { workflow_id: string };
-}
-
 interface ChatState {
   // Conversation data
   messages: ChatMessage[];
-  isStreaming: boolean;
   abortController: AbortController | null;
   isPanelOpen: boolean;
   confirmationStates: Record<string, ConfirmationState>;
   effort: EffortChoice;
-  currentWorkflowDraft: WorkflowDraft | null;
 
   // Actions - message lifecycle
   addUserMessage: (text: string) => string;
@@ -85,11 +71,12 @@ interface ChatState {
     messageId: string,
     toolId: string,
     name: string,
-    kind?: ToolKind,
+    kind: ToolKind,
   ) => void;
   setToolResult: (
     messageId: string,
     toolId: string,
+    name: string,
     result: unknown,
     isError: boolean,
   ) => void;
@@ -108,15 +95,23 @@ interface ChatState {
 
   // Actions - panel + streaming
   setAbortController: (c: AbortController | null) => void;
+  stopStreaming: () => void;
   setPanelOpen: (open: boolean) => void;
   togglePanel: () => void;
   clearMessages: () => void;
 
-  // Actions - confirmation, effort, workflow draft
+  // Actions - confirmation, effort
   setConfirmationState: (actionId: string, state: ConfirmationState) => void;
   setEffort: (choice: EffortChoice) => void;
-  setCurrentWorkflowDraft: (draft: WorkflowDraft | null) => void;
 }
+
+/**
+ * Whether any message in the conversation is still streaming. Derived from the
+ * messages rather than a stored flag, so display and per-message state can
+ * never disagree (there is no global `isStreaming` to fall out of sync).
+ */
+export const selectIsStreaming = (s: ChatState): boolean =>
+  s.messages.some((m) => m.isStreaming);
 
 /** The empty-conversation state, fresh each call (new array/object refs).
  *  Single source for the store's initial values and `clearMessages`, so they
@@ -125,18 +120,12 @@ interface ChatState {
  *  preference). */
 function initialConversationState(): Pick<
   ChatState,
-  | "messages"
-  | "isStreaming"
-  | "abortController"
-  | "confirmationStates"
-  | "currentWorkflowDraft"
+  "messages" | "abortController" | "confirmationStates"
 > {
   return {
     messages: [],
-    isStreaming: false,
     abortController: null,
     confirmationStates: {},
-    currentWorkflowDraft: null,
   };
 }
 
@@ -174,14 +163,13 @@ export const useChatStore = create<ChatState>()((set) => ({
     const id = crypto.randomUUID();
     let added = false;
     set((s) => {
-      if (s.messages.length >= MESSAGE_CAP) return { isStreaming: true };
+      if (s.messages.length >= MESSAGE_CAP) return s;
       added = true;
       return {
         messages: [
           ...s.messages,
           { id, role: "assistant" as const, content: "", isStreaming: true },
         ],
-        isStreaming: true,
       };
     });
     return added ? id : "";
@@ -201,7 +189,6 @@ export const useChatStore = create<ChatState>()((set) => ({
         ...m,
         isStreaming: false,
       })),
-      isStreaming: false,
       abortController: null,
     })),
 
@@ -212,7 +199,6 @@ export const useChatStore = create<ChatState>()((set) => ({
         isStreaming: false,
         error: { code, message },
       })),
-      isStreaming: false,
       abortController: null,
     })),
 
@@ -220,22 +206,11 @@ export const useChatStore = create<ChatState>()((set) => ({
     set((s) => {
       const last = s.messages.at(-1);
       if (last?.role !== "assistant") return s;
-      // Regenerating discards the turn — including any save proposal it made.
-      // Drop the draft when this message owned it, so a preview card can't
-      // offer to confirm an action_id whose origin turn no longer exists.
-      const draftOwnedHere = (last.toolCalls ?? []).some(
-        (tc) =>
-          (tc.result as { action_id?: string } | undefined)?.action_id ===
-          s.currentWorkflowDraft?.action_id,
-      );
-      return {
-        messages: s.messages.slice(0, -1),
-        ...(draftOwnedHere ? { currentWorkflowDraft: null } : {}),
-      };
+      return { messages: s.messages.slice(0, -1) };
     }),
 
   // Tool + code executions
-  addToolCall: (messageId, toolId, name, kind = "read") =>
+  addToolCall: (messageId, toolId, name, kind) =>
     set((s) => ({
       messages: updateMessage(s.messages, messageId, (m) => ({
         ...m,
@@ -243,14 +218,23 @@ export const useChatStore = create<ChatState>()((set) => ({
       })),
     })),
 
-  setToolResult: (messageId, toolId, result, isError) =>
+  setToolResult: (messageId, toolId, name, result, isError) =>
     set((s) => ({
-      messages: updateMessage(s.messages, messageId, (m) => ({
-        ...m,
-        toolCalls: (m.toolCalls ?? []).map((tc) =>
-          tc.id === toolId ? { ...tc, result, isError } : tc,
-        ),
-      })),
+      messages: updateMessage(s.messages, messageId, (m) => {
+        const calls = m.toolCalls ?? [];
+        // UPSERT: a synthetic operation_started frame arrives as a tool_result
+        // with no preceding tool_start, so append a fresh ToolCall for it (a
+        // write) instead of dropping the frame — that lets the card render.
+        const exists = calls.some((tc) => tc.id === toolId);
+        return {
+          ...m,
+          toolCalls: exists
+            ? calls.map((tc) =>
+                tc.id === toolId ? { ...tc, result, isError } : tc,
+              )
+            : [...calls, { id: toolId, name, kind: "write", result, isError }],
+        };
+      }),
     })),
 
   addCodeExecution: (messageId, codeId, command) =>
@@ -274,13 +258,24 @@ export const useChatStore = create<ChatState>()((set) => ({
   // Panel + streaming
   setAbortController: (c) => set({ abortController: c }),
 
+  // Finalize a user-aborted stream: clear the trailing streaming flag(s) so the
+  // UI leaves the "thinking" state, and drop the controller. The SSE reader
+  // returns cleanly on abort, so no onDone/onError fires to do this for us.
+  stopStreaming: () =>
+    set((s) => ({
+      messages: s.messages.map((m) =>
+        m.isStreaming ? { ...m, isStreaming: false } : m,
+      ),
+      abortController: null,
+    })),
+
   setPanelOpen: (open) => set({ isPanelOpen: open }),
 
   togglePanel: () => set((s) => ({ isPanelOpen: !s.isPanelOpen })),
 
   clearMessages: () => set(initialConversationState()),
 
-  // Confirmation, effort, workflow draft
+  // Confirmation, effort
   setConfirmationState: (actionId, state) =>
     set((s) => ({
       confirmationStates: { ...s.confirmationStates, [actionId]: state },
@@ -290,46 +285,47 @@ export const useChatStore = create<ChatState>()((set) => ({
     storeEffort(choice);
     set({ effort: choice });
   },
-
-  setCurrentWorkflowDraft: (draft) => set({ currentWorkflowDraft: draft }),
 }));
 
 // --- Pure helpers over conversation state -----------------------------------
 
-interface SaveProposalDetails {
-  definition?: unknown;
-  workflow_id?: unknown;
-}
-
 /**
- * Absorb a save_workflow proposal into `currentWorkflowDraft`. Called from the
- * stream callbacks on every tool result; ignores everything that isn't a
- * pending save proposal. The proposal's `details` carry the full normalized
- * definition, so the draft is complete from this single event — refine turns
- * replace it wholesale (keyed by the fresh action_id).
+ * The newest live save_workflow proposal in the conversation — scanning from
+ * the end for the last non-error `save_workflow` result still in
+ * `pending_confirmation`. A preview card whose own turn carried no save
+ * proposal (the model saved in a later turn, or the pending action expired)
+ * uses this cross-turn fallback to find the action_id its Save button confirms.
+ * Mirrors `findSaveProposal`'s `details.mode` convention. Returns the same
+ * `{ actionId, mode }` shape as `SaveProposal` in `workflow-preview-types`.
  */
-export function absorbWorkflowDraft(
-  name: string,
-  result: unknown,
-  isError: boolean,
-): void {
-  if (name !== "save_workflow" || isError) return;
-  if (!result || typeof result !== "object") return;
-  const r = result as {
-    status?: unknown;
-    action_id?: unknown;
-    details?: SaveProposalDetails;
-  };
-  if (r.status !== "pending_confirmation" || typeof r.action_id !== "string") {
-    return;
+export function findLatestSaveProposal(
+  messages: ChatMessage[],
+): { actionId: string; mode: "create" | "update" } | null {
+  for (let i = messages.length - 1; i >= 0; i--) {
+    const calls = messages[i].toolCalls ?? [];
+    for (let j = calls.length - 1; j >= 0; j--) {
+      const tc = calls[j];
+      if (tc.name !== "save_workflow" || tc.isError) continue;
+      const r = tc.result as
+        | {
+            status?: unknown;
+            action_id?: unknown;
+            details?: { mode?: unknown };
+          }
+        | undefined;
+      if (
+        r?.status !== "pending_confirmation" ||
+        typeof r.action_id !== "string"
+      ) {
+        continue;
+      }
+      return {
+        actionId: r.action_id,
+        mode: r.details?.mode === "update" ? "update" : "create",
+      };
+    }
   }
-  const workflowId = r.details?.workflow_id;
-  useChatStore.getState().setCurrentWorkflowDraft({
-    action_id: r.action_id,
-    def: r.details?.definition,
-    source:
-      typeof workflowId === "string" ? { workflow_id: workflowId } : "new",
-  });
+  return null;
 }
 
 /**

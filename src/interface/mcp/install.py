@@ -7,8 +7,13 @@ side-effect-free so it is unit-testable and so ``--print`` never touches the
 filesystem.
 """
 
+import shutil
+
+from src.config import get_logger
 from src.config.constants import BusinessLimits
 from src.domain.entities.shared import JsonDict
+
+logger = get_logger(__name__)
 
 # client key -> (display label, config file path). Claude Code registers via a
 # command, not a file, so its guidance is rendered by ``client_location`` (which
@@ -52,6 +57,27 @@ def client_location(client: str, user_id: str | None) -> str:
     return CLIENTS[client][1]
 
 
+def _resolve_mixd_command() -> str:
+    """Absolute path to the ``mixd`` executable, or the bare name as a fallback.
+
+    GUI clients (Claude Desktop, Cursor) spawn the server with launchd's minimal
+    PATH, which usually excludes the venv/pipx bin where ``mixd`` lives — a bare
+    ``{"command": "mixd"}`` then fails ENOENT. ``install`` runs in the user's own
+    shell, so ``which()`` here sees the real PATH; emit the absolute path it
+    finds. If it can't be resolved (unlikely — install ran ``mixd``), fall back
+    to the bare name and warn.
+    """
+    resolved = shutil.which("mixd")
+    if resolved is None:
+        logger.warning(
+            "mcp_install_mixd_not_on_path",
+            detail="Emitting bare 'mixd'; a GUI client with a minimal PATH may "
+            "fail to launch it. Use an absolute path if so.",
+        )
+        return "mixd"
+    return resolved
+
+
 def server_entry(user_id: str | None) -> JsonDict:
     """The single mixd server entry: launch ``mixd mcp serve`` over stdio.
 
@@ -59,7 +85,7 @@ def server_entry(user_id: str | None) -> JsonDict:
     a local single-user install resolves ``DEFAULT_USER_ID`` on its own, so
     hardcoding it would be noise.
     """
-    entry: JsonDict = {"command": "mixd", "args": ["mcp", "serve"]}
+    entry: JsonDict = {"command": _resolve_mixd_command(), "args": ["mcp", "serve"]}
     if user_id and user_id != BusinessLimits.DEFAULT_USER_ID:
         entry["env"] = {"MIXD_USER_ID": user_id}
     return entry

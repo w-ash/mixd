@@ -106,7 +106,7 @@ class TestExecMergeTracks:
     ) -> None:
         winner_id, loser_id = uuid4(), uuid4()
         monkeypatch.setattr(
-            tracks_write,
+            _common,
             "execute_use_case",
             _fake_use_case_runner(_details_result(winner_id)),
         )
@@ -123,7 +123,7 @@ class TestExecMergeTracks:
         async def _raise(factory, user_id: str | None = None):
             raise NotFoundError("gone")
 
-        monkeypatch.setattr(tracks_write, "execute_use_case", _raise)
+        monkeypatch.setattr(_common, "execute_use_case", _raise)
         action = self._action(uuid4(), uuid4())
 
         with pytest.raises(ToolExecutionError, match="no longer exists"):

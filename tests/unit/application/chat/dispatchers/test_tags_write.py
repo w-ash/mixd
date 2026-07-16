@@ -123,7 +123,7 @@ class TestExecManageTags:
     ) -> None:
         track_id = uuid4()
         monkeypatch.setattr(
-            tags_write,
+            _common,
             "execute_use_case",
             _fake_runner(
                 TagTrackResult(track_id=track_id, tag="mood:chill", changed=True)
@@ -146,7 +146,7 @@ class TestExecManageTags:
         self, fresh_store: PendingActionStore, monkeypatch: pytest.MonkeyPatch
     ) -> None:
         monkeypatch.setattr(
-            tags_write,
+            _common,
             "execute_use_case",
             _fake_runner(BatchTagTracksResult(tag="gym", requested=2, tagged=2)),
         )
@@ -168,7 +168,7 @@ class TestExecManageTags:
         self, fresh_store: PendingActionStore, monkeypatch: pytest.MonkeyPatch
     ) -> None:
         monkeypatch.setattr(
-            tags_write,
+            _common,
             "execute_use_case",
             _fake_runner(DeleteTagResult(affected_count=7)),
         )
@@ -182,7 +182,7 @@ class TestExecManageTags:
         self, fresh_store: PendingActionStore, monkeypatch: pytest.MonkeyPatch
     ) -> None:
         monkeypatch.setattr(
-            tags_write,
+            _common,
             "execute_use_case",
             _fake_runner(RenameTagResult(affected_count=3)),
         )
@@ -203,7 +203,7 @@ class TestExecManageTags:
         async def _raise(factory: object, user_id: str | None = None) -> object:
             raise NotFoundError("gone")
 
-        monkeypatch.setattr(tags_write, "execute_use_case", _raise)
+        monkeypatch.setattr(_common, "execute_use_case", _raise)
         action = _pending(
             fresh_store,
             {"operation": "tag", "track_id": str(uuid4()), "tag": "mood:chill"},

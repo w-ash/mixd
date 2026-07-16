@@ -8,15 +8,19 @@ import {
 } from "lucide-react";
 import { useState } from "react";
 import { Link } from "react-router";
+import { useShallow } from "zustand/react/shallow";
 
 import { usePostChatFeedbackApiV1ChatFeedbackPost } from "#/api/generated/chat/chat";
 import type { ChatFeedbackRequest } from "#/api/generated/model";
+import { ChatCard } from "#/components/chat/ChatCard";
 import { WorkflowGraph } from "#/components/shared/WorkflowGraph";
 import { Button } from "#/components/ui/button";
 import { cn } from "#/lib/utils";
 import {
   findLatestGenerateToolCallId,
+  findLatestSaveProposal,
   findTriggeringPrompt,
+  selectIsStreaming,
   useChatStore,
 } from "#/stores/chat-store";
 
@@ -40,32 +44,35 @@ function FeedbackRow({
   workflowDef: GenerateWorkflowResult["workflow_def"];
   messageId?: string;
 }) {
-  const [submitted, setSubmitted] = useState(false);
   const [noteOpen, setNoteOpen] = useState(false);
   const [note, setNote] = useState("");
   const feedback = usePostChatFeedbackApiV1ChatFeedbackPost();
 
+  // UI is driven entirely by the mutation state (no optimistic local flag): a
+  // failed POST re-enables the thumbs so the user can retry, rather than being
+  // silently stuck on a "thanks" that never reached the server.
   const submit = (signal: "positive" | "negative", noteText?: string) => {
     const prompt =
       (messageId &&
         findTriggeringPrompt(useChatStore.getState().messages, messageId)) ||
       "";
-    feedback.mutate({
-      data: {
-        prompt,
-        // Structurally JSON either way; the generated JsonValueInput union
-        // doesn't unify with the typed task shape.
-        generated_workflow_def:
-          workflowDef as unknown as ChatFeedbackRequest["generated_workflow_def"],
-        signal,
-        note: noteText || null,
+    feedback.mutate(
+      {
+        data: {
+          prompt,
+          // Structurally JSON either way; the generated JsonValueInput union
+          // doesn't unify with the typed task shape.
+          generated_workflow_def:
+            workflowDef as unknown as ChatFeedbackRequest["generated_workflow_def"],
+          signal,
+          note: noteText || null,
+        },
       },
-    });
-    setSubmitted(true);
-    setNoteOpen(false);
+      { onSuccess: () => setNoteOpen(false) },
+    );
   };
 
-  if (submitted) {
+  if (feedback.isSuccess) {
     return (
       <p className="mt-2 font-body text-xs text-text-muted">
         Thanks for the feedback.
@@ -83,8 +90,9 @@ function FeedbackRow({
           <button
             type="button"
             aria-label="Good draft"
+            disabled={feedback.isPending}
             onClick={() => submit("positive")}
-            className="rounded-md p-1.5 text-text-muted transition-colors hover:text-status-success"
+            className="rounded-md p-1.5 text-text-muted transition-colors hover:text-status-success disabled:opacity-50"
           >
             <ThumbsUp className="size-3.5" />
           </button>
@@ -92,9 +100,10 @@ function FeedbackRow({
             type="button"
             aria-label="Poor draft"
             aria-expanded={noteOpen}
+            disabled={feedback.isPending}
             onClick={() => setNoteOpen((open) => !open)}
             className={cn(
-              "rounded-md p-1.5 text-text-muted transition-colors hover:text-destructive",
+              "rounded-md p-1.5 text-text-muted transition-colors hover:text-destructive disabled:opacity-50",
               noteOpen && "text-destructive",
             )}
           >
@@ -102,6 +111,11 @@ function FeedbackRow({
           </button>
         </div>
       </div>
+      {feedback.isError && (
+        <p role="alert" className="mt-2 font-body text-xs text-destructive">
+          Couldn't send feedback. Please try again.
+        </p>
+      )}
       {noteOpen && (
         <div className="mt-2 flex flex-col gap-2">
           <textarea
@@ -117,6 +131,7 @@ function FeedbackRow({
             size="sm"
             variant="secondary"
             className="self-end"
+            disabled={feedback.isPending}
             onClick={() => submit("negative", note.trim())}
           >
             Send feedback
@@ -159,20 +174,16 @@ export function WorkflowPreviewCard({
   const latestGenerateId = useChatStore((s) =>
     findLatestGenerateToolCallId(s.messages),
   );
-  const draft = useChatStore((s) => s.currentWorkflowDraft);
-  const isStreaming = useChatStore((s) => s.isStreaming);
+  // Fallback for cross-turn proposals: when the save_workflow proposal landed
+  // in a different message than this generate call, scan the whole conversation
+  // for the newest live proposal. useShallow because the helper returns a fresh
+  // object each render.
+  const fallbackProposal = useChatStore(
+    useShallow((s) => findLatestSaveProposal(s.messages)),
+  );
+  const isStreaming = useChatStore(selectIsStreaming);
 
-  // Fallback for cross-turn proposals: the store draft is the live proposal
-  // when the save landed in a different message than this generate call.
-  const proposal =
-    saveProposal ??
-    (draft
-      ? {
-          actionId: draft.action_id,
-          mode:
-            draft.source === "new" ? ("create" as const) : ("update" as const),
-        }
-      : undefined);
+  const proposal = saveProposal ?? fallbackProposal ?? undefined;
   const state = useChatStore((s) =>
     proposal
       ? (s.confirmationStates[proposal.actionId] ?? "pending")
@@ -210,13 +221,19 @@ export function WorkflowPreviewCard({
   };
 
   return (
-    <div className="w-full rounded-lg border-l-2 border-primary bg-surface px-4 py-3">
-      <div className="mb-1 flex items-baseline justify-between gap-2">
-        <p className="font-display text-xs font-medium text-text">{def.name}</p>
-        <span className="shrink-0 font-mono text-[10px] text-text-muted">
-          {result.task_count} node{result.task_count === 1 ? "" : "s"}
-        </span>
-      </div>
+    <ChatCard
+      className="w-full"
+      header={
+        <div className="mb-1 flex items-baseline justify-between gap-2">
+          <p className="font-display text-xs font-medium text-text">
+            {def.name}
+          </p>
+          <span className="shrink-0 font-mono text-[10px] text-text-muted">
+            {result.task_count} node{result.task_count === 1 ? "" : "s"}
+          </span>
+        </div>
+      }
+    >
       {def.description && (
         <p className="mb-2 font-body text-xs text-text-muted">
           {def.description}
@@ -296,6 +313,6 @@ export function WorkflowPreviewCard({
       </div>
 
       <FeedbackRow workflowDef={def} messageId={messageId} />
-    </div>
+    </ChatCard>
   );
 }

@@ -569,7 +569,9 @@ class Settings(BaseSettings):
 
     # Top-level settings
     data_dir: Path = Field(
-        default=Path("data"), description="Application data directory"
+        default=_PROJECT_ROOT / "data",
+        description="Application data directory. Anchored to the project root "
+        "(not cwd) so an MCP server spawned with cwd=/ resolves it correctly.",
     )
     workflow_log_dir: Path = Field(
         default=Path("data/logs/runs"),
@@ -657,8 +659,18 @@ class Settings(BaseSettings):
 # Singleton instance for application use
 settings = Settings()
 
-# Create data directory if it doesn't exist
-settings.data_dir.mkdir(exist_ok=True)
+
+def ensure_data_dir() -> Path:
+    """Return ``data_dir``, creating it on first use.
+
+    Deliberately NOT an import-time ``mkdir``: an MCP server spawned with cwd=/
+    on a read-only volume would crash at import. Callers that actually write
+    under ``data_dir`` create it here lazily instead. (``data_dir`` is now
+    absolute, so this is cwd-independent.)
+    """
+    settings.data_dir.mkdir(parents=True, exist_ok=True)
+    return settings.data_dir
+
 
 # =============================================================================
 # HELPERS

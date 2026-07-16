@@ -9,6 +9,8 @@ import asyncio
 from collections.abc import Awaitable, Callable
 from datetime import UTC, datetime
 import json
+import time
+from typing import cast
 from uuid import UUID
 
 from fastapi import APIRouter, Depends
@@ -18,6 +20,7 @@ from src.application.chat.events import TextDelta, ToolResultEvent
 from src.application.chat.pending_actions import PendingAction, pending_action_store
 from src.application.chat.system_prompt import build_system_prompt
 from src.application.chat.use_case import ChatCommand, ChatUseCase
+from src.application.chat.user_data import strip_user_data
 from src.application.runner import execute_use_case
 from src.application.tools.registry import (
     build_tools,
@@ -107,29 +110,52 @@ def _launch_event(action: PendingAction, result: JsonValue) -> ToolResultEvent |
     save_workflow) return no such status, so they get no card.
     """
     if isinstance(result, dict) and result.get("status") == "operation_started":
+        # This synthetic result bypasses the use_case.py egress that strips
+        # <user_data> tags off real tool results, so strip here too — restoring
+        # the single-egress invariant (a launched op's summary may echo a
+        # user-named workflow/playlist).
         return ToolResultEvent(
             name=action.tool_name,
             tool_use_id=str(action.action_id),
-            summary=result,
+            summary=cast("JsonValue", strip_user_data(result)),
         )
     return None
+
+
+# Per-user library-stats cache: user_id -> (monotonic_expiry, stats). The stats
+# feed 4 prompt-garnish numbers but cost 5 sequential aggregate queries (COUNTs
+# over tracks/track_plays), rerun on *every* POST /chat including confirmation
+# clicks. A short TTL collapses bursts to one query. User-scoped, so multi-user
+# safe.
+_STATS_CACHE_TTL_SECONDS = 60.0
+_stats_cache: dict[str, tuple[float, DashboardStatsResult]] = {}
 
 
 async def _fetch_library_stats(user_id: str) -> DashboardStatsResult | None:
     """Fetch per-user library stats for the system prompt; never kill chat.
 
     Stats are prompt garnish — any failure degrades to a "stats unavailable"
-    line rather than a 500 before the stream even opens.
+    line rather than a 500 before the stream even opens. Backed by a ~60s
+    per-user TTL cache so rapid turns don't re-run the aggregate every time.
     """
+    now = time.monotonic()
+    cached = _stats_cache.get(user_id)
+    if cached is not None:
+        expiry, stats = cached
+        if now < expiry:
+            return stats
+        del _stats_cache[user_id]  # evict stale on read
     command = GetDashboardStatsCommand(user_id=user_id)
     try:
-        return await execute_use_case(
+        result = await execute_use_case(
             lambda uow: GetDashboardStatsUseCase().execute(command, uow),
             user_id=user_id,
         )
     except Exception:
         logger.warning("chat_library_stats_unavailable", exc_info=True)
         return None
+    _stats_cache[user_id] = (now + _STATS_CACHE_TTL_SECONDS, result)
+    return result
 
 
 async def _fetch_current_workflow(
@@ -150,6 +176,17 @@ async def _fetch_current_workflow(
         )
     except NotFoundError:
         logger.warning("chat_current_workflow_not_found", workflow_id=str(workflow_id))
+        return None
+    except Exception:
+        # Any other failure (raised inside the TaskGroup) would surface as an
+        # ExceptionGroup that bypasses the typed HTTP handlers → 500. Degrade to
+        # no context instead — this must never 500 the chat. Mirrors
+        # _fetch_library_stats.
+        logger.warning(
+            "chat_current_workflow_unavailable",
+            workflow_id=str(workflow_id),
+            exc_info=True,
+        )
         return None
     return result.workflow
 

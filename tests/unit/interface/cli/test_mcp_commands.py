@@ -24,11 +24,33 @@ runner = CliRunner()
 
 
 class TestBuildConfig:
-    def test_snippet_shape(self) -> None:
+    def test_snippet_shape(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        monkeypatch.setattr(install_mod.shutil, "which", lambda _: "/opt/bin/mixd")
         config = build_client_config("default")
         entry = config["mcpServers"]["mixd"]  # type: ignore[index]
-        assert entry["command"] == "mixd"
+        assert entry["command"] == "/opt/bin/mixd"
         assert entry["args"] == ["mcp", "serve"]
+
+    def test_command_is_absolute_when_which_resolves(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        # GUI clients spawn with a minimal PATH, so the emitted command must be
+        # the absolute path which() found, not a bare "mixd" (K4).
+        monkeypatch.setattr(
+            install_mod.shutil, "which", lambda _: "/Users/x/.local/bin/mixd"
+        )
+        entry = server_entry("alice")
+        command = entry["command"]  # type: ignore[index]
+        assert isinstance(command, str)
+        assert command.startswith("/")
+        assert command == "/Users/x/.local/bin/mixd"
+
+    def test_command_falls_back_to_bare_name_when_unresolved(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        monkeypatch.setattr(install_mod.shutil, "which", lambda _: None)
+        entry = server_entry("alice")
+        assert entry["command"] == "mixd"  # type: ignore[index]
 
     def test_default_user_omits_env(self) -> None:
         entry = server_entry(BusinessLimits.DEFAULT_USER_ID)

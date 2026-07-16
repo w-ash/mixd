@@ -15,11 +15,12 @@ verbatim (never wrapped as ``<user_data>`` display text); they appear plainly in
 the ``changes`` summary.
 """
 
-from collections.abc import Awaitable, Callable, Mapping
+from collections.abc import Mapping
 from datetime import UTC, datetime
 from uuid import UUID
 
 from src.application.chat.dispatchers._common import (
+    commit,
     propose_action,
     require_choice,
     require_str,
@@ -28,7 +29,6 @@ from src.application.chat.dispatchers._common import (
 )
 from src.application.chat.pending_actions import PendingAction
 from src.application.chat.protocols import ToolContext
-from src.application.runner import execute_use_case
 from src.application.use_cases.batch_tag_tracks import (
     BatchTagTracksCommand,
     BatchTagTracksUseCase,
@@ -48,13 +48,19 @@ from src.application.use_cases.untag_track import (
 )
 from src.domain.entities.shared import JsonDict, JsonValue
 from src.domain.entities.sourced_metadata import MetadataSource
-from src.domain.exceptions import NotFoundError, ToolExecutionError
-from src.domain.repositories.uow import UnitOfWorkProtocol
+from src.domain.exceptions import ToolExecutionError
 
 # Agent-initiated tag writes are manual edits — same source the CLI/web use.
 _AGENT_SOURCE: MetadataSource = "manual"
 
 _OPERATIONS = ("tag", "untag", "batch_tag", "rename", "merge", "delete")
+
+# Shared commit-time failure messages for this module's tag use cases.
+_COMMIT_NOT_FOUND = (
+    "The change could not be applied — a track referenced by this tag operation "
+    "no longer exists. Re-check the tracks and try again."
+)
+_COMMIT_INVALID_PREFIX = "The tag operation failed validation at confirm time"
 
 
 MANAGE_TAGS_INPUT_SCHEMA: JsonDict = {
@@ -187,23 +193,6 @@ async def handle_manage_tags(
     return propose_action(ctx, "manage_tags", tool_input, description, details)
 
 
-async def _commit[TResult](
-    factory: Callable[[UnitOfWorkProtocol], Awaitable[TResult]], user_id: str
-) -> TResult:
-    """Run a tag use case, mapping commit-time failures to actionable errors."""
-    try:
-        return await execute_use_case(factory, user_id=user_id)
-    except NotFoundError as e:
-        raise ToolExecutionError(
-            "The change could not be applied — a track referenced by this tag "
-            "operation no longer exists. Re-check the tracks and try again."
-        ) from e
-    except ValueError as e:
-        raise ToolExecutionError(
-            f"The tag operation failed validation at confirm time: {e}"
-        ) from e
-
-
 def _confirmed(action: PendingAction, operation: str, **extra: JsonValue) -> JsonDict:
     result: JsonDict = {
         "status": "confirmed",
@@ -233,8 +222,11 @@ async def exec_manage_tags(action: PendingAction, user_id: str) -> JsonValue:
             source=_AGENT_SOURCE,
             tagged_at=tagged_at,
         )
-        tagged = await _commit(
-            lambda uow: TagTrackUseCase().execute(command, uow), user_id
+        tagged = await commit(
+            lambda uow: TagTrackUseCase().execute(command, uow),
+            user_id,
+            not_found=_COMMIT_NOT_FOUND,
+            invalid_prefix=_COMMIT_INVALID_PREFIX,
         )
         return _confirmed(action, operation, tag=tagged.tag, changed=tagged.changed)
 
@@ -246,8 +238,11 @@ async def exec_manage_tags(action: PendingAction, user_id: str) -> JsonValue:
             source=_AGENT_SOURCE,
             tagged_at=tagged_at,
         )
-        untagged = await _commit(
-            lambda uow: UntagTrackUseCase().execute(untag_command, uow), user_id
+        untagged = await commit(
+            lambda uow: UntagTrackUseCase().execute(untag_command, uow),
+            user_id,
+            not_found=_COMMIT_NOT_FOUND,
+            invalid_prefix=_COMMIT_INVALID_PREFIX,
         )
         return _confirmed(action, operation, tag=untagged.tag, changed=untagged.changed)
 
@@ -263,8 +258,11 @@ async def exec_manage_tags(action: PendingAction, user_id: str) -> JsonValue:
             source=_AGENT_SOURCE,
             tagged_at=tagged_at,
         )
-        batched = await _commit(
-            lambda uow: BatchTagTracksUseCase().execute(batch_command, uow), user_id
+        batched = await commit(
+            lambda uow: BatchTagTracksUseCase().execute(batch_command, uow),
+            user_id,
+            not_found=_COMMIT_NOT_FOUND,
+            invalid_prefix=_COMMIT_INVALID_PREFIX,
         )
         return _confirmed(
             action,
@@ -280,8 +278,11 @@ async def exec_manage_tags(action: PendingAction, user_id: str) -> JsonValue:
             source=str(details["source_tag"]),
             target=str(details["target_tag"]),
         )
-        renamed = await _commit(
-            lambda uow: RenameTagUseCase().execute(rename_command, uow), user_id
+        renamed = await commit(
+            lambda uow: RenameTagUseCase().execute(rename_command, uow),
+            user_id,
+            not_found=_COMMIT_NOT_FOUND,
+            invalid_prefix=_COMMIT_INVALID_PREFIX,
         )
         return _confirmed(
             action,
@@ -297,8 +298,11 @@ async def exec_manage_tags(action: PendingAction, user_id: str) -> JsonValue:
             source=str(details["source_tag"]),
             target=str(details["target_tag"]),
         )
-        merged = await _commit(
-            lambda uow: MergeTagsUseCase().execute(merge_command, uow), user_id
+        merged = await commit(
+            lambda uow: MergeTagsUseCase().execute(merge_command, uow),
+            user_id,
+            not_found=_COMMIT_NOT_FOUND,
+            invalid_prefix=_COMMIT_INVALID_PREFIX,
         )
         return _confirmed(
             action,
@@ -310,8 +314,11 @@ async def exec_manage_tags(action: PendingAction, user_id: str) -> JsonValue:
 
     if operation == "delete":
         delete_command = DeleteTagCommand(user_id=user_id, tag=str(details["tag"]))
-        deleted = await _commit(
-            lambda uow: DeleteTagUseCase().execute(delete_command, uow), user_id
+        deleted = await commit(
+            lambda uow: DeleteTagUseCase().execute(delete_command, uow),
+            user_id,
+            not_found=_COMMIT_NOT_FOUND,
+            invalid_prefix=_COMMIT_INVALID_PREFIX,
         )
         return _confirmed(
             action,

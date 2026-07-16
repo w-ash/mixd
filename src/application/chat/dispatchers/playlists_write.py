@@ -26,6 +26,7 @@ from collections.abc import Mapping
 from uuid import UUID
 
 from src.application.chat.dispatchers._common import (
+    commit,
     opt_int,
     opt_str,
     project_playlist,
@@ -37,7 +38,6 @@ from src.application.chat.dispatchers._common import (
 )
 from src.application.chat.pending_actions import PendingAction
 from src.application.chat.protocols import ToolContext
-from src.application.runner import execute_use_case
 from src.application.use_cases.add_playlist_tracks import (
     AddPlaylistTracksCommand,
     AddPlaylistTracksUseCase,
@@ -67,7 +67,19 @@ from src.application.use_cases.update_canonical_playlist import (
     UpdateCanonicalPlaylistUseCase,
 )
 from src.domain.entities.shared import JsonDict, JsonValue
-from src.domain.exceptions import NotFoundError, ToolExecutionError
+from src.domain.exceptions import ToolExecutionError
+
+# Shared commit-time failure messages for the playlist and entry use cases.
+_PLAYLIST_NOT_FOUND = (
+    "The playlist no longer exists — it may have been deleted since this action "
+    "was proposed. Re-check the playlist and try again."
+)
+_PLAYLIST_INVALID_PREFIX = "The playlist operation is no longer valid"
+_ENTRY_NOT_FOUND = (
+    "The playlist, an entry, or a track no longer exists — it may have changed "
+    "since this action was proposed. Refetch the playlist and try again."
+)
+_ENTRY_INVALID_PREFIX = "The entry operation is no longer valid"
 
 # ---------------------------------------------------------------------------
 # Tool 1: manage_playlist  (create | update | delete)
@@ -133,7 +145,7 @@ def _propose_create(tool_input: Mapping[str, JsonValue], ctx: ToolContext) -> Js
 
 
 def _propose_update(tool_input: Mapping[str, JsonValue], ctx: ToolContext) -> JsonValue:
-    playlist_id = require_str(tool_input, "playlist_id")
+    playlist_id = require_uuid(tool_input, "playlist_id")
     name = opt_str(tool_input, "name")
     description = opt_str(tool_input, "description")
     if name is None and description is None:
@@ -148,7 +160,7 @@ def _propose_update(tool_input: Mapping[str, JsonValue], ctx: ToolContext) -> Js
     changes.append("Tracks are left unchanged")
     details: JsonDict = {
         "operation": "update",
-        "playlist_id": playlist_id,
+        "playlist_id": str(playlist_id),
         "name": name,
         "description": description,
         "changes": changes,
@@ -163,10 +175,10 @@ def _propose_update(tool_input: Mapping[str, JsonValue], ctx: ToolContext) -> Js
 
 
 def _propose_delete(tool_input: Mapping[str, JsonValue], ctx: ToolContext) -> JsonValue:
-    playlist_id = require_str(tool_input, "playlist_id")
+    playlist_id = require_uuid(tool_input, "playlist_id")
     details: JsonDict = {
         "operation": "delete",
-        "playlist_id": playlist_id,
+        "playlist_id": str(playlist_id),
         "changes": [
             f"Playlist {playlist_id} is permanently deleted",
             "Its tracks are preserved (they may be used in other playlists)",
@@ -215,8 +227,11 @@ async def _exec_create(d: JsonDict, user_id: str) -> JsonValue:
         description=str(description) if description is not None else None,
     )
     use_case = CreateCanonicalPlaylistUseCase(metric_config=MetricConfigProviderImpl())
-    result = await execute_use_case(
-        lambda uow: use_case.execute(command, uow), user_id=user_id
+    result = await commit(
+        lambda uow: use_case.execute(command, uow),
+        user_id,
+        not_found=_PLAYLIST_NOT_FOUND,
+        invalid_prefix=_PLAYLIST_INVALID_PREFIX,
     )
     return {
         "status": "confirmed",
@@ -243,8 +258,11 @@ async def _exec_update(d: JsonDict, user_id: str) -> JsonValue:
         playlist_description=str(description) if description is not None else None,
     )
     use_case = UpdateCanonicalPlaylistUseCase(metric_config=MetricConfigProviderImpl())
-    result = await execute_use_case(
-        lambda uow: use_case.execute(command, uow), user_id=user_id
+    result = await commit(
+        lambda uow: use_case.execute(command, uow),
+        user_id,
+        not_found=_PLAYLIST_NOT_FOUND,
+        invalid_prefix=_PLAYLIST_INVALID_PREFIX,
     )
     return {
         "status": "confirmed",
@@ -261,9 +279,11 @@ async def _exec_delete(d: JsonDict, user_id: str) -> JsonValue:
         playlist_id=str(d["playlist_id"]),
         force_delete=True,
     )
-    result = await execute_use_case(
+    result = await commit(
         lambda uow: DeleteCanonicalPlaylistUseCase().execute(command, uow),
-        user_id=user_id,
+        user_id,
+        not_found=_PLAYLIST_NOT_FOUND,
+        invalid_prefix=_PLAYLIST_INVALID_PREFIX,
     )
     return {
         "status": "confirmed",
@@ -284,21 +304,11 @@ async def exec_manage_playlist(action: PendingAction, user_id: str) -> JsonValue
     """
     d = action.details
     operation = str(d["operation"])
-    try:
-        if operation == "create":
-            return await _exec_create(d, user_id)
-        if operation == "update":
-            return await _exec_update(d, user_id)
-        return await _exec_delete(d, user_id)
-    except NotFoundError as e:
-        raise ToolExecutionError(
-            "The playlist no longer exists — it may have been deleted since this "
-            "action was proposed. Re-check the playlist and try again."
-        ) from e
-    except ValueError as e:
-        raise ToolExecutionError(
-            f"The playlist operation is no longer valid: {e}"
-        ) from e
+    if operation == "create":
+        return await _exec_create(d, user_id)
+    if operation == "update":
+        return await _exec_update(d, user_id)
+    return await _exec_delete(d, user_id)
 
 
 # ---------------------------------------------------------------------------
@@ -473,9 +483,11 @@ async def _exec_add(d: JsonDict, user_id: str) -> JsonValue:
         track_ids=[UUID(str(t)) for t in _as_list(d["track_ids"])],
         position=int(raw_position) if isinstance(raw_position, int) else None,
     )
-    result = await execute_use_case(
+    result = await commit(
         lambda uow: AddPlaylistTracksUseCase().execute(command, uow),
-        user_id=user_id,
+        user_id,
+        not_found=_ENTRY_NOT_FOUND,
+        invalid_prefix=_ENTRY_INVALID_PREFIX,
     )
     return {
         "status": "confirmed",
@@ -491,9 +503,11 @@ async def _exec_remove(d: JsonDict, user_id: str) -> JsonValue:
         playlist_id=UUID(str(d["playlist_id"])),
         entry_ids=[UUID(str(e)) for e in _as_list(d["entry_ids"])],
     )
-    result = await execute_use_case(
+    result = await commit(
         lambda uow: RemovePlaylistEntriesUseCase().execute(command, uow),
-        user_id=user_id,
+        user_id,
+        not_found=_ENTRY_NOT_FOUND,
+        invalid_prefix=_ENTRY_INVALID_PREFIX,
     )
     return {
         "status": "confirmed",
@@ -509,9 +523,11 @@ async def _exec_reorder(d: JsonDict, user_id: str) -> JsonValue:
         playlist_id=UUID(str(d["playlist_id"])),
         entry_ids=[UUID(str(e)) for e in _as_list(d["entry_ids"])],
     )
-    result = await execute_use_case(
+    result = await commit(
         lambda uow: ReorderPlaylistEntriesUseCase().execute(command, uow),
-        user_id=user_id,
+        user_id,
+        not_found=_ENTRY_NOT_FOUND,
+        invalid_prefix=_ENTRY_INVALID_PREFIX,
     )
     return {
         "status": "confirmed",
@@ -525,9 +541,11 @@ async def _exec_repair(d: JsonDict, user_id: str) -> JsonValue:
         user_id=user_id,
         playlist_id=UUID(str(d["playlist_id"])),
     )
-    result = await execute_use_case(
+    result = await commit(
         lambda uow: RepairUnresolvedEntriesUseCase().execute(command, uow),
-        user_id=user_id,
+        user_id,
+        not_found=_ENTRY_NOT_FOUND,
+        invalid_prefix=_ENTRY_INVALID_PREFIX,
     )
     return {
         "status": "confirmed",
@@ -556,22 +574,13 @@ async def exec_manage_playlist_entries(
     """
     d = action.details
     operation = str(d["operation"])
-    try:
-        if operation == "add":
-            return await _exec_add(d, user_id)
-        if operation == "remove":
-            return await _exec_remove(d, user_id)
-        if operation == "reorder":
-            return await _exec_reorder(d, user_id)
-        return await _exec_repair(d, user_id)
-    except NotFoundError as e:
-        raise ToolExecutionError(
-            "The playlist, an entry, or a track no longer exists — it may have "
-            "changed since this action was proposed. Refetch the playlist and try "
-            "again."
-        ) from e
-    except ValueError as e:
-        raise ToolExecutionError(f"The entry operation is no longer valid: {e}") from e
+    if operation == "add":
+        return await _exec_add(d, user_id)
+    if operation == "remove":
+        return await _exec_remove(d, user_id)
+    if operation == "reorder":
+        return await _exec_reorder(d, user_id)
+    return await _exec_repair(d, user_id)
 
 
 SPECS: list[dict[str, object]] = [

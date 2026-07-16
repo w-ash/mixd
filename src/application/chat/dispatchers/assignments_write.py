@@ -17,6 +17,7 @@ from collections.abc import Mapping
 from uuid import UUID
 
 from src.application.chat.dispatchers._common import (
+    commit,
     propose_action,
     require_choice,
     require_str,
@@ -24,7 +25,6 @@ from src.application.chat.dispatchers._common import (
 )
 from src.application.chat.pending_actions import PendingAction
 from src.application.chat.protocols import ToolContext
-from src.application.runner import execute_use_case
 from src.application.use_cases.create_and_apply_assignment import (
     CreateAndApplyAssignmentCommand,
     CreateAndApplyAssignmentUseCase,
@@ -42,10 +42,17 @@ from src.domain.entities.playlist_assignment import (
     PlaylistAssignment,
 )
 from src.domain.entities.shared import JsonDict, JsonValue
-from src.domain.exceptions import NotFoundError, ToolExecutionError
+from src.domain.exceptions import ToolExecutionError
 
 _OPERATIONS = ("create", "create_and_apply", "delete")
 _ACTION_TYPES = ("set_preference", "add_tag")
+
+# Shared commit-time failure messages for the create/create_and_apply paths.
+_ASSIGN_NOT_FOUND = (
+    "The connector playlist could not be found — it may have been removed since "
+    "this assignment was proposed. Re-check and try again."
+)
+_ASSIGN_INVALID_PREFIX = "The assignment failed validation at confirm time"
 
 
 MANAGE_PLAYLIST_ASSIGNMENTS_INPUT_SCHEMA: JsonDict = {
@@ -187,21 +194,12 @@ async def exec_manage_playlist_assignments(
             action_type=_to_action_type(str(details["action_type"])),
             raw_action_value=str(details["action_value"]),
         )
-        try:
-            result = await execute_use_case(
-                lambda uow: CreatePlaylistAssignmentUseCase().execute(command, uow),
-                user_id=user_id,
-            )
-        except NotFoundError as e:
-            raise ToolExecutionError(
-                "The connector playlist could not be found — it may have been "
-                "removed since this assignment was proposed. Re-check and try "
-                "again."
-            ) from e
-        except ValueError as e:
-            raise ToolExecutionError(
-                f"The assignment failed validation at confirm time: {e}"
-            ) from e
+        result = await commit(
+            lambda uow: CreatePlaylistAssignmentUseCase().execute(command, uow),
+            user_id,
+            not_found=_ASSIGN_NOT_FOUND,
+            invalid_prefix=_ASSIGN_INVALID_PREFIX,
+        )
         return {
             "status": "confirmed",
             "operation": operation,
@@ -217,23 +215,12 @@ async def exec_manage_playlist_assignments(
             action_type=_to_action_type(str(details["action_type"])),
             raw_action_value=str(details["action_value"]),
         )
-        try:
-            apply_outcome = await execute_use_case(
-                lambda uow: CreateAndApplyAssignmentUseCase().execute(
-                    apply_command, uow
-                ),
-                user_id=user_id,
-            )
-        except NotFoundError as e:
-            raise ToolExecutionError(
-                "The connector playlist could not be found — it may have been "
-                "removed since this assignment was proposed. Re-check and try "
-                "again."
-            ) from e
-        except ValueError as e:
-            raise ToolExecutionError(
-                f"The assignment failed validation at confirm time: {e}"
-            ) from e
+        apply_outcome = await commit(
+            lambda uow: CreateAndApplyAssignmentUseCase().execute(apply_command, uow),
+            user_id,
+            not_found=_ASSIGN_NOT_FOUND,
+            invalid_prefix=_ASSIGN_INVALID_PREFIX,
+        )
         apply_result = apply_outcome.apply_result
         return {
             "status": "confirmed",
@@ -252,20 +239,15 @@ async def exec_manage_playlist_assignments(
             user_id=user_id,
             assignment_id=UUID(str(details["assignment_id"])),
         )
-        try:
-            deleted = await execute_use_case(
-                lambda uow: DeletePlaylistAssignmentUseCase().execute(
-                    delete_command, uow
-                ),
-                user_id=user_id,
-            )
-        except NotFoundError as e:
-            raise ToolExecutionError(
+        deleted = await commit(
+            lambda uow: DeletePlaylistAssignmentUseCase().execute(delete_command, uow),
+            user_id,
+            not_found=(
                 "The assignment no longer exists — it may have already been "
                 "deleted. Nothing to do."
-            ) from e
-        except ValueError as e:
-            raise ToolExecutionError(f"The assignment could not be deleted: {e}") from e
+            ),
+            invalid_prefix="The assignment could not be deleted",
+        )
         return {
             "status": "confirmed",
             "operation": operation,

@@ -1,6 +1,5 @@
 """Main CLI application entry point and command routing."""
 
-from pathlib import Path
 import sys
 from typing import Annotated
 
@@ -115,13 +114,20 @@ def init_cli(
     # serve session's protocol stream or an install --print pipe.
     mcp_group = ctx.invoked_subcommand == "mcp"
     setup_logging(verbose, console_stream=sys.stderr if mcp_group else None)
-    Path("data").mkdir(exist_ok=True)
-    if mcp_group:
-        return
 
     from src.config import log_startup_warnings
 
+    # Protocol-safe under `mixd mcp serve`: log_startup_warnings goes to
+    # structlog → stderr, so it runs for every invocation including the mcp
+    # group. Everything below the early return would touch stdout (Rich) or the
+    # filesystem (data/ mkdir) and is skipped for mcp.
     log_startup_warnings()
+    if mcp_group:
+        return
+
+    from src.config.settings import ensure_data_dir
+
+    ensure_data_dir()
     _warn_if_no_data()
 
 
