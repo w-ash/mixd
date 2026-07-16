@@ -94,3 +94,39 @@ def server_entry(user_id: str | None) -> JsonDict:
 def build_client_config(user_id: str | None) -> JsonDict:
     """The ``mcpServers`` snippet a client merges into its config."""
     return {"mcpServers": {"mixd": server_entry(user_id)}}
+
+
+# --- remote (v0.9.5) ----------------------------------------------------------
+
+
+def remote_claude_code_command(url: str) -> str:
+    """The ``claude mcp add`` command for the hosted HTTP transport."""
+    return f"claude mcp add --transport http mixd {url}"
+
+
+def remote_client_location(client: str, url: str) -> str:
+    """Human guidance for wiring ``client`` to the hosted server.
+
+    No user id anywhere: identity comes from the one-time browser OAuth
+    consent, not the environment — the token is bound to whoever approves.
+    Claude Desktop configures remote servers in its UI (Settings →
+    Connectors), not ``claude_desktop_config.json``, so it gets guidance
+    text instead of a file path.
+    """
+    if client == "claude-code":
+        return f"run: {remote_claude_code_command(url)}"
+    if client == "claude-desktop":
+        return (
+            "Settings → Connectors → Add custom connector, then paste the "
+            f"server URL: {url}"
+        )
+    return CLIENTS[client][1]
+
+
+def build_remote_client_config(url: str) -> JsonDict:
+    """The ``mcpServers`` snippet for a file-based client (Cursor).
+
+    A remote entry is ``{url}`` (HTTP transport), not ``{command, args}`` —
+    the client connects over HTTPS and runs the OAuth consent on first use.
+    """
+    return {"mcpServers": {"mixd": {"url": url}}}

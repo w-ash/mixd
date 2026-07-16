@@ -20,7 +20,9 @@ from src.interface.mcp.install import (
     CLIENTS,
     SUPPORTED_CLIENTS,
     build_client_config,
+    build_remote_client_config,
     client_location,
+    remote_client_location,
 )
 
 app = typer.Typer(help="Expose mixd to MCP clients (Claude Desktop, Cursor, …)")
@@ -56,6 +58,21 @@ def install(
         bool,
         typer.Option("--print", help="Emit raw JSON to stdout only (no guidance)."),
     ] = False,
+    remote: Annotated[
+        bool,
+        typer.Option(
+            "--remote",
+            help="Wire the client to the hosted server (HTTP + OAuth) instead "
+            "of a local stdio subprocess.",
+        ),
+    ] = False,
+    url: Annotated[
+        str,
+        typer.Option(
+            help="Hosted MCP server URL for --remote (defaults to the "
+            "configured MCP_RESOURCE_URI).",
+        ),
+    ] = "",
 ) -> None:
     """Print the config snippet to register mixd with an MCP client."""
     if client not in SUPPORTED_CLIENTS:
@@ -63,6 +80,10 @@ def install(
             f"'{client}' is not supported — expected one of: "
             f"{', '.join(SUPPORTED_CLIENTS)}."
         )
+    if remote:
+        _install_remote(client, url, print_json=print_json)
+        return
+
     user_id = get_cli_user_id()
     config = build_client_config(user_id)
     payload = json.dumps(config, indent=2)
@@ -80,4 +101,32 @@ def install(
     console.print(
         "Merge the [bold]mcpServers[/bold] block above into that config "
         "(preserving any existing servers), then restart the client."
+    )
+
+
+def _install_remote(client: str, url: str, *, print_json: bool) -> None:
+    """The ``--remote`` variant: hosted URL + OAuth consent, no local process."""
+    from src.config import settings
+
+    server_url = url or settings.mcp_oauth.resource_uri
+    config = build_remote_client_config(server_url)
+    payload = json.dumps(config, indent=2)
+
+    if print_json:
+        typer.echo(payload)
+        return
+
+    label = CLIENTS[client][0]
+    console.print(f"[bold]Connect {label} to your hosted mixd[/bold]")
+    console.print(f"[dim]Server URL:[/dim] {server_url}")
+    console.print(f"[dim]How:[/dim] {remote_client_location(client, server_url)}")
+    if client == "cursor":
+        console.print(Syntax(payload, "json", theme="ansi_dark"))
+        console.print(
+            "Merge the [bold]mcpServers[/bold] block above into that config "
+            "(preserving any existing servers), then restart the client."
+        )
+    console.print(
+        "On first use the client opens your browser for a one-time consent — "
+        "approve it on the mixd account whose library the agent should act on."
     )

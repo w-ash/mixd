@@ -15,6 +15,7 @@ from src.interface.cli.app import app
 from src.interface.mcp import install as install_mod
 from src.interface.mcp.install import (
     build_client_config,
+    build_remote_client_config,
     claude_code_command,
     client_location,
     server_entry,
@@ -135,3 +136,73 @@ class TestServeCommand:
         result = runner.invoke(app, ["mcp", "serve"])
         assert result.exit_code == 0
         assert seen["user_id"] == BusinessLimits.DEFAULT_USER_ID
+
+
+class TestRemoteInstall:
+    """``--remote`` (v0.9.5): hosted URL + OAuth, never a local subprocess."""
+
+    def test_print_emits_url_config_only(self) -> None:
+        result = runner.invoke(
+            app,
+            ["mcp", "install", "--remote", "--url", "https://mixd.me/mcp", "--print"],
+        )
+        assert result.exit_code == 0
+        parsed = json.loads(result.stdout)
+        assert parsed == {"mcpServers": {"mixd": {"url": "https://mixd.me/mcp"}}}
+
+    def test_remote_config_has_no_command_or_user_env(self) -> None:
+        config = build_remote_client_config("https://mixd.me/mcp")
+        entry = config["mcpServers"]["mixd"]  # type: ignore[index]
+        assert entry == {"url": "https://mixd.me/mcp"}
+
+    def test_claude_code_gets_http_transport_command(self) -> None:
+        result = runner.invoke(
+            app,
+            [
+                "mcp",
+                "install",
+                "--remote",
+                "--client",
+                "claude-code",
+                "--url",
+                "https://mixd.me/mcp",
+            ],
+        )
+        assert result.exit_code == 0
+        assert "claude mcp add --transport http mixd https://mixd.me/mcp" in (
+            result.stdout
+        )
+
+    def test_claude_desktop_gets_connector_ui_guidance_not_a_file(self) -> None:
+        # Desktop remote connectors are UI-configured — a config-file snippet
+        # would send the user to a file that can't express an HTTP server.
+        result = runner.invoke(
+            app,
+            [
+                "mcp",
+                "install",
+                "--remote",
+                "--client",
+                "claude-desktop",
+                "--url",
+                "https://mixd.me/mcp",
+            ],
+        )
+        assert result.exit_code == 0
+        assert "Connectors" in result.stdout
+        assert "claude_desktop_config.json" not in result.stdout
+
+    def test_url_defaults_to_configured_resource_uri(self) -> None:
+        result = runner.invoke(app, ["mcp", "install", "--remote", "--print"])
+        assert result.exit_code == 0
+        parsed = json.loads(result.stdout)
+        from src.config import settings
+
+        entry = parsed["mcpServers"]["mixd"]
+        assert entry["url"] == settings.mcp_oauth.resource_uri
+
+    def test_local_install_unchanged_by_remote_flag_absence(self) -> None:
+        result = runner.invoke(app, ["mcp", "install", "--print"])
+        assert result.exit_code == 0
+        parsed = json.loads(result.stdout)
+        assert "command" in parsed["mcpServers"]["mixd"]

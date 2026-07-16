@@ -25,6 +25,7 @@ import socket
 from typing import cast, override
 from urllib.parse import urlparse
 
+from attrs import define
 import httpx
 from mcp.shared.auth import (
     InvalidRedirectUriError,
@@ -94,22 +95,44 @@ class CIMDClient(OAuthClientInformationFull):
         return False
 
 
-def _assert_public_https(url: str) -> None:
-    """Reject non-https URLs and hosts that resolve to non-public addresses."""
+@define(frozen=True, slots=True)
+class _PinnedTarget:
+    """A CIMD URL resolved to one validated public IP, with the fetch URL."""
+
+    host: str
+    port: int
+    ip: str
+    fetch_url: str
+
+
+def _assert_public_https(url: str) -> _PinnedTarget:
+    """Validate the URL and resolve it to a pinned public IP.
+
+    Every resolved address must be public (SSRF guard). The returned target
+    pins the *specific* IP the fetch will connect to, so a rebinding DNS
+    answer between validation and connection can't redirect the request at an
+    internal host — closing the TOCTOU window. TLS SNI/cert validation still
+    uses the original hostname (see ``resolve_cimd_client``).
+    """
     parsed = urlparse(url)
     if parsed.scheme != "https":
         raise CIMDResolutionError("client_id metadata URL must be https")
     host = parsed.hostname
     if not host:
         raise CIMDResolutionError("client_id metadata URL has no host")
+    port = parsed.port or 443
     try:
-        infos = socket.getaddrinfo(host, parsed.port or 443, proto=socket.IPPROTO_TCP)
+        infos = socket.getaddrinfo(host, port, proto=socket.IPPROTO_TCP)
     except socket.gaierror as err:
         raise CIMDResolutionError(f"client_id host does not resolve: {host}") from err
     for info in infos:
         address = ipaddress.ip_address(info[4][0])
         if not address.is_global:
             raise CIMDResolutionError("client_id host resolves to a non-public address")
+    pinned_ip = str(infos[0][4][0])
+    bracketed = f"[{pinned_ip}]" if ":" in pinned_ip else pinned_ip
+    fetch_url = parsed._replace(netloc=f"{bracketed}:{port}").geturl()
+    return _PinnedTarget(host=host, port=port, ip=pinned_ip, fetch_url=fetch_url)
 
 
 async def resolve_cimd_client(client_id: str) -> CIMDClient:
@@ -127,12 +150,19 @@ async def resolve_cimd_client(client_id: str) -> CIMDClient:
     ):
         return _to_client(client_id, cached.client_info)
 
-    _assert_public_https(client_id)
+    target = _assert_public_https(client_id)
     try:
         async with httpx.AsyncClient(
             follow_redirects=False, timeout=_FETCH_TIMEOUT_SECONDS
         ) as http:
-            response = await http.get(client_id, headers={"Accept": "application/json"})
+            # Connect to the pre-validated IP (rebinding can't redirect us),
+            # but keep the real Host header and TLS SNI so cert validation and
+            # virtual-host routing still target the original hostname.
+            response = await http.get(
+                target.fetch_url,
+                headers={"Accept": "application/json", "Host": target.host},
+                extensions={"sni_hostname": target.host},
+            )
     except httpx.HTTPError as err:
         raise CIMDResolutionError(f"metadata fetch failed: {err}") from err
     if response.status_code != _HTTP_OK:

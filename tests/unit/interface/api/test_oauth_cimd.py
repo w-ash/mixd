@@ -101,12 +101,17 @@ class TestSsrfGuards:
         with pytest.raises(CIMDResolutionError, match="non-public"):
             _assert_public_https(CLIENT_URL)
 
-    def test_public_address_accepted(self, monkeypatch: pytest.MonkeyPatch):
+    def test_public_address_accepted_and_pinned(self, monkeypatch: pytest.MonkeyPatch):
         def _resolve_public(*args: object, **kwargs: object):
             return [(socket.AF_INET, None, None, "", ("93.184.216.34", 443))]
 
         monkeypatch.setattr(socket, "getaddrinfo", _resolve_public)
-        _assert_public_https(CLIENT_URL)  # no raise
+        target = _assert_public_https(CLIENT_URL)
+        # The fetch is pinned to the validated IP (rebinding can't move it),
+        # while the Host stays the original name for TLS/vhost routing.
+        assert target.ip == "93.184.216.34"
+        assert target.host == "client.example"
+        assert "93.184.216.34" in target.fetch_url
 
     def test_unresolvable_host_rejected(self, monkeypatch: pytest.MonkeyPatch):
         def _fail(*args: object, **kwargs: object):
@@ -142,7 +147,13 @@ class _FakeAsyncClient:
 @pytest.fixture
 def fetch(monkeypatch: pytest.MonkeyPatch):
     """Stub DNS + HTTP + storage; return a setter for the fetched document."""
-    monkeypatch.setattr(cimd, "_assert_public_https", lambda _url: None)
+    monkeypatch.setattr(
+        cimd,
+        "_assert_public_https",
+        lambda url: cimd._PinnedTarget(
+            host="client.example", port=443, ip="93.184.216.34", fetch_url=url
+        ),
+    )
     monkeypatch.setattr(cimd.httpx, "AsyncClient", _FakeAsyncClient)
 
     async def _no_cache(_client_id: str) -> None:

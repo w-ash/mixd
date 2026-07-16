@@ -16,12 +16,14 @@ provider owns what is mixd-specific:
 
 from datetime import UTC, datetime, timedelta
 import secrets
+from urllib.parse import urlparse
 from uuid import UUID, uuid7
 
 from mcp.server.auth.provider import (
     AccessToken,
     AuthorizationCode,
     AuthorizationParams,
+    AuthorizeError,
     IdentityAssertionParams,
     RefreshToken,
     TokenError,
@@ -40,6 +42,26 @@ from src.interface.api.oauth.cimd import (
 from src.interface.api.oauth.tokens import mint_access_token, verify_access_token
 
 logger = get_logger(__name__)
+
+_LOOPBACK_HOSTS = frozenset({"localhost", "127.0.0.1", "::1"})
+
+
+def _reject_dangerous_redirect(redirect_uri: str) -> None:
+    """Reject any redirect scheme that could execute in the browser.
+
+    Only ``https`` (any host) and ``http`` (loopback only, RFC 8252) may ever
+    reach ``window.location`` at consent time. ``javascript:``/``data:``/etc.
+    would be an XSS sink.
+    """
+    parsed = urlparse(redirect_uri)
+    if parsed.scheme == "https":
+        return
+    if parsed.scheme == "http" and parsed.hostname in _LOOPBACK_HOSTS:
+        return
+    raise AuthorizeError(
+        error="invalid_request",
+        error_description="redirect_uri scheme must be https (or http on loopback)",
+    )
 
 
 class MixdAuthorizationCode(AuthorizationCode):
@@ -88,7 +110,16 @@ class MixdOAuthProvider:
     async def authorize(
         self, client: OAuthClientInformationFull, params: AuthorizationParams
     ) -> str:
-        """Park the request and send the user to the web app's consent page."""
+        """Park the request and send the user to the web app's consent page.
+
+        Rejects a ``redirect_uri`` whose scheme isn't http(s) *here*, before
+        the URL is ever stored or handed to ``window.location`` at consent
+        time: the SDK's ``validate_redirect_uri`` only checks registration
+        membership, so a client that registered a ``javascript:``/``data:``
+        URI would otherwise get it echoed back into the browser (XSS). ``http``
+        is allowed only for loopback (RFC 8252 native-client callbacks).
+        """
+        _reject_dangerous_redirect(str(params.redirect_uri))
         request_id = await storage.create_authorization_request(
             client_id=client.client_id or "",
             client_name=client.client_name,

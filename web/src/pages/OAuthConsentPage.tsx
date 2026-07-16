@@ -41,7 +41,12 @@ export function OAuthConsentPage() {
     if (result.status === 200) {
       setDecided(true);
       // Hand the browser to the client's callback — this leaves the app.
-      window.location.assign(result.data.redirect_url);
+      // Defense-in-depth over the server's scheme check: never navigate to a
+      // javascript:/data: URI even if one somehow reached us.
+      const target = new URL(result.data.redirect_url);
+      if (target.protocol === "http:" || target.protocol === "https:") {
+        window.location.assign(target.toString());
+      }
     }
   };
 
