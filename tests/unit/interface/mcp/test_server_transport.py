@@ -25,7 +25,7 @@ from tests.fixtures import InMemoryPendingActionStore
 @asynccontextmanager
 async def _connected_client() -> AsyncIterator[ClientSession]:
     """Yield an initialised client session wired to the mixd server."""
-    built = server.build_server("default")
+    built = server.build_server(lambda: "default")
     async with create_client_server_memory_streams() as (
         client_streams,
         server_streams,

@@ -113,8 +113,26 @@ async def lifespan(_app: FastAPI) -> AsyncGenerator[None]:
             name="workflow_scheduler",
         )
 
+    # Remote MCP (v0.9.5): the Streamable-HTTP session manager's task group
+    # must be entered for the /mcp mount to serve requests; created in
+    # create_app() when a signing key is configured, None otherwise. The exit
+    # stack unwinds it after the finally block, so MCP stops last.
+    from typing import cast
+
+    from mcp.server.streamable_http_manager import StreamableHTTPSessionManager
+
+    # getattr chain tolerates a bare/None app (the lifespan-logging test calls
+    # lifespan(None) directly); only create_app()-built apps carry the manager.
+    mcp_manager = cast(
+        "StreamableHTTPSessionManager | None",
+        getattr(getattr(_app, "state", None), "mcp_session_manager", None),
+    )
+
     try:
-        yield
+        async with contextlib.AsyncExitStack() as stack:
+            if mcp_manager is not None:
+                await stack.enter_async_context(mcp_manager.run())
+            yield
     finally:
         # Cleanup must run even if the lifespan body raises, so background
         # tasks and the progress subscription are never leaked on shutdown.
@@ -226,12 +244,62 @@ def create_app() -> FastAPI:
 
     # Remote MCP surface (v0.9.5) — only when a signing key is configured.
     # No prefix: OAuth/MCP clients fetch discovery documents unauthenticated.
+    app.state.mcp_session_manager = None
     if settings.mcp_oauth.enabled:
+        from mcp.server.auth.routes import create_protected_resource_routes
+        from mcp.server.streamable_http_manager import StreamableHTTPSessionManager
+        from mcp.server.transport_security import TransportSecuritySettings
+        from pydantic import AnyHttpUrl
+        from starlette.routing import Route
+
         from src.interface.api.oauth.keys import get_signing_material
         from src.interface.api.routes.well_known import router as well_known_router
+        from src.interface.mcp.http import (
+            build_mcp_asgi_app,
+            resolve_request_user_id,
+            transport_allowed_hosts,
+            transport_allowed_origins,
+        )
+        from src.interface.mcp.server import build_server
 
         get_signing_material()  # fail fast on a malformed key at startup
         app.include_router(well_known_router)
+
+        # RFC 9728 Protected Resource Metadata: the SDK route lands at
+        # /.well-known/oauth-protected-resource/mcp (well-known prefix + the
+        # resource's path); an alias at the bare path covers clients that
+        # probe the path-less form.
+        prm_routes = create_protected_resource_routes(
+            resource_url=AnyHttpUrl(settings.mcp_oauth.resource_uri),
+            authorization_servers=[AnyHttpUrl(settings.mcp_oauth.issuer_url)],
+        )
+        app.router.routes.extend(prm_routes)
+        app.router.routes.append(
+            Route(
+                "/.well-known/oauth-protected-resource",
+                endpoint=prm_routes[0].endpoint,
+                methods=["GET", "OPTIONS"],
+            )
+        )
+
+        # Streamable-HTTP transport at /mcp: stateless (any request on any
+        # machine), identity per request from the validated bearer token, and
+        # the DNS-rebinding guard pinned to the deployment's hosts (never the
+        # SDK's localhost default, which would reject production traffic).
+        # Registered as an exact-path Route with an ASGI endpoint — a Mount
+        # would miss the bare `POST /mcp` every MCP client sends.
+        session_manager = StreamableHTTPSessionManager(
+            app=build_server(resolve_request_user_id),
+            stateless=True,
+            security_settings=TransportSecuritySettings(
+                allowed_hosts=transport_allowed_hosts(),
+                allowed_origins=transport_allowed_origins(),
+            ),
+        )
+        app.state.mcp_session_manager = session_manager
+        app.router.routes.append(
+            Route("/mcp", endpoint=build_mcp_asgi_app(session_manager.handle_request))
+        )
 
     app.include_router(health_router, prefix="/api/v1")
     app.include_router(stats_router, prefix="/api/v1")

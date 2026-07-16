@@ -27,7 +27,7 @@ Iterating the registry into ``list_tools``/``call_tool`` is the faithful fit and
 what the v0.9.3 plan prescribes.
 """
 
-from collections.abc import Mapping
+from collections.abc import Callable, Mapping
 import json
 from typing import cast
 
@@ -137,15 +137,24 @@ async def _handle_list_tools(
     return ListToolsResult(tools=[_to_mcp_tool(spec) for spec in exposed_specs()])
 
 
-def _build_call_handler(user_id: str):
-    """Bind the acting user id into the tools/call handler (stateless per call)."""
+def _build_call_handler(resolve_user_id: Callable[[], str]):
+    """Bind an identity resolver into the tools/call handler (stateless per call).
+
+    The resolver runs per call: stdio passes a constant (identity fixed at
+    process start, from the environment); the remote HTTP transport passes
+    ``http.resolve_request_user_id`` (identity from the request's validated
+    bearer token), so one server instance safely serves many users.
+    """
     exposed = {spec.name: spec for spec in exposed_specs()}
 
     async def _handle_call_tool(
         _context: ServerRequestContext[object, CallToolRequestParams],
         params: CallToolRequestParams,
     ) -> CallToolResult:
-        ctx = ToolContext(user_id=user_id)
+        try:
+            ctx = ToolContext(user_id=resolve_user_id())
+        except ToolExecutionError as e:
+            return _text_result({"error": str(e)}, is_error=True)
         arguments: dict[str, JsonValue] = dict(params.arguments or {})
         spec = exposed.get(params.name)
         if spec is None:
@@ -171,12 +180,12 @@ def _build_call_handler(user_id: str):
     return _handle_call_tool
 
 
-def build_server(user_id: str) -> Server[object]:
-    """Assemble the MCP server bound to ``user_id`` (identity from the env)."""
+def build_server(resolve_user_id: Callable[[], str]) -> Server[object]:
+    """Assemble the MCP server with a per-call identity resolver."""
     server: Server[object] = Server(SERVER_NAME)
     server.add_request_handler("tools/list", PaginatedRequestParams, _handle_list_tools)
     server.add_request_handler(
-        "tools/call", CallToolRequestParams, _build_call_handler(user_id)
+        "tools/call", CallToolRequestParams, _build_call_handler(resolve_user_id)
     )
     return server
 
@@ -185,7 +194,7 @@ async def serve_stdio(user_id: str) -> None:
     """Run the MCP server over stdio until the client disconnects."""
     from mcp.server.stdio import stdio_server
 
-    server = build_server(user_id)
+    server = build_server(lambda: user_id)
     logger.info(
         "mcp_server_start",
         user_id=user_id,
