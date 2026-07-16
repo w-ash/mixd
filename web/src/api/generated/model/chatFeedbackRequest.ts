@@ -3,7 +3,7 @@
  * Do not edit manually.
  * Mixd
  * Personal music metadata hub
- * OpenAPI spec version: 0.9.4
+ * OpenAPI spec version: 0.9.5
  */
 import type { ChatFeedbackRequestGeneratedWorkflowDef } from './chatFeedbackRequestGeneratedWorkflowDef.ts';
 import type { ChatFeedbackRequestSignal } from './chatFeedbackRequestSignal.ts';

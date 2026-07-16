@@ -6,6 +6,24 @@ linked backlog version file. Versioning follows mixd's four-segment
 `major.minor.feature.revision` scheme (`.claude/rules/version-management.md`), not strict
 SemVer. Format inspired by [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [0.9.5] — 2026-07-16
+
+**Your production library, from any agent.** Until now an MCP client could only reach a mixd library by launching `mixd mcp serve` locally against a local database. v0.9.5 makes the exact same read + confirmable-write tools reachable over authenticated HTTPS at `https://mixd.me/mcp` — point Claude Code, Cursor, or Claude Desktop at your hosted account from any machine, authorize it once in the browser, and it acts as you, scoped to your rows, with every write still gated by an explicit confirmation. One tool registry, three transports (in-app chat, local stdio, remote HTTP); the local stdio server is untouched.
+
+What you can do now:
+- **Drive your hosted library from any MCP client, anywhere.** `mixd mcp install --remote --client cursor|claude-code|claude-desktop` wires the client to the production URL; first use opens a one-time browser consent on your existing mixd account.
+- **Per-user, no shared key.** A client authenticates *as you* via an audience-bound OAuth token; every tool call is row-level-security-scoped exactly like the web UI. Only accounts on the deployment's allowlist can complete consent.
+
+How it works (for operators):
+- **The remote endpoint is an OAuth 2.1 resource server *and* a minimal authorization server in one process.** mixd validates its own audience-bound EdDSA JWTs locally (no per-call auth round-trip) and serves its public key at `/.well-known/jwks.json`. The spike confirmed Neon Auth cannot be the AS (no authorize endpoint, no dynamic registration, fixed token audience), so mixd hosts the minimal AS itself — assembled from the `mcp` SDK's server-auth framework — while Neon Auth still owns the login the consent step rides on (`src/interface/api/oauth/`, `src/interface/mcp/http.py`).
+- **Streamable-HTTP transport mounted at `/mcp`** (stateless, identity per request from the validated token `sub`), with the DNS-rebinding guard pinned to the deployment's hosts (`src/interface/api/app.py`, migration `039`).
+- **Client registration is CIMD-first with a DCR fallback** — Anthropic clients resolve a URL `client_id` to a fetched metadata document (SSRF-guarded, pinned to a validated public IP); Cursor uses dynamic registration. Port-agnostic loopback redirect matching (RFC 8252) supports native clients (`src/interface/api/oauth/cimd.py`).
+- **The two-phase write confirmation store moved to Postgres** so a preview on one Fly machine is confirmable on another (migration `038`); the guarantee no longer depends on both calls hitting the same process.
+- **Consent is a focused page in the web app** gated on your existing session; approval binds the authorization code server-side to your account. Refresh tokens rotate on every use, and replaying a rotated-out token revokes its whole family. Redirect schemes are restricted to https (or http on loopback) to close an XSS-via-redirect sink.
+- Remote MCP is **off unless `MCP_OAUTH_SIGNING_KEY` is configured** — a deployment without it serves no `/mcp`, `/authorize`, or `/token` and is otherwise unaffected. Setup: [deployment.md](docs/deployment.md#optional--remote-mcp-v095); connection guide: [guides/mcp.md](docs/guides/mcp.md#remote-production-connection).
+
+[Full details](docs/backlog/v0.9.x.md#v095-remote-mcp-server-your-production-library-from-any-agent).
+
 ## [0.9.4] — 2026-07-16
 
 **The assistant you shipped, hardened.** A full-series review of v0.9.0–v0.9.3 turned up the failure modes that only bite in real use — a chat panel that hangs after a dropped connection or a Stop click, a confirmation card that says "Saved" when nothing saved, a long-running import launched from chat that showed no progress at all — plus two prompt-injection gaps where attacker-controlled library text reached the model with its data markers stripped. All are fixed, with the tool assistant now reclaiming context budget on the pages that don't need workflow tools.

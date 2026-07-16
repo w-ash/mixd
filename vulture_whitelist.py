@@ -100,3 +100,21 @@ NOT_YET_COVERED  # empty as of v0.9.1; the parity tripwire test asserts it stays
 voice_examples  # Voice attrs field rendered into the system prompt via the voice registry
 rules  # Voice attrs field rendered into the system prompt
 max_messages  # ChatSettings field — conversation cap read via the settings object
+
+# --- v0.9.5 remote MCP OAuth AS: SDK-protocol methods dispatched structurally, not by name ---
+# The mcp SDK's OAuthAuthorizationServerProvider Protocol + TokenVerifier Protocol are
+# invoked by the SDK's own handlers (AuthorizationHandler, TokenHandler, BearerAuthBackend),
+# so vulture can't see the call sites. Integration tests exercise all of them end-to-end.
+register_client  # MixdOAuthProvider — DCR path, called by RegistrationHandler
+authorize  # MixdOAuthProvider — called by AuthorizationHandler
+exchange_authorization_code  # MixdOAuthProvider — called by TokenHandler
+exchange_refresh_token  # MixdOAuthProvider — called by TokenHandler
+load_access_token  # MixdOAuthProvider — Protocol member
+revoke_token  # MixdOAuthProvider — Protocol member
+exchange_identity_assertion  # MixdOAuthProvider — Protocol member (unsupported grant)
+verify_token  # MixdTokenVerifier — called by the SDK BearerAuthBackend
+token_endpoint_auth_methods_supported  # OAuthMetadata field overridden for CIMD/"none"
+client_id_metadata_document_supported  # OAuthMetadata field — Anthropic clients key CIMD on it
+authorization_response_iss_parameter_supported  # OAuthMetadata field — RFC 9207
+ip  # _PinnedTarget field — the validated public IP the CIMD fetch connects to
+jti  # MCP access-token claim (JWT id)

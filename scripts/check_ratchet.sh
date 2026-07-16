@@ -8,7 +8,10 @@ cd "$(dirname "$0")/.."
 # 63 → 70 at v0.9.1: the 4 agent-parity classification frozensets (consumed by the
 # parity test + capability-matrix generator, not within src/) plus 3 v0.9.0 chat
 # names (voice attrs fields, a settings field) that vulture couldn't see used.
-BASE_WHITELIST=70
+# 70 → 83 at v0.9.5: the remote-MCP OAuth AS — 8 OAuthAuthorizationServerProvider /
+# TokenVerifier Protocol methods dispatched structurally by the mcp SDK's handlers,
+# 3 OAuthMetadata fields set for CIMD, and 2 claim/field names (jti, _PinnedTarget.ip).
+BASE_WHITELIST=83
 BASE_NOQA=13
 BASE_TYPE_IGNORE=0
 BASE_PYRIGHT_IGNORE=18

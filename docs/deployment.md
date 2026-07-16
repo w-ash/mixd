@@ -79,6 +79,28 @@ Required for full functionality:
    fly secrets set ANTHROPIC_API_KEY=sk-ant-...
    ```
 
+   Optional — Remote MCP (v0.9.5). Exposes the tool registry to external MCP
+   clients over authenticated HTTPS at `https://mixd.me/mcp` (OAuth 2.1). When
+   `MCP_OAUTH_SIGNING_KEY` is unset the whole remote-MCP surface (`/mcp`,
+   `/authorize`, `/token`, the `.well-known` documents) is simply absent — the
+   rest of the app, and the local stdio MCP server, are unaffected. Generate the
+   Ed25519 signing key once and store it base64-wrapped (Fly-secret friendly):
+   ```bash
+   # Generate an Ed25519 PKCS8 PEM, base64-encoded for the secret store:
+   python -c "from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PrivateKey; from cryptography.hazmat.primitives import serialization; import base64; print(base64.b64encode(Ed25519PrivateKey.generate().private_bytes(serialization.Encoding.PEM, serialization.PrivateFormat.PKCS8, serialization.NoEncryption())).decode())"
+
+   fly secrets set \
+     MCP_OAUTH_SIGNING_KEY="<base64 output above>" \
+     MCP_RESOURCE_URI=https://mixd.me/mcp
+   ```
+   `MCP_RESOURCE_URI` is the **canonical** audience every token is bound to — set
+   it to your public custom domain, not the `*.fly.dev` alias. The app answers on
+   both hosts, but tokens always carry `aud=https://mixd.me/mcp`. The OAuth issuer
+   defaults to that URI's origin (`https://mixd.me`); only the owner's accounts on
+   `ALLOWED_EMAILS` can complete consent. Rotating the signing key invalidates all
+   outstanding access tokens (clients transparently re-run consent). See the
+   [MCP guide's security model](guides/mcp.md#remote-production-connection).
+
 5. Deploy:
    ```bash
    fly deploy

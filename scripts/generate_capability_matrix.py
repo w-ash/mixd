@@ -32,7 +32,7 @@ from src.application.tools.registry import (
 import src.application.use_cases as use_cases_pkg
 from src.interface.mcp.exposure import mcp_exposure
 
-# Human-readable MCP-exposure cell per tool (v0.9.3). Derived from the same
+# Human-readable MCP-exposure cell per tool (v0.9.5). Derived from the same
 # ``mcp_exposure`` classifier the stdio server uses, so the doc can't drift from
 # what the server actually exposes.
 _MCP_LABEL: dict[str, str] = {
@@ -191,10 +191,11 @@ def build_matrix() -> str:
         "## Chat tools",
         "",
         "The tools the assistant calls, in registry (prompt) order. The **MCP**",
-        "column is what the `mixd mcp serve` stdio server exposes to external",
-        "clients (v0.9.3): read + synchronous write tools are exposed; agentic",
-        "tools and long-running (operation-launching) writes stay chat-only for",
-        "now — the latter pending the gated Tasks-extension epic.",
+        "column is what the MCP server exposes to external clients over both",
+        "transports — local stdio (`mixd mcp serve`) and remote authenticated",
+        "HTTPS (`https://mixd.me/mcp`, v0.9.5): read + synchronous write tools are",
+        "exposed; agentic tools and long-running (operation-launching) writes stay",
+        "chat-only for now — the latter pending the gated Tasks-extension epic.",
         "",
         "| Tool | Kind | MCP | Description |",
         "| --- | --- | --- | --- |",
