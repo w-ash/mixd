@@ -3,7 +3,7 @@
  * Do not edit manually.
  * Mixd
  * Personal music metadata hub
- * OpenAPI spec version: 0.9.3
+ * OpenAPI spec version: 0.9.4
  */
 import type { ChatMessageInput } from './chatMessageInput.ts';
 import type { ConfirmationInput } from './confirmationInput.ts';
@@ -13,7 +13,6 @@ import type { EffortLevel } from './effortLevel.ts';
  * A chat request: message history plus optional confirmation and effort.
  */
 export interface ChatRequest {
-  /** @maxItems 50 */
   messages: ChatMessageInput[];
   confirmation?: ConfirmationInput | null;
   client_date?: string | null;

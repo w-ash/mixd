@@ -28,13 +28,16 @@ mixd mcp install --print                    # raw JSON on stdout, for scripting
 
 Supported `--client` values: `claude-desktop`, `cursor`, `claude-code`.
 
-The snippet is the same `mcpServers` shape every client understands:
+The snippet is the same `mcpServers` shape every client understands. `install`
+resolves the **absolute path** to the `mixd` executable (via `which mixd` in your
+shell) and emits it as the `command`, so a GUI client launched with a minimal
+`PATH` can still find it:
 
 ```json
 {
   "mcpServers": {
     "mixd": {
-      "command": "mixd",
+      "command": "/Users/you/.local/bin/mixd",
       "args": ["mcp", "serve"]
     }
   }
@@ -51,9 +54,12 @@ Config file locations:
 
 Notes:
 
-- **`command: "mixd"`** assumes the `mixd` console script is on the client's
-  `PATH`. If mixd lives in a project venv, use the absolute path to the `mixd`
-  binary (or `uv run mixd`) as the command.
+- **`command`** is the absolute path `install` resolved for the `mixd` console
+  script — GUI clients (Claude Desktop, Cursor) spawn the server with launchd's
+  minimal `PATH`, which usually excludes the venv/pipx bin, so a bare `"mixd"`
+  would fail to launch. If `which mixd` can't resolve at install time, the
+  snippet falls back to a bare `"mixd"` and prints a warning; substitute the
+  absolute path (or `uv run mixd`) yourself in that case.
 - **Multi-user / non-default user:** set `MIXD_USER_ID` in the entry's `env` (the
   install snippet adds it automatically when your local `MIXD_USER_ID` is set to a
   non-default value). Every tool call is scoped to that user via the same

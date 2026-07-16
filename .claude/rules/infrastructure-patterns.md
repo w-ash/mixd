@@ -4,7 +4,7 @@ paths:
 ---
 # Infrastructure Layer Rules
 - Convert SQLAlchemy models to domain entities before returning to application layer — DB models stay in infrastructure
-- Import only from domain and _shared/ — infrastructure depends inward (no application or interface imports)
+- Import only from domain and _shared/ — infrastructure depends inward (no application or interface imports). **Named exception:** an adapter may import the application-owned *port/type* modules it implements (never use cases, never the runner) — `application.connector_protocols` (`Closeable`), and for the LLM adapter `application.chat.protocols` + `application.chat.events`. These are the interfaces the adapter satisfies, so importing them is realising a contract, not reaching outward into orchestration.
 - Import domain constants from domain (e.g., `DB_PSEUDO_CONNECTOR` from `domain.entities.playlist`), not from `config.constants`
 - `selectinload()` for ALL relationships (lazy loading 1000 tracks = 1001 queries; selectinload = 2)
 - `expire_on_commit=False` in all session configs

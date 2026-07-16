@@ -13,7 +13,7 @@ paths:
 - **Server**: Tanstack Query v5 — stale-while-revalidate, background refetch
 - **URL**: React Router search params for filters, pagination, search
 - **Local UI**: `useState`/`useReducer` for modals, forms, local interactions
-- **Navigation-surviving / cross-page**: Zustand — existing stores live in `web/src/stores/` (`editor-store.ts` is the pattern: typed entry-intent state machine, v0.8.10). Reuse an existing store before creating one; a new store needs state that must outlive the route and can't ride URL params or Context.
+- **Navigation-surviving / cross-page**: Zustand — existing stores live in `web/src/stores/` (`editor-store.ts`: typed entry-intent state machine, v0.8.10; `chat-store.ts`: assistant conversation + stream state, v0.9.0). Reuse an existing store before creating one; a new store needs state that must outlive the route and can't ride URL params or Context.
 - **Progress**: `useSSE` hook + Tanstack Query for real-time operation tracking
 - No Redux; no additional state libraries beyond Zustand.
 

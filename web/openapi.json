@@ -3,7 +3,7 @@
   "info": {
     "title": "Mixd",
     "description": "Personal music metadata hub",
-    "version": "0.9.3"
+    "version": "0.9.4"
   },
   "paths": {
     "/api/v1/connectors/{service}/auth-url": {
@@ -4835,7 +4835,6 @@
               "$ref": "#/components/schemas/ChatMessageInput"
             },
             "type": "array",
-            "maxItems": 50,
             "title": "Messages"
           },
           "confirmation": {

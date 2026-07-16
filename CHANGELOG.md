@@ -6,6 +6,39 @@ linked backlog version file. Versioning follows mixd's four-segment
 `major.minor.feature.revision` scheme (`.claude/rules/version-management.md`), not strict
 SemVer. Format inspired by [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [0.9.4] — 2026-07-16
+
+**The assistant you shipped, hardened.** A full-series review of v0.9.0–v0.9.3 turned up the failure modes that only bite in real use — a chat panel that hangs after a dropped connection or a Stop click, a confirmation card that says "Saved" when nothing saved, a long-running import launched from chat that showed no progress at all — plus two prompt-injection gaps where attacker-controlled library text reached the model with its data markers stripped. All are fixed, with the tool assistant now reclaiming context budget on the pages that don't need workflow tools.
+
+Reliability (chat you can trust when things go wrong):
+- **The chat panel can no longer get stuck streaming.** A network failure on send, a Stop-button click, or hitting the 50-message cap all now cleanly finalize the turn instead of leaving the input disabled forever. `isStreaming` is derived from the messages rather than tracked as a separate flag that could desync (`web/src/stores/chat-store.ts`, `api/chat-sse.ts`, `components/chat/ChatPanel.tsx`).
+- **Write confirmations tell the truth.** Confirm/cancel now shows a pending state and commits to "confirmed"/"cancelled" only after the server responds — an expired action, rate-limit, or error rolls the card back to its buttons instead of falsely showing success (`ChatPanel.tsx`, `ConfirmationCard.tsx`).
+- **Long operations launched from chat show progress again.** The synthetic `operation_started` frame (which arrives with no preceding tool-start) was being silently dropped by the store; `setToolResult` now upserts so the progress card renders (`chat-store.ts`).
+- **Feedback thumbs report real success/failure** instead of optimistically showing "Thanks" on a failed POST (`cards/WorkflowPreviewCard.tsx`).
+
+Security (injection defense-in-depth):
+- **The research subagent's summary is re-wrapped as `<user_data>` before it re-enters the main conversation** — previously the subagent stripped the markers when quoting library text, laundering any injected instruction into the write-capable main model (`src/application/chat/subagent.py`).
+- **Operation-failure messages are wrapped too** — `query_operations` run-detail returned connector-originated error text (attacker-influenceable) unmarked (`dispatchers/operations.py`).
+- **Live key validation is rate-limited** (5/min) with a bounded 10s timeout, closing an unmetered oracle for validating stolen `sk-ant` keys (`routes/assistant.py`, `infrastructure/chat/anthropic_adapter.py`).
+
+Correctness & robustness:
+- **The chat request path no longer 500s on transient failures** — the workflow-context fetch catches broadly (a `TaskGroup`-wrapped error was bypassing the typed handlers), `ToolExecutionError` is mapped to a 422 on the confirm path, and confirmed-action executor failures are wrapped uniformly so an MCP client gets a retryable error instead of a burned token (`chat.py`, `middleware.py`, `registry.py`).
+- **In-stream SSE errors no longer leak internals** — unmapped exceptions surface "An internal error occurred" (matching the HTTP path) with the traceback logged (`chat_sse.py`).
+- **MCP results no longer show literal `<user_data>` tags** to clients, and the stdio server survives being spawned with a read-only working directory (absolute `data_dir`, no import-time mkdir) and an absolute `mixd` path in the generated install config (`mcp/server.py`, `config/settings.py`, `mcp/install.py`).
+- **Workflow versions past 500 are revertable again** (a paging-oriented default cap was rejecting valid ordinals), and `manage_playlist` update/delete validate the id up front so a bad id can't sit in a pending confirmation (`dispatchers/workflows_write.py`, `playlists_write.py`).
+
+Efficiency:
+- **Dashboard stats stop re-running on every message** — a per-user 60s cache replaces the 5-query aggregate that fired on every chat turn, including confirmation clicks (`chat.py`); the in-memory rate limiter sweeps stale keys (`rate_limit.py`).
+
+Follow-ups folded in (the v0.9.4 candidate pool):
+- **Page-contextual tool routing, refined** — the two flagship workflow tools (`describe_node`, `generate_workflow_def`, the registry's largest schema) are demoted off the always-hot prefix and promoted only on the workflows page, reclaiming ~2 hot-tool slots on every other page. A second cache breakpoint on the per-page promoted segment keeps the invariant core cached across navigation while a section's tools cache per-turn. The hint map is now validated at import against a canonical page set and a derived ≤N-per-page ceiling. Approach chosen after a July-2026 best-practices pass confirmed rule-based routing beats an embedding router below ~50 tools. **One-time effect: the first request after deploy re-warms the tools prompt cache.**
+- **User flows §6.5 rewritten** from the pre-implementation "v0.9.0 Sketch" into the shipped assistant surface (six sub-flows, real endpoints, edge cases) (`docs/web-ui/01-user-flows.md`).
+- **Convention drift reconciled** — four rules amended to match shipped-and-correct practice (streaming-loop use-case shape, LLM-adapter port imports, assistant-key credential carve-out, metric-provider bridge) rather than contorting the code.
+
+DRY/cleanup: extracted a shared `commit()` envelope replacing 13 hand-rolled try/except blocks across the write dispatchers, a `ChatCard` shell across the chat cards, a public `iso()` helper (6 copies removed), a `CHAT_ERROR_CODES` table shared by the HTTP and SSE error paths, and removed a redundant `currentWorkflowDraft` store field. No dead code or backward-compat shims remained to remove — the series was clean on both.
+
+→ [details](docs/backlog/v0.9.x.md#v094-follow-ups--hardening)
+
 ## [0.9.3] — 2026-07-12
 
 **Point your own agent at mixd.** The tool surface the in-app assistant drives is now an MCP server, so any MCP-aware client — Claude Desktop, Cursor, Claude Code — can read from and act on your library over a local stdio connection. "Find my starred tracks from last year that aren't on my Friday playlist and add them" runs from your desktop agent, against the same parity-complete registry, with the same never-silent write confirmation.

@@ -29,8 +29,8 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 **Layer invariants** (hold even when creating a new file, before the path-scoped rule loads):
 - `domain/`: entities `@define(frozen=True, slots=True)`, pure (no I/O), imports only domain + stdlib
 - each layer imports inward only (Interface → Application → Domain ← Infrastructure); never reach sideways/outward
-- `interface/` data access only via `execute_use_case()` — **exception:** connector OAuth/token management (auth-URL, code exchange, `TokenStorage` read/write) shares infrastructure helpers directly by design (the v0.6.5 Shared OAuth Utilities decision, so CLI + web reuse one `exchange_code`); API route handlers stay 5–10 lines
-- `application/` owns transactions (`async with uow:`); Commands/Results are frozen attrs
+- `interface/` data access only via `execute_use_case()` — **exception (v0.6.5 credential/secret carve-out):** connector OAuth/token management (auth-URL, code exchange, `TokenStorage` read/write) *and* assistant Anthropic API-key management (`routes/assistant.py` + `cli/assistant_commands.py` via `infrastructure/chat/credentials`) share infrastructure helpers directly by design, so CLI + web reuse one implementation of each; API route handlers stay 5–10 lines
+- `application/` owns transactions (`async with uow:`); Commands/Results are frozen attrs — **exception:** `ChatUseCase` is a streaming agentic loop `(command) -> AsyncGenerator[ChatEvent]` invoked directly by its route, holds no UoW, and does all persistence via per-tool-call `execute_use_case()` (threading one UoW across an LLM round-trip is strictly worse)
 
 Layer-specific rules auto-load from `.claude/rules/` when editing matching files (note: they fire on read/edit, not always on new-file creation — the invariants above are the always-loaded safety net).
 

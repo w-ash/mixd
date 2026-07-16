@@ -1011,17 +1011,156 @@ No confirmation dialog — removal is **optimistic with an Undo snackbar** (the 
 
 ---
 
-### 6.5 LLM-Assisted Workflow Creation (v0.9.0 Sketch)
+### 6.5 The AI Assistant (v0.9.0–v0.9.3)
 
-> Forward-looking sketch for v0.9.0.
+> Shipped across v0.9.0 (chat shell + workflow generation), v0.9.0.1 (per-user opt-in BYO Anthropic key), v0.9.1 (full capability parity — every read/mutation as a confirmable tool), v0.9.2 (agentic depth — code-execution sandbox, research subagent, tool search, page-contextual routing), and v0.9.3 (MCP server). Primary persona varies by flow: the **Casual Enthusiast** gets a natural-language front door instead of the node catalog (6.5.1–6.5.3), the **Weekly Curator** delegates the Sunday ritual sentence by sentence (6.5.4–6.5.5), and the **Tinkerer** points external agents at the MCP surface (6.5.6).
 
-**Concept**:
-- Chat interface: "Describe the playlist you want to create"
-- User: "I want my top 20 most-played tracks from the last month that I've liked"
-- LLM generates a workflow definition
-- Preview shows the generated DAG and a dry-run result
-- User can tweak in the visual editor or iterate via chat
-- "Looks good, save it" -> persists the workflow
+The assistant is a persistent right-panel chat over a shared, parity-classified tool registry (34 tools: 14 read, 17 write — 5 of which launch background operations — and 3 agentic capabilities). Reads execute immediately; **every mutation is a two-phase proposal** the user must explicitly confirm. The same registry backs both the in-app chat and the v0.9.3 stdio MCP server.
+
+#### 6.5.1 Enabling the Assistant (BYO Anthropic Key — v0.9.0.1)
+
+**Trigger**: User wants the assistant. The entire chat surface (edge tab, Cmd/Ctrl+K binding, mobile "Ask" tab) is **hidden** until the user connects a key — no affordance is ever shown that would only error when used.
+
+**Steps**:
+
+1. User navigates to **Settings → Assistant** (`/settings/assistant`).
+2. Not-connected state shows a 3-step guide: create a key in the Anthropic Console (external link), add billing first ("a key without billing is rejected on use"), paste the key (`sk-ant-…`) into a password-type input.
+3. User clicks **Connect**. Button shows "Validating…":
+   - Format is checked (`sk-ant-` prefix), then the key is **validated live** against the Anthropic API with a minimal completion — a key with no billing is caught here, not on first use.
+   - On success: key is stored encrypted (write-only — never returned by any endpoint), toast "AI assistant connected", and the availability query invalidates so the chat surface (edge tab, keyboard shortcut, mobile tab) appears immediately without a reload.
+4. Connected state shows a success card ("Your key is stored encrypted and never shown again") with **Test key** and **Remove** actions. A deployment-provided fallback shows "Using the server key" instead; adding a personal key overrides it.
+
+**Backend calls**:
+| Action | Endpoint | Use Case | Status |
+|--------|----------|----------|--------|
+| Gate the chat surface | `GET /assistant/status` | `resolve_chat_source` → `{connected, source: "user"\|"server"}` | ✅ Implemented (v0.9.0.1) |
+| Connect key | `PUT /assistant/key` | Live validation + encrypted store (token-store pattern, sanctioned v0.6.5 exception) | ✅ Implemented (v0.9.0.1) |
+| Test key | `POST /assistant/key/test` | Probe stored (or supplied) key | ✅ Implemented (v0.9.0.1) |
+| Remove key | `DELETE /assistant/key` | Delete stored key, evict adapter cache | ✅ Implemented (v0.9.0.1) |
+
+**Edge cases**:
+- Malformed key: inline error "That doesn't look like an Anthropic API key (expected 'sk-ant-…')" — no API call made.
+- Valid-looking but rejected key (typo, no billing): `INVALID_API_KEY` surfaces inline on the form (not a toast) with guidance to check the copy and billing setup.
+- No key and no server fallback: `POST /chat` returns `503 CHAT_UNAVAILABLE` — but the UI never offers chat in this state (fails closed while the status query loads or errors).
+- Key connected in another tab: availability refetches on window focus, so the surface lights up without a reload.
+
+#### 6.5.2 Chatting with the Assistant
+
+**Trigger**: User opens the panel — clicks the slim edge tab on the right viewport edge (desktop), presses **Cmd/Ctrl+K** (toggles; inert until a key is connected), or taps the **Ask** tab in the mobile bottom nav (full-screen `/chat` route).
+
+**Steps**:
+
+1. Empty panel shows **suggested questions** ("Build me a Friday-night dinner playlist", "Find tracks I loved last year but haven't played recently", …) — clicking one sends it.
+2. An **effort selector** (Quick / Standard / Thorough → low/high/xhigh reasoning effort) sits above the input; default Standard, persisted locally.
+3. User types a message. `POST /chat` opens an SSE stream; the reply streams in as `token` events. Tool calls render live: `tool_start` (with a read/write `kind` so the UI never guesses), `tool_result`, and — for the v0.9.2 agentic capabilities — `code_start`/`code_result` (sandbox script + stdout) and a "Running deep analysis…" indicator for the research subagent. Stream ends with `done` or a typed `error` event.
+4. **Page-contextual behavior** (v0.9.2): the client sends the coarse UI section (`dashboard`/`playlists`/`library`/`workflows`/`imports`) and, on `/workflows/:id/edit`, the open workflow's id. The server eagerly loads that section's tools (the rest stay behind BM25 tool search) and injects the open workflow plus per-user library stats into the system prompt.
+5. Panel affordances: **Stop** aborts mid-stream, **Regenerate** re-runs the last turn, **New conversation** clears; Escape closes the panel (desktop).
+
+**Backend calls**:
+| Action | Endpoint | Use Case | Status |
+|--------|----------|----------|--------|
+| Send message | `POST /chat` (body: `messages`, `effort?`, `page?`, `current_workflow_id?`, `client_date?`; response: SSE) | `ChatUseCase` agentic loop over the tool registry | ✅ Implemented (v0.9.0) |
+
+**Edge cases**:
+- Rate limit: 20 requests per 60s sliding window per user, checked before the stream opens → `RATE_LIMIT_EXCEEDED` ("Too many chat requests. Please wait a moment and try again.").
+- Client disconnect / Stop: chat SSE is ephemeral by design (no Last-Event-ID reconnect, unlike operation streams) — closing the stream cancels the server-side turn.
+- Long thinking pauses: `: keepalive` SSE comments every 15s stop browsers/proxies from declaring the connection dead.
+- Conversation caps: 50 messages (soft warning near the limit, then "This conversation is full"); 20 KB per message, 100 KB total per request.
+- Mid-stream failures arrive as typed `error` events: `MAX_ROUNDS_EXCEEDED` (agentic loop hit its 24-turn budget), `RESPONSE_TRUNCATED`, `TOOL_EXECUTION_ERROR`, `ANTHROPIC_API_ERROR`, `CHAT_UNAVAILABLE`, `INTERNAL_ERROR`.
+- Stale context: a deleted workflow id or failing stats query degrades to "no context" — it never 500s the chat.
+
+#### 6.5.3 Asking for a Workflow
+
+**Trigger**: User describes a playlist in plain language ("my top 20 most-played tracks from the last month that I've liked") — the flagship v0.9.0 story.
+
+**Steps**:
+
+1. The model calls `generate_workflow_def`; the result renders as a **workflow preview card**: name, description, node count, validation warnings, and the draft pipeline drawn with the **same read-only DAG renderer** (`WorkflowGraph`) used across the app.
+2. Per the mutation rules the model proposes the matching `save_workflow` action in the same turn, so the card carries **Save workflow** / **Discard** buttons wired to that proposal.
+3. **Iterate via chat**: "make it 30 tracks and exclude Christmas music" → a new draft card; older drafts collapse to "Replaced by a newer draft below" so refinement never leaves stale full-size graphs to scroll past.
+4. User clicks **Save workflow** → confirms the pending proposal → the workflow persists; the card flips to "Saved" with an **Open in workflows** link. From there the user can refine in the visual editor (6.4).
+5. A **feedback row** ("Was this draft helpful?") records explicit thumbs up/down; thumbs-down opens an optional note field first.
+
+**Backend calls**:
+| Action | Endpoint | Use Case | Status |
+|--------|----------|----------|--------|
+| Generate + save | `POST /chat` (tools: `generate_workflow_def`, `save_workflow`; save confirmed via the `confirmation` payload, see 6.5.4) | Draft validated against the node registry; save runs `CreateWorkflowUseCase`/`UpdateWorkflowUseCase` | ✅ Implemented (v0.9.0) |
+| Draft feedback | `POST /chat/feedback` | `RecordChatFeedbackUseCase` (prompt + generated def + signal + note) | ✅ Implemented (v0.9.0) |
+
+**Edge cases**:
+- Model skipped the save proposal, or it expired: **Save** degrades to a synthetic chat message ("Save this workflow."), which re-proposes.
+- Generated draft has issues (unknown metric, unconfigured field): warnings listed on the card before the user decides to save.
+- Editing context: on `/workflows/:id/edit` the open workflow rides the request, so "add a filter to this" updates the current workflow (proposal mode "Save changes") instead of creating a new one.
+
+#### 6.5.4 The Assistant Performs a Write (Two-Phase Confirmation)
+
+**Trigger**: User asks for any mutation — "tag those tracks `context:revival`", "remove duplicates from my Loved playlist", "delete that workflow". Full mutation coverage (every write a human can perform in the UI or CLI) shipped in v0.9.1.
+
+**Steps**:
+
+1. The model calls a `kind: "write"` tool. It **never executes**: the tool's propose path stores a `PendingAction` server-side and streams back a `pending_confirmation` payload.
+2. The panel renders a **confirmation card**: a plain-language description plus a standard `changes` list (before/after lines) — detailed enough to decide without leaving chat, so approval is a real decision, never a rubber stamp. An optional `warning` banner renders **before** the Confirm button; `severity: "destructive"` escalates the card to red alert styling.
+3. User clicks **Confirm** (or **Cancel**). The decision goes back as the `confirmation` payload on the next `POST /chat`; the server claims the pending action (owner-checked), executes the same use case the human UI calls, and the model narrates the outcome in the new stream. Cancel discards the action and the model acknowledges.
+4. **Attribution**: assistant-launched background operations are recorded with `initiated_by: "assistant"` and show an **Assistant badge** in the Import History run log (`/settings/imports`) — agent activity is auditable in the same UI a human uses, without trusting one's memory of the chat.
+
+**Backend calls**:
+| Action | Endpoint | Use Case | Status |
+|--------|----------|----------|--------|
+| Propose (in-stream) | `POST /chat` → `tool_result` with `status: "pending_confirmation"` | Write dispatcher propose path → `pending_action_store` | ✅ Implemented (v0.9.0, all writes v0.9.1) |
+| Confirm / cancel | `POST /chat` (body: `confirmation: {action_id, approved}`) | `execute_confirmed_action` — same use case as the human route | ✅ Implemented (v0.9.0) |
+
+**Edge cases**:
+- Confirmation expiry: pending actions live **5 minutes**; confirming later returns `ACTION_EXPIRED` ("This action has expired. Please try again.") — the model re-proposes on request.
+- Ownership: claiming another user's action id is `FORBIDDEN`; actions are single-use (claimed or cancelled, never replayed).
+- Cancel is idempotent — cancelling an already-expired action is a no-op.
+- Batch mutations via the v0.9.2 sandbox: a script can *compute* a batch change, but write tools are never sandbox-callable — the commit still surfaces as one visible confirmation card with the full change list.
+
+#### 6.5.5 Long-Running Operation from Chat
+
+**Trigger**: User asks for something that takes minutes — "import my Last.fm history", "sync my Friday playlist", "run Weekly Obsessions" (5 tools: `run_workflow`, `import_data`, `import_connector_playlists`, `apply_playlist_assignments`, `sync_playlist_link`).
+
+**Steps**:
+
+1. The tool proposes like any write (6.5.4). On confirm, the server launches the **same background operation machinery** the REST routes use and returns `{status: "operation_started", operation_id, run_id, description}`.
+2. The panel renders a live **operation progress card** (same `OperationProgress` bar as the settings pages) that subscribes to the operation's SSE stream — no chat-specific progress channel. The card appears *before* the model's narration streams in.
+3. Terminal states (complete/failed/cancelled) render in place; when the backend recorded a persistent run, an **Open run** link deep-links to the run log row (`/settings/imports?run=<id>`).
+4. The run log row carries the Assistant attribution badge (6.5.4 step 4).
+
+**Backend calls**:
+| Action | Endpoint | Use Case | Status |
+|--------|----------|----------|--------|
+| Confirm → launch | `POST /chat` (confirmation) → synthetic `tool_result` with `operation_started` | Interface-layer launcher maps the claimed action to the same launchers the REST routes use | ✅ Implemented (v0.9.1) |
+| Live progress | `GET /operations/{id}/progress` | Existing per-operation SSE (Last-Event-ID reconnect) | ✅ Implemented (v0.3.1, reused) |
+
+**Edge cases**:
+- Closing the chat panel doesn't kill the operation — it runs in the background machinery; progress is recoverable from the run log and the operation stream supports reconnect.
+- Failures surface in the card's terminal state and in the run log with the usual retry affordances (4.x flows).
+- Workflow runs launched from chat appear in the workflow's Recent Runs (6.3) like any other run; per-run attribution lives in the operation-run log, not the workflow run history (the `workflow_runs` log has no assistant badge).
+
+#### 6.5.6 Using Mixd from an External MCP Client (v0.9.3)
+
+**Trigger**: A Tinkerer wants Claude Desktop, Cursor, or Claude Code to read from and act on their mixd library — the registry as a tool surface for agents that bring their own loop.
+
+**Steps**:
+
+1. User runs `mixd mcp install` (options: `--client claude-desktop|cursor|claude-code`, `--print` for raw JSON). It prints the `mcpServers` config snippet — `{"command": "mixd", "args": ["mcp", "serve"]}` — plus per-client guidance on where the config lives (for Claude Code, the `claude mcp add` command instead).
+2. User merges the snippet and restarts the client. The client launches `mixd mcp serve` as an stdio subprocess; identity resolves from the environment like every CLI command (`MIXD_USER_ID` env → `DEFAULT_USER_ID`), with the install snippet pinning `MIXD_USER_ID` for non-default users.
+3. The client lists **the same registry tools** the in-app assistant uses — 26 exposed (reads + synchronous writes), annotated from `kind` (`readOnlyHint`, `destructiveHint`). The 3 agentic capabilities are not exposed (the client brings its own loop); the 5 long-running operation tools are gated on the MCP Tasks extension.
+4. **In-band two-phase confirmation**: a write tool called without `confirm: true` returns a structured preview + `confirm_token` instead of executing — the same pending-action store and preview renderer as chat. The client (or its human) reviews, then calls again with `confirm: true` and the token; the same use case the web UI calls commits.
+
+**Backend calls** *(stdio JSON-RPC, not REST — no web endpoints involved)*:
+| Action | Method / Command | Use Case | Status |
+|--------|------------------|----------|--------|
+| Register with a client | `mixd mcp install` (CLI) | Pure config-snippet generation | ✅ Implemented (v0.9.3) |
+| Serve | `mixd mcp serve` (stdio) → `tools/list`, `tools/call` | Shared tool registry, second consumer | ✅ Implemented (v0.9.3) |
+| Confirm a write | `tools/call` with `confirm: true` + `confirm_token` | `pending_action_store.claim` → `execute_confirmed_action` | ✅ Implemented (v0.9.3) |
+
+**Edge cases**:
+- Expired or unknown `confirm_token`: the server transparently **re-proposes** (fresh preview, new token) — never a stale commit.
+- **Argument drift**: if the confirm call's arguments differ from what was previewed, the call is rejected (the token is consumed; the client must re-preview) — a client can never believe it confirmed B while A commits.
+- Malformed token (not a UUID): treated as a fresh preview, not an error.
+- Long-running tools (`run_workflow`, imports, syncs) are **not yet exposed** over MCP — deferred to the gated Tasks-extension epic; asking an MCP client to run a workflow fails tool discovery rather than blocking indefinitely.
+- stdout carries the JSON-RPC protocol; all logging routes to stderr so it never corrupts the stream.
 
 ---
 
@@ -1094,6 +1233,156 @@ No confirmation dialog — removal is **optimistic with an Undo snackbar** (the 
 **Edge cases**:
 - Track genuinely doesn't exist on a service (regional restrictions, removed catalog): Dismissed tracks don't appear in future unmatched lists.
 - Very many unmatched tracks (>1,000): Paginate. Suggest batch resolve rather than individual mapping.
+
+---
+
+## 8. Artists & Albums
+
+> **Planned for v0.10.0 (artists) and v0.10.1 (albums).** Backlog: [v0.10.x](../backlog/v0.10.x.md). All endpoints below are 🔜 Planned.
+
+### 8.1 Browsing Artists
+
+**Trigger**: User clicks "Artists" in the sidebar navigation.
+
+**Steps**:
+
+1. `/artists` list page renders: name, track count, favorite status (heart), connectors.
+2. User can search by artist name, sort by name or track count, and toggle an "all / favorites only" filter.
+3. Clicking a row navigates to the artist detail page (8.2).
+
+**Backend calls**:
+| Action | Endpoint | Use Case | Status |
+|--------|----------|----------|--------|
+| List/search artists | `GET /api/v1/artists` | `ListArtistsUseCase` | 🔜 Planned (v0.10.0) |
+
+**Edge cases**:
+- Empty library (no artists yet): empty state pointing at Import Center.
+- Same-name artists are distinct rows (names are non-unique by design) — connectors column disambiguates.
+
+### 8.2 Artist Detail & Favoriting
+
+**Trigger**: User clicks an artist row, or an artist name on a track detail page.
+
+**Steps**:
+
+1. `/artists/:id` shows artist info, connector links (Spotify/Last.fm profile URLs), and all library tracks by the artist (existing track table, pre-filtered).
+2. Heart toggle in the header favorites/unfavorites the artist; state reflects immediately.
+3. "Albums by this artist" section links into flow 8.4 (after v0.10.1).
+
+**Backend calls**:
+| Action | Endpoint | Use Case | Status |
+|--------|----------|----------|--------|
+| Detail | `GET /api/v1/artists/{id}` | `GetArtistDetailUseCase` | 🔜 Planned (v0.10.0) |
+| Favorite | `POST /api/v1/artists/{id}/favorite` | `FavoriteArtistUseCase` | 🔜 Planned (v0.10.0) |
+| Unfavorite | `DELETE /api/v1/artists/{id}/favorite` | `FavoriteArtistUseCase` | 🔜 Planned (v0.10.0) |
+
+**Edge cases**:
+- Artist with no connector mappings (backfilled from JSON only): sections render, connector links absent.
+- Favorite/unfavorite is idempotent — double-click doesn't error.
+
+### 8.3 Browsing Albums
+
+**Trigger**: User clicks "Albums" in the sidebar navigation.
+
+**Steps**:
+
+1. `/albums` list page renders: title, artist(s), track count, release date, album type. Search, sort, paginate.
+2. Optional filter by artist (deep-linked from 8.2's "Albums by this artist").
+
+**Backend calls**:
+| Action | Endpoint | Use Case | Status |
+|--------|----------|----------|--------|
+| List/search albums | `GET /api/v1/albums` | `ListAlbumsUseCase` | 🔜 Planned (v0.10.1) |
+
+**Edge cases**:
+- Backfilled albums may lack release date/type (string-derived) — columns render as em-dash, sortable nulls-last.
+
+### 8.4 Album Detail
+
+**Trigger**: User clicks an album row, or the album link on a track detail page.
+
+**Steps**:
+
+1. `/albums/:id` shows the album header (title, artist, date, type, cover art when a connector mapping provides one), ordered track listing (disc/track number), and connector links.
+2. After v0.10.2: "You own this" badge with pressing details. After v0.10.3: "Log a listen" button (flow 9.3) and "Recent listens".
+
+**Backend calls**:
+| Action | Endpoint | Use Case | Status |
+|--------|----------|----------|--------|
+| Detail + tracks | `GET /api/v1/albums/{id}` | `GetAlbumDetailUseCase` | 🔜 Planned (v0.10.1) |
+
+**Edge cases**:
+- No cover art available from any connector: placeholder art, no broken image.
+- Multi-disc albums: track listing grouped by disc.
+
+---
+
+## 9. Collection & Physical Listens
+
+> **Planned for v0.10.2 (Discogs collection) and v0.10.3 (manual scrobbling).** Backlog: [v0.10.x](../backlog/v0.10.x.md). All endpoints below are 🔜 Planned.
+
+### 9.1 Importing a Discogs Collection
+
+**Trigger**: User connects Discogs (BYO personal access token in Settings) and clicks "Import collection" — in Settings or the Import Center.
+
+**Steps**:
+
+1. User pastes their Discogs personal access token; mixd validates it live and stores it encrypted.
+2. "Import collection" starts a long operation; SSE progress shows releases processed / matched / unmatched.
+3. Summary: "N releases imported, M matched to albums, K unmatched" — unmatched releases are listed, not hidden.
+4. Re-import is incremental (instance-id diff): additions appear, removals mark items inactive.
+
+**Backend calls**:
+| Action | Endpoint | Use Case | Status |
+|--------|----------|----------|--------|
+| Save/validate token | connector settings (Anthropic-key pattern) | token storage | 🔜 Planned (v0.10.2) |
+| Import collection | `POST /api/v1/connectors/discogs/collection/import` | `ImportDiscogsCollectionUseCase` | 🔜 Planned (v0.10.2) |
+
+**Edge cases**:
+- Invalid/revoked token: 401 surfaces as an actionable "reconnect Discogs" error, not a silent failure.
+- Rate limit (60 req/min): import throttles and continues; progress keeps updating.
+- Release matches no album: surfaced in the unmatched list for later resolution — never silently dropped.
+
+### 9.2 Browsing the Collection
+
+**Trigger**: User clicks "Collection" in the sidebar navigation.
+
+**Steps**:
+
+1. `/collection` shows owned albums grouped by format (Vinyl / CD / Digital …), sortable by artist, title, acquired date.
+2. Format filter chips; each item links to its album detail page, which shows the "You own this" badge with pressing details (label, catalog number, year).
+3. Dashboard gains an "X albums owned across Y formats" stat.
+
+**Backend calls**:
+| Action | Endpoint | Use Case | Status |
+|--------|----------|----------|--------|
+| List collection | `GET /api/v1/collection` | `ListCollectionUseCase` | 🔜 Planned (v0.10.2) |
+
+**Edge cases**:
+- Items removed on Discogs since last import: shown as inactive (or hidden behind a filter), never deleted.
+- Manual entries (no Discogs source) mix seamlessly with imported ones.
+
+### 9.3 Logging a Manual Listen
+
+**Trigger**: User finishes a record, opens the album detail page, clicks "Log a listen".
+
+**Steps**:
+
+1. Modal/drawer opens with a date-time picker defaulting to "now" (= listen end; local timezone, stored as UTC).
+2. Preview renders the calculated track-by-track timeline ("Track 1 at 15:00, Track 2 at 15:04:30, …") before anything is written.
+3. "Also scrobble to Last.fm" toggle (default on).
+4. Submit → plays persist to canonical history; success toast reports track count and per-track Last.fm status.
+5. "Recent listens" section on the album page shows logged physical plays.
+
+**Backend calls**:
+| Action | Endpoint | Use Case | Status |
+|--------|----------|----------|--------|
+| Log listen | `POST /api/v1/albums/{id}/listens` | `RecordAlbumListenUseCase` | 🔜 Planned (v0.10.3) |
+
+**Edge cases**:
+- Track with no known duration: skipped in the Last.fm scrobble (needs duration) but kept as a mixd play; preview flags it.
+- Last.fm scrobble partially fails: mixd plays are already persisted; failures reported per track, retryable.
+- The scrobble returning via a later Last.fm import merges into the existing play (round-trip dedup) — play counts don't inflate.
 
 ---
 
