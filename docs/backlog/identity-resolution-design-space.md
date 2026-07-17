@@ -1,6 +1,6 @@
 # Identity Resolution — Design-Space Memo
 
-**Date**: 2026-07-02 · **Commission**: [identity-resolution-research-handoff.md](completed/identity-resolution-research-handoff.md) · **Status**: Active — research deliverable (no code changed); feeds v0.8.18, v0.10.0, v1.0.x
+**Date**: 2026-07-02 · **Commission**: [identity-resolution-research-handoff.md](completed/identity-resolution-research-handoff.md) · **Status**: Active — research deliverable (no code changed); feeds v0.8.18, v0.10.2, v1.0.x
 
 **Mission recap**: map how mixd resolves track identity across Spotify / Last.fm / MusicBrainz today, measure it against 2026 entity-resolution practice and fresh provider documentation, assess Apple Music readiness plus an 8–10-service future, and lay out *directions with trade-offs* — not a chosen design. Scope extensions (2026-07-02): artist-level identity (§7) and the omni-integration breadth ring (§6).
 
@@ -253,10 +253,10 @@ Committed ring (Spotify, Last.fm, MusicBrainz, Apple Music) + breadth ring (Tida
 - **Last.fm**: one page per name *string*; two artists sharing a name share scrobbles (support threads, 2024–2026); renames create parallel pages (TEED probe: two pages, one MBID-less). `artist.getCorrection` is the only normalization primitive (misspellings/variants → canonical Last.fm name) — currently unused by mixd.
 - Breadth-ring artist identity is uniformly weaker: YTM artists have *multiple* channel IDs each (topic + official + Vevo; ytmusicapi warns returned channelId ≠ requested); Deezer has no aliases/disambiguation; SoundCloud's artist *is* a user account (n accounts per human, credit strings freeform).
 
-**Design space for the v0.10.0 epic** (options, not a pick):
+**Design space for the v0.10.2 epic** (options, not a pick):
 - **A. MB-alias lookup table (the current sketch), revised**: import aliases keyed by artist MBID (not by name), all alias types, with periodic refresh and 301-merge handling. Validated as the only mechanism that actually bridges abbreviations. Prerequisite: tracks must resolve to an MB artist MBID at all — which today rides on FM7c-tainted Last.fm MBIDs or MB search; the epic's "MusicBrainz artist MBID lookup via existing client" line is doing more work than it looks.
 - **B. Canonical-artist entity with per-connector artist mappings** (mirrors the track pattern; the epic's data-model direction): sound, but inherits every FM1 lesson — the sketch's "direct ID match (100), MBID match (95), name match (80)" hardcodes a new copy of the scattered-constants problem (FM1f) before the track-side one is fixed. If built, artist confidence should come from the same evaluation service pattern, not fresh literals.
-- **C. Normalization-first minimalism**: run `artist.getCorrection` + MB alias expansion at *comparison* time (matching-layer equivalence, no new tables). Cheapest; doesn't give canonical artist pages (which v0.10.0's UI epics need), so likely insufficient alone — but it is the right *matching* substrate under either A or B.
+- **C. Normalization-first minimalism**: run `artist.getCorrection` + MB alias expansion at *comparison* time (matching-layer equivalence, no new tables). Cheapest; doesn't give canonical artist pages (which v0.10.2's UI epics need), so likely insufficient alone — but it is the right *matching* substrate under either A or B.
 - **Sequencing note**: artist identity errors compound track-identity errors (artist string feeds `calculate_confidence` at `algorithms.py:203-215` — first-artist-only, FM1 §B.8). Alias-aware artist comparison (C) would measurably improve *track* matching before any artist entity ships.
 
 ## 8. Quantification — prod query pack (pending user run)
@@ -267,4 +267,4 @@ Separately: a fresh `scripts/diagnose_stale_spotify_ids.py` run would record the
 
 ## 9. Backlog stories
 
-Originally filed to unscheduled.md; **sequenced into the roadmap 2026-07-02**: the six D1 repairs → [v0.8.18 Identity Integrity](v0.8.18.md); mapping supersession + resolution event log (D2) → [v1.0.0 Data Quality](v1.0.x.md#v100-data-quality); alias-aware artist comparison → [v0.10.0 First-Class Artists](v0.10.x.md#v0100-first-class-artists). Each story cross-references taxonomy IDs from §1.
+Originally filed to unscheduled.md; **sequenced into the roadmap 2026-07-02**: the six D1 repairs → [v0.8.18 Identity Integrity](v0.8.18.md); mapping supersession + resolution event log (D2) → [v1.0.0 Data Quality](v1.0.x.md#v100-data-quality); alias-aware artist comparison → [v0.10.2 First-Class Artists](v0.10.x.md#v0102-first-class-artists). Each story cross-references taxonomy IDs from §1.

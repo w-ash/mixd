@@ -1238,7 +1238,7 @@ The assistant is a persistent right-panel chat over a shared, parity-classified 
 
 ## 8. Artists & Albums
 
-> **Planned for v0.10.0 (artists) and v0.10.1 (albums).** Backlog: [v0.10.x](../backlog/v0.10.x.md). All endpoints below are 🔜 Planned.
+> **Planned for v0.10.2 (artists) and v0.10.3 (albums).** Backlog: [v0.10.x](../backlog/v0.10.x.md). All endpoints below are 🔜 Planned.
 
 ### 8.1 Browsing Artists
 
@@ -1253,7 +1253,7 @@ The assistant is a persistent right-panel chat over a shared, parity-classified 
 **Backend calls**:
 | Action | Endpoint | Use Case | Status |
 |--------|----------|----------|--------|
-| List/search artists | `GET /api/v1/artists` | `ListArtistsUseCase` | 🔜 Planned (v0.10.0) |
+| List/search artists | `GET /api/v1/artists` | `ListArtistsUseCase` | 🔜 Planned (v0.10.2) |
 
 **Edge cases**:
 - Empty library (no artists yet): empty state pointing at Import Center.
@@ -1267,14 +1267,14 @@ The assistant is a persistent right-panel chat over a shared, parity-classified 
 
 1. `/artists/:id` shows artist info, connector links (Spotify/Last.fm profile URLs), and all library tracks by the artist (existing track table, pre-filtered).
 2. Heart toggle in the header favorites/unfavorites the artist; state reflects immediately.
-3. "Albums by this artist" section links into flow 8.4 (after v0.10.1).
+3. "Albums by this artist" section links into flow 8.4 (after v0.10.3).
 
 **Backend calls**:
 | Action | Endpoint | Use Case | Status |
 |--------|----------|----------|--------|
-| Detail | `GET /api/v1/artists/{id}` | `GetArtistDetailUseCase` | 🔜 Planned (v0.10.0) |
-| Favorite | `POST /api/v1/artists/{id}/favorite` | `FavoriteArtistUseCase` | 🔜 Planned (v0.10.0) |
-| Unfavorite | `DELETE /api/v1/artists/{id}/favorite` | `FavoriteArtistUseCase` | 🔜 Planned (v0.10.0) |
+| Detail | `GET /api/v1/artists/{id}` | `GetArtistDetailUseCase` | 🔜 Planned (v0.10.2) |
+| Favorite | `POST /api/v1/artists/{id}/favorite` | `FavoriteArtistUseCase` | 🔜 Planned (v0.10.2) |
+| Unfavorite | `DELETE /api/v1/artists/{id}/favorite` | `FavoriteArtistUseCase` | 🔜 Planned (v0.10.2) |
 
 **Edge cases**:
 - Artist with no connector mappings (backfilled from JSON only): sections render, connector links absent.
@@ -1292,7 +1292,7 @@ The assistant is a persistent right-panel chat over a shared, parity-classified 
 **Backend calls**:
 | Action | Endpoint | Use Case | Status |
 |--------|----------|----------|--------|
-| List/search albums | `GET /api/v1/albums` | `ListAlbumsUseCase` | 🔜 Planned (v0.10.1) |
+| List/search albums | `GET /api/v1/albums` | `ListAlbumsUseCase` | 🔜 Planned (v0.10.3) |
 
 **Edge cases**:
 - Backfilled albums may lack release date/type (string-derived) — columns render as em-dash, sortable nulls-last.
@@ -1304,12 +1304,12 @@ The assistant is a persistent right-panel chat over a shared, parity-classified 
 **Steps**:
 
 1. `/albums/:id` shows the album header (title, artist, date, type, cover art when a connector mapping provides one), ordered track listing (disc/track number), and connector links.
-2. After v0.10.2: "You own this" badge with pressing details. After v0.10.3: "Log a listen" button (flow 9.3) and "Recent listens".
+2. After v0.10.4: "You own this" badge with pressing details. After v0.10.5: "Log a listen" button (flow 9.3) and "Recent listens".
 
 **Backend calls**:
 | Action | Endpoint | Use Case | Status |
 |--------|----------|----------|--------|
-| Detail + tracks | `GET /api/v1/albums/{id}` | `GetAlbumDetailUseCase` | 🔜 Planned (v0.10.1) |
+| Detail + tracks | `GET /api/v1/albums/{id}` | `GetAlbumDetailUseCase` | 🔜 Planned (v0.10.3) |
 
 **Edge cases**:
 - No cover art available from any connector: placeholder art, no broken image.
@@ -1319,7 +1319,7 @@ The assistant is a persistent right-panel chat over a shared, parity-classified 
 
 ## 9. Collection & Physical Listens
 
-> **Planned for v0.10.2 (Discogs collection) and v0.10.3 (manual scrobbling).** Backlog: [v0.10.x](../backlog/v0.10.x.md). All endpoints below are 🔜 Planned.
+> **Planned for v0.10.4 (Discogs collection) and v0.10.5 (manual listens).** Backlog: [v0.10.x](../backlog/v0.10.x.md). All endpoints below are 🔜 Planned.
 
 ### 9.1 Importing a Discogs Collection
 
@@ -1335,8 +1335,8 @@ The assistant is a persistent right-panel chat over a shared, parity-classified 
 **Backend calls**:
 | Action | Endpoint | Use Case | Status |
 |--------|----------|----------|--------|
-| Save/validate token | connector settings (Anthropic-key pattern) | token storage | 🔜 Planned (v0.10.2) |
-| Import collection | `POST /api/v1/connectors/discogs/collection/import` | `ImportDiscogsCollectionUseCase` | 🔜 Planned (v0.10.2) |
+| Save/validate token | connector settings (Anthropic-key pattern) | token storage | 🔜 Planned (v0.10.4) |
+| Import collection | `POST /api/v1/connectors/discogs/collection/import` | `ImportDiscogsCollectionUseCase` | 🔜 Planned (v0.10.4) |
 
 **Edge cases**:
 - Invalid/revoked token: 401 surfaces as an actionable "reconnect Discogs" error, not a silent failure.
@@ -1356,7 +1356,7 @@ The assistant is a persistent right-panel chat over a shared, parity-classified 
 **Backend calls**:
 | Action | Endpoint | Use Case | Status |
 |--------|----------|----------|--------|
-| List collection | `GET /api/v1/collection` | `ListCollectionUseCase` | 🔜 Planned (v0.10.2) |
+| List collection | `GET /api/v1/collection` | `ListCollectionUseCase` | 🔜 Planned (v0.10.4) |
 
 **Edge cases**:
 - Items removed on Discogs since last import: shown as inactive (or hidden behind a filter), never deleted.
@@ -1377,7 +1377,7 @@ The assistant is a persistent right-panel chat over a shared, parity-classified 
 **Backend calls**:
 | Action | Endpoint | Use Case | Status |
 |--------|----------|----------|--------|
-| Log listen | `POST /api/v1/albums/{id}/listens` | `RecordAlbumListenUseCase` | 🔜 Planned (v0.10.3) |
+| Log listen | `POST /api/v1/albums/{id}/listens` | `RecordAlbumListenUseCase` | 🔜 Planned (v0.10.5) |
 
 **Edge cases**:
 - Track with no known duration: skipped in the Last.fm scrobble (needs duration) but kept as a mixd play; preview flags it.

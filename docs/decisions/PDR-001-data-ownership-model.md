@@ -32,6 +32,7 @@
 | 2026-07-02 | [S] | Letterboxd account export; Apple/Spotify GDPR takeouts | Hosted services deliver credible "your data" stories via export completeness, not locality | Sovereign + exit rights | Export must be *complete and re-importable* to count — most takeouts fail the second half |
 | 2026-07-02 | [A] | Obsidian community lore; local-first movement (Ink & Switch) | The ownership feeling drives real loyalty; "cloud = someone else's computer" resonates | Local-first | Directional; the feeling can be partially served by archive-on-your-storage |
 | 2026-07-02 | [D] | mixd architecture (28 user-scoped tables, RLS, scheduled imports, workflows over 50k+ plays) | The system is deeply server-shaped; heavy queries + multi-tenancy assume Postgres | Sovereign server | Sunk-cost flavored — valid for "cost from here," not for green-field truth |
+| 2026-07-16 | [D] | Prod probe ([play-import convergence findings §1](../backlog/play-import-convergence-findings.md)) | Production holds **zero** play rows — history has never been imported; the continuity the sovereign-server argument protects currently rests on nothing, and every un-polled scrobble window since the 2025-02 export is already lost from Spotify's side (Last.fm is the only live recorder) | Sovereign server (urgency) | Direct measurement; v0.10.1 schedules the recently-played poller that closes the window |
 
 ## What would change my mind
 
