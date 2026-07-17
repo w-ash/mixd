@@ -6,4 +6,10 @@
  * OpenAPI spec version: 0.10.0
  */
 
-export type ConnectorAuthError = 'refresh_failed';
+export type ConnectorAuthError = typeof ConnectorAuthError[keyof typeof ConnectorAuthError];
+
+
+export const ConnectorAuthError = {
+  refresh_failed: 'refresh_failed',
+  scope_missing: 'scope_missing',
+} as const;

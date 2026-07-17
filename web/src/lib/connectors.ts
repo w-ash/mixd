@@ -16,6 +16,8 @@ const authErrorMessages: Record<string, string> = {
   no_session: "Failed to get session from Last.fm",
   no_session_key: "Failed to get session key from Last.fm",
   refresh_failed: "Session token could not be refreshed — please reconnect",
+  scope_missing:
+    "New permissions needed — reconnect to enable listening history",
 };
 
 /** Convert an auth error reason code to a human-readable string. */

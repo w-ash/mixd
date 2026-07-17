@@ -55,7 +55,17 @@ SPOTIFY_SCOPES = [
     "playlist-read-private",
     "playlist-read-collaborative",
     "user-library-read",
+    "user-read-recently-played",
 ]
+
+
+def missing_scopes(granted: str | None) -> frozenset[str]:
+    """Scopes in ``SPOTIFY_SCOPES`` absent from a stored token's grant string.
+
+    A legacy token stored before scope tracking (no ``scope`` key) reports
+    every scope as missing, which is the correct re-consent signal.
+    """
+    return frozenset(SPOTIFY_SCOPES) - frozenset((granted or "").split())
 
 
 def _compute_pkce_challenge(code_verifier: str) -> str:

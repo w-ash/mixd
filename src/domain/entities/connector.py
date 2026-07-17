@@ -21,12 +21,22 @@ type ConnectorAuthMethod = Literal["oauth", "none", "coming_soon"]
 """How a user connects: OAuth flow, no auth (public API), or not-yet-implemented."""
 
 type ConnectorStatusState = Literal[
-    "connected", "disconnected", "expired", "error", "public_api", "coming_soon"
+    "connected",
+    "disconnected",
+    "expired",
+    "error",
+    "needs_reauth",
+    "public_api",
+    "coming_soon",
 ]
 """UI-facing state derived from raw status + auth method."""
 
-type ConnectorAuthError = Literal["refresh_failed"]
-"""Server-observed auth failure codes. Widen as new failure modes arise."""
+type ConnectorAuthError = Literal["refresh_failed", "scope_missing"]
+"""Server-observed auth failure codes. Widen as new failure modes arise.
+
+``scope_missing`` is not a failure of the connection — the stored grant
+predates a scope the app now requests, so the user must re-consent once.
+"""
 
 type Capability = Literal[
     "playlist_import",
@@ -75,6 +85,10 @@ def derive_status_state(status: ConnectorStatus) -> ConnectorStatusState:
         return "coming_soon"
     if status.auth_method == "none":
         return "public_api"
+    if status.auth_error == "scope_missing":
+        # The session works; the grant is just narrower than the app now
+        # requests — a one-time re-consent, not a connection failure.
+        return "needs_reauth"
     if status.auth_error is not None:
         return "error"
     if not status.connected:

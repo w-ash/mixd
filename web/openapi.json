@@ -5304,7 +5304,10 @@
       },
       "ConnectorAuthError": {
         "type": "string",
-        "const": "refresh_failed"
+        "enum": [
+          "refresh_failed",
+          "scope_missing"
+        ]
       },
       "ConnectorAuthMethod": {
         "type": "string",
@@ -5632,6 +5635,7 @@
           "disconnected",
           "expired",
           "error",
+          "needs_reauth",
           "public_api",
           "coming_soon"
         ]

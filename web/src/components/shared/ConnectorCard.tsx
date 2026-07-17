@@ -52,6 +52,16 @@ function StatusLine({
             : "Session expired"}
         </span>
       );
+    case "needs_reauth":
+      // Session still works — the stored grant just predates a scope the
+      // app now requests (e.g. listening history). One-time re-consent.
+      return (
+        <span className="text-status-expired">
+          {connector.account_name
+            ? `${connector.account_name} — new permissions needed`
+            : "New permissions needed"}
+        </span>
+      );
     case "error": {
       // Backend-observed auth errors win over transient callback-URL errors.
       const reason = connector.auth_error ?? authError;
@@ -136,6 +146,7 @@ function RowAction({
         </div>
       );
     case "expired":
+    case "needs_reauth":
       return (
         <div className="flex items-center gap-2">
           {gear}
@@ -183,7 +194,8 @@ export function ConnectorCard({ connector, authError }: ConnectorCardProps) {
 
   const brand = connectorBrand[connector.name];
   const label = connector.display_name;
-  const isActive = state === "connected" || state === "expired";
+  const isActive =
+    state === "connected" || state === "expired" || state === "needs_reauth";
   const isMuted = state === "coming_soon";
   const hasSettings = isConnectable && isActive;
 

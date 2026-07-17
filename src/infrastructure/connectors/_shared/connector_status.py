@@ -69,6 +69,7 @@ async def get_spotify_status(
     display_name = token_data.get("account_name")
     auth_error: ConnectorAuthError | None = None
     access_token = token_data.get("access_token")
+    granted_scope = token_data.get("scope")
 
     # Two mutually-exclusive paths: expired-needs-refresh vs valid-token-name-backfill.
     if has_refresh and expires_at < time.time():
@@ -82,6 +83,9 @@ async def get_spotify_status(
             auth_error = "refresh_failed"
         else:
             expires_at = refreshed.get("expires_at", 0)
+            # Spotify echoes the original grant on refresh — the refreshed
+            # scope is the authoritative one for the gap check below.
+            granted_scope = refreshed.get("scope", granted_scope)
             if not display_name:
                 display_name = await fetch_spotify_display_name(
                     refreshed["access_token"]
@@ -100,10 +104,18 @@ async def get_spotify_status(
             updated: StoredToken = {**token_data, "account_name": display_name}
             await storage.save_token("spotify", user_id, updated)
 
+    if auth_error is None:
+        from src.infrastructure.connectors.spotify.auth import missing_scopes
+
+        if missing_scopes(granted_scope):
+            auth_error = "scope_missing"
+
     return ConnectorStatus(
         name="spotify",
         auth_method="oauth",
-        connected=has_refresh and auth_error is None,
+        # scope_missing is a narrower-grant signal, not a broken session —
+        # the connection stays usable for everything already granted.
+        connected=has_refresh and auth_error != "refresh_failed",
         account_name=display_name,
         token_expires_at=int(expires_at) if expires_at else None,
         auth_error=auth_error,

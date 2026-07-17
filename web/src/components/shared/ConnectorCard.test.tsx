@@ -197,6 +197,34 @@ describe("ConnectorCard", () => {
     });
   });
 
+  describe("needs_reauth state", () => {
+    it("shows new-permissions copy and Reconnect button", () => {
+      renderWithProviders(
+        <ConnectorCard
+          connector={makeConnector({
+            name: "spotify",
+            connected: true,
+            account_name: "testuser",
+            token_expires_at: Math.floor(Date.now() / 1000) + 3600,
+            status: "needs_reauth",
+            auth_error: "scope_missing",
+          })}
+        />,
+      );
+
+      expect(
+        screen.getByText("testuser — new permissions needed"),
+      ).toBeInTheDocument();
+      expect(screen.getByText("Reconnect")).toBeInTheDocument();
+      // Still connected — the settings gear (and disconnect) stay available.
+      expect(
+        screen.getByRole("button", { name: "Spotify settings" }),
+      ).toBeInTheDocument();
+      // Not an error state — no "Connection failed" copy.
+      expect(screen.queryByText(/Connection failed/)).not.toBeInTheDocument();
+    });
+  });
+
   describe("error state", () => {
     it("shows error message and Try again button", () => {
       renderWithProviders(

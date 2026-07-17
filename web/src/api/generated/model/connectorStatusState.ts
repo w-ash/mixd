@@ -14,6 +14,7 @@ export const ConnectorStatusState = {
   disconnected: 'disconnected',
   expired: 'expired',
   error: 'error',
+  needs_reauth: 'needs_reauth',
   public_api: 'public_api',
   coming_soon: 'coming_soon',
 } as const;

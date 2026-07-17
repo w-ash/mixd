@@ -38,9 +38,14 @@ def connectors_status(ctx: typer.Context) -> None:
         table.add_column("Token Expiry", style="dim")
 
         for s in statuses:
-            status_str = (
-                "[green]Connected[/green]" if s.connected else "[red]Disconnected[/red]"
-            )
+            if s.auth_error == "scope_missing":
+                status_str = "[yellow]Re-connect needed (new permissions)[/yellow]"
+            elif s.auth_error == "refresh_failed":
+                status_str = "[red]Error: session refresh failed[/red]"
+            elif s.connected:
+                status_str = "[green]Connected[/green]"
+            else:
+                status_str = "[red]Disconnected[/red]"
             expiry_str = "—"
             if s.token_expires_at:
                 expiry_dt = datetime.fromtimestamp(s.token_expires_at, tz=UTC)
