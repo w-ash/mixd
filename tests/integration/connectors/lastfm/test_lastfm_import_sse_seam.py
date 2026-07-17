@@ -33,6 +33,7 @@ from src.application.use_cases.import_play_history import (
 )
 from src.domain.entities import PlayRecord
 from src.domain.entities.operations import ConnectorTrackPlay, TrackPlay
+from src.domain.repositories.play import PlayResolutionOutcome
 from src.infrastructure.persistence.database.db_models import (
     DBConnectorPlay,
     DBTrackPlay,
@@ -57,7 +58,7 @@ class _FakeResolver:
         *,
         user_id: str,
         progress_callback: object = None,
-    ) -> tuple[list[TrackPlay], dict[str, int]]:
+    ) -> PlayResolutionOutcome:
         plays = [
             TrackPlay(
                 track_id=self._track_id,
@@ -67,11 +68,15 @@ class _FakeResolver:
             )
             for cp in connector_plays
         ]
-        return plays, {
-            "error_count": 0,
-            "new_tracks_count": 0,
-            "updated_tracks_count": 0,
-        }
+        return PlayResolutionOutcome(
+            track_plays=plays,
+            metrics={
+                "error_count": 0,
+                "new_tracks_count": 0,
+                "updated_tracks_count": 0,
+            },
+            resolutions=tuple((cp, self._track_id) for cp in connector_plays),
+        )
 
 
 @pytest.mark.slow

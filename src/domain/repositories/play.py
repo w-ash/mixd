@@ -14,6 +14,7 @@ from attrs import define
 from src.domain.entities import (
     ConnectorTrackPlay,
     OperationResult,
+    PlaySource,
     TrackPlay,
 )
 from src.domain.entities.progress import ProgressEmitter
@@ -95,6 +96,24 @@ class ResolutionMetrics(TypedDict, total=False):
     isrc_suspect_deferred: int
 
 
+@define(frozen=True, slots=True)
+class PlayResolutionOutcome:
+    """Result of resolving a batch of connector plays.
+
+    ``resolutions`` pairs each successfully resolved (and policy-accepted)
+    connector play with its canonical track id — the orchestrator persists
+    these onto the ledger (``connector_plays.resolved_track_id``) after
+    Phase 2. Plays that failed to resolve or were policy-excluded
+    (duration/incognito filters) are absent: their ledger rows keep
+    ``resolved_track_id IS NULL``, which is what keeps them outside the
+    canonical-play projection.
+    """
+
+    track_plays: list[TrackPlay]
+    metrics: ResolutionMetrics
+    resolutions: tuple[tuple[ConnectorTrackPlay, UUID], ...]
+
+
 class PlaysRepositoryProtocol(Protocol):
     """Repository interface for play history operations."""
 
@@ -155,11 +174,67 @@ class PlaysRepositoryProtocol(Protocol):
         """
         ...
 
-    def bulk_update_play_source_services(
+    def find_plays_in_window(
+        self,
+        start: datetime,
+        end: datetime,
+        *,
+        user_id: str,
+    ) -> Awaitable[list[TrackPlay]]:
+        """All of a user's plays with ``played_at`` in [start, end)."""
+        ...
+
+    def get_plays_by_ids(
+        self,
+        play_ids: Sequence[UUID],
+        *,
+        user_id: str,
+    ) -> Awaitable[list[TrackPlay]]:
+        """Fetch plays by id, scoped to the owner."""
+        ...
+
+    def bulk_update_plays(
         self,
         updates: Sequence[tuple[UUID, Mapping[str, object]]],
     ) -> Awaitable[None]:
-        """Batch-update cross-source dedup metadata for multiple plays."""
+        """Batch-update projected field values on existing plays."""
+        ...
+
+    def find_unsourced_play_ids(self, *, user_id: str) -> Awaitable[list[UUID]]:
+        """Ids of a user's plays with no ledger membership."""
+        ...
+
+    def delete_plays_without_sources(
+        self,
+        candidate_ids: Sequence[UUID],
+        *,
+        user_id: str,
+    ) -> Awaitable[int]:
+        """Delete candidate plays no ledger observation backs anymore."""
+        ...
+
+    def get_play_sources_for_connector_plays(
+        self,
+        connector_play_ids: Sequence[UUID],
+        *,
+        user_id: str,
+    ) -> Awaitable[list[PlaySource]]:
+        """Membership edges for the given ledger observations."""
+        ...
+
+    def get_play_sources_for_plays(
+        self,
+        play_ids: Sequence[UUID],
+        *,
+        user_id: str,
+    ) -> Awaitable[list[PlaySource]]:
+        """Membership edges pointing at the given canonical plays."""
+        ...
+
+    def bulk_upsert_play_sources(
+        self, sources: Sequence[PlaySource]
+    ) -> Awaitable[None]:
+        """Insert-or-repoint membership edges (arbiter: connector_play_id)."""
         ...
 
 
@@ -180,6 +255,46 @@ class ConnectorPlayRepositoryProtocol(Protocol):
 
         Returns:
             tuple[int, int]: (inserted_count, duplicate_count)
+        """
+        ...
+
+    def get_resolved_played_at_bounds(
+        self, *, user_id: str
+    ) -> Awaitable[tuple[datetime, datetime] | None]:
+        """(min, max) ``played_at`` across a user's resolved ledger rows."""
+        ...
+
+    def find_resolved_in_window(
+        self,
+        start: datetime,
+        end: datetime,
+        *,
+        user_id: str,
+    ) -> Awaitable[list[ConnectorTrackPlay]]:
+        """Resolved ledger observations with ``played_at`` in [start, end).
+
+        Window-only, no track filter — the projection's resolution-divergence
+        bridge needs observations that resolved to different canonical tracks
+        but share normalized identity.
+        """
+        ...
+
+    def bulk_update_resolution(
+        self,
+        resolutions: Sequence[tuple[ConnectorTrackPlay, UUID]],
+        *,
+        resolved_at: datetime,
+    ) -> Awaitable[int]:
+        """Persist canonical resolution onto ledger rows.
+
+        Matches stored rows by the ledger natural key (user_id, connector_name,
+        connector_track_identifier, played_at, ms_played) — NOT by entity id:
+        conflict-skipped re-import rows keep their original stored ids, and
+        natural-key matching lets a re-import heal rows whose first resolution
+        attempt failed.
+
+        Returns:
+            Number of ledger rows updated.
         """
         ...
 
@@ -223,7 +338,7 @@ class PlayResolverProtocol(Protocol):
         *,
         user_id: str,
         progress_callback: Callable[[int, int, str], None] | None = None,
-    ) -> tuple[list[TrackPlay], ResolutionMetrics]:
+    ) -> PlayResolutionOutcome:
         """Resolve connector plays to canonical track plays.
 
         Args:
@@ -233,6 +348,7 @@ class PlayResolverProtocol(Protocol):
             progress_callback: Optional progress reporting.
 
         Returns:
-            Tuple of (resolved track plays, resolution metrics).
+            PlayResolutionOutcome with track plays, metrics, and the
+            connector-play↔track resolution pairs for ledger write-back.
         """
         ...

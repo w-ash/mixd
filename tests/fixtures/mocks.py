@@ -461,6 +461,10 @@ def make_mock_uow(**repo_overrides) -> MagicMock:
         return_value=repo_overrides.get("stats_repo", AsyncMock())
     )
 
+    uow.get_connector_play_repository = MagicMock(
+        return_value=repo_overrides.get("connector_play_repo", AsyncMock())
+    )
+
     uow.get_schedule_repository = MagicMock(
         return_value=repo_overrides.get("schedule_repo", AsyncMock())
     )

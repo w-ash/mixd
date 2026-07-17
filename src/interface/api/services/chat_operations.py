@@ -30,6 +30,7 @@ from src.application.use_cases.import_connector_playlist_as_canonical import (
     to_operation_result,
 )
 from src.application.use_cases.import_play_history import ImportMode, run_import
+from src.application.use_cases.rebuild_play_history import run_rebuild
 from src.application.use_cases.sync_likes import run_spotify_likes_import
 from src.domain.entities.playlist import SPOTIFY_CONNECTOR
 from src.domain.entities.playlist_link import SyncDirection
@@ -244,12 +245,37 @@ async def _launch_import_data(
     raise ToolExecutionError(f"Unknown import source: {source}")
 
 
+async def _launch_rebuild_play_history(
+    details: JsonDict, user_id: str
+) -> tuple[str, str | None]:
+    """Mirror ``mixd plays rebuild`` — full-history ledger projection."""
+    dry_run = _flag(details, "dry_run")
+
+    async def _rebuild(emitter: OperationBoundEmitter) -> object:
+        # Unwrap to the OperationResult — launch_sse_operation's audit path
+        # type-matches OperationResult to record counts; the wrapper would
+        # fall through to a bare "complete" with no stats.
+        rebuild_result = await run_rebuild(
+            user_id=user_id, dry_run=dry_run, progress_emitter=emitter
+        )
+        return rebuild_result.result
+
+    resp = await launch_sse_operation(
+        user_id=user_id,
+        operation_type="rebuild_play_history",
+        coro_factory=_rebuild,
+        initiated_by="assistant",
+    )
+    return resp.operation_id, resp.run_id
+
+
 _LAUNCHERS: dict[str, _LaunchFn] = {
     "run_workflow": _launch_run_workflow,
     "sync_playlist_link": _launch_sync_playlist_link,
     "import_connector_playlists": _launch_import_connector_playlists,
     "apply_playlist_assignments": _launch_apply_playlist_assignments,
     "import_data": _launch_import_data,
+    "rebuild_play_history": _launch_rebuild_play_history,
 }
 
 

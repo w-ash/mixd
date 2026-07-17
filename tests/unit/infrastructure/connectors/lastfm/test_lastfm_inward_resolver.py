@@ -591,3 +591,52 @@ class TestCorrectedNameDualMapping:
         assert len(lastfm_calls) == 1
         assert lastfm_calls[0].args[2] == make_lastfm_identifier("Radiohead", "Creep")
         assert lastfm_calls[0].args[3] == MatchMethod.LASTFM_IMPORT
+
+
+class TestCanonicalDisplayCasing:
+    """Canonical rows are minted from CORRECTED display names, not the
+    lowercased identifier parts (convergence findings §5b: lowercase twins).
+    """
+
+    async def test_probe_preserves_display_casing_on_creation(self):
+        lastfm_client = AsyncMock()
+        lastfm_client.get_track_info_comprehensive.return_value = MagicMock(
+            lastfm_url="https://www.last.fm/music/Carwash/_/Striptease",
+            lastfm_duration=201000,
+            lastfm_album_name="Shimmer",
+            lastfm_mbid=None,
+            lastfm_artist_name="Carwash",
+            lastfm_title="Striptease",
+        )
+
+        saved_track = make_track(id=42)
+        resolver = LastfmInwardResolver(lastfm_client=lastfm_client)
+
+        uow = _make_uow(saved_track=saved_track)
+        result, _metrics = await resolver.resolve_to_canonical_tracks(
+            ["carwash::striptease"], uow, user_id="test-user"
+        )
+
+        assert "carwash::striptease" in result
+        saved_probe = uow.get_track_repository().save_track.call_args.args[0]
+        assert saved_probe.title == "Striptease"
+        assert [a.name for a in saved_probe.artists] == ["Carwash"]
+
+    async def test_probe_degrades_to_raw_names_when_correction_unavailable(self):
+        """getInfo AND getCorrection failing leaves the raw lowercased names —
+        the accepted residual documented on _build_enriched_probe."""
+        lastfm_client = AsyncMock()
+        lastfm_client.get_track_info_comprehensive.return_value = None
+        lastfm_client.get_track_correction.return_value = None
+
+        saved_track = make_track(id=42)
+        resolver = LastfmInwardResolver(lastfm_client=lastfm_client)
+
+        uow = _make_uow(saved_track=saved_track)
+        _ = await resolver.resolve_to_canonical_tracks(
+            ["carwash::striptease"], uow, user_id="test-user"
+        )
+
+        saved_probe = uow.get_track_repository().save_track.call_args.args[0]
+        assert saved_probe.title == "striptease"
+        assert [a.name for a in saved_probe.artists] == ["carwash"]

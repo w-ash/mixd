@@ -10,9 +10,15 @@ pluggable importer instances from the infrastructure layer.
 
 from collections.abc import Awaitable, Callable
 from datetime import UTC, datetime
+from uuid import UUID
 
 from attrs import define
 
+from src.application.services.play_projection_service import (
+    PROJECTION_FETCH_MARGIN,
+    PROJECTION_STAT_LABELS,
+    PlayProjectionService,
+)
 from src.application.use_cases._shared.batch_commit import commit_batch
 from src.config import get_logger
 from src.domain.entities import ConnectorTrackPlay, OperationResult, TrackPlay
@@ -21,10 +27,6 @@ from src.domain.entities.progress import (
     ProgressEmitter,
     create_progress_event,
     tracked_operation,
-)
-from src.domain.matching.play_dedup import (
-    compute_dedup_time_range,
-    deduplicate_cross_source_plays,
 )
 from src.domain.repositories.play import (
     PlayImporterProtocol,
@@ -133,6 +135,7 @@ class PlayImportOrchestrator:
         lastfm_plays = [p for p in connector_plays if p.connector_name == "lastfm"]
 
         all_track_plays: list[TrackPlay] = []
+        all_resolutions: list[tuple[ConnectorTrackPlay, UUID]] = []
         combined_metrics = {
             "total_plays": len(connector_plays),
             "resolved_plays": 0,
@@ -153,10 +156,12 @@ class PlayImportOrchestrator:
             ]:
                 if plays:
                     resolver = await self.resolver_factory(service)
-                    track_plays, metrics = await resolver.resolve_connector_plays(
+                    outcome = await resolver.resolve_connector_plays(
                         plays, uow, user_id=user_id
                     )
+                    track_plays, metrics = outcome.track_plays, outcome.metrics
                     all_track_plays.extend(track_plays)
+                    all_resolutions.extend(outcome.resolutions)
                     combined_metrics["resolved_plays"] += len(track_plays)
                     combined_metrics["error_count"] += metrics.get("error_count", 0)
                     combined_metrics["fallback_resolved"] += metrics.get(
@@ -181,59 +186,38 @@ class PlayImportOrchestrator:
                         )
                     )
 
-            # Cross-source dedup then save to database
-            dedup_stats: dict[str, int] = {}
-            if all_track_plays:
+            # Phase 3: ledger write-back, then project the affected window.
+            # Canonical plays are derived from the observation ledger — the
+            # resolver-built TrackPlays above only feed metrics.
+            projection_stats: dict[str, int] = {}
+            if all_resolutions:
                 async with uow:
-                    plays_repo = uow.get_plays_repository()
-
-                    # Query existing plays in the time range for dedup comparison
-                    time_range = compute_dedup_time_range(all_track_plays)
-                    if time_range is not None:
-                        start_epoch, end_epoch = time_range
-                        track_ids = list({
-                            p.track_id
-                            for p in all_track_plays
-                            if p.track_id is not None
-                        })
-                        start_dt = datetime.fromtimestamp(start_epoch, tz=UTC)
-                        end_dt = datetime.fromtimestamp(end_epoch, tz=UTC)
-                        existing_plays = await plays_repo.find_plays_in_time_range(
-                            track_ids, start_dt, end_dt, user_id=user_id
-                        )
-                    else:
-                        existing_plays = []
-
-                    # Run cross-source dedup
-                    dedup_result = deduplicate_cross_source_plays(
-                        new_plays=all_track_plays, existing_plays=existing_plays
+                    _ = await uow.get_connector_play_repository().bulk_update_resolution(
+                        all_resolutions, resolved_at=datetime.now(UTC)
                     )
-                    dedup_stats = dedup_result.stats
-
-                    if dedup_result.stats.get("cross_source_matches", 0) > 0:
-                        logger.info(
-                            "Cross-source dedup matched plays",
-                            matches=dedup_result.stats.get("cross_source_matches", 0),
-                            suppressed=len(dedup_result.suppressed_plays),
-                        )
-
-                    # Batch-update existing plays enriched by cross-source match
-                    if dedup_result.plays_to_update:
-                        await plays_repo.bulk_update_play_source_services(
-                            dedup_result.plays_to_update
-                        )
-
-                    # Insert only truly new plays (after dedup)
-                    if dedup_result.plays_to_insert:
-                        _ = await plays_repo.bulk_insert_plays(
-                            dedup_result.plays_to_insert
-                        )
-
                     await uow.commit()
-                    logger.info(
-                        f"Saved {len(dedup_result.plays_to_insert)} plays "
-                        f"({len(dedup_result.suppressed_plays)} suppressed by cross-source dedup)"
+
+                played = [cp.played_at for cp, _ in all_resolutions]
+                projection = PlayProjectionService()
+                # Re-enter the UoW context so an exception mid-chunk rolls
+                # back the pending writes — ImportTracksUseCase converts
+                # exceptions into a failed result, and without this bracket
+                # the runner's session teardown would COMMIT the half-applied
+                # chunk instead (per-chunk commit_batch durability is
+                # unaffected; only the failure path changes).
+                async with uow:
+                    projection_stats = await projection.project_range(
+                        uow,
+                        user_id=user_id,
+                        start=min(played) - PROJECTION_FETCH_MARGIN,
+                        end=max(played) + PROJECTION_FETCH_MARGIN,
+                        progress_emitter=progress_emitter,
+                        operation_id=operation_id,
                     )
+                logger.info(
+                    "Projected batch window onto canonical plays",
+                    **projection_stats,
+                )
 
         # Convert to OperationResult with summary metrics
         result = OperationResult(
@@ -243,27 +227,32 @@ class PlayImportOrchestrator:
 
         # Add metadata
         result.metadata.update(combined_metrics)
-        if dedup_stats:
-            result.metadata["cross_source_dedup"] = dedup_stats
+        if projection_stats:
+            result.metadata["play_projection"] = projection_stats
 
         # Add summary metrics
         total_plays = combined_metrics["total_plays"]
         resolved = len(all_track_plays)
         errors = combined_metrics["error_count"]
         filtered = total_plays - resolved - errors
-        cross_source_matches = dedup_stats.get("cross_source_matches", 0)
 
         result.summary_metrics.add("total", total_plays, "Total Plays", significance=0)
         result.summary_metrics.add(
             "resolved", resolved, "Track Plays Resolved", significance=1
         )
-        if cross_source_matches > 0:
-            result.summary_metrics.add(
-                "cross_source_dedup",
-                cross_source_matches,
-                "Cross-Source Dedup",
-                significance=2,
-            )
+        for stat_key in (
+            "groups_created",
+            "groups_updated",
+            "groups_merged",
+            "resolution_divergence",
+        ):
+            if projection_stats.get(stat_key, 0) > 0:
+                result.summary_metrics.add(
+                    stat_key,
+                    projection_stats[stat_key],
+                    PROJECTION_STAT_LABELS[stat_key],
+                    significance=2,
+                )
         if filtered > 0:
             result.summary_metrics.add("filtered", filtered, "Filtered", significance=3)
         if errors > 0:

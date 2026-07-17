@@ -64,9 +64,8 @@ class TestResolveEmptyInput:
         resolver, inward = _make_resolver()
         uow = make_mock_uow()
 
-        plays, metrics = await resolver.resolve_connector_plays(
-            [], uow, user_id="user-1"
-        )
+        outcome = await resolver.resolve_connector_plays([], uow, user_id="user-1")
+        plays, metrics = outcome.track_plays, outcome.metrics
 
         assert plays == []
         assert metrics == {
@@ -86,9 +85,10 @@ class TestResolveEmptyInput:
         uow = make_mock_uow()
         plays_in = [_play("", "Song"), _play("Artist", "")]
 
-        plays, metrics = await resolver.resolve_connector_plays(
+        outcome = await resolver.resolve_connector_plays(
             plays_in, uow, user_id="user-1"
         )
+        plays, metrics = outcome.track_plays, outcome.metrics
 
         assert plays == []
         assert metrics["accepted_plays"] == 0
@@ -109,9 +109,10 @@ class TestResolveHappyPath:
         )
         uow = make_mock_uow()
 
-        plays, metrics = await resolver.resolve_connector_plays(
+        outcome = await resolver.resolve_connector_plays(
             [_play("Radiohead", "Creep")], uow, user_id="user-1"
         )
+        plays, metrics = outcome.track_plays, outcome.metrics
 
         assert len(plays) == 1
         assert plays[0].track_id == track.id
@@ -138,9 +139,10 @@ class TestResolveHappyPath:
             _play("Radiohead", "Karma Police", minute=1),
             _play("Radiohead", "Creep", minute=2),
         ]
-        plays, metrics = await resolver.resolve_connector_plays(
+        outcome = await resolver.resolve_connector_plays(
             plays_in, uow, user_id="user-1"
         )
+        plays, metrics = outcome.track_plays, outcome.metrics
 
         assert [p.track_id for p in plays] == [t2.id, t1.id]
         assert metrics["updated_tracks_count"] == 1
@@ -159,9 +161,10 @@ class TestResolveHappyPath:
             _play("Radiohead", "Creep"),
             _play("Unknown", "Track"),
         ]
-        plays, metrics = await resolver.resolve_connector_plays(
+        outcome = await resolver.resolve_connector_plays(
             plays_in, uow, user_id="user-1"
         )
+        plays, metrics = outcome.track_plays, outcome.metrics
 
         assert len(plays) == 1
         assert plays[0].track_id == resolved.id
@@ -184,9 +187,10 @@ class TestResolveHappyPath:
             _play("radiohead", "creep", minute=2),  # case variant
             _play("Radiohead", "Creep", minute=3),
         ]
-        plays, _metrics = await resolver.resolve_connector_plays(
+        outcome = await resolver.resolve_connector_plays(
             plays_in, uow, user_id="user-1"
         )
+        plays, _metrics = outcome.track_plays, outcome.metrics
 
         assert [p.track_id for p in plays] == [track.id, track.id, track.id]
 
@@ -205,9 +209,10 @@ class TestResolveMetricsMapping:
         )
         uow = make_mock_uow()
 
-        _plays, metrics = await resolver.resolve_connector_plays(
+        outcome = await resolver.resolve_connector_plays(
             [_play("Radiohead", "Creep")], uow, user_id="user-1"
         )
+        _plays, metrics = outcome.track_plays, outcome.metrics
 
         assert metrics["updated_tracks_count"] == 7  # inward "existing"
         assert metrics["new_tracks_count"] == 3  # inward "created"
@@ -227,9 +232,8 @@ class TestResolveContextKeys:
         uow = make_mock_uow()
         play = _play("Radiohead", "Creep", mbid="mbid-1", loved="1", extra_key="extra")
 
-        plays, _metrics = await resolver.resolve_connector_plays(
-            [play], uow, user_id="user-1"
-        )
+        outcome = await resolver.resolve_connector_plays([play], uow, user_id="user-1")
+        plays, _metrics = outcome.track_plays, outcome.metrics
 
         context = plays[0].context
         assert set(context.keys()) == {
@@ -286,12 +290,13 @@ class TestResolveProgressCallbacks:
         )
         uow = make_mock_uow()
 
-        plays, _metrics = await resolver.resolve_connector_plays(
+        outcome = await resolver.resolve_connector_plays(
             [_play("Radiohead", "Creep")],
             uow,
             user_id="user-1",
             progress_callback=None,
         )
+        plays, _metrics = outcome.track_plays, outcome.metrics
 
         assert len(plays) == 1
 

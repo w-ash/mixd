@@ -6,13 +6,16 @@ and sophisticated duration-based filtering.
 
 from collections.abc import Callable
 from enum import StrEnum
+from uuid import UUID
 
 from src.config import get_logger, settings
-from src.config.constants import MatchMethod, SpotifyConstants
 from src.domain.entities import ConnectorTrackPlay, Track, TrackPlay
-from src.domain.entities.operations import TrackContextFields
 from src.domain.entities.shared import JsonValue
-from src.domain.repositories.play import ResolutionMetrics
+from src.domain.matching.play_projection import (
+    build_play_context,
+    spotify_id_from_uri,
+)
+from src.domain.repositories.play import PlayResolutionOutcome, ResolutionMetrics
 from src.domain.repositories.uow import UnitOfWorkProtocol
 from src.infrastructure.connectors.spotify import SpotifyConnector
 from src.infrastructure.connectors.spotify.inward_resolver import (
@@ -97,11 +100,11 @@ class SpotifyConnectorPlayResolver:
         *,
         user_id: str,
         progress_callback: Callable[[int, int, str], None] | None = None,
-    ) -> tuple[list[TrackPlay], ResolutionMetrics]:
+    ) -> PlayResolutionOutcome:
         """Resolve Spotify connector plays with full metadata preservation."""
         _ = progress_callback  # Keep for future progress tracking integration
         if not connector_plays:
-            return [], self._create_empty_metrics()
+            return self._empty_outcome()
 
         # Step 1: Extract unique Spotify track IDs + fallback hints
         unique_spotify_ids, fallback_hints = self._extract_ids_and_hints(
@@ -109,7 +112,7 @@ class SpotifyConnectorPlayResolver:
         )
         if not unique_spotify_ids:
             logger.warning("No valid Spotify track IDs found in connector plays")
-            return [], self._create_empty_metrics()
+            return self._empty_outcome()
 
         # Step 2: Resolve Spotify track IDs to canonical tracks
         (
@@ -121,6 +124,7 @@ class SpotifyConnectorPlayResolver:
 
         # Step 3: Create TrackPlay objects with Spotify's rich metadata
         track_plays: list[TrackPlay] = []
+        resolutions: list[tuple[ConnectorTrackPlay, UUID]] = []
         filtering_stats: ResolutionMetrics = {
             "raw_plays": len(connector_plays),
             "accepted_plays": 0,
@@ -170,11 +174,13 @@ class SpotifyConnectorPlayResolver:
                 continue
 
             filtering_stats["accepted_plays"] += 1
+            resolutions.append((connector_play, canonical_track.id))
             track_plays.append(
                 TrackPlay(
                     track_id=canonical_track.id,
                     service="spotify",
                     played_at=connector_play.played_at,
+                    user_id=user_id,
                     ms_played=connector_play.ms_played,
                     context=self._build_context(connector_play, spotify_id),
                     import_timestamp=connector_play.import_timestamp,
@@ -203,7 +209,11 @@ class SpotifyConnectorPlayResolver:
             updated_tracks=canonical_track_metrics["updated_tracks_count"],
         )
 
-        return track_plays, spotify_metrics
+        return PlayResolutionOutcome(
+            track_plays=track_plays,
+            metrics=spotify_metrics,
+            resolutions=tuple(resolutions),
+        )
 
     def _extract_ids_and_hints(
         self, connector_plays: list[ConnectorTrackPlay]
@@ -245,60 +255,19 @@ class SpotifyConnectorPlayResolver:
     def _build_context(
         self, connector_play: ConnectorTrackPlay, spotify_id: str | None
     ) -> dict[str, JsonValue]:
-        """Build the persisted play context, preserving ALL Spotify metadata.
+        """Build the persisted play context via the domain builder.
 
-        NOTE: the key set here is persisted into ``track_plays.context`` JSON —
-        any key change is user-visible data drift. Keep byte-identical.
+        The domain builder is the single implementation the projection also
+        uses; the only run-scoped addition here is the per-run resolution
+        method (redirect/fallback), which the ledger cannot reconstruct —
+        the domain builder records the stable marker for those instead.
         """
-        incognito_mode = connector_play.service_metadata.get("incognito_mode", False)
-        return {
-            # Core track identification
-            TrackContextFields.TRACK_NAME: connector_play.track_name,
-            TrackContextFields.ARTIST_NAME: connector_play.artist_name,
-            TrackContextFields.ALBUM_NAME: connector_play.album_name,
-            # Spotify's rich behavioral metadata
-            TrackContextFields.PLATFORM: connector_play.service_metadata.get(
-                "platform"
-            ),
-            TrackContextFields.COUNTRY: connector_play.service_metadata.get("country"),
-            TrackContextFields.REASON_START: connector_play.service_metadata.get(
-                "reason_start"
-            ),
-            TrackContextFields.REASON_END: connector_play.service_metadata.get(
-                "reason_end"
-            ),
-            TrackContextFields.SHUFFLE: connector_play.service_metadata.get("shuffle"),
-            "skipped": connector_play.service_metadata.get("skipped"),
-            TrackContextFields.OFFLINE: connector_play.service_metadata.get("offline"),
-            TrackContextFields.INCOGNITO_MODE: incognito_mode,
-            # Spotify identifiers and technical metadata
-            TrackContextFields.SPOTIFY_TRACK_URI: connector_play.service_metadata.get(
-                "track_uri"
-            ),
-            "spotify_track_id": spotify_id,
-            # Resolution tracking
-            "resolution_method": self._inward_resolver.get_resolution_method(spotify_id)
-            if spotify_id
-            else MatchMethod.PLAY_RESOLVER,
-            "architecture_version": "connector_plays_deferred_resolution",
-            # Preserve any additional Spotify metadata
-            **{
-                k: v
-                for k, v in connector_play.service_metadata.items()
-                if k
-                not in [
-                    TrackContextFields.PLATFORM,
-                    TrackContextFields.COUNTRY,
-                    TrackContextFields.REASON_START,
-                    TrackContextFields.REASON_END,
-                    TrackContextFields.SHUFFLE,
-                    "skipped",
-                    TrackContextFields.OFFLINE,
-                    TrackContextFields.INCOGNITO_MODE,
-                    "track_uri",
-                ]
-            },
-        }
+        context = build_play_context(connector_play)
+        if spotify_id:
+            context["resolution_method"] = self._inward_resolver.get_resolution_method(
+                spotify_id
+            )
+        return context
 
     def _assemble_metrics(
         self,
@@ -341,30 +310,8 @@ class SpotifyConnectorPlayResolver:
         return None
 
     def _extract_spotify_id_from_uri(self, spotify_uri: str) -> str | None:
-        """Extract Spotify track ID from Spotify URI."""
-        if not spotify_uri:
-            return None
-
-        try:
-            parts = spotify_uri.split(":")
-            if (
-                len(parts) != SpotifyConstants.URI_PARTS_COUNT
-                or parts[0] != "spotify"
-                or parts[1] != "track"
-            ):
-                return None
-
-            track_id = parts[2]
-            if (
-                len(track_id) == SpotifyConstants.TRACK_ID_LENGTH
-                and track_id.replace("_", "a").replace("-", "a").isalnum()
-            ):
-                return track_id
-
-        except Exception as e:
-            logger.debug(f"Error parsing Spotify URI {spotify_uri}: {e}")
-
-        return None
+        """Extract Spotify track ID from a Spotify URI (domain single source)."""
+        return spotify_id_from_uri(spotify_uri) if spotify_uri else None
 
     async def _resolve_spotify_ids_to_canonical_tracks(
         self,
@@ -410,3 +357,10 @@ class SpotifyConnectorPlayResolver:
             "dead_ids_unresolved": 0,
             "isrc_suspect_deferred": 0,
         }
+
+    def _empty_outcome(self) -> PlayResolutionOutcome:
+        return PlayResolutionOutcome(
+            track_plays=[],
+            metrics=self._create_empty_metrics(),
+            resolutions=(),
+        )

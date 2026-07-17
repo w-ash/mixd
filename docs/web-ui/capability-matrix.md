@@ -10,7 +10,7 @@ internal plumbing). This table is generated from
 `src/application/tools/registry.py` and enforced by
 `tests/unit/application/tools/test_registry_parity.py`.
 
-**82 capabilities: 74 covered, 8 excluded.**
+**83 capabilities: 75 covered, 8 excluded.**
 
 | Capability (use case) | Chat tool | Disposition | Rationale |
 | --- | --- | --- | --- |
@@ -68,6 +68,7 @@ internal plumbing). This table is generated from
 | PreviewWorkflowUseCase | preview_workflow | covered | — |
 | ReadCanonicalPlaylistUseCase | query_playlists | covered | — |
 | ReadPlaylistTracksPageUseCase | query_playlists | covered | — |
+| RebuildPlayHistoryUseCase | rebuild_play_history | covered | — |
 | RefreshConnectorPlaylistsUseCase | manage_connector_playlist | covered | — |
 | RelinkConnectorTrackUseCase | manage_track_matches | covered | — |
 | RemovePlaylistEntriesUseCase | manage_playlist_entries | covered | — |
@@ -139,6 +140,7 @@ chat-only for now — the latter pending the gated Tasks-extension epic.
 | apply_playlist_assignments | write | chat-only (pending Tasks) | Call this to apply tag/preference assignment rules across the library, populating playlists in bulk — omit assignment_ids to apply all, or pass specific ones. |
 | sync_playlist_link | write | chat-only (pending Tasks) | Call this to run a playlist sync link now — pass its link_id from query_playlist_links. |
 | import_data | write | chat-only (pending Tasks) | Call this to import listening data from a connector — Last.fm play history or Spotify likes. |
+| rebuild_play_history | write | chat-only (pending Tasks) | Call this to re-derive the user's entire canonical play history from the imported observation ledger — converging duplicates and refreshing merged fields. |
 | code_execution | agentic | chat-only (agentic) | Server-side Python sandbox for batch computation over the user's library. |
 | delegate_analysis | agentic | chat-only (agentic) | Use this to delegate a deep, multi-step investigation of the user's library to a research subagent — 'compare my listening this spring vs last spring and tell me what changed', 'which starred tracks fell out of rotation this year and why'. |
 | tool_search_tool_bm25 | agentic | chat-only (agentic) | Server-side BM25 search over the deferred tool set. |

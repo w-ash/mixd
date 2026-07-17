@@ -17,6 +17,7 @@ The ``details`` contract each propose stores (consumed by the interface launcher
 - ``apply_playlist_assignments`` — ``{operation, connector_name?, assignment_ids?}``
 - ``sync_playlist_link`` — ``{operation, link_id, direction_override?, confirm_token?}``
 - ``import_data`` — ``{operation, source, limit?, username?, force?}``
+- ``rebuild_play_history`` — ``{operation, dry_run}``
 """
 
 from collections.abc import Mapping
@@ -270,6 +271,45 @@ async def handle_import_data(
     )
 
 
+# --- rebuild_play_history ---------------------------------------------------
+
+REBUILD_PLAY_HISTORY_INPUT_SCHEMA: JsonDict = {
+    "type": "object",
+    "properties": {
+        "dry_run": {
+            "type": "boolean",
+            "description": (
+                "Preview the diff (create/update/merge/delete counts) without "
+                "writing any changes."
+            ),
+        },
+    },
+    "additionalProperties": False,
+}
+
+
+async def handle_rebuild_play_history(
+    tool_input: Mapping[str, JsonValue], ctx: ToolContext
+) -> JsonValue:
+    dry_run = opt_bool(tool_input, "dry_run", default=False)
+    action = "Preview a rebuild of" if dry_run else "Rebuild"
+    details: JsonDict = {
+        "operation": "rebuild_play_history",
+        "dry_run": dry_run,
+        "changes": [
+            f"{action} the canonical play history from the observation ledger"
+            + ("" if dry_run else " (rows may be updated, merged, or deleted)")
+        ],
+    }
+    return await propose_action(
+        ctx,
+        "rebuild_play_history",
+        tool_input,
+        f"{action} canonical play history",
+        details,
+    )
+
+
 SPECS: list[dict[str, object]] = [
     {
         "name": "run_workflow",
@@ -338,6 +378,21 @@ SPECS: list[dict[str, object]] = [
         "input_schema": IMPORT_DATA_INPUT_SCHEMA,
         "dispatch": handle_import_data,
         "use_cases": ("ImportTracksUseCase", "ImportSpotifyLikesUseCase"),
+        "kind": "write",
+        "launches_operation": True,
+    },
+    {
+        "name": "rebuild_play_history",
+        "description": (
+            "Call this to re-derive the user's entire canonical play history "
+            "from the imported observation ledger — converging duplicates and "
+            "refreshing merged fields. Pass dry_run=true to preview the diff "
+            "first. It runs in the background with progress; confirm before it "
+            "launches."
+        ),
+        "input_schema": REBUILD_PLAY_HISTORY_INPUT_SCHEMA,
+        "dispatch": handle_rebuild_play_history,
+        "use_cases": ("RebuildPlayHistoryUseCase",),
         "kind": "write",
         "launches_operation": True,
     },

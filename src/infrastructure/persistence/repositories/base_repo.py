@@ -723,7 +723,9 @@ class BaseRepository[TDBModel: DatabaseModel, TDomainModel]:
 
         Inserts rows and silently skips any that violate the unique constraint
         identified by ``conflict_keys``. Returns the number of rows actually
-        inserted (via ``rowcount``).
+        inserted, counted via ``RETURNING id`` — DO NOTHING only returns rows
+        it inserted. ``rowcount`` is NOT used here: psycopg3 reports ``-1`` for
+        compiled multi-VALUES inserts, so conflict-skip counts came back wrong.
 
         Unlike ``bulk_upsert``, this never updates existing rows — it's
         appropriate for append-only data like play history where duplicates
@@ -746,8 +748,10 @@ class BaseRepository[TDBModel: DatabaseModel, TDomainModel]:
                         getattr(self.model_class, k) for k in conflict_keys
                     ],
                 )
+                .returning(self.model_class.id)
             )
-            return rows_affected(await self.session.execute(stmt))
+            result = await self.session.execute(stmt)
+            return len(result.scalars().all())
 
     @overload
     async def bulk_upsert(

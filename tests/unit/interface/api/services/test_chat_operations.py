@@ -15,6 +15,7 @@ from uuid import UUID, uuid4, uuid7
 import pytest
 
 from src.application.chat.pending_actions import PendingAction
+from src.domain.entities import OperationResult
 from src.domain.entities.playlist_link import SyncDirection
 from src.domain.entities.shared import JsonDict
 from src.domain.exceptions import ToolExecutionError
@@ -291,6 +292,63 @@ class TestImportData:
         action = _action("import_data", {"source": "spotify_history"})
         with pytest.raises(ToolExecutionError, match="Unknown import source"):
             await chat_operations.launch_chat_operation(action, _USER)
+
+
+class TestRebuildPlayHistory:
+    async def test_threads_dry_run_and_unwraps_operation_result(self) -> None:
+        inner = OperationResult(
+            operation_name="Play History Rebuild (dry run)", execution_time=0.0
+        )
+        capturing = _CapturingLaunch()
+        factory_results: list[object] = []
+        run_rebuild = AsyncMock(
+            return_value=SimpleNamespace(result=inner, stats={}, dry_run=True)
+        )
+        original_call = capturing.__call__
+
+        async def _wrapped(
+            *, coro_factory: object, **kwargs: object
+        ) -> OperationStartedResponse:
+            async def _recording_factory(emitter: object) -> object:
+                result = await coro_factory(emitter)  # type: ignore[operator]
+                factory_results.append(result)
+                return result
+
+            return await original_call(coro_factory=_recording_factory, **kwargs)  # type: ignore[arg-type]
+
+        action = _action("rebuild_play_history", {"dry_run": True})
+
+        with (
+            patch.object(chat_operations, "launch_sse_operation", _wrapped),
+            patch.object(chat_operations, "run_rebuild", run_rebuild),
+        ):
+            envelope = await chat_operations.launch_chat_operation(action, _USER)
+
+        assert capturing.kwargs["operation_type"] == "rebuild_play_history"
+        assert capturing.kwargs["initiated_by"] == "assistant"
+        _, kwargs = run_rebuild.await_args
+        assert kwargs["user_id"] == _USER
+        assert kwargs["dry_run"] is True
+        # The factory must hand the SSE runner the unwrapped OperationResult —
+        # the wrapper would audit as a bare "complete" with no counts.
+        assert factory_results == [inner]
+        assert envelope["operation_id"] == "op-1"
+
+    async def test_missing_dry_run_defaults_false(self) -> None:
+        capturing = _CapturingLaunch()
+        run_rebuild = AsyncMock(
+            return_value=SimpleNamespace(result=Mock(), stats={}, dry_run=False)
+        )
+        action = _action("rebuild_play_history", {})
+
+        with (
+            patch.object(chat_operations, "launch_sse_operation", capturing),
+            patch.object(chat_operations, "run_rebuild", run_rebuild),
+        ):
+            await chat_operations.launch_chat_operation(action, _USER)
+
+        _, kwargs = run_rebuild.await_args
+        assert kwargs["dry_run"] is False
 
 
 class TestUnknownTool:

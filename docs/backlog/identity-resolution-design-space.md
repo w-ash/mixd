@@ -1,6 +1,6 @@
 # Identity Resolution — Design-Space Memo
 
-**Date**: 2026-07-02 · **Commission**: [identity-resolution-research-handoff.md](completed/identity-resolution-research-handoff.md) · **Status**: Active — research deliverable (no code changed); feeds v0.8.18, v0.10.2, v1.0.x
+**Date**: 2026-07-02 · **Commission**: [identity-resolution-research-handoff.md](completed/identity-resolution-research-handoff.md) · **Status**: Active — research deliverable (no code changed); feeds v0.8.18, v0.10.2 (supersession), v0.12.x (artist identity), v1.1.0 (cross-user)
 
 **Mission recap**: map how mixd resolves track identity across Spotify / Last.fm / MusicBrainz today, measure it against 2026 entity-resolution practice and fresh provider documentation, assess Apple Music readiness plus an 8–10-service future, and lay out *directions with trade-offs* — not a chosen design. Scope extensions (2026-07-02): artist-level identity (§7) and the omni-integration breadth ring (§6).
 
@@ -63,7 +63,7 @@ The engine treats ISRC as strong-but-fallible (suspect check, `isrc_validation.p
 
 ### FM4 — Healing and staleness
 
-- **FM4a · Read-path-only healing** — promotion of a fallback mapping happens only when a track is loaded with a session (`repositories/track/mapper.py:133-175`). What is never read never heals; there is no scheduled re-validation of anything. **Acknowledged in roadmap (v1.0.3) but unbuilt.**
+- **FM4a · Read-path-only healing** — promotion of a fallback mapping happens only when a track is loaded with a session (`repositories/track/mapper.py:133-175`). What is never read never heals; there is no scheduled re-validation of anything. **Acknowledged in roadmap (v1.1.0) but unbuilt.**
 - **FM4b · Healing masked by denormalized columns** — the mapper pre-populates `connector_track_identifiers["spotify"|"musicbrainz"]` from `DBTrack.spotify_id/mbid` *before* walking mappings (`mapper.py:111-114`), so the no-primary fallback/promotion pass never fires for those connectors while the column is non-empty. **Unhandled, undocumented interaction.**
 - **FM4c · Two promotion policies** — the mapper promotes the *first* fallback in iteration order (docstring says "best", `mapper.py:134`); `ensure_primary_for_connector` promotes highest-confidence (`connector.py:953-980`). Same repair, two different outcomes depending on trigger. **Unhandled.**
 - **FM4d · Stale denormalized-ID sync (suspected live bug)** — `map_track_to_connector` unconditionally syncs `DBTrack.spotify_id` to whatever mapping it just wrote (`connector.py:603-605`); the redirect/fallback flow writes primary (current ID) *then* secondary (dead ID) (`spotify/inward_resolver.py:176-196`), leaving **the canonical's `spotify_id` column holding the dead ID** after every REDIRECT/SEARCH_FALLBACK resolution. Downstream: `save_track` dedups against the stale ID (FM2a key), and FM4b then masks healing behind it. **Unhandled — highest-priority verification target.** `[Q7 — pending prod]`
@@ -129,9 +129,9 @@ Adopt the two primitives 2026 fault-tolerant identity systems converge on (B1/B3
 **Cost**: M–L; 2 migrations (columns + event table); every mapping-write site touched (the four FM6a entry points — which is also the moment to consolidate them behind one application-service seam, addressing FM6a *by consequence* rather than by grand redesign).
 **Risk**: supersession-aware reads — every query that assumes "one live mapping" must filter `superseded_by_id IS NULL` (Wikidata's constraint-tooling lesson: half-aware tooling generates false alarms forever). Mitigation: a partial index + a repository-level default filter.
 
-### D3 — Global identity layer (the v1.0.3 `ConnectorIdentity`/`ObservationLedger` sketch, evaluated)
+### D3 — Global identity layer (the v1.1.0 `ConnectorIdentity`/`ObservationLedger` sketch, evaluated)
 
-> **2026-07-02 follow-up**: the governance dimension of D3 — *who arbitrates shared identity, internal-vs-MusicBrainz, multi-user gameability* — is mapped in depth in the companion memo [identity-governance-design-space.md](identity-governance-design-space.md). Its headline findings: no shipped product uses user-curated shared music identity (the Songlink/Letterboxd architectures run on external anchors with zero curation staff); community voting/trust-weighting demonstrably fails below ~100 active users (v1.0.3's `strong` tier is a 3-sock-account quorum under open registration); the evidence-backed composition is resolve-at-view for public surfaces + external-anchor-only cross-user sharing, with TrustScore deferred. The evaluation below stands for the mechanical half of the sketch.
+> **2026-07-02 follow-up**: the governance dimension of D3 — *who arbitrates shared identity, internal-vs-MusicBrainz, multi-user gameability* — is mapped in depth in the companion memo [identity-governance-design-space.md](identity-governance-design-space.md). Its headline findings: no shipped product uses user-curated shared music identity (the Songlink/Letterboxd architectures run on external anchors with zero curation staff); community voting/trust-weighting demonstrably fails below ~100 active users (v1.1.0's `strong` tier is a 3-sock-account quorum under open registration); the evidence-backed composition is resolve-at-view for public surfaces + external-anchor-only cross-user sharing, with TrustScore deferred. The evaluation below stands for the mechanical half of the sketch.
 
 The existing sketch (v1.0.x.md:198-315) proposes: global no-RLS `connector_identities` with confidence tiers, append-only `observations` with trust weights, computed `TrustScore`, MusicBrainz re-validation on a schedule, and a backfill from `track_mappings`.
 
@@ -253,10 +253,10 @@ Committed ring (Spotify, Last.fm, MusicBrainz, Apple Music) + breadth ring (Tida
 - **Last.fm**: one page per name *string*; two artists sharing a name share scrobbles (support threads, 2024–2026); renames create parallel pages (TEED probe: two pages, one MBID-less). `artist.getCorrection` is the only normalization primitive (misspellings/variants → canonical Last.fm name) — currently unused by mixd.
 - Breadth-ring artist identity is uniformly weaker: YTM artists have *multiple* channel IDs each (topic + official + Vevo; ytmusicapi warns returned channelId ≠ requested); Deezer has no aliases/disambiguation; SoundCloud's artist *is* a user account (n accounts per human, credit strings freeform).
 
-**Design space for the v0.10.2 epic** (options, not a pick):
+**Design space for the v0.12.1 epic** (options, not a pick):
 - **A. MB-alias lookup table (the current sketch), revised**: import aliases keyed by artist MBID (not by name), all alias types, with periodic refresh and 301-merge handling. Validated as the only mechanism that actually bridges abbreviations. Prerequisite: tracks must resolve to an MB artist MBID at all — which today rides on FM7c-tainted Last.fm MBIDs or MB search; the epic's "MusicBrainz artist MBID lookup via existing client" line is doing more work than it looks.
 - **B. Canonical-artist entity with per-connector artist mappings** (mirrors the track pattern; the epic's data-model direction): sound, but inherits every FM1 lesson — the sketch's "direct ID match (100), MBID match (95), name match (80)" hardcodes a new copy of the scattered-constants problem (FM1f) before the track-side one is fixed. If built, artist confidence should come from the same evaluation service pattern, not fresh literals.
-- **C. Normalization-first minimalism**: run `artist.getCorrection` + MB alias expansion at *comparison* time (matching-layer equivalence, no new tables). Cheapest; doesn't give canonical artist pages (which v0.10.2's UI epics need), so likely insufficient alone — but it is the right *matching* substrate under either A or B.
+- **C. Normalization-first minimalism**: run `artist.getCorrection` + MB alias expansion at *comparison* time (matching-layer equivalence, no new tables). Cheapest; doesn't give canonical artist pages (which v0.12.1's UI epics need), so likely insufficient alone — but it is the right *matching* substrate under either A or B.
 - **Sequencing note**: artist identity errors compound track-identity errors (artist string feeds `calculate_confidence` at `algorithms.py:203-215` — first-artist-only, FM1 §B.8). Alias-aware artist comparison (C) would measurably improve *track* matching before any artist entity ships.
 
 ## 8. Quantification — prod query pack (pending user run)
@@ -267,4 +267,4 @@ Separately: a fresh `scripts/diagnose_stale_spotify_ids.py` run would record the
 
 ## 9. Backlog stories
 
-Originally filed to unscheduled.md; **sequenced into the roadmap 2026-07-02**: the six D1 repairs → [v0.8.18 Identity Integrity](v0.8.18.md); mapping supersession + resolution event log (D2) → [v1.0.0 Data Quality](v1.0.x.md#v100-data-quality); alias-aware artist comparison → [v0.10.2 First-Class Artists](v0.10.x.md#v0102-first-class-artists). Each story cross-references taxonomy IDs from §1.
+Originally filed to unscheduled.md; **sequenced into the roadmap 2026-07-02**: the six D1 repairs → [v0.8.18 Identity Integrity](v0.8.18.md); mapping supersession + resolution event log (D2) → [v0.10.2 Mapping Supersession & Resolution Event Log](v0.10.x.md#v0102-mapping-supersession--resolution-event-log); alias-aware artist comparison → [v0.12.1 First-Class Artists](v0.12.x.md#v0121-first-class-artists). Each story cross-references taxonomy IDs from §1.

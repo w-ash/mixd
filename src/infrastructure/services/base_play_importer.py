@@ -4,6 +4,8 @@ from abc import ABC, abstractmethod
 from datetime import UTC, datetime
 from uuid import uuid4
 
+from attrs import evolve
+
 from src.config import get_logger
 from src.domain.entities import ConnectorTrackPlay, OperationResult
 from src.domain.entities.progress import (
@@ -53,6 +55,7 @@ class BasePlayImporter[TRawData, TParams: PlayImportParams](ABC):
         params: TParams,
         *,
         uow: UnitOfWorkProtocol,
+        user_id: str | None = None,
         progress_emitter: ProgressEmitter | None = None,
         import_batch_id: str | None = None,
     ) -> tuple[OperationResult, list[ConnectorTrackPlay]]:
@@ -66,6 +69,9 @@ class BasePlayImporter[TRawData, TParams: PlayImportParams](ABC):
         Args:
             params: Source-specific frozen import selectors.
             uow: UnitOfWork for database operations.
+            user_id: The mixd user the ledger rows belong to; stamped onto
+                every ConnectorTrackPlay before persistence (None keeps the
+                local-dev "default" tenant).
             progress_emitter: Optional progress emitter (defaults to null).
             import_batch_id: Optional batch ID for grouping related imports;
                 generated when omitted.
@@ -99,6 +105,7 @@ class BasePlayImporter[TRawData, TParams: PlayImportParams](ABC):
                 batch_id=batch_id,
                 import_timestamp=import_timestamp,
                 uow=uow,
+                user_id=user_id,
             )
 
         except Exception as e:
@@ -127,6 +134,7 @@ class BasePlayImporter[TRawData, TParams: PlayImportParams](ABC):
         batch_id: str,
         import_timestamp: datetime,
         uow: UnitOfWorkProtocol,
+        user_id: str | None = None,
     ) -> tuple[OperationResult, list[ConnectorTrackPlay]]:
         """Fetch → process → save → checkpoint pipeline body for :meth:`import_data`."""
         # Step 2: Fetch raw data (implemented by subclasses)
@@ -182,6 +190,13 @@ class BasePlayImporter[TRawData, TParams: PlayImportParams](ABC):
             batch_id=batch_id,
             import_timestamp=import_timestamp,
         )
+
+        # Stamp tenancy at the single persistence choke point — subclass
+        # _process_data implementations stay tenancy-unaware. Without this,
+        # every ledger row lands under the "default" local-dev tenant and
+        # per-user ledger reads (the play projection) see nothing.
+        if user_id is not None:
+            track_plays = [evolve(play, user_id=user_id) for play in track_plays]
 
         # Step 4: Save connector plays (always the same path)
         await progress_emitter.emit_progress(

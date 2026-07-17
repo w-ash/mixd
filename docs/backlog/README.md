@@ -1,12 +1,13 @@
 # Project Mixd — Planning
 
-**Current Version**: 0.9.5
-**Next**: none scheduled — pick the next milestone from the follow-up pool. v0.9.5 Remote MCP Server shipped 2026-07-16 (the tool registry reachable over authenticated Streamable-HTTP at `https://mixd.me/mcp`: an in-app OAuth 2.1 authorization server — CIMD + DCR, browser consent, rotating refresh tokens — a resource-server-authed `/mcp` transport, and a Postgres-backed pending-action store for multi-machine two-phase confirmation). Remaining follow-up pool: the [dependency-audit work orders](dependency-audit-findings.md) (W1–W10), the PLR0913/0917 flip decision ([spoke 26](fable-sweep/26-ratchet-closeout.md)), and the still-gated candidates (MCP spec/SDK drift check after the stable-v2 bump; model/effort cost re-eval before Sonnet 5 intro pricing ends 2026-08-31; demand-gated conversation persistence, memory tool, subagent fan-out, chat-voices toggle).
+**Current Version**: 0.10.0
+**Next**: v0.10.1 Continuous play polling — Spotify recently-played on the existing scheduler, demand-driven + adaptive ([details](v0.10.x.md#v0101-continuous-play-polling)). Follow-up pool unchanged: the [dependency-audit work orders](dependency-audit-findings.md) (W1–W10), the PLR0913/0917 flip decision ([spoke 26](fable-sweep/26-ratchet-closeout.md)), and the still-gated candidates (MCP spec/SDK drift check after the stable-v2 bump; model/effort cost re-eval before Sonnet 5 intro pricing ends 2026-08-31; demand-gated conversation persistence, memory tool, subagent fan-out, chat-voices toggle).
 
-## Shipped — current cycle (v0.9.x)
+## Shipped — current cycle (v0.9.x–v0.10.x)
 
 Canonical release log: [CHANGELOG.md](../../CHANGELOG.md) (all ships, full entries). This narrative keeps one line per ship for the current + previous minor cycle only; older lines are pruned at cycle close.
 
+- **v0.10.0** (2026-07-17) — Convergent play history: canonical plays are a deterministic projection of an immutable observation ledger — re-imports and import order can't change your history, each play keeps the richest field values any source offered, and `mixd plays rebuild [--dry-run]` re-derives the whole history on demand. [changelog](../../CHANGELOG.md#0100--2026-07-17)
 - **v0.9.5** (2026-07-16) — Remote MCP server: the same read + confirmable-write tools reachable over authenticated HTTPS at `https://mixd.me/mcp` — point Claude Code, Cursor, or Claude Desktop at your hosted account from any machine and authorize it once in the browser. An in-app OAuth 2.1 authorization server (CIMD + DCR, session-gated consent, rotating refresh tokens), a resource-server-authed stateless `/mcp` transport, and a Postgres-backed pending-action store so two-phase confirmation survives a multi-machine deploy. Local stdio MCP unchanged; the whole surface is off unless a signing key is configured. [changelog](../../CHANGELOG.md#095--2026-07-16)
 - **v0.9.4** (2026-07-16) — Follow-ups & hardening: a full-series review of v0.9.0–v0.9.3 with fixes applied — the chat panel can no longer hang after a dropped connection, Stop click, or message cap; write confirmations report real success/failure; chat-launched long operations show progress again; two prompt-injection gaps (subagent summary, operation-failure text) are wrapped; live key validation is rate-limited; several 500-paths are closed; the MCP server survives a read-only spawn dir. Plus the ready-now follow-ups: page-contextual tool routing reclaims hot-slot budget off the workflows page (validated hint map, two-tier cache), and §6.5 of the user flows is rewritten to the shipped assistant. [changelog](../../CHANGELOG.md#094--2026-07-16)
 - **v0.9.3** (2026-07-12) — MCP server: point any MCP client (Claude Desktop, Cursor, Claude Code) at your mixd library and drive it with the same read + confirmable-write tools the in-app assistant uses — a local stdio server over the parity registry, installed with `mixd mcp install`, with two-phase mutation confirmation carried in-band. Long-running ops (imports, runs, syncs) stay chat-only pending the post-2026-07-28 Tasks extension.
@@ -121,28 +122,34 @@ Each milestone delivers a **vertical slice** — backend API + frontend page tog
 | **v0.8.15** | Sweep Wave 3 — frontend structure (QueryStates, search de-fork, page splits) | 🚀 Shipped | [details](v0.8.13-0.8.17.md#v0815-sweep-wave-3--frontend-structure) |
 | **v0.8.16** | Sweep Wave 4 — high-risk decompositions (executor flatten, connector contract) | 🚀 Shipped | [details](v0.8.13-0.8.17.md#v0816-sweep-wave-4--high-risk-decompositions) |
 | **v0.8.17** | Sweep closeout — ratchet, Fable review & dependency audit | 🚀 Shipped | [details](v0.8.13-0.8.17.md#v0817-sweep-closeout--ratchet--review) |
-| **v0.8.18** | Identity integrity — confidence repair, ISRC guards, drift metrics (2026-07 research D1; gates v0.10.2 artist identity, v1.0.1 Apple Music, v1.1.x–v1.2.x sharing) | 🚀 Shipped | [details](v0.8.18.md#v0818-identity-integrity) |
+| **v0.8.18** | Identity integrity — confidence repair, ISRC guards, drift metrics (2026-07 research D1; gates v0.12.1 artist identity, v0.11.x Apple Music, v1.1.x–v1.2.x sharing) | 🚀 Shipped | [details](v0.8.18.md#v0818-identity-integrity) |
 | **v0.9.0** | Workflow assistant — right-panel agentic chat (couplefins v1.8.x port) + parity-classified tool registry | 🚀 Shipped | [details](v0.9.x.md#v090-workflow-assistant-agentic-foundation) |
 | **v0.9.1** | Full capability parity — every read/mutation as a confirmable tool; agent activity visible in the UI | 🚀 Shipped | [details](v0.9.x.md#v091-full-capability-parity-in-app) |
 | **v0.9.2** | Agentic depth — programmatic tool calling, research subagent, tool search, context management, page-contextual tool routing | 🚀 Shipped | [details](v0.9.x.md#v092-agentic-depth) |
 | **v0.9.3** | MCP server — mixd as a tool surface (stdio, stateless; Tasks for long ops; consumes the registry) | 🚀 Shipped | [details](v0.9.x.md#v093-mcp-server-mixd-as-a-tool-surface) |
 | **v0.9.4** | Follow-ups & hardening — v0.9.x full-series review with fixes applied; page-contextual routing refinement; §6.5 user-flows rewrite | 🚀 Shipped | [details](v0.9.x.md#v094-follow-ups--hardening) |
 | **v0.9.5** | Remote MCP server — the tool registry over authenticated Streamable-HTTP on the Fly/Neon production deployment (OAuth 2.1 resource server; per-user, from any agent) | 🚀 Shipped | [details](v0.9.x.md#v095-remote-mcp-server-your-production-library-from-any-agent) |
-| **v0.10.0** | Convergent play history — order-free, re-import-safe canonical plays projected from the observation ledger; lands before the first at-scale import ([findings](play-import-convergence-findings.md)) | 🔜 Not Started | [details](v0.10.x.md#v0100-convergent-play-history) |
-| **v0.10.1** | Continuous play polling — Spotify recently-played on the scheduler; Apple Music channel seam | 🔜 Not Started | [details](v0.10.x.md#v0101-continuous-play-polling) |
-| **v0.10.2** | First-class artists | 🔜 Not Started | [details](v0.10.x.md#v0102-first-class-artists) |
-| **v0.10.3** | First-class albums | 🔜 Not Started | [details](v0.10.x.md#v0103-first-class-albums) |
-| **v0.10.4** | Physical media & Discogs | 🔜 Not Started | [details](v0.10.x.md#v0104-physical-media--discogs) |
-| **v0.10.5** | Manual listens | 🔜 Not Started | [details](v0.10.x.md#v0105-manual-listens) |
-| **v1.0.0** | Data quality tools | 🔜 Not Started | [details](v1.0.x.md#v100-data-quality) |
-| **v1.0.1** | Apple Music connector | 🔜 Not Started | [details](v1.0.x.md#v101-apple-music-connector) |
-| **v1.0.2** | Rekordbox connector + audio quality enrichment | 🔜 Not Started | [details](v1.0.x.md#v102-rekordbox-connector) |
-| **v1.0.3** | Cross-user track identity (foundation for sharing & social; trust machinery parked per 2026-07 revision) | 🔜 Not Started | [details](v1.0.x.md#v103-cross-user-track-identity) |
-| **v1.0.4** | Data sovereignty — continuous archive & exit rights (last pre-social milestone; direction-neutral under PDR-001) | 🔜 Not Started | [details](v1.0.x.md#v104-data-sovereignty--archive--exit-rights) |
-| **v1.1.0** | Privacy controls & public profiles | 🔜 Not Started | [details](v1.1.x.md#v110-privacy-controls--public-profiles) |
-| **v1.1.1** | Social graph & follows | 🔜 Not Started | [details](v1.1.x.md#v111-social-graph--follows) |
-| **v1.1.2** | Activity feed & social context | 🔜 Not Started | [details](v1.1.x.md#v112-activity-feed--social-context) |
-| **v1.1.3** | Sharing & growth | 🔜 Not Started | [details](v1.1.x.md#v113-sharing--growth) |
+| **v0.10.0** | Convergent play history — order-free, re-import-safe canonical plays projected from the observation ledger; lands before the first at-scale import ([findings](play-import-convergence-findings.md)) | 🚀 Shipped | [details](v0.10.x.md#v0100-convergent-play-history) |
+| **v0.10.1** | Continuous play polling — Spotify recently-played, demand-driven + adaptive | 🔜 Not Started | [details](v0.10.x.md#v0101-continuous-play-polling) |
+| **v0.10.2** | Mapping supersession & resolution event log (pulled forward so v0.11.x connectors are supersession-native) | 🔜 Not Started | [details](v0.10.x.md#v0102-mapping-supersession--resolution-event-log) |
+| **v0.11.0** | Apple Music foundation — auth, client, ISRC-conservative resolution, play channel | 🔜 Not Started | [details](v0.11.x.md#v0110-apple-music-foundation) |
+| **v0.11.1** | Discogs foundation — BYO-token client + collection snapshot | 🔜 Not Started | [details](v0.11.x.md#v0111-discogs-foundation) |
+| **v0.12.0** | Entity representation spike — artists/albums across five services, real data (docs-only) | 🔜 Not Started | [details](v0.12.x.md#v0120-entity-representation-spike) |
+| **v0.12.1** | First-class artists | 🔜 Not Started | [details](v0.12.x.md#v0121-first-class-artists) |
+| **v0.12.2** | First-class albums | 🔜 Not Started | [details](v0.12.x.md#v0122-first-class-albums) |
+| **v0.13.0** | Apple Music integration — library, likes sync, deferred-play re-resolution | 🔜 Not Started | [details](v0.13.x.md#v0130-apple-music-integration) |
+| **v0.13.1** | Physical media & Discogs | 🔜 Not Started | [details](v0.13.x.md#v0131-physical-media--discogs) |
+| **v0.13.2** | Manual listens | 🔜 Not Started | [details](v0.13.x.md#v0132-manual-listens) |
+| **v0.14.0** | Data quality tools | 🔜 Not Started | [details](v0.14.x.md#v0140-data-quality) |
+| **v0.14.1** | Rekordbox connector + audio quality enrichment | 🔜 Not Started | [details](v0.14.x.md#v0141-rekordbox-connector) |
+| **v0.15.0** | Data sovereignty — continuous archive & exit rights (direction-neutral under PDR-001) | 🔜 Not Started | [details](v0.15.x.md#v0150-data-sovereignty--archive--exit-rights) |
+| **v0.15.1** | Onboarding & multi-user hardening | 🔜 Not Started | [details](v0.15.x.md#v0151-onboarding--multi-user-hardening) |
+| **v1.0.0** | The gate — maturity review, doors open to invited testers (no new features) | 🔜 Not Started | [details](v1.0.x.md#v100-maturity-gate) |
+| **v1.1.0** | Cross-user track identity (social opener; trust machinery parked per 2026-07 revision) | 🔜 Not Started | [details](v1.1.x.md#v110-cross-user-track-identity) |
+| **v1.1.1** | Privacy controls & public profiles | 🔜 Not Started | [details](v1.1.x.md#v111-privacy-controls--public-profiles) |
+| **v1.1.2** | Social graph & follows | 🔜 Not Started | [details](v1.1.x.md#v112-social-graph--follows) |
+| **v1.1.3** | Activity feed & social context | 🔜 Not Started | [details](v1.1.x.md#v113-activity-feed--social-context) |
+| **v1.1.4** | Sharing & growth | 🔜 Not Started | [details](v1.1.x.md#v114-sharing--growth) |
 | **v1.2.0** | Public track share links + service picker | 🔜 Not Started | [details](v1.2.x.md#v120-public-track-share-links) |
 | **v1.2.1** | Saved service preference (cookie + account) | 🔜 Not Started | [details](v1.2.x.md#v121-saved-service-preference) |
 
@@ -165,8 +172,13 @@ See [docs/personas.md](../personas.md) for full persona definitions.
 | v0.7.8 | Mobile responsiveness | Phone for status checks ("did the overnight sync work?"), laptop for deep curation and workflow editing | Self-host UX feels polished on any viewport; workflow editor stays desktop-only by design | Phone is the primary device — full feature parity except editor; bottom nav, sheet dialogs, no horizontal scroll |
 | v0.8.x | Scheduling + templates | Automates the weekly ritual | Templates as onboarding entry point | Scheduling means playlists stay fresh without effort |
 | v0.9.x | Agentic workspace — in-app assistant + MCP surface | Delegates the Sunday ritual sentence by sentence — batch maintenance, analysis, imports with live progress | The parity contract is the draw: anything the app can do, their agents (in-app or via MCP from Claude Desktop/Cursor) can do | THE adoption enabler — natural-language workflows change who can use mixd; everyday actions without learning the UI |
-| v0.10.x | Artists, albums, physical, play history | Deeper library modeling, Discogs integration; play counts finally trustworthy and live (poll + export + Last.fm converge) | Rich data model to explore; observation ledger + rebuild command to script against | Browsing by artist/album is intuitive; history "just works" no matter what they connect |
-| v1.0.x | Data quality + connectors + cross-user identity | Fixes mappings, finds gaps, adds Rekordbox; v1.0.3 makes shared playlists trustworthy | Apple Music broadens self-host appeal; v1.0.3's audit ledger is full data-sovereignty | More services = less lock-in; v1.0.3 makes friend-shared links resolve correctly without trust |
+| v0.10.x | Play history & mapping integrity | Play counts finally trustworthy and live (poll + export + Last.fm converge) | Observation ledger, rebuild command, append-only mapping history to script against | History "just works" no matter what they connect or re-import |
+| v0.11.x | Connector foundations (Apple, Discogs) | Apple listening joins the canonical history; the Discogs on-ramp | Two new connector surfaces to explore | Groundwork for "connect Apple Music" being a first-class button |
+| v0.12.x | First-class artists & albums | Favorites and artist-driven playlists on identity measured across five services | Entity design in the open (spike findings doc); rich relational model | Browse-by-artist/album navigation every music app is expected to have |
+| v0.13.x | Completing the collection | Full reclamation — streaming, physical, and manual history unified | Re-resolution machinery + collection import to script | Apple Music at parity with Spotify |
+| v0.14.x | Data quality + Rekordbox | Fixes mappings, finds gaps, trusts automated results | Rekordbox: purchased music + BPM/key/lossless workflow filters | Fewer wrong-song moments |
+| v0.15.x | Sovereignty & gate readiness | Disaster insurance for years of curation | Data sovereignty made tangible | Ownership without self-hosting |
+| v1.0.x | The gate | Confidence the data model is stable before guests arrive | An instance they can invite friends to | They can finally get an account |
 | v1.1.x | Social layer | Share curated playlists, discover curators | Public API surface, federation potential | Shareable links, follows — the growth mechanism |
 | v1.2.x | Track share links | Shares individual track finds with friends; service preference syncs across devices | Public track URL surface, opt-in cookie/DB preference layering | Friend's track link is the entry point — picker page is first contact with mixd |
 

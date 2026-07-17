@@ -62,9 +62,9 @@ Cross-user assertions exist, but **only externally-verifiable ones cross user bo
 - **Gameability**: to corrupt shared identity you must corrupt MusicBrainz — a larger, monitored, older target with its own (imperfect but real) governance. Two honest caveats from the evidence: (i) MB **fails open** at low attention (~5% vote coverage; unopposed edits auto-apply) — so "MB-verified" must mean *mixd re-checked the claim against MB's current state*, not "a user said MB says"; (ii) Last.fm-sourced MBIDs must never count as anchors (main memo FM1d/FM7c — type-confused, merge-stale).
 - **Labor**: the Letterboxd triad, mostly mechanical: activity-preserving merge handling for upstream MBID merges (301 redirects — the machinery the main memo's D2 supersession schema already plans), retention of locally-referenced identities when upstream deletes, and export of orphaned data. Occasional operator attention; zero per-decision arbitration.
 - **Unlocks**: everything S1 does, plus cross-user track identity for social context, cross-user dedup on shared surfaces, and recommendations groundwork. **Limitation**: coverage — the anchor reaches only anchored tracks. New releases lag in MB (the #1 documented no-match cause), and the long tail (Bandcamp-only, user uploads, SoundCloud-native) may never anchor. **Prod query pack Q14/Q15 measures exactly this** — what fraction of the real library carries ISRC/MBID today decides how big S2's unshareable remainder is.
-- **Migration**: moderate — this is v1.0.3's `ConnectorIdentity` stripped of trust weighting: identity rows exist only when externally verified; `verified` is the *only* shared tier; everything else is per-user.
+- **Migration**: moderate — this is v1.1.0's `ConnectorIdentity` stripped of trust weighting: identity rows exist only when externally verified; `verified` is the *only* shared tier; everything else is per-user.
 
-### S3 — Trust-weighted observation ledger (v1.0.3 as sketched)
+### S3 — Trust-weighted observation ledger (v1.1.0 as sketched)
 
 Users' match decisions become observations with computed TrustScores; aggregation derives tiers (`verified/strong/weak/disputed`); shared truth emerges from weighted internal consensus with external verification as the top tier.
 
@@ -96,18 +96,18 @@ The spectrum points compose rather than compete — and the composition follows 
 
 ---
 
-## 4. Impact on the existing design space (main memo §2-D3, v1.0.3, v1.2.0)
+## 4. Impact on the existing design space (main memo §2-D3, v1.1.0, v1.2.0)
 
-- **v1.0.3's core principle is validated**: "External APIs are arbiter, users are observers" is exactly what the evidence supports — the sketch had the right instinct.
-- **v1.0.3's `strong` tier and TrustScore are contradicted at current scale**: `strong` (≥3 trust-weighted observations) is a 3-sock quorum under open registration; TrustScore inputs are farmable activity gates. Recommended revision: collapse the shared-tier vocabulary to **verified / unverified** (unverified = per-user only, never publicly resolved); park TrustScore + `strong` until a real unanchored-sharing need arrives *and* invite-provenance identity cost exists. The ObservationLedger survives with a narrower job: append-only provenance + candidates-for-verification queue (this also kills the queue-rot risk — the queue's consumer is a verification worker, not a human).
-- **v1.2.0's hard dependency on v1.0.3 can be relaxed**: the picker needs the S1 fan-out cache (a much smaller component) plus anchored deep links — not the full ledger + trust computation. This is a sequencing lean, not a decision: it would let track sharing ship before the cross-user identity layer.
+- **v1.1.0's core principle is validated**: "External APIs are arbiter, users are observers" is exactly what the evidence supports — the sketch had the right instinct.
+- **v1.1.0's `strong` tier and TrustScore are contradicted at current scale**: `strong` (≥3 trust-weighted observations) is a 3-sock quorum under open registration; TrustScore inputs are farmable activity gates. Recommended revision: collapse the shared-tier vocabulary to **verified / unverified** (unverified = per-user only, never publicly resolved); park TrustScore + `strong` until a real unanchored-sharing need arrives *and* invite-provenance identity cost exists. The ObservationLedger survives with a narrower job: append-only provenance + candidates-for-verification queue (this also kills the queue-rot risk — the queue's consumer is a verification worker, not a human).
+- **v1.2.0's hard dependency on v1.1.0 can be relaxed**: the picker needs the S1 fan-out cache (a much smaller component) plus anchored deep links — not the full ledger + trust computation. This is a sequencing lean, not a decision: it would let track sharing ship before the cross-user identity layer.
 - **v1.2.0's confidence-tier UI** maps cleanly onto S1/S2: checkmark = anchor-verified deep link; "best available" = unverified fan-out result; disputed/conflicting anchors = suppressed. Same UX, simpler substrate.
 - **Main memo cross-references**: S1/S2 depend on main-memo D1 repairs (an anchor pipeline built on corrupted confidence/method data inherits FM1's garbage) and D2's supersession schema (platform-asserted successors, MBID merge redirects, and fan-out refresh all need "we used to believe X"). The governance answer strengthens, not replaces, that sequencing.
 
 ## 5. Follow-ups (proposed, not applied)
 
 1. **Run prod Q14/Q15** (already in the query pack): ISRC/MBID coverage sizes S2's reach and the unanchored remainder — the single number that most shapes how much S3 pressure ever materializes.
-2. **Spec revision candidates for v1.0.x.md / v1.2.x.md** (user's call; not edited by this pass): simplify v1.0.3 shared tiers to verified/unverified + narrow ObservationLedger's role (§4); note v1.2.0's relaxed dependency option (S1 cache).
+2. **Spec revision candidates for v1.1.x.md / v1.2.x.md** (user's call; not edited by this pass): simplify v1.1.0 shared tiers to verified/unverified + narrow ObservationLedger's role (§4); note v1.2.0's relaxed dependency option (S1 cache).
 3. **No new unscheduled stories filed**: the existing 2026-07 identity stories (confidence repair, ISRC guards, supersession ledger) are precisely the prerequisites this memo's S1/S2 build on; the S1 fan-out cache belongs in a future v1.2.0 spec revision rather than the unscheduled pool.
 4. When Apple Music lands, its `filter[equivalents]`/storefront projection slots directly into the S1 fan-out as another platform affordance (main memo §3.2).
 

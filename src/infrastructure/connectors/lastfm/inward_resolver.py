@@ -237,12 +237,15 @@ class LastfmInwardResolver(InwardTrackResolver):
         degrades to the raw ``(artist_name, track_name)`` — an accepted
         residual (the mint still proceeds; at worst a future correctly-spelled
         import creates a second, dedup-eligible mapping).
+
+        The probe's ``title``/``artists`` are built from the CORRECTED pair,
+        not the parsed identifier parts: identifiers are lowercased
+        (``make_lastfm_identifier``), and minting canonicals from them created
+        lowercase twins of Spotify-created canonicals ("striptease" vs
+        "Striptease") — 143 duplicate-canonical pairs traced to this
+        (convergence findings §5b). Display casing on the canonical is the
+        cure; the correction degrade above is the accepted residual.
         """
-        probe = Track(
-            title=track_name,
-            artists=[Artist(name=artist_name)],
-            user_id=user_id,
-        )
         try:
             info = await self._lastfm_client.get_track_info_comprehensive(
                 artist_name, track_name
@@ -257,6 +260,16 @@ class LastfmInwardResolver(InwardTrackResolver):
             corrected_artist, corrected_title = await self._resolve_corrected_names(
                 artist_name, track_name
             )
+        else:
+            corrected_artist = info.lastfm_artist_name or artist_name
+            corrected_title = info.lastfm_title or track_name
+
+        probe = Track(
+            title=corrected_title,
+            artists=[Artist(name=corrected_artist)],
+            user_id=user_id,
+        )
+        if not info:
             return probe, corrected_artist, corrected_title
 
         # Last.fm's getInfo MBID is deliberately NOT written into the
@@ -278,8 +291,6 @@ class LastfmInwardResolver(InwardTrackResolver):
             f"(duration={info.lastfm_duration}, album={info.lastfm_album_name}, "
             f"unverified_lastfm_mbid={info.lastfm_mbid})"
         )
-        corrected_artist = info.lastfm_artist_name or artist_name
-        corrected_title = info.lastfm_title or track_name
         return probe, corrected_artist, corrected_title
 
     async def _resolve_corrected_names(

@@ -12,7 +12,7 @@ duplicate plays from corrupting the user's music history data.
 from datetime import UTC, datetime
 from uuid import uuid4
 
-from src.domain.entities import TrackPlay
+from src.domain.entities import ConnectorTrackPlay, TrackPlay
 from src.infrastructure.persistence.repositories.factories import get_unit_of_work
 from tests.fixtures import make_track
 
@@ -119,3 +119,95 @@ class TestImportIdempotency:
         # second batch is a no-op, so only batch_1's play exists.
         assert len(all_plays) == 1
         assert all_plays[0].import_batch_id == batch_1
+
+
+class TestNullMsPlayedIdempotency:
+    """NULLS NOT DISTINCT (migration 040): NULL ms_played rows must still collide.
+
+    Last.fm rows always carry ``ms_played=None``; before migration 040 the
+    dedup constraints treated NULL ≠ NULL, so a full re-import would duplicate
+    every scrobble (convergence findings §5c).
+    """
+
+    async def test_null_ms_played_track_play_reinsert_is_deduplicated(self, db_session):
+        uow = get_unit_of_work(db_session)
+        plays_repo = uow.get_plays_repository()
+        track_repo = uow.get_track_repository()
+
+        saved_track = await track_repo.save_track(
+            make_track(
+                title="TEST_NullMsTrack",
+                artist="TEST_NullMsArtist",
+                connector_track_identifiers={},
+            )
+        )
+        played_at = datetime(2024, 11, 5, 9, 15, 0, tzinfo=UTC)
+
+        def scrobble(batch: str) -> TrackPlay:
+            return TrackPlay(
+                track_id=saved_track.id,
+                service="lastfm",
+                played_at=played_at,
+                ms_played=None,
+                import_timestamp=datetime.now(UTC),
+                import_source="lastfm_api",
+                import_batch_id=batch,
+            )
+
+        await plays_repo.bulk_insert_plays([scrobble("TEST_BATCH_1")])
+        await plays_repo.bulk_insert_plays([scrobble("TEST_BATCH_2")])
+
+        all_plays = await plays_repo.find_plays_in_time_range(
+            [saved_track.id],
+            datetime(2024, 11, 5, tzinfo=UTC),
+            datetime(2024, 11, 6, tzinfo=UTC),
+            user_id="default",
+        )
+        assert len(all_plays) == 1
+
+        # NULL vs a concrete ms_played remains a distinct observation.
+        richer = TrackPlay(
+            track_id=saved_track.id,
+            service="lastfm",
+            played_at=played_at,
+            ms_played=201_000,
+            import_timestamp=datetime.now(UTC),
+            import_source="lastfm_api",
+            import_batch_id="TEST_BATCH_3",
+        )
+        await plays_repo.bulk_insert_plays([richer])
+        all_plays = await plays_repo.find_plays_in_time_range(
+            [saved_track.id],
+            datetime(2024, 11, 5, tzinfo=UTC),
+            datetime(2024, 11, 6, tzinfo=UTC),
+            user_id="default",
+        )
+        assert len(all_plays) == 2
+
+    async def test_null_ms_played_connector_play_reinsert_is_deduplicated(
+        self, db_session
+    ):
+        uow = get_unit_of_work(db_session)
+        connector_repo = uow.get_connector_play_repository()
+
+        def scrobble(batch: str) -> ConnectorTrackPlay:
+            return ConnectorTrackPlay(
+                service="lastfm",
+                artist_name="TEST_NullMsArtist",
+                track_name="TEST_NullMsLedger",
+                played_at=datetime(2024, 11, 5, 9, 15, 0, tzinfo=UTC),
+                ms_played=None,
+                import_timestamp=datetime.now(UTC),
+                import_source="lastfm_api",
+                import_batch_id=batch,
+            )
+
+        inserted, duplicates = await connector_repo.bulk_insert_connector_plays([
+            scrobble("TEST_BATCH_1")
+        ])
+        assert (inserted, duplicates) == (1, 0)
+
+        inserted, duplicates = await connector_repo.bulk_insert_connector_plays([
+            scrobble("TEST_BATCH_2")
+        ])
+        assert (inserted, duplicates) == (0, 1)

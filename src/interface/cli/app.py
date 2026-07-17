@@ -178,6 +178,7 @@ def _register_commands() -> None:
         likes_commands,
         mcp_commands,
         playlist_commands,
+        plays_commands,
         preference_commands,
         review_commands,
         stats_commands,
@@ -206,6 +207,13 @@ def _register_commands() -> None:
         history_commands.app,
         name="history",
         help="Import and manage your music play history",
+        rich_help_panel="🔄 Track Data Sync",
+    )
+
+    app.add_typer(
+        plays_commands.app,
+        name="plays",
+        help="Canonical play history operations (projection rebuild)",
         rich_help_panel="🔄 Track Data Sync",
     )
 

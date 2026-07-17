@@ -55,13 +55,13 @@ class SpotifyPlayImporter(
         Args:
             uow: Unit of work for database operations
             params: Spotify import selectors (file path, batch size)
-            user_id: Unused — file imports carry no per-user account resolution
+            user_id: The mixd user the ledger rows belong to (no per-user
+                account resolution for file imports, but tenancy stamping)
             progress_emitter: Optional progress emitter
 
         Returns:
             Tuple of (operation_result, connector_plays_list)
         """
-        _ = user_id
         if not isinstance(params, SpotifyImportParams):
             raise TypeError(
                 f"SpotifyPlayImporter requires SpotifyImportParams, got {type(params).__name__}"
@@ -76,6 +76,7 @@ class SpotifyPlayImporter(
         result, connector_plays = await self.import_data(
             params,
             uow=uow,
+            user_id=user_id,
             progress_emitter=progress_emitter,
         )
 

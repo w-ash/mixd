@@ -13,7 +13,11 @@ import pytest
 from src.application.services.play_import_orchestrator import PlayImportOrchestrator
 from src.domain.entities import ConnectorTrackPlay, OperationResult, TrackPlay
 from src.domain.entities.progress import NullProgressEmitter
-from src.domain.repositories.play import LastfmImportParams, SpotifyImportParams
+from src.domain.repositories.play import (
+    LastfmImportParams,
+    PlayResolutionOutcome,
+    SpotifyImportParams,
+)
 from tests.fixtures.mocks import make_mock_uow
 
 
@@ -72,7 +76,9 @@ def _make_connector_play(track_name: str = "Test Song") -> ConnectorTrackPlay:
 def mock_resolver():
     """Default mock resolver returning 0 resolved plays."""
     resolver = AsyncMock()
-    resolver.resolve_connector_plays.return_value = ([], {"error_count": 0})
+    resolver.resolve_connector_plays.return_value = PlayResolutionOutcome(
+        track_plays=[], metrics={"error_count": 0}, resolutions=()
+    )
     return resolver
 
 
@@ -113,9 +119,10 @@ class TestTwoPhaseHappyPath:
         )
 
         # Configure the injected resolver for this test
-        mock_resolver.resolve_connector_plays.return_value = (
-            [_make_resolved_track_play(track_id=i + 1) for i in range(3)],
-            {"error_count": 0},
+        mock_resolver.resolve_connector_plays.return_value = PlayResolutionOutcome(
+            track_plays=[_make_resolved_track_play(track_id=i + 1) for i in range(3)],
+            metrics={"error_count": 0},
+            resolutions=(),
         )
 
         result = await orchestrator.import_plays_two_phase(
@@ -138,9 +145,10 @@ class TestTwoPhaseHappyPath:
             connector_plays,
         )
 
-        mock_resolver.resolve_connector_plays.return_value = (
-            [_make_resolved_track_play()],
-            {"error_count": 0},
+        mock_resolver.resolve_connector_plays.return_value = PlayResolutionOutcome(
+            track_plays=[_make_resolved_track_play()],
+            metrics={"error_count": 0},
+            resolutions=(),
         )
 
         result = await orchestrator.import_plays_two_phase(
@@ -182,9 +190,10 @@ class TestResolutionPhaseErrors:
             connector_plays,
         )
 
-        mock_resolver.resolve_connector_plays.return_value = (
-            [],  # No resolved plays
-            {"error_count": 1},  # 1 error
+        mock_resolver.resolve_connector_plays.return_value = PlayResolutionOutcome(
+            track_plays=[],  # No resolved plays
+            metrics={"error_count": 1},  # 1 error
+            resolutions=(),
         )
 
         result = await orchestrator.import_plays_two_phase(
@@ -279,15 +288,16 @@ class TestSpotifyResolutionMetricsPropagation:
         self, orchestrator, mock_resolver, mock_uow
     ):
         connector_plays = [_make_connector_play()]
-        mock_resolver.resolve_connector_plays.return_value = (
-            [_make_resolved_track_play()],
-            {
+        mock_resolver.resolve_connector_plays.return_value = PlayResolutionOutcome(
+            track_plays=[_make_resolved_track_play()],
+            metrics={
                 "error_count": 0,
                 "fallback_resolved": 2,
                 "redirect_resolved": 3,
                 "dead_ids_unresolved": 1,
                 "isrc_suspect_deferred": 4,
             },
+            resolutions=(),
         )
 
         result = await orchestrator.execute_resolution_phase(
@@ -313,15 +323,16 @@ class TestSpotifyResolutionMetricsPropagation:
             _make_ingestion_result(imported=1, raw_plays=1, duplicates=0),
             connector_plays,
         )
-        mock_resolver.resolve_connector_plays.return_value = (
-            [_make_resolved_track_play()],
-            {
+        mock_resolver.resolve_connector_plays.return_value = PlayResolutionOutcome(
+            track_plays=[_make_resolved_track_play()],
+            metrics={
                 "error_count": 0,
                 "fallback_resolved": 2,
                 "redirect_resolved": 3,
                 "dead_ids_unresolved": 1,
                 "isrc_suspect_deferred": 4,
             },
+            resolutions=(),
         )
 
         result = await orchestrator.import_plays_two_phase(
@@ -368,9 +379,10 @@ class TestIncrementalCommit:
             _make_ingestion_result(imported=1, raw_plays=1, duplicates=0),
             connector_plays,
         )
-        mock_resolver.resolve_connector_plays.return_value = (
-            [_make_resolved_track_play()],
-            {"error_count": 0},
+        mock_resolver.resolve_connector_plays.return_value = PlayResolutionOutcome(
+            track_plays=[_make_resolved_track_play()],
+            metrics={"error_count": 0},
+            resolutions=(),
         )
 
         await orchestrator.import_plays_two_phase(
@@ -407,9 +419,10 @@ class TestPhase2Progress:
             _make_ingestion_result(imported=3, raw_plays=3, duplicates=0),
             connector_plays,
         )
-        mock_resolver.resolve_connector_plays.return_value = (
-            [_make_resolved_track_play(track_id=i + 1) for i in range(3)],
-            {"error_count": 0},
+        mock_resolver.resolve_connector_plays.return_value = PlayResolutionOutcome(
+            track_plays=[_make_resolved_track_play(track_id=i + 1) for i in range(3)],
+            metrics={"error_count": 0},
+            resolutions=(),
         )
 
         emitter = AsyncMock()
@@ -452,3 +465,53 @@ class TestPhase2Progress:
         # Phase 1 may call start_operation via the importer, but Phase 2 should not
         # since we short-circuit on empty ingestion
         emitter.emit_progress.assert_not_awaited()
+
+
+class TestResolutionWriteBack:
+    """Phase 2 persists connector-play↔track resolutions onto the ledger."""
+
+    async def test_resolutions_persisted_after_resolution(
+        self, orchestrator, mock_resolver, mock_uow
+    ):
+        connector_plays = [_make_connector_play()]
+        track_play = _make_resolved_track_play()
+        resolutions = tuple((cp, track_play.track_id) for cp in connector_plays)
+        mock_resolver.resolve_connector_plays.return_value = PlayResolutionOutcome(
+            track_plays=[track_play],
+            metrics={"error_count": 0},
+            resolutions=resolutions,
+        )
+
+        await orchestrator.execute_resolution_phase(
+            connector_plays,
+            mock_uow,
+            user_id="test-user",
+            progress_emitter=NullProgressEmitter(),
+        )
+
+        repo = mock_uow.get_connector_play_repository.return_value
+        repo.bulk_update_resolution.assert_awaited_once()
+        args, kwargs = repo.bulk_update_resolution.await_args
+        assert list(args[0]) == list(resolutions)
+        assert kwargs["resolved_at"] is not None
+
+    async def test_no_write_back_without_resolutions(
+        self, orchestrator, mock_resolver, mock_uow
+    ):
+        """Unresolvable batches leave the ledger untouched (rows stay NULL)."""
+        connector_plays = [_make_connector_play()]
+        mock_resolver.resolve_connector_plays.return_value = PlayResolutionOutcome(
+            track_plays=[_make_resolved_track_play()],
+            metrics={"error_count": 0},
+            resolutions=(),
+        )
+
+        await orchestrator.execute_resolution_phase(
+            connector_plays,
+            mock_uow,
+            user_id="test-user",
+            progress_emitter=NullProgressEmitter(),
+        )
+
+        repo = mock_uow.get_connector_play_repository.return_value
+        repo.bulk_update_resolution.assert_not_awaited()

@@ -12,7 +12,7 @@ See docs/backlog/identity-resolution-design-space.md §4 (tests 6, 7).
 
 from unittest.mock import AsyncMock, MagicMock
 
-from sqlalchemy import select
+from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.domain.entities import Artist, Track
@@ -146,8 +146,8 @@ class TestEnrichmentResaveCreatesSingleCanonical:
 
         rows = (
             await db_session.execute(
-                select(DBTrack.id, DBTrack.duration_ms).where(
-                    DBTrack.title == "orphaned"
+                select(DBTrack.id, DBTrack.title, DBTrack.duration_ms).where(
+                    func.lower(DBTrack.title) == "orphaned"
                 )
             )
         ).all()
@@ -157,6 +157,9 @@ class TestEnrichmentResaveCreatesSingleCanonical:
         # ...it IS the resolver's result, carrying the enrichment (no orphan)...
         assert row.id == resolved.id
         assert row.duration_ms == 100_000
+        # ...minted with the CORRECTED display casing, not the lowercased
+        # identifier parts (v0.10.0 casing fix, convergence findings §5b).
+        assert row.title == "Orphaned"
         # ...and it holds the Last.fm mappings (nothing dangling).
         mappings = (
             await db_session.execute(

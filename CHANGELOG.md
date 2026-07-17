@@ -6,6 +6,22 @@ linked backlog version file. Versioning follows mixd's four-segment
 `major.minor.feature.revision` scheme (`.claude/rules/version-management.md`), not strict
 SemVer. Format inspired by [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [0.10.0] — 2026-07-17
+
+**Play history you can finally trust — no matter what you import, or in what order.** Until now, merging Spotify and Last.fm plays depended on which import ran first: measured on real overlap data, one order merged 519 overlapping pairs correctly while the reverse double-counted 267 of them. v0.10.0 makes canonical plays a deterministic projection of an immutable observation ledger — re-import the same GDPR file twice, import Last.fm before or after Spotify, upload a fresh export over old data: the history comes out identical every time, and each play carries the richest field values any source offered (`ms_played` and behavioral detail from the export, second-precision start times from Last.fm, `loved` flags intact).
+
+What you can do now:
+- **Re-import fearlessly.** Every source record is an immutable observation; canonical plays are re-derived from the set, so re-runs and duplicate uploads are mechanical no-ops (`NULLS NOT DISTINCT` dedup constraints close the NULL-`ms_played` hole that would have duplicated every Last.fm scrobble on a full re-import).
+- **Rebuild on demand.** `mixd plays rebuild [--dry-run]` re-derives the entire canonical history from the ledger — any past merge defect or future algorithm change is repaired by replay, never bespoke surgery. Also available from the assistant/MCP with two-phase confirmation, and `--dry-run`'s counts now simulate the would-be state so the preview matches what a real run does.
+- **Same song, one play.** Cross-service observations of one listen converge on normalized start time (export end − `ms_played`) with calibrated tolerances; a Last.fm-created "striptease" and Spotify-created "Striptease" no longer become two canonical tracks (casing fix at the resolver) nor two plays (exact-normalized bridge).
+
+How it works:
+- **Observation channels, not services**: grouping keys on `(service, import_source)` via a frozen `ChannelSpec` registry (priority, time semantics, timestamp quality, tolerance) — a future channel (Spotify API polling, Apple Music) is one registry entry, zero new dedup code. Union-find grouping gates on per-component channel sets so skip-restarts stay distinct; survivorship is per-field, richest-wins (`src/domain/matching/play_projection.py`, the repo's first hypothesis property tests pin permutation/idempotence/batch-boundary invariance).
+- **Membership is materialized**: a `play_sources` join table (migration `042`) makes idempotence a mechanical no-op diff and preserves provenance; resolution write-back (migration `041` partial index) keys on the ledger natural key so conflict-skipped re-import rows heal. One day-chunked `PlayProjectionService` serves both import Phase 3 and the rebuild; `play_dedup.py` and its order-dependent merge are deleted.
+- **Pre-ship deep review** (10 finder angles, adversarial verification) hardened the pipeline before first deploy: a chunk-scoped claim registry closes an FK-phantom insert and the 1→N split arm (silent play loss), the normalization shift is clamped to the fetch margin (multi-hour `ms_played` rows were silently unprojected), adoption heals legacy end-time rows on re-import, Phase 3 regained its transaction bracket, migration `040`'s batch collapse no longer exits early on 3+-row duplicate groups, and the `play_sources` connector FK got its missing index.
+
+→ [details](docs/backlog/v0.10.x.md#v0100-convergent-play-history)
+
 ## [0.9.5] — 2026-07-16
 
 **Your production library, from any agent.** Until now an MCP client could only reach a mixd library by launching `mixd mcp serve` locally against a local database. v0.9.5 makes the exact same read + confirmable-write tools reachable over authenticated HTTPS at `https://mixd.me/mcp` — point Claude Code, Cursor, or Claude Desktop at your hosted account from any machine, authorize it once in the browser, and it acts as you, scoped to your rows, with every write still gated by an explicit confirmation. One tool registry, three transports (in-app chat, local stdio, remote HTTP); the local stdio server is untouched.

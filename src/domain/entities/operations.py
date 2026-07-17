@@ -324,6 +324,23 @@ class TrackPlay:
     import_batch_id: str | None = None
 
 
+@define(frozen=True, slots=True)
+class PlaySource:
+    """Membership edge: which ledger observation backs which canonical play.
+
+    Materialized (the ``play_sources`` table) so projection idempotence is a
+    mechanical no-op diff — an unchanged group produces zero writes — and
+    provenance survives without parsing ``context``. One row per ledger
+    observation (unique on ``connector_play_id`` per user): an observation
+    contributes to exactly one canonical play.
+    """
+
+    user_id: str
+    track_play_id: UUID
+    connector_play_id: UUID
+    id: UUID = field(factory=uuid7)
+
+
 @define(frozen=False)
 class OperationResult:
     """Collects results and metrics from music data operations.

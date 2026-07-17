@@ -489,6 +489,9 @@ class DBTrackPlay(BaseEntity):
             "played_at",
             "ms_played",
             name="uq_track_plays_deduplication",
+            # NULL ms_played rows (all Last.fm scrobbles) must still collide —
+            # without this, ON CONFLICT never fires for them (migration 040).
+            postgresql_nulls_not_distinct=True,
         ),
         # Existing indexes
         Index("ix_track_plays_service", "service"),
@@ -600,15 +603,57 @@ class DBConnectorPlay(BaseEntity):
             "played_at",
             "ms_played",
             name="uq_connector_plays_deduplication",
+            # NULL ms_played rows (all Last.fm scrobbles) must still collide —
+            # without this, ON CONFLICT never fires for them (migration 040).
+            postgresql_nulls_not_distinct=True,
         ),
         # Performance indexes for common queries
         Index("ix_connector_plays_connector", "connector_name"),
         Index("ix_connector_plays_played_at", "played_at"),
         Index("ix_connector_plays_resolved_track", "resolved_track_id"),
         Index(
-            "ix_connector_plays_unresolved", "connector_name", "resolved_track_id"
-        ),  # For finding unresolved plays
+            "ix_connector_plays_unresolved",
+            "connector_name",
+            "resolved_track_id",
+            postgresql_where=text("resolved_track_id IS NULL"),
+        ),  # Partial: only unresolved rows — the query this index exists for
         Index("ix_connector_plays_import_batch", "import_batch_id"),
+    )
+
+
+class DBPlaySource(BaseEntity):
+    """Membership edge: which ledger observation backs which canonical play.
+
+    Materialized so projection idempotence is a mechanical no-op diff and
+    provenance survives without parsing context. One row per observation —
+    an observation contributes to exactly one canonical play (v0.10.0).
+    """
+
+    __tablename__: str = "play_sources"
+    __table_args__: tuple[SchemaItem, ...] = (
+        UniqueConstraint(
+            "user_id",
+            "connector_play_id",
+            name="uq_play_sources_connector_play",
+        ),
+        Index("ix_play_sources_track_play", "track_play_id"),
+        # Supports the connector_play_id CASCADE FK probe — the unique
+        # constraint leads with user_id and cannot serve it.
+        Index("ix_play_sources_connector_play", "connector_play_id"),
+    )
+
+    user_id: Mapped[str] = mapped_column(
+        String(), nullable=False, default="default", server_default="default"
+    )
+    track_play_id: Mapped[UuidType] = mapped_column(
+        PgUuidCol(as_uuid=True),
+        ForeignKey("track_plays.id", ondelete="CASCADE"),
+        nullable=False,
+    )
+    connector_play_id: Mapped[UuidType] = mapped_column(
+        PgUuidCol(as_uuid=True),
+        ForeignKey("connector_plays.id", ondelete="CASCADE"),
+        nullable=False,
     )
 
 

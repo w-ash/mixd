@@ -8,12 +8,14 @@ build ``TrackPlay`` objects with preserved metadata.
 """
 
 from collections.abc import Callable
+from uuid import UUID
 
 from src.config import get_logger
 from src.domain.entities import ConnectorTrackPlay, Track, TrackPlay
 from src.domain.entities.shared import JsonValue
+from src.domain.matching.play_projection import build_play_context
 from src.domain.matching.protocols import CrossDiscoveryProvider
-from src.domain.repositories.play import ResolutionMetrics
+from src.domain.repositories.play import PlayResolutionOutcome, ResolutionMetrics
 from src.domain.repositories.uow import UnitOfWorkProtocol
 from src.infrastructure.connectors._shared.inward_track_resolver import (
     TrackResolutionMetrics,
@@ -58,10 +60,14 @@ class LastfmConnectorPlayResolver:
         *,
         user_id: str,
         progress_callback: Callable[[int, int, str], None] | None = None,
-    ) -> tuple[list[TrackPlay], ResolutionMetrics]:
+    ) -> PlayResolutionOutcome:
         """Resolve Last.fm connector plays using existing infrastructure."""
         if not connector_plays:
-            return [], self._create_empty_metrics()
+            return PlayResolutionOutcome(
+                track_plays=[],
+                metrics=self._create_empty_metrics(),
+                resolutions=(),
+            )
 
         # Step 1: Resolve plays to canonical tracks (input order preserved)
         (
@@ -73,6 +79,7 @@ class LastfmConnectorPlayResolver:
 
         # Step 2: Create TrackPlay objects with Last.fm metadata preservation
         track_plays: list[TrackPlay] = []
+        resolutions: list[tuple[ConnectorTrackPlay, UUID]] = []
         filtering_stats: ResolutionMetrics = {
             "raw_plays": len(connector_plays),
             "accepted_plays": 0,
@@ -95,11 +102,13 @@ class LastfmConnectorPlayResolver:
                 continue
 
             filtering_stats["accepted_plays"] += 1
+            resolutions.append((connector_play, resolved_track.id))
             track_plays.append(
                 TrackPlay(
                     track_id=resolved_track.id,
                     service="lastfm",
                     played_at=connector_play.played_at,
+                    user_id=user_id,
                     ms_played=connector_play.ms_played,  # Will be None for Last.fm
                     context=self._build_context(connector_play),
                     import_timestamp=connector_play.import_timestamp,
@@ -126,7 +135,11 @@ class LastfmConnectorPlayResolver:
             spotify_enhanced=lastfm_metrics["spotify_enhanced_count"],
         )
 
-        return track_plays, lastfm_metrics
+        return PlayResolutionOutcome(
+            track_plays=track_plays,
+            metrics=lastfm_metrics,
+            resolutions=tuple(resolutions),
+        )
 
     async def _resolve_plays_to_canonical_tracks(
         self,
@@ -222,49 +235,12 @@ class LastfmConnectorPlayResolver:
     def _build_context(
         self, connector_play: ConnectorTrackPlay
     ) -> dict[str, JsonValue]:
-        """Build the persisted play context, preserving Last.fm metadata.
+        """Build the persisted play context.
 
-        NOTE: the key set here is persisted into ``track_plays.context`` JSON —
-        any key change is user-visible data drift. Keep byte-identical.
+        Delegates to the domain builder — the single implementation the
+        projection also uses, so imported and rebuilt plays cannot drift.
         """
-        return {
-            # Core track identification
-            "track_name": connector_play.track_name,
-            "artist_name": connector_play.artist_name,
-            "album_name": connector_play.album_name,
-            # Last.fm specific metadata
-            "lastfm_track_url": connector_play.service_metadata.get("lastfm_track_url"),
-            "lastfm_artist_url": connector_play.service_metadata.get(
-                "lastfm_artist_url"
-            ),
-            "lastfm_album_url": connector_play.service_metadata.get("lastfm_album_url"),
-            # MusicBrainz IDs for enhanced matching
-            "mbid": connector_play.service_metadata.get("mbid"),
-            "artist_mbid": connector_play.service_metadata.get("artist_mbid"),
-            "album_mbid": connector_play.service_metadata.get("album_mbid"),
-            # Last.fm flags
-            "streamable": connector_play.service_metadata.get("streamable"),
-            "loved": connector_play.service_metadata.get("loved"),
-            # Resolution tracking
-            "resolution_method": "lastfm_connector_play_resolver",
-            "architecture_version": "connector_plays_deferred_resolution",
-            # Preserve any additional Last.fm metadata
-            **{
-                k: v
-                for k, v in connector_play.service_metadata.items()
-                if k
-                not in [
-                    "lastfm_track_url",
-                    "lastfm_artist_url",
-                    "lastfm_album_url",
-                    "mbid",
-                    "artist_mbid",
-                    "album_mbid",
-                    "streamable",
-                    "loved",
-                ]
-            },
-        }
+        return build_play_context(connector_play)
 
     def _create_empty_metrics(self) -> ResolutionMetrics:
         """Create empty metrics dictionary."""

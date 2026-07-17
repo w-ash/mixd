@@ -116,6 +116,7 @@ class LastfmPlayImporter(
         result, connector_plays = await self.import_data(
             evolve(params, username=resolved_username),
             uow=uow,
+            user_id=user_id,
             progress_emitter=progress_emitter,
         )
 

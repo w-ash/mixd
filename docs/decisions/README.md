@@ -44,4 +44,4 @@ This is a deliberate hybrid of three industry practices: **Architecture Decision
 - [PDR-001: Data ownership model](PDR-001-data-ownership-model.md) — sovereign server + exit rights vs local-first authority
 - [PDR-002: Multi-user scale posture](PDR-002-multi-user-scale-posture.md) — which ring of multi-user machinery activates at which evidence threshold
 
-Decided upstream of these (recorded in backlog specs, 2026-07-02): links-first sharing sequencing (v1.1.x), no public vanity metrics, invite-only as permanent trust primitive, external-anchor public resolution (v1.2.0), v1.0.3 trust machinery parked. Rationale in [identity-governance-design-space.md](../backlog/identity-governance-design-space.md).
+Decided upstream of these (recorded in backlog specs, 2026-07-02): links-first sharing sequencing (v1.1.x), no public vanity metrics, invite-only as permanent trust primitive, external-anchor public resolution (v1.2.0), v1.1.0 trust machinery parked. Rationale in [identity-governance-design-space.md](../backlog/identity-governance-design-space.md).

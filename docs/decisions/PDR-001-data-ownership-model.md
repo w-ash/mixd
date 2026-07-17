@@ -42,7 +42,7 @@
 
 ## Scale ladder
 
-- **~10 users**: do nothing beyond the Continuous Personal Archive story (scheduled as v1.0.4, the last pre-social milestone) — it is direction-neutral groundwork every answer needs.
+- **~10 users**: do nothing beyond the Continuous Personal Archive story (scheduled as v0.15.0, immediately before the v1.0.0 gate) — it is direction-neutral groundwork every answer needs.
 - **~100 users (hosted instance real)**: archive + documented import path become the marketed ownership story; add instance-migration (export bundle → any instance) so exit rights include "leave to a friend's server."
 - **~10k users**: revisit local-first *client cache* (read-only offline library — the feel without moving authority); federation questions activate (PDR-002).
 
