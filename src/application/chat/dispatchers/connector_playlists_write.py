@@ -174,13 +174,11 @@ SPECS: list[dict[str, object]] = [
     {
         "name": "manage_connector_playlist",
         "description": (
-            "Call this to propose refreshing the local cache of external connector playlists. "
-            "Pick operation 'refresh' and pass connector + identifiers (the "
-            "external playlist IDs to re-fetch); pass force=true to bypass the "
-            "freshness short-circuit. This never creates a canonical playlist or "
-            "a sync link — it only updates cached snapshots. It is a proposal: "
-            "nothing fetches until the user confirms on the card this returns. "
-            "Look up real connector playlist identifiers first; never guess them."
+            "Call this to propose re-fetching cached snapshots of external "
+            "connector playlists. It updates the local cache only — it never "
+            "creates a canonical playlist or a sync link. Pass force=true to "
+            "bypass the freshness short-circuit. Look up real connector "
+            "playlist identifiers first; never guess them."
         ),
         "input_schema": MANAGE_CONNECTOR_PLAYLIST_INPUT_SCHEMA,
         "dispatch": handle_manage_connector_playlist,

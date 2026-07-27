@@ -121,9 +121,7 @@ SPECS: list[dict[str, object]] = [
             "winner_id (the track to keep) and loser_id (the duplicate to fold "
             "in) — both required UUIDs. All plays, likes, playlist entries, and "
             "connector mappings move onto the winner and the loser is "
-            "soft-deleted. This is destructive and irreversible: it only "
-            "proposes a confirmation card, nothing merges until the user "
-            "confirms."
+            "soft-deleted. This is destructive and irreversible."
         ),
         "input_schema": MERGE_TRACKS_INPUT_SCHEMA,
         "dispatch": handle_merge_tracks,

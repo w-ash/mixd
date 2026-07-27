@@ -164,32 +164,71 @@ describe("useWorkflowExecution", () => {
     });
   });
 
-  it("invalidates workflow list and detail queries on complete", async () => {
-    mockSSEWithEvents([
-      {
-        event: "complete",
-        data: JSON.stringify({}),
-      },
-    ]);
+  describe("cache reconciliation", () => {
+    const WORKFLOW_ID = "019d0000-0000-7000-8000-000000000001";
 
-    const queryClient = createTestQueryClient();
-    const invalidateSpy = vi.spyOn(queryClient, "invalidateQueries");
+    /** Every queryKey passed to invalidateQueries, flattened to its URL head. */
+    function invalidatedUrls(spy: { mock: { calls: unknown[][] } }): string[] {
+      return spy.mock.calls.flatMap((call) => {
+        const key = (call[0] as { queryKey?: unknown[] } | undefined)?.queryKey;
+        return typeof key?.[0] === "string" ? [key[0]] : [];
+      });
+    }
 
-    const { result } = renderHook(
-      () => useWorkflowExecution("019d0000-0000-7000-8000-000000000001"),
-      {
+    it("invalidates the app-global run sources on run START", async () => {
+      // Without this the list page waits out the 25s idle poll before showing
+      // the row as running.
+      mockSSEOpenStream([]);
+
+      const queryClient = createTestQueryClient();
+      const invalidateSpy = vi.spyOn(queryClient, "invalidateQueries");
+
+      const { result } = renderHook(() => useWorkflowExecution(WORKFLOW_ID), {
         wrapper: createWrapper(queryClient),
-      },
-    );
+      });
 
-    act(() => {
-      result.current.execute();
+      act(() => {
+        result.current.execute();
+      });
+
+      await waitFor(() => {
+        expect(invalidatedUrls(invalidateSpy)).toContain(
+          "/api/v1/workflows/active-runs",
+        );
+      });
+      expect(invalidatedUrls(invalidateSpy)).toContain("/api/v1/workflows");
     });
 
-    await waitFor(() => {
-      // Invalidates runs list, workflow detail, workflows list, and the
-      // app-global active-runs source (so the page collapses back to idle).
-      expect(invalidateSpy).toHaveBeenCalledTimes(4);
+    it("invalidates the run detail query on terminal", async () => {
+      // The run-detail page was previously never reconciled, so an open run
+      // page stayed on its "running" snapshot forever.
+      mockSSEWithEvents([{ event: "complete", data: JSON.stringify({}) }]);
+
+      const queryClient = createTestQueryClient();
+      const invalidateSpy = vi.spyOn(queryClient, "invalidateQueries");
+
+      const { result } = renderHook(() => useWorkflowExecution(WORKFLOW_ID), {
+        wrapper: createWrapper(queryClient),
+      });
+
+      act(() => {
+        result.current.execute();
+      });
+
+      await waitFor(() => {
+        expect(result.current.isExecuting).toBe(false);
+      });
+
+      const urls = invalidatedUrls(invalidateSpy);
+      expect(
+        urls.some((u) =>
+          new RegExp(`^/api/v1/workflows/${WORKFLOW_ID}/runs/.+`).test(u),
+        ),
+      ).toBe(true);
+      expect(urls).toContain(`/api/v1/workflows/${WORKFLOW_ID}`);
+      expect(urls).toContain(`/api/v1/workflows/${WORKFLOW_ID}/runs`);
+      expect(urls).toContain("/api/v1/workflows");
+      expect(urls).toContain("/api/v1/workflows/active-runs");
     });
   });
 

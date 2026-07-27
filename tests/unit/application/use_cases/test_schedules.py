@@ -12,6 +12,10 @@ from uuid import uuid7
 
 import pytest
 
+from src.application.services.schedule_signal import (
+    reset_schedule_signal,
+    schedule_change_event,
+)
 from src.application.use_cases.schedules import (
     DeleteScheduleCommand,
     DeleteScheduleUseCase,
@@ -40,6 +44,79 @@ def _echo_schedule_repo() -> AsyncMock:
     repo.update_schedule.side_effect = lambda schedule, *, user_id: schedule
     repo.get_for_target.return_value = None
     return repo
+
+
+class TestSchedulerWakeSignal:
+    """Writes that can bring a fire time forward must wake the sleeping loop.
+
+    The scheduler no longer polls; it sleeps until the next fire time. A schedule
+    created during that sleep would otherwise sit unnoticed until the sleep
+    expired, by which point its window is stale enough to be skipped as missed.
+    """
+
+    @pytest.fixture(autouse=True)
+    def _fresh_signal(self):
+        reset_schedule_signal()
+        yield
+        reset_schedule_signal()
+
+    async def test_create_signals(self) -> None:
+        uow = make_mock_uow(schedule_repo=_echo_schedule_repo())
+        cmd = UpsertScheduleCommand(
+            user_id="u1", sync_target="lastfm:plays", hour=6, minute=30
+        )
+
+        await UpsertScheduleUseCase().execute(cmd, uow)
+
+        assert schedule_change_event().is_set()
+
+    async def test_recadence_signals(self) -> None:
+        repo = _echo_schedule_repo()
+        repo.get_for_target.return_value = Schedule(
+            user_id="u1", sync_target="lastfm:plays", hour=2, minute=0
+        )
+        uow = make_mock_uow(schedule_repo=repo)
+        cmd = UpsertScheduleCommand(
+            user_id="u1", sync_target="lastfm:plays", hour=6, minute=30
+        )
+
+        await UpsertScheduleUseCase().execute(cmd, uow)
+
+        assert schedule_change_event().is_set()
+
+    async def test_enable_signals(self) -> None:
+        repo = _echo_schedule_repo()
+        repo.get_for_target.return_value = Schedule(
+            user_id="u1",
+            sync_target="lastfm:plays",
+            hour=6,
+            minute=30,
+            status="disabled",
+        )
+        uow = make_mock_uow(schedule_repo=repo)
+        cmd = ToggleScheduleCommand(
+            user_id="u1", sync_target="lastfm:plays", enabled=True
+        )
+
+        await ToggleScheduleUseCase().execute(cmd, uow)
+
+        assert schedule_change_event().is_set()
+
+    async def test_disable_does_not_signal(self) -> None:
+        # Disabling can only ever remove work, so waking the loop for it would
+        # burn a database round trip to discover there is nothing to do.
+        repo = _echo_schedule_repo()
+        repo.get_for_target.return_value = Schedule(
+            user_id="u1", sync_target="lastfm:plays", hour=6, minute=30
+        )
+        uow = make_mock_uow(schedule_repo=repo)
+        cmd = ToggleScheduleCommand(
+            user_id="u1", sync_target="lastfm:plays", enabled=False
+        )
+
+        await ToggleScheduleUseCase().execute(cmd, uow)
+
+        assert not schedule_change_event().is_set()
 
 
 class TestUpsertSchedule:

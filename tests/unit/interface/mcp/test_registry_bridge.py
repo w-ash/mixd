@@ -69,6 +69,33 @@ class TestExposure:
         assert kinds == {"read", "write"}
 
 
+class TestDescriptionAugmentation:
+    """Registry descriptions are surface-neutral; MCP restates the confirm rule.
+
+    On the chat surface the two-phase rule is stated once in the system prompt
+    and the client renders a card off ``kind``. An MCP client has neither, and
+    drives confirmation in-band — so the clause has to reach it per tool, and
+    must describe the in-band flow rather than a card that does not exist here.
+    """
+
+    def test_write_description_states_the_in_band_flow(self) -> None:
+        spec = next(s for s in TOOLS if s.kind == "write")
+        description = _to_mcp_tool(spec).description or ""
+        assert spec.description in description  # registry text preserved
+        assert "confirm_token" in description
+        assert "confirm=true" in description
+
+    def test_registry_descriptions_do_not_mention_the_card(self) -> None:
+        # The confirmation card is a chat-frontend concept. Leaking it into a
+        # shared description is what made the MCP surface wrong before.
+        for spec in TOOLS:
+            assert "confirmation card" not in (spec.description or "")
+
+    def test_read_description_untouched(self) -> None:
+        spec = next(s for s in TOOLS if s.kind == "read")
+        assert _to_mcp_tool(spec).description == spec.description
+
+
 class TestSchemaAugmentation:
     def test_write_schema_gains_confirm_fields(self) -> None:
         spec = next(s for s in TOOLS if s.kind == "write" and not s.launches_operation)

@@ -340,4 +340,106 @@ describe("Workflows", () => {
       expect(screen.getByText("Failed to load workflows")).toBeInTheDocument();
     });
   });
+
+  describe("run count column", () => {
+    it("renders the successful-run count for each row", async () => {
+      server.use(
+        http.get("*/api/v1/workflows", () =>
+          listResponse([
+            {
+              id: WF_A,
+              name: "Flow A",
+              description: null,
+              definition_version: 1,
+              task_count: 2,
+              node_types: ["source"],
+              updated_at: "2026-02-15T12:00:00Z",
+              successful_run_count: 24,
+            },
+          ]),
+        ),
+      );
+
+      renderWithProviders(<Workflows />);
+
+      await waitFor(() => {
+        expect(screen.getAllByText("Flow A").length).toBeGreaterThan(0);
+      });
+      expect(screen.getByRole("columnheader", { name: "Runs" })).toBeVisible();
+      expect(screen.getByTitle("24 successful runs")).toHaveTextContent("24");
+    });
+  });
+
+  describe("runs this tab did not start", () => {
+    /** One active run for WF_B, as the scheduler or another tab would leave it. */
+    function activeRunsForB() {
+      return HttpResponse.json(
+        {
+          data: [
+            {
+              id: "99999999-9999-9999-9999-999999999999",
+              workflow_id: WF_B,
+              run_number: 3,
+              status: "running",
+              operation_id: "op-1",
+            },
+          ],
+          total: 1,
+          limit: 50,
+          offset: 0,
+        },
+        { status: 200 },
+      );
+    }
+
+    function twoWorkflows() {
+      return listResponse([
+        {
+          id: WF_A,
+          name: "Flow A",
+          description: null,
+          definition_version: 1,
+          task_count: 2,
+          node_types: ["source"],
+          updated_at: "2026-02-15T12:00:00Z",
+        },
+        {
+          id: WF_B,
+          name: "Flow B",
+          description: null,
+          definition_version: 1,
+          task_count: 2,
+          node_types: ["source"],
+          updated_at: "2026-02-15T12:00:00Z",
+          last_run: { id: 7, status: "completed", definition_version: 1 },
+        },
+      ]);
+    }
+
+    it("marks the running row and leaves the other row runnable", async () => {
+      // The whole point of subscribing the list to active-runs: this tab never
+      // called the run endpoint, so in-tab execution state knows nothing.
+      server.use(
+        http.get("*/api/v1/workflows/active-runs", () => activeRunsForB()),
+        http.get("*/api/v1/workflows", () => twoWorkflows()),
+      );
+
+      renderWithProviders(<Workflows />);
+
+      // ResponsiveTable keeps both the card and table slots mounted, so each
+      // workflow contributes two DOM rows — hence 2, not 1, per workflow.
+      await waitFor(() => {
+        expect(screen.getAllByTitle("Workflow is running")).toHaveLength(2);
+      });
+
+      // Flow B shows Running rather than its stale "Completed" last_run...
+      expect(screen.getAllByText("Running").length).toBeGreaterThan(0);
+      expect(screen.queryByText("Completed")).not.toBeInTheDocument();
+      // ...and Flow A stays runnable, because the active-run guard is
+      // per-workflow, not per-user.
+      const runnable = screen.getAllByTitle("Run workflow");
+      expect(runnable).toHaveLength(2);
+      for (const button of runnable) expect(button).toBeEnabled();
+    });
+  });
 });

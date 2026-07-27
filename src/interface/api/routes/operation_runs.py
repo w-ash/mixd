@@ -54,6 +54,7 @@ _IMPORT_LIKE_TYPES: Sequence[str] = (
     "import_spotify_likes",
     "export_lastfm_likes",
     "import_spotify_history",
+    "import_spotify_recent",
     "import_connector_playlists",
     "apply_assignments_bulk",
 )

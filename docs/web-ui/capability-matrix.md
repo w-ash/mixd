@@ -109,12 +109,12 @@ chat-only for now — the latter pending the gated Tasks-extension epic.
 
 | Tool | Kind | MCP | Description |
 | --- | --- | --- | --- |
-| describe_node | read | exposed | Call this before proposing or editing a workflow to confirm which node types exist and what parameters each takes. |
+| describe_node | read | exposed | Call this when a node's catalog line is ambiguous and you want its full config detail as structured data: category, purpose, and every config field with types, defaults, and select options. |
 | list_user_workflows | read | exposed | Call this to see the user's saved workflows — name, description, task count, and the workflow_id that get_workflow and save_workflow take. |
 | get_workflow | read | exposed | Call this to fetch one saved workflow's complete definition by its workflow_id (from list_user_workflows). |
 | generate_workflow_def | read | exposed | Call this with a complete workflow definition whenever you build or refine a workflow for the user — it validates the definition against the node catalog and DAG rules and renders a graph preview the user sees. |
 | validate_workflow_def | read | exposed | Use this to check a workflow definition you did not just generate — one the user pasted, or a saved workflow fetched via get_workflow — against the node catalog and DAG rules. |
-| save_workflow | write | exposed | Call this to propose persisting a workflow definition after a successful generate_workflow_def — pass the exact definition it accepted, plus workflow_id when updating an existing workflow (omit it to create). |
+| save_workflow | write | exposed | Call this to persist a workflow definition after a successful generate_workflow_def — pass the exact definition it accepted, plus workflow_id when updating an existing workflow (omit it to create). |
 | query_library | read | exposed | Call this to read the user's track library: search or list tracks (scope 'all'), inspect one track's full detail (scope 'all' with track_id), or pull the liked, preferred, or recently played slices (scope 'liked'/'preferred'/'played'). |
 | list_tags | read | exposed | Call this to see the user's tags with how many tracks carry each and when each was last used. |
 | query_playlists | read | exposed | Call this to read the user's playlists before answering questions about them, referencing one, or proposing changes — so names and ids are real, never guessed. |
@@ -125,22 +125,22 @@ chat-only for now — the latter pending the gated Tasks-extension epic.
 | query_workflow_history | read | exposed | Call this to read workflow run history or version history. |
 | query_schedules | read | exposed | Call this to read the user's automation schedules before answering questions about when a workflow or sync runs, or proposing a schedule change. |
 | merge_tracks | write | exposed | Call this to propose merging two duplicate canonical tracks into one. |
-| manage_track_matches | write | exposed | Call this to propose a change to how a connector track is matched to a canonical track. |
-| manage_tags | write | exposed | Call this to propose a tag change on the user's library. |
-| set_preferences | write | exposed | Call this to propose a preference change on the user's library. |
+| manage_track_matches | write | exposed | Call this to propose a change to how a connector track is matched to a canonical track — relinking a mapping to another track, severing it, promoting it to primary for its connector, or resolving a queued match review. |
+| manage_tags | write | exposed | Call this to propose a tag change on the user's library — tagging or untagging one track, batch-tagging many, or renaming, merging, or deleting a tag everywhere. |
+| set_preferences | write | exposed | Call this to propose a preference change on the user's library — recording (or clearing) one track's hmm/nah/yah/star verdict, or deriving preferences in bulk from already-imported Spotify likes and Last.fm loves. |
 | manage_playlist | write | exposed | Call this to propose creating, renaming, or deleting a canonical playlist. |
-| manage_playlist_entries | write | exposed | Call this to propose changing a canonical playlist's entries. |
-| manage_connector_playlist | write | exposed | Call this to propose refreshing the local cache of external connector playlists. |
-| manage_playlist_link | write | exposed | Call this to propose a sync-link change between a canonical Mixd playlist and an external connector playlist. |
-| manage_playlist_assignments | write | exposed | Call this to propose a metadata-assignment change on a cached connector playlist. |
-| manage_workflow | write | exposed | Call this to propose a change to the user's saved workflows. |
-| manage_schedule | write | exposed | Call this to propose a change to a workflow's or sync's automated schedule. |
+| manage_playlist_entries | write | exposed | Call this to propose changing a canonical playlist's entries — appending tracks, removing or reordering entries, or repairing unresolved ones. |
+| manage_connector_playlist | write | exposed | Call this to propose re-fetching cached snapshots of external connector playlists. |
+| manage_playlist_link | write | exposed | Call this to propose a sync-link change between a canonical Mixd playlist and an external connector playlist — creating a link, changing an existing link's direction, or deleting one. |
+| manage_playlist_assignments | write | exposed | Call this to propose a metadata-assignment change on a cached connector playlist — declaring an assignment, declaring and applying it to every track at once, or deleting one. |
+| manage_workflow | write | exposed | Call this to propose a change to the user's saved workflows — creating one from a complete definition, cloning an existing one, deleting one, or reverting it to a saved version. |
+| manage_schedule | write | exposed | Call this to propose a change to a workflow's or sync's automated schedule — creating or replacing it, enabling or disabling it, or removing it. |
 | run_workflow | write | chat-only (pending Tasks) | Call this to run one of the user's saved workflows now — pass its workflow_id. |
 | import_connector_playlists | write | chat-only (pending Tasks) | Call this to import external connector playlists (e.g. |
 | apply_playlist_assignments | write | chat-only (pending Tasks) | Call this to apply tag/preference assignment rules across the library, populating playlists in bulk — omit assignment_ids to apply all, or pass specific ones. |
 | sync_playlist_link | write | chat-only (pending Tasks) | Call this to run a playlist sync link now — pass its link_id from query_playlist_links. |
-| import_data | write | chat-only (pending Tasks) | Call this to import listening data from a connector — Last.fm play history or Spotify likes. |
+| import_data | write | chat-only (pending Tasks) | Call this to import listening data from a connector — Last.fm play history, Spotify likes, or the ~50 most recent Spotify plays (use that one for today's listening). |
 | rebuild_play_history | write | chat-only (pending Tasks) | Call this to re-derive the user's entire canonical play history from the imported observation ledger — converging duplicates and refreshing merged fields. |
 | code_execution | agentic | chat-only (agentic) | Server-side Python sandbox for batch computation over the user's library. |
-| delegate_analysis | agentic | chat-only (agentic) | Use this to delegate a deep, multi-step investigation of the user's library to a research subagent — 'compare my listening this spring vs last spring and tell me what changed', 'which starred tracks fell out of rotation this year and why'. |
+| delegate_analysis | agentic | chat-only (agentic) | Use this when a question needs a genuinely multi-step investigation of the user's library — many lookups across play history, tags, preferences, and playlists whose intermediate results this conversation does not need. |
 | tool_search_tool_bm25 | agentic | chat-only (agentic) | Server-side BM25 search over the deferred tool set. |

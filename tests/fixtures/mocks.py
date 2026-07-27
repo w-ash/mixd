@@ -327,8 +327,8 @@ def make_mock_workflow_run_repo(**overrides) -> AsyncMock:
     repo.get_latest_run_for_workflow.return_value = overrides.pop(
         "get_latest_run_for_workflow", None
     )
-    repo.get_latest_runs_for_workflows.return_value = overrides.pop(
-        "get_latest_runs_for_workflows", {}
+    repo.get_run_summaries_for_workflows.return_value = overrides.pop(
+        "get_run_summaries_for_workflows", ({}, {})
     )
     repo.bump_heartbeat.return_value = overrides.pop("bump_heartbeat", None)
     repo.list_stalled_runs.return_value = overrides.pop("list_stalled_runs", [])

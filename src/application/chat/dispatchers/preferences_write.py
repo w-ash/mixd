@@ -207,13 +207,11 @@ SPECS: list[dict[str, object]] = [
     {
         "name": "set_preferences",
         "description": (
-            "Call this to propose a preference change on the user's library. Pick an "
-            "`operation`: 'set' records one track's preference (hmm/nah/yah/star, "
-            "or omit state to clear it — needs track_id); 'sync_from_likes' "
-            "derives preferences from already-imported Spotify likes and Last.fm "
-            "loves. Every operation is a proposal — nothing changes until the "
-            "user confirms on the card this returns. Look up the real track_id "
-            "(library query) before a 'set'; never guess it."
+            "Call this to propose a preference change on the user's library — "
+            "recording (or clearing) one track's hmm/nah/yah/star verdict, or "
+            "deriving preferences in bulk from already-imported Spotify likes "
+            "and Last.fm loves. Look up the real track_id (query_library) "
+            "before setting one; never guess it."
         ),
         "input_schema": SET_PREFERENCES_INPUT_SCHEMA,
         "dispatch": handle_set_preferences,

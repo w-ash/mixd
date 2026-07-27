@@ -2,8 +2,9 @@ import { HttpResponse, http } from "msw";
 import { describe, expect, it } from "vitest";
 
 import type { CheckpointStatusSchema } from "#/api/generated/model";
+import { makeConnectorMetadata } from "#/test/factories";
 import { server } from "#/test/setup";
-import { renderWithProviders, screen } from "#/test/test-utils";
+import { renderWithProviders, screen, within } from "#/test/test-utils";
 
 import { Sync } from "./Sync";
 
@@ -61,13 +62,14 @@ describe("Sync page", () => {
     expect(screen.getByText("Liked Tracks")).toBeInTheDocument();
   });
 
-  it("renders all four operation cards", () => {
+  it("renders all five operation cards", () => {
     setupCheckpointsMock();
     renderWithProviders(<Sync />);
 
     expect(screen.getByText("Scrobble History")).toBeInTheDocument();
     expect(screen.getByText("Import Likes")).toBeInTheDocument();
     expect(screen.getByText("Export Loves")).toBeInTheDocument();
+    expect(screen.getByText("Spotify Recent Plays")).toBeInTheDocument();
     expect(screen.getByText("Spotify Data Export")).toBeInTheDocument();
   });
 
@@ -78,7 +80,7 @@ describe("Sync page", () => {
     const spotifyIcons = screen.getAllByTitle("Spotify");
     const lastfmIcons = screen.getAllByTitle("Last.fm");
 
-    expect(spotifyIcons).toHaveLength(2);
+    expect(spotifyIcons).toHaveLength(3);
     expect(lastfmIcons).toHaveLength(2);
   });
 
@@ -87,7 +89,7 @@ describe("Sync page", () => {
     renderWithProviders(<Sync />);
 
     const importButtons = screen.getAllByRole("button", { name: "Import" });
-    expect(importButtons).toHaveLength(3);
+    expect(importButtons).toHaveLength(4);
     const exportButtons = screen.getAllByRole("button", { name: "Export" });
     expect(exportButtons).toHaveLength(1);
   });
@@ -114,5 +116,45 @@ describe("Sync page", () => {
     expect(
       screen.getByRole("button", { name: /choose file/i }),
     ).toBeInTheDocument();
+  });
+
+  it("gates Recent Plays on the listening-history scope", async () => {
+    // scope_missing keeps connected=true — likes and playlists still work —
+    // so only this card may disable itself.
+    setupCheckpointsMock();
+    server.use(
+      http.get("*/api/v1/connectors", () =>
+        HttpResponse.json([
+          makeConnectorMetadata({
+            name: "spotify",
+            connected: true,
+            auth_error: "scope_missing",
+          }),
+        ]),
+      ),
+    );
+    renderWithProviders(<Sync />);
+
+    expect(
+      await screen.findByText(
+        /Re-connect Spotify in Integrations to grant listening-history access/i,
+      ),
+    ).toBeInTheDocument();
+
+    const recentCard = screen
+      .getByText("Spotify Recent Plays")
+      .closest("div.rounded-xl") as HTMLElement;
+    expect(
+      within(recentCard).getByRole("button", { name: "Import" }),
+    ).toBeDisabled();
+
+    // The sibling Spotify Likes import needs no new scope and stays enabled —
+    // a scope gap must not read as "Spotify is broken".
+    const likesCard = screen
+      .getByText("Import Likes")
+      .closest("div.rounded-xl") as HTMLElement;
+    expect(
+      within(likesCard).getByRole("button", { name: "Import" }),
+    ).toBeEnabled();
   });
 });

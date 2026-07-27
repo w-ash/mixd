@@ -99,6 +99,7 @@ async def lifespan(_app: FastAPI) -> AsyncGenerator[None]:
     if settings.scheduler.enabled:
         from src.application.services.scheduler import run_scheduler_loop
         from src.interface._shared.run_lifecycle import (
+            bump_heartbeat,
             update_node_status,
             update_run_status,
         )
@@ -109,6 +110,7 @@ async def lifespan(_app: FastAPI) -> AsyncGenerator[None]:
             run_scheduler_loop(
                 update_run_status=update_run_status,
                 update_node_status=update_node_status,
+                bump_heartbeat=bump_heartbeat,
             ),
             name="workflow_scheduler",
         )

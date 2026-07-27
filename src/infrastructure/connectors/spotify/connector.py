@@ -288,6 +288,7 @@ def get_connector_config() -> ConnectorConfig:
             "playlist_sync",
             "likes_import",
             "history_import_file",
+            "history_import_api",
             "track_enrichment",
         }),
         "status_fn": get_spotify_status,

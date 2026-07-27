@@ -3,7 +3,6 @@ import { Copy, HelpCircle, Pencil, Play } from "lucide-react";
 import { useEffect } from "react";
 import { Link, useNavigate, useParams } from "react-router";
 import {
-  getListWorkflowsApiV1WorkflowsGetQueryKey,
   useDuplicateWorkflowApiV1WorkflowsWorkflowIdDuplicatePost,
   useGetWorkflowApiV1WorkflowsWorkflowIdGet,
   useGetWorkflowScheduleApiV1WorkflowsWorkflowIdScheduleGet,
@@ -25,6 +24,7 @@ import { useWorkflowExecution } from "#/hooks/useWorkflowExecution";
 import { formatNextRun } from "#/lib/schedule";
 import { toasts } from "#/lib/toasts";
 import { cn } from "#/lib/utils";
+import { afterWorkflowSaved } from "#/lib/workflow-queries";
 
 function DetailSkeleton() {
   return (
@@ -51,9 +51,7 @@ export function WorkflowDetail() {
     mutation: {
       onSuccess: (res) => {
         if (res.status === 201) {
-          queryClient.invalidateQueries({
-            queryKey: getListWorkflowsApiV1WorkflowsGetQueryKey(),
-          });
+          afterWorkflowSaved(queryClient, res.data.id, res.data, res.headers);
           toasts.success("Workflow duplicated");
           navigate(`/workflows/${res.data.id}/edit`);
         }

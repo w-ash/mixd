@@ -11,13 +11,19 @@ GetWorkflowRunsUseCase / GetWorkflowRunUseCase serve the run history UI.
 
 import asyncio
 from asyncio import CancelledError
+from collections.abc import AsyncGenerator
+import contextlib
 from datetime import UTC, datetime
 from uuid import UUID
 
 from attrs import define
 
 from src.application.utilities.timing import ExecutionTimer
-from src.application.workflows.protocols import NodeStatusUpdater, RunStatusUpdater
+from src.application.workflows.protocols import (
+    HeartbeatBumper,
+    NodeStatusUpdater,
+    RunStatusUpdater,
+)
 from src.config.constants import (
     BusinessLimits,
     WorkflowConstants,
@@ -311,19 +317,28 @@ class GetLatestWorkflowRunsCommand:
 @define(frozen=True, slots=True)
 class GetLatestWorkflowRunsResult:
     latest_runs: dict[UUID, WorkflowRun]
+    successful_run_counts: dict[UUID, int]
 
 
 @define(slots=True)
 class GetLatestWorkflowRunsUseCase:
-    """Batch-fetch latest run for each workflow ID."""
+    """Batch-fetch per-workflow run summary data: latest run + completed count.
+
+    Both maps feed the same list-page row, so they travel together rather than
+    as two use cases — one transaction, one batched query, no N+1.
+    """
 
     async def execute(
         self, command: GetLatestWorkflowRunsCommand, uow: UnitOfWorkProtocol
     ) -> GetLatestWorkflowRunsResult:
         async with uow:
             run_repo = uow.get_workflow_run_repository()
-            latest = await run_repo.get_latest_runs_for_workflows(command.workflow_ids)
-            return GetLatestWorkflowRunsResult(latest_runs=latest)
+            latest, counts = await run_repo.get_run_summaries_for_workflows(
+                command.workflow_ids
+            )
+            return GetLatestWorkflowRunsResult(
+                latest_runs=latest, successful_run_counts=counts
+            )
 
 
 # ---------------------------------------------------------------------------
@@ -350,13 +365,49 @@ class ExecuteWorkflowRunResult:
 class ExecuteWorkflowRunUseCase:
     """Manages the RUNNING → COMPLETED/FAILED lifecycle of a workflow run.
 
-    Receives a ``RunStatusUpdater`` callable via constructor injection so
-    the application layer stays free of infrastructure imports. The concrete
-    updater (which opens an independent DB session) is wired at the call site.
+    Receives its ``RunStatusUpdater`` / ``NodeStatusUpdater`` / ``HeartbeatBumper``
+    callables via constructor injection so the application layer stays free of
+    infrastructure imports. The concrete impls (which open independent DB
+    sessions) are wired at the call site.
+
+    **The heartbeat ticker is owned here, not by callers.** It used to be started
+    by whoever drove the run, and two of the three drivers — the CLI and the
+    scheduler — never did. Their runs therefore kept ``heartbeat_at IS NULL``, and
+    the sweeper reaps any ``running`` row past the stale threshold without one, so
+    a scheduled or CLI workflow lasting longer than that window was marked crashed
+    while it was still executing. Owning the ticker alongside the status writes
+    makes that unforgettable by construction.
     """
 
     update_run_status: RunStatusUpdater
     update_node_status: NodeStatusUpdater
+    bump_heartbeat: HeartbeatBumper
+
+    @contextlib.asynccontextmanager
+    async def _heartbeat(self, run_id: UUID) -> AsyncGenerator[None]:
+        """Bump ``heartbeat_at`` on a cadence for the duration of the block.
+
+        Cancellation on exit is the normal path. A missed bump (DB blip) is
+        absorbed by the bumper itself and the next tick catches up, well inside
+        the sweeper's stale threshold.
+        """
+
+        async def _tick() -> None:
+            while True:
+                await self.bump_heartbeat(run_id)
+                await asyncio.sleep(WorkflowConstants.HEARTBEAT_INTERVAL_SECONDS)
+
+        task = asyncio.create_task(_tick(), name=f"workflow_heartbeat_{run_id}")
+        try:
+            yield
+        finally:
+            task.cancel()
+            # ``asyncio.wait`` reaps the ticker without re-raising anything it
+            # ended with, so no suppression is needed here — and a cancellation
+            # aimed at *us* still propagates. ``suppress(...)`` around a bare
+            # ``await task`` would swallow that one too, skipping ``execute``'s
+            # terminal write and stranding the run row as ``running``.
+            _ = await asyncio.wait({task})
 
     async def execute(
         self,
@@ -375,13 +426,14 @@ class ExecuteWorkflowRunUseCase:
             run_id=run_id,
         ):
             try:
-                return await self._run_to_completion(
-                    workflow_def,
-                    run_id,
-                    sse_queue,
-                    user_id,
-                    timer,
-                )
+                async with self._heartbeat(run_id):
+                    return await self._run_to_completion(
+                        workflow_def,
+                        run_id,
+                        sse_queue,
+                        user_id,
+                        timer,
+                    )
 
             except CancelledError:
                 duration_ms = timer.stop()

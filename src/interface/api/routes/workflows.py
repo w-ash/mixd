@@ -50,7 +50,7 @@ from src.application.workflows.definition.validation import (
 from src.application.workflows.nodes.config_fields import get_node_config_fields
 from src.application.workflows.nodes.registry import list_nodes
 from src.config import get_logger
-from src.domain.entities.workflow import WorkflowDef, WorkflowRun
+from src.domain.entities.workflow import Workflow, WorkflowDef, WorkflowRun
 from src.domain.exceptions import NotFoundError
 from src.domain.repositories.uow import UnitOfWorkProtocol
 from src.interface.api.deps import get_current_user_id
@@ -102,6 +102,27 @@ logger = get_logger(__name__).bind(service="workflows_api")
 router = APIRouter(prefix="/workflows", tags=["workflows"])
 
 
+async def _detail_with_run_summary(
+    workflow: Workflow, user_id: str, uow: UnitOfWorkProtocol
+) -> WorkflowDetailSchema:
+    """Serialize a detail payload with its last run and completed-run count.
+
+    Every handler returning an *existing* workflow goes through here. The web
+    client writes these responses straight into its detail query cache, so a
+    defaulted zero count would render as fact until the next refetch — the
+    counts have to be real on every path, not just the list.
+    """
+    latest = await GetLatestWorkflowRunsUseCase().execute(
+        GetLatestWorkflowRunsCommand(user_id=user_id, workflow_ids=[workflow.id]),
+        uow,
+    )
+    return to_workflow_detail(
+        workflow,
+        last_run=latest.latest_runs.get(workflow.id),
+        successful_run_count=latest.successful_run_counts.get(workflow.id, 0),
+    )
+
+
 # ---------------------------------------------------------------------------
 # CRUD endpoints
 # ---------------------------------------------------------------------------
@@ -124,9 +145,10 @@ async def list_workflows(
         )
         workflows = result.workflows[offset : offset + limit]
 
-        # Batch-fetch latest runs for all workflows on this page
+        # Batch-fetch latest runs + completed-run counts for this page
         workflow_ids = [w.id for w in workflows]
         latest_runs: dict[UUID, WorkflowRun] = {}
+        run_counts: dict[UUID, int] = {}
         if workflow_ids:
             latest_result = await GetLatestWorkflowRunsUseCase().execute(
                 GetLatestWorkflowRunsCommand(
@@ -135,10 +157,15 @@ async def list_workflows(
                 uow,
             )
             latest_runs = latest_result.latest_runs
+            run_counts = latest_result.successful_run_counts
 
         return PaginatedResponse(
             data=[
-                to_workflow_summary(w, last_run=latest_runs.get(w.id))
+                to_workflow_summary(
+                    w,
+                    last_run=latest_runs.get(w.id),
+                    successful_run_count=run_counts.get(w.id, 0),
+                )
                 for w in workflows
             ],
             total=result.total_count,
@@ -323,13 +350,7 @@ async def get_workflow(
         result = await GetWorkflowUseCase().execute(
             GetWorkflowCommand(user_id=user_id, workflow_id=workflow_id), uow
         )
-        workflow = result.workflow
-        latest_result = await GetLatestWorkflowRunsUseCase().execute(
-            GetLatestWorkflowRunsCommand(user_id=user_id, workflow_ids=[workflow.id]),
-            uow,
-        )
-        last_run = latest_result.latest_runs.get(workflow.id)
-        return to_workflow_detail(workflow, last_run=last_run)
+        return await _detail_with_run_summary(result.workflow, user_id, uow)
 
     return await execute_use_case(_fetch, user_id=user_id)
 
@@ -345,11 +366,12 @@ async def update_workflow(
     command = UpdateWorkflowCommand(
         user_id=user_id, workflow_id=workflow_id, definition=definition
     )
-    result = await execute_use_case(
-        lambda uow: UpdateWorkflowUseCase().execute(command, uow),
-        user_id=user_id,
-    )
-    return to_workflow_detail(result.workflow)
+
+    async def _update(uow: UnitOfWorkProtocol) -> WorkflowDetailSchema:
+        result = await UpdateWorkflowUseCase().execute(command, uow)
+        return await _detail_with_run_summary(result.workflow, user_id, uow)
+
+    return await execute_use_case(_update, user_id=user_id)
 
 
 # ---------------------------------------------------------------------------
@@ -452,11 +474,12 @@ async def revert_workflow_version(
     command = RevertWorkflowVersionCommand(
         user_id=user_id, workflow_id=workflow_id, version=version
     )
-    result = await execute_use_case(
-        lambda uow: RevertWorkflowVersionUseCase().execute(command, uow),
-        user_id=user_id,
-    )
-    return to_workflow_detail(result.workflow)
+
+    async def _revert(uow: UnitOfWorkProtocol) -> WorkflowDetailSchema:
+        result = await RevertWorkflowVersionUseCase().execute(command, uow)
+        return await _detail_with_run_summary(result.workflow, user_id, uow)
+
+    return await execute_use_case(_revert, user_id=user_id)
 
 
 # ---------------------------------------------------------------------------

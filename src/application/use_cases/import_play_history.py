@@ -1,8 +1,9 @@
-"""Downloads listening history from LastFM API and Spotify data exports.
+"""Downloads listening history from the Last.fm and Spotify APIs and data exports.
 
 Imports play data from music services into local database with progress tracking,
-error handling, and transaction management. Supports LastFM recent/incremental/full
-history imports and Spotify JSON file processing.
+error handling, and transaction management. Supports Last.fm recent/incremental/full
+history imports, Spotify JSON export processing, and Spotify recently-played API
+polling (v0.10.1).
 """
 
 from datetime import datetime
@@ -22,7 +23,14 @@ from src.domain.entities.progress import (
     ProgressOperation,
 )
 from src.domain.exceptions import LastfmAuthRequiredError, SpotifyAuthRequiredError
-from src.domain.repositories.play import LastfmImportParams, SpotifyImportParams
+from src.domain.repositories.play import (
+    RECENTLY_PLAYED_PAGE_LIMIT,
+    ImportKind,
+    LastfmImportParams,
+    PlayImporterProtocol,
+    SpotifyImportParams,
+    SpotifyRecentImportParams,
+)
 from src.domain.repositories.uow import UnitOfWorkProtocol
 
 logger = get_logger(__name__)
@@ -72,20 +80,34 @@ class ImportTracksCommand:
     def __attrs_post_init__(self) -> None:
         """Validates service and mode compatibility.
 
+        Spotify accepts ``file`` (GDPR export upload) plus ``recent`` and
+        ``incremental`` (recently-played API, v0.10.1). It does NOT accept
+        ``full``: that endpoint retains only the trailing ~50 plays, so there is
+        no "whole history" to ask for — earlier plays arrive via Last.fm or the
+        next export.
+
         Raises:
-            ValueError: If LastFM uses file mode, Spotify uses non-file mode,
-                or Spotify file mode missing file_path.
+            ValueError: If LastFM uses file mode, Spotify uses full mode, a
+                Spotify file import has no file_path, or a Spotify API import
+                was handed one.
         """
         if self.service == "lastfm":
             if self.mode == "file":
                 raise ValueError("LastFM service doesn't support file mode")
         elif self.service == "spotify":
-            if self.mode != "file":
+            if self.mode == "full":
                 raise ValueError(
-                    f"Spotify service only supports file mode, got: {self.mode}"
+                    "Spotify doesn't support full mode: the recently-played API "
+                    "retains only the trailing ~50 plays. Use mode='recent' for "
+                    "live plays, or mode='file' with a data export for history."
                 )
-            if not self.file_path:
+            if self.mode == "file" and not self.file_path:
                 raise ValueError("file_path is required for Spotify file imports")
+            if self.mode != "file" and self.file_path:
+                raise ValueError(
+                    f"file_path is not valid for Spotify {self.mode} imports "
+                    f"(the API is the source, not a file)"
+                )
 
 
 @define(frozen=True, slots=True)
@@ -256,10 +278,16 @@ class ImportTracksUseCase:
         uow: UnitOfWorkProtocol,
         progress_emitter: ProgressEmitter,
     ) -> OperationResult:
-        """Routes to Spotify import handler (file mode only)."""
+        """Routes to the Spotify export-file or recently-played API handler."""
         match command.mode:
             case "file":
                 return await self._run_spotify_file(command, uow, progress_emitter)
+            case "recent" | "incremental":
+                # Deliberately the same handler: the stored cursor makes every
+                # poll incremental, so "recent" and "incremental" cannot differ
+                # here. Both are accepted so each caller can use the word that
+                # fits (the UI says recent, a scheduled sync says incremental).
+                return await self._run_spotify_recent(command, uow, progress_emitter)
             case _:
                 raise ValueError(
                     f"Spotify service doesn't support mode: {command.mode}"
@@ -284,7 +312,12 @@ class ImportTracksUseCase:
         registry = get_play_import_registry()
         return PlayImportOrchestrator(resolver_factory=registry.create_play_resolver)
 
-    async def _create_service_importer(self, service: str, uow: UnitOfWorkProtocol):
+    async def _create_service_importer(
+        self,
+        service: str,
+        uow: UnitOfWorkProtocol,
+        kind: ImportKind = "api",
+    ) -> PlayImporterProtocol:
         """Create service-specific importer using infrastructure registry.
 
         CLEAN ARCHITECTURE: Application layer never mentions specific connectors.
@@ -293,6 +326,8 @@ class ImportTracksUseCase:
         Args:
             service: Generic service identifier (handled by infrastructure layer)
             uow: Database transaction manager providing repository access.
+            kind: Where the data comes from — a live API read or an uploaded
+                export file. One service can offer both (Spotify does).
 
         Returns:
             Service-specific importer implementing PlayImporterProtocol
@@ -302,7 +337,7 @@ class ImportTracksUseCase:
         )
 
         registry = get_play_import_registry()
-        return await registry.create_play_importer(service, uow)
+        return await registry.create_play_importer(service, kind, uow)
 
     async def _run_lastfm_recent(
         self,
@@ -486,7 +521,7 @@ class ImportTracksUseCase:
             raise ValueError("file_path is required for Spotify file imports")
 
         # Create generic service importer and orchestrator
-        importer = await self._create_service_importer(command.service, uow)
+        importer = await self._create_service_importer(command.service, uow, "file")
         orchestrator = await self._create_play_import_orchestrator()
 
         try:
@@ -504,7 +539,69 @@ class ImportTracksUseCase:
             )
 
         except Exception as e:
-            logger.error(f"File import failed: {e}")
+            logger.error(
+                "Spotify file import failed",
+                error=str(e),
+                error_type=type(e).__name__,
+                exc_info=True,
+            )
+            raise
+        else:
+            return result
+
+    async def _run_spotify_recent(
+        self,
+        command: ImportTracksCommand,
+        uow: UnitOfWorkProtocol,
+        progress_emitter: ProgressEmitter,
+    ) -> OperationResult:
+        """Polls Spotify's recently-played API using the two-phase workflow.
+
+        Phase 1: Ingests the new plays as connector_plays on the ``spotify_api``
+        channel. Phase 2: Resolves them to canonical track_plays through the
+        existing Spotify resolver — no new resolution code, which is the
+        v0.10.0 channel-generic claim being cashed.
+
+        Args:
+            command: Contains an optional limit (clamped into 1..50, the API's
+                page ceiling) and an optional ``force`` extra that ignores the
+                stored cursor and re-reads the whole retained window.
+            uow: Database transaction manager for atomic operations.
+
+        Returns:
+            Import statistics with the number of plays ingested and resolved.
+        """
+        # Clamped on both ends: a caller asking for more than the endpoint
+        # retains cannot get it, and a zero/negative limit would otherwise reach
+        # Spotify verbatim and come back as an opaque transport failure.
+        requested = command.limit or RECENTLY_PLAYED_PAGE_LIMIT
+        limit = min(max(requested, 1), RECENTLY_PLAYED_PAGE_LIMIT)
+        force = bool(command.additional_options.get("force"))
+
+        importer = await self._create_service_importer(command.service, uow, "api")
+        orchestrator = await self._create_play_import_orchestrator()
+
+        try:
+            result = await orchestrator.import_plays_two_phase(
+                importer=importer,
+                uow=uow,
+                user_id=command.user_id,
+                progress_emitter=progress_emitter,
+                params=SpotifyRecentImportParams(limit=limit, force=force),
+            )
+
+            logger.info(
+                f"Spotify recently-played two-phase import completed: "
+                f"{result.summary_metrics.get('track_plays')} track plays created"
+            )
+
+        except Exception as e:
+            logger.error(
+                "Spotify recently-played import failed",
+                error=str(e),
+                error_type=type(e).__name__,
+                exc_info=True,
+            )
             raise
         else:
             return result

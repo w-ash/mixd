@@ -11,12 +11,46 @@ import {
 
 import { WorkflowRunDetail } from "./WorkflowRunDetail";
 
-// Mock React Flow (jsdom can't render canvas)
+// Mock React Flow (jsdom can't render canvas). Node statuses are surfaced as
+// test ids so the persisted-vs-live overlay is observable.
 vi.mock("#/components/shared/WorkflowGraph", () => ({
-  WorkflowGraph: ({ tasks }: { tasks: unknown[] }) => (
-    <div data-testid="workflow-graph">Graph with {tasks.length} tasks</div>
+  WorkflowGraph: ({
+    tasks,
+    nodeStatuses,
+  }: {
+    tasks: unknown[];
+    nodeStatuses?: Map<string, { status: string }>;
+  }) => (
+    <div data-testid="workflow-graph">
+      Graph with {tasks.length} tasks
+      {[...(nodeStatuses ?? new Map())].map(([nodeId, status]) => (
+        <span key={nodeId} data-testid={`node-status-${nodeId}`}>
+          {status.status}
+        </span>
+      ))}
+    </div>
   ),
 }));
+
+// Partial mock: keep the real provider (test-utils mounts it) but let a test
+// drive what the execution context reports. Set `mockContextOverride` to
+// simulate this tab streaming some other workflow.
+const { mockContextOverride } = vi.hoisted(() => ({
+  mockContextOverride: { current: null as Record<string, unknown> | null },
+}));
+vi.mock("#/contexts/WorkflowExecutionContext", async (importActual) => {
+  const actual =
+    await importActual<typeof import("#/contexts/WorkflowExecutionContext")>();
+  return {
+    ...actual,
+    useWorkflowExecutionContext: () => {
+      const real = actual.useWorkflowExecutionContext();
+      return mockContextOverride.current
+        ? { ...real, ...mockContextOverride.current }
+        : real;
+    },
+  };
+});
 
 // Mock useParams
 vi.mock("react-router", async () => {
@@ -316,6 +350,114 @@ describe("WorkflowRunDetail", () => {
       expect(
         screen.getByText("Spotify API rate limit exceeded"),
       ).toBeInTheDocument();
+    });
+  });
+
+  describe("live run", () => {
+    /**
+     * active-runs claiming `runId` is in flight.
+     *
+     * The id MUST be a string: the page compares it against the router param,
+     * so a numeric `5` silently never matches `"5"` and every liveness
+     * assertion below would pass off the persisted status instead.
+     */
+    function activeRunsFor(runId: string) {
+      return http.get("*/api/v1/workflows/active-runs", () =>
+        HttpResponse.json(
+          {
+            data: [
+              {
+                id: runId,
+                // String, like the router params these are compared against.
+                workflow_id: "1",
+                run_number: 5,
+                status: "running",
+                operation_id: "op-live",
+              },
+            ],
+            total: 1,
+            limit: 50,
+            offset: 0,
+          },
+          { status: 200 },
+        ),
+      );
+    }
+
+    it("shows Running while this run is in flight, not the persisted status", async () => {
+      // The page previously rendered whatever the DB row said at load time and
+      // never moved — a live run looked frozen. The persisted row is left at
+      // "pending" so "Running" can only come from the live path.
+      setupHandlers({ status: "pending", completed_at: undefined });
+      server.use(activeRunsFor("5"));
+
+      renderWithProviders(<WorkflowRunDetail />);
+
+      await waitFor(() => {
+        expect(screen.getByText("Running")).toBeInTheDocument();
+      });
+      expect(screen.queryByText("Pending")).not.toBeInTheDocument();
+    });
+
+    it("overlays live node statuses when this tab is driving this run", async () => {
+      setupHandlers({ status: "running", completed_at: undefined });
+      server.use(activeRunsFor("5"));
+      mockContextOverride.current = {
+        workflowId: "1",
+        nodeStatuses: new Map([
+          ["source", { nodeId: "source", status: "running" }],
+        ]),
+      };
+
+      renderWithProviders(<WorkflowRunDetail />);
+
+      // The live event wins over the persisted "completed" node record.
+      await waitFor(() => {
+        expect(screen.getByTestId("node-status-source")).toHaveTextContent(
+          "running",
+        );
+      });
+      mockContextOverride.current = null;
+    });
+
+    it("ignores live node statuses belonging to a different workflow", async () => {
+      // Node ids are definition-local ("source"), so a run streaming elsewhere
+      // in this tab collides by name — leaking its statuses onto this run's
+      // graph would show another workflow's progress as this one's.
+      setupHandlers({ status: "running", completed_at: undefined });
+      server.use(activeRunsFor("5"));
+      mockContextOverride.current = {
+        workflowId: "some-other-workflow",
+        nodeStatuses: new Map([
+          ["source", { nodeId: "source", status: "failed" }],
+        ]),
+      };
+
+      renderWithProviders(<WorkflowRunDetail />);
+
+      await waitFor(() => {
+        expect(screen.getByTestId("node-status-source")).toBeInTheDocument();
+      });
+      // Persisted record stands; the foreign "failed" never lands.
+      expect(screen.getByTestId("node-status-source")).toHaveTextContent(
+        "completed",
+      );
+      mockContextOverride.current = null;
+    });
+
+    it("does not go live for a different run on the same workflow", async () => {
+      // Opening an older run while a newer one streams must not hijack the
+      // connection or mislabel the run being viewed.
+      setupHandlers();
+      server.use(activeRunsFor("999"));
+
+      renderWithProviders(<WorkflowRunDetail />);
+
+      // Header badge plus one per completed node, so match on count.
+      await waitFor(() => {
+        expect(screen.getAllByText("Completed").length).toBeGreaterThan(0);
+      });
+      expect(screen.queryByText("Running")).not.toBeInTheDocument();
     });
   });
 });

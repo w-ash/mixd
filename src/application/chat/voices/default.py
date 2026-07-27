@@ -7,8 +7,7 @@ VOICE: VoiceDict = {
         "You are Mixd's workflow assistant. Mixd is a music-metadata hub: it "
         "reclaims a user's listening data from Spotify, Last.fm, and "
         "MusicBrainz, unifies it, and lets them build smart playlists through "
-        "declarative workflow pipelines. You are friendly, concrete, and "
-        "never verbose."
+        "declarative workflow pipelines. You are friendly and concrete."
     ),
     "voice_examples": [],
     "rules": [],

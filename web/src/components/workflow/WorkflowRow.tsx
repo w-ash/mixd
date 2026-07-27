@@ -3,10 +3,7 @@ import { AlertTriangle, CalendarClock, Copy, Pencil, Play } from "lucide-react";
 import { memo } from "react";
 import { Link, useNavigate } from "react-router";
 import type { WorkflowSummarySchema } from "#/api/generated/model";
-import {
-  getListWorkflowsApiV1WorkflowsGetQueryKey,
-  useDuplicateWorkflowApiV1WorkflowsWorkflowIdDuplicatePost,
-} from "#/api/generated/workflows/workflows";
+import { useDuplicateWorkflowApiV1WorkflowsWorkflowIdDuplicatePost } from "#/api/generated/workflows/workflows";
 import { getStatusConfig } from "#/components/shared/RunStatusBadge";
 import { TableCard } from "#/components/shared/TableCard";
 import { TitleLink } from "#/components/shared/TitleLink";
@@ -16,30 +13,35 @@ import { useWorkflowExecution } from "#/hooks/useWorkflowExecution";
 import { formatDate } from "#/lib/format";
 import { toasts } from "#/lib/toasts";
 import { cn } from "#/lib/utils";
+import { afterWorkflowSaved } from "#/lib/workflow-queries";
 
 /** Inline run button for a single workflow row. */
 function WorkflowRunButton({
   workflowId,
   disabled,
+  isRunning,
 }: {
   workflowId: string;
   disabled: boolean;
+  /** Server-side truth: this workflow has a run in flight, wherever it began. */
+  isRunning: boolean;
 }) {
   const { isExecuting, execute } = useWorkflowExecution(workflowId);
+  const spinning = isExecuting || isRunning;
 
   return (
     <Button
       size="icon"
       variant="ghost"
       className="size-7"
-      disabled={disabled || isExecuting}
+      disabled={disabled || spinning}
       onClick={execute}
-      title="Run workflow"
+      title={spinning ? "Workflow is running" : "Run workflow"}
     >
       <Play
         className={cn(
           "size-3.5",
-          isExecuting && "animate-spin",
+          spinning && "animate-spin",
           "text-text-muted",
         )}
       />
@@ -54,21 +56,31 @@ function WorkflowRunButton({
  */
 export function WorkflowRowActions({
   wf,
-  runningWorkflowId,
+  runningWorkflowIds,
+  localRunWorkflowId,
 }: {
   wf: WorkflowSummarySchema;
-  runningWorkflowId: string | null;
+  /** Workflows with a server-side run in flight (any origin). */
+  runningWorkflowIds: ReadonlySet<string>;
+  /** The workflow this tab is streaming, if any. */
+  localRunWorkflowId: string | null;
 }) {
   const navigate = useNavigate();
   const queryClient = useQueryClient();
+
+  // Two independent reasons a Run button is unavailable, deliberately kept
+  // apart. The backend's uq_workflow_runs_active index is per-workflow, so a
+  // run elsewhere only blocks THAT workflow — but this tab has a single SSE
+  // slot, so a local run blocks every OTHER row.
+  const isRunning = runningWorkflowIds.has(wf.id);
+  const localSlotBusy =
+    localRunWorkflowId !== null && localRunWorkflowId !== wf.id;
 
   const duplicate = useDuplicateWorkflowApiV1WorkflowsWorkflowIdDuplicatePost({
     mutation: {
       onSuccess: (res) => {
         if (res.status === 201) {
-          queryClient.invalidateQueries({
-            queryKey: getListWorkflowsApiV1WorkflowsGetQueryKey(),
-          });
+          afterWorkflowSaved(queryClient, res.data.id, res.data, res.headers);
           toasts.success("Workflow duplicated");
           navigate(`/workflows/${res.data.id}/edit`);
         }
@@ -102,7 +114,8 @@ export function WorkflowRowActions({
       </Button>
       <WorkflowRunButton
         workflowId={wf.id}
-        disabled={runningWorkflowId !== null && runningWorkflowId !== wf.id}
+        disabled={localSlotBusy}
+        isRunning={isRunning}
       />
     </div>
   );
@@ -129,23 +142,39 @@ function FailingMarker() {
  */
 export const WorkflowRow = memo(function WorkflowRow({
   wf,
-  runningWorkflowId,
+  runningWorkflowIds,
+  localRunWorkflowId,
   variant,
   nextRun = null,
   scheduleFailing = false,
 }: {
   wf: WorkflowSummarySchema;
-  runningWorkflowId: string | null;
+  /** Workflows with a server-side run in flight (any origin). */
+  runningWorkflowIds: ReadonlySet<string>;
+  /** The workflow this tab is streaming, if any. */
+  localRunWorkflowId: string | null;
   variant: "card" | "table";
   /** Pre-formatted next-run label for an enabled schedule, or null if none. */
   nextRun?: string | null;
   /** True when the workflow's schedule has a non-zero failure streak. */
   scheduleFailing?: boolean;
 }) {
+  // A live run outranks the last finished one — showing "Completed" while the
+  // workflow is mid-run is the stale reading this change exists to remove.
+  const isRunning = runningWorkflowIds.has(wf.id);
   const lastRun = wf.last_run;
-  const runConf = lastRun ? getStatusConfig(lastRun.status) : null;
+  const runConf = isRunning
+    ? getStatusConfig("running")
+    : lastRun
+      ? getStatusConfig(lastRun.status)
+      : null;
+  const runCount = wf.successful_run_count ?? 0;
   const actions = (
-    <WorkflowRowActions wf={wf} runningWorkflowId={runningWorkflowId} />
+    <WorkflowRowActions
+      wf={wf}
+      runningWorkflowIds={runningWorkflowIds}
+      localRunWorkflowId={localRunWorkflowId}
+    />
   );
 
   if (variant === "card") {
@@ -163,6 +192,11 @@ export const WorkflowRow = memo(function WorkflowRow({
           <span className="tabular-nums">
             {wf.task_count} task{wf.task_count === 1 ? "" : "s"}
           </span>
+          {runCount > 0 && (
+            <span className="font-mono tabular-nums">
+              {runCount} run{runCount === 1 ? "" : "s"}
+            </span>
+          )}
           {runConf && (
             <span
               className={cn(
@@ -204,6 +238,16 @@ export const WorkflowRow = memo(function WorkflowRow({
         )}
       </TableCell>
       <TableCell className="text-right tabular-nums">{wf.task_count}</TableCell>
+      <TableCell
+        className="text-right font-mono text-sm tabular-nums"
+        title={`${runCount} successful run${runCount === 1 ? "" : "s"}`}
+      >
+        {runCount > 0 ? (
+          runCount
+        ) : (
+          <span className="text-text-faint">&mdash;</span>
+        )}
+      </TableCell>
       <TableCell>
         {runConf ? (
           <span

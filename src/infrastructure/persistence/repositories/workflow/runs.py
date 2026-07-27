@@ -1,6 +1,7 @@
 """Workflow run repository for execution history persistence."""
 
 from datetime import UTC, datetime, timedelta
+from typing import cast
 from uuid import UUID
 
 from sqlalchemy import func, or_, select, update
@@ -383,15 +384,32 @@ class WorkflowRunRepository:
             db_run, include_nodes=False, include_definition=False
         )
 
-    @db_operation("get_latest_runs_for_workflows")
-    async def get_latest_runs_for_workflows(
+    @db_operation("get_run_summaries_for_workflows")
+    async def get_run_summaries_for_workflows(
         self, workflow_ids: list[UUID]
-    ) -> dict[UUID, WorkflowRun]:
-        """Batch-fetch the latest run for each workflow ID using a window function."""
-        if not workflow_ids:
-            return {}
+    ) -> tuple[dict[UUID, WorkflowRun], dict[UUID, int]]:
+        """Latest run and completed-run count per workflow, in ONE round trip.
 
-        # Window function: rank runs per workflow by created_at desc
+        Returns ``(latest_runs, completed_counts)``. Both feed the same list-page
+        row and both group ``workflow_runs`` by ``workflow_id`` over the same ID
+        list, so they ride one query: ``row_number()`` picks the newest run and a
+        ``count(*) FILTER (WHERE status = 'completed')`` window carries the tally
+        on that same row. Two statements meant two network round trips on every
+        workflow list, detail, save, and version revert — which against a
+        serverless database is the part that actually costs.
+
+        Only ``completed`` runs are counted: the column answers "how many times
+        did this produce a result", so failed/cancelled/crashed attempts are
+        excluded. Workflows with no completed runs are absent from the count map;
+        callers treat a missing key as zero.
+
+        Takes no ``user_id`` — the caller must pass IDs already scoped to the
+        acting user.
+        """
+        if not workflow_ids:
+            return {}, {}
+
+        # Rank runs per workflow by created_at desc …
         row_number = (
             func
             .row_number()
@@ -401,20 +419,37 @@ class WorkflowRunRepository:
             )
             .label("rn")
         )
+        # … and tally the completed ones across the whole partition, so the value
+        # is already correct on whichever row row_number picks.
+        completed_count = (
+            func
+            .count()
+            .filter(DBWorkflowRun.status == WorkflowConstants.RUN_STATUS_COMPLETED)
+            .over(partition_by=DBWorkflowRun.workflow_id)
+            .label("completed_count")
+        )
         subq = (
-            select(DBWorkflowRun, row_number)
+            select(DBWorkflowRun, row_number, completed_count)
             .where(DBWorkflowRun.workflow_id.in_(workflow_ids))
             .subquery()
         )
-        stmt = select(DBWorkflowRun).join(
+        stmt = select(DBWorkflowRun, subq.c.completed_count).join(
             subq,
             (DBWorkflowRun.id == subq.c.id) & (subq.c.rn == 1),
         )
-        result = await self.session.execute(stmt)
-        db_runs = list(result.scalars().all())
-        return {
-            r.workflow_id: self.mapper.to_domain(
-                r, include_nodes=False, include_definition=False
+        rows = (await self.session.execute(stmt)).all()
+
+        latest: dict[UUID, WorkflowRun] = {}
+        counts: dict[UUID, int] = {}
+        for row in rows:
+            # A multi-entity Row types its columns as Any; the casts re-establish
+            # checkable types here rather than leaking Any into the maps.
+            db_run = cast("DBWorkflowRun", row[0])
+            completed = cast("int", row[1])
+            latest[db_run.workflow_id] = self.mapper.to_domain(
+                db_run, include_nodes=False, include_definition=False
             )
-            for r in db_runs
-        }
+            # Absent rather than zero, preserving the previous GROUP BY contract.
+            if completed:
+                counts[db_run.workflow_id] = completed
+        return latest, counts

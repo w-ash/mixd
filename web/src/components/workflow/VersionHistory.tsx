@@ -8,12 +8,8 @@
 import { useQueryClient } from "@tanstack/react-query";
 import { Clock, Eye, RotateCcw } from "lucide-react";
 import { useState } from "react";
-import type {
-  WorkflowDefSchemaInput,
-  WorkflowVersionSchema,
-} from "#/api/generated/model";
+import type { WorkflowVersionSchema } from "#/api/generated/model";
 import {
-  getGetWorkflowApiV1WorkflowsWorkflowIdGetQueryKey,
   useListWorkflowVersionsApiV1WorkflowsWorkflowIdVersionsGet,
   useRevertWorkflowVersionApiV1WorkflowsWorkflowIdVersionsVersionRevertPost,
 } from "#/api/generated/workflows/workflows";
@@ -23,6 +19,7 @@ import { ResponsiveDialog } from "#/components/ui/responsive-dialog";
 import { WorkflowDiff } from "#/components/workflow/WorkflowDiff";
 import { formatDateTime } from "#/lib/format";
 import { toasts } from "#/lib/toasts";
+import { afterWorkflowSaved } from "#/lib/workflow-queries";
 import { useEditorStore } from "#/stores/editor-store";
 
 export function VersionHistory({ workflowId }: { workflowId: string }) {
@@ -45,14 +42,10 @@ export function VersionHistory({ workflowId }: { workflowId: string }) {
       {
         onSuccess: (res) => {
           if (res.status === 200) {
-            const data = res.data as {
-              definition: WorkflowDefSchemaInput;
-            };
-            loadWorkflow(data.definition, workflowId);
-            queryClient.invalidateQueries({
-              queryKey:
-                getGetWorkflowApiV1WorkflowsWorkflowIdGetQueryKey(workflowId),
-            });
+            loadWorkflow(res.data.definition, workflowId);
+            // A revert writes a NEW version server-side, so the list this panel
+            // is rendering is stale too — not just the workflow detail.
+            afterWorkflowSaved(queryClient, workflowId, res.data, res.headers);
             toasts.success(`Reverted to version ${version}`);
           }
         },

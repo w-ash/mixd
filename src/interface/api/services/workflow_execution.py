@@ -16,6 +16,7 @@ from datetime import UTC, datetime
 from uuid import UUID
 
 from src.application.runner import execute_use_case
+from src.application.services.run_activity import track_run
 from src.application.use_cases.workflow_runs import (
     ExecuteWorkflowRunUseCase,
     RunWorkflowCommand,
@@ -25,7 +26,7 @@ from src.config import get_logger
 from src.config.constants import WorkflowConstants, truncate_error_message
 from src.domain.entities.workflow import WorkflowDef
 from src.interface._shared.run_lifecycle import (
-    heartbeat_loop,
+    bump_heartbeat,
     update_node_status,
     update_run_status,
 )
@@ -116,6 +117,7 @@ async def _run_workflow_and_push_terminal(
     use_case = ExecuteWorkflowRunUseCase(
         update_run_status=update_run_status,
         update_node_status=update_node_status,
+        bump_heartbeat=bump_heartbeat,
     )
     run_result = await use_case.execute(
         workflow_def, run_id, sse_queue=sse_queue, user_id=user_id
@@ -169,14 +171,16 @@ async def execute_workflow_background(
         operation_id=operation_id,
         workflow_id=workflow_def.id,
     )
-    heartbeat_task = asyncio.create_task(
-        heartbeat_loop(run_id), name=f"workflow_heartbeat_{run_id}"
-    )
-    logger.info("Heartbeat task scheduled", run_id=str(run_id))
+    # The heartbeat ticker is owned by ExecuteWorkflowRunUseCase — it used to be
+    # started here, which is why the CLI and scheduler paths silently had none.
+    #
+    # Hold the sweeper at its active cadence for this run's lifetime; it sleeps
+    # for hours otherwise so Neon's compute can suspend.
     try:
-        await _run_workflow_and_push_terminal(
-            operation_id, workflow_def, run_id, sse_queue, user_id
-        )
+        async with track_run():
+            await _run_workflow_and_push_terminal(
+                operation_id, workflow_def, run_id, sse_queue, user_id
+            )
     except CancelledError:
         # Best-effort push of error SSE event on cancellation
         with contextlib.suppress(CancelledError, Exception):
@@ -192,9 +196,6 @@ async def execute_workflow_background(
             )
 
     finally:
-        heartbeat_task.cancel()
-        with contextlib.suppress(asyncio.CancelledError, Exception):
-            await heartbeat_task
         await finalize_sse_operation(operation_id)
 
 

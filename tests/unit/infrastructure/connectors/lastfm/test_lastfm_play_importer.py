@@ -5,6 +5,7 @@ from unittest.mock import AsyncMock, Mock, patch
 
 import pytest
 
+from src.config.constants import BusinessLimits
 from src.domain.exceptions import LastfmAuthRequiredError
 from src.infrastructure.connectors.lastfm.play_importer import LastfmPlayImporter
 
@@ -97,12 +98,39 @@ class TestIncrementalCommit:
         records = await importer._fetch_date_range_strategy(
             from_date=from_date,
             to_date=to_date,
+            user_id="mixd-user-1",
             username="test_user",
             uow=mock_uow,
         )
 
         assert len(records) == 6  # 3 days * 2 records
         assert mock_uow.commit_batch.await_count == 3
+
+    async def test_day_checkpoints_are_keyed_on_the_mixd_user(self, importer, mock_uow):
+        """The checkpoint's ``user_id`` is the mixd user, never the Last.fm account.
+
+        ``sync_checkpoints`` is FORCE-RLS'd on ``user_id``, so an account-keyed
+        row is rejected on write and invisible on read. A mock UoW accepts either
+        key, so the enforcement itself is proven in
+        tests/integration/connectors/lastfm/test_lastfm_checkpoint_rls.py — this
+        just pins the key at the call site.
+        """
+        importer._fetch_day_records = AsyncMock(side_effect=_fake_fetch_day(1))
+
+        _ = await importer._fetch_date_range_strategy(
+            from_date=datetime(2024, 1, 1, tzinfo=UTC),
+            to_date=datetime(2024, 1, 1, 23, 59, 59, tzinfo=UTC),
+            user_id="mixd-user-1",
+            username="test_user",
+            uow=mock_uow,
+        )
+
+        saved = mock_uow.get_checkpoint_repository().save_sync_checkpoint
+        checkpoint = saved.await_args.args[0]
+        assert checkpoint.user_id == "mixd-user-1"
+        assert checkpoint.service == "lastfm"
+        # The account rides along in the cursor so an account switch is detectable.
+        assert checkpoint.cursor == "2024-01-01@test_user"
 
     async def test_no_uow_means_no_commit_batch(self, importer):
         """Without a UoW, no checkpoint or commit_batch calls."""
@@ -114,11 +142,70 @@ class TestIncrementalCommit:
         records = await importer._fetch_date_range_strategy(
             from_date=from_date,
             to_date=to_date,
+            user_id="mixd-user-1",
             username="test_user",
             uow=None,
         )
 
         assert len(records) == 2  # 2 days * 1 record, no commit calls
+
+
+class TestCheckpointAccountTag:
+    """The cursor's account tag guards against resuming another account's position.
+
+    The row is keyed on the mixd user, and nothing clears it when the connected
+    Last.fm account changes — so the account the days were fetched for rides
+    along in the cursor.
+    """
+
+    @staticmethod
+    def _checkpoint(cursor):
+        from src.domain.entities import SyncCheckpoint
+
+        return SyncCheckpoint(
+            user_id="mixd-user-1",
+            service="lastfm",
+            entity_type="plays",
+            last_timestamp=datetime(2024, 1, 5, tzinfo=UTC),
+            cursor=cursor,
+        )
+
+    @pytest.mark.parametrize(
+        ("cursor", "account", "expected"),
+        [
+            ("2024-01-05@alice", "alice", True),
+            ("2024-01-05@Alice", "alice", True),  # Last.fm names are case-insensitive
+            ("2024-01-05@alice", "bob", False),
+            ("2024-01-05", "alice", True),  # pre-tag cursor: accepted as-is
+            (None, "alice", True),
+        ],
+    )
+    def test_account_match(self, importer, cursor, account, expected):
+        checkpoint = self._checkpoint(cursor)
+        assert importer._checkpoint_matches_account(checkpoint, account) is expected
+
+    def test_chunk_start_reads_the_date_half_of_a_tagged_cursor(self, importer):
+        start = importer._resolve_chunk_start(
+            self._checkpoint("2024-01-05@alice"),
+            explicit_range=False,
+            requested_start=datetime(2024, 1, 1, tzinfo=UTC).date(),
+        )
+        assert start == datetime(2024, 1, 5, tzinfo=UTC).date()
+
+    async def test_mismatched_account_is_treated_as_no_checkpoint(self, importer):
+        """A different account must not resume — that would skip its own history."""
+        from tests.fixtures.mocks import make_mock_uow
+
+        uow = make_mock_uow()
+        uow.get_checkpoint_repository().get_sync_checkpoint = AsyncMock(
+            return_value=self._checkpoint("2024-01-05@alice")
+        )
+
+        resolved = await importer._resolve_checkpoint(
+            user_id="mixd-user-1", account="bob", uow=uow
+        )
+
+        assert resolved is None
 
 
 class TestProgressEmission:
@@ -137,6 +224,7 @@ class TestProgressEmission:
         await importer._fetch_date_range_strategy(
             from_date=from_date,
             to_date=to_date,
+            user_id="mixd-user-1",
             username="test_user",
             progress_emitter=emitter,
             operation_id="test-op-123",
@@ -159,6 +247,7 @@ class TestProgressEmission:
         records = await importer._fetch_date_range_strategy(
             from_date=from_date,
             to_date=to_date,
+            user_id="mixd-user-1",
             username="test_user",
         )
         assert len(records) == 1
@@ -198,10 +287,21 @@ class TestUsernameResolution:
         importer, _ = self._build(env_username="env_user", token=None)
         assert await importer._resolve_username(None, "user-1") == "env_user"
 
-    async def test_no_user_id_never_reads_a_token(self):
+    async def test_local_dev_sentinel_falls_through_to_env(self):
+        """CLI/local-dev keys on DEFAULT_USER_ID, which holds no token.
+
+        Replaces the old ``user_id=None`` case: ``import_plays`` now requires a
+        real ``user_id`` (v0.10.1), so the un-keyed branch is unreachable. The
+        sentinel is looked up like any other tenant and simply misses.
+        """
         importer, storage = self._build(env_username="env_user")
-        assert await importer._resolve_username(None, None) == "env_user"
-        storage.load_token.assert_not_awaited()
+        resolved = await importer._resolve_username(
+            None, BusinessLimits.DEFAULT_USER_ID
+        )
+        assert resolved == "env_user"
+        storage.load_token.assert_awaited_once_with(
+            "lastfm", BusinessLimits.DEFAULT_USER_ID
+        )
 
     async def test_token_without_account_name_falls_through_to_env(self):
         importer, _ = self._build(env_username="env_user", token={"session_key": "sk"})

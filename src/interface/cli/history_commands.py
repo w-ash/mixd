@@ -87,6 +87,27 @@ def import_lastfm_cmd(
         display_operation_result(result)
 
 
+@app.command(name="import-spotify-recent")
+def import_spotify_recent_cmd() -> None:
+    """Import your most recent Spotify plays from the listening-history API.
+
+    Captures only the trailing ~50 plays — that is all Spotify retains on this
+    endpoint. Earlier history comes from Last.fm or a Spotify data export
+    (`mixd history import-spotify`); re-running picks up where the last run
+    stopped, so nothing is imported twice.
+
+    Requires re-connecting Spotify if you granted access before listening
+    history was requested (`mixd connector connect spotify`).
+    """
+    result = run_import_with_progress(
+        ImportProgressSpec(service="spotify", mode="recent")
+    )
+
+    console.print("[bold green]✓ Spotify recent plays imported![/bold green]")
+    if result:
+        display_operation_result(result)
+
+
 @app.command(name="import-spotify")
 def import_spotify_cmd(
     file_path: Annotated[
@@ -278,8 +299,24 @@ def _show_interactive_history_menu() -> None:
                 label="[bold]Spotify File[/bold] - Import from Spotify data export JSON files",
                 handler=_interactive_spotify_import,
             ),
+            MenuOption(
+                key="3",
+                aliases=["recent"],
+                label="[bold]Spotify Recent[/bold] - Import your ~50 latest Spotify plays from the API",
+                handler=_interactive_spotify_recent_import,
+            ),
         ],
     )
+
+
+def _interactive_spotify_recent_import() -> None:
+    """Interactive Spotify recently-played import (no configuration needed)."""
+    console.print("\n[bold]Spotify Recent Plays[/bold]")
+    console.print(
+        "[dim]Spotify keeps only your ~50 most recent plays on this endpoint. "
+        "Earlier history comes from Last.fm or a data export.[/dim]\n"
+    )
+    import_spotify_recent_cmd()
 
 
 def _interactive_lastfm_import() -> None:

@@ -15,6 +15,7 @@ import pytest
 
 from src.domain.entities import ConnectorTrackPlay
 from src.domain.matching.play_projection import (
+    CHANNEL_SPECS,
     MAX_NORMALIZED_START_SHIFT,
     UnknownChannelError,
     channel_for,
@@ -326,3 +327,116 @@ class TestConvergenceLaws:
             for pid in (*(m.id for m in g.members), *(a.id for a in g.absorbed))
         ]
         assert sorted(covered) == sorted(e.id for e in entries)
+
+
+def _api_obs(
+    *,
+    played_at: datetime,
+    track_id: UUID | None = _TRACK_A,
+    artist: str = "Carwash",
+    title: str = "Striptease",
+) -> ConnectorTrackPlay:
+    """A spotify_api observation — strong identity, no ms_played (v0.10.1)."""
+    return ConnectorTrackPlay(
+        service="spotify",
+        artist_name=artist,
+        track_name=title,
+        played_at=played_at,
+        ms_played=None,
+        service_metadata={
+            "track_uri": "spotify:track:4iV5W9uYEdYUVa79Axb7Rh",
+            "duration_ms": 201_000,
+            "context_type": "playlist",
+            "context_uri": "spotify:playlist:p1",
+        },
+        resolved_track_id=track_id,
+        import_source="spotify_api",
+        import_batch_id="batch-api",
+    )
+
+
+class TestSpotifyApiChannel:
+    """v0.10.1's acceptance of v0.10.0's zero-new-dedup-code claim.
+
+    The recently-played channel was registered in v0.10.0 and never fed. These
+    pin that feeding it needs no merge code of its own.
+    """
+
+    def test_one_listen_observed_by_all_three_channels_is_one_play(self):
+        """Export + API + Last.fm of the same listen collapse to a single play.
+
+        This is the user-visible promise: connecting a live poller and later
+        uploading a GDPR export deepens the play, it does not triple-count it.
+        """
+        start = _BASE
+        entries = [
+            _export_obs(ended_at=start + timedelta(milliseconds=201_000)),
+            _api_obs(played_at=start),
+            _lastfm_obs(played_at=start + timedelta(seconds=3)),
+        ]
+
+        groups, _stats = group_ledger_entries(entries)
+
+        assert len(groups) == 1
+        merged = merge_group(groups[0])
+        assert set(merged.source_services) == {"spotify", "lastfm"}
+        # The export wins ms_played (it is the only channel that observes it);
+        # the API contributes identity, Last.fm the true start.
+        assert merged.ms_played == 201_000
+        assert "merged_from_spotify_api" in merged.context
+        assert merged.context["merged_from_spotify_api"]["context_type"] == "playlist"
+
+    def test_api_play_alone_projects_without_ms_played(self):
+        """Before any export arrives, the API observation stands on its own."""
+        groups, _stats = group_ledger_entries([_api_obs(played_at=_BASE)])
+
+        merged = merge_group(groups[0])
+        assert merged.played_at == _BASE
+        assert merged.ms_played is None
+        assert merged.source_services == ("spotify",)
+
+    def test_reprojecting_an_api_poll_overlap_is_idempotent(self):
+        """Re-polling the boundary play must not create a second canonical play."""
+        entries = [_api_obs(played_at=_BASE)]
+
+        first, _ = group_ledger_entries(entries)
+        second, _ = group_ledger_entries([*entries])
+
+        assert merge_group(first[0]) == merge_group(second[0])
+
+
+class TestSpotifyApiToleranceBoundary:
+    """Guards the pending START-vs-END calibration (v0.10.1 B7).
+
+    Until the first real poll is compared against overlapping scrobbles, the
+    channel carries a 180s tolerance_override so pairing errs toward merging.
+    The second test is parked and arms itself the moment that override is
+    dropped — without it, tightening the tolerance would go unpinned.
+    """
+
+    def test_wide_tolerance_merges_a_ninety_second_gap_today(self):
+        entries = [
+            _api_obs(played_at=_BASE),
+            _lastfm_obs(played_at=_BASE + timedelta(seconds=90)),
+        ]
+
+        groups, _stats = group_ledger_entries(entries)
+
+        assert len(groups) == 1, (
+            "spotify_api still carries tolerance_override=180s; if this now "
+            "splits, calibration landed and the parked test below should arm"
+        )
+
+    @pytest.mark.skipif(
+        CHANNEL_SPECS["spotify", "spotify_api"].tolerance_override is not None,
+        reason="spotify_api start-vs-end semantics not yet calibrated",
+    )
+    def test_tight_tolerance_keeps_a_ninety_second_gap_distinct(self):
+        entries = [
+            _api_obs(played_at=_BASE),
+            _lastfm_obs(played_at=_BASE + timedelta(seconds=90)),
+        ]
+
+        groups, _stats = group_ledger_entries(entries)
+
+        assert len(groups) == 2

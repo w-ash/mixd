@@ -10,6 +10,7 @@ import {
   useImportLastfmHistoryApiV1ImportsLastfmHistoryPost,
   useImportSpotifyHistoryApiV1ImportsSpotifyHistoryPost,
   useImportSpotifyLikesApiV1ImportsSpotifyLikesPost,
+  useImportSpotifyRecentApiV1ImportsSpotifyRecentPost,
 } from "#/api/generated/imports/imports";
 import type {
   CheckpointStatusSchema,
@@ -416,11 +417,66 @@ function LastfmLikesExport({
   );
 }
 
-function SpotifyHistoryImport({
+function SpotifyRecentImport({
   checkpoints,
+  needsReconnect,
 }: {
   checkpoints: CheckpointStatusSchema[];
+  needsReconnect: boolean;
 }) {
+  const [operationId, setOperationId] = useState<string | null>(null);
+  const [runId, setRunId] = useState<string | null>(null);
+  const mutation = useImportSpotifyRecentApiV1ImportsSpotifyRecentPost();
+
+  const trigger = () => {
+    mutation.mutate(
+      { data: {} },
+      makeOperationCallbacks(
+        "Spotify recent plays import",
+        setOperationId,
+        setRunId,
+      ),
+    );
+  };
+
+  return (
+    <OperationCard
+      connector="spotify"
+      title="Spotify Recent Plays"
+      description="Pull your latest listening straight from Spotify, so today's plays count today."
+      // The API poll position, not the export's — this is the cursor the next
+      // poll resumes from.
+      checkpoint={findCheckpoint(checkpoints, "spotify", "plays")}
+      operationId={operationId}
+      runId={runId}
+      operationType="import_spotify_recent"
+      isPending={mutation.isPending}
+      onTrigger={trigger}
+      // A pre-v0.10.1 grant reports connected (likes and playlists still work),
+      // so the shared connected gate can't catch this one.
+      triggerDisabled={needsReconnect}
+    >
+      {needsReconnect && (
+        <p className="mt-2 text-xs text-status-expired">
+          Re-connect Spotify in Integrations to grant listening-history access.
+        </p>
+      )}
+      <details className="mt-2 text-xs text-text-faint">
+        <summary className="cursor-pointer hover:text-text-muted">
+          Why only ~50 plays?
+        </summary>
+        <p className="mt-1 pl-3 border-l border-border">
+          Spotify only keeps your 50 most recent plays available. Import
+          regularly and nothing is missed — earlier history comes from Last.fm
+          or a data export, and both merge into the same plays rather than
+          duplicating them.
+        </p>
+      </details>
+    </OperationCard>
+  );
+}
+
+function SpotifyHistoryImport() {
   const [operationId, setOperationId] = useState<string | null>(null);
   const [runId, setRunId] = useState<string | null>(null);
   const [selectedFile, setSelectedFile] = useState<File | null>(null);
@@ -443,7 +499,10 @@ function SpotifyHistoryImport({
       connector="spotify"
       title="Spotify Data Export"
       description="Upload the streaming history JSON from your Spotify privacy data download."
-      checkpoint={findCheckpoint(checkpoints, "spotify", "plays")}
+      // No checkpoint: a file upload has no resume position. The
+      // ("spotify","plays") checkpoint now tracks the API poll cursor and is
+      // shown on the Recent Plays card instead.
+      checkpoint={undefined}
       operationId={operationId}
       runId={runId}
       operationType="import_spotify_history"
@@ -481,11 +540,18 @@ export function Sync() {
   // connected so a slow status query doesn't flicker every button disabled.
   const { data: connectorsData } = useGetConnectorsApiV1ConnectorsGet();
   const connectedByName: Record<string, boolean> = {};
+  const authErrorByName: Record<string, string | null | undefined> = {};
   if (connectorsData?.status === 200) {
-    for (const c of connectorsData.data) connectedByName[c.name] = c.connected;
+    for (const c of connectorsData.data) {
+      connectedByName[c.name] = c.connected;
+      authErrorByName[c.name] = c.auth_error;
+    }
   }
   const lastfmConnected = connectedByName.lastfm ?? true;
   const spotifyConnected = connectedByName.spotify ?? true;
+  // scope_missing ships with connected=true — likes and playlists still work,
+  // so only the surface that needs the new scope gates on it.
+  const spotifyNeedsReconnect = authErrorByName.spotify === "scope_missing";
 
   return (
     <div>
@@ -532,7 +598,16 @@ export function Sync() {
                   className="animate-fade-up"
                   style={{ animationDelay: "75ms" }}
                 >
-                  <SpotifyHistoryImport checkpoints={checkpoints} />
+                  <SpotifyRecentImport
+                    checkpoints={checkpoints}
+                    needsReconnect={spotifyNeedsReconnect}
+                  />
+                </div>
+                <div
+                  className="animate-fade-up"
+                  style={{ animationDelay: "150ms" }}
+                >
+                  <SpotifyHistoryImport />
                 </div>
               </div>
             </section>

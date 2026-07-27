@@ -1,7 +1,7 @@
 """Tests for SpotifyTokenManager with injected TokenStorage."""
 
 import time
-from unittest.mock import AsyncMock, patch
+from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
@@ -135,3 +135,70 @@ class TestSpotifyTokenManager:
 
         with pytest.raises(RuntimeError, match="No refresh token available"):
             await manager.force_refresh()
+
+
+class TestRefreshPreservesGrant:
+    """A refresh response must never look like the user revoked their grant.
+
+    Spotify omits fields it considers unchanged, and the response is persisted
+    verbatim. ``refresh_token`` was already carried forward on omission;
+    ``scope`` was not, so a refresh could silently blank the stored grant — after
+    which every scope check reads "nothing granted" and the user is told to
+    reconnect, and the scope-gated routes 409, while their authorization is
+    entirely intact.
+    """
+
+    @pytest.fixture
+    def manager(self):
+        return SpotifyTokenManager(storage=AsyncMock(), user_id=_UID)
+
+    async def _refresh_with(
+        self, manager: SpotifyTokenManager, response: dict[str, object]
+    ) -> StoredToken:
+        manager._token_info = _make_token()
+        with (
+            patch(
+                "src.infrastructure.connectors.spotify.auth.make_spotify_auth_client"
+            ) as mock_client,
+            patch(
+                "src.infrastructure.connectors.spotify.auth.parse_json_response",
+                return_value=dict(response),
+            ),
+        ):
+            # MagicMock response, not AsyncMock: the production code calls
+            # `response.raise_for_status()` synchronously, and an AsyncMock would
+            # hand back an un-awaited coroutine instead.
+            mock_client.return_value.__aenter__.return_value.post = AsyncMock(
+                return_value=MagicMock()
+            )
+            return await manager._refresh_token("refresh-456")
+
+    async def test_omitted_scope_carries_the_previous_grant_forward(
+        self, manager: SpotifyTokenManager
+    ) -> None:
+        refreshed = await self._refresh_with(
+            manager, {"access_token": "new-access", "expires_in": 3600}
+        )
+        assert refreshed["scope"] == "playlist-read-private"
+
+    async def test_returned_scope_wins_over_the_previous_grant(
+        self, manager: SpotifyTokenManager
+    ) -> None:
+        # A genuinely changed grant must not be masked by the carry-forward.
+        refreshed = await self._refresh_with(
+            manager,
+            {
+                "access_token": "new-access",
+                "expires_in": 3600,
+                "scope": "playlist-read-private user-read-recently-played",
+            },
+        )
+        assert refreshed["scope"] == "playlist-read-private user-read-recently-played"
+
+    async def test_omitted_refresh_token_is_still_preserved(
+        self, manager: SpotifyTokenManager
+    ) -> None:
+        refreshed = await self._refresh_with(
+            manager, {"access_token": "new-access", "expires_in": 3600}
+        )
+        assert refreshed["refresh_token"] == "refresh-456"

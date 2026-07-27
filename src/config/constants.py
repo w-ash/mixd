@@ -34,8 +34,6 @@ class HTTPStatus:
 class SpotifyConstants:
     """Spotify API format specifications and validation constants."""
 
-    URI_PARTS_COUNT: Final = 3  # "spotify:track:<id>"
-    TRACK_ID_LENGTH: Final = 22
     SEARCH_MAX_LIMIT: Final = 10  # max results per search query (Feb 2026 API)
     LIBRARY_CONTAINS_BATCH_SIZE: Final = (
         40  # /me/library/contains max per request (Feb 2026 API)

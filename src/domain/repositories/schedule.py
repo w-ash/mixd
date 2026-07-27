@@ -75,6 +75,20 @@ class ScheduleRepositoryProtocol(Protocol):
         """Enabled, unclaimed schedules whose fire time has arrived (all users)."""
         ...
 
+    def find_next_wake_at(
+        self, *, stuck_timeout_seconds: int
+    ) -> Awaitable[datetime | None]:
+        """Earliest instant the scheduler must next act, or ``None`` if never.
+
+        The earlier of the next due fire time and the next stuck-claim reap
+        deadline — both, because a claimed-but-abandoned row is excluded from the
+        due query and would otherwise never be reaped. Lets the loop sleep to
+        that instant instead of polling on a fixed cadence, which is both cheaper
+        (an idle database can suspend in between) and more punctual (a fixed poll
+        fires up to one interval late).
+        """
+        ...
+
     def get_by_id(self, id_: UUID) -> Awaitable[Schedule]:
         """Return a schedule by id, cross-tenant (no ``user_id`` filter).
 

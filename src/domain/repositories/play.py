@@ -6,7 +6,7 @@ Split from the former monolithic ``interfaces.py``.
 from collections.abc import Awaitable, Callable, Mapping, Sequence
 from datetime import datetime
 from pathlib import Path
-from typing import TYPE_CHECKING, Literal, Protocol, TypedDict
+from typing import TYPE_CHECKING, Final, Literal, Protocol, TypedDict
 from uuid import UUID
 
 from attrs import define
@@ -46,7 +46,38 @@ class SpotifyImportParams:
     batch_size: int | None = None
 
 
-type PlayImportParams = LastfmImportParams | SpotifyImportParams
+# Spotify's recently-played endpoint caps a page at 50 and retains no more than
+# that, so a larger request is silently unachievable. Declared once, beside the
+# params type it bounds, so the application clamp and the HTTP client agree.
+RECENTLY_PLAYED_PAGE_LIMIT: Final = 50
+
+
+@define(frozen=True, slots=True)
+class SpotifyRecentImportParams:
+    """Selectors for a Spotify recently-played API poll.
+
+    Carries no cursor: resume position lives on the ``("spotify", "plays")``
+    sync checkpoint, keyed on the mixd user the pipeline threads through, so a
+    poll cannot accidentally resume from another tenant's position.
+
+    ``force`` ignores that checkpoint for one poll and re-reads the whole
+    retained window. Re-ingesting already-seen plays is harmless (the ledger's
+    dedup constraint conflict-skips them), so this is a recovery lever for a
+    cursor that ran ahead of what was actually stored.
+    """
+
+    limit: int = RECENTLY_PLAYED_PAGE_LIMIT
+    force: bool = False
+
+
+type PlayImportParams = (
+    LastfmImportParams | SpotifyImportParams | SpotifyRecentImportParams
+)
+
+# Where an import's data comes from. One service can offer both — Spotify reads
+# GDPR export files AND polls the recently-played API — so the importer registry
+# keys on (service, kind) rather than service alone.
+type ImportKind = Literal["file", "api"]
 
 
 type PlaySortBy = Literal[
@@ -157,20 +188,6 @@ class PlaysRepositoryProtocol(Protocol):
 
         Returns:
             Typed dictionary mapping metric names to {track_id: value} dictionaries.
-        """
-        ...
-
-    def find_plays_in_time_range(
-        self,
-        track_ids: list[UUID],
-        start: datetime,
-        end: datetime,
-        *,
-        user_id: str,
-    ) -> Awaitable[list[TrackPlay]]:
-        """Find existing plays for given tracks within a time range.
-
-        Used by cross-source deduplication to find candidate matches.
         """
         ...
 
@@ -312,7 +329,7 @@ class PlayImporterProtocol(Protocol):
         uow: UnitOfWorkProtocol,
         params: PlayImportParams,
         *,
-        user_id: str | None = None,
+        user_id: str,
         progress_emitter: ProgressEmitter | None = None,
     ) -> tuple[OperationResult, list[ConnectorTrackPlay]]:
         """Import plays and return result with connector plays for resolution.
@@ -320,6 +337,10 @@ class PlayImporterProtocol(Protocol):
         Each importer accepts its own params type from the union and raises
         ``TypeError`` on a mismatch (the importer registry is stringly-typed;
         this check restores the type boundary at runtime).
+
+        ``user_id`` is required (v0.10.1): it is both the ledger tenancy stamp
+        and the sync-checkpoint key, and the first unattended per-user writer
+        (scheduler-dispatched polls) makes a silent default unsafe.
         """
         ...
 

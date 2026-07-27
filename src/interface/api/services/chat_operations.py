@@ -187,12 +187,13 @@ async def _launch_apply_playlist_assignments(
 async def _launch_import_data(
     details: JsonDict, user_id: str
 ) -> tuple[str, str | None]:
-    """Mirror ``POST /imports/lastfm/history`` and ``POST /imports/spotify/likes``.
+    """Mirror the ``POST /imports/*`` routes reachable from chat.
 
-    Spotify listening *history* is deliberately out of scope from chat (its REST
-    route ingests an uploaded GDPR export file the chat channel can't provide),
-    so it never reaches the enum — ``import_data``'s propose-time ``require_choice``
-    rejects it before an action is ever stored.
+    The Spotify GDPR-export import stays out: its REST route ingests an uploaded
+    file the chat channel can't provide, so it never reaches the enum and
+    ``import_data``'s propose-time ``require_choice`` rejects it before an action
+    is stored. The recently-played API import (v0.10.1) needs no file and is
+    offered as ``spotify_recent``.
     """
     source = _require_str(details, "source")
     limit = _opt_int(details, "limit")
@@ -240,7 +241,31 @@ async def _launch_import_data(
         )
         return resp.operation_id, resp.run_id
 
-    # Unreachable in practice — the propose-time enum admits only the two sources
+    if source == "spotify_recent":
+
+        async def _recent(emitter: OperationBoundEmitter) -> object:
+            # ``force`` = ignore the stored poll cursor and re-read the whole
+            # retained window. Dropping it here would let the model promise a
+            # from-scratch re-import on the confirmation card and then quietly
+            # resume, which is the one behaviour the card must not lie about.
+            return await run_import(
+                user_id=user_id,
+                service="spotify",
+                mode="recent",
+                limit=limit,
+                progress_emitter=emitter,
+                force=force,
+            )
+
+        resp = await launch_sse_operation(
+            user_id=user_id,
+            operation_type="import_spotify_recent",
+            coro_factory=_recent,
+            initiated_by="assistant",
+        )
+        return resp.operation_id, resp.run_id
+
+    # Unreachable in practice — the propose-time enum admits only the sources
     # above — but kept as a loud guard against a future misclassified spec.
     raise ToolExecutionError(f"Unknown import source: {source}")
 

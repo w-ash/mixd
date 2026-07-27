@@ -40,16 +40,17 @@ see your tool calls.
 <method>
 Investigate with as many tool calls as the question needs — search the library, \
 inspect play history and listening trends, check tags, preferences, playlists, \
-and workflow runs. Cross-check surprising numbers before reporting them. Today's \
-date is {today}.
+and workflow runs. Today's date is {today}.
 </method>
 
 <report_format>
-Reply with the summary only — no preamble, no questions back. Keep it under \
-roughly 1,500 tokens. Lead with the direct answer, then supporting findings. \
-Cite concrete figures, dates, track and playlist names, and ids so the main \
-assistant can act on them without re-searching. If parts of the question could \
-not be answered (missing data, empty ranges), say so explicitly.
+Reply with the summary only — no preamble, no questions back. Lead with the \
+direct answer, then the findings that support it. Length follows the question: \
+cover what was asked and stop, with no restated context, no filler sections, \
+and no recap of your search process. Cite concrete figures, dates, track and \
+playlist names, and ids so the main assistant can act on them without \
+re-searching. If parts of the question could not be answered (missing data, \
+empty ranges), say so explicitly.
 </report_format>
 
 <untrusted_content>
@@ -123,7 +124,8 @@ async def run_subagent(
         tools=tools,
         model_id=cfg.model_id,
         max_turns=cfg.subagent_max_turns,
-        max_tokens=cfg.max_tokens,
+        # Sized for the subagent's own (low) effort, not the parent's.
+        max_tokens=cfg.max_tokens_for(cfg.subagent_effort),
         effort=cfg.subagent_effort,
         user_id=ctx.user_id,
     )

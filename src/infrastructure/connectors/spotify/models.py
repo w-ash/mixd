@@ -22,11 +22,13 @@ Endpoint coverage:
   (SimplifiedPlaylistObject per item: `items` is a `{href, total}` summary,
   not a full tracks list — the SpotifyPlaylist.items field parses it via
   all-defaults on SpotifyPaginatedPlaylistItems.)
+- GET /me/player/recently-played  → SpotifyRecentlyPlayedResponse
 """
 
-from typing import Annotated, ClassVar
+from datetime import datetime
+from typing import Annotated, ClassVar, cast
 
-from pydantic import BaseModel, BeforeValidator, ConfigDict, Field
+from pydantic import BaseModel, BeforeValidator, ConfigDict, Field, ValidationError
 
 
 def _none_to_empty_list(v: object) -> object:
@@ -160,3 +162,72 @@ class SpotifyUserPlaylistsResponse(SpotifyBaseModel):
     offset: int = Field(default=0)
     total: int = Field(default=0)
     items: list[SpotifyPlaylist] = Field(default_factory=list)
+
+
+class SpotifyPlayContext(SpotifyBaseModel):
+    """Where a play was started from — playlist, album, artist, or show."""
+
+    type: str | None = Field(default=None)
+    uri: str | None = Field(default=None)
+
+
+class SpotifyPlayHistoryItem(SpotifyBaseModel):
+    """One entry from GET /me/player/recently-played.
+
+    ``played_at`` is required — a history entry with no timestamp cannot be
+    placed on the observation ledger, so it must fail validation rather than
+    default to something invented. Pydantic parses Spotify's RFC-3339 "…Z"
+    form into an aware datetime.
+    """
+
+    track: SpotifyTrack
+    played_at: datetime
+    context: SpotifyPlayContext | None = Field(default=None)
+
+
+def _drop_unusable_history_items(v: object) -> object:
+    """Discard recently-played entries that cannot become a ledger observation.
+
+    Whole-page validation is the wrong failure mode for this endpoint: Spotify
+    retains only the trailing ~50 plays, so one malformed entry rejecting the
+    page would lose all the others *unrecoverably*. An entry is unusable when it
+    has no ``track.id`` (a local file, or anything else without a Spotify id) —
+    without one there is no ``spotify:track:`` URI, so the play could never be
+    resolved anyway. Dropping exactly those keeps the other 49.
+
+    Each entry is validated rather than hand-inspected, so the screen can never
+    disagree with the model it guards — and the validated object is *kept*, not
+    thrown away. Returning the raw entry instead would make Pydantic parse the
+    whole page a second time when it builds the annotated ``list[...]``; model
+    instances pass straight through (``revalidate_instances`` is left at its
+    ``never`` default), so the screen costs one parse rather than two on every
+    poll.
+    """
+    if not isinstance(v, list):
+        return v
+    # `isinstance` narrows only to `list[Unknown]`; the cast re-establishes a
+    # checkable element type at this JSON boundary without a type suppression.
+    incoming = cast("list[object]", v)
+    usable: list[SpotifyPlayHistoryItem] = []
+    for item in incoming:
+        try:
+            usable.append(SpotifyPlayHistoryItem.model_validate(item))
+        except ValidationError:
+            continue
+    return usable
+
+
+class SpotifyRecentlyPlayedResponse(SpotifyBaseModel):
+    """Response body for GET /me/player/recently-played.
+
+    The payload's ``cursors`` block is deliberately not modelled: the importer
+    derives its resume cursor from the newest ``played_at`` instead, which is
+    equal by construction and keeps one source of truth. ``extra="ignore"``
+    drops it harmlessly.
+    """
+
+    items: Annotated[
+        list[SpotifyPlayHistoryItem],
+        BeforeValidator(_drop_unusable_history_items),
+        BeforeValidator(_none_to_empty_list),
+    ] = Field(default_factory=list)

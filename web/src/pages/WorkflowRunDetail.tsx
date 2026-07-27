@@ -1,10 +1,13 @@
+import { useQueryClient } from "@tanstack/react-query";
 import { AlertTriangle, HelpCircle, Play } from "lucide-react";
+import { useEffect, useRef } from "react";
 import { useParams } from "react-router";
 
 import {
   useGetWorkflowApiV1WorkflowsWorkflowIdGet,
   useGetWorkflowRunApiV1WorkflowsWorkflowIdRunsRunIdGet,
 } from "#/api/generated/workflows/workflows";
+import { STALE } from "#/api/query-client";
 import { PageHeader } from "#/components/layout/PageHeader";
 import { BackLink } from "#/components/shared/BackLink";
 import { EmptyState } from "#/components/shared/EmptyState";
@@ -16,10 +19,13 @@ import { Button } from "#/components/ui/button";
 import { Skeleton } from "#/components/ui/skeleton";
 import { NodeExecutionRow } from "#/components/workflow/run-detail/NodeExecutionRow";
 import { OutputTracksTable } from "#/components/workflow/run-detail/OutputTracksTable";
+import { useWorkflowExecutionContext } from "#/contexts/WorkflowExecutionContext";
+import { useActiveRun } from "#/hooks/useActiveRuns";
 import { useWorkflowExecution } from "#/hooks/useWorkflowExecution";
 import { formatDate, formatDuration } from "#/lib/format";
 import type { NodeStatus } from "#/lib/sse-types";
 import { cn } from "#/lib/utils";
+import { afterRunStateChanged } from "#/lib/workflow-queries";
 
 // --- Sub-components ---
 
@@ -40,12 +46,69 @@ export function WorkflowRunDetail() {
   const runIdStr = runId ?? "";
 
   const { data, isLoading, isError } =
-    useGetWorkflowRunApiV1WorkflowsWorkflowIdRunsRunIdGet(workflowId, runIdStr);
+    useGetWorkflowRunApiV1WorkflowsWorkflowIdRunsRunIdGet(
+      workflowId,
+      runIdStr,
+      { query: { staleTime: STALE.SLOW } },
+    );
 
-  const { data: workflowData } =
-    useGetWorkflowApiV1WorkflowsWorkflowIdGet(workflowId);
+  const { data: workflowData } = useGetWorkflowApiV1WorkflowsWorkflowIdGet(
+    workflowId,
+    { query: { staleTime: STALE.SLOW } },
+  );
 
   const { isExecuting, execute } = useWorkflowExecution(workflowId);
+
+  // Server truth for "is a run in flight on this workflow".
+  const { data: activeRun = null } = useActiveRun(workflowId);
+  const {
+    adoptRun,
+    operationId,
+    workflowId: drivingWorkflowId,
+    nodeStatuses: liveNodeStatuses,
+  } = useWorkflowExecutionContext();
+
+  // This page is scoped to one run, so it only goes live when the in-flight run
+  // IS this run — opening an old run while a newer one streams must not hijack
+  // the connection. Mirrors the reconnect guard on the workflow detail page.
+  const isThisRunLive = activeRun !== null && activeRun.id === runIdStr;
+
+  // Whether the SSE node statuses in context actually describe THIS run. The
+  // context holds one global map for whatever run this tab streams, so a run
+  // adopted for another workflow would otherwise bleed its node statuses onto
+  // this graph — node ids are definition-local (`source_1`), so they collide
+  // readily between workflows.
+  const contextDrivesThisRun =
+    isThisRunLive && drivingWorkflowId === workflowId;
+
+  // A run this tab did not start has no SSE stream and fires no mutation, so
+  // nothing would otherwise invalidate the cached run row when it finishes — the
+  // badge would fall back to the `running` status captured at page load and stay
+  // there. Watching the live→ended edge is the one signal available here.
+  const queryClient = useQueryClient();
+  const wasLive = useRef(false);
+  useEffect(() => {
+    if (wasLive.current && !isThisRunLive) {
+      afterRunStateChanged(queryClient, workflowId, runIdStr);
+    }
+    wasLive.current = isThisRunLive;
+  }, [isThisRunLive, queryClient, workflowId, runIdStr]);
+
+  useEffect(() => {
+    if (!isThisRunLive || !activeRun) return;
+    const opId = activeRun.operation_id;
+    if (!opId) return;
+    if (operationId === opId) return;
+    if (operationId !== null && drivingWorkflowId !== workflowId) return;
+    adoptRun(workflowId, opId, activeRun.id);
+  }, [
+    isThisRunLive,
+    activeRun,
+    operationId,
+    drivingWorkflowId,
+    workflowId,
+    adoptRun,
+  ]);
 
   if (isLoading) return <RunDetailSkeleton />;
 
@@ -69,13 +132,17 @@ export function WorkflowRunDetail() {
   const tasks = run.definition_snapshot.tasks ?? [];
   const nodes = run.nodes ?? [];
   const outputTracks = (run.output_tracks ?? []) as Record<string, unknown>[];
-  const statusConf = getStatusConfig(run.status);
+  // While this run streams, the persisted row still says "running" (or worse,
+  // "pending") until it finishes — the live status is the honest one.
+  const statusConf = getStatusConfig(isThisRunLive ? "running" : run.status);
 
   const versionMismatch =
     run.definition_version != null &&
     run.definition_version < currentDefVersion;
 
-  // Build nodeStatuses map from persisted node records
+  // Persisted node records are the base; live SSE events overlay them so the
+  // graph advances as the run executes instead of showing the snapshot this
+  // page happened to load with.
   const nodeStatuses = new Map<string, NodeStatus>();
   for (const node of nodes) {
     nodeStatuses.set(node.node_id, {
@@ -89,6 +156,11 @@ export function WorkflowRunDetail() {
       outputTrackCount: node.output_track_count ?? undefined,
       errorMessage: node.error_message ?? undefined,
     });
+  }
+  if (contextDrivesThisRun) {
+    for (const [nodeId, status] of liveNodeStatuses) {
+      nodeStatuses.set(nodeId, status);
+    }
   }
 
   const sortedNodes = [...nodes].sort(

@@ -103,9 +103,21 @@ def exposed_specs() -> list[ToolSpec]:
     return [spec for spec in TOOLS if mcp_exposure(spec) == "exposed"]
 
 
+# Appended to every exposed write tool's description. Registry descriptions are
+# surface-neutral: the chat client learns the two-phase rule once from the
+# system prompt and renders a confirmation card off `kind`, neither of which
+# exists here. Stating it per-tool is the only place it lands for an MCP client.
+_CONFIRM_CLAUSE = (
+    " Two-phase: call it once to preview the change and receive a "
+    "confirm_token, then call it again with confirm=true, that token, and the "
+    "same arguments to commit. Nothing changes until the second call."
+)
+
+
 def _to_mcp_tool(spec: ToolSpec) -> Tool:
     """Build the MCP ``Tool`` for a registry spec, augmenting write schemas."""
     schema: dict[str, JsonValue] = dict(spec.input_schema)
+    description = spec.description
     if spec.kind == "write":
         existing = schema.get("properties")
         properties: dict[str, JsonValue] = (
@@ -113,9 +125,10 @@ def _to_mcp_tool(spec: ToolSpec) -> Tool:
         )
         properties.update(_CONFIRM_PROPERTIES)
         schema["properties"] = properties
+        description = f"{description}{_CONFIRM_CLAUSE}"
     return Tool(
         name=spec.name,
-        description=spec.description,
+        description=description,
         input_schema=schema,
         annotations=mcp_annotations(spec),
     )

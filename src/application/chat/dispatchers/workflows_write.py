@@ -34,6 +34,7 @@ from src.application.chat.dispatchers._common import (
 from src.application.chat.pending_actions import PendingAction
 from src.application.chat.protocols import ToolContext
 from src.application.chat.workflow_schema import workflow_def_to_dict
+from src.application.use_cases._shared.sync_targets import SYNC_DISPATCH
 from src.application.use_cases.schedules import (
     DeleteScheduleCommand,
     DeleteScheduleUseCase,
@@ -298,8 +299,9 @@ MANAGE_SCHEDULE_INPUT_SCHEMA: JsonDict = {
         },
         "sync_target": {
             "type": "string",
+            "enum": sorted(SYNC_DISPATCH),
             "description": (
-                "A background sync identity (e.g. 'lastfm:plays') to schedule that "
+                "A background sync identity to schedule that "
                 "sync. Supply exactly one of 'workflow_id'/'sync_target'."
             ),
         },
@@ -532,16 +534,12 @@ SPECS: list[dict[str, object]] = [
     {
         "name": "manage_workflow",
         "description": (
-            "Call this to propose a change to the user's saved workflows. Pick an "
-            "`operation`: 'instantiate' creates a new workflow from a complete "
-            "definition (workflow_def); 'duplicate' clones an existing workflow "
-            "(workflow_id); 'delete' permanently removes a workflow and its "
-            "version history (destructive; workflow_id); 'revert_version' "
-            "restores a workflow to a saved version (workflow_id + version). "
-            "Every operation is a proposal — nothing changes until the user "
-            "confirms on the card this returns. Look up real workflow_ids "
-            "(list_user_workflows) and version numbers (query_workflow_history) "
-            "first; never guess them."
+            "Call this to propose a change to the user's saved workflows — "
+            "creating one from a complete definition, cloning an existing one, "
+            "deleting one, or reverting it to a saved version. Deleting is "
+            "destructive and takes the version history with it. Look up real "
+            "workflow_ids (list_user_workflows) and version numbers "
+            "(query_workflow_history) first; never guess them."
         ),
         "input_schema": MANAGE_WORKFLOW_INPUT_SCHEMA,
         "dispatch": handle_manage_workflow,
@@ -557,13 +555,10 @@ SPECS: list[dict[str, object]] = [
     {
         "name": "manage_schedule",
         "description": (
-            "Call this to propose a change to a workflow's or sync's automated schedule. Pick "
-            "an `operation`: 'upsert' creates or replaces the schedule (hour, "
-            "minute, optional day_of_week for weekly, timezone); 'toggle' "
-            "enables or disables it (enabled); 'delete' removes it (destructive). "
-            "Every operation targets exactly one of workflow_id or sync_target, "
-            "and is a proposal — nothing changes until the user confirms on the "
-            "card this returns. Look up real targets (list_user_workflows, "
+            "Call this to propose a change to a workflow's or sync's automated "
+            "schedule — creating or replacing it, enabling or disabling it, or "
+            "removing it. Every operation targets exactly one of workflow_id or "
+            "sync_target, never both. Look up real targets (list_user_workflows, "
             "query_schedules) first; never guess them."
         ),
         "input_schema": MANAGE_SCHEDULE_INPUT_SCHEMA,

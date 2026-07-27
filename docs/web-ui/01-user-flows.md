@@ -772,17 +772,20 @@ No confirmation dialog — removal is **optimistic with an Undo snackbar** (the 
 **Steps**:
 
 1. Workflow list page shows the user's own workflows. Every row is user-owned and editable — there is no template/custom distinction in the list (templates live in a separate gallery, see step 5).
-   - Each row: Name, Description (truncated), Task Count, Node Type badges (colored category dots), Last Run status badge, Last Run date, Track count output (if last run succeeded), Actions
+   - Each row: Name, Description (truncated), Task Count, **Runs** (successful-run count, v0.10.1+), Node Type badges (colored category dots), Last Run status badge, Last Run date, Track count output (if last run succeeded), Actions
+   - **Runs** counts *completed* runs only (`successful_run_count`) — failed/cancelled/crashed attempts are excluded, since Last Run already carries health. Zero renders as an em-dash, not "0".
 
 2. **Status badges** (from last run, v0.4.1+):
    - **Never Run** (grey)
    - **Running** (blue, animated pulse)
    - **Completed** (green) with "42 tracks" output count
    - **Failed** (red) with error preview tooltip
+   - **A live run outranks the last finished one** (v0.10.1+): while a run is in flight the row shows **Running**, whatever the previous run's status was.
 
 3. **Action buttons** per row (identical for every workflow):
    - **Run** (v0.4.1+): Execute the workflow (with confirmation dialog)
-   - **Inline Run status** (v0.4.2+): Per-row `[▶]` Run button. During execution: row shows "Running..." with spinner replacing Run button. On completion: last-run column live-updates via query invalidation. Only one workflow runs at a time — other Run buttons disabled while executing. Each row uses its own `useWorkflowExecution(workflowId)` hook instance.
+   - **Inline Run status** (v0.4.2+): Per-row `[▶]` Run button. During execution: row shows "Running..." with spinner replacing Run button. On completion: last-run column live-updates via query invalidation. Each row uses its own `useWorkflowExecution(workflowId)` hook instance.
+   - **Runs the tab didn't start are visible too** (v0.10.1+): the list subscribes to the app-global `active-runs` source (`useActiveRunWorkflowIds`), so a scheduler-triggered run — or one started in another tab or on another device — renders as Running here. Two independent constraints disable a Run button, and they are not the same thing: a workflow with a run already in flight has *its own* button disabled (the backend's active-run guard is per workflow); a workflow being streamed by *this* tab disables every *other* row, because the tab holds a single SSE slot.
    - **View**: Navigate to workflow detail
    - **Edit** (v0.4.3+): Open visual editor
    - **Duplicate** (v0.8.x): Copy into a new `"… (copy)"` workflow, then open it in the editor
@@ -855,7 +858,9 @@ No confirmation dialog — removal is **optimistic with an Undo snackbar** (the 
 
 7. **Inline completion (v0.4.2+)**:
    - **From detail page**: Last Run card updates with new run data. Summary card shows output track count + link to full run detail. Tanstack Query invalidation refreshes Recent Runs table.
-   - **From list page**: Row's last-run column live-updates. Run button re-enables.
+   - **From list page**: Row's last-run column live-updates, the Runs count increments, and the Run button re-enables.
+
+8. **Reconciliation fires on both edges of a run** (v0.10.1+): `afterRunStateChanged` (`web/src/lib/workflow-queries.ts`) invalidates the run list, workflow detail, workflow list, and `active-runs` when the run *starts* as well as when it reaches a terminal state — at terminal it also invalidates that specific run's detail query. Without the start edge, a freshly-started run only surfaced on other pages after the 25s idle poll, which reads as the click having done nothing.
 
 **Backend calls**:
 | Step | Endpoint | Use Case | Status |
@@ -898,6 +903,7 @@ No confirmation dialog — removal is **optimistic with an Undo snackbar** (the 
 2. **Run Detail page** (`/workflows/:id/runs/:runId`) — the deep inspection view:
    - **Header**: Run # and workflow name, "Run Again" button (runs current definition, not snapshot), back link "← Hidden Gems" (workflow name)
    - "⚠ Definition changed since this run" indicator when `run.definition_version < workflow.definition_version`
+   - **Live while the run is in flight** (v0.10.1+): if `active-runs` reports *this* run as active, the page adopts it from `WorkflowExecutionContext` and overlays live node statuses on the persisted records, so the DAG advances as the run executes. The status pill reads **Running** regardless of what the persisted row said at load. The guard is deliberately run-scoped — opening an *older* run while a newer one streams neither hijacks the SSE connection nor mislabels the run being viewed. Before v0.10.1 this page was a static snapshot that required a manual reload.
    - **Full DAG** re-renders from `definition_snapshot` (not current definition) with per-node execution overlay
    - Per-node execution overlay: input/output track counts, execution time, status color
    - **Per-node inspection** (click a node): side panel shows:

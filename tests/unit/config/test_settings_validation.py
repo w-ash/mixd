@@ -10,6 +10,7 @@ import pytest
 
 from src.config.settings import (
     APIConfig,
+    ChatConfig,
     CLIConfig,
     ConnectorAPIConfig,
     FreshnessConfig,
@@ -62,14 +63,17 @@ class TestDefaultsPassConstraints:
     def test_scheduler_config_defaults(self):
         config = SchedulerConfig()
         assert config.enabled is True
-        assert config.poll_interval_seconds == 60
+        # The loop sleeps to the next fire time; this only bounds the idle case.
+        # It must stay well above Neon's 5-minute scale-to-zero window, or the
+        # fallback wake alone would keep the compute billing.
+        assert config.max_sleep_seconds == 6 * 60 * 60
         assert config.max_concurrent_scheduled_runs == 3
         assert config.catchup is False
         assert config.stuck_start_timeout_seconds == 1800
 
-    def test_scheduler_config_rejects_non_positive_poll_interval(self):
+    def test_scheduler_config_rejects_non_positive_max_sleep(self):
         with pytest.raises(ValidationError):
-            SchedulerConfig(poll_interval_seconds=0)
+            SchedulerConfig(max_sleep_seconds=0)
 
     def test_scheduler_config_rejects_inverted_timeout_ordering(self):
         # The live-cancellation bound must trip before the dead-dispatch reaper;
@@ -347,3 +351,29 @@ class TestMcpOAuthConfig:
     def test_ttls_reject_non_positive(self):
         with pytest.raises(ValidationError):
             McpOAuthConfig(access_token_ttl_seconds=0)
+
+
+class TestChatConfig:
+    def test_default_model_is_pinned(self):
+        # Assert the class default, never settings.chat.model_id — the latter is
+        # env-overridable and would fail on any box with CHAT__MODEL_ID set.
+        assert ChatConfig().model_id == "claude-opus-5"
+
+    def test_max_tokens_scales_with_effort(self):
+        # The cap covers thinking + response text, so a ceiling sized for `high`
+        # truncates mid-answer at `xhigh`.
+        config = ChatConfig()
+        assert config.max_tokens_for("low") < config.max_tokens_for("high")
+        assert config.max_tokens_for("high") < config.max_tokens_for("xhigh")
+
+    def test_explicit_max_tokens_overrides_every_effort(self):
+        # CHAT__MAX_TOKENS is the operator's hard spend cap.
+        config = ChatConfig(max_tokens=4096)
+        assert config.max_tokens_for("low") == 4096
+        assert config.max_tokens_for("max") == 4096
+
+    def test_operator_message_support_tracks_the_model(self):
+        # A {"role": "system"} turn is the non-spoofable operator channel, but
+        # Sonnet 5 — the documented override — 400s on it.
+        assert ChatConfig(model_id="claude-opus-5").supports_operator_messages
+        assert not ChatConfig(model_id="claude-sonnet-5").supports_operator_messages

@@ -47,9 +47,17 @@ vi.mock("#/hooks/useWorkflowExecution", () => ({
 }));
 
 import { fireEvent } from "@testing-library/react";
+import { HttpResponse, http } from "msw";
+import { getGetWorkflowApiV1WorkflowsWorkflowIdGetQueryKey } from "#/api/generated/workflows/workflows";
 import { toasts } from "#/lib/toasts";
 import { useEditorStore } from "#/stores/editor-store";
-import { renderWithProviders, screen, waitFor } from "#/test/test-utils";
+import { server } from "#/test/setup";
+import {
+  createTestQueryClient,
+  renderWithProviders,
+  screen,
+  waitFor,
+} from "#/test/test-utils";
 
 import { EditorToolbar } from "./EditorToolbar";
 
@@ -193,6 +201,110 @@ describe("EditorToolbar", () => {
     });
     expect(useEditorStore.getState().workflowId).toBeNull();
     expect(useEditorStore.getState().isDirty).toBe(true);
+  });
+
+  describe("save writes the detail cache", () => {
+    const SAVED_ID = "019d0000-0000-7000-8000-000000000042";
+
+    /** A detail payload distinguishable from whatever the GET would return. */
+    function savedWorkflow(overrides: Record<string, unknown> = {}) {
+      return {
+        id: SAVED_ID,
+        name: "Renamed Flow",
+        description: null,
+        definition_version: 2,
+        task_count: 4,
+        node_types: ["source.liked_tracks"],
+        created_at: "2026-05-30T00:00:00Z",
+        updated_at: "2026-06-01T00:00:00Z",
+        last_run: null,
+        successful_run_count: 7,
+        definition: { id: "wf", name: "Renamed Flow", tasks: [] },
+        ...overrides,
+      };
+    }
+
+    it("seeds the detail query from the PATCH response", async () => {
+      // The bug this guards: without the cache write the detail page renders
+      // the pre-edit workflow for the full 2-minute staleTime window.
+      server.use(
+        http.patch(`*/api/v1/workflows/${SAVED_ID}`, () =>
+          HttpResponse.json(savedWorkflow()),
+        ),
+      );
+
+      const queryClient = createTestQueryClient();
+      useEditorStore.setState({
+        workflowId: SAVED_ID,
+        nodes: [seedNode()],
+        isDirty: true,
+      });
+      renderWithProviders(<EditorToolbar />, { queryClient });
+
+      fireEvent.click(screen.getByText("Save"));
+
+      await waitFor(() => {
+        const cached = queryClient.getQueryData(
+          getGetWorkflowApiV1WorkflowsWorkflowIdGetQueryKey(SAVED_ID),
+        );
+        expect(cached).toMatchObject({
+          status: 200,
+          data: { definition_version: 2, task_count: 4, name: "Renamed Flow" },
+        });
+      });
+    });
+
+    it("normalises the 201 create response to a 200 cache envelope", async () => {
+      // Read sites branch on `status === 200`; writing the raw 201 would make
+      // the seeded entry invisible to every consumer.
+      server.use(
+        http.post("*/api/v1/workflows", () =>
+          HttpResponse.json(savedWorkflow(), { status: 201 }),
+        ),
+      );
+
+      const queryClient = createTestQueryClient();
+      useEditorStore.setState({ workflowId: null, nodes: [seedNode()] });
+      renderWithProviders(<EditorToolbar />, { queryClient });
+
+      fireEvent.click(screen.getByText("Save"));
+
+      await waitFor(() => {
+        const cached = queryClient.getQueryData(
+          getGetWorkflowApiV1WorkflowsWorkflowIdGetQueryKey(SAVED_ID),
+        );
+        expect(cached).toMatchObject({ status: 200 });
+      });
+    });
+
+    it("invalidates the workflow list after a save", async () => {
+      server.use(
+        http.patch(`*/api/v1/workflows/${SAVED_ID}`, () =>
+          HttpResponse.json(savedWorkflow()),
+        ),
+      );
+
+      const queryClient = createTestQueryClient();
+      const invalidateSpy = vi.spyOn(queryClient, "invalidateQueries");
+      useEditorStore.setState({
+        workflowId: SAVED_ID,
+        nodes: [seedNode()],
+        isDirty: true,
+      });
+      renderWithProviders(<EditorToolbar />, { queryClient });
+
+      fireEvent.click(screen.getByText("Save"));
+
+      await waitFor(() => {
+        const urls = invalidateSpy.mock.calls.flatMap((call) => {
+          const key = (call[0] as { queryKey?: unknown[] } | undefined)
+            ?.queryKey;
+          return typeof key?.[0] === "string" ? [key[0]] : [];
+        });
+        expect(urls).toContain("/api/v1/workflows");
+        expect(urls).toContain(`/api/v1/workflows/${SAVED_ID}/versions`);
+      });
+    });
   });
 
   it("Import of an invalid file surfaces an error toast", async () => {

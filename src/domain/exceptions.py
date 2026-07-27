@@ -5,6 +5,7 @@ ValueError messages so the API layer can map specific exception types to
 specific HTTP status codes without parsing error message text.
 """
 
+from collections.abc import Iterable
 from uuid import UUID
 
 
@@ -42,6 +43,10 @@ class MaxRoundsExceededError(DomainError):
 
 class ResponseTruncatedError(DomainError):
     """Raised when a model turn stops on ``max_tokens`` (output was truncated)."""
+
+
+class ChatRefusedError(DomainError):
+    """Raised when a model turn stops on ``refusal`` (safety systems declined)."""
 
 
 class RateLimitExceededError(DomainError):
@@ -181,11 +186,17 @@ class SpotifyAuthRequiredError(DomainError):
     the SSE seam surfaces as a clean terminal error and the CLI prints with a
     connect hint. Interactive connect (CLI ``mixd connector connect spotify`` /
     the web OAuth callback) calls ``run_browser_auth`` / ``exchange_code`` directly.
+
+    Also raised when a grant exists but lacks a scope the operation needs (a
+    v0.10.1 recently-played poll on a pre-scope token). Both cases have the same
+    remedy — re-run the connect flow — so they share the error; ``message``
+    overrides the default text to say which one happened.
     """
 
-    def __init__(self) -> None:
+    def __init__(self, message: str | None = None) -> None:
         super().__init__(
-            "Spotify is not connected. Connect it in the web UI or run "
+            message
+            or "Spotify is not connected. Connect it in the web UI or run "
             "`mixd connector connect spotify`."
         )
 
@@ -220,6 +231,28 @@ class ConnectorNotConnectedError(DomainError):
     def __init__(self, connector: str) -> None:
         super().__init__(f"{connector.title()} is not connected.")
         self.connector = connector
+
+
+class ConnectorScopeMissingError(DomainError):
+    """Raised by an import-route pre-flight when a grant lacks a required scope.
+
+    Deliberately 409 ``CONNECTOR_SCOPE_MISSING``, not the RFC 6750 403
+    ``insufficient_scope``: that status describes *the caller's* token being
+    short, and here the caller's session is perfectly valid — what is short is
+    the third-party grant mixd holds on their behalf. A 403 with a
+    ``WWW-Authenticate`` challenge would tell a spec-aware client to
+    re-authenticate against mixd, which fixes nothing. This is a precondition on
+    the state of the user's connected account, the same class of problem as
+    ``ConnectorNotConnectedError``, with the same remedy: re-run connect.
+    """
+
+    def __init__(self, connector: str, missing: Iterable[str]) -> None:
+        self.connector = connector
+        self.missing_scopes = sorted(missing)
+        super().__init__(
+            f"{connector.title()} needs re-connecting to grant new permissions "
+            f"({', '.join(self.missing_scopes)})."
+        )
 
 
 class ConnectorSyncError(DomainError):

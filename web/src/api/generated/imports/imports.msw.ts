@@ -25,6 +25,8 @@ import type {
 
 export const getImportLastfmHistoryApiV1ImportsLastfmHistoryPostResponseMock = (overrideResponse: Partial<Extract<OperationStartedResponse, object>> = {}): OperationStartedResponse => ({operation_id: faker.string.alpha({length: {min: 10, max: 20}}), run_id: faker.helpers.arrayElement([faker.helpers.arrayElement([faker.string.alpha({length: {min: 10, max: 20}}),null,]), undefined]), ...overrideResponse})
 
+export const getImportSpotifyRecentApiV1ImportsSpotifyRecentPostResponseMock = (overrideResponse: Partial<Extract<OperationStartedResponse, object>> = {}): OperationStartedResponse => ({operation_id: faker.string.alpha({length: {min: 10, max: 20}}), run_id: faker.helpers.arrayElement([faker.helpers.arrayElement([faker.string.alpha({length: {min: 10, max: 20}}),null,]), undefined]), ...overrideResponse})
+
 export const getImportSpotifyLikesApiV1ImportsSpotifyLikesPostResponseMock = (overrideResponse: Partial<Extract<OperationStartedResponse, object>> = {}): OperationStartedResponse => ({operation_id: faker.string.alpha({length: {min: 10, max: 20}}), run_id: faker.helpers.arrayElement([faker.helpers.arrayElement([faker.string.alpha({length: {min: 10, max: 20}}),null,]), undefined]), ...overrideResponse})
 
 export const getExportLastfmLikesApiV1ImportsLastfmLikesPostResponseMock = (overrideResponse: Partial<Extract<OperationStartedResponse, object>> = {}): OperationStartedResponse => ({operation_id: faker.string.alpha({length: {min: 10, max: 20}}), run_id: faker.helpers.arrayElement([faker.helpers.arrayElement([faker.string.alpha({length: {min: 10, max: 20}}),null,]), undefined]), ...overrideResponse})
@@ -41,6 +43,18 @@ export const getImportLastfmHistoryApiV1ImportsLastfmHistoryPostMockHandler = (o
     return HttpResponse.json(overrideResponse !== undefined
     ? (typeof overrideResponse === "function" ? await overrideResponse(info) : overrideResponse)
     : getImportLastfmHistoryApiV1ImportsLastfmHistoryPostResponseMock(),
+      { status: 200
+      })
+  }, options)
+}
+
+export const getImportSpotifyRecentApiV1ImportsSpotifyRecentPostMockHandler = (overrideResponse?: OperationStartedResponse | ((info: Parameters<Parameters<typeof http.post>[1]>[0]) => Promise<OperationStartedResponse> | OperationStartedResponse), options?: RequestHandlerOptions) => {
+  return http.post('*/api/v1/imports/spotify/recent', async (info: Parameters<Parameters<typeof http.post>[1]>[0]) => {
+
+
+    return HttpResponse.json(overrideResponse !== undefined
+    ? (typeof overrideResponse === "function" ? await overrideResponse(info) : overrideResponse)
+    : getImportSpotifyRecentApiV1ImportsSpotifyRecentPostResponseMock(),
       { status: 200
       })
   }, options)
@@ -95,6 +109,7 @@ export const getGetCheckpointsApiV1ImportsCheckpointsGetMockHandler = (overrideR
 }
 export const getImportsMock = () => [
   getImportLastfmHistoryApiV1ImportsLastfmHistoryPostMockHandler(),
+  getImportSpotifyRecentApiV1ImportsSpotifyRecentPostMockHandler(),
   getImportSpotifyLikesApiV1ImportsSpotifyLikesPostMockHandler(),
   getExportLastfmLikesApiV1ImportsLastfmLikesPostMockHandler(),
   getImportSpotifyHistoryApiV1ImportsSpotifyHistoryPostMockHandler(),

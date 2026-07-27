@@ -69,6 +69,7 @@ class TestFetchData:
             await importer._fetch_data(
                 SpotifyImportParams(file_path=Path("/nonexistent/file.json")),
                 uow=mock_uow,
+                user_id="user-1",
             )
 
     async def test_directory_path_raises_value_error(
@@ -76,7 +77,7 @@ class TestFetchData:
     ):
         with pytest.raises(ValueError, match="not a file"):
             await importer._fetch_data(
-                SpotifyImportParams(file_path=tmp_path), uow=mock_uow
+                SpotifyImportParams(file_path=tmp_path), uow=mock_uow, user_id="user-1"
             )
 
     async def test_valid_file_returns_records(self, importer, mock_uow, tmp_path: Path):
@@ -104,7 +105,7 @@ class TestFetchData:
         file.write_text(json.dumps(data))
 
         records = await importer._fetch_data(
-            SpotifyImportParams(file_path=file), uow=mock_uow
+            SpotifyImportParams(file_path=file), uow=mock_uow, user_id="user-1"
         )
         assert len(records) == 1
         assert isinstance(records[0], SpotifyPlayRecord)
@@ -228,7 +229,10 @@ class TestHandleCheckpoints:
     async def test_checkpoints_is_noop(self, importer, mock_uow, tmp_path: Path):
         # Should complete without error or side effects
         await importer._handle_checkpoints(
-            [], SpotifyImportParams(file_path=tmp_path / "x.json"), mock_uow
+            [],
+            SpotifyImportParams(file_path=tmp_path / "x.json"),
+            mock_uow,
+            user_id="user-1",
         )
 
 
@@ -238,7 +242,9 @@ class TestImportPlays:
     async def test_wrong_params_type_raises(self, importer, mock_uow):
         """The stringly-typed registry boundary is re-typed at runtime."""
         with pytest.raises(TypeError, match="requires SpotifyImportParams"):
-            await importer.import_plays(mock_uow, LastfmImportParams())
+            await importer.import_plays(
+                mock_uow, LastfmImportParams(), user_id="user-1"
+            )
 
     async def test_returns_result_and_connector_plays(
         self, importer, mock_uow, tmp_path: Path
@@ -267,10 +273,13 @@ class TestImportPlays:
         file.write_text(json.dumps(data))
 
         result, connector_plays = await importer.import_plays(
-            mock_uow, SpotifyImportParams(file_path=file)
+            mock_uow, SpotifyImportParams(file_path=file), user_id="user-1"
         )
 
         assert result.operation_name == "Spotify Connector Play Import"
         assert len(connector_plays) == 1
         assert connector_plays[0].track_name == "Test Song"
         assert connector_plays[0].service == "spotify"
+        # Tenancy is stamped unconditionally at the pipeline choke point
+        # (v0.10.1) — never left on the entity's "default" fallback.
+        assert connector_plays[0].user_id == "user-1"

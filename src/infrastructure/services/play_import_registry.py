@@ -7,7 +7,11 @@ needing to know about specific connectors.
 
 from collections.abc import Awaitable, Callable
 
-from src.domain.repositories.play import PlayImporterProtocol, PlayResolverProtocol
+from src.domain.repositories.play import (
+    ImportKind,
+    PlayImporterProtocol,
+    PlayResolverProtocol,
+)
 from src.domain.repositories.uow import UnitOfWorkProtocol
 
 # Concrete factory types — eliminates Callable[..., Any]
@@ -15,6 +19,10 @@ type _ImporterFactory = Callable[[UnitOfWorkProtocol], Awaitable[PlayImporterPro
 type _ResolverFactory = Callable[
     [UnitOfWorkProtocol | None], Awaitable[PlayResolverProtocol]
 ]
+
+# Importers key on (service, ImportKind); resolvers stay per-service, because
+# resolution depends on the identifiers a service mints, not on how rows arrived.
+__all__ = ["ImportKind", "PlayImportServiceRegistry", "get_play_import_registry"]
 
 
 class PlayImportServiceRegistry:
@@ -25,14 +33,15 @@ class PlayImportServiceRegistry:
     boundaries while enabling extensibility.
     """
 
-    _importer_factories: dict[str, _ImporterFactory]
+    _importer_factories: dict[tuple[str, ImportKind], _ImporterFactory]
     _resolver_factories: dict[str, _ResolverFactory]
 
     def __init__(self):
         """Initialize registry with known service mappings."""
         self._importer_factories = {
-            "lastfm": self._create_lastfm_importer,
-            "spotify": self._create_spotify_importer,
+            ("lastfm", "api"): self._create_lastfm_importer,
+            ("spotify", "file"): self._create_spotify_importer,
+            ("spotify", "api"): self._create_spotify_recently_played_importer,
         }
 
         self._resolver_factories = {
@@ -41,27 +50,31 @@ class PlayImportServiceRegistry:
         }
 
     async def create_play_importer(
-        self, service: str, uow: UnitOfWorkProtocol
+        self, service: str, kind: ImportKind, uow: UnitOfWorkProtocol
     ) -> PlayImporterProtocol:
-        """Create play importer for the specified service.
+        """Create play importer for the specified service and data source.
 
         Args:
             service: Service identifier (e.g., 'lastfm', 'spotify')
+            kind: Where the data comes from — an uploaded export ('file') or a
+                live API read ('api')
             uow: Unit of work for repository access
 
         Returns:
             Service-specific play importer implementing PlayImporterProtocol
 
         Raises:
-            ValueError: If service is not supported
+            ValueError: If the service/kind combination is not supported
         """
-        if service not in self._importer_factories:
-            supported_services = ", ".join(self._importer_factories.keys())
+        if (service, kind) not in self._importer_factories:
+            supported = ", ".join(
+                f"{svc}:{knd}" for svc, knd in self._importer_factories
+            )
             raise ValueError(
-                f"Unsupported service '{service}'. Supported services: {supported_services}"
+                f"Unsupported import '{service}:{kind}'. Supported: {supported}"
             )
 
-        factory_func = self._importer_factories[service]
+        factory_func = self._importer_factories[service, kind]
         return await factory_func(uow)
 
     async def create_play_resolver(
@@ -106,6 +119,16 @@ class PlayImportServiceRegistry:
         from src.infrastructure.connectors.spotify.factory import create_play_importer
 
         return create_play_importer()
+
+    async def _create_spotify_recently_played_importer(
+        self, _uow: UnitOfWorkProtocol
+    ) -> PlayImporterProtocol:
+        """Create the Spotify recently-played API importer via connector factory."""
+        from src.infrastructure.connectors.spotify.factory import (
+            create_recently_played_importer,
+        )
+
+        return create_recently_played_importer()
 
     async def _create_lastfm_resolver(
         self, _uow: UnitOfWorkProtocol | None = None

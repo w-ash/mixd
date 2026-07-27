@@ -16,6 +16,7 @@ The configuration is organized into logical groups:
 - SecurityConfig: Token encryption key
 """
 
+from collections.abc import Mapping
 import contextlib
 import os
 from pathlib import Path
@@ -466,11 +467,17 @@ class SchedulerConfig(BaseModel):
         default=True,
         description="Run the background scheduler poll loop in the API lifespan.",
     )
-    poll_interval_seconds: PositiveInt = Field(
-        default=60,
+    max_sleep_seconds: PositiveInt = Field(
+        default=6 * 60 * 60,
         description=(
-            "Seconds between due-schedule polls. Balances responsiveness with "
-            "Neon keep-alive on the shared-cpu-2x VM."
+            "Upper bound on how long the loop sleeps when nothing is due. The "
+            "loop normally sleeps to the exact next fire time, so this only "
+            "applies when no schedule and no outstanding claim exists; it caps "
+            "the cost of clock drift and of writes made on another replica "
+            "(a local write wakes the loop immediately). This replaced a fixed "
+            "60s poll that existed to keep Neon's compute warm — the opposite of "
+            "what we now want, since scale-to-zero needs 5 minutes of query "
+            "silence and a sub-5-minute poll makes it unreachable."
         ),
     )
     max_concurrent_scheduled_runs: PositiveInt = Field(
@@ -528,29 +535,58 @@ class SchedulerConfig(BaseModel):
 
 type EffortLevel = Literal["low", "medium", "high", "xhigh", "max"]
 
+# Models that accept a {"role": "system"} entry inside `messages`. Notably
+# excludes Sonnet 5 — the documented CHAT__MODEL_ID override — which 400s on it.
+_MID_CONVERSATION_SYSTEM_MODELS = frozenset({
+    "claude-opus-5",
+    "claude-opus-4-8",
+    "claude-fable-5",
+    "claude-mythos-5",
+})
+
+# max_tokens caps thinking AND response text together, so the ceiling has to
+# track effort. Anthropic's guidance for xhigh/max on Opus 5 is "start at 64k";
+# the lower levels want a tighter runaway ceiling than one shared default gave
+# them. These are ceilings, not spend commitments — billing follows tokens
+# actually generated, and effort is what drives that.
+_MAX_TOKENS_BY_EFFORT: Mapping[EffortLevel, int] = {
+    "low": 8_192,
+    "medium": 16_384,
+    "high": 32_768,
+    "xhigh": 64_000,
+    "max": 64_000,
+}
+
 
 class ChatConfig(BaseModel):
     """Chat-assistant (agentic workspace) configuration.
 
-    Ported from couplefins v1.8.x as starting points — model is intentionally
-    user-configurable via ``CHAT__MODEL_ID`` so switching between
-    ``claude-opus-4-8`` (default) and the cheaper ``claude-sonnet-5`` is an env
-    change, not a code change. Both require adaptive thinking set explicitly at
-    the adapter (they run thinking-off when the field is omitted).
+    The model is user-configurable via ``CHAT__MODEL_ID`` so switching between
+    ``claude-opus-5`` (default) and the cheaper ``claude-sonnet-5`` is an env
+    change, not a code change. The adapter sets ``thinking={"type": "adaptive"}``
+    explicitly regardless: adaptive is the default on both Opus 5 and Sonnet 5,
+    but it is NOT on Opus 4.8/4.7 (which run thinking-off when the field is
+    omitted), so stating it keeps the request correct across model overrides.
+
+    ``max_tokens`` is derived from ``effort`` (see :meth:`max_tokens_for`)
+    because the cap covers thinking and response text together: a 16k ceiling
+    that was fine at ``high`` truncates mid-answer at ``xhigh``.
     """
 
     model_id: str = Field(
-        default="claude-opus-4-8",
+        default="claude-opus-5",
         description="Anthropic model ID. Set CHAT__MODEL_ID=claude-sonnet-5 for "
-        "~half the cost. Adaptive thinking is set explicitly regardless.",
+        "lower per-token cost. Adaptive thinking is set explicitly regardless.",
     )
     max_turns: PositiveInt = Field(
         default=24,
         description="Max model turns per request before the agentic loop stops.",
     )
-    max_tokens: PositiveInt = Field(
-        default=16384,
-        description="Max output tokens per model turn.",
+    max_tokens: PositiveInt | None = Field(
+        default=None,
+        description="Hard override for max output tokens per model turn. Leave "
+        "unset to derive from effort (see max_tokens_for); set CHAT__MAX_TOKENS "
+        "to cap spend regardless of the effort the user picked.",
     )
     effort: EffortLevel = Field(
         default="high",
@@ -584,6 +620,27 @@ class ChatConfig(BaseModel):
         description="Reasoning effort for the research subagent — always low, "
         "independent of the parent request's user-selected effort.",
     )
+
+    @property
+    def supports_operator_messages(self) -> bool:
+        """Whether the configured model accepts a mid-conversation system turn.
+
+        A ``{"role": "system"}`` entry inside ``messages`` is the non-spoofable
+        operator channel — same cache behavior as a user turn, but the model
+        treats it as operator authority rather than as something the user
+        typed. Sonnet 5 rejects it outright (400 ``role 'system' is not
+        supported on this model``), so the role is chosen per model rather than
+        assumed.
+        """
+        return self.model_id in _MID_CONVERSATION_SYSTEM_MODELS
+
+    def max_tokens_for(self, effort: EffortLevel) -> int:
+        """Output-token ceiling for a turn at ``effort``.
+
+        An explicit ``CHAT__MAX_TOKENS`` wins; otherwise the ceiling scales with
+        effort, because the cap covers thinking plus response text.
+        """
+        return self.max_tokens or _MAX_TOKENS_BY_EFFORT[effort]
 
 
 class Settings(BaseSettings):

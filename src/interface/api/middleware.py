@@ -32,6 +32,7 @@ from src.config import get_logger
 from src.domain.exceptions import (
     ConfirmationRequiredError,
     ConnectorNotConnectedError,
+    ConnectorScopeMissingError,
     InvalidApiKeyError,
     LastfmAuthRequiredError,
     NotFoundError,
@@ -237,6 +238,27 @@ def register_exception_handlers(app: FastAPI) -> None:
             },
         )
 
+    async def connector_scope_missing_handler(
+        _request: Request, exc: Exception
+    ) -> JSONResponse:
+        if not isinstance(
+            exc, ConnectorScopeMissingError
+        ):  # pragma: no cover — dispatch guarantees the type
+            return await generic_error_handler(_request, exc)
+        return JSONResponse(
+            status_code=409,
+            content={
+                "error": {
+                    "code": "CONNECTOR_SCOPE_MISSING",
+                    "message": str(exc),
+                    "details": {
+                        "connector": exc.connector,
+                        "missing_scopes": exc.missing_scopes,
+                    },
+                }
+            },
+        )
+
     async def value_error_handler(_request: Request, exc: Exception) -> JSONResponse:
         return JSONResponse(
             status_code=400,
@@ -317,6 +339,9 @@ def register_exception_handlers(app: FastAPI) -> None:
     app.add_exception_handler(LastfmAuthRequiredError, lastfm_auth_required_handler)
     app.add_exception_handler(
         ConnectorNotConnectedError, connector_not_connected_handler
+    )
+    app.add_exception_handler(
+        ConnectorScopeMissingError, connector_scope_missing_handler
     )
     app.add_exception_handler(ValueError, value_error_handler)
     app.add_exception_handler(DatabaseError, database_error_handler)

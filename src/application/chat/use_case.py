@@ -23,7 +23,11 @@ from src.application.chat.user_data import strip_user_data
 from src.config import get_logger
 from src.config.settings import EffortLevel
 from src.domain.entities.shared import JsonValue
-from src.domain.exceptions import MaxRoundsExceededError, ResponseTruncatedError
+from src.domain.exceptions import (
+    ChatRefusedError,
+    MaxRoundsExceededError,
+    ResponseTruncatedError,
+)
 
 logger = get_logger(__name__)
 
@@ -130,6 +134,25 @@ class ChatUseCase:
             )
             if not sandbox_only:
                 model_turns += 1
+
+            if response.stop_reason == "refusal":
+                # Must precede the empty-content return below, which would
+                # otherwise end the turn silently: the client renders an empty
+                # bubble, keeps the un-errored message in history, and every
+                # later send replays an empty assistant block the API rejects.
+                # Only the enum-valued category is surfaced — stop_details'
+                # explanation is model-written free text and reaches the user
+                # verbatim via the SSE error frame.
+                logger.warning("chat_refused", category=response.refusal_category)
+                suffix = (
+                    f" (category: {response.refusal_category})"
+                    if response.refusal_category
+                    else ""
+                )
+                raise ChatRefusedError(
+                    f"Anthropic's safety systems declined this request{suffix}. "
+                    "Try rephrasing it."
+                )
 
             if response.stop_reason == "max_tokens":
                 raise ResponseTruncatedError(

@@ -599,13 +599,10 @@ SPECS: list[dict[str, object]] = [
     {
         "name": "manage_playlist",
         "description": (
-            "Call this to propose creating, renaming, or deleting a canonical playlist. Pick "
-            "an `operation`: 'create' makes a new empty playlist (needs name; "
-            "optional description); 'update' renames or redescribes an existing "
-            "playlist WITHOUT touching its tracks (needs playlist_id and at least "
-            "one of name/description); 'delete' permanently removes a playlist "
-            "(destructive; needs playlist_id). It only proposes a confirmation "
-            "card — nothing changes until the user confirms."
+            "Call this to propose creating, renaming, or deleting a canonical "
+            "playlist. Renaming or redescribing leaves the playlist's tracks "
+            "untouched; deleting is destructive and permanent. To change which "
+            "tracks a playlist holds, use manage_playlist_entries instead."
         ),
         "input_schema": MANAGE_PLAYLIST_INPUT_SCHEMA,
         "dispatch": handle_manage_playlist,
@@ -620,15 +617,10 @@ SPECS: list[dict[str, object]] = [
     {
         "name": "manage_playlist_entries",
         "description": (
-            "Call this to propose changing a canonical playlist's entries. Pick an "
-            "`operation`: 'add' appends canonical tracks (needs playlist_id and "
-            "track_ids; optional 0-based position); 'remove' drops entries by "
-            "their ENTRY ids (needs playlist_id and entry_ids); 'reorder' sets "
-            "the whole order (needs playlist_id and entry_ids as the complete "
-            "ordered list); 'repair' re-resolves unresolved entries against known "
-            "track mappings (needs playlist_id). Entry ids come from "
-            "query_playlists detail entries and are NOT track ids. It only "
-            "proposes a confirmation card — nothing changes until the user confirms."
+            "Call this to propose changing a canonical playlist's entries — "
+            "appending tracks, removing or reordering entries, or repairing "
+            "unresolved ones. Entry ids come from query_playlists detail "
+            "entries and are NOT track ids."
         ),
         "input_schema": MANAGE_PLAYLIST_ENTRIES_INPUT_SCHEMA,
         "dispatch": handle_manage_playlist_entries,

@@ -86,6 +86,10 @@ def _to_domain(row: DBConnectorPlay) -> ConnectorTrackPlay:
         album_name=album if isinstance(album, str) else None,
         ms_played=row.ms_played,
         service_metadata=service_metadata if isinstance(service_metadata, dict) else {},
+        # Carry the channel through: build_play_context keys on
+        # (service, import_source), so dropping it downgrades every rebuilt row
+        # to the generic context and silently loses the channel-specific keys.
+        import_source=row.import_source,
     )
 
 

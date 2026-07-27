@@ -1,7 +1,7 @@
 # Project Mixd — Planning
 
 **Current Version**: 0.10.0
-**Next**: v0.10.1 Continuous play polling — Spotify recently-played on the existing scheduler, demand-driven + adaptive ([details](v0.10.x.md#v0101-continuous-play-polling)). Follow-up pool unchanged: the [dependency-audit work orders](dependency-audit-findings.md) (W1–W10), the PLR0913/0917 flip decision ([spoke 26](fable-sweep/26-ratchet-closeout.md)), and the still-gated candidates (MCP spec/SDK drift check after the stable-v2 bump; model/effort cost re-eval before Sonnet 5 intro pricing ends 2026-08-31; demand-gated conversation persistence, memory tool, subagent fan-out, chat-voices toggle).
+**Next**: v0.10.1 Continuous play polling — Spotify recently-played on the existing scheduler, demand-driven + adaptive; plus workflow feedback (saves and run state visible immediately, successful-run count in the list) ([details](v0.10.x.md#v0101-continuous-play-polling)). Follow-up pool unchanged: the [dependency-audit work orders](dependency-audit-findings.md) (W1–W10), the PLR0913/0917 flip decision ([spoke 26](fable-sweep/26-ratchet-closeout.md)), and the still-gated candidates (MCP spec/SDK drift check after the stable-v2 bump; model/effort cost re-eval before Sonnet 5 intro pricing ends 2026-08-31; demand-gated conversation persistence, memory tool, subagent fan-out, chat-voices toggle).
 
 ## Shipped — current cycle (v0.9.x–v0.10.x)
 
@@ -130,7 +130,7 @@ Each milestone delivers a **vertical slice** — backend API + frontend page tog
 | **v0.9.4** | Follow-ups & hardening — v0.9.x full-series review with fixes applied; page-contextual routing refinement; §6.5 user-flows rewrite | 🚀 Shipped | [details](v0.9.x.md#v094-follow-ups--hardening) |
 | **v0.9.5** | Remote MCP server — the tool registry over authenticated Streamable-HTTP on the Fly/Neon production deployment (OAuth 2.1 resource server; per-user, from any agent) | 🚀 Shipped | [details](v0.9.x.md#v095-remote-mcp-server-your-production-library-from-any-agent) |
 | **v0.10.0** | Convergent play history — order-free, re-import-safe canonical plays projected from the observation ledger; lands before the first at-scale import ([findings](play-import-convergence-findings.md)) | 🚀 Shipped | [details](v0.10.x.md#v0100-convergent-play-history) |
-| **v0.10.1** | Continuous play polling — Spotify recently-played, demand-driven + adaptive | 🔨 In Progress | [details](v0.10.x.md#v0101-continuous-play-polling) |
+| **v0.10.1** | Continuous play polling — Spotify recently-played, demand-driven + adaptive; plus workflow feedback: saves visible immediately, run state visible wherever the user is watching, successful-run count in the list | 🔨 In Progress | [details](v0.10.x.md#v0101-continuous-play-polling) |
 | **v0.10.2** | Mapping supersession & resolution event log (pulled forward so v0.11.x connectors are supersession-native) | 🔜 Not Started | [details](v0.10.x.md#v0102-mapping-supersession--resolution-event-log) |
 | **v0.10.3** | Post-import data integrity audit — agent-driven adversarial verification of the first at-scale prod imports (duplicate plays, missed merges, identity twins; checklist is a floor, the agent extends it) | 🔜 Not Started | [details](v0.10.x.md#v0103-post-import-data-integrity-audit) |
 | **v0.11.0** | Apple Music foundation — auth, client, ISRC-conservative resolution, play channel | 🔜 Not Started | [details](v0.11.x.md#v0110-apple-music-foundation) |

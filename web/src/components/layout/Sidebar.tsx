@@ -67,7 +67,9 @@ const inactiveClass =
 
 export function Sidebar() {
   const { pathname } = useLocation();
-  const { data: healthData } = useHealthCheckApiV1HealthGet({
+  // `undefined` params = the shallow (DB-free) probe; the sidebar only needs
+  // the version string, never the database verdict.
+  const { data: healthData } = useHealthCheckApiV1HealthGet(undefined, {
     query: { staleTime: Infinity },
   });
   const version =

@@ -34,6 +34,7 @@ from src.infrastructure.connectors._shared.http_client import (
     make_spotify_auth_client,
     parse_json_response,
 )
+from src.infrastructure.connectors._shared.oauth_scopes import missing_from_grant
 from src.infrastructure.connectors._shared.token_storage import (
     StoredToken,
     TokenStorage,
@@ -49,23 +50,23 @@ logger = get_logger(__name__).bind(service="spotify_auth")
 
 SPOTIFY_AUTHORIZE_URL = "https://accounts.spotify.com/authorize"
 
+# Named because the recently-played poller gates on this one scope specifically
+# (v0.10.1) — a grant can be short only this and still serve likes/playlists.
+RECENTLY_PLAYED_SCOPE = "user-read-recently-played"
+
 SPOTIFY_SCOPES = [
     "playlist-modify-public",
     "playlist-modify-private",
     "playlist-read-private",
     "playlist-read-collaborative",
     "user-library-read",
-    "user-read-recently-played",
+    RECENTLY_PLAYED_SCOPE,
 ]
 
 
 def missing_scopes(granted: str | None) -> frozenset[str]:
-    """Scopes in ``SPOTIFY_SCOPES`` absent from a stored token's grant string.
-
-    A legacy token stored before scope tracking (no ``scope`` key) reports
-    every scope as missing, which is the correct re-consent signal.
-    """
-    return frozenset(SPOTIFY_SCOPES) - frozenset((granted or "").split())
+    """Scopes in ``SPOTIFY_SCOPES`` absent from a stored token's grant string."""
+    return missing_from_grant(granted, SPOTIFY_SCOPES)
 
 
 def _compute_pkce_challenge(code_verifier: str) -> str:
@@ -198,6 +199,15 @@ class SpotifyTokenManager:
         # Spotify sometimes omits refresh_token in refresh responses — preserve the old one
         if "refresh_token" not in raw:
             raw["refresh_token"] = refresh_token
+
+        # It may omit `scope` for the same reason, and this response is persisted
+        # verbatim. Losing the key reads downstream as "the grant covers nothing"
+        # — a bogus re-consent prompt on the connector card, and a 409
+        # CONNECTOR_SCOPE_MISSING on the scope-gated routes, for a user whose
+        # authorization is entirely intact. Carry the known grant forward.
+        previous_scope = self._token_info.get("scope") if self._token_info else None
+        if "scope" not in raw and previous_scope:
+            raw["scope"] = previous_scope
 
         expires_in = raw.get("expires_in", 3600)
         raw["expires_at"] = int(time.time()) + (

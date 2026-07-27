@@ -31,6 +31,9 @@ def _play(
         track_name=track,
         played_at=datetime(2024, 3, 15, 12, minute, tzinfo=UTC),
         service="lastfm",
+        # Required for the channel lookup: context builders key on
+        # (service, import_source), and the real importer always stamps this.
+        import_source="lastfm_api",
         service_metadata=metadata,
     )
 

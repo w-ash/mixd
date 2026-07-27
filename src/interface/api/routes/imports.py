@@ -13,15 +13,18 @@ from fastapi import APIRouter, Depends, HTTPException, UploadFile
 
 from src.config import get_logger
 from src.config.constants import BusinessLimits
+from src.infrastructure.connectors.spotify.auth import RECENTLY_PLAYED_SCOPE
 from src.interface.api.deps import (
     get_current_user_id,
     require_connector_connected,
+    require_connector_scopes,
 )
 from src.interface.api.schemas.imports import (
     CheckpointStatusSchema,
     ExportLastfmLikesRequest,
     ImportLastfmHistoryRequest,
     ImportSpotifyLikesRequest,
+    ImportSpotifyRecentRequest,
     OperationStartedResponse,
 )
 from src.interface.api.services.progress import OperationBoundEmitter
@@ -61,6 +64,40 @@ async def import_lastfm_history(
     return await launch_sse_operation(
         user_id=user_id,
         operation_type="import_lastfm_history",
+        coro_factory=_import,
+    )
+
+
+@router.post("/spotify/recent")
+async def import_spotify_recent(
+    body: ImportSpotifyRecentRequest,
+    user_id: str = Depends(get_current_user_id),
+    _scoped: None = Depends(
+        require_connector_scopes("spotify", {RECENTLY_PLAYED_SCOPE})
+    ),
+) -> OperationStartedResponse:
+    """Poll Spotify's recently-played API for new plays.
+
+    Scope-gated rather than merely connection-gated: a grant minted before
+    v0.10.1 still works for likes and playlists, so the generic connected check
+    would let it through and fail later inside the operation.
+    """
+
+    async def _import(emitter: OperationBoundEmitter) -> object:
+        from src.application.use_cases.import_play_history import run_import
+
+        return await run_import(
+            user_id=user_id,
+            service="spotify",
+            mode="recent",
+            limit=body.limit,
+            progress_emitter=emitter,
+            force=body.force,
+        )
+
+    return await launch_sse_operation(
+        user_id=user_id,
+        operation_type="import_spotify_recent",
         coro_factory=_import,
     )
 

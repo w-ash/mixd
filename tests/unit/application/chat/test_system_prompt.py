@@ -36,7 +36,14 @@ _REQUIRED_SECTIONS = (
     "<tool_habits>",
     "<mutation_rules>",
     "<untrusted_content>",
+    # Opus 5 narrates more, expands scope, and over-narrates its own
+    # corrections without these; the tail reminder pairs with the conciseness
+    # instruction in <response_format> on a prompt this long.
+    "<communication>",
+    "<task_scope>",
+    "<corrections>",
     "<response_format>",
+    "<tone_preference>",
 )
 
 
@@ -115,16 +122,64 @@ class TestNodeCatalog:
         assert parsed["tasks"][0]["type"] == "source.liked_tracks"
 
 
-class TestCacheFloor:
-    def test_cached_prefix_clears_activation_floor_with_margin(self):
-        """chars/3.5 heuristic: tools + primer must clear 4096 tokens by >=20%.
+# Cache-activation minimums, in tokens, for the models this app can run.
+# Opus 5 is the shipped default; Sonnet 5 is the documented CHAT__MODEL_ID
+# override and has the higher floor. (Opus 4.8 was also 1024; the 4096 figure
+# a previous revision of this file cited belongs to Opus 4.6/4.5 and Haiku 4.5.)
+_CACHE_MIN_DEFAULT_MODEL = 512
+_CACHE_MIN_OVERRIDE_MODEL = 1024
 
-        Opus 4.8's cache-activation minimum is 4096 tokens over the prefix
-        (tools render before system blocks). Floors are model-specific and
-        move — this guards against the primer shrinking below the largest
-        current floor, not against SDK behavior.
+
+class TestCatalogIsSelfSufficient:
+    def test_every_select_field_inlines_its_options(self):
+        """No catalog line falls back to a bare ``select``.
+
+        The catalog is the reason describe_node is not a mandatory pre-call:
+        if a select field's options are suppressed, the model has to make a
+        round-trip to learn them, and the deleted instruction earns its place
+        back. metric_name (7 options) is the field that forced the old limit.
         """
         primer = _texts(build_system_prompt(None, None, _TODAY))[0]
-        tools_chars = len(json.dumps(build_tools()))
-        estimated_tokens = (len(primer) + tools_chars) / 3.5
-        assert estimated_tokens >= 4096 * 1.2
+        catalog = primer.split("<node_catalog>")[1].split("</node_catalog>")[0]
+        assert " (select" not in catalog
+
+
+class TestCacheFloor:
+    """Each breakpoint's own prefix must clear the activation floor.
+
+    Caching is a prefix match over ``tools`` -> ``system`` -> ``messages``, so
+    every breakpoint caches everything before it, and each one has a different
+    prefix length. Measuring the whole tool list against one floor tests the
+    wrong thing: it reports the *system* breakpoint's prefix and says nothing
+    about the tools breakpoint, which is an order of magnitude smaller and the
+    only one anywhere near a floor.
+
+    chars/3.5 is a heuristic and conservative for dense JSON (real tool schemas
+    tokenize nearer 3 chars/token), so these under-report. The authoritative
+    check remains ``usage.cache_read_input_tokens`` in the live smoke.
+    """
+
+    def test_tools_prefix_breakpoint_clears_the_floor(self):
+        """The first breakpoint caches only tools[0..stamp] — the tight one.
+
+        At ~1.1k estimated tokens this clears Opus 5's 512 comfortably but sits
+        only marginally above Sonnet 5's 1024, so it is asserted against the
+        default model's floor. If the non-deferred hot set ever shrinks, this
+        is the segment that stops caching first — on the override model before
+        the default one.
+        """
+        tools = build_tools()
+        stamp = next(i for i, t in enumerate(tools) if "cache_control" in t)
+        estimated_tokens = len(json.dumps(tools[: stamp + 1])) / 3.5
+        assert estimated_tokens >= _CACHE_MIN_DEFAULT_MODEL * 1.2
+
+    def test_system_block_breakpoint_clears_the_floor(self):
+        """Block A's breakpoint caches every tool plus the primer.
+
+        Asserted against the higher (override-model) floor because it has room
+        to spare — this is what lets Phase-1 prompt trimming proceed without
+        silently disabling the system-block cache.
+        """
+        primer = _texts(build_system_prompt(None, None, _TODAY))[0]
+        prefix_chars = len(json.dumps(build_tools())) + len(primer)
+        assert prefix_chars / 3.5 >= _CACHE_MIN_OVERRIDE_MODEL * 1.2

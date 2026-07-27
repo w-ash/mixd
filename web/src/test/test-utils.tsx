@@ -14,6 +14,8 @@ import { createMutationErrorHandler } from "#/lib/toasts";
 interface ProvidersProps {
   children: ReactNode;
   routerProps?: MemoryRouterProps;
+  /** Supply your own client to assert on cache contents after a mutation. */
+  queryClient?: QueryClient;
 }
 
 export function createTestQueryClient() {
@@ -34,8 +36,13 @@ export function createTestQueryClient() {
   });
 }
 
-function Providers({ children, routerProps }: ProvidersProps) {
-  const [queryClient] = useState(createTestQueryClient);
+function Providers({
+  children,
+  routerProps,
+  queryClient: providedClient,
+}: ProvidersProps) {
+  const [fallbackClient] = useState(createTestQueryClient);
+  const queryClient = providedClient ?? fallbackClient;
   return (
     <ThemeProvider>
       <QueryClientProvider client={queryClient}>
@@ -49,15 +56,18 @@ function Providers({ children, routerProps }: ProvidersProps) {
 
 interface ExtendedRenderOptions extends Omit<RenderOptions, "wrapper"> {
   routerProps?: MemoryRouterProps;
+  queryClient?: QueryClient;
 }
 
 export function renderWithProviders(
   ui: ReactElement,
-  { routerProps, ...options }: ExtendedRenderOptions = {},
+  { routerProps, queryClient, ...options }: ExtendedRenderOptions = {},
 ) {
   return render(ui, {
     wrapper: ({ children }) => (
-      <Providers routerProps={routerProps}>{children}</Providers>
+      <Providers routerProps={routerProps} queryClient={queryClient}>
+        {children}
+      </Providers>
     ),
     ...options,
   });
@@ -97,5 +107,5 @@ export function mockMatchMedia(width: number) {
   });
 }
 
-export { screen, waitFor } from "@testing-library/react";
+export { screen, waitFor, within } from "@testing-library/react";
 export { default as userEvent } from "@testing-library/user-event";

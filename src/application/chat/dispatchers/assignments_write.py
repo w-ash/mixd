@@ -265,16 +265,11 @@ SPECS: list[dict[str, object]] = [
     {
         "name": "manage_playlist_assignments",
         "description": (
-            "Call this to propose a metadata-assignment change on a cached connector "
-            "playlist. Pick an operation: 'create' declares an assignment "
-            "(connector_playlist_id + action_type + action_value); "
-            "'create_and_apply' declares it and applies it to every track "
-            "immediately; 'delete' removes an assignment (assignment_id). "
-            "action_type is 'set_preference' (value hmm/nah/yah/star) or "
-            "'add_tag' (value is a tag name). Every operation is a proposal — "
-            "nothing changes until the user confirms on the card this returns. "
-            "Look up real connector_playlist_ids and assignment_ids first; never "
-            "guess them."
+            "Call this to propose a metadata-assignment change on a cached "
+            "connector playlist — declaring an assignment, declaring and "
+            "applying it to every track at once, or deleting one. An assignment "
+            "sets a preference (hmm/nah/yah/star) or adds a tag. Look up real "
+            "connector_playlist_ids and assignment_ids first; never guess them."
         ),
         "input_schema": MANAGE_PLAYLIST_ASSIGNMENTS_INPUT_SCHEMA,
         "dispatch": handle_manage_playlist_assignments,

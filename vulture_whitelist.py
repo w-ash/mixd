@@ -18,8 +18,6 @@ required_config  # Pydantic field on NodeTypeInfoSchema
 optional_config  # Pydantic field on NodeTypeInfoSchema
 connector_links  # @computed_field on PlaylistDetailSchema
 connector_names  # @computed_field on TrackDetailSchema
-task_count  # @computed_field on WorkflowSummarySchema
-node_types  # @computed_field on WorkflowSummarySchema
 last_synced_at  # Pydantic ConnectorMetadataSchema field
 issue_count  # Pydantic field on OperationRunSummarySchema (audit-log list)
 retryable  # Pydantic field on OperationRun schemas — read by the frontend retry UI
@@ -37,7 +35,6 @@ render  # Rich __rich_console__ / render protocol
 async_auth_flow  # @override of httpx.Auth.async_auth_flow
 
 # --- FastAPI app-level registrations (not covered by @router.*) ---
-spa_catchall  # catch-all for SPA routing, registered via app.route
 run_server  # CLI entry point for uvicorn
 main  # Typer entrypoint (registered via project.scripts, not @app.command)
 
@@ -46,9 +43,6 @@ total_files  # attrs field on BatchImportResult
 last_modified  # attrs field
 progress_operation  # attrs field
 include_track_metadata  # attrs field
-decision  # attrs field on WorkflowNodeSummary
-metric_value  # attrs field on WorkflowNodeSummary
-node_details  # NodeResult TypedDict key
 source_count  # attrs field on Track
 source_playlist_name  # attrs field on Track
 factory_created  # attrs field
@@ -56,7 +50,6 @@ attributes  # attrs field on NodeRegistration
 incognito_excluded  # attrs field on ImportResult
 resolution_failures  # attrs field on ImportResult
 unique_tracks_processed  # attrs field on ImportResult
-tracks_resolved  # attrs field on ImportResult
 spotify_enhanced_count  # attrs field on ImportResult
 accepted_plays  # attrs field on ImportResult
 duration_excluded  # attrs field on ImportResult
@@ -68,8 +61,6 @@ lastfm_album_mbid  # attrs field in connector conversion
 lastfm_artist_mbid  # attrs field in connector conversion
 attribute_name  # attrs field on probabilistic matcher
 batch_result  # attrs field on ImportMetadata
-fallback_resolved  # attrs field on ImportResult
-redirect_resolved  # attrs field on ImportResult
 image_url  # attrs field on ConnectorPlaylistInfo + Pydantic ConnectorPlaylistSchema
 current_assignments  # attrs field + Pydantic ConnectorPlaylistSchema
 
@@ -81,14 +72,10 @@ get_connector_metadata  # ConnectorRepositoryProtocol
 error_classifier  # BaseAPIConnector property — Protocol contract
 enrich_track_with_lastfm_metadata  # LastFMOperations — called by connector
 find_tracks_by_mbids  # TrackRepositoryProtocol — tested, part of public API
-create_review  # MatchReviewRepositoryProtocol — called by match_and_identify use case
 
 # --- Parked decisions (v0.8.17 closeout, 2026-07-02) — see fable-sweep/README.md Deferred ---
 NO_ISRC  # MatchFailureReason member: no producers since spoke 04; removal is a domain-vocabulary decision
 added_at_dates  # Track metadata key: reader (sort_by_date) has no production writer; wire-or-delete decision pending
-
-# --- Test-only methods (public API exercised by tests, not yet consumed in prod) ---
-get_playlist_with_all_tracks  # SpotifyOperations — tested, called via connector
 
 # --- v0.9.x agent parity: classification API consumed outside src/ (parity test + matrix generator + v0.9.3 MCP) ---
 BLACKLISTED_USE_CASES  # registry parity bucket — used by test_registry_parity + generate_capability_matrix
@@ -96,10 +83,9 @@ MECHANICALLY_EXCLUDED_USE_CASES  # registry parity bucket
 INTERNAL_USE_CASES  # registry parity bucket
 NOT_YET_COVERED  # empty as of v0.9.1; the parity tripwire test asserts it stays empty
 
-# --- v0.9.0 chat: voice-protocol attrs fields + chat config field (consumed dynamically / via settings) ---
+# --- v0.9.0 chat: voice-protocol attrs fields (rendered dynamically into the prompt) ---
 voice_examples  # Voice attrs field rendered into the system prompt via the voice registry
 rules  # Voice attrs field rendered into the system prompt
-max_messages  # ChatSettings field — conversation cap read via the settings object
 
 # --- v0.9.5 remote MCP OAuth AS: SDK-protocol methods dispatched structurally, not by name ---
 # The mcp SDK's OAuthAuthorizationServerProvider Protocol + TokenVerifier Protocol are

@@ -21,6 +21,17 @@ def create_play_importer() -> PlayImporterProtocol:
     return SpotifyPlayImporter()
 
 
+def create_recently_played_importer() -> PlayImporterProtocol:
+    """Create the Spotify recently-played API importer.
+
+    Returns:
+        Configured SpotifyRecentlyPlayedImporter implementing PlayImporterProtocol
+    """
+    from .recently_played_importer import SpotifyRecentlyPlayedImporter
+
+    return SpotifyRecentlyPlayedImporter()
+
+
 def create_play_resolver() -> SpotifyConnectorPlayResolver:
     """Create Spotify-specific play resolver.
 

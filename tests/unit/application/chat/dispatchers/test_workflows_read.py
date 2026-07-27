@@ -212,7 +212,11 @@ class TestQueryRunHistory:
         monkeypatch.setattr(
             workflows_read,
             "execute_use_case",
-            _fake_use_case_runner(GetLatestWorkflowRunsResult(latest_runs={wid: run})),
+            _fake_use_case_runner(
+                GetLatestWorkflowRunsResult(
+                    latest_runs={wid: run}, successful_run_counts={wid: 1}
+                )
+            ),
         )
 
         out = await workflows_read.handle_query_workflow_history(

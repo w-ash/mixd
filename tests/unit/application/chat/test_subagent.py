@@ -25,6 +25,7 @@ from src.application.chat.user_data import wrap
 from src.application.tools.registry import TOOLS, build_subagent_tools
 from src.config.settings import ChatConfig
 from src.domain.entities.shared import JsonValue
+from src.domain.exceptions import ChatRefusedError
 
 type _Turn = tuple[list[LLMStreamEvent], LLMResponse]
 
@@ -177,6 +178,17 @@ async def test_turn_limit_returns_partial_with_prefix() -> None:
     # truncation prefix sits just inside the opening tag.
     assert summary.startswith(f"<user_data>{_TRUNCATION_PREFIX}")
     assert "partial finding" in summary
+
+
+async def test_refusal_propagates_rather_than_degrading_to_a_partial() -> None:
+    # run_subagent converts turn-limit and truncation stops into a partial
+    # summary — right for "ran out of room", wrong for a policy decline, which
+    # is terminal. Uncaught, it reaches the parent loop's per-tool handler and
+    # becomes an error tool result the main model can route around. This pins
+    # that a future catch-all in run_subagent doesn't silently swallow it.
+    turns: list[_Turn] = [([], LLMResponse(stop_reason="refusal", content=[]))]
+    with pytest.raises(ChatRefusedError):
+        await _run(turns, cfg=_cfg())
 
 
 async def test_runs_at_subagent_effort_independent_of_parent() -> None:

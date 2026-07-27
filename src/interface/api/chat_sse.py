@@ -26,6 +26,7 @@ from src.config import get_logger
 from src.domain.entities.shared import JsonDict
 from src.domain.exceptions import (
     AnthropicApiError,
+    ChatRefusedError,
     MaxRoundsExceededError,
     ResponseTruncatedError,
     ToolExecutionError,
@@ -62,6 +63,9 @@ _ERROR_CODE_MAP: dict[type[Exception], str] = {
     ToolExecutionError: "TOOL_EXECUTION_ERROR",
     MaxRoundsExceededError: "MAX_ROUNDS_EXCEEDED",
     ResponseTruncatedError: "RESPONSE_TRUNCATED",
+    # Stream-only by nature: a refusal can only arrive once the turn is under
+    # way, so it never needs an entry in the pre-stream HTTP envelope.
+    ChatRefusedError: "CHAT_REFUSED",
     AnthropicApiError: "ANTHROPIC_API_ERROR",
     AnthropicSDKError: "ANTHROPIC_API_ERROR",
 }

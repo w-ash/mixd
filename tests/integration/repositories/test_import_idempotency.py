@@ -49,8 +49,7 @@ class TestImportIdempotency:
         await plays_repo.bulk_insert_plays([test_play])
         await plays_repo.bulk_insert_plays([test_play])
 
-        all_plays = await plays_repo.find_plays_in_time_range(
-            [saved_track.id],
+        all_plays = await plays_repo.find_plays_in_window(
             datetime(2023, 1, 15, tzinfo=UTC),
             datetime(2023, 1, 16, tzinfo=UTC),
             user_id="default",
@@ -108,8 +107,7 @@ class TestImportIdempotency:
 
         await plays_repo.bulk_insert_plays([play_2])
 
-        all_plays = await plays_repo.find_plays_in_time_range(
-            [saved_track.id],
+        all_plays = await plays_repo.find_plays_in_window(
             datetime(2023, 2, 10, tzinfo=UTC),
             datetime(2023, 2, 11, tzinfo=UTC),
             user_id="default",
@@ -157,8 +155,7 @@ class TestNullMsPlayedIdempotency:
         await plays_repo.bulk_insert_plays([scrobble("TEST_BATCH_1")])
         await plays_repo.bulk_insert_plays([scrobble("TEST_BATCH_2")])
 
-        all_plays = await plays_repo.find_plays_in_time_range(
-            [saved_track.id],
+        all_plays = await plays_repo.find_plays_in_window(
             datetime(2024, 11, 5, tzinfo=UTC),
             datetime(2024, 11, 6, tzinfo=UTC),
             user_id="default",
@@ -176,8 +173,7 @@ class TestNullMsPlayedIdempotency:
             import_batch_id="TEST_BATCH_3",
         )
         await plays_repo.bulk_insert_plays([richer])
-        all_plays = await plays_repo.find_plays_in_time_range(
-            [saved_track.id],
+        all_plays = await plays_repo.find_plays_in_window(
             datetime(2024, 11, 5, tzinfo=UTC),
             datetime(2024, 11, 6, tzinfo=UTC),
             user_id="default",

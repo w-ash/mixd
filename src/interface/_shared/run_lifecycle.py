@@ -9,14 +9,12 @@ wiring, which is why they sit in the interface layer rather than the application
 layer.
 """
 
-import asyncio
 import contextlib
 from datetime import datetime
 from typing import Unpack
 from uuid import UUID
 
 from src.application.workflows.protocols import RunStatusKwargs
-from src.config.constants import WorkflowConstants
 from src.config.logging import get_logger
 from src.domain.entities.workflow import RunStatus
 
@@ -90,34 +88,17 @@ async def update_node_status(
 
 
 async def bump_heartbeat(run_id: UUID) -> None:
-    """Bump ``heartbeat_at`` on a run so the sweeper sees liveness.
+    """Concrete ``HeartbeatBumper`` — one liveness bump on a run.
 
     Suppresses errors — heartbeats are advisory; a transient DB blip during a
-    tick mustn't crash the workflow.
+    tick mustn't crash the workflow. The ticker that calls this on a cadence
+    lives in ``ExecuteWorkflowRunUseCase``, so every driver of a run gets it;
+    CPU-bound transform/combiner nodes are offloaded to a worker thread (see node
+    factories), so the event loop stays responsive and it keeps firing even under
+    heavy transforms.
     """
     try:
         async with run_repo_session() as repo:
             await repo.bump_heartbeat(run_id)
     except Exception:
         logger.warning("Heartbeat bump failed", run_id=str(run_id), exc_info=True)
-
-
-async def heartbeat_loop(
-    run_id: UUID,
-    *,
-    interval_seconds: int = WorkflowConstants.HEARTBEAT_INTERVAL_SECONDS,
-) -> None:
-    """Periodic ticker bumping ``heartbeat_at`` while a workflow runs.
-
-    Runs as an asyncio task. CPU-bound transform/combiner nodes are offloaded to
-    a worker thread (see node factories), so the event loop stays responsive and
-    this ticker keeps firing even under heavy transforms. Cancellation by the
-    foreground task is the normal exit path; a missed bump (DB blip) just means
-    the next tick catches up, well inside the sweeper's stale threshold
-    (HEARTBEAT_INTERVAL_SECONDS x HEARTBEAT_STALE_MULTIPLE).
-    """
-    logger.info("Heartbeat first bump attempt", run_id=str(run_id))
-    await bump_heartbeat(run_id)
-    while True:
-        await asyncio.sleep(interval_seconds)
-        await bump_heartbeat(run_id)

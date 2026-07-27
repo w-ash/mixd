@@ -25,6 +25,7 @@ const OPERATION_LABELS: Record<string, string> = {
   import_spotify_likes: "Spotify likes import",
   export_lastfm_likes: "Last.fm likes export",
   import_spotify_history: "Spotify history import",
+  import_spotify_recent: "Spotify recent plays import",
   import_connector_playlists: "Spotify playlist import",
   apply_assignments_bulk: "Apply all assignments",
 };

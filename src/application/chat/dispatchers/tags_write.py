@@ -334,14 +334,11 @@ SPECS: list[dict[str, object]] = [
     {
         "name": "manage_tags",
         "description": (
-            "Call this to propose a tag change on the user's library. Pick an `operation`: "
-            "'tag'/'untag' add or remove one tag on one track; 'batch_tag' adds "
-            "one tag to many tracks; 'rename' renames a tag across every track; "
-            "'merge' collapses one tag into another; 'delete' removes a tag "
-            "entirely. Merge and delete are destructive. Every operation is a "
-            "proposal — nothing changes until the user confirms on the card this "
-            "returns. Look up real track_ids (library query) and tag names "
-            "(list_tags) first; never guess them."
+            "Call this to propose a tag change on the user's library — tagging "
+            "or untagging one track, batch-tagging many, or renaming, merging, "
+            "or deleting a tag everywhere. Merge and delete are destructive. "
+            "Look up real track_ids (query_library) and tag names (list_tags) "
+            "first; never guess them."
         ),
         "input_schema": MANAGE_TAGS_INPUT_SCHEMA,
         "dispatch": handle_manage_tags,

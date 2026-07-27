@@ -23,6 +23,7 @@ import {
 import { TemplateGalleryDialog } from "#/components/workflow/TemplateGalleryDialog";
 import { WorkflowRow } from "#/components/workflow/WorkflowRow";
 import { useWorkflowExecutionContext } from "#/contexts/WorkflowExecutionContext";
+import { useActiveRunWorkflowIds } from "#/hooks/useActiveRuns";
 import { usePagination } from "#/hooks/usePagination";
 import { useWorkflowImport } from "#/hooks/useWorkflowImport";
 import { formatNextRun, isScheduleFailing } from "#/lib/schedule";
@@ -59,7 +60,11 @@ function NewWorkflowActions() {
 export function Workflows() {
   const { page, limit, offset, setPage } = usePagination(0);
   const ctx = useWorkflowExecutionContext();
-  const runningWorkflowId = ctx.isExecuting ? ctx.workflowId : null;
+  // Two sources, deliberately distinct: the server knows about every in-flight
+  // run (scheduler, another tab, another device); the context knows which one
+  // THIS tab is streaming, and therefore which rows its single SSE slot blocks.
+  const runningWorkflowIds = useActiveRunWorkflowIds();
+  const localRunWorkflowId = ctx.isExecuting ? ctx.workflowId : null;
 
   // Templates live in the gallery now, not the list — this is purely the
   // user's own, editable workflows.
@@ -116,7 +121,7 @@ export function Workflows() {
         skeleton={
           <ListRowsSkeleton
             rows={6}
-            bars={["h-5 w-52", "h-5 w-10", "h-5 w-20", "h-5 w-32"]}
+            bars={["h-5 w-52", "h-5 w-10", "h-5 w-10", "h-5 w-20", "h-5 w-32"]}
           />
         }
         isEmpty={workflows.length === 0}
@@ -136,7 +141,8 @@ export function Workflows() {
                 <WorkflowRow
                   key={wf.id}
                   wf={wf}
-                  runningWorkflowId={runningWorkflowId}
+                  runningWorkflowIds={runningWorkflowIds}
+                  localRunWorkflowId={localRunWorkflowId}
                   variant="card"
                   {...rowSchedule(wf.id)}
                 />
@@ -149,6 +155,7 @@ export function Workflows() {
                 <TableRow>
                   <TableHead>Name</TableHead>
                   <TableHead className="w-20 text-right">Tasks</TableHead>
+                  <TableHead className="w-20 text-right">Runs</TableHead>
                   <TableHead className="w-28">Last Run</TableHead>
                   <TableHead className="w-40">Next Run</TableHead>
                   <TableHead className="w-36 text-right">Updated</TableHead>
@@ -160,7 +167,8 @@ export function Workflows() {
                   <WorkflowRow
                     key={wf.id}
                     wf={wf}
-                    runningWorkflowId={runningWorkflowId}
+                    runningWorkflowIds={runningWorkflowIds}
+                    localRunWorkflowId={localRunWorkflowId}
                     variant="table"
                     {...rowSchedule(wf.id)}
                   />

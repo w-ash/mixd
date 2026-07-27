@@ -31,6 +31,7 @@ import type {
   HTTPValidationError,
   ImportLastfmHistoryRequest,
   ImportSpotifyLikesRequest,
+  ImportSpotifyRecentRequest,
   OperationStartedResponse
 } from '../model';
 
@@ -145,6 +146,100 @@ export const useImportLastfmHistoryApiV1ImportsLastfmHistoryPost = <TError = HTT
         TContext
       > => {
       return useMutation(getImportLastfmHistoryApiV1ImportsLastfmHistoryPostMutationOptions(options), queryClient);
+    }
+    export type importSpotifyRecentApiV1ImportsSpotifyRecentPostResponse200 = {
+  data: OperationStartedResponse
+  status: 200
+}
+
+export type importSpotifyRecentApiV1ImportsSpotifyRecentPostResponse422 = {
+  data: HTTPValidationError
+  status: 422
+}
+
+export type importSpotifyRecentApiV1ImportsSpotifyRecentPostResponseSuccess = (importSpotifyRecentApiV1ImportsSpotifyRecentPostResponse200) & {
+  headers: Headers;
+};
+export type importSpotifyRecentApiV1ImportsSpotifyRecentPostResponseError = (importSpotifyRecentApiV1ImportsSpotifyRecentPostResponse422) & {
+  headers: Headers;
+};
+
+export type importSpotifyRecentApiV1ImportsSpotifyRecentPostResponse = (importSpotifyRecentApiV1ImportsSpotifyRecentPostResponseSuccess | importSpotifyRecentApiV1ImportsSpotifyRecentPostResponseError)
+
+export const getImportSpotifyRecentApiV1ImportsSpotifyRecentPostUrl = () => {
+
+
+
+
+  return `/api/v1/imports/spotify/recent`
+}
+
+/**
+ * Poll Spotify's recently-played API for new plays.
+ *
+ * Scope-gated rather than merely connection-gated: a grant minted before
+ * v0.10.1 still works for likes and playlists, so the generic connected check
+ * would let it through and fail later inside the operation.
+ * @summary Import Spotify Recent
+ */
+export const importSpotifyRecentApiV1ImportsSpotifyRecentPost = async (importSpotifyRecentRequest: ImportSpotifyRecentRequest, options?: RequestInit): Promise<importSpotifyRecentApiV1ImportsSpotifyRecentPostResponse> => {
+
+  return customFetch<importSpotifyRecentApiV1ImportsSpotifyRecentPostResponse>(getImportSpotifyRecentApiV1ImportsSpotifyRecentPostUrl(),
+  {
+    ...options,
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', ...options?.headers },
+    body: JSON.stringify(importSpotifyRecentRequest)
+  }
+);}
+
+
+
+
+
+export const getImportSpotifyRecentApiV1ImportsSpotifyRecentPostMutationOptions = <TError = HTTPValidationError,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof importSpotifyRecentApiV1ImportsSpotifyRecentPost>>, TError,{data: ImportSpotifyRecentRequest}, TContext>, request?: SecondParameter<typeof customFetch>}
+): UseMutationOptions<Awaited<ReturnType<typeof importSpotifyRecentApiV1ImportsSpotifyRecentPost>>, TError,{data: ImportSpotifyRecentRequest}, TContext> => {
+
+const mutationKey = ['importSpotifyRecentApiV1ImportsSpotifyRecentPost'];
+const {mutation: mutationOptions, request: requestOptions} = options ?
+      options.mutation && 'mutationKey' in options.mutation && options.mutation.mutationKey ?
+      options
+      : {...options, mutation: {...options.mutation, mutationKey}}
+      : {mutation: { mutationKey, }, request: undefined};
+
+
+
+
+      const mutationFn: MutationFunction<Awaited<ReturnType<typeof importSpotifyRecentApiV1ImportsSpotifyRecentPost>>, {data: ImportSpotifyRecentRequest}> = (props) => {
+          const {data} = props ?? {};
+
+          return  importSpotifyRecentApiV1ImportsSpotifyRecentPost(data,requestOptions)
+        }
+
+
+
+
+
+
+  return  { mutationFn, ...mutationOptions }}
+
+    export type ImportSpotifyRecentApiV1ImportsSpotifyRecentPostMutationResult = NonNullable<Awaited<ReturnType<typeof importSpotifyRecentApiV1ImportsSpotifyRecentPost>>>
+    export type ImportSpotifyRecentApiV1ImportsSpotifyRecentPostMutationBody = ImportSpotifyRecentRequest
+    export type ImportSpotifyRecentApiV1ImportsSpotifyRecentPostMutationError = HTTPValidationError
+
+    /**
+ * @summary Import Spotify Recent
+ */
+export const useImportSpotifyRecentApiV1ImportsSpotifyRecentPost = <TError = HTTPValidationError,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof importSpotifyRecentApiV1ImportsSpotifyRecentPost>>, TError,{data: ImportSpotifyRecentRequest}, TContext>, request?: SecondParameter<typeof customFetch>}
+ , queryClient?: QueryClient): UseMutationResult<
+        Awaited<ReturnType<typeof importSpotifyRecentApiV1ImportsSpotifyRecentPost>>,
+        TError,
+        {data: ImportSpotifyRecentRequest},
+        TContext
+      > => {
+      return useMutation(getImportSpotifyRecentApiV1ImportsSpotifyRecentPostMutationOptions(options), queryClient);
     }
     export type importSpotifyLikesApiV1ImportsSpotifyLikesPostResponse200 = {
   data: OperationStartedResponse

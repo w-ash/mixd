@@ -76,15 +76,20 @@ def _patched(**overrides):
 
 
 async def _run_process(
-    schedule: Schedule, *, catchup: bool = True, now: datetime | None = None
+    schedule: Schedule,
+    *,
+    catchup: bool = True,
+    now: datetime | None = None,
+    grace_seconds: int = 120,
 ) -> None:
     await _process_one(
         schedule,
         now=now or datetime.now(UTC),
         update_run_status=AsyncMock(),
         update_node_status=AsyncMock(),
+        bump_heartbeat=AsyncMock(),
         catchup=catchup,
-        grace_seconds=120,
+        grace_seconds=grace_seconds,
     )
 
 
@@ -203,6 +208,34 @@ class TestProcessOne:
         assert kwargs["disposition"] == "skip"
         assert kwargs["last_run_status"] == "skipped_missed"
 
+    async def test_window_missed_only_because_the_loop_slept_still_fires(self) -> None:
+        """Regression: sleeping through a window is not the same as missing it.
+
+        The loop sleeps until the next known fire time — up to hours — and its
+        wake signal only reaches this process. A schedule written by the CLI or
+        another replica is therefore invisible until the next wake, by which
+        point it is far past the 120s grace and was being written off as
+        ``skipped_missed`` — so it silently never ran. ``run_scheduler_loop``
+        widens the grace by the sleep it just took, which is what this models.
+        """
+        stale = datetime.now(UTC) - timedelta(hours=3)
+        with _patched(
+            _dispatch_workflow=AsyncMock(
+                return_value=_DispatchOutcome(
+                    run_id=uuid7(), disposition="success", status="completed"
+                )
+            )
+        ) as m:
+            await _run_process(
+                _wf_schedule(next_run_at=stale),
+                catchup=False,
+                # 120s base + a 6h sleep, as the loop computes it.
+                grace_seconds=120 + 6 * 60 * 60,
+            )
+
+        m["_dispatch_workflow"].assert_awaited_once()
+        assert m["_release"].await_args.kwargs["disposition"] == "success"
+
     async def test_missed_window_fires_when_catchup_enabled(self) -> None:
         stale = datetime.now(UTC) - timedelta(hours=3)
         with _patched(
@@ -265,12 +298,56 @@ class TestDispatchWorkflow:
                 schedule,
                 update_run_status=AsyncMock(),
                 update_node_status=AsyncMock(),
+                bump_heartbeat=AsyncMock(),
             )
 
         command = run_execute.await_args.args[0]
         assert command.operation_id is not None
         assert command.triggered_by_schedule_id == schedule.id
         assert outcome.disposition == "success"
+
+    async def test_passes_the_heartbeat_bumper_to_the_run(self) -> None:
+        """Regression: scheduled runs used to execute with no heartbeat at all.
+
+        The ticker lived at the call site and only the API started one, so a
+        scheduled run kept ``heartbeat_at IS NULL`` and the sweeper reaped it as
+        crashed the moment it outlived the stale threshold — while it was still
+        running. The bumper is now a required dependency; this pins that the
+        scheduler actually threads one through rather than passing a placeholder.
+        """
+        schedule = _wf_schedule(next_run_at=datetime.now(UTC))
+        run_result = SimpleNamespace(
+            run_id=uuid7(), workflow=SimpleNamespace(definition=object())
+        )
+        exec_result = SimpleNamespace(run_id=run_result.run_id, status="completed")
+        run_execute = AsyncMock(return_value=run_result)
+        bumper = AsyncMock()
+
+        async def _fake_exec(fn, **_kw):
+            return await fn(AsyncMock())
+
+        with (
+            patch.object(
+                scheduler, "execute_use_case", AsyncMock(side_effect=_fake_exec)
+            ),
+            patch.object(scheduler, "RunWorkflowUseCase") as m_run_cls,
+            patch.object(
+                scheduler,
+                "ExecuteWorkflowRunUseCase",
+                return_value=SimpleNamespace(
+                    execute=AsyncMock(return_value=exec_result)
+                ),
+            ) as m_exec_cls,
+        ):
+            m_run_cls.return_value.execute = run_execute
+            await scheduler._dispatch_workflow(
+                schedule,
+                update_run_status=AsyncMock(),
+                update_node_status=AsyncMock(),
+                bump_heartbeat=bumper,
+            )
+
+        assert m_exec_cls.call_args.kwargs["bump_heartbeat"] is bumper
 
 
 class TestRelease:
@@ -426,6 +503,7 @@ class TestSchedulerTick:
                 now=now,
                 update_run_status=AsyncMock(),
                 update_node_status=AsyncMock(),
+                bump_heartbeat=AsyncMock(),
                 max_concurrent=2,
                 stuck_timeout_seconds=1800,
                 dispatch_timeout_seconds=900,
@@ -454,6 +532,7 @@ class TestSchedulerTick:
             now=datetime.now(UTC),
             update_run_status=AsyncMock(),
             update_node_status=AsyncMock(),
+            bump_heartbeat=AsyncMock(),
             max_concurrent=2,
             stuck_timeout_seconds=1800,
             dispatch_timeout_seconds=900,
@@ -474,6 +553,7 @@ class TestSchedulerTick:
             now=datetime.now(UTC),
             update_run_status=AsyncMock(),
             update_node_status=AsyncMock(),
+            bump_heartbeat=AsyncMock(),
             max_concurrent=2,
             stuck_timeout_seconds=1800,
             dispatch_timeout_seconds=900,
@@ -508,6 +588,7 @@ class TestSchedulerTick:
                 now=now,
                 update_run_status=AsyncMock(),
                 update_node_status=AsyncMock(),
+                bump_heartbeat=AsyncMock(),
                 max_concurrent=2,
                 stuck_timeout_seconds=1800,
                 dispatch_timeout_seconds=0.01,

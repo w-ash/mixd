@@ -229,19 +229,34 @@ def test_page_routing_keeps_the_prefix_invariant() -> None:
 
 
 def test_workflow_page_promotes_the_demoted_flagship_tools() -> None:
-    # describe_node / generate_workflow_def are deferred globally (reclaiming a hot
-    # slot on the 4 non-workflow pages) but promoted back into the loaded set on
-    # the workflows page, where the generation flow needs them upfront.
+    # generate_workflow_def / validate_workflow_def are deferred globally
+    # (reclaiming a hot slot on the 4 non-workflow pages) but promoted back into
+    # the loaded set on the workflows page, where the generation flow needs them
+    # upfront.
     on_page = {
         str(t["name"])
         for t in registry.build_tools(page="workflows")
         if "defer_loading" not in t and "name" in t
     }
-    assert {"describe_node", "generate_workflow_def"} <= on_page
+    assert {"generate_workflow_def", "validate_workflow_def"} <= on_page
 
     off_page = registry.build_tools(page="library")
     deferred = {t.get("name") for t in off_page if t.get("defer_loading")}
-    assert {"describe_node", "generate_workflow_def"} <= deferred
+    assert {"generate_workflow_def", "validate_workflow_def"} <= deferred
+
+
+def test_describe_node_is_never_promoted() -> None:
+    # The cached system prompt inlines the full node catalog including every
+    # select field's options, so building a workflow needs no describe_node
+    # round-trip. It stays deferred on every page — reachable via tool search
+    # when a catalog line is genuinely ambiguous, but never occupying a slot.
+    for page in [None, *registry._PAGE_TOOL_HINTS]:
+        loaded = {
+            str(t["name"])
+            for t in registry.build_tools(page=page)
+            if "defer_loading" not in t and "name" in t
+        }
+        assert "describe_node" not in loaded, f"promoted on page={page}"
 
 
 def test_page_hint_map_is_valid_and_bounded() -> None:

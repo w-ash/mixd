@@ -22,6 +22,7 @@ from src.config import get_logger, settings
 from src.config.constants import SpotifyConstants
 from src.config.logging import logging_context
 from src.domain.entities.shared import JsonDict
+from src.domain.repositories.play import RECENTLY_PLAYED_PAGE_LIMIT
 from src.infrastructure.connectors._shared.http_client import parse_json_response
 from src.infrastructure.connectors._shared.retry_policies import (
     RetryConfig,
@@ -32,6 +33,7 @@ from src.infrastructure.connectors.spotify.auth import SpotifyTokenManager
 from src.infrastructure.connectors.spotify.models import (
     SpotifyPaginatedPlaylistItems,
     SpotifyPlaylist,
+    SpotifyRecentlyPlayedResponse,
     SpotifySnapshotResponse,
     SpotifyTrack,
     SpotifyUserPlaylistsResponse,
@@ -616,6 +618,48 @@ class SpotifyAPIClient(BaseAPIClient):
                 "market": self.market,
             },
         )
+        _ = response.raise_for_status()
+        return parse_json_response(response)
+
+    async def get_recently_played(
+        self, *, after_ms: int | None = None, limit: int = RECENTLY_PLAYED_PAGE_LIMIT
+    ) -> SpotifyRecentlyPlayedResponse | None:
+        """Fetch the user's recently-played tracks (needs user-read-recently-played).
+
+        Deliberately a SINGLE request, not the paginate-to-completion loop the
+        other user-collection readers use: Spotify retains only the trailing
+        ~50 plays here, and the ``after`` cursor cannot page beyond that buffer,
+        so looping returns nothing extra. Continuity across polls comes from the
+        stored checkpoint cursor, not from walking ``next`` (2026-07 check: the
+        endpoint survived Spotify's Feb 2026 dev-mode purge with the 50-item
+        window intact).
+
+        Args:
+            after_ms: Millisecond-epoch cursor; returns plays strictly after it.
+                Omitted on a first poll, which yields the trailing window.
+            limit: Page size, clamped to the endpoint maximum of 50.
+
+        Returns:
+            The parsed response, or None when the call failed (``_SUPPRESS_ERRORS``
+            swallows the status code, so callers cannot distinguish causes — an
+            empty ``items`` list is the only reliable "nothing new" signal).
+        """
+        data = await self._api_call(
+            "get_spotify_recently_played",
+            self._get_recently_played_impl,
+            after_ms,
+            limit,
+        )
+        return SpotifyRecentlyPlayedResponse.model_validate(data) if data else None
+
+    async def _get_recently_played_impl(
+        self, after_ms: int | None = None, limit: int = RECENTLY_PLAYED_PAGE_LIMIT
+    ) -> JsonDict | None:
+        """Pure implementation without retry logic."""
+        params: dict[str, int] = {"limit": min(limit, RECENTLY_PLAYED_PAGE_LIMIT)}
+        if after_ms is not None:
+            params["after"] = after_ms
+        response = await self._client.get("/me/player/recently-played", params=params)
         _ = response.raise_for_status()
         return parse_json_response(response)
 

@@ -5,6 +5,7 @@ GetWorkflowRunUseCase, GetLatestWorkflowRunsUseCase, and
 ExecuteWorkflowRunUseCase lifecycle, exception handling, and correlation context.
 """
 
+import asyncio
 from asyncio import CancelledError
 from contextlib import contextmanager
 from datetime import UTC, datetime
@@ -32,7 +33,9 @@ from tests.fixtures import make_mock_uow, make_tracks, make_workflow, make_workf
 
 
 @contextmanager
-def _patch_execute_deps(*, mock_run_return=None, observer_persist_failures=0):
+def _patch_execute_deps(
+    *, mock_run_return=None, mock_run_side_effect=None, observer_persist_failures=0
+):
     """Patch the dependencies that ExecuteWorkflowRunUseCase imports at call time.
 
     Yields (mock_logger, mock_run_workflow, mock_observer) for test assertions.
@@ -54,7 +57,9 @@ def _patch_execute_deps(*, mock_run_return=None, observer_persist_failures=0):
     ):
         mock_logger.bind.return_value = mock_logger
 
-        if mock_run_return is not None:
+        if mock_run_side_effect is not None:
+            mock_run.side_effect = mock_run_side_effect
+        elif mock_run_return is not None:
             mock_run.return_value = mock_run_return
         else:
             mock_run.return_value = MagicMock(tracks=[], metrics={})
@@ -230,11 +235,16 @@ class TestGetWorkflowRunUseCase:
 class TestGetLatestWorkflowRunsUseCase:
     """GetLatestWorkflowRunsUseCase batch-fetches latest runs."""
 
-    async def test_returns_latest_runs(self) -> None:
+    async def test_returns_latest_runs_and_counts_in_one_call(self) -> None:
+        # Both maps come from a single repository call — the list page needs them
+        # together, and two calls meant two round trips on every workflow read.
         run_a = WorkflowRun(id=10, workflow_id=1, status="completed")
         run_b = WorkflowRun(id=20, workflow_id=2, status="pending")
         run_repo = AsyncMock()
-        run_repo.get_latest_runs_for_workflows.return_value = {1: run_a, 2: run_b}
+        run_repo.get_run_summaries_for_workflows.return_value = (
+            {1: run_a, 2: run_b},
+            {1: 3},
+        )
         uow = make_mock_uow(workflow_run_repo=run_repo)
 
         command = GetLatestWorkflowRunsCommand(user_id="test-user", workflow_ids=[1, 2])
@@ -243,17 +253,19 @@ class TestGetLatestWorkflowRunsUseCase:
         assert len(result.latest_runs) == 2
         assert result.latest_runs[1].status == "completed"
         assert result.latest_runs[2].status == "pending"
-        run_repo.get_latest_runs_for_workflows.assert_called_once_with([1, 2])
+        assert result.successful_run_counts == {1: 3}
+        run_repo.get_run_summaries_for_workflows.assert_called_once_with([1, 2])
 
     async def test_returns_empty_when_no_runs(self) -> None:
         run_repo = AsyncMock()
-        run_repo.get_latest_runs_for_workflows.return_value = {}
+        run_repo.get_run_summaries_for_workflows.return_value = ({}, {})
         uow = make_mock_uow(workflow_run_repo=run_repo)
 
         command = GetLatestWorkflowRunsCommand(user_id="test-user", workflow_ids=[1, 2])
         result = await GetLatestWorkflowRunsUseCase().execute(command, uow)
 
         assert result.latest_runs == {}
+        assert result.successful_run_counts == {}
 
 
 class TestSerializeOutputTracks:
@@ -357,7 +369,9 @@ class TestExecuteWorkflowRunUseCase:
         workflow_def = make_workflow_def()
         mock_updater = AsyncMock()
         use_case = ExecuteWorkflowRunUseCase(
-            update_run_status=mock_updater, update_node_status=AsyncMock()
+            update_run_status=mock_updater,
+            update_node_status=AsyncMock(),
+            bump_heartbeat=AsyncMock(),
         )
 
         tracks = make_tracks(count=3)
@@ -394,7 +408,9 @@ class TestExecuteWorkflowRunUseCase:
         workflow_def = make_workflow_def()
         mock_updater = AsyncMock()
         use_case = ExecuteWorkflowRunUseCase(
-            update_run_status=mock_updater, update_node_status=AsyncMock()
+            update_run_status=mock_updater,
+            update_node_status=AsyncMock(),
+            bump_heartbeat=AsyncMock(),
         )
 
         with _patch_execute_deps() as (_logger, mock_run, _observer):
@@ -415,7 +431,9 @@ class TestExecuteWorkflowRunUseCase:
         workflow_def = make_workflow_def()
         mock_updater = AsyncMock()
         use_case = ExecuteWorkflowRunUseCase(
-            update_run_status=mock_updater, update_node_status=AsyncMock()
+            update_run_status=mock_updater,
+            update_node_status=AsyncMock(),
+            bump_heartbeat=AsyncMock(),
         )
 
         long_msg = "x" * (WorkflowConstants.ERROR_MESSAGE_MAX_LENGTH + 500)
@@ -435,7 +453,9 @@ class TestExecuteWorkflowRunUseCase:
         workflow_def = make_workflow_def()
         mock_updater = AsyncMock()
         use_case = ExecuteWorkflowRunUseCase(
-            update_run_status=mock_updater, update_node_status=AsyncMock()
+            update_run_status=mock_updater,
+            update_node_status=AsyncMock(),
+            bump_heartbeat=AsyncMock(),
         )
 
         with _patch_execute_deps() as (_logger, mock_run, _observer):
@@ -465,7 +485,9 @@ class TestExecuteWorkflowRunUseCase:
         workflow_def = make_workflow_def()
         mock_updater = AsyncMock()
         use_case = ExecuteWorkflowRunUseCase(
-            update_run_status=mock_updater, update_node_status=AsyncMock()
+            update_run_status=mock_updater,
+            update_node_status=AsyncMock(),
+            bump_heartbeat=AsyncMock(),
         )
 
         with _patch_execute_deps() as (_logger, mock_run, _observer):
@@ -484,7 +506,9 @@ class TestExecuteWorkflowRunUseCase:
         # First call (RUNNING) succeeds, second call (FAILED) raises
         mock_updater.side_effect = [None, RuntimeError("DB connection lost")]
         use_case = ExecuteWorkflowRunUseCase(
-            update_run_status=mock_updater, update_node_status=AsyncMock()
+            update_run_status=mock_updater,
+            update_node_status=AsyncMock(),
+            bump_heartbeat=AsyncMock(),
         )
 
         with _patch_execute_deps() as (mock_logger, mock_run, _observer):
@@ -503,7 +527,9 @@ class TestExecuteWorkflowRunUseCase:
         """logging_context is called with workflow_id, workflow_name, run_id."""
         workflow_def = make_workflow_def(id="wf-ctx-test", name="Context Test")
         use_case = ExecuteWorkflowRunUseCase(
-            update_run_status=AsyncMock(), update_node_status=AsyncMock()
+            update_run_status=AsyncMock(),
+            update_node_status=AsyncMock(),
+            bump_heartbeat=AsyncMock(),
         )
 
         with (
@@ -526,7 +552,9 @@ class TestExecuteWorkflowRunUseCase:
         """Logs error when observer has persist_failure_count > 0."""
         workflow_def = make_workflow_def()
         use_case = ExecuteWorkflowRunUseCase(
-            update_run_status=AsyncMock(), update_node_status=AsyncMock()
+            update_run_status=AsyncMock(),
+            update_node_status=AsyncMock(),
+            bump_heartbeat=AsyncMock(),
         )
 
         with _patch_execute_deps(observer_persist_failures=2) as (
@@ -540,3 +568,118 @@ class TestExecuteWorkflowRunUseCase:
             "Run history incomplete — DB persistence failures during execution",
             persist_failures=2,
         )
+
+
+class TestExecuteWorkflowRunHeartbeat:
+    """The run's liveness ticker, owned by the use case rather than its callers.
+
+    It lived at the call sites until 2026-07-26, and only the API path ever
+    started it — CLI and scheduled runs kept ``heartbeat_at IS NULL``, so the
+    sweeper reaped them as crashed once they outlived the stale threshold while
+    they were in fact still executing. Owning it here is what makes that
+    impossible to forget, so these tests guard the ownership, not just the loop.
+    """
+
+    async def test_bumps_while_the_run_executes(self) -> None:
+        workflow_def = make_workflow_def()
+        bumps: list[object] = []
+
+        async def record(run_id: object) -> None:
+            bumps.append(run_id)
+
+        async def _slow_run(*_args: object, **_kwargs: object) -> MagicMock:
+            # Any real run awaits I/O; that yield is what lets the ticker run.
+            # A run that never yields also never gets a heartbeat — deliberate,
+            # since heartbeat_at IS NULL is how the sweeper spots a cold-start
+            # hang, and it is harmless because a sub-threshold run is terminal
+            # before the sweeper would look at it.
+            await asyncio.sleep(0.02)
+            return MagicMock(tracks=[], metrics={})
+
+        use_case = ExecuteWorkflowRunUseCase(
+            update_run_status=AsyncMock(),
+            update_node_status=AsyncMock(),
+            bump_heartbeat=AsyncMock(side_effect=record),
+        )
+
+        with _patch_execute_deps(mock_run_side_effect=_slow_run):
+            await use_case.execute(workflow_def, run_id=7)
+
+        assert bumps == [7]
+
+    async def test_a_run_that_never_yields_records_no_heartbeat(self) -> None:
+        # Pins the counterpart of the above: the sweeper's "cold-start hang"
+        # classification depends on heartbeat_at staying NULL in this case.
+        workflow_def = make_workflow_def()
+        bumps: list[object] = []
+
+        async def record(run_id: object) -> None:
+            bumps.append(run_id)
+
+        use_case = ExecuteWorkflowRunUseCase(
+            update_run_status=AsyncMock(),
+            update_node_status=AsyncMock(),
+            bump_heartbeat=AsyncMock(side_effect=record),
+        )
+
+        with _patch_execute_deps():
+            await use_case.execute(workflow_def, run_id=7)
+
+        assert bumps == []
+
+    async def test_ticker_stops_when_the_run_ends(self) -> None:
+        workflow_def = make_workflow_def()
+        bumps: list[object] = []
+
+        async def record(run_id: object) -> None:
+            bumps.append(run_id)
+
+        use_case = ExecuteWorkflowRunUseCase(
+            update_run_status=AsyncMock(),
+            update_node_status=AsyncMock(),
+            bump_heartbeat=AsyncMock(side_effect=record),
+        )
+
+        with _patch_execute_deps():
+            await use_case.execute(workflow_def, run_id=7)
+
+        settled = len(bumps)
+        await asyncio.sleep(0.05)
+        # A ticker outliving its run would keep writing to a terminal row — and,
+        # since v0.10.2, keep Neon's compute awake indefinitely.
+        assert len(bumps) == settled
+
+    async def test_ticker_is_cancelled_even_when_the_run_raises(self) -> None:
+        workflow_def = make_workflow_def()
+        bumps: list[object] = []
+
+        async def record(run_id: object) -> None:
+            bumps.append(run_id)
+
+        use_case = ExecuteWorkflowRunUseCase(
+            update_run_status=AsyncMock(),
+            update_node_status=AsyncMock(),
+            bump_heartbeat=AsyncMock(side_effect=record),
+        )
+
+        with _patch_execute_deps(mock_run_side_effect=RuntimeError("boom")):
+            await use_case.execute(workflow_def, run_id=7)
+
+        settled = len(bumps)
+        await asyncio.sleep(0.05)
+        assert len(bumps) == settled
+
+    async def test_a_failing_bump_does_not_fail_the_run(self) -> None:
+        # The bumper suppresses its own errors, but the ticker must also survive
+        # one that escapes — a heartbeat is diagnostics, not the run's business.
+        workflow_def = make_workflow_def()
+        use_case = ExecuteWorkflowRunUseCase(
+            update_run_status=AsyncMock(),
+            update_node_status=AsyncMock(),
+            bump_heartbeat=AsyncMock(side_effect=RuntimeError("db down")),
+        )
+
+        with _patch_execute_deps():
+            result = await use_case.execute(workflow_def, run_id=7)
+
+        assert result.status == WorkflowConstants.RUN_STATUS_COMPLETED

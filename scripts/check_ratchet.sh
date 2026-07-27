@@ -11,7 +11,10 @@ cd "$(dirname "$0")/.."
 # 70 → 83 at v0.9.5: the remote-MCP OAuth AS — 8 OAuthAuthorizationServerProvider /
 # TokenVerifier Protocol methods dispatched structurally by the mcp SDK's handlers,
 # 3 OAuthMetadata fields set for CIMD, and 2 claim/field names (jti, _PinnedTarget.ip).
-BASE_WHITELIST=83
+# 83 → 71 at v0.10.1: 12 entries vulture no longer flags — the names they guarded became
+# genuinely used in src/, so the suppressions hid nothing. Found by diffing the whitelist
+# against `vulture src/ alembic/` run without it; pruning them left the findings identical.
+BASE_WHITELIST=71
 BASE_NOQA=13
 BASE_TYPE_IGNORE=0
 BASE_PYRIGHT_IGNORE=18

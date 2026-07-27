@@ -70,6 +70,8 @@ class WorkflowSummarySchema(BaseModel):
     created_at: datetime | None = None
     updated_at: datetime | None = None
     last_run: LastRunSchema | None = None
+    #: Completed runs only — failed/cancelled/crashed attempts are excluded.
+    successful_run_count: int = 0
 
 
 class WorkflowDetailSchema(WorkflowSummarySchema):
@@ -278,6 +280,7 @@ def _extract_node_types(wf_def: WorkflowDef) -> list[str]:
 def to_workflow_summary(
     workflow: Workflow,
     last_run: WorkflowRun | None = None,
+    successful_run_count: int = 0,
 ) -> WorkflowSummarySchema:
     last_run_schema: LastRunSchema | None = None
     if last_run is not None:
@@ -299,13 +302,18 @@ def to_workflow_summary(
         created_at=workflow.created_at,
         updated_at=workflow.updated_at,
         last_run=last_run_schema,
+        successful_run_count=successful_run_count,
     )
 
 
 def to_workflow_detail(
-    workflow: Workflow, last_run: WorkflowRun | None = None
+    workflow: Workflow,
+    last_run: WorkflowRun | None = None,
+    successful_run_count: int = 0,
 ) -> WorkflowDetailSchema:
-    summary = to_workflow_summary(workflow, last_run=last_run)
+    summary = to_workflow_summary(
+        workflow, last_run=last_run, successful_run_count=successful_run_count
+    )
     return WorkflowDetailSchema(
         id=summary.id,
         name=summary.name,
@@ -316,6 +324,7 @@ def to_workflow_detail(
         created_at=summary.created_at,
         updated_at=summary.updated_at,
         last_run=summary.last_run,
+        successful_run_count=summary.successful_run_count,
         definition=_def_to_schema(workflow.definition),
     )
 

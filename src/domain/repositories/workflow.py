@@ -126,10 +126,14 @@ class WorkflowRunRepositoryProtocol(Protocol):
         """Get the most recent run for a workflow, or None."""
         ...
 
-    def get_latest_runs_for_workflows(
+    def get_run_summaries_for_workflows(
         self, workflow_ids: list[UUID]
-    ) -> Awaitable[dict[UUID, WorkflowRun]]:
-        """Batch-fetch the latest run for each workflow ID."""
+    ) -> Awaitable[tuple[dict[UUID, WorkflowRun], dict[UUID, int]]]:
+        """Latest run and completed-run count per workflow, in one round trip.
+
+        Returns ``(latest_runs, completed_counts)``. A workflow missing from the
+        count map has zero completed runs.
+        """
         ...
 
 

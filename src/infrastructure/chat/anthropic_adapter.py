@@ -281,11 +281,16 @@ class _AdapterStream:
         ]
         raw_content = [_content_block_to_dict(b) for b in final.content]
         container = final.container.id if final.container else self._container_id
+        # stop_details is populated only on a refusal, and is nullable even
+        # then — so it classifies a refusal, it never detects one. The loop
+        # branches on stop_reason.
+        details = final.stop_details
         return LLMResponse(
             stop_reason=final.stop_reason or "end_turn",
             content=tool_blocks,
             raw_content=raw_content,
             container_id=container,
+            refusal_category=details.category if details is not None else None,
         )
 
 
@@ -305,9 +310,11 @@ class AnthropicAdapter:
 
     @asynccontextmanager
     async def stream(self, request: LLMRequest) -> AsyncGenerator[_AdapterStream]:
-        # Adaptive thinking must be explicit — Opus 4.8 and Sonnet 5 run without
-        # thinking when the parameter is omitted. The beta surface is required
-        # for context_management.
+        # Adaptive thinking stays explicit because it is the model-agnostic
+        # value: a no-op on Opus 5 and Sonnet 5 (adaptive is their default) but
+        # load-bearing on the Opus 4.8/4.7 generation, which runs thinking-off
+        # when the field is omitted. The beta surface is required for
+        # context_management.
         async with self._client.beta.messages.stream(
             model=request.model,
             max_tokens=request.max_tokens,
@@ -365,7 +372,12 @@ async def aclose_all_adapters() -> None:
     _adapters.clear()
 
 
-_VALIDATION_MODEL = "claude-haiku-4-5-20251001"  # cheapest current model
+# Bare alias, never a dated snapshot: when a snapshot retires it 404s, and
+# NotFoundError falls past the False-returning excepts below into the APIError
+# arm — turning every user's key validation into a 503. The selection criterion
+# is breadth of key access rather than price (Haiku is the least likely tier to
+# be gated), though max_tokens=1 makes the cost ~0 either way.
+_VALIDATION_MODEL = "claude-haiku-4-5"
 
 
 async def validate_anthropic_key(api_key: str) -> bool:

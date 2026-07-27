@@ -357,14 +357,36 @@
           "health"
         ],
         "summary": "Health Check",
-        "description": "Health check with database connectivity probe.",
+        "description": "Report process liveness; with ``?deep=true``, also probe the database.\n\nThe shallow form never touches Postgres, so it is safe to call on a short\ninterval without defeating Neon's scale-to-zero. It returns 200 whenever the\nprocess is serving. The deep form adds ``database`` and returns 503 when the\nprobe fails, mirroring the pre-v0.10.2 behaviour for manual checks.",
         "operationId": "health_check_api_v1_health_get",
+        "parameters": [
+          {
+            "name": "deep",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "boolean",
+              "default": false,
+              "title": "Deep"
+            }
+          }
+        ],
         "responses": {
           "200": {
             "description": "Successful Response",
             "content": {
               "application/json": {
                 "schema": {}
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
               }
             }
           }
@@ -3630,6 +3652,48 @@
         }
       }
     },
+    "/api/v1/imports/spotify/recent": {
+      "post": {
+        "tags": [
+          "imports"
+        ],
+        "summary": "Import Spotify Recent",
+        "description": "Poll Spotify's recently-played API for new plays.\n\nScope-gated rather than merely connection-gated: a grant minted before\nv0.10.1 still works for likes and playlists, so the generic connected check\nwould let it through and fail later inside the operation.",
+        "operationId": "import_spotify_recent_api_v1_imports_spotify_recent_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ImportSpotifyRecentRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/OperationStartedResponse"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/api/v1/imports/spotify/likes": {
       "post": {
         "tags": [
@@ -6076,6 +6140,29 @@
         "type": "object",
         "title": "ImportSpotifyLikesRequest",
         "description": "Request body for triggering a Spotify likes import."
+      },
+      "ImportSpotifyRecentRequest": {
+        "properties": {
+          "limit": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Limit"
+          },
+          "force": {
+            "type": "boolean",
+            "title": "Force",
+            "default": false
+          }
+        },
+        "type": "object",
+        "title": "ImportSpotifyRecentRequest",
+        "description": "Request body for polling Spotify's recently-played API.\n\nNo mode field: the stored cursor makes every poll incremental. ``limit`` is\nclamped to the endpoint's 50-play ceiling downstream. ``force`` ignores the\ncursor for one poll and re-reads the whole retained window \u2014 a recovery\nlever for a cursor that ran ahead of what was actually stored; re-ingesting\nseen plays is harmless (the ledger conflict-skips them)."
       },
       "JsonDict": {
         "additionalProperties": {
@@ -8989,6 +9076,11 @@
               }
             ]
           },
+          "successful_run_count": {
+            "type": "integer",
+            "title": "Successful Run Count",
+            "default": 0
+          },
           "definition": {
             "$ref": "#/components/schemas/WorkflowDefSchema-Output"
           }
@@ -9532,6 +9624,11 @@
                 "type": "null"
               }
             ]
+          },
+          "successful_run_count": {
+            "type": "integer",
+            "title": "Successful Run Count",
+            "default": 0
           }
         },
         "type": "object",

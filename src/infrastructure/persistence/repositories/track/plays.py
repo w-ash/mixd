@@ -252,7 +252,10 @@ class TrackPlayRepository(BaseRepository[DBTrackPlay, TrackPlay]):
                 .group_by(DBTrackPlay.track_id)
             )
             period_result = await self.session.execute(period_stmt)
-            result["period_plays"] = dict(period_result.tuples())
+            # `.all()` is load-bearing: `dict()` on a bare Result takes the
+            # mapping path via its `keys()` method and raises, rather than
+            # iterating rows.
+            result["period_plays"] = dict(period_result.tuples().all())
 
         # Backfill missing track_ids with defaults for each requested metric
         if "total_plays" in result:
@@ -405,40 +408,6 @@ class TrackPlayRepository(BaseRepository[DBTrackPlay, TrackPlay]):
             order_by = ("played_at", True)  # ASC
 
         return await self.find_by([user_filter], limit=limit, order_by=order_by)
-
-    @db_operation("find_plays_in_time_range")
-    async def find_plays_in_time_range(
-        self,
-        track_ids: list[UUID],
-        start: datetime,
-        end: datetime,
-        *,
-        user_id: str,
-    ) -> list[TrackPlay]:
-        """Find existing plays for given tracks within a time range, scoped to user.
-
-        Used by cross-source deduplication to find candidate matches before
-        running the dedup algorithm. Leverages ``ix_track_plays_track_played``
-        composite index for efficient lookups.
-
-        Args:
-            track_ids: Canonical track IDs to search for.
-            start: Range start (inclusive, timezone-aware UTC).
-            end: Range end (inclusive, timezone-aware UTC).
-            user_id: Owner's user ID.
-
-        Returns:
-            Matching plays within the time range.
-        """
-        if not track_ids:
-            return []
-
-        return await self.find_by([
-            self.model_class.track_id.in_(track_ids),
-            self.model_class.played_at >= start,
-            self.model_class.played_at <= end,
-            self.model_class.user_id == user_id,
-        ])
 
     @db_operation("find_plays_in_window")
     async def find_plays_in_window(

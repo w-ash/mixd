@@ -18,6 +18,7 @@ from uuid import UUID
 
 from attrs import define, evolve
 
+from src.application.services.schedule_signal import notify_schedule_changed
 from src.application.services.schedule_timing import compute_next_run
 from src.application.use_cases._shared.schedule_validators import (
     validate_iana_timezone,
@@ -144,20 +145,26 @@ class UpsertScheduleUseCase:
                 )
                 replaced = _with_next_run(candidate, now=now)
                 saved = await repo.update_schedule(replaced, user_id=command.user_id)
-                return UpsertScheduleResult(schedule=saved, created=False)
+                created = False
+            else:
+                # Create fresh (enabled by default via the entity).
+                candidate = Schedule(
+                    user_id=command.user_id,
+                    workflow_id=command.workflow_id,
+                    sync_target=command.sync_target,
+                    hour=command.hour,
+                    minute=command.minute,
+                    day_of_week=command.day_of_week,
+                    timezone=timezone,
+                )
+                saved = await repo.create(_with_next_run(candidate, now=now))
+                created = True
 
-            # Create fresh (enabled by default via the entity).
-            candidate = Schedule(
-                user_id=command.user_id,
-                workflow_id=command.workflow_id,
-                sync_target=command.sync_target,
-                hour=command.hour,
-                minute=command.minute,
-                day_of_week=command.day_of_week,
-                timezone=timezone,
-            )
-            saved = await repo.create(_with_next_run(candidate, now=now))
-            return UpsertScheduleResult(schedule=saved, created=True)
+        # After commit: the scheduler sleeps until the next fire time, so a new
+        # or re-timed schedule has to interrupt that sleep or it would sit unseen
+        # until the sleep expired and then be skipped as a missed window.
+        notify_schedule_changed()
+        return UpsertScheduleResult(schedule=saved, created=created)
 
 
 # ---------------------------------------------------------------------------
@@ -209,7 +216,12 @@ class ToggleScheduleUseCase:
                 updated = evolve(existing, status="disabled")
 
             saved = await repo.update_schedule(updated, user_id=command.user_id)
-            return ToggleScheduleResult(schedule=saved)
+
+        if command.enabled:
+            # Only enabling can bring a fire time forward; a disable just means
+            # the loop's next wake finds nothing to do, which needs no signal.
+            notify_schedule_changed()
+        return ToggleScheduleResult(schedule=saved)
 
 
 # ---------------------------------------------------------------------------

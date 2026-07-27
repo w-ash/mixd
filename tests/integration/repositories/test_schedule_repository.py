@@ -13,7 +13,7 @@ CHECKs (those are verified by a real migration run before tagging).
 
 import asyncio
 from collections.abc import AsyncGenerator
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 from uuid import uuid4, uuid7
 
 from attrs import evolve
@@ -199,6 +199,68 @@ class TestFindDueSchedules:
         await repo.create(_sync_schedule("u1", started_at=_DUE))
         due = await repo.find_due_schedules(_DUE)
         assert all(s.user_id != "u1" for s in due)
+
+
+class TestFindNextWakeAt:
+    """When the scheduler must next act — the loop sleeps to exactly this.
+
+    Getting it wrong is a real outage: too late and a schedule fires past its
+    grace window and is skipped as missed; too early and the loop spins and the
+    database never suspends.
+    """
+
+    _STUCK_TIMEOUT = 1800
+
+    async def test_none_when_nothing_scheduled(self, db_session: AsyncSession) -> None:
+        repo = ScheduleRepository(db_session)
+        wake = await repo.find_next_wake_at(stuck_timeout_seconds=self._STUCK_TIMEOUT)
+        assert wake is None
+
+    async def test_returns_earliest_due_time(self, db_session: AsyncSession) -> None:
+        repo = ScheduleRepository(db_session)
+        await repo.create(_sync_schedule("u1", next_run_at=_LATER))
+        await repo.create(
+            _sync_schedule("u1", sync_target="spotify:likes", next_run_at=_DUE)
+        )
+
+        wake = await repo.find_next_wake_at(stuck_timeout_seconds=self._STUCK_TIMEOUT)
+        assert wake == _DUE
+
+    async def test_ignores_disabled_schedules(self, db_session: AsyncSession) -> None:
+        # Mirrors find_due_schedules' predicate — waking for a row that query
+        # will never return means waking for nothing.
+        repo = ScheduleRepository(db_session)
+        await repo.create(_sync_schedule("u1", next_run_at=_DUE, status="disabled"))
+        await repo.create(
+            _sync_schedule("u1", sync_target="spotify:likes", next_run_at=_LATER)
+        )
+
+        wake = await repo.find_next_wake_at(stuck_timeout_seconds=self._STUCK_TIMEOUT)
+        assert wake == _LATER
+
+    async def test_accounts_for_the_stuck_claim_reap_deadline(
+        self, db_session: AsyncSession
+    ) -> None:
+        # A claimed row is excluded from the due predicate, so without this the
+        # loop would sleep past its reap deadline and strand the claim.
+        repo = ScheduleRepository(db_session)
+        await repo.create(_sync_schedule("u1", started_at=_DUE))
+
+        wake = await repo.find_next_wake_at(stuck_timeout_seconds=self._STUCK_TIMEOUT)
+        assert wake == _DUE + timedelta(seconds=self._STUCK_TIMEOUT)
+
+    async def test_returns_the_earlier_of_due_and_reap(
+        self, db_session: AsyncSession
+    ) -> None:
+        repo = ScheduleRepository(db_session)
+        # Claimed at _DUE → reaped at _DUE + 30min, which lands before _LATER.
+        await repo.create(_sync_schedule("u1", started_at=_DUE))
+        await repo.create(
+            _sync_schedule("u1", sync_target="spotify:likes", next_run_at=_LATER)
+        )
+
+        wake = await repo.find_next_wake_at(stuck_timeout_seconds=self._STUCK_TIMEOUT)
+        assert wake == _DUE + timedelta(seconds=self._STUCK_TIMEOUT)
 
 
 class TestMarkTransitions:

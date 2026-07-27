@@ -5,6 +5,7 @@
  * connection and node statuses so they survive navigation between pages.
  */
 
+import { useQueryClient } from "@tanstack/react-query";
 import { useCallback, useState } from "react";
 
 import { useRunWorkflowEndpointApiV1WorkflowsWorkflowIdRunPost } from "#/api/generated/workflows/workflows";
@@ -12,6 +13,7 @@ import { useWorkflowExecutionContext } from "#/contexts/WorkflowExecutionContext
 import type { SubProgressUpdate } from "#/hooks/useWorkflowSSE";
 import type { NodeStatus } from "#/lib/sse-types";
 import { toasts } from "#/lib/toasts";
+import { afterRunStateChanged } from "#/lib/workflow-queries";
 
 /** Referentially-stable empty map for non-matching workflows. */
 const EMPTY_MAP: Map<string, NodeStatus> = new Map();
@@ -33,6 +35,7 @@ export function useWorkflowExecution(
   workflowId: string,
 ): UseWorkflowExecutionReturn {
   const ctx = useWorkflowExecutionContext();
+  const queryClient = useQueryClient();
   const mutation = useRunWorkflowEndpointApiV1WorkflowsWorkflowIdRunPost({
     mutation: { meta: { errorLabel: "Failed to start workflow" } },
   });
@@ -53,6 +56,9 @@ export function useWorkflowExecution(
               run_id: string;
             };
             ctx.startExecution(workflowId, data.operation_id, data.run_id);
+            // Flip every mounted surface to "running" now rather than waiting
+            // out the 25s idle poll on active-runs.
+            afterRunStateChanged(queryClient, workflowId, data.run_id);
           } else {
             toasts.message("Failed to start workflow");
           }
@@ -65,7 +71,7 @@ export function useWorkflowExecution(
         },
       },
     );
-  }, [mutation.mutate, workflowId, ctx.startExecution]);
+  }, [mutation.mutate, workflowId, ctx.startExecution, queryClient]);
 
   if (!isThisWorkflow) {
     return {

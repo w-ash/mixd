@@ -4,14 +4,19 @@ Provides dependency functions for extracting user identity and other
 request-scoped context from the ASGI scope.
 """
 
-from collections.abc import Awaitable, Callable
+from collections.abc import Awaitable, Callable, Collection
 from typing import Literal, cast
 
 from fastapi import Depends, Request
 
 from src.application.chat.protocols import LLMClientProtocol
 from src.config.constants import BusinessLimits
-from src.domain.exceptions import ChatUnavailableError, ConnectorNotConnectedError
+from src.domain.exceptions import (
+    ChatUnavailableError,
+    ConnectorNotConnectedError,
+    ConnectorScopeMissingError,
+)
+from src.infrastructure.connectors._shared.oauth_scopes import missing_from_grant
 from src.infrastructure.connectors._shared.token_storage import get_token_storage
 from src.interface.api.auth_gate import JWTClaims
 
@@ -49,6 +54,33 @@ def require_connector_connected(service: str) -> Callable[..., Awaitable[None]]:
     async def _dep(user_id: str = Depends(get_current_user_id)) -> None:
         if await get_token_storage().load_token(service, user_id) is None:
             raise ConnectorNotConnectedError(service)
+
+    return _dep
+
+
+def require_connector_scopes(
+    service: str, scopes: Collection[str]
+) -> Callable[..., Awaitable[None]]:
+    """Build a pre-flight dependency that also 409s on a scope gap.
+
+    Extends :func:`require_connector_connected` for routes whose whole point is
+    a surface an older grant never covered — a v0.10.1 recently-played poll on a
+    token minted before that scope existed. Without this the request would pass
+    the connected check (``scope_missing`` deliberately keeps ``connected=True``,
+    since likes and playlists still work), open a background operation, and only
+    then fail inside the importer.
+
+    Kept a sibling rather than a parameter on ``require_connector_connected`` so
+    that function's "token-presence only" contract stays intact for the routes
+    that want exactly that.
+    """
+
+    async def _dep(user_id: str = Depends(get_current_user_id)) -> None:
+        token = await get_token_storage().load_token(service, user_id)
+        if token is None:
+            raise ConnectorNotConnectedError(service)
+        if missing := missing_from_grant(token.get("scope"), scopes):
+            raise ConnectorScopeMissingError(service, missing)
 
     return _dep
 

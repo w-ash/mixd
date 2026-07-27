@@ -239,6 +239,78 @@ class TestConnectorConnectPreflight:
             response = await client.post("/api/v1/imports/lastfm/likes", json={})
         assert response.status_code == 409
 
+    async def test_spotify_recent_409_when_not_connected(
+        self, client: httpx.AsyncClient
+    ):
+        with self._disconnected():
+            response = await client.post("/api/v1/imports/spotify/recent", json={})
+        assert response.status_code == 409
+        assert response.json()["error"]["code"] == "CONNECTOR_NOT_CONNECTED"
+
+    async def test_spotify_recent_409_when_grant_lacks_the_scope(
+        self, client: httpx.AsyncClient
+    ):
+        """A pre-v0.10.1 grant passes the connected check but not this route.
+
+        409 rather than the RFC 6750 403: the caller's own session is valid —
+        what is short is the third-party grant mixd holds for them, which is a
+        connected-account state problem with a reconnect remedy.
+        """
+        storage = AsyncMock()
+        storage.load_token = AsyncMock(
+            return_value=StoredToken(
+                account_name="connected",
+                session_key="sk",
+                scope="playlist-read-private user-library-read",
+            )
+        )
+        with patch("src.interface.api.deps.get_token_storage", return_value=storage):
+            response = await client.post("/api/v1/imports/spotify/recent", json={})
+
+        assert response.status_code == 409
+        error = response.json()["error"]
+        assert error["code"] == "CONNECTOR_SCOPE_MISSING"
+        assert error["details"]["connector"] == "spotify"
+        assert error["details"]["missing_scopes"] == ["user-read-recently-played"]
+
+    async def test_spotify_recent_accepted_when_scope_granted(
+        self, client: httpx.AsyncClient
+    ):
+        storage = AsyncMock()
+        storage.load_token = AsyncMock(
+            return_value=StoredToken(
+                account_name="connected",
+                session_key="sk",
+                scope="user-library-read user-read-recently-played",
+            )
+        )
+        with patch("src.interface.api.deps.get_token_storage", return_value=storage):
+            response = await client.post(
+                "/api/v1/imports/spotify/recent", json={"limit": 50}
+            )
+
+        assert response.status_code == 200
+        assert response.json()["operation_id"]
+
+    async def test_spotify_recent_accepts_force_like_the_chat_surface(
+        self, client: httpx.AsyncClient
+    ):
+        """`force` re-reads the whole window; REST and chat must offer the same lever."""
+        storage = AsyncMock()
+        storage.load_token = AsyncMock(
+            return_value=StoredToken(
+                account_name="connected",
+                session_key="sk",
+                scope="user-read-recently-played",
+            )
+        )
+        with patch("src.interface.api.deps.get_token_storage", return_value=storage):
+            response = await client.post(
+                "/api/v1/imports/spotify/recent", json={"force": True}
+            )
+
+        assert response.status_code == 200
+
     async def test_spotify_history_upload_is_not_gated(self, client: httpx.AsyncClient):
         # The GDPR file upload needs no live token — it must NOT be gated.
         with self._disconnected():

@@ -64,10 +64,26 @@ class TestImportTracksCommand:
                 file_path=Path("/data/test.json"),
             )
 
-    def test_spotify_recent_mode_rejected(self):
-        """Test that Spotify only supports file mode."""
-        with pytest.raises(ValueError, match="only supports file mode"):
-            ImportTracksCommand(user_id="test-user", service="spotify", mode="recent")
+    @pytest.mark.parametrize("mode", ["recent", "incremental"])
+    def test_spotify_api_modes_accepted(self, mode):
+        """Recently-played polling (v0.10.1) accepts both API mode spellings."""
+        cmd = ImportTracksCommand(user_id="test-user", service="spotify", mode=mode)
+        assert cmd.mode == mode
+
+    def test_spotify_full_mode_rejected(self):
+        """The API retains only ~50 plays, so 'the whole history' is unaskable."""
+        with pytest.raises(ValueError, match="doesn't support full mode"):
+            ImportTracksCommand(user_id="test-user", service="spotify", mode="full")
+
+    def test_spotify_api_mode_with_file_path_rejected(self):
+        """An API poll has no file to read — passing one means a confused caller."""
+        with pytest.raises(ValueError, match="file_path is not valid"):
+            ImportTracksCommand(
+                user_id="test-user",
+                service="spotify",
+                mode="recent",
+                file_path=Path("/data/export.json"),
+            )
 
     def test_spotify_file_without_path_rejected(self):
         """Test that Spotify file mode requires file_path."""

@@ -20,6 +20,11 @@ import type {
   UseQueryResult
 } from '@tanstack/react-query';
 
+import type {
+  HTTPValidationError,
+  HealthCheckApiV1HealthGetParams
+} from '../model';
+
 import { customFetch } from '../../client.ts';
 
 
@@ -47,28 +52,47 @@ export type healthCheckApiV1HealthGetResponse200 = {
   status: 200
 }
 
+export type healthCheckApiV1HealthGetResponse422 = {
+  data: HTTPValidationError
+  status: 422
+}
+
 export type healthCheckApiV1HealthGetResponseSuccess = (healthCheckApiV1HealthGetResponse200) & {
   headers: Headers;
 };
-;
+export type healthCheckApiV1HealthGetResponseError = (healthCheckApiV1HealthGetResponse422) & {
+  headers: Headers;
+};
 
-export type healthCheckApiV1HealthGetResponse = (healthCheckApiV1HealthGetResponseSuccess)
+export type healthCheckApiV1HealthGetResponse = (healthCheckApiV1HealthGetResponseSuccess | healthCheckApiV1HealthGetResponseError)
 
-export const getHealthCheckApiV1HealthGetUrl = () => {
+export const getHealthCheckApiV1HealthGetUrl = (params?: HealthCheckApiV1HealthGetParams,) => {
+  const normalizedParams = new URLSearchParams();
 
+  Object.entries(params || {}).forEach(([key, value]) => {
 
+    if (value !== undefined) {
+      normalizedParams.append(key, value === null ? 'null' : String(value))
+    }
+  });
 
+  const stringifiedParams = normalizedParams.toString();
 
-  return `/api/v1/health`
+  return stringifiedParams.length > 0 ? `/api/v1/health?${stringifiedParams}` : `/api/v1/health`
 }
 
 /**
- * Health check with database connectivity probe.
+ * Report process liveness; with ``?deep=true``, also probe the database.
+ *
+ * The shallow form never touches Postgres, so it is safe to call on a short
+ * interval without defeating Neon's scale-to-zero. It returns 200 whenever the
+ * process is serving. The deep form adds ``database`` and returns 503 when the
+ * probe fails, mirroring the pre-v0.10.2 behaviour for manual checks.
  * @summary Health Check
  */
-export const healthCheckApiV1HealthGet = async ( options?: RequestInit): Promise<healthCheckApiV1HealthGetResponse> => {
+export const healthCheckApiV1HealthGet = async (params?: HealthCheckApiV1HealthGetParams, options?: RequestInit): Promise<healthCheckApiV1HealthGetResponse> => {
 
-  return customFetch<healthCheckApiV1HealthGetResponse>(getHealthCheckApiV1HealthGetUrl(),
+  return customFetch<healthCheckApiV1HealthGetResponse>(getHealthCheckApiV1HealthGetUrl(params),
   {
     ...options,
     method: 'GET'
@@ -81,23 +105,23 @@ export const healthCheckApiV1HealthGet = async ( options?: RequestInit): Promise
 
 
 
-export const getHealthCheckApiV1HealthGetQueryKey = () => {
+export const getHealthCheckApiV1HealthGetQueryKey = (params?: HealthCheckApiV1HealthGetParams,) => {
     return [
-    `/api/v1/health`
+    `/api/v1/health`, ...(params ? [params] : [])
     ] as const;
     }
 
 
-export const getHealthCheckApiV1HealthGetQueryOptions = <TData = Awaited<ReturnType<typeof healthCheckApiV1HealthGet>>, TError = unknown>( options?: { query?:Partial<UseQueryOptions<Awaited<ReturnType<typeof healthCheckApiV1HealthGet>>, TError, TData>>, request?: SecondParameter<typeof customFetch>}
+export const getHealthCheckApiV1HealthGetQueryOptions = <TData = Awaited<ReturnType<typeof healthCheckApiV1HealthGet>>, TError = HTTPValidationError>(params?: HealthCheckApiV1HealthGetParams, options?: { query?:Partial<UseQueryOptions<Awaited<ReturnType<typeof healthCheckApiV1HealthGet>>, TError, TData>>, request?: SecondParameter<typeof customFetch>}
 ) => {
 
 const {query: queryOptions, request: requestOptions} = options ?? {};
 
-  const queryKey =  queryOptions?.queryKey ?? getHealthCheckApiV1HealthGetQueryKey();
+  const queryKey =  queryOptions?.queryKey ?? getHealthCheckApiV1HealthGetQueryKey(params);
 
 
 
-    const queryFn: QueryFunction<Awaited<ReturnType<typeof healthCheckApiV1HealthGet>>> = ({ signal }) => healthCheckApiV1HealthGet({ signal, ...requestOptions });
+    const queryFn: QueryFunction<Awaited<ReturnType<typeof healthCheckApiV1HealthGet>>> = ({ signal }) => healthCheckApiV1HealthGet(params, { signal, ...requestOptions });
 
 
 
@@ -107,11 +131,11 @@ const {query: queryOptions, request: requestOptions} = options ?? {};
 }
 
 export type HealthCheckApiV1HealthGetQueryResult = NonNullable<Awaited<ReturnType<typeof healthCheckApiV1HealthGet>>>
-export type HealthCheckApiV1HealthGetQueryError = unknown
+export type HealthCheckApiV1HealthGetQueryError = HTTPValidationError
 
 
-export function useHealthCheckApiV1HealthGet<TData = Awaited<ReturnType<typeof healthCheckApiV1HealthGet>>, TError = unknown>(
-  options: { query:Partial<UseQueryOptions<Awaited<ReturnType<typeof healthCheckApiV1HealthGet>>, TError, TData>> & Pick<
+export function useHealthCheckApiV1HealthGet<TData = Awaited<ReturnType<typeof healthCheckApiV1HealthGet>>, TError = HTTPValidationError>(
+ params: undefined |  HealthCheckApiV1HealthGetParams, options: { query:Partial<UseQueryOptions<Awaited<ReturnType<typeof healthCheckApiV1HealthGet>>, TError, TData>> & Pick<
         DefinedInitialDataOptions<
           Awaited<ReturnType<typeof healthCheckApiV1HealthGet>>,
           TError,
@@ -120,8 +144,8 @@ export function useHealthCheckApiV1HealthGet<TData = Awaited<ReturnType<typeof h
       >, request?: SecondParameter<typeof customFetch>}
  , queryClient?: QueryClient
   ):  DefinedUseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> }
-export function useHealthCheckApiV1HealthGet<TData = Awaited<ReturnType<typeof healthCheckApiV1HealthGet>>, TError = unknown>(
-  options?: { query?:Partial<UseQueryOptions<Awaited<ReturnType<typeof healthCheckApiV1HealthGet>>, TError, TData>> & Pick<
+export function useHealthCheckApiV1HealthGet<TData = Awaited<ReturnType<typeof healthCheckApiV1HealthGet>>, TError = HTTPValidationError>(
+ params?: HealthCheckApiV1HealthGetParams, options?: { query?:Partial<UseQueryOptions<Awaited<ReturnType<typeof healthCheckApiV1HealthGet>>, TError, TData>> & Pick<
         UndefinedInitialDataOptions<
           Awaited<ReturnType<typeof healthCheckApiV1HealthGet>>,
           TError,
@@ -130,20 +154,20 @@ export function useHealthCheckApiV1HealthGet<TData = Awaited<ReturnType<typeof h
       >, request?: SecondParameter<typeof customFetch>}
  , queryClient?: QueryClient
   ):  UseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> }
-export function useHealthCheckApiV1HealthGet<TData = Awaited<ReturnType<typeof healthCheckApiV1HealthGet>>, TError = unknown>(
-  options?: { query?:Partial<UseQueryOptions<Awaited<ReturnType<typeof healthCheckApiV1HealthGet>>, TError, TData>>, request?: SecondParameter<typeof customFetch>}
+export function useHealthCheckApiV1HealthGet<TData = Awaited<ReturnType<typeof healthCheckApiV1HealthGet>>, TError = HTTPValidationError>(
+ params?: HealthCheckApiV1HealthGetParams, options?: { query?:Partial<UseQueryOptions<Awaited<ReturnType<typeof healthCheckApiV1HealthGet>>, TError, TData>>, request?: SecondParameter<typeof customFetch>}
  , queryClient?: QueryClient
   ):  UseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> }
 /**
  * @summary Health Check
  */
 
-export function useHealthCheckApiV1HealthGet<TData = Awaited<ReturnType<typeof healthCheckApiV1HealthGet>>, TError = unknown>(
-  options?: { query?:Partial<UseQueryOptions<Awaited<ReturnType<typeof healthCheckApiV1HealthGet>>, TError, TData>>, request?: SecondParameter<typeof customFetch>}
+export function useHealthCheckApiV1HealthGet<TData = Awaited<ReturnType<typeof healthCheckApiV1HealthGet>>, TError = HTTPValidationError>(
+ params?: HealthCheckApiV1HealthGetParams, options?: { query?:Partial<UseQueryOptions<Awaited<ReturnType<typeof healthCheckApiV1HealthGet>>, TError, TData>>, request?: SecondParameter<typeof customFetch>}
  , queryClient?: QueryClient
  ):  UseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> } {
 
-  const queryOptions = getHealthCheckApiV1HealthGetQueryOptions(options)
+  const queryOptions = getHealthCheckApiV1HealthGetQueryOptions(params,options)
 
   const query = useQuery(queryOptions, queryClient) as  UseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> };
 

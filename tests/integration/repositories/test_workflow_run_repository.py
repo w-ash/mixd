@@ -424,22 +424,69 @@ class TestLatestRunQueries:
 
         wf2_latest = await repo.create_run(_make_run(wf2.id, status="completed"))
 
-        result = await repo.get_latest_runs_for_workflows([wf1.id, wf2.id])
-        assert len(result) == 2
-        assert result[wf1.id].id == wf1_latest.id
-        assert result[wf2.id].id == wf2_latest.id
+        latest, _counts = await repo.get_run_summaries_for_workflows([
+            wf1.id,
+            wf2.id,
+        ])
+        assert len(latest) == 2
+        assert latest[wf1.id].id == wf1_latest.id
+        assert latest[wf2.id].id == wf2_latest.id
 
     async def test_batch_latest_runs_empty_ids(self, db_session) -> None:
         repo = WorkflowRunRepository(db_session)
 
-        result = await repo.get_latest_runs_for_workflows([])
-        assert result == {}
+        assert await repo.get_run_summaries_for_workflows([]) == ({}, {})
 
     async def test_batch_latest_runs_missing_workflow(self, db_session) -> None:
         repo = WorkflowRunRepository(db_session)
 
-        result = await repo.get_latest_runs_for_workflows([uuid7()])
-        assert result == {}
+        assert await repo.get_run_summaries_for_workflows([uuid7()]) == ({}, {})
+
+
+class TestSuccessfulRunCounts:
+    """The completed-run tally rides the same query as the latest run."""
+
+    async def test_counts_only_completed_runs(self, db_session) -> None:
+        wf_repo = WorkflowRepository(db_session)
+        repo = WorkflowRunRepository(db_session)
+
+        wf1 = await wf_repo.save_workflow(
+            Workflow(user_id="default", definition=_make_def("wf1", "WF1"))
+        )
+        wf2 = await wf_repo.save_workflow(
+            Workflow(user_id="default", definition=_make_def("wf2", "WF2"))
+        )
+
+        for status in ("completed", "completed", "failed", "cancelled", "crashed"):
+            await repo.create_run(_make_run(wf1.id, status=status))
+        await repo.create_run(_make_run(wf2.id, status="completed"))
+
+        _latest, counts = await repo.get_run_summaries_for_workflows([
+            wf1.id,
+            wf2.id,
+        ])
+        assert counts[wf1.id] == 2
+        assert counts[wf2.id] == 1
+
+    async def test_failed_only_workflow_is_absent(self, db_session) -> None:
+        """No completed runs means no key — the caller defaults it to zero."""
+        workflow = await _create_workflow(db_session)
+        repo = WorkflowRunRepository(db_session)
+
+        await repo.create_run(_make_run(workflow.id, status="failed"))
+
+        _latest, counts = await repo.get_run_summaries_for_workflows([workflow.id])
+        assert counts == {}
+
+    async def test_empty_ids_short_circuits(self, db_session) -> None:
+        repo = WorkflowRunRepository(db_session)
+
+        assert await repo.get_run_summaries_for_workflows([]) == ({}, {})
+
+    async def test_unknown_workflow_is_absent(self, db_session) -> None:
+        repo = WorkflowRunRepository(db_session)
+
+        assert await repo.get_run_summaries_for_workflows([uuid7()]) == ({}, {})
 
 
 class TestCascadeDelete:

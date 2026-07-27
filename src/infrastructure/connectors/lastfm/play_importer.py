@@ -34,6 +34,23 @@ from src.infrastructure.services.base_play_importer import BasePlayImporter
 
 logger = get_logger(__name__)
 
+# The cursor records the last completed day AND the Last.fm account it belongs
+# to, separated by "@" (never legal in a Last.fm username, so the split is
+# unambiguous). The account half exists because the checkpoint row is keyed on
+# the mixd user — see _checkpoint_matches_account.
+_CURSOR_ACCOUNT_SEPARATOR = "@"
+
+
+def _encode_cursor(completed_date: date, account: str) -> str:
+    """Build a cursor from the completed day and the account it was fetched for."""
+    return f"{completed_date.isoformat()}{_CURSOR_ACCOUNT_SEPARATOR}{account}"
+
+
+def _decode_cursor(cursor: str) -> tuple[str, str | None]:
+    """Split a cursor into (date text, account or None when unrecorded)."""
+    day, separator, account = cursor.partition(_CURSOR_ACCOUNT_SEPARATOR)
+    return day, account if separator else None
+
 
 class LastfmPlayImporter(
     BasePlayImporter[PlayRecord, LastfmImportParams], PlayImporterProtocol
@@ -72,7 +89,7 @@ class LastfmPlayImporter(
         uow: UnitOfWorkProtocol,
         params: PlayImportParams,
         *,
-        user_id: str | None = None,
+        user_id: str,
         progress_emitter: ProgressEmitter | None = None,
     ) -> tuple[OperationResult, list[ConnectorTrackPlay]]:
         """Import Last.fm plays as connector_plays for later resolution.
@@ -80,8 +97,8 @@ class LastfmPlayImporter(
         Args:
             uow: Unit of work for database operations
             params: Last.fm import selectors (username, date range, limit)
-            user_id: The mixd user id (web path) for token-first account
-                resolution; None for CLI/local-dev
+            user_id: The mixd user id, used for token-first account resolution
+                and ledger tenancy
             progress_emitter: Optional progress emitter
 
         Returns:
@@ -111,7 +128,9 @@ class LastfmPlayImporter(
             params.limit
             and params.limit >= settings.import_settings.full_history_import_threshold
         ):
-            await self._reset_checkpoint_for_full_history(resolved_username, uow)
+            await self._reset_checkpoint_for_full_history(
+                user_id=user_id, account=resolved_username, uow=uow
+            )
 
         result, connector_plays = await self.import_data(
             evolve(params, username=resolved_username),
@@ -129,7 +148,7 @@ class LastfmPlayImporter(
         return result, connector_plays
 
     async def _resolve_username(
-        self, request_username: str | None, user_id: str | None
+        self, request_username: str | None, user_id: str
     ) -> str:
         """Resolve the Last.fm account to import, token-first.
 
@@ -139,17 +158,17 @@ class LastfmPlayImporter(
            env — the cross-tenant leak this fix closes.
         2. An explicit request ``username`` (a CLI affordance; the web import route
            has no username field, so it is unreachable from the web).
-        3. The ``LASTFM_USERNAME`` env fallback (CLI / local-dev only).
+        3. The ``LASTFM_USERNAME`` env fallback (CLI / local-dev only, where
+           ``user_id`` is the ``DEFAULT_USER_ID`` sentinel and holds no token).
 
         Raises ``LastfmAuthRequiredError`` when nothing resolves (a web user with no
         connected Last.fm account and no env) — surfaced as a clean terminal error.
         """
-        if user_id is not None:
-            token = await self._token_storage.load_token("lastfm", user_id)
-            if token is not None:
-                account_name = token.get("account_name")
-                if account_name:
-                    return account_name
+        token = await self._token_storage.load_token("lastfm", user_id)
+        if token is not None:
+            account_name = token.get("account_name")
+            if account_name:
+                return account_name
 
         if request_username:
             return request_username
@@ -182,6 +201,7 @@ class LastfmPlayImporter(
         params: LastfmImportParams,
         *,
         uow: UnitOfWorkProtocol,
+        user_id: str,
         progress_emitter: ProgressEmitter | None = None,
         operation_id: str | None = None,
     ) -> list[PlayRecord]:
@@ -193,7 +213,9 @@ class LastfmPlayImporter(
         username = self._require_resolved_username(params)
 
         explicit_range = params.from_date is not None
-        checkpoint = await self._resolve_checkpoint(username, uow)
+        checkpoint = await self._resolve_checkpoint(
+            user_id=user_id, account=username, uow=uow
+        )
 
         effective_from, effective_to = self._determine_date_range(
             requested_from=params.from_date,
@@ -207,6 +229,7 @@ class LastfmPlayImporter(
         return await self._fetch_date_range_strategy(
             from_date=effective_from,
             to_date=effective_to,
+            user_id=user_id,
             username=username,
             checkpoint=checkpoint,  # Already resolved; avoids a redundant lookup
             progress_emitter=progress_emitter,
@@ -216,22 +239,60 @@ class LastfmPlayImporter(
         )
 
     async def _resolve_checkpoint(
-        self, username: str, uow: UnitOfWorkProtocol
+        self, *, user_id: str, account: str, uow: UnitOfWorkProtocol
     ) -> SyncCheckpoint | None:
-        """Load the plays sync checkpoint, degrading to None on lookup failure."""
+        """Load the plays sync checkpoint, degrading to None on lookup failure.
+
+        Keyed on the mixd ``user_id``, not the Last.fm account: ``sync_checkpoints``
+        is FORCE-RLS'd on ``user_id`` (migrations 007 + 011), so any other key is
+        invisible to reads and rejected on write.
+        """
         try:
             checkpoint_repository = uow.get_checkpoint_repository()
             checkpoint = await checkpoint_repository.get_sync_checkpoint(
-                user_id=username, service="lastfm", entity_type="plays"
+                user_id=user_id, service="lastfm", entity_type="plays"
             )
         except Exception as e:
             logger.warning(f"Checkpoint resolution failed: {e}")
             return None
 
+        if checkpoint is not None and not self._checkpoint_matches_account(
+            checkpoint, account
+        ):
+            return None
+
         logger.debug(
-            f"Checkpoint resolution: found={checkpoint is not None}, user={username}"
+            f"Checkpoint resolution: found={checkpoint is not None}, "
+            f"user={user_id}, account={account}"
         )
         return checkpoint
+
+    @staticmethod
+    def _checkpoint_matches_account(checkpoint: SyncCheckpoint, account: str) -> bool:
+        """Whether the checkpoint's recorded account is the one being imported.
+
+        The row is keyed on the mixd user, but the account behind it can change
+        (reconnecting a different Last.fm account, or just editing
+        ``LASTFM_USERNAME`` locally) — and nothing clears the checkpoint when it
+        does. Resuming the previous account's position would silently skip all of
+        the new account's history before that date, so a mismatch is treated as
+        "no checkpoint": the run falls back to the default window and a
+        full-history import can backfill the rest. Cursors with no account
+        recorded predate this encoding and are accepted as-is.
+        """
+        if checkpoint.cursor is None:
+            return True
+        recorded = _decode_cursor(checkpoint.cursor)[1]
+        if recorded is None or recorded.casefold() == account.casefold():
+            return True
+
+        logger.warning(
+            "Last.fm checkpoint belongs to a different account — ignoring it and "
+            "importing the default window; run a full-history import to backfill",
+            checkpoint_account=recorded,
+            requested_account=account,
+        )
+        return False
 
     def _determine_date_range(
         self,
@@ -265,8 +326,10 @@ class LastfmPlayImporter(
 
     async def _fetch_date_range_strategy(
         self,
+        *,
         from_date: datetime,
         to_date: datetime,
+        user_id: str,
         username: str,
         checkpoint: SyncCheckpoint | None = None,
         progress_emitter: ProgressEmitter | None = None,
@@ -280,6 +343,8 @@ class LastfmPlayImporter(
         the Last.fm client paginates within a day when needed.
 
         Args:
+            user_id: The mixd user the per-day checkpoints are keyed on.
+            username: The resolved Last.fm account the plays are fetched from.
             explicit_range: When True, the caller explicitly requested this date range.
                 The checkpoint will NOT override the start date, allowing historical
                 fetches even when the checkpoint is ahead of the requested range.
@@ -351,7 +416,8 @@ class LastfmPlayImporter(
             # survives machine restarts (at most one day lost on crash)
             if uow:
                 await self._save_day_checkpoint(
-                    username=username,
+                    user_id=user_id,
+                    account=username,
                     completed_date=current_date,
                     day_end=effective_end,
                     uow=uow,
@@ -394,7 +460,9 @@ class LastfmPlayImporter(
             return requested_start
 
         try:
-            checkpoint_date = datetime.fromisoformat(checkpoint.cursor).date()
+            checkpoint_date = datetime.fromisoformat(
+                _decode_cursor(checkpoint.cursor)[0]
+            ).date()
         except (ValueError, TypeError) as e:
             logger.warning(
                 f"Invalid checkpoint cursor '{checkpoint.cursor}': {e}, starting from beginning"
@@ -446,7 +514,9 @@ class LastfmPlayImporter(
 
     async def _save_day_checkpoint(
         self,
-        username: str,
+        *,
+        user_id: str,
+        account: str,
         completed_date: date,
         day_end: datetime,
         uow: UnitOfWorkProtocol,
@@ -454,27 +524,44 @@ class LastfmPlayImporter(
         """Save checkpoint after successfully processing a day.
 
         Args:
-            username: Last.fm username (used as user_id)
+            user_id: The mixd user the checkpoint belongs to. ``sync_checkpoints``
+                is FORCE-RLS'd on this column, so it is the only key a write can
+                use — anything else is rejected by the ``user_isolation`` policy.
+            account: The Last.fm account the day was fetched from, recorded in
+                the cursor so a later account switch is detectable.
             completed_date: The date that was just completed
             day_end: End timestamp of the completed day
             uow: UnitOfWork for database operations with proper transaction context
         """
         try:
             checkpoint = SyncCheckpoint(
-                user_id=username,
+                user_id=user_id,
                 service="lastfm",
                 entity_type="plays",
                 last_timestamp=day_end,
-                cursor=completed_date.isoformat(),  # ISO string for easy parsing
+                cursor=_encode_cursor(completed_date, account),
             )
 
             checkpoint_repo = uow.get_checkpoint_repository()
             _ = await checkpoint_repo.save_sync_checkpoint(checkpoint)
-            logger.debug(f"Checkpoint saved: user={username}, date={completed_date}")
+            logger.debug(f"Checkpoint saved: user={user_id}, date={completed_date}")
 
         except Exception as e:
-            # Don't fail the import for checkpoint errors, just log them
-            logger.warning(f"Failed to save checkpoint for day {completed_date}: {e}")
+            # Still swallowed — a checkpoint is a resume hint, and losing it must
+            # not discard a long import's already-fetched days. But logged at
+            # ERROR with a stack trace and the exact key: the previous WARNING
+            # with only the message text is what let a permanently-rejected write
+            # (wrong RLS key) look like noise for months.
+            logger.error(
+                "Failed to save Last.fm play checkpoint — the next incremental "
+                "import will restart from the default window instead of resuming",
+                user_id=user_id,
+                account=account,
+                completed_date=completed_date.isoformat(),
+                error=str(e),
+                error_type=type(e).__name__,
+                exc_info=True,
+            )
 
     @override
     async def _process_data(
@@ -505,26 +592,29 @@ class LastfmPlayImporter(
         ]
 
     async def _reset_checkpoint_for_full_history(
-        self, username: str, uow: UnitOfWorkProtocol
+        self, *, user_id: str, account: str, uow: UnitOfWorkProtocol
     ) -> None:
         """Reset the Last.fm checkpoint so a full-history import starts clean.
 
         Args:
-            username: The resolved Last.fm account name.
+            user_id: The mixd user whose checkpoint is cleared (the RLS key).
+            account: The resolved Last.fm account name, for the log line only.
             uow: Unit of work for database operations.
         """
         checkpoint = SyncCheckpoint(
-            user_id=username,
+            user_id=user_id,
             service="lastfm",
             entity_type="plays",
             last_timestamp=None,  # Forces full import
+            cursor=None,  # Clears both the resume date and the recorded account
         )
 
         checkpoint_repo = uow.get_checkpoint_repository()
         _ = await checkpoint_repo.save_sync_checkpoint(checkpoint)
 
         logger.info(
-            f"Reset Last.fm checkpoint for full history import: user={username}"
+            f"Reset Last.fm checkpoint for full history import: "
+            f"user={user_id}, account={account}"
         )
 
     @override
@@ -533,5 +623,7 @@ class LastfmPlayImporter(
         raw_data: list[PlayRecord],
         params: LastfmImportParams,
         uow: UnitOfWorkProtocol,
+        *,
+        user_id: str,
     ) -> None:
         """No-op: Last.fm checkpoints are saved per day in _save_day_checkpoint."""

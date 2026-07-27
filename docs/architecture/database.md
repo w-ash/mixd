@@ -239,13 +239,45 @@ postgresql+psycopg://mixd:mixd@localhost:5432/mixd
 
 Production deployment uses [Neon](https://neon.tech) managed PostgreSQL:
 
-- **Project**: `us-west-2`, PostgreSQL 17, free tier (0.5GB storage, 100 compute hours/month)
+- **Project**: `us-west-2`, PostgreSQL 17, **Launch plan** (compute billed per CU-hour)
 - **Connection**: Pooler endpoint (built-in PgBouncer) with `sslmode=require`
-- **Scale-to-zero**: Compute suspends after idle timeout; `pool_pre_ping=True` handles reconnection transparently
+- **Scale-to-zero**: Compute suspends after **5 minutes with no query activity**; `pool_pre_ping=True` handles reconnection transparently. On Launch the timeout is fixed — it can be turned off but not shortened (only the Scale plan makes it configurable).
 - **Timeouts**: `statement_timeout` and `lock_timeout` set via `pool_events` (post-connect `SET` commands), not `connect_args` startup parameters — Neon's PgBouncer rejects startup parameters
 - **URL normalization**: `_normalize_database_url()` in `settings.py` converts `postgresql://` (Neon/Fly.io format) to `postgresql+psycopg://` (SQLAlchemy format)
 - **Backups**: Automatic point-in-time recovery on all Neon plans
 - **Cold start**: ~500ms for Neon compute wake + standard connection time. Combined with Fly.io machine wake (~1s) and Python startup (~5s), total cold start is ~7.5s
+
+#### Keeping the compute suspendable
+
+Suspension is driven by **query activity**, not connection count — an idle pooled
+connection does not hold the compute up (Neon kills it on suspend and
+`pool_pre_ping` reconnects). What holds it up is anything that queries on a
+timer. Because the timeout is a fixed 5 minutes, a recurring query at interval
+`T` keeps the compute awake for `min(5min, T)` out of every `T`: a 30s poll bills
+100% of the time, a 10-minute poll still bills 50%. **Slowing a timer down is not
+a fix — it has to stop, or back off far past the window.**
+
+Every recurring database toucher is therefore demand- or event-driven:
+
+| Concern | Mechanism |
+|---|---|
+| `GET /api/v1/health` | No DB by default; the probe is opt-in via `?deep=true` (`routes/health.py`) |
+| Stalled-run sweeper | 30s only while runs execute locally, else a 6h fallback (`run_activity.py` gates it) |
+| Workflow/sync scheduler | Sleeps until the next fire time; `schedule_signal.py` wakes it on a schedule write |
+| Frontend active-run polling | Stops entirely when the list is empty (`useAdaptivePollingList.ts`) |
+
+Two things also worth knowing when reading a Neon bill:
+
+- **Idle bills at full size.** A woken compute costs its whole allocated CU
+  whether busy or not, so `autoscaling_limit_min_cu` multiplies all remaining
+  awake time. Only *suspended* is free.
+- **There is a floor we don't control.** Neon's control plane runs
+  `check_availability`, which starts the compute periodically on Free/Launch
+  ([neon#12900](https://github.com/neondatabase/neon/discussions/12900)). Its
+  interval reportedly stretches for genuinely dormant projects. The floor is
+  per-*project*, so consolidating projects is the lever if it dominates. Ground
+  truth is the Console's **System Operations** tab, not the monitoring graph —
+  allocated CU reads 0.25 continuously and only drops on full suspension.
 
 ## Migration Strategy
 

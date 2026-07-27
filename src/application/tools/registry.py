@@ -146,14 +146,14 @@ _CORE_TOOLS: tuple[ToolSpec, ...] = (
     ToolSpec(
         name="describe_node",
         description=(
-            "Call this before proposing or editing a workflow to confirm which "
-            "node types exist and what parameters each takes. Given a node_type "
-            "it returns that node's category, purpose, and config fields (with "
-            "types, defaults, and select options); omit node_type to list every "
-            "available node type by category. Prevents hallucinated node names "
-            "and missing required parameters."
+            "Call this when a node's catalog line is ambiguous and you want its "
+            "full config detail as structured data: category, purpose, and "
+            "every config field with types, defaults, and select options. Omit "
+            "node_type to list every available node type by category. The "
+            "system prompt's node catalog already covers all of this, so this "
+            "is a lookup for edge cases, not a required step."
         ),
-        input_schema=tool_executor.DESCRIBE_NODE_INPUT_SCHEMA,
+        input_schema=tool_executor.describe_node_input_schema(),
         dispatch=tool_executor.handle_describe_node,
         use_cases=(),  # static-catalog helper — exposes no application use case
         kind="read",
@@ -224,11 +224,10 @@ _CORE_TOOLS: tuple[ToolSpec, ...] = (
     ToolSpec(
         name="save_workflow",
         description=(
-            "Call this to propose persisting a workflow definition after a "
-            "successful generate_workflow_def — pass the exact definition it "
-            "accepted, plus workflow_id when updating an existing workflow "
-            "(omit it to create). The save is a proposal: nothing persists "
-            "until the user confirms on the card this returns."
+            "Call this to persist a workflow definition after a successful "
+            "generate_workflow_def — pass the exact definition it accepted, "
+            "plus workflow_id when updating an existing workflow (omit it to "
+            "create)."
         ),
         input_schema=tool_executor.SAVE_WORKFLOW_INPUT_SCHEMA,
         dispatch=tool_executor.handle_save_workflow,
@@ -261,8 +260,10 @@ _DELEGATE_ANALYSIS_SCHEMA: Mapping[str, JsonValue] = {
         "question": {
             "type": "string",
             "description": (
-                "The self-contained investigation question for the subagent to "
-                "research and answer."
+                "The investigation question. The subagent sees none of this "
+                "conversation, so restate every entity, date range, and "
+                "constraint it needs by name — it cannot resolve 'that "
+                "playlist' or 'the same period'."
             ),
         },
         "scope": {
@@ -327,13 +328,14 @@ _AGENTIC_TOOLS: tuple[ToolSpec, ...] = (
     ToolSpec(
         name="delegate_analysis",
         description=(
-            "Use this to delegate a deep, multi-step investigation of the user's "
-            "library to a research subagent — 'compare my listening this spring vs "
-            "last spring and tell me what changed', 'which starred tracks fell out "
-            "of rotation this year and why'. It runs a fresh read-only loop and "
-            "returns one dense summary, keeping this conversation uncluttered. Do "
-            "NOT call it for questions one or two tools answer directly, and do NOT "
-            "call it for arithmetic over known data — use the code sandbox for that."
+            "Use this when a question needs a genuinely multi-step "
+            "investigation of the user's library — many lookups across play "
+            "history, tags, preferences, and playlists whose intermediate "
+            "results this conversation does not need. It runs a fresh "
+            "read-only loop and returns one dense summary. Do NOT use it for a "
+            "question one or two tools answer directly, for arithmetic over "
+            "data you already have (use the code sandbox), or to verify or "
+            "re-check work you can do yourself. One delegation per question."
         ),
         input_schema=_DELEGATE_ANALYSIS_SCHEMA,
         dispatch=_handle_delegate_analysis,
@@ -442,11 +444,16 @@ _CANONICAL_PAGES: frozenset[str] = frozenset({
 _PAGE_TOOL_HINTS: Mapping[str, tuple[str, ...]] = {
     "playlists": ("query_playlists", "query_playlist_links"),
     "library": ("query_playlists", "query_stats"),
+    # describe_node is deliberately NOT promoted: the cached system prompt
+    # inlines the full node catalog, including every select field's options, so
+    # building a workflow needs no round-trip. That frees the slot for
+    # validate_workflow_def, which handles definitions the model did not just
+    # generate (pasted by the user, or fetched via get_workflow).
     "workflows": (
         "list_user_workflows",
         "get_workflow",
         "query_workflow_history",
-        "describe_node",
+        "validate_workflow_def",
         "generate_workflow_def",
     ),
     "dashboard": ("query_stats", "query_operations"),

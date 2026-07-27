@@ -80,3 +80,61 @@ class TestSpotifyContextParity:
         spotify_id = track_uri.rsplit(":", 1)[-1]
 
         assert build_play_context(play) == resolver._build_context(play, spotify_id)
+
+
+class TestSpotifyApiContextParity:
+    """The API channel resolves through the SAME resolver as the export channel.
+
+    That reuse is v0.10.0's zero-new-dedup-code claim; this pins that its
+    context comes out channel-shaped rather than export-shaped.
+    """
+
+    @staticmethod
+    def _api_play() -> ConnectorTrackPlay:
+        return ConnectorTrackPlay(
+            service="spotify",
+            artist_name="Carwash",
+            track_name="Striptease",
+            album_name="Shimmer",
+            played_at=_PLAYED_AT,
+            ms_played=None,
+            service_metadata={
+                "track_uri": "spotify:track:4iV5W9uYEdYUVa79Axb7Rh",
+                "duration_ms": 201_000,
+                "context_type": "playlist",
+                "context_uri": "spotify:playlist:37i9dQZF1DX0XUsuxWHRQd",
+                "extra_field": "passes through",
+            },
+            import_source="spotify_api",
+        )
+
+    def test_domain_builder_matches_resolver_builder(self):
+        play = self._api_play()
+        resolver = SpotifyConnectorPlayResolver(spotify_connector=MagicMock())
+        spotify_id = "4iV5W9uYEdYUVa79Axb7Rh"
+
+        assert build_play_context(play) == resolver._build_context(play, spotify_id)
+
+    def test_export_only_behavioral_keys_are_absent(self):
+        """The API never observes these, so a null for each would be a lie."""
+        context = build_play_context(self._api_play())
+
+        for absent in (
+            "platform",
+            "country",
+            "reason_start",
+            "reason_end",
+            "shuffle",
+            "skipped",
+            "offline",
+            "incognito_mode",
+        ):
+            assert absent not in context, f"{absent} is export-only"
+
+    def test_channel_native_keys_present_and_id_derived(self):
+        context = build_play_context(self._api_play())
+
+        assert context["spotify_track_id"] == "4iV5W9uYEdYUVa79Axb7Rh"
+        assert context["context_type"] == "playlist"
+        assert context["duration_ms"] == 201_000
+        assert context["extra_field"] == "passes through"

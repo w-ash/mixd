@@ -46,6 +46,7 @@ const connectorDefaults: Record<
     category: "streaming",
     auth_method: "oauth",
     capabilities: [
+      "history_import_api",
       "history_import_file",
       "likes_import",
       "playlist_import",

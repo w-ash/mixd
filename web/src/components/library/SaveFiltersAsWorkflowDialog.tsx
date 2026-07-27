@@ -1,3 +1,4 @@
+import { useQueryClient } from "@tanstack/react-query";
 import { Loader2 } from "lucide-react";
 import { useEffect, useState } from "react";
 import { useNavigate } from "react-router";
@@ -18,6 +19,7 @@ import {
   summarizeFilters,
 } from "#/lib/filters-to-workflow";
 import { toasts } from "#/lib/toasts";
+import { afterWorkflowSaved } from "#/lib/workflow-queries";
 
 interface SaveFiltersAsWorkflowDialogProps {
   open: boolean;
@@ -45,6 +47,7 @@ export function SaveFiltersAsWorkflowDialog({
   narrowsToLiked = false,
 }: SaveFiltersAsWorkflowDialogProps) {
   const navigate = useNavigate();
+  const queryClient = useQueryClient();
   const [name, setName] = useState("");
   const [description, setDescription] = useState("");
 
@@ -56,7 +59,11 @@ export function SaveFiltersAsWorkflowDialog({
     }
   }, [open]);
 
-  const mutation = useCreateWorkflowApiV1WorkflowsPost();
+  // The dialog renders its own inline error, so the global toast would be a
+  // duplicate report of the same failure.
+  const mutation = useCreateWorkflowApiV1WorkflowsPost({
+    mutation: { meta: { suppressErrorToast: true } },
+  });
 
   const trimmedName = name.trim();
   const canSave = trimmedName.length > 0 && !mutation.isPending;
@@ -72,6 +79,12 @@ export function SaveFiltersAsWorkflowDialog({
       {
         onSuccess: (response) => {
           if (response.status === 201) {
+            afterWorkflowSaved(
+              queryClient,
+              response.data.id,
+              response.data,
+              response.headers,
+            );
             onOpenChange(false);
             toasts.success(`Saved "${trimmedName}"`);
             navigate(`/workflows/${response.data.id}/edit`);

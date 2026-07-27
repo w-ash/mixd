@@ -557,6 +557,7 @@ No new endpoints — existing endpoints gain new fields for version tracking and
 | Schema | New Field | Type | Description |
 |--------|-----------|------|-------------|
 | `WorkflowSummarySchema` | `definition_version` | `int` | Current definition version counter (auto-incremented on definition changes) |
+| `WorkflowSummarySchema` | `successful_run_count` | `int` | Completed runs only — failed/cancelled/crashed excluded (v0.10.1). Computed per request via a batched `GROUP BY`, not a stored counter. Inherited by `WorkflowDetailSchema`: `GET`/`PATCH /workflows/{id}` and the version-revert endpoint all return a real count, because the web client writes those responses straight into its detail cache |
 | `WorkflowRunSummarySchema` | `definition_version` | `int` | Version at execution time (enables "changed since this run" indicator) |
 | `WorkflowRunDetailSchema` | `output_tracks` | `OutputTrackSchema[]` | Denormalized snapshot of final output tracks |
 | `WorkflowRunNodeSchema` | `node_details` | `object \| null` | Per-node structured output (filter removal reasons, sort rankings, destination diff) |

@@ -22,6 +22,7 @@ from src.config.constants import WorkflowConstants
 from src.domain.entities.shared import JsonDict
 from src.domain.entities.workflow import Workflow
 from src.interface._shared.run_lifecycle import (
+    bump_heartbeat,
     update_node_status,
     update_run_status,
 )
@@ -1030,6 +1031,7 @@ def _execute_workflow(
                 return await ExecuteWorkflowRunUseCase(
                     update_run_status=update_run_status,
                     update_node_status=update_node_status,
+                    bump_heartbeat=bump_heartbeat,
                 ).execute(wf_def, run_result.run_id, user_id=user_id)
 
         return run_async(_run_with_history())

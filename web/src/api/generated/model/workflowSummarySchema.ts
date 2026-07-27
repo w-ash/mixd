@@ -17,4 +17,5 @@ export interface WorkflowSummarySchema {
   created_at?: string | null;
   updated_at?: string | null;
   last_run?: LastRunSchema | null;
+  successful_run_count?: number;
 }

@@ -155,11 +155,12 @@ class TestWebImportPersistsBothPlayKinds:
                 command, unit_of_work, progress_emitter=emitter
             )
 
-        # Count all rows in this transaction-isolated test session. We don't filter
-        # by user_id: the real importer still saves connector_plays under the
-        # entity-default "default" user (it isn't threaded the command's user_id —
-        # the 6b bug WS-3 fixes), while resolution keys track_plays by the command
-        # user. The data-loss assertion is "both kinds exist", independent of tenant.
+        # Count all rows in this transaction-isolated test session without
+        # filtering by user_id — the assertion here is "both kinds exist", which
+        # is what the SSE-seam data-loss bug broke. Tenancy itself is pinned
+        # elsewhere: the pipeline stamps the command's user_id onto every
+        # connector_play (base_play_importer, v0.10.0) and resolution keys
+        # track_plays by the same user.
         connector_play_count = await db_session.scalar(
             select(func.count()).select_from(DBConnectorPlay)
         )

@@ -15,6 +15,7 @@ self-corrects from within the same turn.
 """
 
 from collections.abc import Mapping
+from functools import cache
 import json
 from uuid import UUID
 
@@ -44,19 +45,35 @@ from src.domain.exceptions import NotFoundError, ToolExecutionError
 
 # --- describe_node ---------------------------------------------------------
 
-DESCRIBE_NODE_INPUT_SCHEMA: JsonDict = {
-    "type": "object",
-    "properties": {
-        "node_type": {
-            "type": "string",
-            "description": (
-                "A node type id such as 'source.playlist', 'filter.by_metric', "
-                "or 'destination.create_playlist'. Omit to list every node type."
-            ),
+
+@cache
+def describe_node_input_schema() -> JsonDict:
+    """The ``describe_node`` tool schema, built on first use.
+
+    Deliberately not a module-level constant. The enum comes from the node
+    registry, which is populated by *importing* the node catalog — a module this
+    one never imports directly. Evaluating it at import time made the schema
+    correct only by way of a transitive import elsewhere in the chain; if that
+    chain ever shortened, the enum would silently serialize as ``[]`` and the
+    Anthropic API would reject the whole tool definition, taking down every chat
+    request rather than just this one tool. Building it on demand means the
+    registry is always already loaded.
+
+    ``cache`` keeps the result identical across calls, so the serialized schema
+    stays byte-stable for the cached prompt tier (as does sorting the enum).
+    """
+    return {
+        "type": "object",
+        "properties": {
+            "node_type": {
+                "type": "string",
+                # The enum replaces the examples this description used to carry.
+                "enum": sorted(list_nodes()),
+                "description": "Omit to list every node type.",
+            },
         },
-    },
-    "additionalProperties": False,
-}
+        "additionalProperties": False,
+    }
 
 
 def _field_to_dict(f: ConfigFieldDef) -> JsonDict:

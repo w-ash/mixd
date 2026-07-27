@@ -327,14 +327,11 @@ SPECS: list[dict[str, object]] = [
     {
         "name": "manage_track_matches",
         "description": (
-            "Call this to propose a change to how a connector track is matched to a canonical "
-            "track. Pick an `operation`: 'relink' moves a mapping to another "
-            "track (needs mapping_id, new_track_id, current_track_id); 'unlink' "
-            "severs a mapping (destructive; needs mapping_id, current_track_id); "
-            "'set_primary' promotes a mapping to primary for its connector (needs "
-            "mapping_id, track_id); 'resolve_review' accepts or rejects a queued "
-            "match review (needs review_id and action=accept|reject). It only "
-            "proposes a confirmation card — nothing changes until the user confirms."
+            "Call this to propose a change to how a connector track is matched "
+            "to a canonical track — relinking a mapping to another track, "
+            "severing it, promoting it to primary for its connector, or "
+            "resolving a queued match review. Unlink is destructive. Look up "
+            "real mapping_ids and review_ids first; never guess them."
         ),
         "input_schema": MANAGE_TRACK_MATCHES_INPUT_SCHEMA,
         "dispatch": handle_manage_track_matches,

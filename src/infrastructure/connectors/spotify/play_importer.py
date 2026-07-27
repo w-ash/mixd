@@ -47,7 +47,7 @@ class SpotifyPlayImporter(
         uow: UnitOfWorkProtocol,
         params: PlayImportParams,
         *,
-        user_id: str | None = None,
+        user_id: str,
         progress_emitter: ProgressEmitter | None = None,
     ) -> tuple[OperationResult, list[ConnectorTrackPlay]]:
         """Import Spotify plays as connector_plays for later resolution.
@@ -94,11 +94,12 @@ class SpotifyPlayImporter(
         params: SpotifyImportParams,
         *,
         uow: UnitOfWorkProtocol,
+        user_id: str,
         progress_emitter: ProgressEmitter | None = None,
         operation_id: str | None = None,
     ) -> list[SpotifyPlayRecord]:
         """Fetch and parse a Spotify JSON export file."""
-        _ = uow, progress_emitter, operation_id
+        _ = uow, user_id, progress_emitter, operation_id
         file_path = params.file_path
 
         if not file_path.exists():
@@ -151,5 +152,7 @@ class SpotifyPlayImporter(
         raw_data: list[SpotifyPlayRecord],
         params: SpotifyImportParams,
         uow: UnitOfWorkProtocol,
+        *,
+        user_id: str,
     ) -> None:
         """No-op: Spotify imports are file-based, so checkpoints don't apply."""

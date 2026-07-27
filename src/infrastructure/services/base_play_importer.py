@@ -16,6 +16,7 @@ from src.domain.entities.progress import (
     ProgressStatus,
     create_progress_event,
 )
+from src.domain.exceptions import LastfmAuthRequiredError, SpotifyAuthRequiredError
 from src.domain.repositories.play import PlayImportParams
 from src.domain.repositories.uow import UnitOfWorkProtocol
 from src.domain.results import (
@@ -55,7 +56,7 @@ class BasePlayImporter[TRawData, TParams: PlayImportParams](ABC):
         params: TParams,
         *,
         uow: UnitOfWorkProtocol,
-        user_id: str | None = None,
+        user_id: str,
         progress_emitter: ProgressEmitter | None = None,
         import_batch_id: str | None = None,
     ) -> tuple[OperationResult, list[ConnectorTrackPlay]]:
@@ -64,14 +65,17 @@ class BasePlayImporter[TRawData, TParams: PlayImportParams](ABC):
         Orchestrates the complete import: fetch, convert, persist as connector
         plays, checkpoint, and report. Errors are converted to an error result
         (never raised) so a failed import surfaces as statistics, not a stack
-        trace.
+        trace — except connector-auth failures, which are re-raised (see below).
 
         Args:
             params: Source-specific frozen import selectors.
             uow: UnitOfWork for database operations.
-            user_id: The mixd user the ledger rows belong to; stamped onto
-                every ConnectorTrackPlay before persistence (None keeps the
-                local-dev "default" tenant).
+            user_id: The mixd user this import belongs to — stamped onto every
+                ConnectorTrackPlay before persistence and used to key sync
+                checkpoints. Required (v0.10.1): unattended per-user writers
+                (scheduler-dispatched polls) are exactly the path where a
+                silently-defaulted tenant would corrupt a real user's history
+                with nobody watching.
             progress_emitter: Optional progress emitter (defaults to null).
             import_batch_id: Optional batch ID for grouping related imports;
                 generated when omitted.
@@ -108,6 +112,19 @@ class BasePlayImporter[TRawData, TParams: PlayImportParams](ABC):
                 user_id=user_id,
             )
 
+        except LastfmAuthRequiredError, SpotifyAuthRequiredError:
+            # Must precede the generic catch: a connector that needs
+            # re-authorizing is not a failed import, it is an actionable user
+            # state. Swallowing it into an error result would strand the
+            # 409/SSE seam that turns it into a "reconnect" prompt.
+            #
+            # The operation still has to be closed out before re-raising — it
+            # was opened above, and every other exit from this method completes
+            # it. Leaving it open strands the progress card mid-run.
+            await progress_emitter.complete_operation(
+                operation_id, OperationStatus.FAILED
+            )
+            raise
         except Exception as e:
             error_msg = f"{self.operation_name} failed: {e}"
             logger.error(
@@ -134,7 +151,7 @@ class BasePlayImporter[TRawData, TParams: PlayImportParams](ABC):
         batch_id: str,
         import_timestamp: datetime,
         uow: UnitOfWorkProtocol,
-        user_id: str | None = None,
+        user_id: str,
     ) -> tuple[OperationResult, list[ConnectorTrackPlay]]:
         """Fetch → process → save → checkpoint pipeline body for :meth:`import_data`."""
         # Step 2: Fetch raw data (implemented by subclasses)
@@ -151,6 +168,7 @@ class BasePlayImporter[TRawData, TParams: PlayImportParams](ABC):
         raw_data = await self._fetch_data(
             params,
             uow=uow,
+            user_id=user_id,
             progress_emitter=progress_emitter,
             operation_id=operation_id,
         )
@@ -167,7 +185,7 @@ class BasePlayImporter[TRawData, TParams: PlayImportParams](ABC):
                 )
             )
 
-            await self._handle_checkpoints(raw_data, params, uow)
+            await self._handle_checkpoints(raw_data, params, uow, user_id=user_id)
 
             await progress_emitter.complete_operation(
                 operation_id, OperationStatus.COMPLETED
@@ -195,8 +213,7 @@ class BasePlayImporter[TRawData, TParams: PlayImportParams](ABC):
         # _process_data implementations stay tenancy-unaware. Without this,
         # every ledger row lands under the "default" local-dev tenant and
         # per-user ledger reads (the play projection) see nothing.
-        if user_id is not None:
-            track_plays = [evolve(play, user_id=user_id) for play in track_plays]
+        track_plays = [evolve(play, user_id=user_id) for play in track_plays]
 
         # Step 4: Save connector plays (always the same path)
         await progress_emitter.emit_progress(
@@ -225,7 +242,7 @@ class BasePlayImporter[TRawData, TParams: PlayImportParams](ABC):
         )
 
         try:
-            await self._handle_checkpoints(raw_data, params, uow)
+            await self._handle_checkpoints(raw_data, params, uow, user_id=user_id)
         except Exception as e:
             logger.error(
                 f"Checkpoint handling failed: {e}",
@@ -263,6 +280,7 @@ class BasePlayImporter[TRawData, TParams: PlayImportParams](ABC):
         params: TParams,
         *,
         uow: UnitOfWorkProtocol,
+        user_id: str,
         progress_emitter: ProgressEmitter | None = None,
         operation_id: str | None = None,
     ) -> list[TRawData]:
@@ -274,6 +292,8 @@ class BasePlayImporter[TRawData, TParams: PlayImportParams](ABC):
         Args:
             params: Source-specific import selectors.
             uow: UnitOfWork for checkpoint reads/writes during fetching.
+            user_id: The mixd user to resume from — the key for any checkpoint
+                read here, matching the key :meth:`_handle_checkpoints` writes.
             progress_emitter: Progress emitter for operation status tracking.
             operation_id: Operation ID for progress event emission.
 
@@ -308,6 +328,8 @@ class BasePlayImporter[TRawData, TParams: PlayImportParams](ABC):
         raw_data: list[TRawData],
         params: TParams,
         uow: UnitOfWorkProtocol,
+        *,
+        user_id: str,
     ) -> None:
         """Update sync checkpoints to track import progress for incremental syncs.
 
@@ -315,10 +337,18 @@ class BasePlayImporter[TRawData, TParams: PlayImportParams](ABC):
         indicating how much data has been imported. May be a no-op for sources
         that checkpoint during fetching (Last.fm) or not at all (file imports).
 
+        Called on the empty-data path too, so implementations must treat empty
+        ``raw_data`` as "nothing newer than the current cursor" and no-op.
+
         Args:
             raw_data: Data that was successfully processed in this import.
             params: Source-specific import selectors.
             uow: UnitOfWork for checkpoint persistence.
+            user_id: The mixd user to key the checkpoint on. Passed explicitly
+                rather than read off ``params`` so there is one source of truth
+                — ``sync_checkpoints`` is RLS-scoped on ``user_id``, and a
+                checkpoint written under any other key is silently rejected by
+                the ``user_isolation`` policy (migration 007).
         """
 
     async def _save_connector_plays_via_uow(

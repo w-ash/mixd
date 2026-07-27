@@ -23,6 +23,20 @@ class ImportSpotifyLikesRequest(BaseModel):
     force: bool = False
 
 
+class ImportSpotifyRecentRequest(BaseModel):
+    """Request body for polling Spotify's recently-played API.
+
+    No mode field: the stored cursor makes every poll incremental. ``limit`` is
+    clamped to the endpoint's 50-play ceiling downstream. ``force`` ignores the
+    cursor for one poll and re-reads the whole retained window — a recovery
+    lever for a cursor that ran ahead of what was actually stored; re-ingesting
+    seen plays is harmless (the ledger conflict-skips them).
+    """
+
+    limit: int | None = None
+    force: bool = False
+
+
 class ExportLastfmLikesRequest(BaseModel):
     """Request body for triggering a Last.fm likes export."""
 

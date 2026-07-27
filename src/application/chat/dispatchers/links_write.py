@@ -267,15 +267,12 @@ SPECS: list[dict[str, object]] = [
     {
         "name": "manage_playlist_link",
         "description": (
-            "Call this to propose a sync-link change between a canonical Mixd playlist and an "
-            "external connector playlist. Pick an operation: 'create' links a "
-            "playlist to an external one (playlist_id + connector + identifier, "
-            "optional direction); 'update' changes an existing link's direction "
-            "(link_id + direction); 'delete' removes a link (link_id). Direction "
-            "is 'pull' (external is truth) or 'push' (canonical is truth). Every "
-            "operation is a proposal — nothing changes until the user confirms "
-            "on the card this returns. Look up real playlist_ids, link_ids, and "
-            "connector identifiers first; never guess them."
+            "Call this to propose a sync-link change between a canonical Mixd "
+            "playlist and an external connector playlist — creating a link, "
+            "changing an existing link's direction, or deleting one. Direction "
+            "is 'pull' (external is truth) or 'push' (canonical is truth). Look "
+            "up real playlist_ids, link_ids, and connector identifiers first; "
+            "never guess them."
         ),
         "input_schema": MANAGE_PLAYLIST_LINK_INPUT_SCHEMA,
         "dispatch": handle_manage_playlist_link,

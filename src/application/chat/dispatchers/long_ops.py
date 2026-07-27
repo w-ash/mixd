@@ -37,11 +37,11 @@ from src.application.chat.protocols import ToolContext
 from src.domain.entities.shared import JsonDict, JsonValue
 from src.domain.exceptions import ToolExecutionError
 
-# SyncDirection supports pull/push only. spotify_history import is excluded from
-# chat: its route ingests an uploaded GDPR export file, which chat can't supply
-# (ImportTracksUseCase stays covered via lastfm_history).
+# SyncDirection supports pull/push only. The Spotify GDPR-export import stays
+# out of chat — its route ingests an uploaded file, which chat can't supply —
+# but the recently-played API import needs no file, so it is offered here.
 _SYNC_DIRECTIONS = ("pull", "push")
-_IMPORT_SOURCES = ("lastfm_history", "spotify_likes")
+_IMPORT_SOURCES = ("lastfm_history", "spotify_likes", "spotify_recent")
 
 # --- run_workflow -----------------------------------------------------------
 
@@ -227,8 +227,9 @@ IMPORT_DATA_INPUT_SCHEMA: JsonDict = {
             "type": "string",
             "enum": list(_IMPORT_SOURCES),
             "description": (
-                "What to import: 'lastfm_history' (Last.fm play history) or "
-                "'spotify_likes' (liked tracks)."
+                "What to import: 'lastfm_history' (Last.fm play history), "
+                "'spotify_likes' (liked tracks), or 'spotify_recent' (the ~50 "
+                "most recent Spotify plays — use this for today's listening)."
             ),
         },
         "username": {
@@ -315,9 +316,8 @@ SPECS: list[dict[str, object]] = [
         "name": "run_workflow",
         "description": (
             "Call this to run one of the user's saved workflows now — pass its "
-            "workflow_id. It starts a background run and returns live progress; "
-            "confirm before it launches. Use query_workflow_history afterward to "
-            "check the result."
+            "workflow_id. It starts a background run and returns live progress. "
+            "Use query_workflow_history afterward to check the result."
         ),
         "input_schema": RUN_WORKFLOW_INPUT_SCHEMA,
         "dispatch": handle_run_workflow,
@@ -331,7 +331,7 @@ SPECS: list[dict[str, object]] = [
             "Call this to import external connector playlists (e.g. Spotify) into "
             "Mixd as canonical playlists — pass the connector and the playlist "
             "identifiers from query_playlists. It runs in the background with "
-            "progress; confirm before it launches."
+            "progress."
         ),
         "input_schema": IMPORT_CONNECTOR_PLAYLISTS_INPUT_SCHEMA,
         "dispatch": handle_import_connector_playlists,
@@ -344,8 +344,8 @@ SPECS: list[dict[str, object]] = [
         "description": (
             "Call this to apply tag/preference assignment rules across the "
             "library, populating playlists in bulk — omit assignment_ids to apply "
-            "all, or pass specific ones. It runs in the background with progress; "
-            "confirm before it launches."
+            "all, or pass specific ones. It runs in the background with "
+            "progress."
         ),
         "input_schema": APPLY_PLAYLIST_ASSIGNMENTS_INPUT_SCHEMA,
         "dispatch": handle_apply_playlist_assignments,
@@ -359,7 +359,7 @@ SPECS: list[dict[str, object]] = [
             "Call this to run a playlist sync link now — pass its link_id from "
             "query_playlist_links. When a sync would remove many tracks it needs "
             "the confirm_token from a preview_sync first. It runs in the "
-            "background with progress; confirm before it launches."
+            "background with progress."
         ),
         "input_schema": SYNC_PLAYLIST_LINK_INPUT_SCHEMA,
         "dispatch": handle_sync_playlist_link,
@@ -371,9 +371,9 @@ SPECS: list[dict[str, object]] = [
         "name": "import_data",
         "description": (
             "Call this to import listening data from a connector — Last.fm play "
-            "history or Spotify likes. Pass the source (and a username for "
-            "Last.fm). It runs in the background with progress; confirm before "
-            "it launches."
+            "history, Spotify likes, or the ~50 most recent Spotify plays "
+            "(use that one for today's listening). Pass the source (and a "
+            "username for Last.fm). It runs in the background with progress."
         ),
         "input_schema": IMPORT_DATA_INPUT_SCHEMA,
         "dispatch": handle_import_data,
@@ -387,8 +387,7 @@ SPECS: list[dict[str, object]] = [
             "Call this to re-derive the user's entire canonical play history "
             "from the imported observation ledger — converging duplicates and "
             "refreshing merged fields. Pass dry_run=true to preview the diff "
-            "first. It runs in the background with progress; confirm before it "
-            "launches."
+            "first. It runs in the background with progress."
         ),
         "input_schema": REBUILD_PLAY_HISTORY_INPUT_SCHEMA,
         "dispatch": handle_rebuild_play_history,

@@ -27,14 +27,13 @@ import {
   useState,
 } from "react";
 
-import {
-  getGetWorkflowApiV1WorkflowsWorkflowIdGetQueryKey,
-  getListActiveRunsApiV1WorkflowsActiveRunsGetQueryKey,
-  getListWorkflowRunsApiV1WorkflowsWorkflowIdRunsGetQueryKey,
-  getListWorkflowsApiV1WorkflowsGetQueryKey,
-} from "#/api/generated/workflows/workflows";
 import { type SubProgressUpdate, useWorkflowSSE } from "#/hooks/useWorkflowSSE";
 import type { NodeStatus, SSEState } from "#/lib/sse-types";
+import {
+  afterRunStateChanged,
+  invalidateActiveRuns,
+  invalidateWorkflowList,
+} from "#/lib/workflow-queries";
 
 export interface WorkflowExecutionState {
   workflowId: string | null;
@@ -81,29 +80,24 @@ export function WorkflowExecutionProvider({
 
   const queryClient = useQueryClient();
 
-  // Use a ref for workflowId so SSE callbacks don't close over stale values
+  // Refs so SSE callbacks don't close over stale values. runId is what lets the
+  // terminal reconcile reach an open run-detail page instead of leaving it on
+  // the "running" snapshot it first loaded.
   const workflowIdRef = useRef(workflowId);
   workflowIdRef.current = workflowId;
+  const runIdRef = useRef(runId);
+  runIdRef.current = runId;
 
   const invalidateWorkflowQueries = useCallback(() => {
     const wfId = workflowIdRef.current;
     if (wfId !== null) {
-      queryClient.invalidateQueries({
-        queryKey:
-          getListWorkflowRunsApiV1WorkflowsWorkflowIdRunsGetQueryKey(wfId),
-      });
-      queryClient.invalidateQueries({
-        queryKey: getGetWorkflowApiV1WorkflowsWorkflowIdGetQueryKey(wfId),
-      });
+      afterRunStateChanged(queryClient, wfId, runIdRef.current);
+      return;
     }
-    queryClient.invalidateQueries({
-      queryKey: getListWorkflowsApiV1WorkflowsGetQueryKey(),
-    });
-    // The app-global active-runs source — so the detail page collapses back to
-    // idle on completion and a future sidebar indicator clears immediately.
-    queryClient.invalidateQueries({
-      queryKey: getListActiveRunsApiV1WorkflowsActiveRunsGetQueryKey(),
-    });
+    // No workflow attached (shouldn't happen — both start paths set it first),
+    // but still refresh the app-global sources so nothing is left stuck.
+    invalidateWorkflowList(queryClient);
+    invalidateActiveRuns(queryClient);
   }, [queryClient]);
 
   const sse = useWorkflowSSE({

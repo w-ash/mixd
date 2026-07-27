@@ -100,6 +100,9 @@ class LLMResponse:
     # Sandbox container for this turn; echoed on the next request when returning
     # results for sandbox-called tools (v0.9.2). None while the sandbox is off.
     container_id: str | None = None
+    # Safety-classifier category when stop_reason == "refusal". Stays None even
+    # on a genuine refusal — branch on stop_reason, never on this field.
+    refusal_category: str | None = None
 
 
 type LLMStreamEvent = (

@@ -1,3 +1,4 @@
+import { useQueryClient } from "@tanstack/react-query";
 import { LayoutTemplate } from "lucide-react";
 import { type ReactNode, useState } from "react";
 import { useNavigate } from "react-router";
@@ -18,6 +19,7 @@ import {
 } from "#/components/ui/dialog";
 import { ResponsiveDialog } from "#/components/ui/responsive-dialog";
 import { toasts } from "#/lib/toasts";
+import { afterWorkflowSaved } from "#/lib/workflow-queries";
 
 /** One selectable template card in the gallery list. */
 function TemplateCard({
@@ -74,6 +76,7 @@ function TemplateCard({
 export function TemplateGalleryDialog({ trigger }: { trigger: ReactNode }) {
   const [open, setOpen] = useState(false);
   const navigate = useNavigate();
+  const queryClient = useQueryClient();
 
   const { data, isLoading, isError, error } =
     useListWorkflowTemplatesApiV1WorkflowsTemplatesGet({
@@ -85,6 +88,7 @@ export function TemplateGalleryDialog({ trigger }: { trigger: ReactNode }) {
       mutation: {
         onSuccess: (res) => {
           if (res.status === 201) {
+            afterWorkflowSaved(queryClient, res.data.id, res.data, res.headers);
             setOpen(false);
             toasts.success("Workflow created from template");
             navigate(`/workflows/${res.data.id}/edit`);

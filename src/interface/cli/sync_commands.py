@@ -7,8 +7,9 @@ the shared ``run_schedule_command`` orchestrator so validation and dispatch live
 in exactly one place.
 
 Schedulable targets are the keys of ``SYNC_DISPATCH`` (e.g. ``lastfm:plays``,
-``spotify:likes``, ``lastfm:likes``) — ``spotify:plays`` is file-import-only and
-therefore not schedulable.
+``spotify:likes``, ``lastfm:likes``). ``spotify:plays`` is importable on demand
+(`mixd history import-spotify-recent`, v0.10.1) but not yet schedulable — the
+adaptive poller that adds it lands with v0.10.1 Epic C.
 """
 
 from typing import Annotated

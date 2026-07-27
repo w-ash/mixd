@@ -86,18 +86,16 @@ async def _handle_confirmation(
         logger.info(
             "chat_action_confirmed", action_id=str(action_id), tool=action.tool_name
         )
+        # State the fact and let the prompt's response guidance shape the reply;
+        # a per-turn "acknowledge briefly" fights <communication>'s lead-with-
+        # the-outcome rule on exactly the turn where the user needs substance.
         context = (
-            f"[The user confirmed the proposed action. "
-            f"Result: {json.dumps(result)}. Acknowledge the change briefly.]"
+            f"[The user confirmed the proposed action. Result: {json.dumps(result)}]"
         )
         return context, _launch_event(action, result)
     await pending_action_store.cancel(action_id, user_id)
     logger.info("chat_action_cancelled", action_id=str(action_id))
-    return (
-        "[The user cancelled the proposed action. "
-        "Acknowledge the cancellation briefly.]",
-        None,
-    )
+    return "[The user cancelled the proposed action.]", None
 
 
 def _launch_event(action: PendingAction, result: JsonValue) -> ToolResultEvent | None:
@@ -208,7 +206,27 @@ async def _build_command(
         {"role": m.role, "content": m.content} for m in body.messages
     ]
     if confirmation_context is not None:
-        messages.append({"role": "user", "content": confirmation_context})
+        # This text is operator-authored, not typed by the user, so it prefers
+        # the system channel where the model can't confuse the two — the same
+        # data-is-data discipline <untrusted_content> applies to tool results.
+        #
+        # Two independent conditions gate that channel, and BOTH must hold or
+        # the API 400s the whole turn:
+        #   1. the model accepts a mid-conversation system message at all
+        #      (Sonnet 5 — the documented CHAT__MODEL_ID override — does not);
+        #   2. the entry it follows is a user turn. A confirmation almost always
+        #      arrives right after the assistant turn that proposed the action,
+        #      which is exactly the shape the API rejects.
+        # Falling back to a user turn is always valid, so it is the default.
+        role = (
+            "system"
+            if settings.chat.supports_operator_messages
+            and bool(messages)
+            and messages[-1]["role"] == "user"
+            else "user"
+        )
+        messages.append({"role": role, "content": confirmation_context})
+    effort = body.effort or settings.chat.effort
     return ChatCommand(
         messages=messages,
         system=system,
@@ -218,8 +236,10 @@ async def _build_command(
         ),
         model_id=settings.chat.model_id,
         max_turns=settings.chat.max_turns,
-        max_tokens=settings.chat.max_tokens,
-        effort=body.effort or settings.chat.effort,
+        # Derived from effort: the cap covers thinking + response text, so a
+        # fixed ceiling truncates mid-answer once the user picks xhigh.
+        max_tokens=settings.chat.max_tokens_for(effort),
+        effort=effort,
         user_id=user_id,
     )
 

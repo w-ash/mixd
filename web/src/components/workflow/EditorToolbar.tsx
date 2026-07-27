@@ -5,6 +5,7 @@
  * Keyboard shortcuts registered via useEffect in WorkflowEditor.
  */
 
+import { useQueryClient } from "@tanstack/react-query";
 import { useReactFlow } from "@xyflow/react";
 import {
   ArrowLeft,
@@ -37,6 +38,7 @@ import { toasts } from "#/lib/toasts";
 import { cn } from "#/lib/utils";
 import { downloadWorkflowDef } from "#/lib/workflow-file";
 import { layoutWorkflow } from "#/lib/workflow-layout";
+import { afterWorkflowSaved } from "#/lib/workflow-queries";
 import { useEditorStore } from "#/stores/editor-store";
 
 export function EditorToolbar() {
@@ -60,6 +62,7 @@ export function EditorToolbar() {
 
   const nameInputRef = useRef<HTMLInputElement>(null);
   const importer = useWorkflowImport();
+  const queryClient = useQueryClient();
 
   const createMutation = useCreateWorkflowApiV1WorkflowsPost({
     mutation: { meta: { errorLabel: "Failed to save workflow" } },
@@ -89,7 +92,10 @@ export function EditorToolbar() {
         {
           onSuccess: (res) => {
             if (res.status === 201) {
-              const newId = (res.data as { id: string }).id;
+              const newId = res.data.id;
+              // Seed the cache before navigating so the destination renders the
+              // workflow we just saved rather than fetching it back.
+              afterWorkflowSaved(queryClient, newId, res.data, res.headers);
               resetDirty();
               toasts.success("Workflow created");
               navigate(`/workflows/${newId}/edit`, { replace: true });
@@ -101,7 +107,15 @@ export function EditorToolbar() {
       updateWorkflow(
         { workflowId, data: { definition: def } },
         {
-          onSuccess: () => {
+          onSuccess: (res) => {
+            if (res.status === 200) {
+              afterWorkflowSaved(
+                queryClient,
+                workflowId,
+                res.data,
+                res.headers,
+              );
+            }
             resetDirty();
             toasts.success("Workflow saved");
           },
@@ -115,6 +129,7 @@ export function EditorToolbar() {
     updateWorkflow,
     resetDirty,
     navigate,
+    queryClient,
   ]);
 
   // Listen for keyboard shortcut save trigger

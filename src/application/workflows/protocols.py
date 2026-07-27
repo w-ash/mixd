@@ -213,6 +213,22 @@ class RunStatusUpdater(Protocol):
     ) -> bool: ...
 
 
+class HeartbeatBumper(Protocol):
+    """Typed contract for a single liveness bump on a run.
+
+    Concrete impls live in the interface layer, injected at the call site. The
+    *ticker* that calls this on a cadence is owned by ``ExecuteWorkflowRunUseCase``
+    — deliberately, because every path that drives a run to terminal needs it and
+    leaving it to call sites meant two of the three forgot (see that use case's
+    docstring).
+
+    Implementations must swallow their own errors: a heartbeat is advisory, and a
+    transient DB blip must not fail the run it is reporting on.
+    """
+
+    async def __call__(self, run_id: UUID) -> None: ...
+
+
 class NodeStatusUpdater(Protocol):
     """Typed contract for node-level status updates.
 

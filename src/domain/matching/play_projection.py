@@ -21,7 +21,7 @@ sources to ±5s for 80% of true pairs; unnormalized, 92% would miss).
 """
 
 from collections import defaultdict
-from collections.abc import Iterable, Mapping, Sequence
+from collections.abc import Callable, Iterable, Mapping, Sequence
 from datetime import datetime, timedelta
 from typing import Final, Literal
 from uuid import UUID
@@ -54,6 +54,172 @@ _SPOTIFY_URI_PARTS: Final = 3
 _SPOTIFY_TRACK_ID_LENGTH: Final = 22
 
 
+# --------------------------------------------------------------------------- #
+# Play context builders — pure functions of one observation.                  #
+#                                                                             #
+# Ported byte-identically (key set) from the connector play resolvers so the  #
+# projection can rebuild canonical context from the ledger alone — the        #
+# rebuild command has no resolver in the loop. The key set is persisted into  #
+# track_plays.context; changing it is user-visible data drift.                #
+# --------------------------------------------------------------------------- #
+
+_LASTFM_KNOWN_KEYS: Final = (
+    "lastfm_track_url",
+    "lastfm_artist_url",
+    "lastfm_album_url",
+    "mbid",
+    "artist_mbid",
+    "album_mbid",
+    "streamable",
+    "loved",
+)
+
+_SPOTIFY_KNOWN_KEYS: Final = (
+    TrackContextFields.PLATFORM,
+    TrackContextFields.COUNTRY,
+    TrackContextFields.REASON_START,
+    TrackContextFields.REASON_END,
+    TrackContextFields.SHUFFLE,
+    "skipped",
+    TrackContextFields.OFFLINE,
+    TrackContextFields.INCOGNITO_MODE,
+    "track_uri",
+)
+
+# The recently-played API's own metadata shape — a different set from the
+# export's, which is why the two Spotify channels need separate builders.
+_SPOTIFY_API_KNOWN_KEYS: Final = (
+    "track_uri",
+    "duration_ms",
+    "context_type",
+    "context_uri",
+)
+
+# Matches the resolvers' persisted marker; kept for context-shape continuity.
+_ARCHITECTURE_VERSION: Final = "connector_plays_deferred_resolution"
+# The spotify resolver's per-run resolution method (direct/redirect/fallback)
+# is not reconstructible from the ledger; the projection records the stable
+# resolver marker instead (MatchMethod.PLAY_RESOLVER's value).
+_SPOTIFY_RESOLUTION_METHOD: Final = "spotify_connector_play_resolver"
+_LASTFM_RESOLUTION_METHOD: Final = "lastfm_connector_play_resolver"
+
+
+def spotify_id_from_uri(spotify_uri: str) -> str | None:
+    """Extract the track id from a ``spotify:track:<id>`` URI, else None.
+
+    The single implementation — the Spotify resolver delegates here so
+    import-time and rebuild-time context derive identical ids.
+    """
+    parts = spotify_uri.split(":")
+    if len(parts) != _SPOTIFY_URI_PARTS or parts[0] != "spotify" or parts[1] != "track":
+        return None
+    track_id = parts[2]
+    if (
+        len(track_id) == _SPOTIFY_TRACK_ID_LENGTH
+        and track_id.replace("_", "a").replace("-", "a").isalnum()
+    ):
+        return track_id
+    return None
+
+
+def _passthrough(
+    metadata: Mapping[str, JsonValue], known: Iterable[str]
+) -> dict[str, JsonValue]:
+    known_set = set(known)
+    return {k: v for k, v in metadata.items() if k not in known_set}
+
+
+def _lastfm_context(entry: ConnectorTrackPlay) -> dict[str, JsonValue]:
+    md = entry.service_metadata
+    return {
+        "track_name": entry.track_name,
+        "artist_name": entry.artist_name,
+        "album_name": entry.album_name,
+        "lastfm_track_url": md.get("lastfm_track_url"),
+        "lastfm_artist_url": md.get("lastfm_artist_url"),
+        "lastfm_album_url": md.get("lastfm_album_url"),
+        "mbid": md.get("mbid"),
+        "artist_mbid": md.get("artist_mbid"),
+        "album_mbid": md.get("album_mbid"),
+        "streamable": md.get("streamable"),
+        "loved": md.get("loved"),
+        "resolution_method": _LASTFM_RESOLUTION_METHOD,
+        "architecture_version": _ARCHITECTURE_VERSION,
+        **_passthrough(md, _LASTFM_KNOWN_KEYS),
+    }
+
+
+def _spotify_context(entry: ConnectorTrackPlay) -> dict[str, JsonValue]:
+    md = entry.service_metadata
+    track_uri = md.get("track_uri")
+    spotify_id = None
+    if isinstance(track_uri, str):
+        spotify_id = spotify_id_from_uri(track_uri)
+    if spotify_id is None and entry.connector_track_identifier.startswith(
+        "spotify:track:"
+    ):
+        spotify_id = spotify_id_from_uri(entry.connector_track_identifier)
+    return {
+        TrackContextFields.TRACK_NAME: entry.track_name,
+        TrackContextFields.ARTIST_NAME: entry.artist_name,
+        TrackContextFields.ALBUM_NAME: entry.album_name,
+        TrackContextFields.PLATFORM: md.get("platform"),
+        TrackContextFields.COUNTRY: md.get("country"),
+        TrackContextFields.REASON_START: md.get("reason_start"),
+        TrackContextFields.REASON_END: md.get("reason_end"),
+        TrackContextFields.SHUFFLE: md.get("shuffle"),
+        "skipped": md.get("skipped"),
+        TrackContextFields.OFFLINE: md.get("offline"),
+        TrackContextFields.INCOGNITO_MODE: md.get("incognito_mode", False),
+        TrackContextFields.SPOTIFY_TRACK_URI: md.get("track_uri"),
+        "spotify_track_id": spotify_id,
+        "resolution_method": _SPOTIFY_RESOLUTION_METHOD,
+        "architecture_version": _ARCHITECTURE_VERSION,
+        **_passthrough(md, _SPOTIFY_KNOWN_KEYS),
+    }
+
+
+def _spotify_api_context(entry: ConnectorTrackPlay) -> dict[str, JsonValue]:
+    """Context for a recently-played API observation.
+
+    Deliberately NOT ``_spotify_context``: the API reports none of the export's
+    behavioral fields (platform, country, reason_start/end, shuffle, skipped,
+    offline, incognito), so reusing that builder would persist a context of
+    nulls that reads as "we observed these and they were empty". What the API
+    does uniquely observe is playback *context* — the playlist or album the
+    play came from.
+    """
+    md = entry.service_metadata
+    track_uri = md.get("track_uri")
+    spotify_id = spotify_id_from_uri(track_uri) if isinstance(track_uri, str) else None
+    return {
+        TrackContextFields.TRACK_NAME: entry.track_name,
+        TrackContextFields.ARTIST_NAME: entry.artist_name,
+        TrackContextFields.ALBUM_NAME: entry.album_name,
+        TrackContextFields.SPOTIFY_TRACK_URI: track_uri,
+        "spotify_track_id": spotify_id,
+        "context_type": md.get("context_type"),
+        "context_uri": md.get("context_uri"),
+        # Carried for the pending START-vs-END calibration (v0.10.1 B7); never
+        # a stand-in for ms_played, which stays null on this channel.
+        "duration_ms": md.get("duration_ms"),
+        "resolution_method": _SPOTIFY_RESOLUTION_METHOD,
+        "architecture_version": _ARCHITECTURE_VERSION,
+        **_passthrough(md, _SPOTIFY_API_KNOWN_KEYS),
+    }
+
+
+def _generic_context(entry: ConnectorTrackPlay) -> dict[str, JsonValue]:
+    return {
+        "track_name": entry.track_name,
+        "artist_name": entry.artist_name,
+        "album_name": entry.album_name,
+        "resolution_method": "play_projection",
+        "architecture_version": _ARCHITECTURE_VERSION,
+        **dict(entry.service_metadata),
+    }
+
+
 @define(frozen=True, slots=True)
 class ChannelSpec:
     """Per-channel grouping behavior — the one place a channel is described.
@@ -70,6 +236,13 @@ class ChannelSpec:
             derived (export end - ms_played, pause-skewed; findings §3), and a
             channel that only approximates (Apple poll-window) ranks below
             every channel that knows.
+        context_builder: Builds the persisted play context for one of this
+            channel's observations. Lives here rather than in a service-keyed
+            if-chain because two channels of the same service can observe
+            different things — the Spotify export carries behavioral fields
+            (shuffle, skip reasons) the recently-played API never sees, so a
+            per-service builder would hand API plays an export-shaped context
+            full of nulls.
         tolerance_override: Pairing tolerance forced by this channel (e.g.
             ``spotify_api`` stays at the wide fallback until its start-vs-end
             semantics are calibrated — v0.10.1).
@@ -81,6 +254,7 @@ class ChannelSpec:
     priority: int
     time_semantics: Literal["start", "end"]
     timestamp_quality: int
+    context_builder: Callable[[ConnectorTrackPlay], dict[str, JsonValue]]
     tolerance_override: float | None = None
 
 
@@ -94,6 +268,7 @@ CHANNEL_SPECS: Final[Mapping[tuple[str, str], ChannelSpec]] = {
         priority=0,
         time_semantics="end",
         timestamp_quality=2,
+        context_builder=_spotify_context,
     ),
     ("spotify", "spotify_api"): ChannelSpec(
         name="spotify_api",
@@ -102,6 +277,7 @@ CHANNEL_SPECS: Final[Mapping[tuple[str, str], ChannelSpec]] = {
         priority=1,
         time_semantics="start",
         timestamp_quality=1,
+        context_builder=_spotify_api_context,
         # Uncalibrated start-vs-end semantics until the v0.10.1 first-poll
         # calibration — wide tolerance so pairing errs toward merging.
         tolerance_override=CROSS_CHANNEL_TOLERANCE_FALLBACK_SECONDS,
@@ -113,6 +289,7 @@ CHANNEL_SPECS: Final[Mapping[tuple[str, str], ChannelSpec]] = {
         priority=2,
         time_semantics="start",
         timestamp_quality=2,
+        context_builder=_generic_context,
     ),
     ("lastfm", "lastfm_api"): ChannelSpec(
         name="lastfm",
@@ -123,6 +300,7 @@ CHANNEL_SPECS: Final[Mapping[tuple[str, str], ChannelSpec]] = {
         # Native second-precision true start — beats the export's derived
         # (pause-skewed) start for the surviving timestamp (findings §3).
         timestamp_quality=3,
+        context_builder=_lastfm_context,
     ),
 }
 
@@ -491,137 +669,31 @@ def project_ledger_entries(
     )
 
 
-# --------------------------------------------------------------------------- #
-# Play context builders — pure functions of one observation.                  #
-#                                                                             #
-# Ported byte-identically (key set) from the connector play resolvers so the  #
-# projection can rebuild canonical context from the ledger alone — the        #
-# rebuild command has no resolver in the loop. The key set is persisted into  #
-# track_plays.context; changing it is user-visible data drift.                #
-# --------------------------------------------------------------------------- #
-
-_LASTFM_KNOWN_KEYS: Final = (
-    "lastfm_track_url",
-    "lastfm_artist_url",
-    "lastfm_album_url",
-    "mbid",
-    "artist_mbid",
-    "album_mbid",
-    "streamable",
-    "loved",
-)
-
-_SPOTIFY_KNOWN_KEYS: Final = (
-    TrackContextFields.PLATFORM,
-    TrackContextFields.COUNTRY,
-    TrackContextFields.REASON_START,
-    TrackContextFields.REASON_END,
-    TrackContextFields.SHUFFLE,
-    "skipped",
-    TrackContextFields.OFFLINE,
-    TrackContextFields.INCOGNITO_MODE,
-    "track_uri",
-)
-
-# Matches the resolvers' persisted marker; kept for context-shape continuity.
-_ARCHITECTURE_VERSION: Final = "connector_plays_deferred_resolution"
-# The spotify resolver's per-run resolution method (direct/redirect/fallback)
-# is not reconstructible from the ledger; the projection records the stable
-# resolver marker instead (MatchMethod.PLAY_RESOLVER's value).
-_SPOTIFY_RESOLUTION_METHOD: Final = "spotify_connector_play_resolver"
-_LASTFM_RESOLUTION_METHOD: Final = "lastfm_connector_play_resolver"
-
-
-def spotify_id_from_uri(spotify_uri: str) -> str | None:
-    """Extract the track id from a ``spotify:track:<id>`` URI, else None.
-
-    The single implementation — the Spotify resolver delegates here so
-    import-time and rebuild-time context derive identical ids.
-    """
-    parts = spotify_uri.split(":")
-    if len(parts) != _SPOTIFY_URI_PARTS or parts[0] != "spotify" or parts[1] != "track":
-        return None
-    track_id = parts[2]
-    if (
-        len(track_id) == _SPOTIFY_TRACK_ID_LENGTH
-        and track_id.replace("_", "a").replace("-", "a").isalnum()
-    ):
-        return track_id
-    return None
-
-
-def _passthrough(
-    metadata: Mapping[str, JsonValue], known: Iterable[str]
-) -> dict[str, JsonValue]:
-    known_set = set(known)
-    return {k: v for k, v in metadata.items() if k not in known_set}
-
-
-def _lastfm_context(entry: ConnectorTrackPlay) -> dict[str, JsonValue]:
-    md = entry.service_metadata
-    return {
-        "track_name": entry.track_name,
-        "artist_name": entry.artist_name,
-        "album_name": entry.album_name,
-        "lastfm_track_url": md.get("lastfm_track_url"),
-        "lastfm_artist_url": md.get("lastfm_artist_url"),
-        "lastfm_album_url": md.get("lastfm_album_url"),
-        "mbid": md.get("mbid"),
-        "artist_mbid": md.get("artist_mbid"),
-        "album_mbid": md.get("album_mbid"),
-        "streamable": md.get("streamable"),
-        "loved": md.get("loved"),
-        "resolution_method": _LASTFM_RESOLUTION_METHOD,
-        "architecture_version": _ARCHITECTURE_VERSION,
-        **_passthrough(md, _LASTFM_KNOWN_KEYS),
-    }
-
-
-def _spotify_context(entry: ConnectorTrackPlay) -> dict[str, JsonValue]:
-    md = entry.service_metadata
-    track_uri = md.get("track_uri")
-    spotify_id = None
-    if isinstance(track_uri, str):
-        spotify_id = spotify_id_from_uri(track_uri)
-    if spotify_id is None and entry.connector_track_identifier.startswith(
-        "spotify:track:"
-    ):
-        spotify_id = spotify_id_from_uri(entry.connector_track_identifier)
-    return {
-        TrackContextFields.TRACK_NAME: entry.track_name,
-        TrackContextFields.ARTIST_NAME: entry.artist_name,
-        TrackContextFields.ALBUM_NAME: entry.album_name,
-        TrackContextFields.PLATFORM: md.get("platform"),
-        TrackContextFields.COUNTRY: md.get("country"),
-        TrackContextFields.REASON_START: md.get("reason_start"),
-        TrackContextFields.REASON_END: md.get("reason_end"),
-        TrackContextFields.SHUFFLE: md.get("shuffle"),
-        "skipped": md.get("skipped"),
-        TrackContextFields.OFFLINE: md.get("offline"),
-        TrackContextFields.INCOGNITO_MODE: md.get("incognito_mode", False),
-        TrackContextFields.SPOTIFY_TRACK_URI: md.get("track_uri"),
-        "spotify_track_id": spotify_id,
-        "resolution_method": _SPOTIFY_RESOLUTION_METHOD,
-        "architecture_version": _ARCHITECTURE_VERSION,
-        **_passthrough(md, _SPOTIFY_KNOWN_KEYS),
-    }
-
-
-def _generic_context(entry: ConnectorTrackPlay) -> dict[str, JsonValue]:
-    return {
-        "track_name": entry.track_name,
-        "artist_name": entry.artist_name,
-        "album_name": entry.album_name,
-        "resolution_method": "play_projection",
-        "architecture_version": _ARCHITECTURE_VERSION,
-        **dict(entry.service_metadata),
-    }
+# Fallback when a row names no channel. Keyed on service alone — the pre-channel
+# behaviour, kept because ``import_source`` is nullable and rows written before it
+# was populated would otherwise lose every service-specific key (mbid, the
+# Last.fm URLs, spotify_track_id) to the generic builder. The export builder is
+# the right default for Spotify: it is the shape those legacy rows were written in.
+_FALLBACK_CONTEXT_BUILDERS: Final[
+    Mapping[str, Callable[[ConnectorTrackPlay], dict[str, JsonValue]]]
+] = {
+    "lastfm": _lastfm_context,
+    "spotify": _spotify_context,
+}
 
 
 def build_play_context(entry: ConnectorTrackPlay) -> dict[str, JsonValue]:
-    """The persisted play context for one observation, keyed by service shape."""
-    if entry.service == "lastfm":
-        return _lastfm_context(entry)
-    if entry.service == "spotify":
-        return _spotify_context(entry)
-    return _generic_context(entry)
+    """The persisted play context for one observation, keyed by its channel.
+
+    Unlike :func:`channel_for`, an unrecognised ``(service, import_source)`` does
+    not raise: grouping must fail loud on an unranked channel, but a context is
+    still recoverable without one. It falls back to the service-level builder
+    (and only then to the generic one), so a row with a null or unknown
+    ``import_source`` keeps its service-specific keys instead of silently
+    dropping to a bare name/artist/album context.
+    """
+    spec = CHANNEL_SPECS.get((entry.service, entry.import_source or ""))
+    if spec is not None:
+        return spec.context_builder(entry)
+    fallback = _FALLBACK_CONTEXT_BUILDERS.get(entry.service)
+    return fallback(entry) if fallback is not None else _generic_context(entry)

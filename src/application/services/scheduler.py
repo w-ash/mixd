@@ -47,14 +47,16 @@ import asyncio
 from asyncio import CancelledError
 import contextlib
 from datetime import UTC, datetime
-from typing import Literal
+from typing import Final, Literal
 from uuid import UUID, uuid4
 
 from attrs import define
 
 from src.application.runner import execute_use_case
 from src.application.services.operation_run_recorder import finalize_run, start_run
-from src.application.services.periodic_loop import run_periodic_background_loop
+from src.application.services.periodic_loop import run_adaptive_background_loop
+from src.application.services.run_activity import track_run
+from src.application.services.schedule_signal import schedule_change_event
 from src.application.services.schedule_timing import compute_next_run
 from src.application.use_cases._shared.sync_targets import (
     SYNC_DISPATCH,
@@ -65,7 +67,11 @@ from src.application.use_cases.workflow_runs import (
     RunWorkflowCommand,
     RunWorkflowUseCase,
 )
-from src.application.workflows.protocols import NodeStatusUpdater, RunStatusUpdater
+from src.application.workflows.protocols import (
+    HeartbeatBumper,
+    NodeStatusUpdater,
+    RunStatusUpdater,
+)
 from src.config import settings
 from src.config.constants import WorkflowConstants
 from src.config.logging import get_logger
@@ -83,6 +89,41 @@ logger = get_logger(__name__).bind(service="workflow_scheduler")
 #   skip    — not the schedule's fault (cancelled drain) → advance, no streak change.
 #   failure — the fire ran but ended in error → bump the failure streak.
 type _Disposition = Literal["success", "skip", "failure"]
+
+
+# A window is "missed" once it's this stale — long enough that ordinary wake-up
+# jitter never counts as a miss. Formerly derived as `poll_interval_seconds * 2`;
+# now fixed, because the loop no longer has a fixed poll interval to derive from
+# (and tying grace to a *maximum* sleep would have ballooned it to hours).
+SCHEDULE_GRACE_SECONDS: Final = 120
+
+# Floor on the loop's sleep. A row already past due, or a reap deadline in the
+# past, yields a non-positive delay; without this floor the loop would spin.
+MIN_SLEEP_SECONDS: Final = 5
+
+# Backoff after a failed tick. Deliberately NOT the sleep floor: a persistent
+# failure (Neon suspended mid-migration, pool exhausted) would then retry every
+# 5s forever — ~720 connection attempts an hour, which both spams the log and
+# keeps the compute from ever reaching the 5-minute silence scale-to-zero needs.
+ERROR_BACKOFF_SECONDS: Final = 60
+
+
+@define(frozen=True, slots=True)
+class _TickOutcome:
+    """What one scheduler pass produced, plus when the loop should next wake."""
+
+    due_count: int
+    # None when nothing is scheduled and no claim is outstanding — the loop then
+    # falls back to its configured maximum sleep.
+    next_due_at: datetime | None
+
+
+def _seconds_until_due(next_due_at: datetime | None, max_sleep_seconds: int) -> float:
+    """Seconds to sleep before the next tick, clamped to a sane range."""
+    if next_due_at is None:
+        return float(max_sleep_seconds)
+    delta = (next_due_at - datetime.now(UTC)).total_seconds()
+    return float(min(max(delta, MIN_SLEEP_SECONDS), max_sleep_seconds))
 
 
 @define(frozen=True, slots=True)
@@ -147,6 +188,7 @@ async def _dispatch_workflow(
     *,
     update_run_status: RunStatusUpdater,
     update_node_status: NodeStatusUpdater,
+    bump_heartbeat: HeartbeatBumper,
 ) -> _DispatchOutcome:
     """Create the pending run (under the owner's RLS) then drive it to terminal.
 
@@ -182,6 +224,7 @@ async def _dispatch_workflow(
     exec_result = await ExecuteWorkflowRunUseCase(
         update_run_status=update_run_status,
         update_node_status=update_node_status,
+        bump_heartbeat=bump_heartbeat,
     ).execute(run_result.workflow.definition, run_result.run_id, user_id=user_id)
     status = exec_result.status
     disposition = _classify_run_status(status)
@@ -360,6 +403,7 @@ async def _process_one(
     now: datetime,
     update_run_status: RunStatusUpdater,
     update_node_status: NodeStatusUpdater,
+    bump_heartbeat: HeartbeatBumper,
     catchup: bool,
     grace_seconds: int,
 ) -> None:
@@ -400,14 +444,18 @@ async def _process_one(
         return
 
     try:
-        if schedule.target_type == "workflow":
-            outcome = await _dispatch_workflow(
-                schedule,
-                update_run_status=update_run_status,
-                update_node_status=update_node_status,
-            )
-        else:
-            outcome = await _dispatch_sync(schedule)
+        # Registered as in-flight work so the stalled-run sweeper holds its
+        # active cadence for the dispatch; it sleeps for hours otherwise.
+        async with track_run():
+            if schedule.target_type == "workflow":
+                outcome = await _dispatch_workflow(
+                    schedule,
+                    update_run_status=update_run_status,
+                    update_node_status=update_node_status,
+                    bump_heartbeat=bump_heartbeat,
+                )
+            else:
+                outcome = await _dispatch_sync(schedule)
     except WorkflowAlreadyRunningError:
         # A run already holds the slot — not a fault, and proof the workflow is
         # healthy right now, so this skip RESETS the failure streak.
@@ -474,6 +522,7 @@ async def run_scheduler_tick(
     now: datetime,
     update_run_status: RunStatusUpdater,
     update_node_status: NodeStatusUpdater,
+    bump_heartbeat: HeartbeatBumper,
     max_concurrent: int,
     stuck_timeout_seconds: int,
     dispatch_timeout_seconds: int,
@@ -536,6 +585,7 @@ async def run_scheduler_tick(
                         now=now,
                         update_run_status=update_run_status,
                         update_node_status=update_node_status,
+                        bump_heartbeat=bump_heartbeat,
                         catchup=catchup,
                         grace_seconds=grace_seconds,
                     )
@@ -593,6 +643,7 @@ async def run_scheduler_loop(
     *,
     update_run_status: RunStatusUpdater,
     update_node_status: NodeStatusUpdater,
+    bump_heartbeat: HeartbeatBumper,
 ) -> None:
     """Lifespan-managed scheduler loop. Polls until cancelled.
 
@@ -606,30 +657,51 @@ async def run_scheduler_loop(
     Every replica runs this same loop unconditionally; no leader state is held here.
     """
     cfg = settings.scheduler
-    # A window is "missed" once it's more than two poll intervals stale — long
-    # enough that ordinary poll jitter never counts as a miss.
-    grace_seconds = cfg.poll_interval_seconds * 2
+    # How long the previous sleep was planned to last. The wake signal only
+    # reaches loops in *this* process, so a schedule written by the CLI or
+    # another replica lands unseen; widening the grace by the sleep we just took
+    # means such a row is FIRED on the next wake instead of being written off as
+    # a missed window. A freshly started process has slept for nothing, so it
+    # keeps the strict grace and genuine downtime still skips as before.
+    last_sleep_seconds = 0.0
 
-    async def _tick(uow: UnitOfWorkProtocol) -> int:
-        return await run_scheduler_tick(
+    async def _tick(uow: UnitOfWorkProtocol) -> _TickOutcome:
+        due_count = await run_scheduler_tick(
             uow,
             now=datetime.now(UTC),
             update_run_status=update_run_status,
             update_node_status=update_node_status,
+            bump_heartbeat=bump_heartbeat,
             max_concurrent=cfg.max_concurrent_scheduled_runs,
             stuck_timeout_seconds=cfg.stuck_start_timeout_seconds,
             dispatch_timeout_seconds=cfg.dispatch_timeout_seconds,
             catchup=cfg.catchup,
-            grace_seconds=grace_seconds,
+            grace_seconds=int(SCHEDULE_GRACE_SECONDS + last_sleep_seconds),
         )
+        # Read AFTER dispatch: _release advances next_run_at, so reading before
+        # would sleep to the window we just consumed and spin.
+        async with uow:
+            next_due_at = await uow.get_schedule_repository().find_next_wake_at(
+                stuck_timeout_seconds=cfg.stuck_start_timeout_seconds
+            )
+        return _TickOutcome(due_count=due_count, next_due_at=next_due_at)
 
-    def _log(due_count: int) -> None:
-        if due_count > 0:
-            logger.info("scheduler tick", due_count=due_count)
+    def _log(outcome: _TickOutcome) -> None:
+        if outcome.due_count > 0:
+            logger.info("scheduler tick", due_count=outcome.due_count)
 
-    await run_periodic_background_loop(
+    def _next_delay(outcome: _TickOutcome) -> float:
+        nonlocal last_sleep_seconds
+        last_sleep_seconds = _seconds_until_due(
+            outcome.next_due_at, cfg.max_sleep_seconds
+        )
+        return last_sleep_seconds
+
+    await run_adaptive_background_loop(
         _tick,
-        interval_seconds=cfg.poll_interval_seconds,
+        next_delay=_next_delay,
         name="workflow_scheduler",
+        error_delay_seconds=ERROR_BACKOFF_SECONDS,
+        wake_event=schedule_change_event(),
         log_result=_log,
     )

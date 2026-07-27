@@ -12,7 +12,10 @@ import pytest
 from src.interface.api.services.progress import get_operation_registry
 import src.interface.api.services.workflow_execution as _workflow_execution_mod
 from tests.fixtures.factories import nonexistent_id
-from tests.integration.api.conftest import create_workflow as _create_workflow
+from tests.integration.api.conftest import (
+    create_workflow as _create_workflow,
+    valid_workflow_definition as _valid_definition,
+)
 
 
 @pytest.fixture(autouse=True)
@@ -320,6 +323,64 @@ class TestWorkflowListIncludesLastRun:
         assert our_wf is not None
         assert our_wf["last_run"] is not None
         assert our_wf["last_run"]["status"] == "pending"
+
+
+class TestSuccessfulRunCountField:
+    """``successful_run_count`` is real on every surface that returns a workflow.
+
+    The web client writes detail responses straight into its query cache, so a
+    defaulted zero on the detail/update paths would render as fact.
+    """
+
+    async def test_list_counts_completed_runs_only(
+        self, client: httpx.AsyncClient
+    ) -> None:
+        wf_id = await _create_workflow(client)
+        await _seed_completed_runs(wf_id, 2)
+        # A pending run must not inflate the count.
+        await client.post(f"/api/v1/workflows/{wf_id}/run")
+
+        body = (await client.get("/api/v1/workflows")).json()
+        our_wf = next(w for w in body["data"] if w["id"] == wf_id)
+
+        assert our_wf["successful_run_count"] == 2
+
+    async def test_never_run_workflow_reports_zero(
+        self, client: httpx.AsyncClient
+    ) -> None:
+        wf_id = await _create_workflow(client)
+
+        body = (await client.get("/api/v1/workflows")).json()
+        our_wf = next(w for w in body["data"] if w["id"] == wf_id)
+
+        assert our_wf["successful_run_count"] == 0
+
+    async def test_detail_carries_real_count(self, client: httpx.AsyncClient) -> None:
+        wf_id = await _create_workflow(client)
+        await _seed_completed_runs(wf_id, 3)
+
+        response = await client.get(f"/api/v1/workflows/{wf_id}")
+
+        assert response.status_code == 200
+        assert response.json()["successful_run_count"] == 3
+
+    async def test_update_response_carries_real_count(
+        self, client: httpx.AsyncClient
+    ) -> None:
+        """The PATCH body is what the editor writes into the detail cache."""
+        wf_id = await _create_workflow(client)
+        await _seed_completed_runs(wf_id, 2)
+
+        definition = _valid_definition()
+        definition["name"] = "Renamed Workflow"
+        response = await client.patch(
+            f"/api/v1/workflows/{wf_id}", json={"definition": definition}
+        )
+
+        assert response.status_code == 200
+        body = response.json()
+        assert body["name"] == "Renamed Workflow"
+        assert body["successful_run_count"] == 2
 
 
 class TestListActiveRuns:

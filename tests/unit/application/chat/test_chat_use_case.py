@@ -21,7 +21,11 @@ from src.application.chat.protocols import (
 from src.application.chat.system_prompt import build_system_prompt
 from src.application.chat.use_case import ChatCommand, ChatUseCase
 from src.application.tools.registry import build_tools, execute_tool
-from src.domain.exceptions import MaxRoundsExceededError, ResponseTruncatedError
+from src.domain.exceptions import (
+    ChatRefusedError,
+    MaxRoundsExceededError,
+    ResponseTruncatedError,
+)
 
 type _Turn = tuple[list[LLMStreamEvent], LLMResponse]
 
@@ -146,6 +150,32 @@ async def test_paused_rounds_do_not_burn_the_model_turn_budget() -> None:
 async def test_max_tokens_raises_truncation_error() -> None:
     turns: list[_Turn] = [([], LLMResponse(stop_reason="max_tokens", content=[]))]
     with pytest.raises(ResponseTruncatedError):
+        await _collect(ChatUseCase(_FakeLLM(turns), execute_tool), _command())
+
+
+async def test_refusal_raises_rather_than_ending_silently() -> None:
+    # A refusal carries no tool_use blocks, so without its own branch it would
+    # fall through to the empty-content return and end the turn as a success —
+    # leaving an un-errored empty message that poisons the next request.
+    turns: list[_Turn] = [([], LLMResponse(stop_reason="refusal", content=[]))]
+    with pytest.raises(ChatRefusedError):
+        await _collect(ChatUseCase(_FakeLLM(turns), execute_tool), _command())
+
+
+async def test_refusal_message_names_the_category() -> None:
+    turns: list[_Turn] = [
+        ([], LLMResponse(stop_reason="refusal", content=[], refusal_category="cyber"))
+    ]
+    with pytest.raises(ChatRefusedError, match="cyber"):
+        await _collect(ChatUseCase(_FakeLLM(turns), execute_tool), _command())
+
+
+async def test_refusal_without_a_category_still_raises() -> None:
+    # stop_details is nullable even on a genuine refusal.
+    turns: list[_Turn] = [
+        ([], LLMResponse(stop_reason="refusal", content=[], refusal_category=None))
+    ]
+    with pytest.raises(ChatRefusedError):
         await _collect(ChatUseCase(_FakeLLM(turns), execute_tool), _command())
 
 

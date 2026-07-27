@@ -314,6 +314,43 @@ class ScheduleRepository(BaseRepository[DBSchedule, Schedule]):
         db_rows = list(result.scalars().all())
         return [await ScheduleMapper.to_domain(r) for r in db_rows]
 
+    @db_operation("find_next_wake_at")
+    async def find_next_wake_at(self, *, stuck_timeout_seconds: int) -> datetime | None:
+        """Earliest instant the scheduler must next act (all users).
+
+        Two filtered aggregates in one round trip:
+
+        - the next **due** fire time, mirroring ``find_due_schedules``'s predicate
+          so the loop wakes exactly when that query will next return a row;
+        - the oldest outstanding **claim**, whose reap deadline is
+          ``started_at + stuck_timeout_seconds``. Claimed rows are excluded from
+          the due predicate, so without this a row abandoned mid-dispatch would
+          never be reaped while the loop slept.
+
+        Returns the earlier of the two, or ``None`` when neither exists — which
+        lets the loop fall back to its maximum sleep.
+        """
+        stmt = select(
+            func.min(DBSchedule.next_run_at).filter(
+                DBSchedule.status == "enabled",
+                DBSchedule.started_at.is_(None),
+            ),
+            func.min(DBSchedule.started_at).filter(
+                DBSchedule.started_at.is_not(None),
+            ),
+        )
+        row = (await self.session.execute(stmt)).one()
+        next_due_at = cast("datetime | None", row[0])
+        oldest_claim_at = cast("datetime | None", row[1])
+        candidates: list[datetime] = []
+        if next_due_at is not None:
+            candidates.append(next_due_at)
+        if oldest_claim_at is not None:
+            candidates.append(
+                oldest_claim_at + timedelta(seconds=stuck_timeout_seconds)
+            )
+        return min(candidates, default=None)
+
     @db_operation("mark_schedule_started")
     async def mark_schedule_started(
         self,
