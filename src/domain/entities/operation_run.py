@@ -61,6 +61,11 @@ class OperationRun:
     # Surfaced in the run log so an agent-initiated op is visible without
     # trusting one's memory of the chat.
     initiated_by: str = "manual"
+    # Finer-grained provenance beside ``initiated_by``: which surface asked for
+    # this run — "web", "mcp", or "workflow:<run_id>". A demand-driven play poll
+    # is otherwise indistinguishable from any other unattended one, and "why did
+    # this fire?" is the first question the run log has to answer for polls.
+    trigger_detail: str | None = None
     created_at: datetime = field(factory=utc_now_factory)
     updated_at: datetime = field(factory=utc_now_factory)
     id: UUID = field(factory=uuid7)

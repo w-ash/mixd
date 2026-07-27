@@ -34,9 +34,14 @@ class OperationRunSummarySchema(BaseModel):
     # Server truth for the "Retry failed only" action (OperationRun.is_retryable),
     # so the UI never re-derives retryability from operation_type.
     retryable: bool
-    # Attribution: "manual" (default), "assistant" (AI-agent-launched), or
-    # "schedule". Drives the "Assistant" badge in the run log.
+    # Attribution: "manual" (default), "assistant" (AI-agent-launched),
+    # "schedule", or "demand" (a poll pulled in by something reading the data).
+    # Drives the badges in the run log.
     initiated_by: str
+    # Which surface asked for a demand run — "web", "mcp", or "workflow:<run_id>".
+    # Answers "why did this fire?" for unattended runs, where initiated_by alone
+    # only says that nobody typed a button.
+    trigger_detail: str | None = None
 
 
 class OperationRunDetailSchema(BaseModel):
@@ -53,9 +58,14 @@ class OperationRunDetailSchema(BaseModel):
     counts: JsonDict
     issues: list[JsonDict]
     retryable: bool
-    # Attribution: "manual" (default), "assistant" (AI-agent-launched), or
-    # "schedule". Drives the "Assistant" badge in the run log.
+    # Attribution: "manual" (default), "assistant" (AI-agent-launched),
+    # "schedule", or "demand" (a poll pulled in by something reading the data).
+    # Drives the badges in the run log.
     initiated_by: str
+    # Which surface asked for a demand run — "web", "mcp", or "workflow:<run_id>".
+    # Answers "why did this fire?" for unattended runs, where initiated_by alone
+    # only says that nobody typed a button.
+    trigger_detail: str | None = None
 
 
 class OperationRunListResponse(BaseModel):

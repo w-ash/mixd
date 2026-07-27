@@ -126,6 +126,11 @@ def make_mock_checkpoint_repo(**overrides) -> AsyncMock:
                 user_id=user_id, service=service, entity_type=entity_type
             )
         )
+    # Poll lease defaults to *won*, so a test that isn't about single-flight
+    # exercises the whole poll path. Tests for the losing branch pass
+    # ``try_claim_poll=AsyncMock(return_value=False)``.
+    repo.try_claim_poll.return_value = overrides.pop("try_claim_poll", True)
+    repo.finish_poll.return_value = None
     for k, v in overrides.items():
         setattr(repo, k, v)
     return repo

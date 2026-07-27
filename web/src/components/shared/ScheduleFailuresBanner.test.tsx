@@ -21,6 +21,7 @@ function makeSchedule(over: Partial<ScheduleListItem> = {}): ScheduleListItem {
     hour: 3,
     minute: 0,
     day_of_week: null,
+    interval_minutes: null,
     timezone: "UTC",
     status: "enabled",
     next_run_at: "2026-06-08T03:00:00Z",

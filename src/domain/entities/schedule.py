@@ -24,7 +24,7 @@ from attrs import define, field
 
 from .shared import validate_timezone_aware
 
-type ScheduleType = Literal["daily", "weekly"]
+type ScheduleType = Literal["daily", "weekly", "interval"]
 type ScheduleStatus = Literal["enabled", "disabled"]
 type ScheduleTargetType = Literal["workflow", "sync"]
 
@@ -34,6 +34,11 @@ _MAX_HOUR: Final = 23
 _MAX_MINUTE: Final = 59
 _MIN_DAY_OF_WEEK: Final = 0
 _MAX_DAY_OF_WEEK: Final = 6
+# Interval bounds mirror the CHECK in migration 043. The floor is what the
+# constraint permits, not what any caller should choose: a 5-minute cadence
+# holds a scale-to-zero compute awake continuously.
+MIN_INTERVAL_MINUTES: Final = 5
+MAX_INTERVAL_MINUTES: Final = 1440
 
 
 def validate_time_of_day(hour: int, minute: int) -> tuple[int, int]:
@@ -59,6 +64,16 @@ def validate_day_of_week(day_of_week: int) -> int:
     return day_of_week
 
 
+def validate_interval_minutes(interval_minutes: int) -> int:
+    """Return ``interval_minutes`` if within the supported range, else raise."""
+    if not MIN_INTERVAL_MINUTES <= interval_minutes <= MAX_INTERVAL_MINUTES:
+        raise ValueError(
+            f"interval_minutes must be {MIN_INTERVAL_MINUTES}-{MAX_INTERVAL_MINUTES}, "
+            f"got {interval_minutes}"
+        )
+    return interval_minutes
+
+
 @define(frozen=True, slots=True)
 class Schedule:
     """An automated trigger for a workflow run or a background sync.
@@ -66,10 +81,16 @@ class Schedule:
     Cadence:
     - ``day_of_week is None`` → **daily** at ``hour:minute`` (local).
     - ``day_of_week`` set (0=Sun…6=Sat) → **weekly** on that day at ``hour:minute``.
+    - ``interval_minutes`` set → **interval**: every N minutes, ignoring
+      ``hour``/``minute``. Used by the adaptive play poller, which rewrites its
+      own interval after each poll so the scheduler sleeps for the backed-off
+      duration instead of waking on a fixed tick to find nothing to do.
 
     Invariants (enforced in ``__attrs_post_init__``):
     - Exactly one of ``workflow_id`` / ``sync_target`` is set (exclusive arc).
     - ``hour`` in 0-23, ``minute`` in 0-59, ``day_of_week`` is None or 0-6.
+    - ``interval_minutes`` is None or 5-1440, and never set alongside
+      ``day_of_week`` (one cadence at a time).
     """
 
     user_id: str
@@ -80,6 +101,8 @@ class Schedule:
     hour: int = 0
     minute: int = 0
     day_of_week: int | None = None
+    # Third cadence arm — exclusive with day_of_week.
+    interval_minutes: int | None = None
     # IANA zone name (e.g. "America/Los_Angeles"); validated in the app layer.
     timezone: str = "UTC"
     status: ScheduleStatus = "enabled"
@@ -119,6 +142,14 @@ class Schedule:
         validate_time_of_day(self.hour, self.minute)
         if self.day_of_week is not None:
             validate_day_of_week(self.day_of_week)
+        # Exclusive cadence arc, mirroring ck_schedules_cadence_exclusive.
+        if self.interval_minutes is not None:
+            if self.day_of_week is not None:
+                raise ValueError(
+                    "schedule cadence must be one of daily, weekly, or interval; "
+                    "day_of_week and interval_minutes were both provided"
+                )
+            validate_interval_minutes(self.interval_minutes)
         # Observability counters can never be negative.
         if self.run_count < 0:
             raise ValueError("run_count must be non-negative")
@@ -128,6 +159,8 @@ class Schedule:
     @property
     def schedule_type(self) -> ScheduleType:
         """Derived cadence kind — never stored."""
+        if self.interval_minutes is not None:
+            return "interval"
         return "weekly" if self.day_of_week is not None else "daily"
 
     @property

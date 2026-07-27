@@ -51,7 +51,12 @@ interface FormState {
 
 function initialForm(schedule: ScheduleResponse | null): FormState {
   return {
-    scheduleType: schedule?.schedule_type ?? "daily",
+    // Narrowed rather than passed through: `schedule_type` can now be
+    // "interval", which this picker has no control for. Only self-managed
+    // targets carry that cadence and none of them reach this component, so the
+    // fallback is unreachable in practice — but a raw pass-through would set the
+    // Select to a value it has no option for and render it blank.
+    scheduleType: schedule?.schedule_type === "weekly" ? "weekly" : "daily",
     hour: schedule?.hour ?? 6,
     minute: schedule?.minute ?? 30,
     dayOfWeek: schedule?.day_of_week ?? 0,

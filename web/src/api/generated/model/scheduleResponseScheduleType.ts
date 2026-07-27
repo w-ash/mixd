@@ -12,4 +12,5 @@ export type ScheduleResponseScheduleType = typeof ScheduleResponseScheduleType[k
 export const ScheduleResponseScheduleType = {
   daily: 'daily',
   weekly: 'weekly',
+  interval: 'interval',
 } as const;

@@ -21,6 +21,7 @@ import pytest
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from src.application.services.schedule_timing import compute_next_run
 from src.domain.entities.schedule import Schedule
 from src.domain.exceptions import (
     NotFoundError,
@@ -608,3 +609,101 @@ class TestCheckConstraintMapping:
         bad = evolve(_sync_schedule("u1"), status="paused")  # pyright: ignore[reportArgumentType]
         with pytest.raises(ScheduleInvariantError):
             await repo.create(bad)
+
+
+class TestAdaptiveIntervalCadence:
+    """The write-back that makes adaptive backoff a *cost* mechanism (v0.10.1).
+
+    Persisted here rather than asserted in a unit test because the whole point is
+    that a value written by the poll policy is read back by the scheduler's
+    wake-time computation, through the database, in two separate transactions.
+    """
+
+    @staticmethod
+    def _poll_schedule(user_id: str, *, interval_minutes: int = 30) -> Schedule:
+        return Schedule(
+            user_id=user_id,
+            sync_target="spotify:plays",
+            interval_minutes=interval_minutes,
+            next_run_at=_DUE,
+        )
+
+    async def test_interval_round_trips(self, db_session: AsyncSession) -> None:
+        repo = ScheduleRepository(db_session)
+        created = await repo.create(self._poll_schedule("u1"))
+
+        assert created.interval_minutes == 30
+        assert created.schedule_type == "interval"
+
+        found = await repo.get_for_target(user_id="u1", sync_target="spotify:plays")
+        assert found is not None
+        assert found.interval_minutes == 30
+
+    async def test_set_poll_interval_stretches_the_next_wake(
+        self, db_session: AsyncSession
+    ) -> None:
+        """An empty poll must push the scheduler's next wake further out.
+
+        This is the assertion the cost argument rests on: without it the backoff
+        only skips the API call, while the 30-minute tick keeps waking a
+        scale-to-zero database ~48 times a day to be told there is nothing to do.
+        """
+        repo = ScheduleRepository(db_session)
+        created = await repo.create(self._poll_schedule("u1", interval_minutes=30))
+        now = datetime(2026, 7, 27, 12, 0, tzinfo=UTC)
+
+        assert compute_next_run(created, now=now) == now + timedelta(minutes=30)
+
+        # The poll policy stretches to the redundant cap after repeated empties.
+        await repo.set_poll_interval(
+            user_id="u1", sync_target="spotify:plays", interval_minutes=1440
+        )
+
+        stretched = await repo.get_for_target(user_id="u1", sync_target="spotify:plays")
+        assert stretched is not None
+        assert compute_next_run(stretched, now=now) == now + timedelta(hours=24)
+
+    async def test_set_poll_interval_leaves_user_owned_columns_alone(
+        self, db_session: AsyncSession
+    ) -> None:
+        # A backoff tick runs concurrently with whatever else touches this row;
+        # rewriting status or next_run_at here would clobber a user's edit or
+        # race the scheduler's own claim-guarded write.
+        repo = ScheduleRepository(db_session)
+        created = await repo.create(self._poll_schedule("u1"))
+
+        await repo.set_poll_interval(
+            user_id="u1", sync_target="spotify:plays", interval_minutes=120
+        )
+
+        after = await repo.get_for_target(user_id="u1", sync_target="spotify:plays")
+        assert after is not None
+        assert after.interval_minutes == 120
+        assert after.status == created.status
+        assert after.next_run_at == created.next_run_at
+
+    async def test_set_poll_interval_is_a_noop_without_a_row(
+        self, db_session: AsyncSession
+    ) -> None:
+        # A demand poll is legitimate before polling has ever been enabled, and
+        # has no cadence to adjust.
+        repo = ScheduleRepository(db_session)
+        await repo.set_poll_interval(
+            user_id="nobody", sync_target="spotify:plays", interval_minutes=60
+        )
+
+    async def test_set_next_run_at_moves_only_the_wake_time(
+        self, db_session: AsyncSession
+    ) -> None:
+        repo = ScheduleRepository(db_session)
+        created = await repo.create(self._poll_schedule("u1"))
+        later = _DUE + timedelta(hours=2)
+
+        await repo.set_next_run_at(
+            user_id="u1", sync_target="spotify:plays", next_run_at=later
+        )
+
+        after = await repo.get_for_target(user_id="u1", sync_target="spotify:plays")
+        assert after is not None
+        assert after.next_run_at == later
+        assert after.interval_minutes == created.interval_minutes

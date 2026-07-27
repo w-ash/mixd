@@ -371,3 +371,69 @@ class TestSpotifyPlaylistImport:
 
         assert response.status_code == 202
         assert isinstance(response.json().get("operation_id"), str)
+
+
+class TestPlayPolling:
+    """The reachable on/off switch for the adaptive play heartbeat.
+
+    Its absence was a real gap: ``enable_play_polling`` ran only inside the OAuth
+    callback, so anyone who consented before the feature shipped had a valid
+    grant, no schedule row, and no surface able to create one — the generic
+    schedule upsert rejects this target by design.
+    """
+
+    async def test_defaults_to_off_when_never_enabled(
+        self, client: httpx.AsyncClient
+    ) -> None:
+        response = await client.get("/api/v1/connectors/spotify/play-polling")
+
+        assert response.status_code == 200
+        assert response.json()["enabled"] is False
+
+    async def test_enabling_creates_the_schedule_at_the_base_cadence(
+        self, client: httpx.AsyncClient
+    ) -> None:
+        response = await client.put(
+            "/api/v1/connectors/spotify/play-polling", json={"enabled": True}
+        )
+
+        assert response.status_code == 200
+        body = response.json()
+        assert body["enabled"] is True
+        assert body["interval_minutes"] == 30
+
+        # And it survives the round trip — this is the state the heartbeat reads.
+        after = await client.get("/api/v1/connectors/spotify/play-polling")
+        assert after.json()["enabled"] is True
+
+    async def test_disabling_preserves_the_row(self, client: httpx.AsyncClient) -> None:
+        await client.put(
+            "/api/v1/connectors/spotify/play-polling", json={"enabled": True}
+        )
+        response = await client.put(
+            "/api/v1/connectors/spotify/play-polling", json={"enabled": False}
+        )
+
+        assert response.status_code == 200
+        assert response.json()["enabled"] is False
+        # Disabled, not deleted: the cadence it had learned is still there for a
+        # later re-enable to resume from.
+        assert response.json()["interval_minutes"] == 30
+
+    async def test_re_enabling_is_idempotent(self, client: httpx.AsyncClient) -> None:
+        for _ in range(2):
+            response = await client.put(
+                "/api/v1/connectors/spotify/play-polling", json={"enabled": True}
+            )
+            assert response.status_code == 200
+            assert response.json()["enabled"] is True
+
+    async def test_other_connectors_are_rejected(
+        self, client: httpx.AsyncClient
+    ) -> None:
+        # Only Spotify has a polled play channel; a silent no-op would imply the
+        # switch did something.
+        response = await client.put(
+            "/api/v1/connectors/lastfm/play-polling", json={"enabled": True}
+        )
+        assert response.status_code == 400

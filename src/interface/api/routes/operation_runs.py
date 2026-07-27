@@ -103,6 +103,7 @@ async def list_operation_runs(
                 issue_count=len(r.issues),
                 retryable=r.is_retryable,
                 initiated_by=r.initiated_by,
+                trigger_detail=r.trigger_detail,
             )
             for r in result.runs
         ],
@@ -140,6 +141,7 @@ async def get_operation_run(
         issues=list(run.issues),
         retryable=run.is_retryable,
         initiated_by=run.initiated_by,
+        trigger_detail=run.trigger_detail,
     )
 
 

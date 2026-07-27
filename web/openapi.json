@@ -3502,6 +3502,100 @@
         }
       }
     },
+    "/api/v1/connectors/{service}/play-polling": {
+      "put": {
+        "tags": [
+          "connectors"
+        ],
+        "summary": "Set Connector Play Polling",
+        "description": "Turn adaptive play polling on or off for a connector.\n\nSeparate from the schedule routes on purpose: this target's cadence is\nself-managed, so it is deliberately excluded from ``USER_SCHEDULABLE_TARGETS``\nand its upsert route 400s. What a user *can* decide is whether it runs, and\nthat needs a surface \u2014 enabling otherwise happens only inside the OAuth\ncallback, stranding anyone who consented before the feature shipped.",
+        "operationId": "set_connector_play_polling_api_v1_connectors__service__play_polling_put",
+        "parameters": [
+          {
+            "name": "service",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Service"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/PlayPollingRequest"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PlayPollingResponse"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      },
+      "get": {
+        "tags": [
+          "connectors"
+        ],
+        "summary": "Get Connector Play Polling",
+        "description": "Current polling state \u2014 off, or on with its live backed-off cadence.",
+        "operationId": "get_connector_play_polling_api_v1_connectors__service__play_polling_get",
+        "parameters": [
+          {
+            "name": "service",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Service"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PlayPollingResponse"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/api/v1/connectors/{service}/playlists": {
       "get": {
         "tags": [
@@ -5177,6 +5271,49 @@
               }
             ],
             "title": "Remote Total"
+          },
+          "last_polled_at": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "date-time"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Last Polled At"
+          },
+          "effective_interval_seconds": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Effective Interval Seconds"
+          },
+          "poll_health": {
+            "anyOf": [
+              {
+                "type": "string",
+                "enum": [
+                  "healthy",
+                  "overdue"
+                ]
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Poll Health"
+          },
+          "possible_gap": {
+            "type": "boolean",
+            "title": "Possible Gap",
+            "default": false
           }
         },
         "type": "object",
@@ -6885,6 +7022,17 @@
           "initiated_by": {
             "type": "string",
             "title": "Initiated By"
+          },
+          "trigger_detail": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Trigger Detail"
           }
         },
         "type": "object",
@@ -7000,6 +7148,17 @@
           "initiated_by": {
             "type": "string",
             "title": "Initiated By"
+          },
+          "trigger_detail": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Trigger Detail"
           }
         },
         "type": "object",
@@ -7457,6 +7616,57 @@
           "offset"
         ],
         "title": "PaginatedResponse[WorkflowSummarySchema]"
+      },
+      "PlayPollingRequest": {
+        "properties": {
+          "enabled": {
+            "type": "boolean",
+            "title": "Enabled"
+          }
+        },
+        "type": "object",
+        "required": [
+          "enabled"
+        ],
+        "title": "PlayPollingRequest",
+        "description": "Turn a connector's adaptive play polling on or off.\n\nDistinct from the generic schedule upsert: this target's cadence is managed\nfor the user (the poller rewrites its own interval after each poll), so the\nonly thing a client may set is whether it runs at all."
+      },
+      "PlayPollingResponse": {
+        "properties": {
+          "enabled": {
+            "type": "boolean",
+            "title": "Enabled"
+          },
+          "interval_minutes": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Interval Minutes"
+          },
+          "next_run_at": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "date-time"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Next Run At"
+          }
+        },
+        "type": "object",
+        "required": [
+          "enabled"
+        ],
+        "title": "PlayPollingResponse",
+        "description": "Current polling state for a connector's play channel."
       },
       "PlaySummarySchema": {
         "properties": {
@@ -7979,7 +8189,8 @@
             "type": "string",
             "enum": [
               "daily",
-              "weekly"
+              "weekly",
+              "interval"
             ],
             "title": "Schedule Type"
           },
@@ -8001,6 +8212,17 @@
               }
             ],
             "title": "Day Of Week"
+          },
+          "interval_minutes": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Interval Minutes"
           },
           "timezone": {
             "type": "string",
@@ -8083,6 +8305,7 @@
           "hour",
           "minute",
           "day_of_week",
+          "interval_minutes",
           "timezone",
           "status",
           "next_run_at",
@@ -8155,7 +8378,8 @@
             "type": "string",
             "enum": [
               "daily",
-              "weekly"
+              "weekly",
+              "interval"
             ],
             "title": "Schedule Type"
           },
@@ -8177,6 +8401,17 @@
               }
             ],
             "title": "Day Of Week"
+          },
+          "interval_minutes": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Interval Minutes"
           },
           "timezone": {
             "type": "string",
@@ -8255,6 +8490,7 @@
           "hour",
           "minute",
           "day_of_week",
+          "interval_minutes",
           "timezone",
           "status",
           "next_run_at",

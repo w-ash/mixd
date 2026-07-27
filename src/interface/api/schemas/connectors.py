@@ -107,3 +107,24 @@ class ImportConnectorPlaylistsRequest(BaseModel):
 
     connector_playlist_identifiers: list[str] = Field(min_length=1)
     sync_direction: Literal["pull", "push"]
+
+
+class PlayPollingRequest(BaseModel):
+    """Turn a connector's adaptive play polling on or off.
+
+    Distinct from the generic schedule upsert: this target's cadence is managed
+    for the user (the poller rewrites its own interval after each poll), so the
+    only thing a client may set is whether it runs at all.
+    """
+
+    enabled: bool
+
+
+class PlayPollingResponse(BaseModel):
+    """Current polling state for a connector's play channel."""
+
+    enabled: bool
+    # Null when polling has never been enabled — the client renders "off"
+    # rather than inventing a cadence it cannot know.
+    interval_minutes: int | None = None
+    next_run_at: datetime | None = None

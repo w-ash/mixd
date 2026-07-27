@@ -30,6 +30,7 @@ async def start_run(
     triggered_by_schedule_id: UUID | None = None,
     request_params: JsonDict | None = None,
     initiated_by: str = "manual",
+    trigger_detail: str | None = None,
 ) -> UUID:
     """Insert an ``OperationRun`` row at operation kickoff.
 
@@ -42,7 +43,10 @@ async def start_run(
     operation (connector config) so "Retry failed only" can rebuild the call from
     the row — connector strings only, never ids or user_id. ``initiated_by``
     attributes the run in the log — "manual" (the user, default), "assistant"
-    (an AI-agent-launched background op), or "schedule".
+    (an AI-agent-launched background op), "schedule", or "demand" (a poll pulled
+    in by something reading the data). ``trigger_detail`` narrows that further for
+    demand runs — "web", "mcp", or "workflow:<run_id>" — so the log answers *why*
+    an unattended run happened, not just that it did.
     """
 
     async def _create(uow: UnitOfWorkProtocol) -> UUID:
@@ -55,6 +59,7 @@ async def start_run(
             triggered_by_schedule_id=triggered_by_schedule_id,
             request_params=request_params or {},
             initiated_by=initiated_by,
+            trigger_detail=trigger_detail,
         )
         async with uow:
             repo = uow.get_operation_run_repository()

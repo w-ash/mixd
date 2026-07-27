@@ -20,6 +20,7 @@ from fastapi import APIRouter, Depends, HTTPException, Request
 from fastapi.responses import RedirectResponse
 from sqlalchemy import delete
 
+from src.application.services.play_poll_policy import sync_play_polling_after_auth
 from src.config import get_logger, settings
 from src.infrastructure.connectors._shared.connector_status import (
     fetch_spotify_display_name,
@@ -193,6 +194,10 @@ async def _complete_spotify_auth(
     if display_name:
         token_to_save = StoredToken(**token_info, account_name=display_name)
     await storage.save_token("spotify", user_id, token_to_save)
+
+    # A grant covering recently-played is the user opting into live play history,
+    # so start the poller here rather than making them find a separate switch.
+    await sync_play_polling_after_auth(user_id, token_info.get("scope"))
 
     logger.info("Spotify web auth completed successfully", user_id=user_id)
     return RedirectResponse("/settings/integrations?auth=spotify&status=success")

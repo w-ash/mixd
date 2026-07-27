@@ -12,4 +12,5 @@ export type ScheduleListItemScheduleType = typeof ScheduleListItemScheduleType[k
 export const ScheduleListItemScheduleType = {
   daily: 'daily',
   weekly: 'weekly',
+  interval: 'interval',
 } as const;

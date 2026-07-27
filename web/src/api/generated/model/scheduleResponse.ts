@@ -22,6 +22,7 @@ export interface ScheduleResponse {
   hour: number;
   minute: number;
   day_of_week: number | null;
+  interval_minutes: number | null;
   timezone: string;
   status: ScheduleResponseStatus;
   next_run_at: string | null;

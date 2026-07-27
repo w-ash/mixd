@@ -20,7 +20,7 @@ from src.application.chat.dispatchers._common import (
 )
 from src.application.chat.protocols import ToolContext
 from src.application.runner import execute_use_case
-from src.application.use_cases._shared.sync_targets import SYNC_DISPATCH
+from src.application.use_cases._shared.sync_targets import USER_SCHEDULABLE_TARGETS
 from src.application.use_cases.schedules import (
     GetScheduleCommand,
     GetScheduleUseCase,
@@ -44,7 +44,7 @@ QUERY_SCHEDULES_INPUT_SCHEMA: JsonDict = {
         },
         "sync_target": {
             "type": "string",
-            "enum": sorted(SYNC_DISPATCH),
+            "enum": list(USER_SCHEDULABLE_TARGETS),
             "description": (
                 "A background sync identity to fetch the schedule that triggers "
                 "that sync. Supply at most one of 'workflow_id'/'sync_target'; "

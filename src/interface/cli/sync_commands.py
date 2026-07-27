@@ -6,10 +6,12 @@ is the sync-side peer of `mixd workflow schedule`; both are thin wrappers over
 the shared ``run_schedule_command`` orchestrator so validation and dispatch live
 in exactly one place.
 
-Schedulable targets are the keys of ``SYNC_DISPATCH`` (e.g. ``lastfm:plays``,
-``spotify:likes``, ``lastfm:likes``). ``spotify:plays`` is importable on demand
-(`mixd history import-spotify-recent`, v0.10.1) but not yet schedulable — the
-adaptive poller that adds it lands with v0.10.1 Epic C.
+Schedulable targets are ``USER_SCHEDULABLE_TARGETS`` (e.g. ``lastfm:plays``,
+``spotify:likes``, ``lastfm:likes``). ``spotify:plays`` is deliberately absent:
+it is importable on demand (`mixd history import-spotify-recent`) and polled
+automatically on an adaptive cadence it manages itself, so exposing it to a
+fixed daily/weekly picker would overwrite that cadence and switch the backoff
+off (v0.10.1 Epic C).
 """
 
 from typing import Annotated

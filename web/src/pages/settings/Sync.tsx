@@ -1,8 +1,14 @@
+import { useQueryClient } from "@tanstack/react-query";
 import { AlertTriangle } from "lucide-react";
 import type React from "react";
 import { useEffect, useRef, useState } from "react";
 import { useNavigate } from "react-router";
-import { useGetConnectorsApiV1ConnectorsGet } from "#/api/generated/connectors/connectors";
+import {
+  getGetConnectorPlayPollingApiV1ConnectorsServicePlayPollingGetQueryKey,
+  useGetConnectorPlayPollingApiV1ConnectorsServicePlayPollingGet,
+  useGetConnectorsApiV1ConnectorsGet,
+  useSetConnectorPlayPollingApiV1ConnectorsServicePlayPollingPut,
+} from "#/api/generated/connectors/connectors";
 import {
   getGetCheckpointsApiV1ImportsCheckpointsGetQueryKey,
   useExportLastfmLikesApiV1ImportsLastfmLikesPost,
@@ -17,6 +23,7 @@ import type {
   ImportLastfmHistoryRequestMode,
   OperationStartedResponse,
 } from "#/api/generated/model";
+import { STALE } from "#/api/query-client";
 import { PageHeader } from "#/components/layout/PageHeader";
 import { ConnectorIcon } from "#/components/shared/ConnectorIcon";
 import {
@@ -33,7 +40,7 @@ import { useOperationProgress } from "#/hooks/useOperationProgress";
 import { useSyncScheduleController } from "#/hooks/useScheduleController";
 import { formatDateTime } from "#/lib/format";
 import { pluralSuffix } from "#/lib/pluralize";
-import type { SyncTarget } from "#/lib/schedule";
+import { describeMinutes, type SyncTarget } from "#/lib/schedule";
 import { type RunOperationType, toasts } from "#/lib/toasts";
 import { cn } from "#/lib/utils";
 
@@ -102,6 +109,9 @@ interface OperationCardProps {
   triggerDisabled?: boolean;
   /** Background-sync target id (e.g. `lastfm:plays`). When set, the card shows a recurring-schedule control. */
   syncTarget?: SyncTarget;
+  /** Self-managed poll target (`spotify:plays`). Shows a read-only cadence plus
+   * an on/off switch instead of the editable picker — see `PlayPollingField`. */
+  pollingService?: string;
   children?: React.ReactNode;
 }
 
@@ -119,6 +129,7 @@ function OperationCard({
   triggerLabel = "Import",
   triggerDisabled,
   syncTarget,
+  pollingService,
   children,
 }: OperationCardProps) {
   const { progress, isActive } = useOperationProgress(operationId, {
@@ -181,12 +192,132 @@ function OperationCard({
 
       {syncTarget && <SyncScheduleField targetId={syncTarget} />}
 
+      {pollingService && <PlayPollingField service={pollingService} />}
+
+      <PollStatusLine checkpoint={checkpoint} />
+
       <p className="mt-3 text-right text-xs text-text-faint">
         Last sync:{" "}
         <span className="font-mono text-text-muted">
           {formatDateTime(checkpoint?.last_sync_timestamp)}
         </span>
       </p>
+    </div>
+  );
+}
+
+/**
+ * "Last checked" plus polling health, for channels that are polled.
+ *
+ * Distinct from "Last sync" above it: that is when the user last *listened*,
+ * this is when mixd last *checked*. On an idle account the former ages forever
+ * while the latter stays current, and only the second answers "is this working?"
+ *
+ * Renders nothing for checkpoints that aren't polled — most aren't, and showing
+ * them an empty status would read as a fault.
+ */
+function PollStatusLine({
+  checkpoint,
+}: {
+  checkpoint: CheckpointStatusSchema | undefined;
+}) {
+  if (!checkpoint?.last_polled_at && !checkpoint?.poll_health) return null;
+
+  return (
+    <div className="mt-3 space-y-1 text-right text-xs text-text-faint">
+      <p>
+        Last checked:{" "}
+        <span className="font-mono text-text-muted">
+          {formatDateTime(checkpoint.last_polled_at)}
+        </span>
+        {checkpoint.poll_health === "overdue" && (
+          <span className="ml-2 text-status-error">Overdue</span>
+        )}
+        {checkpoint.poll_health === "healthy" && (
+          <span className="ml-2 text-status-success">Up to date</span>
+        )}
+      </p>
+      {checkpoint.possible_gap && (
+        // A saturated window means plays may already be gone from Spotify's
+        // side, where nothing can recover them. The actionable remedy is a
+        // second observer, so the copy says that rather than colouring a dot.
+        <p className="flex items-center justify-end gap-1 text-status-warning">
+          <AlertTriangle className="h-3 w-3" aria-hidden />
+          <span>
+            Listening outpaced the 50-play window — connect Last.fm so nothing
+            is missed.
+          </span>
+        </p>
+      )}
+    </div>
+  );
+}
+
+/**
+ * Read-only cadence plus an on/off switch for a self-managed poll schedule.
+ *
+ * Deliberately not the shared `SchedulePicker`. There is one schedule row per
+ * (user, target), and this one's interval is rewritten by the poller itself
+ * after every poll — so offering the daily/weekly editor would let a save
+ * overwrite the adaptive cadence and silently switch the backoff off. The
+ * backend enforces the same rule by keeping this target out of
+ * `USER_SCHEDULABLE_TARGETS`, which makes its upsert route 400.
+ */
+function PlayPollingField({ service }: { service: string }) {
+  const queryClient = useQueryClient();
+  const { data, isLoading } =
+    useGetConnectorPlayPollingApiV1ConnectorsServicePlayPollingGet(service, {
+      query: { staleTime: STALE.SLOW, retry: false },
+    });
+  const state = data?.status === 200 ? data.data : null;
+
+  const toggle = useSetConnectorPlayPollingApiV1ConnectorsServicePlayPollingPut(
+    {
+      mutation: {
+        onSuccess: () => {
+          void queryClient.invalidateQueries({
+            queryKey:
+              getGetConnectorPlayPollingApiV1ConnectorsServicePlayPollingGetQueryKey(
+                service,
+              ),
+          });
+        },
+        meta: { errorLabel: "Failed to update automatic sync" },
+      },
+    },
+  );
+
+  if (isLoading) return null;
+
+  const enabled = state?.enabled ?? false;
+  return (
+    <div className="mt-3 border-t border-border-muted pt-3">
+      <div className="flex items-center justify-between gap-3">
+        <div>
+          <p className="font-display text-xs text-text-muted">Automatic sync</p>
+          <p className="mt-0.5 text-xs text-text-faint">
+            {enabled && state?.interval_minutes
+              ? `Every ${describeMinutes(state.interval_minutes)}`
+              : "Off"}
+          </p>
+        </div>
+        {/* Enabled whenever the connector is usable — turning polling ON is the
+            whole point, and the switch must be able to create the schedule the
+            first time rather than waiting for a re-auth to do it. */}
+        <Switch
+          checked={enabled}
+          disabled={toggle.isPending}
+          onCheckedChange={(next) =>
+            toggle.mutate({ service, data: { enabled: next } })
+          }
+          aria-label="Automatic play polling"
+        />
+      </div>
+      {enabled && (
+        <p className="mt-1 text-xs text-text-faint">
+          Checks more often while you're listening, less often when you're not.
+        </p>
+      )}
     </div>
   );
 }
@@ -455,6 +586,7 @@ function SpotifyRecentImport({
       // A pre-v0.10.1 grant reports connected (likes and playlists still work),
       // so the shared connected gate can't catch this one.
       triggerDisabled={needsReconnect}
+      pollingService="spotify"
     >
       {needsReconnect && (
         <p className="mt-2 text-xs text-status-expired">

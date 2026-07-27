@@ -5,6 +5,7 @@
  * Personal music metadata hub
  * OpenAPI spec version: 0.10.0
  */
+import type { CheckpointStatusSchemaPollHealth } from './checkpointStatusSchemaPollHealth.ts';
 
 /**
  * Sync checkpoint status for a single service + entity type.
@@ -16,4 +17,8 @@ export interface CheckpointStatusSchema {
   has_previous_sync?: boolean;
   local_count?: number | null;
   remote_total?: number | null;
+  last_polled_at?: string | null;
+  effective_interval_seconds?: number | null;
+  poll_health?: CheckpointStatusSchemaPollHealth;
+  possible_gap?: boolean;
 }

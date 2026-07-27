@@ -1,8 +1,8 @@
-"""Unit tests for daily/weekly next-run computation.
+"""Unit tests for daily/weekly/interval next-run computation.
 
 Time-injected (no freezegun). Covers daily roll-over, weekly weekday selection,
-DST-correctness across a fall-back boundary, whole-minute truncation, and the
-tz-aware guard.
+DST-correctness across a fall-back boundary, the interval cadence, whole-minute
+truncation, and the tz-aware guard.
 """
 
 from datetime import UTC, datetime
@@ -72,3 +72,64 @@ class TestPrecisionAndGuards:
         naive = datetime(2026, 6, 1, 0, 0)  # ruff:ignore[call-datetime-without-tzinfo]  # the input under test
         with pytest.raises(ValueError, match="now must be timezone-aware"):
             compute_next_run(_schedule(hour=6, minute=0, tz="UTC"), now=naive)
+
+
+class TestInterval:
+    """The cadence a self-tuning poller uses to re-time its own next wake."""
+
+    def _interval(self, minutes: int, *, tz: str = "UTC") -> Schedule:
+        return Schedule(
+            user_id="u",
+            sync_target="spotify:plays",
+            interval_minutes=minutes,
+            timezone=tz,
+        )
+
+    def test_fires_one_interval_from_now(self) -> None:
+        now = datetime(2026, 6, 1, 12, 0, tzinfo=UTC)
+        assert compute_next_run(self._interval(30), now=now) == datetime(
+            2026, 6, 1, 12, 30, tzinfo=UTC
+        )
+
+    def test_a_stretched_interval_pushes_the_wake_out(self) -> None:
+        # The mechanism that makes backoff a cost saving: at the 24h cap the
+        # scheduler sleeps a full day instead of waking every 30 minutes.
+        now = datetime(2026, 6, 1, 12, 0, tzinfo=UTC)
+        assert compute_next_run(self._interval(1440), now=now) == datetime(
+            2026, 6, 2, 12, 0, tzinfo=UTC
+        )
+
+    def test_ignores_hour_and_minute(self) -> None:
+        # An interval schedule carries the wall-clock columns (they are NOT NULL)
+        # but must not be anchored by them.
+        schedule = Schedule(
+            user_id="u",
+            sync_target="spotify:plays",
+            hour=6,
+            minute=30,
+            interval_minutes=60,
+        )
+        now = datetime(2026, 6, 1, 12, 0, tzinfo=UTC)
+        assert compute_next_run(schedule, now=now) == datetime(
+            2026, 6, 1, 13, 0, tzinfo=UTC
+        )
+
+    def test_is_dst_agnostic(self) -> None:
+        """An elapsed duration is unaffected by a DST boundary.
+
+        Crossing US fall-back: a wall-clock 1am schedule would need DST
+        reasoning, but "60 minutes from now" simply lands 60 minutes later.
+        """
+        schedule = self._interval(60, tz="America/Los_Angeles")
+        now = datetime(2026, 11, 1, 8, 30, tzinfo=UTC)  # 01:30 PDT, pre-shift
+        assert compute_next_run(schedule, now=now) == datetime(
+            2026, 11, 1, 9, 30, tzinfo=UTC
+        )
+
+    def test_result_is_utc_whole_minute(self) -> None:
+        # The repository's optimistic next_run_at claim compares for equality, so
+        # sub-minute precision would make a claim never match.
+        now = datetime(2026, 6, 1, 12, 0, 17, 500, tzinfo=UTC)
+        nxt = compute_next_run(self._interval(30), now=now)
+        assert nxt.tzinfo is UTC
+        assert (nxt.second, nxt.microsecond) == (0, 0)

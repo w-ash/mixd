@@ -108,3 +108,4 @@ jti  # MCP access-token claim (JWT id)
 # --- Test-only isolation helpers (vulture excludes tests/, so it can't see the callers) ---
 reset_run_activity  # src/application/services/run_activity.py — used by 3 test modules
 reset_schedule_signal  # src/application/services/schedule_signal.py — used by test_schedules.py
+reset_play_refresh_flight  # src/application/services/play_freshness.py — test isolation

@@ -5,9 +5,9 @@ wrappers (covered by the repo integration suite); these tests patch them out and
 assert the decision logic the scheduler owns:
 
 - ``_classify_run_status`` — status → disposition mapping.
-- ``_dispatch_sync`` — reads BOTH failure signals (a raised exception AND a
-  returned ``OperationResult`` that reports errors), and never lets a flaky audit
-  finalize flip a successful sync into a failure (the v0.8.2 review fixes).
+- ``_dispatch_sync`` — the thin adapter over ``run_sync_target``: schedule
+  provenance in, schedule-row bookkeeping out. The audit row and the two failure
+  signals moved to ``test_sync_target_runner`` along with the runner itself.
 - ``_process_one`` — claim-or-skip, disposition routing, the already-running
   streak reset, the unschedulable-target auto-disable, the leak-safe label.
 - ``run_scheduler_tick`` — the reaper-as-skip and the per-dispatch timeout.
@@ -30,11 +30,13 @@ from src.application.services.scheduler import (
     _DispatchOutcome,
     _process_one,
     _release,
-    _safe_failure_message,
-    _UnschedulableTargetError,
     run_scheduler_tick,
 )
-from src.domain.entities.operations import OperationResult
+from src.application.services.sync_target_runner import (
+    SyncTargetRunOutcome,
+    UnschedulableSyncTargetError,
+    safe_failure_message,
+)
 from src.domain.entities.schedule import Schedule
 from src.domain.exceptions import NotFoundError, WorkflowAlreadyRunningError
 from tests.fixtures import make_mock_uow
@@ -48,14 +50,6 @@ def _wf_schedule(*, next_run_at: datetime) -> Schedule:
 
 def _sync_schedule(*, next_run_at: datetime, target: str = "lastfm:plays") -> Schedule:
     return Schedule(user_id="u1", sync_target=target, hour=6, next_run_at=next_run_at)
-
-
-def _failed_result() -> OperationResult:
-    """An OperationResult that reports a handled failure WITHOUT raising."""
-    r = OperationResult(operation_name="import")
-    r.summary_metrics.add("errors", 1, "Errors", significance=1)
-    r.metadata["error"] = "lastfm session expired"
-    return r
 
 
 @contextlib.contextmanager
@@ -175,7 +169,7 @@ class TestProcessOne:
     async def test_unschedulable_target_disables_schedule(self) -> None:
         with _patched(
             _dispatch_sync=AsyncMock(
-                side_effect=_UnschedulableTargetError("lastfm:gone")
+                side_effect=UnschedulableSyncTargetError("lastfm:gone")
             )
         ) as m:
             await _run_process(_sync_schedule(next_run_at=datetime.now(UTC)))
@@ -407,72 +401,80 @@ class TestRelease:
 
 
 class TestDispatchSync:
-    """The v0.8.2 review fixes: read the returned OperationResult, and don't let a
-    flaky audit finalize flip a successful sync into a recorded failure."""
+    """The thin adapter over ``run_sync_target``.
+
+    The audit row, both failure signals, and the poll lease are all the runner's
+    job and are tested in ``test_sync_target_runner``. What belongs here is the
+    translation into schedule-row bookkeeping — and the provenance the scheduler
+    is uniquely responsible for supplying.
+    """
 
     @contextlib.contextmanager
-    def _sync_env(self, run_sync: AsyncMock, *, finalize: AsyncMock | None = None):
-        op_run_id = uuid7()
-        with (
-            patch.dict(
-                scheduler.SYNC_DISPATCH, {"lastfm:plays": run_sync}, clear=False
-            ),
-            patch.object(scheduler, "start_run", AsyncMock(return_value=op_run_id)),
-            patch.object(
-                scheduler, "finalize_run", finalize or AsyncMock()
-            ) as m_finalize,
+    def _runner(self, outcome: SyncTargetRunOutcome):
+        with patch.object(
+            scheduler, "run_sync_target", AsyncMock(return_value=outcome)
+        ) as m_run:
+            yield m_run
+
+    async def test_passes_schedule_provenance_to_the_runner(self) -> None:
+        """Regression: scheduled syncs were recorded as ``manual``.
+
+        ``_dispatch_sync`` never passed ``initiated_by``, so every scheduled sync
+        landed under the default and the run log claimed the user had started
+        work nobody started.
+        """
+        schedule = _sync_schedule(next_run_at=datetime.now(UTC))
+        run_id = uuid7()
+        with self._runner(
+            SyncTargetRunOutcome(status="completed", run_id=run_id)
+        ) as m_run:
+            outcome = await _dispatch_sync(schedule)
+
+        kwargs = m_run.await_args.kwargs
+        assert kwargs["initiated_by"] == "schedule"
+        assert kwargs["triggered_by_schedule_id"] == schedule.id
+        assert outcome.disposition == "success"
+        assert outcome.run_id == run_id
+
+    async def test_failed_run_becomes_a_failure_disposition(self) -> None:
+        with self._runner(
+            SyncTargetRunOutcome(status="failed", error_label="RuntimeError")
         ):
-            yield op_run_id, m_finalize
-
-    async def test_returned_failed_result_is_failure(self) -> None:
-        # The sync did NOT raise — it returned an OperationResult reporting errors.
-        run_sync = AsyncMock(return_value=_failed_result())
-        with self._sync_env(run_sync) as (_op_id, m_finalize):
             outcome = await _dispatch_sync(
                 _sync_schedule(next_run_at=datetime.now(UTC))
             )
         assert outcome.disposition == "failure"
-        # Audit row finalized as error to match the real outcome.
-        assert m_finalize.await_args.kwargs["status"] == "error"
-
-    async def test_clean_result_is_success(self) -> None:
-        run_sync = AsyncMock(return_value=OperationResult(operation_name="import"))
-        with self._sync_env(run_sync) as (_op_id, m_finalize):
-            outcome = await _dispatch_sync(
-                _sync_schedule(next_run_at=datetime.now(UTC))
-            )
-        assert outcome.disposition == "success"
-        assert m_finalize.await_args.kwargs["status"] == "complete"
-
-    async def test_raised_exception_is_failure(self) -> None:
-        run_sync = AsyncMock(side_effect=RuntimeError("boom"))
-        with self._sync_env(run_sync) as (_op_id, m_finalize):
-            outcome = await _dispatch_sync(
-                _sync_schedule(next_run_at=datetime.now(UTC))
-            )
-        assert outcome.disposition == "failure"
+        assert outcome.status == "failed"
         assert outcome.error_label == "RuntimeError"
-        assert m_finalize.await_args.kwargs["status"] == "error"
 
-    async def test_audit_finalize_failure_does_not_flip_success(self) -> None:
-        # The sync SUCCEEDED but the audit-row finalize raises (transient DB).
-        # The schedule outcome must still be success — not a false failure.
-        run_sync = AsyncMock(return_value=OperationResult(operation_name="import"))
-        flaky_finalize = AsyncMock(side_effect=ConnectionError("neon cold pause"))
-        with self._sync_env(run_sync, finalize=flaky_finalize):
+    async def test_veto_is_a_skip_that_clears_the_failure_streak(self) -> None:
+        """A poll declining to run is a healthy tick, not a fault.
+
+        Counting it as a failure would let an adaptive poller that is working
+        exactly as designed accumulate a streak and eventually auto-disable.
+        """
+        with self._runner(SyncTargetRunOutcome(status="vetoed", veto_reason="not_due")):
             outcome = await _dispatch_sync(
                 _sync_schedule(next_run_at=datetime.now(UTC))
             )
-        assert outcome.disposition == "success"
+        assert outcome.disposition == "skip"
+        assert outcome.status == "skipped_poll_vetoed"
+        assert outcome.reset_failures is True
+        # No audit row was opened, so there is no run to point the schedule at.
+        assert outcome.run_id is None
 
-    async def test_unknown_target_raises_unschedulable(self) -> None:
-        with patch.object(scheduler, "start_run", AsyncMock()) as m_start:
-            with pytest.raises(_UnschedulableTargetError):
+    async def test_unschedulable_target_propagates(self) -> None:
+        # _process_one turns this into an auto-disable rather than a per-tick
+        # failure that would re-fire and re-fail forever.
+        with patch.object(
+            scheduler,
+            "run_sync_target",
+            AsyncMock(side_effect=UnschedulableSyncTargetError("x:gone")),
+        ):
+            with pytest.raises(UnschedulableSyncTargetError):
                 await _dispatch_sync(
                     _sync_schedule(next_run_at=datetime.now(UTC), target="x:gone")
                 )
-        # Resolved BEFORE opening the audit row → no dangling OperationRun.
-        m_start.assert_not_awaited()
 
 
 class TestSafeFailureMessage:
@@ -480,7 +482,7 @@ class TestSafeFailureMessage:
         class SpotifyAuthError(Exception):
             pass
 
-        msg = _safe_failure_message(SpotifyAuthError("token=abc123 leaked"))
+        msg = safe_failure_message(SpotifyAuthError("token=abc123 leaked"))
         assert msg == "SpotifyAuthError"
 
 

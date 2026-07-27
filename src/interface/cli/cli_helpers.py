@@ -674,13 +674,35 @@ def format_next_run(schedule: Schedule) -> str:
 
 
 def describe_cadence(schedule: Schedule) -> str:
-    """Plain-English cadence summary, e.g. "Weekly on Sunday at 06:30 (UTC)"."""
+    """Plain-English cadence summary, e.g. "Weekly on Sunday at 06:30 (UTC)".
+
+    An interval cadence carries no timezone: an elapsed duration is unaffected by
+    DST, so printing one would imply a wall-clock anchor that doesn't exist.
+    """
+    if schedule.interval_minutes is not None:
+        return f"Every {describe_minutes(schedule.interval_minutes)}"
     at = f"{schedule.hour:02d}:{schedule.minute:02d}"
     if schedule.day_of_week is None:
         return f"Daily at {at} ({schedule.timezone})"
     return (
         f"Weekly on {weekday_name(schedule.day_of_week)} at {at} ({schedule.timezone})"
     )
+
+
+_MINUTES_PER_HOUR = 60
+
+
+def describe_minutes(minutes: int) -> str:
+    """Humanise a minute count — "45 minutes", "2 hours", "90 minutes".
+
+    Whole hours read as hours because an adaptive poller's stretched interval is
+    usually one ("Every 24 hours" beats "Every 1440 minutes"); anything else stays
+    in minutes rather than inventing a fractional unit.
+    """
+    if minutes % _MINUTES_PER_HOUR == 0 and minutes >= _MINUTES_PER_HOUR:
+        hours = minutes // _MINUTES_PER_HOUR
+        return "1 hour" if hours == 1 else f"{hours} hours"
+    return "1 minute" if minutes == 1 else f"{minutes} minutes"
 
 
 # ---------------------------------------------------------------------------

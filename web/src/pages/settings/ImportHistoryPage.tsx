@@ -1,4 +1,4 @@
-import { ChevronDown, Sparkles } from "lucide-react";
+import { ChevronDown, Sparkles, Zap } from "lucide-react";
 import { useEffect, useState } from "react";
 import { useSearchParams } from "react-router";
 import type {
@@ -46,6 +46,31 @@ function AssistantBadge() {
       Assistant
     </span>
   );
+}
+
+/**
+ * Attribution badge for an unattended run — a poll the app pulled in rather than
+ * a button someone pressed.
+ *
+ * `initiated_by` alone only says nobody typed it; `trigger_detail` says which
+ * surface asked, which is the question a run log has to answer when a user finds
+ * imports they don't remember starting.
+ */
+function TriggerBadge({ detail }: { detail: string }) {
+  return (
+    <span className="inline-flex items-center gap-1 rounded-full bg-surface-inset px-2 py-0.5 font-display text-[10px] font-medium text-text-muted">
+      <Zap className="size-2.5" aria-hidden />
+      {describeTrigger(detail)}
+    </span>
+  );
+}
+
+/** Human label for a trigger_detail value. Workflow runs carry their run id. */
+function describeTrigger(detail: string): string {
+  if (detail === "web") return "Auto · app";
+  if (detail === "mcp") return "Auto · assistant";
+  if (detail.startsWith("workflow:")) return "Auto · workflow";
+  return `Auto · ${detail}`;
 }
 
 function CountsLine({
@@ -215,6 +240,9 @@ export function ImportHistoryPage() {
                         </span>
                         <RunStatusBadge status={run.status} />
                         {run.initiated_by === "assistant" && <AssistantBadge />}
+                        {run.trigger_detail && (
+                          <TriggerBadge detail={run.trigger_detail} />
+                        )}
                       </div>
                       <div className="truncate font-mono text-xs text-text-muted">
                         Started {formatDateTime(run.started_at)}

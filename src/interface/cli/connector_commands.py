@@ -1,10 +1,15 @@
 """CLI commands for checking connector authentication status."""
 
 from datetime import UTC, datetime
+from typing import Annotated
 
 from rich.table import Table
 import typer
 
+from src.application.services.play_poll_policy import (
+    stop_play_polling_after_disconnect,
+    sync_play_polling_after_auth,
+)
 from src.interface.cli.async_runner import run_async
 from src.interface.cli.cli_helpers import get_cli_user_id, handle_cli_error
 from src.interface.cli.console import get_console
@@ -107,6 +112,10 @@ def auth_spotify() -> None:
             token_to_save = StoredToken(**token_info, account_name=display_name)
         await storage.save_token("spotify", user_id, token_to_save)
 
+        # Same hook as the web callback — a grant covering recently-played means
+        # the user wants live play history, whichever surface they authorised on.
+        await sync_play_polling_after_auth(user_id, token_info.get("scope"))
+
         return display_name
 
     console.print("[cyan]Opening Spotify authorization in browser...[/cyan]")
@@ -141,3 +150,38 @@ def auth_lastfm() -> None:
         console.print(f"[green]Last.fm connected as {username}[/green]")
     except Exception as e:
         handle_cli_error(e, "Last.fm authentication failed")
+
+
+@app.command(name="disconnect")
+def disconnect_connector(
+    service: Annotated[str, typer.Argument(help="Connector to disconnect")],
+) -> None:
+    """Forget a connector's stored credentials.
+
+    The CLI peer of the web's disconnect button. Without it, a terminal-only user
+    had no way to revoke a grant locally — and no way to stop background polling
+    short of revoking the app in Spotify's own settings.
+    """
+
+    async def _disconnect() -> None:
+        from src.infrastructure.connectors._shared.token_storage import (
+            get_token_storage,
+        )
+        from src.infrastructure.connectors.discovery import discover_connectors
+
+        config = discover_connectors().get(service)
+        if config is None:
+            raise ValueError(f"Unknown connector: {service}")
+        if config["auth_method"] != "oauth":
+            raise ValueError(f"{service} does not store credentials to disconnect")
+
+        user_id = get_cli_user_id()
+        await get_token_storage().delete_token(service, user_id)
+        if service == "spotify":
+            await stop_play_polling_after_disconnect(user_id)
+
+    try:
+        run_async(_disconnect())
+        console.print(f"[green]Disconnected {service}.[/green]")
+    except Exception as e:
+        handle_cli_error(e, f"Could not disconnect {service}")

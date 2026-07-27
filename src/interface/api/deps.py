@@ -85,6 +85,26 @@ def require_connector_scopes(
     return _dep
 
 
+async def trigger_play_refresh(user_id: str = Depends(get_current_user_id)) -> None:
+    """Kick off a play refresh for routes that read play data, without waiting.
+
+    Attached via ``dependencies=[...]`` so handler signatures stay untouched.
+    There is no single REST chokepoint for "reads plays" — the dashboard and the
+    track detail are separate routes — so the dependency travels to each rather
+    than the routes reaching for a service.
+
+    Fire-and-forget: the response must never wait on a third-party API. The
+    refresh lands for the *next* read, which is the right trade for a surface
+    someone is actively browsing. Staleness gating and single-flight are the poll
+    policy's job, so calling this on every request is cheap and idempotent —
+    FastAPI also caches a dependency's result within one request, so attaching it
+    twice costs nothing.
+    """
+    from src.application.services.play_freshness import spawn_ensure_fresh_plays
+
+    spawn_ensure_fresh_plays(user_id, trigger_detail="web")
+
+
 async def get_llm_client(user_id: str) -> LLMClientProtocol:
     """Resolve the acting user's chat LLM client (the injection seam tests override).
 

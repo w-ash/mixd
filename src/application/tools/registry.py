@@ -607,6 +607,12 @@ def build_subagent_tools() -> list[dict[str, object]]:
     return tool_list
 
 
+# Tools that read play data. An agent querying these is a demand signal exactly
+# like a page view, and this is the one chokepoint covering both the MCP server
+# and the in-app assistant.
+_PLAY_READING_TOOLS = frozenset({"query_library", "query_stats"})
+
+
 async def execute_tool(
     name: str,
     tool_input: Mapping[str, JsonValue],
@@ -623,6 +629,13 @@ async def execute_tool(
         raise ToolExecutionError(f"Unknown tool: {name}")
     if spec.dispatch is None:
         raise ToolExecutionError(f"Tool {name!r} executes server-side")
+    if name in _PLAY_READING_TOOLS:
+        # Fire-and-forget, like the web dependency: the answer this turn uses
+        # what is already stored, and the refresh lands for the next question.
+        # Waiting would put a third-party API call inside the model's turn.
+        from src.application.services.play_freshness import spawn_ensure_fresh_plays
+
+        spawn_ensure_fresh_plays(ctx.user_id, trigger_detail="mcp")
     clean = cast("dict[str, JsonValue]", strip_user_data(dict(tool_input)))
     try:
         return await spec.dispatch(clean, ctx)

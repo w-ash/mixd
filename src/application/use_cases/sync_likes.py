@@ -26,9 +26,15 @@ from src.domain.entities import (
     SyncCheckpointStatus,
     Track,
 )
-from src.domain.entities.operations import UNSET, Unset
+from src.domain.entities.operations import UNSET, PollHealth, Unset
 from src.domain.entities.progress import ProgressEmitter
 from src.domain.repositories.uow import UnitOfWorkProtocol
+from src.domain.services.play_poll_decision import (
+    PollDecisionInputs,
+    PollState,
+    cap_for,
+    poll_health,
+)
 
 logger = get_logger(__name__)
 
@@ -736,6 +742,8 @@ class GetSyncCheckpointStatusUseCase:
             like_repo = uow.get_like_repository()
             local_count = await like_repo.count_liked_tracks(service, user_id=user_id)
 
+        poll = await _poll_status(user_id, service, entity_type, checkpoint, uow)
+
         return SyncCheckpointStatus(
             service=service,
             entity_type=entity_type,
@@ -744,7 +752,74 @@ class GetSyncCheckpointStatusUseCase:
             and checkpoint.last_timestamp is not None,
             local_count=local_count,
             remote_total=checkpoint.remote_total if checkpoint else None,
+            last_polled_at=poll.last_polled_at,
+            effective_interval_seconds=poll.effective_interval_seconds,
+            poll_health=poll.health,
+            possible_gap=poll.possible_gap,
         )
+
+
+@define(frozen=True, slots=True)
+class _PollStatus:
+    """The polling half of a checkpoint's status, or all-None for one that isn't."""
+
+    last_polled_at: datetime | None = None
+    effective_interval_seconds: int | None = None
+    health: PollHealth | None = None
+    possible_gap: bool = False
+
+
+async def _poll_status(
+    user_id: str,
+    service: str,
+    entity_type: str,
+    checkpoint: SyncCheckpoint | None,
+    uow: UnitOfWorkProtocol,
+) -> _PollStatus:
+    """Polling status for the adaptively-polled channel; empty for every other.
+
+    Only ``("spotify", "plays")`` is polled, so the other checkpoints report
+    nothing rather than a misleading "never polled" — they are not *supposed* to
+    be polled, and rendering them as overdue would be a false alarm.
+
+    Health cannot be derived from ``last_polled_at`` alone: under adaptive
+    backoff a 20-hour-old check is healthy at the daily floor and broken at the
+    sole-observer cap, so the interval it was judged against travels with it.
+    """
+    if (service, entity_type) != ("spotify", "plays") or checkpoint is None:
+        return _PollStatus()
+
+    lastfm = await uow.get_checkpoint_repository().get_sync_checkpoint(
+        user_id=user_id, service="lastfm", entity_type="plays"
+    )
+    now = datetime.now(UTC)
+    state = PollState.from_json(checkpoint.poll_state)
+    # Through the domain's own selector rather than re-deriving the rule here:
+    # if "redundant" ever means something else, the poller and this health
+    # surface must change together, or a checkpoint reads "healthy" against an
+    # interval the poller is no longer using — which is the entire reason the
+    # interval travels with the status.
+    cap = cap_for(
+        PollDecisionInputs(
+            now=now,
+            trigger="schedule",
+            last_polled_at=checkpoint.last_polled_at,
+            state=state,
+            has_scope=True,
+            lastfm_last_timestamp=lastfm.last_timestamp if lastfm else None,
+        )
+    )
+    interval = state.effective_interval_seconds(cap_seconds=cap)
+    return _PollStatus(
+        last_polled_at=checkpoint.last_polled_at,
+        effective_interval_seconds=interval,
+        health=poll_health(
+            now=now,
+            last_polled_at=checkpoint.last_polled_at,
+            effective_interval_seconds=interval,
+        ),
+        possible_gap=state.possible_gap,
+    )
 
 
 # -------------------------------------------------------------------------

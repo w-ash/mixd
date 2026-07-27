@@ -25,6 +25,7 @@ export interface ScheduleListItem {
   hour: number;
   minute: number;
   day_of_week: number | null;
+  interval_minutes: number | null;
   timezone: string;
   status: ScheduleListItemStatus;
   next_run_at: string | null;

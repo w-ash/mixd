@@ -1,17 +1,23 @@
 """Unit tests for schedulable sync targets.
 
-``SYNC_DISPATCH`` is the single source of truth; the schedulable set and the
-validator both derive from it. spotify:plays (file-import-only) must be excluded.
-Pure functions.
+``SYNC_TARGETS`` is the single source of truth for what the scheduler can
+dispatch; ``USER_SCHEDULABLE_TARGETS`` is the narrower subset a user may attach a
+schedule to, and the validator derives from that one. The gap between the two is
+load-bearing, so it is asserted directly rather than implied. Pure functions.
 """
 
 import pytest
 
 from src.application.use_cases._shared.sync_targets import (
+    SYNC_TARGETS,
+    USER_SCHEDULABLE_TARGETS,
     sync_result_failed,
+    sync_target_label,
     validate_sync_target,
 )
 from src.domain.entities.operations import OperationResult
+
+_PLAY_POLL = "spotify:plays"
 
 
 class TestValidateSyncTarget:
@@ -19,13 +25,47 @@ class TestValidateSyncTarget:
         for target in ("lastfm:plays", "spotify:likes", "lastfm:likes"):
             assert validate_sync_target(target) == target
 
-    def test_file_import_only_rejected(self) -> None:
+    def test_self_managed_target_is_not_user_schedulable(self) -> None:
+        """The play poller is dispatchable but must stay off the cadence surfaces.
+
+        There is one schedule row per (user, sync_target), so letting a user
+        upsert this one through the generic daily/weekly picker would overwrite
+        the adaptive interval with a fixed cadence and silently switch the
+        backoff off. Rejecting it here is what makes the API return 400 and
+        keeps it out of the assistant's tool enums.
+        """
         with pytest.raises(ValueError, match="unknown sync target"):
-            validate_sync_target("spotify:plays")
+            validate_sync_target(_PLAY_POLL)
 
     def test_unknown_connector_rejected(self) -> None:
         with pytest.raises(ValueError, match="unknown sync target"):
             validate_sync_target("applemusic:likes")
+
+
+class TestDispatchableVersusSchedulable:
+    def test_play_poll_is_dispatchable(self) -> None:
+        # The scheduler must still be able to run it — only the *user-facing*
+        # cadence surfaces are closed off.
+        assert _PLAY_POLL in SYNC_TARGETS
+        assert _PLAY_POLL not in USER_SCHEDULABLE_TARGETS
+
+    def test_play_poll_carries_both_poll_hooks(self) -> None:
+        # Supplied as a pair; one without the other would either never claim the
+        # lease or never release it.
+        spec = SYNC_TARGETS[_PLAY_POLL]
+        assert spec.try_begin_poll is not None
+        assert spec.finish_poll is not None
+
+    def test_ordinary_targets_have_no_poll_hooks(self) -> None:
+        assert SYNC_TARGETS["lastfm:plays"].try_begin_poll is None
+
+    def test_self_managed_target_still_has_a_label(self) -> None:
+        # Its schedule row is real and appears in listings, so a raw id would
+        # leak into the UI.
+        assert sync_target_label(_PLAY_POLL) == "Spotify recent plays"
+
+    def test_unknown_target_falls_back_to_its_id(self) -> None:
+        assert sync_target_label("applemusic:likes") == "applemusic:likes"
 
 
 class TestSyncResultFailed:

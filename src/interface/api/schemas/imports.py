@@ -70,3 +70,17 @@ class CheckpointStatusSchema(BaseModel):
     has_previous_sync: bool = False
     local_count: int | None = None
     remote_total: int | None = None
+    # Adaptive-polling fields, populated only for the polled channel and null
+    # elsewhere. `last_sync_timestamp` is when the user last *listened*;
+    # `last_polled_at` is when we last *checked* — an idle account's former ages
+    # forever while the latter stays current.
+    last_polled_at: datetime | None = None
+    # Ships alongside the health verdict because the client cannot derive one
+    # from a timestamp: 20 hours is healthy at the daily floor and broken at the
+    # sole-observer cap.
+    effective_interval_seconds: int | None = None
+    poll_health: Literal["healthy", "overdue"] | None = None
+    # A poll came back with a saturated window, so plays may already have been
+    # lost. Surfaced rather than logged: the remedy (add a second observer) is
+    # the user's call.
+    possible_gap: bool = False

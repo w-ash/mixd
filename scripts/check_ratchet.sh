@@ -19,7 +19,7 @@ cd "$(dirname "$0")/.."
 # callers and reported both as dead — failing CI's dead-code step on every run
 # since they landed. Whitelisting is the honest fix; deleting them would break
 # three test modules.
-BASE_WHITELIST=73
+BASE_WHITELIST=74
 BASE_NOQA=13
 BASE_TYPE_IGNORE=0
 BASE_PYRIGHT_IGNORE=18

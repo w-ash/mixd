@@ -30,7 +30,9 @@ import type {
   HTTPValidationError,
   ImportConnectorPlaylistsRequest,
   ListConnectorPlaylistsApiV1ConnectorsServicePlaylistsGetParams,
-  OperationStartedResponse
+  OperationStartedResponse,
+  PlayPollingRequest,
+  PlayPollingResponse
 } from '../model';
 
 import { customFetch } from '../../client.ts';
@@ -266,7 +268,224 @@ export const useDeleteConnectorTokenApiV1ConnectorsServiceTokenDelete = <TError 
       > => {
       return useMutation(getDeleteConnectorTokenApiV1ConnectorsServiceTokenDeleteMutationOptions(options), queryClient);
     }
-    export type listConnectorPlaylistsApiV1ConnectorsServicePlaylistsGetResponse200 = {
+    export type setConnectorPlayPollingApiV1ConnectorsServicePlayPollingPutResponse200 = {
+  data: PlayPollingResponse
+  status: 200
+}
+
+export type setConnectorPlayPollingApiV1ConnectorsServicePlayPollingPutResponse422 = {
+  data: HTTPValidationError
+  status: 422
+}
+
+export type setConnectorPlayPollingApiV1ConnectorsServicePlayPollingPutResponseSuccess = (setConnectorPlayPollingApiV1ConnectorsServicePlayPollingPutResponse200) & {
+  headers: Headers;
+};
+export type setConnectorPlayPollingApiV1ConnectorsServicePlayPollingPutResponseError = (setConnectorPlayPollingApiV1ConnectorsServicePlayPollingPutResponse422) & {
+  headers: Headers;
+};
+
+export type setConnectorPlayPollingApiV1ConnectorsServicePlayPollingPutResponse = (setConnectorPlayPollingApiV1ConnectorsServicePlayPollingPutResponseSuccess | setConnectorPlayPollingApiV1ConnectorsServicePlayPollingPutResponseError)
+
+export const getSetConnectorPlayPollingApiV1ConnectorsServicePlayPollingPutUrl = (service: string,) => {
+
+
+
+
+  return `/api/v1/connectors/${service}/play-polling`
+}
+
+/**
+ * Turn adaptive play polling on or off for a connector.
+ *
+ * Separate from the schedule routes on purpose: this target's cadence is
+ * self-managed, so it is deliberately excluded from ``USER_SCHEDULABLE_TARGETS``
+ * and its upsert route 400s. What a user *can* decide is whether it runs, and
+ * that needs a surface — enabling otherwise happens only inside the OAuth
+ * callback, stranding anyone who consented before the feature shipped.
+ * @summary Set Connector Play Polling
+ */
+export const setConnectorPlayPollingApiV1ConnectorsServicePlayPollingPut = async (service: string,
+    playPollingRequest: PlayPollingRequest, options?: Parameters<typeof customFetch>[1]): Promise<setConnectorPlayPollingApiV1ConnectorsServicePlayPollingPutResponse> => {
+
+  return customFetch<setConnectorPlayPollingApiV1ConnectorsServicePlayPollingPutResponse>(getSetConnectorPlayPollingApiV1ConnectorsServicePlayPollingPutUrl(service),
+  {
+    ...options,
+    method: 'PUT',
+    headers: { 'Content-Type': 'application/json', ...options?.headers },
+    body: JSON.stringify(playPollingRequest)
+  }
+);}
+
+
+
+
+
+export const getSetConnectorPlayPollingApiV1ConnectorsServicePlayPollingPutMutationOptions = <TError = HTTPValidationError,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof setConnectorPlayPollingApiV1ConnectorsServicePlayPollingPut>>, TError,{service: string;data: PlayPollingRequest}, TContext>, request?: SecondParameter<typeof customFetch>}
+): UseMutationOptions<Awaited<ReturnType<typeof setConnectorPlayPollingApiV1ConnectorsServicePlayPollingPut>>, TError,{service: string;data: PlayPollingRequest}, TContext> => {
+
+const mutationKey = ['setConnectorPlayPollingApiV1ConnectorsServicePlayPollingPut'];
+const {mutation: mutationOptions, request: requestOptions} = options ?
+      options.mutation && 'mutationKey' in options.mutation && options.mutation.mutationKey ?
+      options
+      : {...options, mutation: {...options.mutation, mutationKey}}
+      : {mutation: { mutationKey, }, request: undefined};
+
+
+
+
+      const mutationFn: MutationFunction<Awaited<ReturnType<typeof setConnectorPlayPollingApiV1ConnectorsServicePlayPollingPut>>, {service: string;data: PlayPollingRequest}> = (props) => {
+          const {service,data} = props ?? {};
+
+          return  setConnectorPlayPollingApiV1ConnectorsServicePlayPollingPut(service,data,requestOptions)
+        }
+
+
+
+
+
+
+  return  { mutationFn, ...mutationOptions }}
+
+    export type SetConnectorPlayPollingApiV1ConnectorsServicePlayPollingPutMutationResult = NonNullable<Awaited<ReturnType<typeof setConnectorPlayPollingApiV1ConnectorsServicePlayPollingPut>>>
+    export type SetConnectorPlayPollingApiV1ConnectorsServicePlayPollingPutMutationBody = PlayPollingRequest
+    export type SetConnectorPlayPollingApiV1ConnectorsServicePlayPollingPutMutationError = HTTPValidationError
+
+    /**
+ * @summary Set Connector Play Polling
+ */
+export const useSetConnectorPlayPollingApiV1ConnectorsServicePlayPollingPut = <TError = HTTPValidationError,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof setConnectorPlayPollingApiV1ConnectorsServicePlayPollingPut>>, TError,{service: string;data: PlayPollingRequest}, TContext>, request?: SecondParameter<typeof customFetch>}
+ , queryClient?: QueryClient): UseMutationResult<
+        Awaited<ReturnType<typeof setConnectorPlayPollingApiV1ConnectorsServicePlayPollingPut>>,
+        TError,
+        {service: string;data: PlayPollingRequest},
+        TContext
+      > => {
+      return useMutation(getSetConnectorPlayPollingApiV1ConnectorsServicePlayPollingPutMutationOptions(options), queryClient);
+    }
+    export type getConnectorPlayPollingApiV1ConnectorsServicePlayPollingGetResponse200 = {
+  data: PlayPollingResponse
+  status: 200
+}
+
+export type getConnectorPlayPollingApiV1ConnectorsServicePlayPollingGetResponse422 = {
+  data: HTTPValidationError
+  status: 422
+}
+
+export type getConnectorPlayPollingApiV1ConnectorsServicePlayPollingGetResponseSuccess = (getConnectorPlayPollingApiV1ConnectorsServicePlayPollingGetResponse200) & {
+  headers: Headers;
+};
+export type getConnectorPlayPollingApiV1ConnectorsServicePlayPollingGetResponseError = (getConnectorPlayPollingApiV1ConnectorsServicePlayPollingGetResponse422) & {
+  headers: Headers;
+};
+
+export type getConnectorPlayPollingApiV1ConnectorsServicePlayPollingGetResponse = (getConnectorPlayPollingApiV1ConnectorsServicePlayPollingGetResponseSuccess | getConnectorPlayPollingApiV1ConnectorsServicePlayPollingGetResponseError)
+
+export const getGetConnectorPlayPollingApiV1ConnectorsServicePlayPollingGetUrl = (service: string,) => {
+
+
+
+
+  return `/api/v1/connectors/${service}/play-polling`
+}
+
+/**
+ * Current polling state — off, or on with its live backed-off cadence.
+ * @summary Get Connector Play Polling
+ */
+export const getConnectorPlayPollingApiV1ConnectorsServicePlayPollingGet = async (service: string, options?: Parameters<typeof customFetch>[1]): Promise<getConnectorPlayPollingApiV1ConnectorsServicePlayPollingGetResponse> => {
+
+  return customFetch<getConnectorPlayPollingApiV1ConnectorsServicePlayPollingGetResponse>(getGetConnectorPlayPollingApiV1ConnectorsServicePlayPollingGetUrl(service),
+  {
+    ...options,
+    method: 'GET'
+
+
+  }
+);}
+
+
+
+
+
+export const getGetConnectorPlayPollingApiV1ConnectorsServicePlayPollingGetQueryKey = (service: string,) => {
+    return [
+    `/api/v1/connectors/${service}/play-polling`
+    ] as const;
+    }
+
+
+export const getGetConnectorPlayPollingApiV1ConnectorsServicePlayPollingGetQueryOptions = <TData = Awaited<ReturnType<typeof getConnectorPlayPollingApiV1ConnectorsServicePlayPollingGet>>, TError = HTTPValidationError>(service: string, options?: { query?:Partial<UseQueryOptions<Awaited<ReturnType<typeof getConnectorPlayPollingApiV1ConnectorsServicePlayPollingGet>>, TError, TData>>, request?: SecondParameter<typeof customFetch>}
+) => {
+
+const {query: queryOptions, request: requestOptions} = options ?? {};
+
+  const queryKey =  queryOptions?.queryKey ?? getGetConnectorPlayPollingApiV1ConnectorsServicePlayPollingGetQueryKey(service);
+
+
+
+    const queryFn: QueryFunction<Awaited<ReturnType<typeof getConnectorPlayPollingApiV1ConnectorsServicePlayPollingGet>>> = ({ signal }) => getConnectorPlayPollingApiV1ConnectorsServicePlayPollingGet(service, { signal, ...requestOptions });
+
+
+
+
+
+   return  { queryKey, queryFn, enabled: service !== null && service !== undefined, ...queryOptions} as UseQueryOptions<Awaited<ReturnType<typeof getConnectorPlayPollingApiV1ConnectorsServicePlayPollingGet>>, TError, TData> & { queryKey: DataTag<QueryKey, TData, TError> }
+}
+
+export type GetConnectorPlayPollingApiV1ConnectorsServicePlayPollingGetQueryResult = NonNullable<Awaited<ReturnType<typeof getConnectorPlayPollingApiV1ConnectorsServicePlayPollingGet>>>
+export type GetConnectorPlayPollingApiV1ConnectorsServicePlayPollingGetQueryError = HTTPValidationError
+
+
+export function useGetConnectorPlayPollingApiV1ConnectorsServicePlayPollingGet<TData = Awaited<ReturnType<typeof getConnectorPlayPollingApiV1ConnectorsServicePlayPollingGet>>, TError = HTTPValidationError>(
+ service: string, options: { query:Partial<UseQueryOptions<Awaited<ReturnType<typeof getConnectorPlayPollingApiV1ConnectorsServicePlayPollingGet>>, TError, TData>> & Pick<
+        DefinedInitialDataOptions<
+          Awaited<ReturnType<typeof getConnectorPlayPollingApiV1ConnectorsServicePlayPollingGet>>,
+          TError,
+          Awaited<ReturnType<typeof getConnectorPlayPollingApiV1ConnectorsServicePlayPollingGet>>
+        > , 'initialData'
+      >, request?: SecondParameter<typeof customFetch>}
+ , queryClient?: QueryClient
+  ):  DefinedUseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> }
+export function useGetConnectorPlayPollingApiV1ConnectorsServicePlayPollingGet<TData = Awaited<ReturnType<typeof getConnectorPlayPollingApiV1ConnectorsServicePlayPollingGet>>, TError = HTTPValidationError>(
+ service: string, options?: { query?:Partial<UseQueryOptions<Awaited<ReturnType<typeof getConnectorPlayPollingApiV1ConnectorsServicePlayPollingGet>>, TError, TData>> & Pick<
+        UndefinedInitialDataOptions<
+          Awaited<ReturnType<typeof getConnectorPlayPollingApiV1ConnectorsServicePlayPollingGet>>,
+          TError,
+          Awaited<ReturnType<typeof getConnectorPlayPollingApiV1ConnectorsServicePlayPollingGet>>
+        > , 'initialData'
+      >, request?: SecondParameter<typeof customFetch>}
+ , queryClient?: QueryClient
+  ):  UseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> }
+export function useGetConnectorPlayPollingApiV1ConnectorsServicePlayPollingGet<TData = Awaited<ReturnType<typeof getConnectorPlayPollingApiV1ConnectorsServicePlayPollingGet>>, TError = HTTPValidationError>(
+ service: string, options?: { query?:Partial<UseQueryOptions<Awaited<ReturnType<typeof getConnectorPlayPollingApiV1ConnectorsServicePlayPollingGet>>, TError, TData>>, request?: SecondParameter<typeof customFetch>}
+ , queryClient?: QueryClient
+  ):  UseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> }
+/**
+ * @summary Get Connector Play Polling
+ */
+
+export function useGetConnectorPlayPollingApiV1ConnectorsServicePlayPollingGet<TData = Awaited<ReturnType<typeof getConnectorPlayPollingApiV1ConnectorsServicePlayPollingGet>>, TError = HTTPValidationError>(
+ service: string, options?: { query?:Partial<UseQueryOptions<Awaited<ReturnType<typeof getConnectorPlayPollingApiV1ConnectorsServicePlayPollingGet>>, TError, TData>>, request?: SecondParameter<typeof customFetch>}
+ , queryClient?: QueryClient
+ ):  UseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> } {
+
+  const queryOptions = getGetConnectorPlayPollingApiV1ConnectorsServicePlayPollingGetQueryOptions(service,options)
+
+  const query = useQuery(queryOptions, queryClient) as  UseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> };
+
+  return withQueryKey(query, queryOptions.queryKey);
+}
+
+
+
+
+
+
+export type listConnectorPlaylistsApiV1ConnectorsServicePlaylistsGetResponse200 = {
   data: ConnectorPlaylistBrowseResponse
   status: 200
 }

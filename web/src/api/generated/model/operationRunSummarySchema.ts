@@ -26,4 +26,5 @@ export interface OperationRunSummarySchema {
   issue_count: number;
   retryable: boolean;
   initiated_by: string;
+  trigger_detail?: string | null;
 }

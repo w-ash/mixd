@@ -16,6 +16,7 @@ function makeSchedule(over: Partial<ScheduleResponse> = {}): ScheduleResponse {
     hour: 6,
     minute: 30,
     day_of_week: null,
+    interval_minutes: null,
     timezone: "UTC",
     status: "enabled",
     next_run_at: "2026-06-02T06:30:00Z",

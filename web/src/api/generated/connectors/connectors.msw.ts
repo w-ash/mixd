@@ -16,16 +16,19 @@ import type {
 import type {
   ConnectorMetadataSchema,
   ConnectorPlaylistBrowseResponse,
-  OperationStartedResponse
+  OperationStartedResponse,
+  PlayPollingResponse
 } from '../model';
 
 import {
+  getGetConnectorPlayPollingApiV1ConnectorsServicePlayPollingGetResponseMock,
   getGetConnectorsApiV1ConnectorsGetResponseMock,
   getImportConnectorPlaylistsApiV1ConnectorsServicePlaylistsImportPostResponseMock,
-  getListConnectorPlaylistsApiV1ConnectorsServicePlaylistsGetResponseMock
+  getListConnectorPlaylistsApiV1ConnectorsServicePlaylistsGetResponseMock,
+  getSetConnectorPlayPollingApiV1ConnectorsServicePlayPollingPutResponseMock
 } from './connectors.faker.ts';
 
-export { getGetConnectorsApiV1ConnectorsGetResponseMock, getListConnectorPlaylistsApiV1ConnectorsServicePlaylistsGetResponseMock, getImportConnectorPlaylistsApiV1ConnectorsServicePlaylistsImportPostResponseMock } from './connectors.faker.ts';
+export { getGetConnectorsApiV1ConnectorsGetResponseMock, getSetConnectorPlayPollingApiV1ConnectorsServicePlayPollingPutResponseMock, getGetConnectorPlayPollingApiV1ConnectorsServicePlayPollingGetResponseMock, getListConnectorPlaylistsApiV1ConnectorsServicePlaylistsGetResponseMock, getImportConnectorPlaylistsApiV1ConnectorsServicePlaylistsImportPostResponseMock } from './connectors.faker.ts';
 
 
 export const getGetConnectorsApiV1ConnectorsGetMockHandler = (overrideResponse?: ConnectorMetadataSchema[] | ((info: Parameters<Parameters<typeof http.get>[1]>[0]) => Promise<ConnectorMetadataSchema[]> | ConnectorMetadataSchema[]), options?: RequestHandlerOptions) => {
@@ -46,6 +49,30 @@ export const getDeleteConnectorTokenApiV1ConnectorsServiceTokenDeleteMockHandler
 
     return new HttpResponse(null,
       { status: 204
+      })
+  }, options)
+}
+
+export const getSetConnectorPlayPollingApiV1ConnectorsServicePlayPollingPutMockHandler = (overrideResponse?: PlayPollingResponse | ((info: Parameters<Parameters<typeof http.put>[1]>[0]) => Promise<PlayPollingResponse> | PlayPollingResponse), options?: RequestHandlerOptions) => {
+  return http.put('*/api/v1/connectors/:service/play-polling', async (info: Parameters<Parameters<typeof http.put>[1]>[0]) => {
+
+
+    return HttpResponse.json(overrideResponse !== undefined
+    ? (typeof overrideResponse === "function" ? await overrideResponse(info) : overrideResponse)
+    : getSetConnectorPlayPollingApiV1ConnectorsServicePlayPollingPutResponseMock(),
+      { status: 200
+      })
+  }, options)
+}
+
+export const getGetConnectorPlayPollingApiV1ConnectorsServicePlayPollingGetMockHandler = (overrideResponse?: PlayPollingResponse | ((info: Parameters<Parameters<typeof http.get>[1]>[0]) => Promise<PlayPollingResponse> | PlayPollingResponse), options?: RequestHandlerOptions) => {
+  return http.get('*/api/v1/connectors/:service/play-polling', async (info: Parameters<Parameters<typeof http.get>[1]>[0]) => {
+
+
+    return HttpResponse.json(overrideResponse !== undefined
+    ? (typeof overrideResponse === "function" ? await overrideResponse(info) : overrideResponse)
+    : getGetConnectorPlayPollingApiV1ConnectorsServicePlayPollingGetResponseMock(),
+      { status: 200
       })
   }, options)
 }
@@ -76,6 +103,8 @@ export const getImportConnectorPlaylistsApiV1ConnectorsServicePlaylistsImportPos
 export const getConnectorsMock = () => [
   getGetConnectorsApiV1ConnectorsGetMockHandler(),
   getDeleteConnectorTokenApiV1ConnectorsServiceTokenDeleteMockHandler(),
+  getSetConnectorPlayPollingApiV1ConnectorsServicePlayPollingPutMockHandler(),
+  getGetConnectorPlayPollingApiV1ConnectorsServicePlayPollingGetMockHandler(),
   getListConnectorPlaylistsApiV1ConnectorsServicePlaylistsGetMockHandler(),
   getImportConnectorPlaylistsApiV1ConnectorsServicePlaylistsImportPostMockHandler()
 ]

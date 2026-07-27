@@ -47,7 +47,7 @@ from src.application.use_cases.untag_track import (
     UntagTrackUseCase,
 )
 from src.config.constants import BusinessLimits
-from src.interface.api.deps import get_current_user_id
+from src.interface.api.deps import get_current_user_id, trigger_play_refresh
 from src.interface.api.schemas.tracks import (
     AddTagRequest,
     AddTagResponse,
@@ -160,7 +160,9 @@ async def list_tracks(
     )
 
 
-@router.get("/{track_id}")
+# Track detail shows per-track play history — same demand signal as the
+# dashboard, and there is no shared chokepoint between the two routes.
+@router.get("/{track_id}", dependencies=[Depends(trigger_play_refresh)])
 async def get_track_detail(
     track_id: UUID,
     user_id: str = Depends(get_current_user_id),

@@ -22,4 +22,5 @@ export interface OperationRunDetailSchema {
   issues: JsonDict[];
   retryable: boolean;
   initiated_by: string;
+  trigger_detail?: string | null;
 }

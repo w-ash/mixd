@@ -15,7 +15,7 @@ from src.application.use_cases.get_match_method_health import (
     GetMatchMethodHealthCommand,
     GetMatchMethodHealthUseCase,
 )
-from src.interface.api.deps import get_current_user_id
+from src.interface.api.deps import get_current_user_id, trigger_play_refresh
 from src.interface.api.schemas.stats import (
     DashboardStatsSchema,
     MatchMethodHealthSchema,
@@ -26,7 +26,9 @@ from src.interface.api.schemas.stats import (
 router = APIRouter(prefix="/stats", tags=["stats"])
 
 
-@router.get("/dashboard")
+# The dashboard renders play counts, so reading it is a demand signal: refresh
+# in the background so the next view is current. Never awaited — see the dep.
+@router.get("/dashboard", dependencies=[Depends(trigger_play_refresh)])
 async def get_dashboard_stats(
     user_id: str = Depends(get_current_user_id),
 ) -> DashboardStatsSchema:

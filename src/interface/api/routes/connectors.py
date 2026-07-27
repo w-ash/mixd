@@ -10,6 +10,11 @@ from datetime import datetime
 from fastapi import APIRouter, Depends, HTTPException, Query
 
 from src.application.runner import execute_use_case
+from src.application.services.play_poll_policy import (
+    get_play_polling_state,
+    set_play_polling,
+    stop_play_polling_after_disconnect,
+)
 from src.application.services.progress_broker import get_progress_broker
 from src.application.use_cases.import_connector_playlist_as_canonical import (
     run_import_connector_playlists_as_canonical,
@@ -35,6 +40,8 @@ from src.interface.api.schemas.connectors import (
     ConnectorPlaylistBrowseResponse,
     ConnectorPlaylistBrowseSchema,
     ImportConnectorPlaylistsRequest,
+    PlayPollingRequest,
+    PlayPollingResponse,
 )
 from src.interface.api.schemas.imports import OperationStartedResponse
 from src.interface.api.services.progress import OperationBoundEmitter
@@ -134,6 +141,54 @@ async def delete_connector_token(
         raise HTTPException(status_code=400, detail=f"Cannot disconnect {service}")
     storage = get_token_storage()
     await storage.delete_token(service, user_id)
+    if service == "spotify":
+        # Without this the poller keeps firing against a token that no longer
+        # exists — harmless (every tick vetoes) but it clutters the run log.
+        await stop_play_polling_after_disconnect(user_id)
+
+
+@router.put("/{service}/play-polling")
+async def set_connector_play_polling(
+    service: str,
+    body: PlayPollingRequest,
+    user_id: str = Depends(get_current_user_id),
+) -> PlayPollingResponse:
+    """Turn adaptive play polling on or off for a connector.
+
+    Separate from the schedule routes on purpose: this target's cadence is
+    self-managed, so it is deliberately excluded from ``USER_SCHEDULABLE_TARGETS``
+    and its upsert route 400s. What a user *can* decide is whether it runs, and
+    that needs a surface — enabling otherwise happens only inside the OAuth
+    callback, stranding anyone who consented before the feature shipped.
+    """
+    if service != "spotify":
+        raise HTTPException(
+            status_code=400, detail=f"{service} does not support play polling"
+        )
+    state = await set_play_polling(user_id, enabled=body.enabled)
+    return PlayPollingResponse(
+        enabled=state.enabled,
+        interval_minutes=state.interval_minutes,
+        next_run_at=state.next_run_at,
+    )
+
+
+@router.get("/{service}/play-polling")
+async def get_connector_play_polling(
+    service: str,
+    user_id: str = Depends(get_current_user_id),
+) -> PlayPollingResponse:
+    """Current polling state — off, or on with its live backed-off cadence."""
+    if service != "spotify":
+        raise HTTPException(
+            status_code=400, detail=f"{service} does not support play polling"
+        )
+    state = await get_play_polling_state(user_id)
+    return PlayPollingResponse(
+        enabled=state.enabled,
+        interval_minutes=state.interval_minutes,
+        next_run_at=state.next_run_at,
+    )
 
 
 @router.get("/{service}/playlists")

@@ -53,14 +53,14 @@ from uuid import UUID, uuid4
 from attrs import define
 
 from src.application.runner import execute_use_case
-from src.application.services.operation_run_recorder import finalize_run, start_run
 from src.application.services.periodic_loop import run_adaptive_background_loop
 from src.application.services.run_activity import track_run
 from src.application.services.schedule_signal import schedule_change_event
 from src.application.services.schedule_timing import compute_next_run
-from src.application.use_cases._shared.sync_targets import (
-    SYNC_DISPATCH,
-    sync_result_failed,
+from src.application.services.sync_target_runner import (
+    UnschedulableSyncTargetError,
+    run_sync_target,
+    safe_failure_message,
 )
 from src.application.use_cases.workflow_runs import (
     ExecuteWorkflowRunUseCase,
@@ -137,19 +137,10 @@ class _DispatchOutcome:
     status: str
     # Leak-safe summary for schedules.last_error; set only for a `failure`.
     error_label: str | None = None
-
-
-class _UnschedulableTargetError(Exception):
-    """A schedule names a sync target no longer present in ``SYNC_DISPATCH``.
-
-    Raised by ``_dispatch_sync`` and handled by ``_process_one`` as an auto-disable
-    (a maintenance event — a connector was removed while a schedule for it still
-    exists), NOT as a per-tick failure that would re-fire and re-fail forever.
-    """
-
-    def __init__(self, target: str) -> None:
-        self.target = target
-        super().__init__(f"unschedulable sync target {target!r}")
+    # Clears the failure streak on release. Set for dispositions that mean "not
+    # this schedule's fault" — a poll that decided not to run is a healthy tick,
+    # and letting it accumulate would eventually auto-disable a working poller.
+    reset_failures: bool = False
 
 
 def _classify_run_status(status: str) -> _Disposition:
@@ -164,18 +155,6 @@ def _classify_run_status(status: str) -> _Disposition:
     if status == WorkflowConstants.RUN_STATUS_CANCELLED:
         return "skip"
     return "success"
-
-
-def _safe_failure_message(exc: Exception) -> str:
-    """A leak-safe failure summary for ``schedules.last_error``.
-
-    Deliberately the exception CLASS name, never ``str(exc)``: a connector error
-    can embed an OAuth token or a signed URL in its message, and this value is
-    surfaced in the UI failure banner. The class name (e.g. ``HTTPStatusError``,
-    ``SpotifyAuthError``) is enough to triage; full detail lives in the per-run
-    audit row that ``triggered_by_schedule_id`` links back to.
-    """
-    return type(exc).__name__
 
 
 # ---------------------------------------------------------------------------
@@ -237,63 +216,43 @@ async def _dispatch_workflow(
 
 
 async def _dispatch_sync(schedule: Schedule) -> _DispatchOutcome:
-    """Run a background sync, wrapped in an OperationRun audit row.
+    """Run a background sync through the shared runner, then map its verdict.
 
-    Unlike the SSE path, nothing upstream records the audit row for a scheduled
-    sync — so the scheduler opens it here (carrying ``triggered_by_schedule_id``)
-    and finalizes it.
+    A thin adapter by design: the audit row, the failure-signal reading, and the
+    poll-lease handling all live in ``run_sync_target``, so a demand-triggered
+    poll and a scheduled one are the same execution path and produce identical
+    records. This function's only job is translating that outcome into the
+    schedule-row bookkeeping the claim/release cycle needs.
 
-    Two failure signals are read here, not just one:
-
-    - a **raised** exception (hard failure) → finalize the audit row ``error`` and
-      return a ``failure`` outcome (no re-raise — the caller routes on disposition);
-    - a **returned** ``OperationResult`` that reports errors WITHOUT raising (the
-      sync use cases catch and return on a handled failure) → also a ``failure``.
-
-    The schedule outcome reflects the sync itself: the audit-row ``finalize_run``
-    is best-effort (``contextlib.suppress``) so a transient audit-write error can't
-    flip a successful sync into a recorded schedule failure (and a dangling run).
-    A ``CancelledError`` (shutdown mid-sync) is BaseException, so it is not caught
-    here — it propagates to ``_process_one``, which releases the claim as a skip.
+    A ``CancelledError`` (shutdown mid-sync) is a BaseException and propagates
+    to ``_process_one``, which releases the claim as a skip.
     """
-    user_id = schedule.user_id
-    target = schedule.sync_target
-    # Resolve the dispatch BEFORE opening the audit row, so an unknown target
-    # never leaves a dangling running OperationRun. An unknown target is a
-    # maintenance event (a connector removed from SYNC_DISPATCH while a schedule
-    # for it still exists), handled by _process_one as an auto-disable — not a
-    # per-tick failure. SYNC_DISPATCH is the single source of truth.
-    run_sync = SYNC_DISPATCH.get(target or "")
-    if run_sync is None:
-        raise _UnschedulableTargetError(target or "")
-
-    op_run_id = await start_run(
-        user_id=user_id,
-        operation_type=f"scheduled_sync:{target}",
+    outcome = await run_sync_target(
+        schedule.user_id,
+        schedule.sync_target or "",
+        # The bug this fixes: scheduled syncs previously omitted this and were
+        # recorded as "manual", making the run log claim the user had started
+        # work nobody started.
+        initiated_by="schedule",
         triggered_by_schedule_id=schedule.id,
     )
-    try:
-        op_result = await run_sync(user_id)
-    except Exception as exc:
-        with contextlib.suppress(Exception):
-            await finalize_run(op_run_id, user_id=user_id, status="error")
+
+    if outcome.status == "vetoed":
+        # A healthy no-op, not a fault: the target's own policy decided the
+        # window wasn't worth a call. Advance the cadence and clear the streak.
         return _DispatchOutcome(
-            run_id=op_run_id,
-            disposition="failure",
-            status="failed",
-            error_label=_safe_failure_message(exc),
+            run_id=None,
+            disposition="skip",
+            status="skipped_poll_vetoed",
+            reset_failures=True,
         )
 
-    failed = sync_result_failed(op_result)
-    with contextlib.suppress(Exception):
-        await finalize_run(
-            op_run_id, user_id=user_id, status="error" if failed else "complete"
-        )
+    failed = outcome.status == "failed"
     return _DispatchOutcome(
-        run_id=op_run_id,
+        run_id=outcome.run_id,
         disposition="failure" if failed else "success",
         status="failed" if failed else "completed",
-        error_label="sync reported errors" if failed else None,
+        error_label=outcome.error_label,
     )
 
 
@@ -468,8 +427,8 @@ async def _process_one(
             reset_failures=True,
         )
         return
-    except _UnschedulableTargetError as exc:
-        # Orphaned target (a connector removed from SYNC_DISPATCH while a schedule
+    except UnschedulableSyncTargetError as exc:
+        # Orphaned target (a connector removed from SYNC_TARGETS while a schedule
         # for it remains). Disable instead of failing every tick forever.
         logger.warning(
             "scheduled sync target unschedulable — disabling schedule",
@@ -493,7 +452,7 @@ async def _process_one(
             disposition="failure",
             now=failed_at,
             last_run_status="failed",
-            last_error=_safe_failure_message(exc),
+            last_error=safe_failure_message(exc),
         )
         return
 
@@ -508,6 +467,7 @@ async def _process_one(
         last_run_status=outcome.status,
         last_run_id=outcome.run_id,
         last_error=outcome.error_label,
+        reset_failures=outcome.reset_failures,
     )
 
 

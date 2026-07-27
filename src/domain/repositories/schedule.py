@@ -60,6 +60,35 @@ class ScheduleRepositoryProtocol(Protocol):
         """List all of a user's schedules, newest-first."""
         ...
 
+    def set_poll_interval(
+        self, *, user_id: str, sync_target: str, interval_minutes: int
+    ) -> Awaitable[None]:
+        """Rewrite one sync schedule's interval cadence. No-op if it has no row.
+
+        Deliberately narrow rather than a general ``update_schedule`` call: an
+        adaptive poller rewriting its own cadence must not also rewrite the
+        user-owned fields that method carries (``status``, ``timezone``,
+        ``next_run_at``), or a backoff tick would silently undo a user's edit.
+
+        This is the mechanism that makes backoff a *cost* mechanism and not only a
+        politeness one: the scheduler wakes on ``next_run_at``, which is derived
+        from this interval, so a stretched interval lets an idle database stay
+        suspended instead of waking on a fixed tick to decide it has nothing to do.
+        """
+        ...
+
+    def set_next_run_at(
+        self, *, user_id: str, sync_target: str, next_run_at: datetime
+    ) -> Awaitable[None]:
+        """Push one sync schedule's next fire time out. No-op if it has no row.
+
+        Only the demand path needs this. A scheduled run already recomputes
+        ``next_run_at`` when it releases its claim; a demand-triggered poll has no
+        such release, so without this the heartbeat would fire moments after a
+        poll that had just succeeded.
+        """
+        ...
+
     def try_acquire_poll_lock(self, key: int = ...) -> Awaitable[bool]:
         """Try to win this tick's transaction-level poll lock. ``True`` iff held.
 

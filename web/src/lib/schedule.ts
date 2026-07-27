@@ -33,17 +33,39 @@ export function formatClockTime(hour: number, minute: number): string {
 }
 
 /**
+ * Humanise a minute count — "45 minutes", "2 hours", "90 minutes". Whole hours
+ * read as hours because a stretched poll interval is usually one ("Every 24
+ * hours" beats "Every 1440 minutes"). Mirrors `describe_minutes` in the CLI.
+ */
+export function describeMinutes(minutes: number): string {
+  if (minutes % 60 === 0 && minutes >= 60) {
+    const hours = minutes / 60;
+    return hours === 1 ? "1 hour" : `${hours} hours`;
+  }
+  return minutes === 1 ? "1 minute" : `${minutes} minutes`;
+}
+
+/**
  * Plain-English cadence summary, e.g. "Daily at 6:30 AM (America/Los_Angeles)"
  * or "Weekly on Sunday at 6:30 AM (UTC)". Reads `schedule_type`/`day_of_week`
  * straight off the response.
+ *
+ * An interval cadence prints no timezone: an elapsed duration is unaffected by
+ * DST, so naming a zone would imply a wall-clock anchor that doesn't exist.
  */
 export function describeSchedule(schedule: {
-  schedule_type: "daily" | "weekly";
+  schedule_type: "daily" | "weekly" | "interval";
   hour: number;
   minute: number;
   day_of_week: number | null;
+  interval_minutes?: number | null;
   timezone: string;
 }): string {
+  if (schedule.schedule_type === "interval") {
+    return schedule.interval_minutes != null
+      ? `Every ${describeMinutes(schedule.interval_minutes)}`
+      : "On an adaptive schedule";
+  }
   const at = formatClockTime(schedule.hour, schedule.minute);
   if (schedule.schedule_type === "weekly" && schedule.day_of_week != null) {
     return `Weekly on ${WEEKDAYS[schedule.day_of_week]} at ${at} (${schedule.timezone})`;
@@ -52,10 +74,17 @@ export function describeSchedule(schedule: {
 }
 
 /**
- * The background-syncable targets the Sync page renders a scheduler for — the
- * minimal frontend mirror of the backend's canonical `SYNC_DISPATCH`. `SyncTarget`
- * types the card literals so a drifted id is a compile error, not a runtime 404.
- * Friendly display names live server-side (`target_label`), not here.
+ * The background-syncable targets the Sync page renders a *user-editable*
+ * scheduler for — the minimal frontend mirror of the backend's
+ * `USER_SCHEDULABLE_TARGETS`. `SyncTarget` types the card literals so a drifted
+ * id is a compile error, not a runtime 404. Friendly display names live
+ * server-side (`target_label`), not here.
+ *
+ * `spotify:plays` is deliberately absent. It is dispatchable, but it manages its
+ * own adaptive cadence, and there is one schedule row per (user, target) — so
+ * saving it through the daily/weekly picker would overwrite that cadence and
+ * switch the backoff off. It gets a read-only cadence line plus an on/off toggle
+ * on its own card instead.
  */
 export const SYNC_TARGETS = [
   "lastfm:plays",

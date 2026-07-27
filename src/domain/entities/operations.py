@@ -6,7 +6,7 @@ from music services like Spotify and Last.fm.
 
 from collections.abc import Mapping
 from datetime import datetime
-from typing import TYPE_CHECKING, Final, Self
+from typing import TYPE_CHECKING, Final, Literal, Self
 from uuid import UUID, uuid7
 
 from attrs import define, field
@@ -15,6 +15,7 @@ if TYPE_CHECKING:
     from src.infrastructure.connectors.spotify.personal_data import SpotifyPlayRecord
 
 from .shared import (
+    JsonDict,
     JsonValue,
     MetricValue,
     empty_json_map,
@@ -52,6 +53,13 @@ class SyncCheckpoint:
     last_timestamp: datetime | None = None
     cursor: str | None = None  # For pagination/continuation
     remote_total: int | None = None  # Total items reported by remote service
+    # Adaptive-polling state (v0.10.1). ``last_timestamp`` says when the user
+    # last listened; ``last_polled_at`` says when we last checked. Gating
+    # freshness on the former would fire a poll on every page view of an account
+    # that simply isn't playing anything.
+    last_polled_at: datetime | None = None
+    # Opaque to the entity — the poll policy owns its shape via PollState.
+    poll_state: JsonDict = field(factory=empty_json_map)
     id: UUID = field(factory=uuid7)
 
     def with_update(
@@ -61,6 +69,10 @@ class SyncCheckpoint:
         remote_total: int | Unset | None = UNSET,
     ) -> Self:
         """Returns new checkpoint with updated timestamp and optional cursor.
+
+        Poll state is carried through untouched: importers own the sync cursor,
+        the poll policy owns the polling columns, and neither may clobber the
+        other's fields by saving a whole checkpoint.
 
         Args:
             timestamp: Latest sync timestamp to record
@@ -79,8 +91,16 @@ class SyncCheckpoint:
             remote_total=self.remote_total
             if isinstance(remote_total, Unset)
             else remote_total,
+            last_polled_at=self.last_polled_at,
+            poll_state=self.poll_state,
             id=self.id,
         )
+
+
+# Lives here rather than beside the poll policy that computes it: the entity
+# carrying the value owns its vocabulary, and the domain service imports it back.
+# The reverse direction would make entities depend on services.
+type PollHealth = Literal["healthy", "overdue"]
 
 
 @define(frozen=True, slots=True)
@@ -97,6 +117,18 @@ class SyncCheckpointStatus:
     has_previous_sync: bool = False
     local_count: int | None = None
     remote_total: int | None = None
+    # Adaptive-polling surface (v0.10.1), populated only for polled checkpoints
+    # and left None elsewhere. ``poll_health`` cannot be derived client-side from
+    # ``last_polled_at`` alone: under adaptive backoff a 20-hour-old check can be
+    # healthy (daily floor) while a 3-hour-old one is broken (sole-observer cap),
+    # so the effective interval travels with it.
+    last_polled_at: datetime | None = None
+    effective_interval_seconds: int | None = None
+    poll_health: PollHealth | None = None
+    # True when a poll came back with a completely full window, meaning plays may
+    # already have aged out of it unrecoverably. Surfaced rather than logged: the
+    # user's remedy (add a second observer) is a decision only they can make.
+    possible_gap: bool = False
 
     def format_timestamp(self) -> str | None:
         """Format timestamp for display."""

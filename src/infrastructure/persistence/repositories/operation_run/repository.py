@@ -53,6 +53,7 @@ class OperationRunRepository(BaseRepository[DBOperationRun, OperationRun]):
             operation_id=run.operation_id,
             triggered_by_schedule_id=run.triggered_by_schedule_id,
             initiated_by=run.initiated_by,
+            trigger_detail=run.trigger_detail,
         )
         self.session.add(db_row)
         await self.session.flush()

@@ -55,15 +55,17 @@ _TARGET_UNIQUE_CONSTRAINTS = frozenset({
     "uq_schedules_sync_target",
 })
 
-# The CHECK constraints (migration 025 only — never in __table_args__): the
-# exclusive target arc and the cadence-range bounds. A violation is a malformed
-# schedule (→ 422), not a server fault (→ 500).
+# The CHECK constraints (migrations 025 and 043 only — never in __table_args__):
+# the exclusive target arc, the cadence-range bounds, and the exclusive cadence
+# arc. A violation is a malformed schedule (→ 422), not a server fault (→ 500).
 _CHECK_CONSTRAINTS = frozenset({
     "ck_schedules_target_xor",
     "ck_schedules_time_of_day",
     "ck_schedules_day_of_week",
     "ck_schedules_valid_status",
     "ck_schedules_counts_nonneg",
+    "ck_schedules_interval_minutes",
+    "ck_schedules_cadence_exclusive",
 })
 
 
@@ -132,6 +134,7 @@ class ScheduleRepository(BaseRepository[DBSchedule, Schedule]):
             hour=schedule.hour,
             minute=schedule.minute,
             day_of_week=schedule.day_of_week,
+            interval_minutes=schedule.interval_minutes,
             timezone=schedule.timezone,
             status=schedule.status,
             next_run_at=schedule.next_run_at,
@@ -175,6 +178,7 @@ class ScheduleRepository(BaseRepository[DBSchedule, Schedule]):
             "hour": schedule.hour,
             "minute": schedule.minute,
             "day_of_week": schedule.day_of_week,
+            "interval_minutes": schedule.interval_minutes,
             "timezone": schedule.timezone,
             "status": schedule.status,
             "next_run_at": schedule.next_run_at,
@@ -267,6 +271,50 @@ class ScheduleRepository(BaseRepository[DBSchedule, Schedule]):
         result = await self.session.execute(stmt)
         db_rows = list(result.scalars().all())
         return [await ScheduleMapper.to_domain(r) for r in db_rows]
+
+    @db_operation("set_poll_interval")
+    async def set_poll_interval(
+        self, *, user_id: str, sync_target: str, interval_minutes: int
+    ) -> None:
+        """Rewrite one sync schedule's interval cadence, leaving all else intact.
+
+        Touches ``interval_minutes`` alone — not ``next_run_at``. The scheduler
+        recomputes that from a fresh read inside its own claim transaction, so
+        writing it here would race that path for no gain. On the demand path,
+        where no such recompute follows, the poll policy advances it explicitly.
+
+        Silently does nothing when the user has no schedule for this target: a
+        demand-triggered poll is legitimate before polling has ever been enabled,
+        and has no cadence to adjust.
+        """
+        await self.session.execute(
+            update(DBSchedule)
+            .where(
+                DBSchedule.user_id == user_id,
+                DBSchedule.sync_target == sync_target,
+            )
+            .values(interval_minutes=interval_minutes, updated_at=datetime.now(UTC))
+        )
+
+    @db_operation("set_next_run_at")
+    async def set_next_run_at(
+        self, *, user_id: str, sync_target: str, next_run_at: datetime
+    ) -> None:
+        """Push one sync schedule's next fire time out, leaving all else intact.
+
+        Deliberately does NOT touch ``started_at`` or the run bookkeeping: this
+        runs on the demand path, concurrently with a scheduler that may hold a
+        claim on the same row, and those columns belong solely to the guarded
+        ``mark_schedule_*`` path.
+        """
+        await self.session.execute(
+            update(DBSchedule)
+            .where(
+                DBSchedule.user_id == user_id,
+                DBSchedule.sync_target == sync_target,
+            )
+            .values(next_run_at=next_run_at, updated_at=datetime.now(UTC))
+        )
 
     # ------------------------------------------------------------------
     # System hot-path — cross-tenant; the scheduler reads ALL users' rows.
@@ -497,7 +545,7 @@ class ScheduleRepository(BaseRepository[DBSchedule, Schedule]):
     ) -> bool:
         """Disable a claimed schedule and release its claim (cross-tenant).
 
-        For an orphaned target (a connector removed from ``SYNC_DISPATCH`` while a
+        For an orphaned target (a connector removed from ``SYNC_TARGETS`` while a
         schedule for it remains): flipping ``status`` to ``disabled`` drops it from
         the due poll, turning a forever-failing schedule into a one-time, surfaced
         event. Holds the same ``started_at IS NOT NULL`` claim-release guard as

@@ -361,6 +361,21 @@ class ExecuteWorkflowRunResult:
     operation_result: OperationResult | None = None
 
 
+# Node types that read play history from the database.
+#
+# The filters and sorters (``filter.by_play_history``, ``sorter.by_play_history``)
+# are deliberately absent: they read ``metadata["metrics"]``, which only
+# ``enricher.play_history`` populates, and the definition validator warns when a
+# play filter has no upstream enricher. So a graph that filters on plays always
+# contains the enricher too, and listing them as well would be redundant.
+_PLAY_TASK_TYPES = frozenset({"source.played_tracks", "enricher.play_history"})
+
+
+def _reads_play_history(workflow_def: WorkflowDef) -> bool:
+    """True if this graph consumes play history and wants it current."""
+    return any(task.type in _PLAY_TASK_TYPES for task in workflow_def.tasks)
+
+
 @define(slots=True)
 class ExecuteWorkflowRunUseCase:
     """Manages the RUNNING → COMPLETED/FAILED lifecycle of a workflow run.
@@ -541,6 +556,16 @@ class ExecuteWorkflowRunUseCase:
             WorkflowConstants.RUN_STATUS_RUNNING,
             started_at=datetime.now(UTC),
         )
+
+        # 1b. If this graph reads play history, make it current before running.
+        # The only trigger that WAITS, because a scheduled run is exactly where
+        # stale counts silently corrupt output with nobody watching — a 6am
+        # "played this week" filter has no user to notice it missed yesterday.
+        # Bounded, and proceeds on timeout: stale counts beat no playlist.
+        if _reads_play_history(workflow_def):
+            from src.application.services.play_freshness import wait_for_fresh_plays
+
+            await wait_for_fresh_plays(user_id, trigger_detail=f"workflow:{run_id}")
 
         # 2. Execute workflow with observer for node-level tracking
         progress_broker = get_progress_broker()

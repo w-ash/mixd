@@ -16,7 +16,12 @@ from src.application.use_cases._shared.schedule_validators import (
     validate_iana_timezone,
 )
 
-ScheduleTypeLiteral = Literal["daily", "weekly"]
+# Every cadence a schedule can HAVE. "interval" is read-only over the API: it
+# belongs to self-managed targets that rewrite their own cadence, so it appears
+# in responses but is deliberately absent from the upsert literal below.
+ScheduleTypeLiteral = Literal["daily", "weekly", "interval"]
+# The cadences a client may ASK for.
+ScheduleUpsertTypeLiteral = Literal["daily", "weekly"]
 ScheduleStatusLiteral = Literal["enabled", "disabled"]
 ScheduleTargetLiteral = Literal["workflow", "sync"]
 
@@ -29,7 +34,7 @@ IanaTimezone = Annotated[str, AfterValidator(validate_iana_timezone)]
 class ScheduleUpsertRequest(BaseModel):
     """Create-or-replace payload. Bounds mirror the domain validators exactly."""
 
-    schedule_type: ScheduleTypeLiteral
+    schedule_type: ScheduleUpsertTypeLiteral
     hour: int = Field(ge=0, le=23)
     minute: int = Field(ge=0, le=59)
     # 0=Sunday … 6=Saturday — required for weekly, forbidden for daily.
@@ -65,6 +70,10 @@ class ScheduleResponse(BaseModel):
     hour: int
     minute: int
     day_of_week: int | None
+    # Set only for the "interval" cadence. For a self-tuning target this is the
+    # *live* backed-off interval, not a user preference — it is what the poller
+    # last decided, and what the scheduler will actually sleep for.
+    interval_minutes: int | None
     timezone: str
     status: ScheduleStatusLiteral
     next_run_at: datetime | None
@@ -102,6 +111,7 @@ class ScheduleListItem(ScheduleResponse):
             hour=base.hour,
             minute=base.minute,
             day_of_week=base.day_of_week,
+            interval_minutes=base.interval_minutes,
             timezone=base.timezone,
             status=base.status,
             next_run_at=base.next_run_at,

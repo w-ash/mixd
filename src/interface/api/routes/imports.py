@@ -245,6 +245,10 @@ async def get_checkpoints(
             has_previous_sync=s.has_previous_sync,
             local_count=s.local_count,
             remote_total=s.remote_total,
+            last_polled_at=s.last_polled_at,
+            effective_interval_seconds=s.effective_interval_seconds,
+            poll_health=s.poll_health,
+            possible_gap=s.possible_gap,
         )
         for s in statuses
     ]

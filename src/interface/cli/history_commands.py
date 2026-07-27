@@ -8,6 +8,7 @@ import typer
 
 from src.application.services.batch_file_import_service import ImportProgressSpec
 from src.config import settings
+from src.domain.entities import SyncCheckpointStatus
 from src.interface.cli.async_runner import run_async
 from src.interface.cli.cli_helpers import (
     get_cli_user_id,
@@ -259,6 +260,8 @@ async def _render_checkpoints_table() -> None:
     table.add_column("Entity", style="green")
     table.add_column("Last Sync", style="dim")
     table.add_column("Has Previous", justify="center")
+    table.add_column("Last Checked", style="dim")
+    table.add_column("Status")
 
     for s in statuses:
         table.add_row(
@@ -266,9 +269,30 @@ async def _render_checkpoints_table() -> None:
             s.entity_type,
             str(s.last_sync_timestamp) if s.last_sync_timestamp else "Never",
             "[green]Yes[/green]" if s.has_previous_sync else "[dim]No[/dim]",
+            str(s.last_polled_at) if s.last_polled_at else "—",
+            _poll_status_cell(s),
         )
 
     console.print(table)
+
+
+def _poll_status_cell(status: SyncCheckpointStatus) -> str:
+    """Render a checkpoint's polling health.
+
+    A possible gap outranks health: a poller can be perfectly on schedule and
+    still have lost plays if the window saturated between two on-time checks, so
+    reporting "healthy" there would hide the one thing worth acting on.
+
+    An em dash means "not polled", not "broken" — most checkpoints are not
+    adaptively polled and must not read as failures.
+    """
+    if status.possible_gap:
+        return "[yellow]Possible gap[/yellow]"
+    if status.poll_health == "overdue":
+        return "[red]Overdue[/red]"
+    if status.poll_health == "healthy":
+        return "[green]Healthy[/green]"
+    return "[dim]—[/dim]"
 
 
 async def _show_checkpoints_async() -> None:
