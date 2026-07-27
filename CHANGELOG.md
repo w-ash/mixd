@@ -6,6 +6,24 @@ linked backlog version file. Versioning follows mixd's four-segment
 `major.minor.feature.revision` scheme (`.claude/rules/version-management.md`), not strict
 SemVer. Format inspired by [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [0.10.1] — 2026-07-27
+
+**Today's listening counts today.** Play history used to arrive only when you asked for it — a GDPR export that lands weeks late and stops the day you requested it, or a manual import you had to remember to run. v0.10.1 makes Spotify's recently-played API a live observer: it is polled on a cadence that adapts to how you actually listen, and refreshed on demand at the moments plays are read, so a workflow filtering on "played this week" sees this morning's plays. The same release stops the workflow surfaces lying about their own state — a save is visible the moment it lands, and a run is visible wherever you happen to be watching.
+
+What you can do now:
+- **Connect once and forget it.** Re-authorize Spotify (the grant now covers listening history) and the poller starts itself; a grant missing the scope surfaces as "re-connect needed" on the connector card without breaking likes or playlists. An on/off switch and the live cadence sit on the Sync page.
+- **See fresh counts where you consume them.** Opening the dashboard or a track page, asking the assistant over MCP, or running a workflow that reads play history all refresh in the background first — reads never block on it, but a *scheduled* workflow waits (bounded, then proceeds), because that is where stale counts would silently corrupt output with nobody watching.
+- **Know when something was missed.** Spotify keeps only your 50 most recent plays. If a poll finds that window saturated, the checkpoint says so and points at the fix (connect Last.fm as a second observer) instead of failing quietly.
+
+How it works:
+- **One execution path, three triggers.** The scheduler heartbeat, demand reads, and workflow pre-runs all go through a shared `run_sync_target`, so a demand-triggered poll produces the same `OperationRun`, checkpoint update, and run-log entry as a scheduled one — with `initiated_by` + a new `trigger_detail` recording *why* it fired. Extracted from the scheduler's `_dispatch_sync`, which is now a thin adapter (and no longer mis-records scheduled syncs as `"manual"`).
+- **Cadence follows window fullness, not emptiness.** The poll response measures the user's own fill rate: an empty window stretches the interval toward a redundancy-aware cap (2h when this is the only live observer, 24h when Last.fm is also scrobbling), a near-full one halves it, and a saturated one floors it at 15 minutes and raises a possible-gap warning. One time constant cannot serve both album listening (~3.3h to fill 50 slots) and skip-heavy listening (~37 min).
+- **Backoff is a cost mechanism, not just a politeness one.** The poller writes its effective interval back to `schedules.interval_minutes` (migration `043`, a third cadence arm beside daily/weekly), so a scale-to-zero database sleeps through a stretched interval instead of being woken ~48×/day only to decline.
+- **Single-flight is a lease, not a lock.** `sync_checkpoints` gains `poll_claimed_at` with a TTL, claimed by one conditional upsert that fuses the staleness gate and the claim. A transaction-scoped guard cannot work here — the importer commits per batch and would release it mid-run. Concurrent in-process triggers coalesce first, so a page load costs one poll, not one per route.
+- **Workflow feedback**: saves write the returned entity straight into the query cache (no stale window), run state reconciles wherever it is rendered, and workflow detail endpoints return real run counts.
+
+→ [details](docs/backlog/v0.10.x.md#v0101-continuous-play-polling)
+
 ## [0.10.0] — 2026-07-17
 
 **Play history you can finally trust — no matter what you import, or in what order.** Until now, merging Spotify and Last.fm plays depended on which import ran first: measured on real overlap data, one order merged 519 overlapping pairs correctly while the reverse double-counted 267 of them. v0.10.0 makes canonical plays a deterministic projection of an immutable observation ledger — re-import the same GDPR file twice, import Last.fm before or after Spotify, upload a fresh export over old data: the history comes out identical every time, and each play carries the richest field values any source offered (`ms_played` and behavioral detail from the export, second-precision start times from Last.fm, `loved` flags intact).
