@@ -5,7 +5,7 @@ description: Use this skill when you need React + TypeScript patterns, component
 
 # React Architecture — mixd web UI
 
-> Related skills: `frontend-design` (visual identity/tokens), `api-contracts` (REST + SSE conventions). The always-loaded edit-time constraints live in `.claude/rules/web-frontend-patterns.md` — this skill adds the deeper architecture context; don't restate the rule.
+> Related skill: `api-contracts` (REST + SSE conventions). The always-loaded edit-time constraints live in `.claude/rules/web-frontend-patterns.md`, and visual identity / design tokens in `.claude/rules/web-design-system.md` — both auto-load on the files they cover. This skill adds the deeper architecture context; don't restate the rules.
 
 ## Stack (verify versions in `web/package.json` before citing)
 

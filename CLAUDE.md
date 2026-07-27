@@ -8,8 +8,6 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Core Principles
 
-- **Python 3.14+** — use modern features and type safety
-- **DRY**
 - **Clean breaks** over backward compatibility
 - **Batch-first** — design for collections, single items are degenerate cases
 - **Immutable domain** — pure transformations only
@@ -29,8 +27,10 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 **Layer invariants** (hold even when creating a new file, before the path-scoped rule loads):
 - `domain/`: entities `@define(frozen=True, slots=True)`, pure (no I/O), imports only domain + stdlib
 - each layer imports inward only (Interface → Application → Domain ← Infrastructure); never reach sideways/outward
-- `interface/` data access only via `execute_use_case()` — **exception (v0.6.5 credential/secret carve-out):** connector OAuth/token management (auth-URL, code exchange, `TokenStorage` read/write) *and* assistant Anthropic API-key management (`routes/assistant.py` + `cli/assistant_commands.py` via `infrastructure/chat/credentials`) share infrastructure helpers directly by design, so CLI + web reuse one implementation of each; API route handlers stay 5–10 lines
-- `application/` owns transactions (`async with uow:`); Commands/Results are frozen attrs — **exception:** `ChatUseCase` is a streaming agentic loop `(command) -> AsyncGenerator[ChatEvent]` invoked directly by its route, holds no UoW, and does all persistence via per-tool-call `execute_use_case()` (threading one UoW across an LLM round-trip is strictly worse)
+- `interface/` data access only via `execute_use_case()`; API route handlers stay 5–10 lines
+- `application/` owns transactions (`async with uow:`); Commands/Results are frozen attrs
+
+The last two have documented exceptions — credential/OAuth surfaces, and the `ChatUseCase` streaming loop. Both are written out in full in `.claude/rules/interface-patterns.md` and `application-patterns.md`, which load whenever you're editing the files they cover.
 
 Layer-specific rules auto-load from `.claude/rules/` when editing matching files (note: they fire on read/edit, not always on new-file creation — the invariants above are the always-loaded safety net).
 
@@ -83,26 +83,11 @@ Write tests for every change (happy path + at least one error/edge case).
 Right test level — domain=unit, use case=unit+mocks, repository=integration.
 Use existing factories from `tests.fixtures` (`make_track`, `make_mock_uow`).
 
-### When to Run What
+The `slow`/`performance`/`diagnostic` markers are excluded by default — `uv run pytest -m ""` runs everything (~3.5min).
 
-**During implementation** — targeted tests ONLY:
-- Run the specific test file for the code you changed: `uv run pytest tests/path/to/test_file.py -x`
-- Use `-k "test_name"` to iterate on a single failing test
-- Use `--lf` to rerun only previously-failed tests
-- Frontend: `pnpm --prefix web test src/path/to/Component.test.tsx`
+**Before committing**: `uv run pytest` and `pnpm --prefix web test`.
 
-**Before committing** — full fast suite:
-- `uv run pytest` (automatically excludes slow/diagnostic)
-- `pnpm --prefix web test` (all frontend tests)
-
-**On version bump or explicit request only**:
-- `uv run pytest -m ""` (all tests including slow)
-- `uv run basedpyright src/` + `uv run ruff check .`
-- `uv run vulture` + `scripts/check_ratchet.sh` (CI runs vulture; a red step here shipped unnoticed for a month pre-v0.8.17)
-- `uv run python scripts/check_backlog.py` (backlog hygiene: links, archive index, matrix ↔ files, changelog entry)
-- `pnpm --prefix web check && pnpm --prefix web build`
-- Playwright visual gate — run in the CI-pinned Docker image (native macOS runs false-fail; procedure + current image tag in `web/e2e/README.md`):
-  `docker run --rm -v "$PWD":/work -w /work/web mcr.microsoft.com/playwright:v1.61.1-noble bash -c "corepack enable && corepack prepare pnpm@11.5.2 --activate && pnpm install --frozen-lockfile && pnpm test:e2e"` (then rerun `pnpm --prefix web install` on the host)
+**The full release gate** — slow tests with coverage floor, basedpyright, ruff, vulture, suppression ratchet, backlog hygiene, dead-code, production build, Playwright visual gate — is `/ship` Step 6, which mirrors `.github/workflows/ci.yml`. Run that rather than reconstructing the list by hand.
 
 ## Documentation Map
 

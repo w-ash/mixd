@@ -151,9 +151,11 @@ docker compose down -v && docker compose up -d && uv run alembic upgrade head
 uv run alembic current
 ```
 
-## Subagent Usage Guide
+## Subagents and Skills
 
-See `.claude/skills/subagent-guide/` for the full subagent usage guide — agent descriptions, rotation strategy, when-to-use decision matrix, tool scope table, and best practices.
+Two subagents run in isolated context — `log-diagnostician` (reads structured JSON logs without flooding the main conversation) and `workflow-manager` (drives the `mixd workflow` CLI). Specialist skills in `.claude/skills/` load their guidance only when invoked.
+
+Both directories are self-describing: each file's `description:` frontmatter states when to reach for it, and Claude Code surfaces those descriptions every session. Read `.claude/agents/` and `.claude/skills/` directly rather than maintaining a separate catalogue.
 
 ---
 

@@ -135,19 +135,27 @@ Run ALL health checks before committing. If any check produces errors, warnings,
 
 Run backend and frontend checks in parallel where possible (use parallel Bash calls):
 
+This gate mirrors `.github/workflows/ci.yml`. If you change one, change both — a `/ship` gate weaker than CI means green here and red on the PR.
+
 **Backend (run in parallel):**
-- `uv run pytest` — fast tests (default addopts exclude slow/diagnostic)
+- `uv run pytest -m "" --cov --cov-report=term-missing --cov-fail-under=80` — the **full** suite including slow (~3.5min), with the coverage floor CI enforces. `/ship` is a release; the fast subset is for iteration, not for shipping.
 - `uv run ruff check . --fix` — lint + autofix
 - `uv run ruff format .` — autoformat
+- `uv run vulture` — dead code. CI runs it and a red step here shipped unnoticed for a month pre-v0.8.17; never skip it.
+- `scripts/check_ratchet.sh` — bounds the sanctioned `# pyright: ignore` count so suppressions can't proliferate
 - `uv run python scripts/check_backlog.py` — backlog hygiene (links, archive index, matrix ↔ files, changelog entry for the new version)
 
 **Frontend (run in parallel with backend):**
 - `pnpm --prefix web test` — Vitest component tests
-- `pnpm --prefix web check` — Biome lint + format check
+- `pnpm --prefix web check` — Biome lint + `tsc`
+- `pnpm --prefix web lint:dead` — knip dead-code check (CI runs it)
 - `pnpm --prefix web build` — production build (catches TS type errors in bundled output)
 
 **After the above complete:**
 - `uv run basedpyright src/` — strict type checking (slowest check, runs last)
+- **Playwright visual gate** — must run in the CI-pinned Docker image; native macOS runs false-fail. Procedure and current image tag live in `web/e2e/README.md`:
+  `docker run --rm -v "$PWD":/work -w /work/web mcr.microsoft.com/playwright:v1.61.1-noble bash -c "corepack enable && corepack prepare pnpm@11.5.2 --activate && pnpm install --frozen-lockfile && pnpm test:e2e"`
+  Then rerun `pnpm --prefix web install` on the host to restore native binaries.
 
 ### Verifying results — read actual output, not wrappers
 
@@ -164,7 +172,7 @@ If ANY check fails:
 
 ### On success
 
-All eight checks pass with zero errors and zero warnings → proceed to Step 7.
+All checks pass with zero errors and zero warnings → proceed to Step 7.
 
 ## Step 7: Pre-commit hygiene
 

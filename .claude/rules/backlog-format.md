@@ -70,6 +70,16 @@ An item is read by two audiences: a **human** skimming the roadmap (wants the us
 - **Make it skimmable.** Split walls of text into Story/Decisions/Spec/Tests; bullet blast-radius / tool-coverage lists instead of inline run-ons; bold the load-bearing constraint at the *start* of its bullet. Push doc-bug asides and incident IDs to a pointer into the design/findings doc. Group pure hygiene/refactor items under a labeled subhead so skimmers can skip them and Claude can still find them.
 - **Definition of ready.** A milestone may not be named "Next" in the README (nor start implementation) until every epic in its file has a persona-anchored **Story** and a **Tests** block. A file still on an older schema carries a `> ⚠️ needs story-format upgrade` banner until retrofitted.
 
+## Writing for the implementing session
+
+An epic is a prompt. It is handed to a session that already verifies its own work, delegates readily, writes long, and expands scope when the brief is open-ended. Write against those defaults, not around them.
+
+- **Claude-authored deliverables carry a ceiling, not just a floor.** Any epic whose Spec names a document Claude will write (findings memo, audit report, census) states a length budget on the Deliverable line — per-section word cap, per-check exemplar cap, "no executive summary or restated methodology". Completeness criteria ("every question answered with a citing table") set the floor; with no stated ceiling the floor wins locally and the doc bloats.
+- **Say "the implementing session", not "an agent".** "Agent-executed" reads as *spawn subagents*. Where fan-out genuinely helps, name the cap and the split ("one investigator per check group, read-only"); where it doesn't, say so. Never spec a subagent whose job is checking the session's own work.
+- **Don't spec self-verification.** "Double-check", "re-verify before reporting", "add a final verification step" compound with behavior the model already has and cost passes for nothing. Verifying *the world* — prod data against a code-level argument, a hypothesis against the source — is real work and stays. **Tests** blocks are deliverables, not self-verification; they are never the thing this bullet trims.
+- **Bound any instructed scope expansion.** An epic may ask the session to extend its own checklist (the audit pattern), but must cap it: how many additions, read-only or not, proposed vs. executed. "This list is a floor" without a bound stacks on the model's own scope expansion.
+- **Completion notes: ≤60 words.** Load-bearing facts and accepted spec deviations only; narrative belongs in `CHANGELOG.md`. Same rule as "state each load-bearing fact once" — a note that re-derives the whole implementation is archaeology in forward-looking prose.
+
 ## Post-Deploy Revisions epic (required per feature)
 
 Every feature file reserves a placeholder epic at the bottom — **Post-Deploy Revisions** — that accumulates work discovered during prod testing. Starts empty; entries are added as each revision ships (scheme in `version-management`). Each entry maps to a `<feature>.<N>` tag; the conventional-commit prefix (`fix:` / `feat:` / `refactor:`) carries the nature of the work.
@@ -133,6 +143,7 @@ A campaign hub (e.g. `fable-sweep/`) tracks per-spoke status in exactly one plac
 ## Conventions
 
 - **Effort**: XS trivial | S 1-2 areas | M cross-module | L architectural | XL/XXL break down. Never time-based.
+- **Effort tier** (reasoning depth — sized independently of Effort, which sizes blast radius): docs, bookkeeping, single-file and mechanical retrofits → `low`–`medium`; standard M epics (use case + repo + surface) → `high`, the default; L/XL multi-file implementation, migrations, and audit runs → `xhigh`. Not a per-epic field — infer it from the epic's shape.
 - **Dates**: absolute ("Thursday" → "2026-03-20").
 - **New ideas** land in `unscheduled.md` first.
 - **User flows** (`docs/web-ui/01-user-flows.md`): numbered flow sections (`## N. Area` → `### N.M Title`), each with **Trigger / Steps / Backend calls / Edge cases** and a per-endpoint Status token. (Not a `US-AREA-N` prefix.)
