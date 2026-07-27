@@ -366,7 +366,7 @@ async def create_playlist_link(
 
 @router.delete("/{playlist_id}/links/{link_id}", status_code=204)
 async def delete_playlist_link(
-    playlist_id: UUID,  # noqa: ARG001
+    playlist_id: UUID,  # ruff:ignore[unused-function-argument]
     link_id: UUID,
     user_id: str = Depends(get_current_user_id),
 ) -> Response:
@@ -382,7 +382,7 @@ async def delete_playlist_link(
 
 @router.patch("/{playlist_id}/links/{link_id}")
 async def update_playlist_link(
-    playlist_id: UUID,  # noqa: ARG001
+    playlist_id: UUID,  # ruff:ignore[unused-function-argument]
     link_id: UUID,
     body: UpdateLinkRequest,
     user_id: str = Depends(get_current_user_id),
@@ -402,7 +402,7 @@ async def update_playlist_link(
 
 @router.get("/{playlist_id}/links/{link_id}/sync/preview")
 async def preview_playlist_sync(
-    playlist_id: UUID,  # noqa: ARG001
+    playlist_id: UUID,  # ruff:ignore[unused-function-argument]
     link_id: UUID,
     direction_override: str | None = Query(default=None),
     user_id: str = Depends(get_current_user_id),
@@ -438,7 +438,7 @@ async def preview_playlist_sync(
 
 @router.post("/{playlist_id}/links/{link_id}/sync", status_code=202)
 async def sync_playlist_link(
-    playlist_id: UUID,  # noqa: ARG001
+    playlist_id: UUID,  # ruff:ignore[unused-function-argument]
     link_id: UUID,
     body: SyncLinkRequest | None = None,
     user_id: str = Depends(get_current_user_id),

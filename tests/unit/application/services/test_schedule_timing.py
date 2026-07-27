@@ -69,6 +69,6 @@ class TestPrecisionAndGuards:
         assert nxt.microsecond == 0
 
     def test_naive_now_rejected(self) -> None:
-        naive = datetime(2026, 6, 1, 0, 0)  # noqa: DTZ001  # the input under test
+        naive = datetime(2026, 6, 1, 0, 0)  # ruff:ignore[call-datetime-without-tzinfo]  # the input under test
         with pytest.raises(ValueError, match="now must be timezone-aware"):
             compute_next_run(_schedule(hour=6, minute=0, tz="UTC"), now=naive)

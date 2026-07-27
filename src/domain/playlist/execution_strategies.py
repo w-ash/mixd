@@ -90,7 +90,7 @@ def simulate_position_shifts(
 
     logger.debug(
         "Position shift simulation complete: "
-        + f"{len(remove_ops)} removes, {len(add_ops)} adds, {len(move_ops)} moves"
+        f"{len(remove_ops)} removes, {len(add_ops)} adds, {len(move_ops)} moves"
     )
 
     return adjusted_operations
@@ -197,8 +197,8 @@ def _adjust_move_operations(
 
     logger.debug(
         f"Position adjustment complete: {len(move_ops)} original moves, "
-        + f"{len(adjusted_moves)} valid after adjustment, "
-        + f"{len(move_ops) - len(adjusted_moves)} filtered out"
+        f"{len(adjusted_moves)} valid after adjustment, "
+        f"{len(move_ops) - len(adjusted_moves)} filtered out"
     )
 
     return sorted_adjusted_moves

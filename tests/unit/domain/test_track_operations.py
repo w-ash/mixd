@@ -367,7 +367,7 @@ class TestEnsureUtc:
 
     def test_ensure_utc_naive_datetime(self):
         """Test naive datetime is converted to UTC."""
-        naive_dt = datetime(2023, 1, 1, 12, 0, 0, tzinfo=None)  # noqa: DTZ001
+        naive_dt = datetime(2023, 1, 1, 12, 0, 0, tzinfo=None)  # ruff:ignore[call-datetime-without-tzinfo]
         utc_dt = ensure_utc(naive_dt)
         assert utc_dt.tzinfo == UTC
 

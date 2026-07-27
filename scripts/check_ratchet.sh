@@ -14,14 +14,23 @@ cd "$(dirname "$0")/.."
 # 83 → 71 at v0.10.1: 12 entries vulture no longer flags — the names they guarded became
 # genuinely used in src/, so the suppressions hid nothing. Found by diffing the whitelist
 # against `vulture src/ alembic/` run without it; pruning them left the findings identical.
-BASE_WHITELIST=71
+# 71 → 73 at v0.10.1: reset_run_activity / reset_schedule_signal are test-only
+# isolation helpers. vulture's config excludes tests/, so it cannot see their
+# callers and reported both as dead — failing CI's dead-code step on every run
+# since they landed. Whitelisting is the honest fix; deleting them would break
+# three test modules.
+BASE_WHITELIST=73
 BASE_NOQA=13
 BASE_TYPE_IGNORE=0
 BASE_PYRIGHT_IGNORE=18
 
 # `|| true`: grep exits 1 on zero matches, which is a ratchet success, not an error.
 whitelist=$(grep -cvE '^\s*(#|$)' vulture_whitelist.py || true)
-noqa=$( (grep -rEn '# noqa' src/ --include='*.py' || true) | wc -l | tr -d ' ')
+# Both spellings: ruff 0.15.22's RUF105 migrated `# noqa: CODE` to
+# `# ruff:ignore[rule-name]`. Matching only the old form would silently count 0
+# and stop guarding — the ratchet must survive the syntax change, not be reset
+# by it. The migration was 1:1, so the baseline is unchanged.
+noqa=$( (grep -rEn '# (noqa|ruff: ?ignore)' src/ --include='*.py' || true) | wc -l | tr -d ' ')
 type_ignore=$( (grep -rEn '# type: ignore' src/ --include='*.py' || true) | wc -l | tr -d ' ')
 pyright_ignore=$( (grep -rEn '# pyright: ignore' src/ --include='*.py' || true) | wc -l | tr -d ' ')
 

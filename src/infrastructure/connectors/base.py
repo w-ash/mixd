@@ -163,7 +163,7 @@ class BaseAPIConnector(ABC):
 
     @property
     def error_classifier(self) -> ErrorClassifier:
-        """Get error classifier for this connector. Override for service-specific classification."""
+        """Error classifier for this connector. Override for service-specific classification."""
         return _DefaultClassifier()
 
     async def get_playlist(

@@ -161,7 +161,7 @@ class EnrichTracksUseCase:
             ):
                 logger.info(
                     f"Starting {command.enrichment_config.enrichment_type} enrichment "
-                    + f"for {len(command.tracklist.tracks)} tracks"
+                    f"for {len(command.tracklist.tracks)} tracks"
                 )
 
                 if not command.tracklist.tracks:
@@ -335,8 +335,8 @@ class EnrichTracksUseCase:
 
         logger.info(
             f"Successfully enriched tracklist with {len(metrics)} metric types and "
-            + f"{sum(len(values) for values in metrics.values())} total values "
-            + f"({sum(len(ids) for ids in fresh_ids.values())} fresh)"
+            f"{sum(len(values) for values in metrics.values())} total values "
+            f"({sum(len(ids) for ids in fresh_ids.values())} fresh)"
         )
 
         return enriched_tracklist, metrics

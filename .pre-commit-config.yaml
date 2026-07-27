@@ -14,7 +14,11 @@ repos:
     -   id: debug-statements
     -   id: check-added-large-files
 -   repo: https://github.com/astral-sh/ruff-pre-commit
-    rev: v0.15.16
+    # Keep in step with the `ruff` pin in pyproject.toml's dev group. A hook
+    # older than the project's ruff can't parse the config: since 0.16 the
+    # `ignore`/`per-file-ignores` selectors are rule *names*, and an older
+    # binary rejects them outright ("Unknown rule selector: line-too-long").
+    rev: v0.16.0
     hooks:
     -   id: ruff
         args: [--fix]  # This includes import sorting (no need for separate I hook)

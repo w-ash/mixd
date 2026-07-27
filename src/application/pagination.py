@@ -131,7 +131,7 @@ def cursor_sort_value_from_row(
 
 
 def cursor_sort_value_to_query(
-    column_name: str, sort_value: str | int | float | None
+    column_name: str, sort_value: str | float | None
 ) -> str | int | float | datetime | None:
     """Convert a cursor's sort_value back to a query-compatible type.
 

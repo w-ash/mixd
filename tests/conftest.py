@@ -95,7 +95,7 @@ def postgres_url():
     isolation between parallel test workers. The container is automatically
     cleaned up when the session ends.
     """
-    from testcontainers.postgres import PostgresContainer
+    from testcontainers.community.postgres import PostgresContainer
 
     with PostgresContainer("postgres:17-alpine") as pg:
         # testcontainers returns psycopg2:// URL; convert to psycopg3 driver

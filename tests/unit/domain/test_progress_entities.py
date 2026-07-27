@@ -494,7 +494,7 @@ class TestTrackedOperation:
         emitter = AsyncMock()
         emitter.start_operation.return_value = "op-456"
 
-        with pytest.raises(ValueError, match="something broke"):  # noqa: PT012
+        with pytest.raises(ValueError, match="something broke"):  # ruff:ignore[pytest-raises-with-multiple-statements]
             async with tracked_operation(emitter, "Failing import") as op_id:
                 assert op_id == "op-456"
                 raise ValueError("something broke")

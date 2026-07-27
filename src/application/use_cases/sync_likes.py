@@ -516,7 +516,7 @@ class ExportLastFmLikesUseCase:
         if total_mixd > 0:
             logger.info(
                 f"Export: {total_mixd} total, {already_loved} already loved "
-                + f"({already_loved / total_mixd * 100:.1f}%), {total_to_export} candidates"
+                f"({already_loved / total_mixd * 100:.1f}%), {total_to_export} candidates"
             )
         else:
             logger.info(

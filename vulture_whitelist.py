@@ -104,3 +104,7 @@ client_id_metadata_document_supported  # OAuthMetadata field — Anthropic clien
 authorization_response_iss_parameter_supported  # OAuthMetadata field — RFC 9207
 ip  # _PinnedTarget field — the validated public IP the CIMD fetch connects to
 jti  # MCP access-token claim (JWT id)
+
+# --- Test-only isolation helpers (vulture excludes tests/, so it can't see the callers) ---
+reset_run_activity  # src/application/services/run_activity.py — used by 3 test modules
+reset_schedule_signal  # src/application/services/schedule_signal.py — used by test_schedules.py

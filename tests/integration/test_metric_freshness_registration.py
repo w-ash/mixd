@@ -42,7 +42,7 @@ class TestLastFMFreshnessRegistration:
     def test_lastfm_user_playcount_freshness(self):
         # Force re-import to trigger registration (already imported at module level)
         from src.infrastructure.connectors.lastfm.connector import (
-            LastFmMetricResolver,  # noqa: F401
+            LastFmMetricResolver,  # ruff:ignore[unused-import]
         )
 
         assert (
@@ -52,7 +52,7 @@ class TestLastFMFreshnessRegistration:
 
     def test_lastfm_global_playcount_freshness(self):
         from src.infrastructure.connectors.lastfm.connector import (
-            LastFmMetricResolver,  # noqa: F401
+            LastFmMetricResolver,  # ruff:ignore[unused-import]
         )
 
         assert (
@@ -62,7 +62,7 @@ class TestLastFMFreshnessRegistration:
 
     def test_lastfm_listeners_freshness(self):
         from src.infrastructure.connectors.lastfm.connector import (
-            LastFmMetricResolver,  # noqa: F401
+            LastFmMetricResolver,  # ruff:ignore[unused-import]
         )
 
         assert (
@@ -75,7 +75,7 @@ class TestSpotifyFreshnessRegistration:
 
     def test_explicit_flag_freshness(self):
         from src.infrastructure.connectors.spotify.connector import (
-            SpotifyMetricResolver,  # noqa: F401
+            SpotifyMetricResolver,  # ruff:ignore[unused-import]
         )
 
         assert get_metric_freshness("explicit_flag") == settings.freshness.spotify_hours

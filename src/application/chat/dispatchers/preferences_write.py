@@ -136,8 +136,10 @@ async def handle_set_preferences(
         details = {
             "operation": operation,
             "changes": [
-                "Create or upgrade preferences from Spotify likes and Last.fm "
-                "loves (manual preferences preserved)"
+                (
+                    "Create or upgrade preferences from Spotify likes and Last.fm "
+                    "loves (manual preferences preserved)"
+                )
             ],
         }
 

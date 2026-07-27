@@ -53,7 +53,7 @@ class TestParseDatetimeSafe:
         assert result.tzinfo is not None
 
     def test_naive_datetime_gets_utc(self):
-        naive = datetime(2025, 1, 1)  # noqa: DTZ001 — intentionally naive for testing
+        naive = datetime(2025, 1, 1)  # ruff:ignore[call-datetime-without-tzinfo] — intentionally naive for testing
 
         result = parse_datetime_safe(naive)
 

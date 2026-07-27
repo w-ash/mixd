@@ -75,7 +75,7 @@ class TestTimeAndDayRanges:
 class TestFieldInvariants:
     def test_naive_next_run_at_rejected(self) -> None:
         with pytest.raises(ValueError, match="must be timezone-aware"):
-            _daily_workflow(next_run_at=datetime(2026, 6, 1, 6, 0))  # noqa: DTZ001
+            _daily_workflow(next_run_at=datetime(2026, 6, 1, 6, 0))  # ruff:ignore[call-datetime-without-tzinfo]
 
     def test_negative_consecutive_failures_raises(self) -> None:
         with pytest.raises(ValueError, match="consecutive_failures must be"):

@@ -121,8 +121,10 @@ async def _propose_relink(
         "new_track_id": str(new_track_id),
         "current_track_id": str(current_track_id),
         "changes": [
-            f"Mapping {mapping_id} moves from track {current_track_id} "
-            f"to track {new_track_id}",
+            (
+                f"Mapping {mapping_id} moves from track {current_track_id} "
+                f"to track {new_track_id}"
+            ),
         ],
     }
     description = (
@@ -166,8 +168,10 @@ async def _propose_set_primary(
         "mapping_id": str(mapping_id),
         "track_id": str(track_id),
         "changes": [
-            f"Mapping {mapping_id} becomes the primary mapping for its "
-            f"connector on track {track_id}",
+            (
+                f"Mapping {mapping_id} becomes the primary mapping for its "
+                f"connector on track {track_id}"
+            ),
         ],
     }
     description = f"Set mapping {mapping_id} as primary for track {track_id}"

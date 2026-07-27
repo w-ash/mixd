@@ -66,7 +66,7 @@ class LastFMConnector(BaseAPIConnector):
     @property
     @override
     def error_classifier(self):
-        """Get Last.fm-specific error classifier."""
+        """Last.fm-specific error classifier."""
         return LastFMErrorClassifier()
 
     async def aclose(self) -> None:
@@ -164,8 +164,8 @@ class LastFMConnector(BaseAPIConnector):
             except (ValueError, TypeError) as e:
                 logger.warning(
                     f"Skipping track with invalid timestamp: {timestamp_uts!r}, "
-                    + f"track: {entry.name!r}, "
-                    + f"error: {e}"
+                    f"track: {entry.name!r}, "
+                    f"error: {e}"
                 )
                 continue
 

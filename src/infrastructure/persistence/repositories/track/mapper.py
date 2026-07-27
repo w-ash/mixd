@@ -191,8 +191,8 @@ class TrackMapper(BaseModelMapper[DBTrack, Track]):
         elif fallback_mappings:
             logger.warning(
                 f"Track {db_model.id} has no primary connector mapping(s): "
-                + f"connectors={list(fallback_mappings)} — "
-                + "pass a session to to_domain_with_session() to enable auto-promotion"
+                f"connectors={list(fallback_mappings)} — "
+                "pass a session to to_domain_with_session() to enable auto-promotion"
             )
 
         # Process likes into connector metadata

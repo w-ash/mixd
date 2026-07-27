@@ -165,7 +165,7 @@ class SpotifyConnectorPlayResolver:
                 ms_played = connector_play.ms_played or 0
                 logger.debug(
                     f"Skipped (duration): {connector_play.track_name} - "
-                    + f"{ms_played / 60000:.2f}/{duration_info}min"
+                    f"{ms_played / 60000:.2f}/{duration_info}min"
                 )
                 continue
             if skip is SkipReason.INCOGNITO:

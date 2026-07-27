@@ -141,7 +141,7 @@ class ImportTracksResult:
 
     @property
     def success_rate(self) -> float:
-        """Returns import success rate as percentage (0-100)."""
+        """Import success rate as a percentage (0-100)."""
         return float(self.operation_result.summary_metrics.get("success_rate"))
 
 
@@ -193,7 +193,7 @@ class ImportTracksUseCase:
 
                 logger.info(
                     f"Successfully completed {command.service} {command.mode} import: "
-                    + f"{imported_count} tracks imported"
+                    f"{imported_count} tracks imported"
                 )
 
                 return ImportTracksResult(

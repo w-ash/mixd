@@ -46,7 +46,7 @@ class TestServerConfig:
 
     def test_defaults(self):
         config = ServerConfig()
-        assert config.host == "0.0.0.0"  # noqa: S104
+        assert config.host == "0.0.0.0"  # ruff:ignore[hardcoded-bind-all-interfaces]
         assert config.port == 8000
         assert config.cors_origins == ["http://localhost:5173"]
 

@@ -491,7 +491,7 @@ class LastfmPlayImporter(
         if min_ts < effective_start or max_ts > effective_end:
             logger.warning(
                 f"Day {current_date}: timestamps outside expected range! "
-                + f"Expected {effective_start} to {effective_end}, got {min_ts} to {max_ts}"
+                f"Expected {effective_start} to {effective_end}, got {min_ts} to {max_ts}"
             )
 
     async def _fetch_day_records(

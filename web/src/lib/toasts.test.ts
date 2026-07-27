@@ -30,19 +30,22 @@ describe("toasts.runCompleted — primaryCount key reconciliation", () => {
     ["import_spotify_history", { track_plays: 3 }, "Imported 3 scrobbles"],
     ["import_spotify_likes", { imported: 5 }, "Imported 5 likes"],
     ["export_lastfm_likes", { exported: 2 }, "Exported 2 loves"],
-  ] as const)("%s reads its real metric key → %s", (operationType, counts, expectedTitle) => {
-    toasts.runCompleted({
-      operationType,
-      counts,
-      issueCount: 0,
-      runId: null,
-      onNavigate: noop,
-    });
-    expect(toast.success).toHaveBeenCalledWith(
-      expectedTitle,
-      expect.anything(),
-    );
-  });
+  ] as const)(
+    "%s reads its real metric key → %s",
+    (operationType, counts, expectedTitle) => {
+      toasts.runCompleted({
+        operationType,
+        counts,
+        issueCount: 0,
+        runId: null,
+        onNavigate: noop,
+      });
+      expect(toast.success).toHaveBeenCalledWith(
+        expectedTitle,
+        expect.anything(),
+      );
+    },
+  );
 
   it("singularizes a count of 1", () => {
     toasts.runCompleted({

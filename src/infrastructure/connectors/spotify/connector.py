@@ -75,7 +75,7 @@ class SpotifyConnector(BaseAPIConnector):
     @property
     @override
     def error_classifier(self):
-        """Get Spotify-specific error classifier."""
+        """Spotify-specific error classifier."""
         return SpotifyErrorClassifier()
 
     @property

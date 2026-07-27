@@ -54,8 +54,10 @@ _ENABLE_RLS = (
     f"DROP POLICY IF EXISTS user_isolation ON {_TABLE}",
     f"ALTER TABLE {_TABLE} ENABLE ROW LEVEL SECURITY",
     f"ALTER TABLE {_TABLE} FORCE ROW LEVEL SECURITY",
-    f"CREATE POLICY user_isolation ON {_TABLE} "
-    f"FOR ALL USING (user_id = current_setting('app.user_id', TRUE))",
+    (
+        f"CREATE POLICY user_isolation ON {_TABLE} "
+        f"FOR ALL USING (user_id = current_setting('app.user_id', TRUE))"
+    ),
 )
 _DISABLE_RLS = (
     f"DROP POLICY IF EXISTS user_isolation ON {_TABLE}",

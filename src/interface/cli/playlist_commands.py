@@ -481,8 +481,8 @@ async def _delete_playlist_impl(playlist_id: str, force: bool) -> None:
         console.print(
             Panel.fit(
                 f"[bold]{playlist.name}[/bold]\n"
-                + f"[dim]{playlist.description or 'No description'}[/dim]\n"
-                + f"[cyan]Tracks: [bold]{len(playlist.tracks)}[/bold][/cyan]",
+                f"[dim]{playlist.description or 'No description'}[/dim]\n"
+                f"[cyan]Tracks: [bold]{len(playlist.tracks)}[/bold][/cyan]",
                 title="[bold red]⚠️  Delete Playlist[/bold red]",
                 border_style="red",
             )
@@ -490,7 +490,7 @@ async def _delete_playlist_impl(playlist_id: str, force: bool) -> None:
 
         if not Confirm.ask(
             "[bold red]Are you sure you want to delete this playlist?[/bold red]\n"
-            + "[dim]This action cannot be undone.[/dim]"
+            "[dim]This action cannot be undone.[/dim]"
         ):
             console.print("[yellow]Delete cancelled.[/yellow]")
             return
@@ -511,8 +511,8 @@ async def _delete_playlist_impl(playlist_id: str, force: bool) -> None:
     console.print(
         Panel.fit(
             "[bold green]✓ Playlist Deleted[/bold green]\n"
-            + f"[cyan]Name:[/cyan] {delete_result.deleted_playlist_name}\n"
-            + f"[cyan]ID:[/cyan] {delete_result.deleted_playlist_id}",
+            f"[cyan]Name:[/cyan] {delete_result.deleted_playlist_name}\n"
+            f"[cyan]ID:[/cyan] {delete_result.deleted_playlist_id}",
             title="[bold green]🗑️  Deletion Complete[/bold green]",
             border_style="green",
         )

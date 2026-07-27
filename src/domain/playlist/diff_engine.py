@@ -402,7 +402,7 @@ def calculate_lis_reorder_operations(
 
     logger.debug(
         f"LIS optimization: {len(positions_in_correct_order)} track instances already in correct order, "
-        + f"{len(target_track_refs) - len(positions_in_correct_order)} need to move"
+        f"{len(target_track_refs) - len(positions_in_correct_order)} need to move"
     )
 
     if (
@@ -431,7 +431,7 @@ def calculate_lis_reorder_operations(
 
     logger.debug(
         f"Generated {len(operations)} LIS-optimized move operations "
-        + f"(saved {len(positions_in_correct_order)} unnecessary moves)"
+        f"(saved {len(positions_in_correct_order)} unnecessary moves)"
     )
 
     return operations

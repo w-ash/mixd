@@ -787,8 +787,7 @@ class TrackConnectorRepository:
         if mapping:
             domain_track = await self.track_repo.get_by_id(mapping.track_id)
             logger.debug(
-                f"Found existing track {mapping.track_id} for "
-                + f"{connector}:{identifier}"
+                f"Found existing track {mapping.track_id} for {connector}:{identifier}"
             )
             return domain_track, None
 

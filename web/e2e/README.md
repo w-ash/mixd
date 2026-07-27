@@ -59,6 +59,18 @@ docker run --rm -e CI=true \
            && pnpm exec playwright test --update-snapshots"
 ```
 
+Run from the repo root (`$PWD` is mounted at `/work`). Check `git status` afterwards
+— only the baselines you intended to change should be modified; anything wider means
+the image and `@playwright/test` have skewed.
+
+**Afterwards, reinstall locally**: the container writes Linux binaries into the shared
+`web/node_modules`, so the next host `pnpm` run aborts with
+`ERR_PNPM_ABORTED_REMOVE_MODULES_DIR_NO_TTY`. Clear it with:
+
+```bash
+rm -rf web/node_modules && pnpm --prefix web install
+```
+
 Use `pnpm exec playwright test --update-snapshots`, NOT
 `pnpm test:e2e -- --update-snapshots` — pnpm 11.5 silently drops the
 flag after `--`, the run looks normal, and nothing regenerates.

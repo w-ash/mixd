@@ -12,9 +12,30 @@ overrides:
   fastify: '>=5.8.3'
   defu: '>=6.1.5'
   picomatch: '>=4.0.4'
+  # dompurify reaches the browser — streamdown → mermaid → dompurify renders
+  # chat markdown. mermaid declares ^3.3.3, so this floor is in-range.
+  dompurify: '>=3.4.12'
+  # fast-uri arrives via ajv ← @scalar/openapi-parser (orval) and the MCP SDK
+  # that shadcn's CLI depends on. Upper bound is deliberate: ajv declares
+  # ^3.0.1, and fast-uri 4.x is out of that range — an unbounded floor would
+  # resolve to 4.x and break the parser.
+  fast-uri: '>=3.1.4 <4'
+  # @hono/node-server arrives via @modelcontextprotocol/sdk ← shadcn, which is a
+  # build dependency despite being a CLI: src/theme.css does
+  # `@import "shadcn/tailwind.css"`. The SDK declares ^1.19.9, so this floor
+  # crosses its declared major — deliberate and safe here: v2's only breaking
+  # changes are Node >=20 (CI and the Dockerfile are on Node 24) and removal of
+  # the Vercel adapter (unused), the API is otherwise unchanged, and the
+  # vulnerable serve-static path is Windows-only and never invoked — we consume
+  # shadcn's stylesheet and `shadcn add`, never the SDK's HTTP transport.
+  '@hono/node-server': '>=2.0.5'
   # NOTE: a `better-auth: '>=1.6.11'` floor (to clear its Dependabot alerts) is
-  # NOT viable yet — @neondatabase/auth@0.4.2-beta (latest) exact-pins 1.4.18 and
-  # imports `apiKeyClient` from better-auth/client/plugins, an export removed in
-  # 1.6.x, so forcing the patched line fails the build (MISSING_EXPORT). Those
-  # advisories are server-side (oidc/oauth-provider), unreachable in our hosted-
-  # Neon client usage. Revisit when Neon ships an SDK on a fixed better-auth (W8).
+  # NOT viable yet — @neondatabase/auth@0.4.2-beta (still latest as of
+  # 2026-07-27) exact-pins 1.4.18 and imports `apiKeyClient` from
+  # better-auth/client/plugins, an export removed in 1.6.x, so forcing the
+  # patched line fails the build (MISSING_EXPORT). Those advisories are all
+  # server-side (oidc-provider, mcp/organization plugins, OAuth token
+  # endpoints, admin/SCIM) and unreachable from our client-only usage —
+  # web/src/api/auth.ts calls createAuthClient/getSession against Neon's
+  # hosted auth server. Revisit when Neon ships an SDK on a fixed
+  # better-auth (W8).

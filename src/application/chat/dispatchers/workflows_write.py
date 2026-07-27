@@ -150,8 +150,10 @@ async def handle_manage_workflow(
             "operation": operation,
             "workflow_def": workflow_def_to_dict(wf_def),
             "changes": [
-                f"Create a new workflow '{wf_def.name}' with "
-                f"{task_count} task{'s' if task_count != 1 else ''}"
+                (
+                    f"Create a new workflow '{wf_def.name}' with "
+                    f"{task_count} task{'s' if task_count != 1 else ''}"
+                )
             ],
         }
     elif operation == "duplicate":
@@ -417,8 +419,10 @@ async def handle_manage_schedule(
             "day_of_week": day_of_week,
             "timezone": timezone,
             "changes": [
-                f"Set {cadence} schedule for {target} at "
-                f"{hour:02d}:{minute:02d} {timezone}"
+                (
+                    f"Set {cadence} schedule for {target} at "
+                    f"{hour:02d}:{minute:02d} {timezone}"
+                )
             ],
         }
     elif operation == "toggle":

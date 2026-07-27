@@ -1,0 +1,44 @@
+name: Dependency Graph Check
+
+# Dependabot alerts are derived from the dependency graph, so if graph ingestion
+# breaks, every Python alert goes stale while the alerts page still looks
+# populated. That happened here: a submodule pinned to an unpushed commit made
+# Dependabot's clone fail, its `update_graph` job failed on every run from
+# 2026-05-10, and it went unnoticed for two months — by then the graph was wrong
+# about 39 versions and missing 10 packages.
+#
+# GitHub's own ingestion is the mechanism; this job is the smoke detector. It is
+# deliberately indifferent to *why* the graph and uv.lock disagree, so it still
+# fires when the next cause is a different one.
+
+on:
+  schedule:
+    - cron: "17 6 * * 1"
+  workflow_dispatch:
+
+env:
+  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
+
+permissions:
+  contents: read
+
+jobs:
+  verify:
+    name: Graph matches uv.lock
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          submodules: false
+
+      - uses: astral-sh/setup-uv@v7
+
+      - name: Install dependencies
+        run: uv sync --frozen
+
+      - name: Compare dependency graph against uv.lock
+        run: uv run python scripts/check_dependency_graph.py
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

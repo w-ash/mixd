@@ -1189,6 +1189,23 @@ class DBSyncCheckpoint(BaseEntity):
     remote_total: Mapped[int | None] = mapped_column(
         nullable=True
     )  # total items reported by remote service
+    # Adaptive-polling state (migration 043). Deliberately separate from
+    # last_timestamp: that records when the user last *listened*, this records
+    # when we last *checked* — an idle account's last_timestamp ages forever.
+    last_polled_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True), nullable=True
+    )
+    # Backoff counter + near-overflow markers. Schemaless so policy tuning needs
+    # no migration; read through PollState.from_json, which tolerates absences.
+    poll_state: Mapped[JsonDict] = mapped_column(
+        PgJsonb, nullable=False, server_default=text("'{}'::jsonb"), default=dict
+    )
+    # Single-flight lease, not a lock: a claim stamp reclaimed after a TTL, in
+    # the same shape as schedules.started_at. Repo-internal — deliberately not on
+    # the SyncCheckpoint entity, so no caller can round-trip it by accident.
+    poll_claimed_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True), nullable=True
+    )
 
 
 class DBTrackPreference(BaseEntity):
@@ -1475,6 +1492,11 @@ class DBOperationRun(BaseEntity):
     initiated_by: Mapped[str] = mapped_column(
         String(16), nullable=False, default="manual", server_default="manual"
     )
+    # Finer-grained provenance beside initiated_by: which surface asked for this
+    # run — "web", "mcp", or "workflow:<run_id>". Lets the run log distinguish a
+    # poll fired by a page view from one a scheduled workflow demanded.
+    # Migration 043.
+    trigger_detail: Mapped[str | None] = mapped_column(String(64), nullable=True)
 
 
 class DBSchedule(BaseEntity):
@@ -1534,11 +1556,18 @@ class DBSchedule(BaseEntity):
     )
     sync_target: Mapped[str | None] = mapped_column(String(64), nullable=True)
     # Cadence (minute granularity, local to `timezone`): day_of_week NULL ⇒ daily
-    # at hour:minute; set (0=Sun…6=Sat) ⇒ weekly on that day. The 'daily'/'weekly'
-    # kind is derived, never stored (range CHECKs live in migration 025).
+    # at hour:minute; set (0=Sun…6=Sat) ⇒ weekly on that day. The
+    # 'daily'/'weekly'/'interval' kind is derived, never stored (range CHECKs
+    # live in migrations 025 and 043).
     hour: Mapped[int] = mapped_column(nullable=False)
     minute: Mapped[int] = mapped_column(nullable=False)
     day_of_week: Mapped[int | None] = mapped_column(nullable=True)
+    # Third cadence arm (migration 043): fire every N minutes, ignoring
+    # hour/minute. Exclusive with day_of_week. The adaptive play poller rewrites
+    # this after every poll with its own backed-off interval, so the scheduler's
+    # sleep-until-due loop stays asleep for the stretched duration rather than
+    # waking on a fixed tick only to decide it has nothing to do.
+    interval_minutes: Mapped[int | None] = mapped_column(nullable=True)
     timezone: Mapped[str] = mapped_column(
         String(64), nullable=False, default="UTC", server_default="UTC"
     )

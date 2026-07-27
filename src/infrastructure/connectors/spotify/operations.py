@@ -334,7 +334,7 @@ class SpotifyOperations:
 
         logger.info(
             f"{'Replacing' if replace else 'Appending to'} playlist {playlist_id} "
-            + f"with {len(spotify_track_uris)} tracks"
+            f"with {len(spotify_track_uris)} tracks"
         )
 
         try:

@@ -75,7 +75,7 @@ def _validate_node_config(
                 if isinstance(expected_type, type)
                 else " | ".join(t.__name__ for t in expected_type)
             )
-            raise ValueError(  # noqa: TRY004  # consistent with other config validation errors
+            raise ValueError(  # ruff:ignore[type-check-without-type-error]  # consistent with other config validation errors
                 f"Task '{task_id}' config key '{key}' must be {type_name}, "
                 f"got {type(value).__name__}: {value!r}"
             )
@@ -140,14 +140,18 @@ def _find_result_key_problems(
         if t.result_key in task_ids and t.result_key != t.id:
             problems.append((
                 t.id,
-                f"Task '{t.id}' result_key '{t.result_key}' collides with the id of "
-                f"another task — it would overwrite that task's result",
+                (
+                    f"Task '{t.id}' result_key '{t.result_key}' collides with the id of "
+                    f"another task — it would overwrite that task's result"
+                ),
             ))
         elif t.result_key in seen:
             problems.append((
                 t.id,
-                f"Task '{t.id}' result_key '{t.result_key}' duplicates the one on "
-                f"task '{seen[t.result_key]}'",
+                (
+                    f"Task '{t.id}' result_key '{t.result_key}' duplicates the one on "
+                    f"task '{seen[t.result_key]}'"
+                ),
             ))
         seen.setdefault(t.result_key, t.id)
     return problems

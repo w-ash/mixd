@@ -112,7 +112,7 @@ class InwardTrackResolver(ABC):
 
     def _extract_reuse_metadata(
         self,
-        identifier: str,  # noqa: ARG002
+        identifier: str,  # ruff:ignore[unused-method-argument]
     ) -> ReuseMetadata | None:
         """Extract metadata for canonical reuse matching.
 

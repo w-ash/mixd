@@ -338,7 +338,7 @@ class ServerConfig(BaseModel):
     """HTTP server and middleware configuration."""
 
     host: str = Field(
-        default="0.0.0.0",  # noqa: S104
+        default="0.0.0.0",  # ruff:ignore[hardcoded-bind-all-interfaces]
         description="Server bind address. Use 0.0.0.0 for all interfaces (Docker), 127.0.0.1 for local only.",
     )
     port: int = Field(

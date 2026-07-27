@@ -1,0 +1,47 @@
+# Dependabot version updates.
+#
+# Note the split in how GitHub sources dependency data: *version updates* below
+# parse manifests directly and work regardless of the dependency graph, while
+# *alerts* and *security updates* are derived from the graph. The graph's uv.lock
+# handling is the unreliable half — see .github/workflows/dependency-graph.yml,
+# which keeps it authoritative. These two mechanisms complement each other; one
+# is not a substitute for the other.
+
+version: 2
+
+updates:
+  - package-ecosystem: "uv"
+    directory: "/"
+    schedule:
+      interval: "weekly"
+    # Mirrors pnpm 11.5's minimumReleaseAge behaviour on the JS side, so both
+    # ecosystems wait out a fresh release before we adopt it.
+    cooldown:
+      default-days: 7
+    groups:
+      python-minor-patch:
+        update-types: ["minor", "patch"]
+
+  - package-ecosystem: "npm"
+    directories:
+      - "/"
+      - "/web"
+    schedule:
+      interval: "weekly"
+    cooldown:
+      default-days: 7
+    ignore:
+      # Bumping Playwright means moving ci.yml's container tag and regenerating
+      # visual baselines inside the new image, as one unit (web/e2e/README.md).
+      # A lone lockfile PR would break the e2e gate.
+      - dependency-name: "@playwright/test"
+    groups:
+      js-minor-patch:
+        update-types: ["minor", "patch"]
+
+  - package-ecosystem: "github-actions"
+    directory: "/"
+    schedule:
+      interval: "weekly"
+    cooldown:
+      default-days: 7

@@ -22,7 +22,7 @@ class TestHTTPErrorClassifierImplementation(HTTPErrorClassifier):
 
     @property
     def service_name(self) -> str:
-        """Return test service name."""
+        """Test service name."""
         return "test_service"
 
     def classify_error(self, exception: Exception) -> tuple[str, str, str]:

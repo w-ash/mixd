@@ -195,7 +195,7 @@ class MetricsApplicationService:
         if unsupported_metrics:
             logger.warning(
                 f"Connector {connector} does not support metrics: {unsupported_metrics}. "
-                + f"Available metrics: {available_metrics}"
+                f"Available metrics: {available_metrics}"
             )
             # Filter to only supported metrics
             metric_names = [m for m in metric_names if m in available_metrics]

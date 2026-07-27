@@ -191,8 +191,10 @@ async def check_spotify_api_lastfm_delta(session: AsyncSession) -> CheckResult:
             count=0,
             query=_DELTA_QUERY,
             notes=[
-                "No spotify_api rows yet — run a recently-played import first "
-                "(`mixd history import-spotify-recent`)."
+                (
+                    "No spotify_api rows yet — run a recently-played import first "
+                    "(`mixd history import-spotify-recent`)."
+                )
             ],
         )
 

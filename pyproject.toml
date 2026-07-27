@@ -56,7 +56,7 @@ dev = [
     "pytest-asyncio>=1.4.0",
     "pytest-cov>=7.1.0",
     "pytest-xdist>=3.8.0",
-    "ruff>=0.15.20",
+    "ruff>=0.16.0",
     "pre-commit>=4.6.0",
     "basedpyright>=1.39.9",
     "vulture>=2.16",
@@ -114,131 +114,148 @@ select = [
     "PL",    # Pylint (additional logic checks)
     "PTH",   # Use pathlib for path operations
     "RET",   # flake8-return — simplify return patterns
+    # Added with the ruff 0.16 bump. The categories above already pick up new
+    # rules automatically (they select whole prefixes, and `preview = true`), so
+    # these are the 0.15/0.16 additions that fell *outside* an enabled category.
+    "ISC",   # flake8-implicit-str-concat — ISC004 (stabilized in 0.16) catches
+             # the missing-comma-in-a-list bug class
+    "PYI",   # flake8-pyi — PYI041/PYI033 apply to .py, not just stubs
+    "property-docstring-starts-with-verb",  # D421: a property documents a value,
+             # not an action ("Import success rate", not "Returns the rate")
 ]
 
+# Rule *names* rather than codes since ruff 0.16 (RUF201). `select` above is
+# unaffected — it selects whole categories, which keep their prefix form.
 ignore = [
-    "E501",      # Line too long (handled by formatter)
-    "COM812",    # COM812 conflicts with formatter
+    "line-too-long",          # Handled by the formatter
+    "missing-trailing-comma", # Conflicts with the formatter
+    "single-line-implicit-string-concatenation", # ISC001: also conflicts with the
+                              # formatter — ruff's own docs say to disable it when
+                              # the formatter is on. ISC003/ISC004 stay enabled.
     # PLR complexity suppressions re-censused at the v0.8.17 sweep closeout (2026-07-02,
     # spoke 26): none reached 0, so all seven stay off. Per-rule counts + rationale below;
     # ratchet policy: flip a rule only when its count genuinely hits 0 — no new noqa.
-    "PLR0912",   # Too many branches — 13 left (sync_likes, track/playlist repos, diff_engine)
-    "PLR0915",   # Too many statements — 9 left (sync_likes at 108, executor, play_dedup)
-    "PLR0914",   # Too many local variables — 12 left (matching/algorithms at 29, sync_likes, executor)
-    "PLR1702",   # Too many nested blocks — 2 left (apply_playlist_assignments; apple_music tree is user-protected)
-    "PLR6301",   # Method could be function (DI pattern requires methods)
-    "PLC0415",   # Import not at top (lazy imports for CLI performance)
-    "TRY003",    # Long exception messages (clear error messages are good)
-    "PLR6201",   # Use set for membership (tuples are fine for small static checks)
-    "PLC2701",   # Private name imports (_shared modules are internal API)
-    "PLR0913",   # Too many arguments — 61: dominated by Typer command / FastAPI Query() entry
-                 # points where every CLI/API option is a parameter (framework idiom, not debt);
-                 # scoped-per-file-ignore vs keep-off decision documented in fable-sweep spoke 26
-    "PLR0917",   # Too many positional arguments — 20, tracks PLR0913
-    "PLR0911",   # Too many return statements — 5 left, all guard/classification chains
-                 # (webhook verification, error classifiers) where each return is a distinct
-                 # outcome: a log event name, HTTP status, or error category. Merging returns
-                 # would collapse distinct observable outcomes — worse code to satisfy a count
-    "TRY400",    # Use logging.exception (doesn't apply to Loguru)
-    "PLW0603",   # Global statements (acceptable for library-style patterns in utilities)
-    "TC001",     # Move import into TYPE_CHECKING block (obsolete with PEP 649)
-    "TC002",     # Move import into TYPE_CHECKING block (obsolete with PEP 649)
-    "TC003",     # Move import into TYPE_CHECKING block (obsolete with PEP 649)
-    "TC006",     # Add quotes to cast() (contradicts PEP 649 - unquoted is correct for Python 3.14)
+    "too-many-branches",      # 13 left (sync_likes, track/playlist repos, diff_engine)
+    "too-many-statements",    # 9 left (sync_likes at 108, executor, play_dedup)
+    "too-many-locals",        # 12 left (matching/algorithms at 29, sync_likes, executor)
+    "too-many-nested-blocks", # 2 left (apply_playlist_assignments; apple_music tree is user-protected)
+    "no-self-use",            # Method could be function — the DI pattern requires methods
+    "import-outside-top-level", # Lazy imports for CLI startup performance
+    "raise-vanilla-args",     # Long exception messages — clear errors are worth it
+    "literal-membership",     # Tuples are fine for small static membership checks
+    "import-private-name",    # _shared modules are internal API
+    "too-many-arguments",     # 61: dominated by Typer command / FastAPI Query() entry
+                              # points where every CLI/API option is a parameter (framework
+                              # idiom, not debt); scoped-per-file-ignore vs keep-off decision
+                              # documented in fable-sweep spoke 26
+    "too-many-positional-arguments", # 20, tracks too-many-arguments
+    "too-many-return-statements", # 5 left, all guard/classification chains (webhook
+                              # verification, error classifiers) where each return is a
+                              # distinct outcome: a log event name, HTTP status, or error
+                              # category. Merging returns would collapse distinct observable
+                              # outcomes — worse code to satisfy a count
+    "error-instead-of-exception", # Use logging.exception — doesn't apply to Loguru
+    "global-statement",       # Acceptable for library-style patterns in utilities
+    # PEP 649 makes deferred annotations the default, so hoisting imports into a
+    # TYPE_CHECKING block buys nothing, and quoting cast() is actively wrong on 3.14.
+    "typing-only-first-party-import",
+    "typing-only-third-party-import",
+    "typing-only-standard-library-import",
+    "runtime-cast-value",
 ]
 fixable = ["ALL"]
 unfixable = []
 
 # Per-file rule exceptions
 [tool.ruff.lint.per-file-ignores]
-"__init__.py" = ["F401", "RUF067"]   # Allow unused imports and non-reexport code (version reading)
+"__init__.py" = ["unused-import", "non-empty-init-module"]   # Allow unused imports and non-reexport code (version reading)
 "src/interface/api/**/*.py" = [
-    "RUF029",   # FastAPI requires async handlers even without await (framework awaits them)
+    "unused-async",   # FastAPI requires async handlers even without await (framework awaits them)
 ]
 "src/infrastructure/connectors/_shared/connector_status.py" = [
-    "RUF029",   # status_fn Protocol requires async callables even for stateless probes
+    "unused-async",   # status_fn Protocol requires async callables even for stateless probes
 ]
 "src/application/chat/tool_executor.py" = [
-    "RUF029",   # ToolDispatch protocol requires async dispatchers even without await
-    "ARG001",   # dispatchers share one (tool_input, ctx) signature; not all use both
+    "unused-async",   # ToolDispatch protocol requires async dispatchers even without await
+    "unused-function-argument",   # dispatchers share one (tool_input, ctx) signature; not all use both
 ]
 "src/application/chat/dispatchers/*_write.py" = [
-    "RUF029",   # write dispatchers propose (no I/O) but ToolDispatch requires async
+    "unused-async",   # write dispatchers propose (no I/O) but ToolDispatch requires async
 ]
 "src/application/chat/dispatchers/long_ops.py" = [
-    "RUF029",   # long-op tools propose (no I/O) but ToolDispatch requires async
+    "unused-async",   # long-op tools propose (no I/O) but ToolDispatch requires async
 ]
 "src/interface/mcp/server.py" = [
-    "RUF029",   # MCP SDK's request-handler protocol requires async handlers even
+    "unused-async",   # MCP SDK's request-handler protocol requires async handlers even
                 # when a handler (tools/list) does no I/O
 ]
 "src/application/chat/use_case.py" = [
-    "ASYNC119", # streaming proxy MUST yield inside the LLM stream context; the SSE
+    "yield-in-context-manager-in-async-generator", # streaming proxy MUST yield inside the LLM stream context; the SSE
                 # bridge's try/finally cancels the task on disconnect, which closes
                 # the context via GeneratorExit — cleanup is guaranteed cross-function
 ]
 "tests/**/*.py" = [
-    "S101",     # Allow assert in tests
-    "S404",     # Allow subprocess import in tests (isolation guards run fixed commands)
-    "S603",     # Allow subprocess calls in tests (input is sys.executable + literal code)
-    "ARG001",   # Allow unused function arguments (fixtures, mocks)
-    "ARG002",   # Allow unused method arguments (fixtures, mocks)
-    "RUF029",   # Allow async functions without await (test setup functions)
-    "RUF059",   # Allow unused unpacked variables (destructured test results)
-    "RUF069",   # Allow float equality in assertions (exact test values)
-    "ASYNC230", # Allow sync file operations in async test functions (test data)
-    "ASYNC240", # Allow pathlib in async test fixtures (cleanup code)
-    "ERA001",   # Allow commented-out code in tests (documentation, debugging)
-    "N802",     # Allow uppercase in function names (e.g., pgcode test names)
-    "N806",     # Allow uppercase variables for Mock classes
-    "S105",     # Allow hardcoded password strings (test tokens)
-    "S106",     # Allow hardcoded password arguments (test tokens)
-    "PT011",    # Allow broad pytest.raises without match (simpler test patterns)
-    "B017",     # Allow pytest.raises(Exception) for general exception testing
-    "E721",     # Allow type() == comparisons for exact type checking in tests
-    "PLR2004",  # Allow magic numbers in tests (durations, counts, test data)
-    "F841",     # Allow assigned-but-unused variables (side-effect assertions)
-    "SIM117",   # Allow nested with statements (patch + pytest.raises readability)
-    "ARG005",   # Allow unused lambda arguments (mock callbacks)
-    "S311",     # Allow non-cryptographic random (test data generation)
-    "TRY002",   # Allow raising vanilla Exception (test error simulation)
-    "PLC1901",  # Allow comparison to empty string (explicit test assertions)
-    "S314",     # Allow XML parsing in tests (test data, not untrusted)
-    "S405",     # Allow xml.etree imports in tests (test data parsing)
-    "N818",     # Allow exception names without Error suffix (test helpers)
-    "SIM102",   # Allow nested ifs in tests (readability with complex conditions)
-    "SIM113",   # Allow manual counters in tests (as_completed doesn't support enumerate)
-    "RUF001",   # Allow unicode characters in test strings (intentional test data)
-    "RUF003",   # Allow unicode characters in test comments (readability)
+    "assert",     # Allow assert in tests
+    "suspicious-subprocess-import",     # Allow subprocess import in tests (isolation guards run fixed commands)
+    "subprocess-without-shell-equals-true",     # Allow subprocess calls in tests (input is sys.executable + literal code)
+    "unused-function-argument",   # Allow unused function arguments (fixtures, mocks)
+    "unused-method-argument",   # Allow unused method arguments (fixtures, mocks)
+    "unused-async",   # Allow async functions without await (test setup functions)
+    "unused-unpacked-variable",   # Allow unused unpacked variables (destructured test results)
+    "float-equality-comparison",   # Allow float equality in assertions (exact test values)
+    "blocking-open-call-in-async-function", # Allow sync file operations in async test functions (test data)
+    "blocking-path-method-in-async-function", # Allow pathlib in async test fixtures (cleanup code)
+    "commented-out-code",   # Allow commented-out code in tests (documentation, debugging)
+    "invalid-function-name",     # Allow uppercase in function names (e.g., pgcode test names)
+    "non-lowercase-variable-in-function",     # Allow uppercase variables for Mock classes
+    "hardcoded-password-string",     # Allow hardcoded password strings (test tokens)
+    "hardcoded-password-func-arg",     # Allow hardcoded password arguments (test tokens)
+    "pytest-raises-too-broad",    # Allow broad pytest.raises without match (simpler test patterns)
+    "assert-raises-exception",     # Allow pytest.raises(Exception) for general exception testing
+    "type-comparison",     # Allow type() == comparisons for exact type checking in tests
+    "magic-value-comparison",  # Allow magic numbers in tests (durations, counts, test data)
+    "unused-variable",     # Allow assigned-but-unused variables (side-effect assertions)
+    "multiple-with-statements",   # Allow nested with statements (patch + pytest.raises readability)
+    "unused-lambda-argument",   # Allow unused lambda arguments (mock callbacks)
+    "suspicious-non-cryptographic-random-usage",     # Allow non-cryptographic random (test data generation)
+    "raise-vanilla-class",   # Allow raising vanilla Exception (test error simulation)
+    "compare-to-empty-string",  # Allow comparison to empty string (explicit test assertions)
+    "suspicious-xml-element-tree-usage",     # Allow XML parsing in tests (test data, not untrusted)
+    "suspicious-xml-etree-import",     # Allow xml.etree imports in tests (test data parsing)
+    "error-suffix-on-exception-name",     # Allow exception names without Error suffix (test helpers)
+    "collapsible-if",   # Allow nested ifs in tests (readability with complex conditions)
+    "enumerate-for-loop",   # Allow manual counters in tests (as_completed doesn't support enumerate)
+    "ambiguous-unicode-character-string",   # Allow unicode characters in test strings (intentional test data)
+    "ambiguous-unicode-character-comment",   # Allow unicode characters in test comments (readability)
 ]
 "src/domain/repositories/connector.py" = [
-    "PLR0904",  # ConnectorRepositoryProtocol has many methods by design
+    "too-many-public-methods",  # ConnectorRepositoryProtocol has many methods by design
 ]
 "src/domain/repositories/uow.py" = [
-    "PLR0904",  # UnitOfWorkProtocol exposes all repository accessors — many by design
+    "too-many-public-methods",  # UnitOfWorkProtocol exposes all repository accessors — many by design
 ]
 "src/infrastructure/persistence/unit_of_work.py" = [
-    "PLR0904",  # UoW exposes all repository accessors — many methods by design
+    "too-many-public-methods",  # UoW exposes all repository accessors — many methods by design
 ]
 "src/infrastructure/persistence/repositories/track/connector.py" = [
-    "PLR0904",  # Connector track repo implements a large Protocol interface
+    "too-many-public-methods",  # Connector track repo implements a large Protocol interface
 ]
 "src/infrastructure/connectors/spotify/client.py" = [
-    "PLR0904",  # One method per Spotify Web API endpoint — breadth tracks the API surface, not design complexity
+    "too-many-public-methods",  # One method per Spotify Web API endpoint — breadth tracks the API surface, not design complexity
 ]
-"src/application/use_cases/*.py" = ["ARG002"] # Allow parameter forwarding patterns in orchestrators
-"src/application/workflows/observers.py" = ["ARG002"] # Protocol implementations must match signatures
-"src/interface/api/oauth/provider.py" = ["ARG002"] # SDK OAuthAuthorizationServerProvider protocol signatures
+"src/application/use_cases/*.py" = ["unused-method-argument"] # Allow parameter forwarding patterns in orchestrators
+"src/application/workflows/observers.py" = ["unused-method-argument"] # Protocol implementations must match signatures
+"src/interface/api/oauth/provider.py" = ["unused-method-argument"] # SDK OAuthAuthorizationServerProvider protocol signatures
 "alembic/versions/*.py" = [
-    "S608",     # SQL injection: table names from hardcoded constants, not user input
+    "hardcoded-sql-expression",     # SQL injection: table names from hardcoded constants, not user input
 ]
 "scripts/**/*.py" = [
-    "ASYNC230", # Allow sync file operations in async scripts
-    "ASYNC250", # Allow blocking input() in async scripts (interactive CLI prompts)
-    "ARG001",   # Allow unused arguments in scripts
-    "RUF029",   # Allow async functions without await in scripts
-    "PLR2004",  # Allow magic numbers in utility scripts
-    "TRY300",   # Allow return in try blocks (simplicity over pedantry in scripts)
+    "blocking-open-call-in-async-function", # Allow sync file operations in async scripts
+    "blocking-input-in-async-function", # Allow blocking input() in async scripts (interactive CLI prompts)
+    "unused-function-argument",   # Allow unused arguments in scripts
+    "unused-async",   # Allow async functions without await in scripts
+    "magic-value-comparison",  # Allow magic numbers in utility scripts
+    "try-consider-else",   # Allow return in try blocks (simplicity over pedantry in scripts)
 ]
 
 # Import sorting configuration

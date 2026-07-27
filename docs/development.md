@@ -151,6 +151,31 @@ docker compose down -v && docker compose up -d && uv run alembic upgrade head
 uv run alembic current
 ```
 
+## Dependency Security
+
+Dependabot alerts are derived from GitHub's dependency graph, so when graph ingestion breaks, the alerts page still looks populated — it is just wrong. That is the dangerous failure mode, and this repo lived it: **every Dependabot job failed for over two months and nothing said so.**
+
+**The 2026 incident, because the shape of it recurs.** `.gitmodules` pinned `docs/dev-setup-guide` at a commit that existed only on one laptop — committed, never pushed. Dependabot always clones with `--recurse-submodules`, so its clone died at `job_repo_not_found`, and the `update_graph` job failed on every run from 2026-05-10. CI never noticed because `actions/checkout` here uses `submodules: false`. By the time anyone looked, the graph was wrong about 39 package versions, missing 10 outright, and carrying 56 stale extras — while 17 "open" Python alerts described vulnerabilities that had been patched for months.
+
+The lesson is diagnostic, not architectural: **when the graph looks stale, check whether the jobs that populate it are running before theorising about the parser.**
+
+```bash
+gh run list --workflow "Dependency Graph"   # Dependabot's own ingestion jobs
+git clone --recurse-submodules <repo>       # reproduces what Dependabot does
+```
+
+**The guardrail.** `scripts/check_dependency_graph.py` compares what GitHub reports against what `uv.lock` says and exits 1 on drift. `.github/workflows/dependency-graph.yml` runs it weekly. It is deliberately indifferent to *why* the two disagree — broken clone, parser regression, a workflow that quietly stopped — so it keeps working when the next cause is a different one.
+
+```bash
+GITHUB_TOKEN="$(gh auth token)" uv run python scripts/check_dependency_graph.py
+```
+
+If it reports drift, check Dependabot's jobs first. GitHub also offers a one-shot rescan — **Dependabot alerts tab → settings icon → Refresh Dependabot alerts** — which is UI-only and rate-limited to once an hour.
+
+`.github/dependabot.yml` covers version-update PRs. Those parse manifests directly rather than reading the graph, but they run in the same updater, so a clone failure kills them too.
+
+**Transitive vulnerabilities** are pinned as security floors in `web/pnpm-workspace.yaml` `overrides`, each with a comment saying what pulls the package and why the floor is safe against the parent's declared range. Alerts that cannot be fixed are documented there too rather than dismissed — `better-auth` is the standing example (see W8 in [dependency-audit-findings](backlog/dependency-audit-findings.md)).
+
 ## Subagents and Skills
 
 Two subagents run in isolated context — `log-diagnostician` (reads structured JSON logs without flooding the main conversation) and `workflow-manager` (drives the `mixd workflow` CLI). Specialist skills in `.claude/skills/` load their guidance only when invoked.

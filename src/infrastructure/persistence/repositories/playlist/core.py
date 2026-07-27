@@ -316,8 +316,8 @@ class PlaylistRepository(BaseRepository[DBPlaylist, Playlist]):
 
         logger.debug(
             f"Playlist update: {len(existing_records)} existing records, "
-            + f"{len(available_records)} unique memberships, "
-            + f"{len(entries)} target entries"
+            f"{len(available_records)} unique memberships, "
+            f"{len(entries)} target entries"
         )
 
         consumed_ids: set[UUID] = set()

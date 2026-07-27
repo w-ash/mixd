@@ -134,8 +134,10 @@ async def handle_manage_playlist_link(
             "identifier": identifier,
             "direction": direction,
             "changes": [
-                f"Create a {direction} sync link from playlist {playlist_id} to "
-                f"{connector} playlist {identifier}"
+                (
+                    f"Create a {direction} sync link from playlist {playlist_id} to "
+                    f"{connector} playlist {identifier}"
+                )
             ],
         }
     elif operation == "update":

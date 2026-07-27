@@ -41,7 +41,7 @@ def _build_user_agent() -> str:
 # -------------------------------------------------------------------------
 
 
-async def _log_request(request: httpx.Request) -> None:  # noqa: RUF029 — httpx AsyncClient requires async hooks
+async def _log_request(request: httpx.Request) -> None:  # ruff:ignore[unused-async] — httpx AsyncClient requires async hooks
     """Log outgoing HTTP requests at DEBUG level."""
     _http_logger.debug(
         "HTTP request",

@@ -188,8 +188,8 @@ class TrackMatchEvaluationService:
                 review_candidates[track.id] = match_result
                 logger.info(
                     f"Match queued for review: '{track.title}' "
-                    + f"(confidence {match_result.confidence}, "
-                    + f"review zone {self.config.review_threshold}-{self.config.auto_accept_threshold})",
+                    f"(confidence {match_result.confidence}, "
+                    f"review zone {self.config.review_threshold}-{self.config.auto_accept_threshold})",
                     track_id=track.id,
                     confidence=match_result.confidence,
                     match_method=match_result.match_method,
@@ -198,7 +198,7 @@ class TrackMatchEvaluationService:
             else:
                 logger.warning(
                     f"Match rejected: '{track.title}' by '{track.artists_display or 'Unknown'}' "
-                    + f"(confidence {match_result.confidence} < {self.config.review_threshold})",
+                    f"(confidence {match_result.confidence} < {self.config.review_threshold})",
                     track_id=track.id,
                     confidence=match_result.confidence,
                     threshold=self.config.review_threshold,
@@ -215,7 +215,7 @@ class TrackMatchEvaluationService:
         if len(accepted) > 0 or len(review_candidates) > 0:
             logger.info(
                 f"Match evaluation: {len(accepted)} accepted, {len(review_candidates)} for review, "
-                + f"{rejected} rejected, {no_matches_found} not found ({connector})",
+                f"{rejected} rejected, {no_matches_found} not found ({connector})",
                 connector=connector,
                 accepted=len(accepted),
                 review=len(review_candidates),

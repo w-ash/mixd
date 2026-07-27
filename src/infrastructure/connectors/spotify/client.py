@@ -68,7 +68,7 @@ class SpotifyAPIClient(BaseAPIClient):
 
     @property
     def market(self) -> str:
-        """Get configured Spotify market for API requests."""
+        """Configured Spotify market for API requests."""
         return settings.api.spotify_market
 
     def __attrs_post_init__(self) -> None:

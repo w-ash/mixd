@@ -189,13 +189,13 @@ async def import_spotify_history(
         oversized = await _stream_upload_to_fd(file, fd)
     except BaseException:
         os.close(fd)
-        os.unlink(temp_name)  # noqa: PTH108 — os.unlink is async-safe, pathlib is not (ASYNC240)
+        os.unlink(temp_name)  # ruff:ignore[os-unlink] — os.unlink is async-safe, pathlib is not (ASYNC240)
         raise
     else:
         os.close(fd)
 
     if oversized:
-        os.unlink(temp_name)  # noqa: PTH108 — os.unlink is async-safe, pathlib is not (ASYNC240)
+        os.unlink(temp_name)  # ruff:ignore[os-unlink] — os.unlink is async-safe, pathlib is not (ASYNC240)
         raise HTTPException(
             status_code=413,
             detail=f"File too large (>{BusinessLimits.MAX_UPLOAD_BYTES} bytes). Maximum is {BusinessLimits.MAX_UPLOAD_BYTES} bytes.",
@@ -215,7 +215,7 @@ async def import_spotify_history(
                 progress_emitter=emitter,
             )
         finally:
-            os.unlink(temp_name)  # noqa: PTH108 — os.unlink is async-safe, pathlib is not (ASYNC240)
+            os.unlink(temp_name)  # ruff:ignore[os-unlink] — os.unlink is async-safe, pathlib is not (ASYNC240)
 
     return await launch_sse_operation(
         user_id=user_id,

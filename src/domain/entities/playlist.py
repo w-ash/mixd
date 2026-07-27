@@ -308,5 +308,5 @@ class ConnectorPlaylist:
 
     @property
     def track_ids(self) -> list[str]:
-        """Get all track IDs in this playlist."""
+        """All track IDs in this playlist."""
         return [item.connector_track_identifier for item in self.items]

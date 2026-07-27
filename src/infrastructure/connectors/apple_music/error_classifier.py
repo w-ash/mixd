@@ -19,7 +19,7 @@ class AppleMusicErrorClassifier(HTTPErrorClassifier):
     @property
     @override
     def service_name(self) -> str:
-        """Return service name for logging."""
+        """Service name for logging."""
         return "apple_music"
 
     @override

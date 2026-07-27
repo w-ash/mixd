@@ -254,7 +254,7 @@ async def _complete_lastfm_auth(token: str, user_id: str) -> RedirectResponse:
         user_id,
         StoredToken(
             session_key=session_key,
-            token_type="session",  # noqa: S106 — metadata label, not a secret
+            token_type="session",  # ruff:ignore[hardcoded-password-func-arg] — metadata label, not a secret
             account_name=username,
         ),
     )

@@ -143,8 +143,10 @@ async def handle_manage_playlist_assignments(
             "action_type": action_type,
             "action_value": action_value,
             "changes": [
-                f"Set {action_type}={action_value} for connector playlist "
-                f"{connector_playlist_id}{change_tail}"
+                (
+                    f"Set {action_type}={action_value} for connector playlist "
+                    f"{connector_playlist_id}{change_tail}"
+                )
             ],
         }
     else:  # delete

@@ -433,8 +433,10 @@ async def _propose_reorder(
         "playlist_id": str(playlist_id),
         "entry_ids": [str(e) for e in entry_ids],
         "changes": [
-            f"Playlist {playlist_id} entries are reordered "
-            f"({len(entry_ids)} entries, full list)"
+            (
+                f"Playlist {playlist_id} entries are reordered "
+                f"({len(entry_ids)} entries, full list)"
+            )
         ],
     }
     return await propose_action(
@@ -454,8 +456,10 @@ async def _propose_repair(
         "operation": "repair",
         "playlist_id": str(playlist_id),
         "changes": [
-            f"Unresolved entries of playlist {playlist_id} are re-resolved "
-            "against known track mappings"
+            (
+                f"Unresolved entries of playlist {playlist_id} are re-resolved "
+                "against known track mappings"
+            )
         ],
     }
     return await propose_action(

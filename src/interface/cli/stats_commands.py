@@ -239,11 +239,15 @@ def _render_drift_panel(drift: MatchingDrift) -> None:
         else "n/a"
     )
     lines.extend([
-        f"[cyan]Review queue:[/cyan] depth={drift.review_pending_depth}, "
-        f"oldest={oldest}",
+        (
+            f"[cyan]Review queue:[/cyan] depth={drift.review_pending_depth}, "
+            f"oldest={oldest}"
+        ),
         f"[cyan]isrc_suspect pending:[/cyan] {drift.isrc_suspect_pending_count}",
-        "[cyan]Confidence/evidence divergence:[/cyan] "
-        f"{drift.confidence_evidence_divergence_count}",
+        (
+            "[cyan]Confidence/evidence divergence:[/cyan] "
+            f"{drift.confidence_evidence_divergence_count}"
+        ),
         f"[cyan]Stale denormalized IDs:[/cyan] {drift.stale_denormalized_ids_count}",
     ])
 

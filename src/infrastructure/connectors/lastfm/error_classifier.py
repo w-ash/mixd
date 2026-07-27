@@ -20,7 +20,7 @@ class LastFMErrorClassifier(HTTPErrorClassifier):
     @property
     @override
     def service_name(self) -> str:
-        """Return service name for logging."""
+        """Service name for logging."""
         return "lastfm"
 
     # Official Last.fm error codes - Permanent errors (don't retry)
