@@ -51,7 +51,7 @@ jobs:
         env:
           DB_URL: ${{ steps.neon-branch.outputs.db_url }}
 
-      - uses: astral-sh/setup-uv@v7
+      - uses: astral-sh/setup-uv@v8.3.2
 
       - name: Install dependencies
         run: uv sync --frozen
