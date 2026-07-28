@@ -4,6 +4,7 @@ Split from the former monolithic ``interfaces.py``.
 """
 
 from typing import Protocol, Self
+from uuid import UUID
 
 from src.domain.repositories.chat_feedback import ChatFeedbackRepositoryProtocol
 from src.domain.repositories.checkpoint import CheckpointRepositoryProtocol
@@ -27,6 +28,11 @@ from src.domain.repositories.playlist import (
     PlaylistSyncBaseRepositoryProtocol,
 )
 from src.domain.repositories.preference import PreferenceRepositoryProtocol
+from src.domain.repositories.resolution import (
+    ResolutionEventRepositoryProtocol,
+    ResolutionNegativeRepositoryProtocol,
+    ResolutionRecorderProtocol,
+)
 from src.domain.repositories.schedule import ScheduleRepositoryProtocol
 from src.domain.repositories.stats import StatsRepositoryProtocol
 from src.domain.repositories.tag import TagRepositoryProtocol
@@ -176,4 +182,26 @@ class UnitOfWorkProtocol(Protocol):
 
     def get_chat_feedback_repository(self) -> ChatFeedbackRepositoryProtocol:
         """Get chat feedback repository for thumbs-up/down on generated workflows."""
+        ...
+
+    def get_resolution_event_repository(self) -> ResolutionEventRepositoryProtocol:
+        """Get the append-only identity-resolution event log."""
+        ...
+
+    def get_resolution_negative_repository(
+        self,
+    ) -> ResolutionNegativeRepositoryProtocol:
+        """Get the negative cache (no-match backoff + sticky rejected pairs)."""
+        ...
+
+    def get_resolution_recorder(
+        self, *, run_id: UUID | None = None
+    ) -> ResolutionRecorderProtocol:
+        """Get the identity write seam, bound to this transaction.
+
+        ``run_id`` stamps every event this recorder writes with the operation
+        run that caused it, so "which import decided this?" is answerable
+        without correlating timestamps. Sites without a run in scope pass
+        nothing and the column stays NULL.
+        """
         ...

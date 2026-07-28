@@ -12,6 +12,7 @@ from uuid import UUID
 
 import attrs
 from sqlalchemy import func, select
+from sqlalchemy.dialects.postgresql import insert as pg_insert
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
@@ -155,14 +156,31 @@ class MatchReviewRepository(BaseRepository[DBMatchReview, MatchReview]):
 
     @db_operation("create_reviews_batch")
     async def create_reviews_batch(self, reviews: list[MatchReview]) -> int:
-        """Create multiple review entries, skipping duplicates.
+        """Create or refresh review entries, never resurrecting a resolved one.
+
+        Hand-rolled rather than ``bulk_upsert`` for one reason the generic
+        helper cannot express: the ON CONFLICT update has to be *conditional*.
+        A blanket ``SET status = EXCLUDED.status`` flips an already-REJECTED row
+        back to PENDING on the next import, so the person who dismissed a bad
+        match is asked the same question forever — and the reviewed_at stamp
+        that proved they answered is overwritten too.
+
+        ``WHERE status = 'pending'`` therefore guards the update: a pending row
+        gets fresher evidence, and an accepted or rejected one is left exactly
+        as the human left it.
 
         Returns:
-            Number of reviews created.
+            Number of rows actually inserted or refreshed.
         """
         if not reviews:
             return 0
 
+        lookup_keys = [
+            "user_id",
+            "track_id",
+            "connector_name",
+            "connector_track_id",
+        ]
         entities: list[dict[str, object]] = [
             {
                 "user_id": r.user_id,
@@ -177,12 +195,27 @@ class MatchReviewRepository(BaseRepository[DBMatchReview, MatchReview]):
             }
             for r in reviews
         ]
-
-        return await self.bulk_upsert(
-            entities=entities,
-            lookup_keys=["user_id", "track_id", "connector_name", "connector_track_id"],
-            return_models=False,
+        entities = self._deduplicate_batch(
+            entities, lookup_keys, label="create_reviews_batch"
         )
+        self._add_timestamps(entities)
+
+        stmt = pg_insert(DBMatchReview).values(entities)
+        upsert = stmt.on_conflict_do_update(
+            index_elements=lookup_keys,
+            set_={
+                "match_method": stmt.excluded.match_method,
+                "confidence": stmt.excluded.confidence,
+                "match_weight": stmt.excluded.match_weight,
+                "confidence_evidence": stmt.excluded.confidence_evidence,
+                "status": stmt.excluded.status,
+                "updated_at": stmt.excluded.updated_at,
+            },
+            where=DBMatchReview.status == ReviewStatus.PENDING,
+        ).returning(DBMatchReview.id)
+
+        result = await self.session.execute(upsert)
+        return len(result.scalars().all())
 
     @db_operation("update_review_status")
     async def update_review_status(self, review_id: UUID, status: str) -> MatchReview:

@@ -5,7 +5,7 @@ These types represent the core concepts in our matching domain with zero externa
 
 from collections.abc import Awaitable, Callable, Mapping
 from enum import Enum
-from typing import Final, TypedDict
+from typing import Final, Literal, TypedDict
 from uuid import UUID
 
 from attrs import define, field
@@ -21,6 +21,13 @@ type ProgressCallback = Callable[[int, int, str], Awaitable[None]]
 # provider no longer emits it (unverified Last.fm MBIDs are hints, not
 # identity; see docs/backlog/identity-resolution-design-space.md FM1d).
 ISRC_GRADE_METHODS: Final[tuple[str, ...]] = ("isrc", "mbid")
+
+type MatchZone = Literal[
+    "accept",
+    "review",
+    "reject",
+]
+"""The three-zone classification a match decision falls into."""
 
 
 class MatchFailureReason(Enum):
@@ -136,6 +143,22 @@ class MatchResult:
         """Serialize evidence for DB storage, returning None when absent."""
         return self.evidence.as_dict() if self.evidence else None
 
+    @property
+    def zone(self) -> MatchZone:
+        """Which of the three decision zones this match landed in.
+
+        Derived from the two booleans the evaluation already set rather than
+        re-thresholding against a config — the zone must be whatever the
+        decision actually was, not what a second reading of the numbers would
+        conclude. Recorded on every resolution event because it is the stratum
+        label future calibration needs and cannot recover afterwards.
+        """
+        if self.success:
+            return "accept"
+        if self.review_required:
+            return "review"
+        return "reject"
+
 
 # Type alias for match results by ID (defined after MatchResult class)
 MatchResultsById = dict[UUID, MatchResult]
@@ -143,10 +166,24 @@ MatchResultsById = dict[UUID, MatchResult]
 
 @define(frozen=True, slots=True)
 class EvaluationResult:
-    """Result of evaluating raw matches — separates accepted and review-required matches."""
+    """Every outcome of one evaluation pass, including the negative ones.
+
+    ``rejected`` and ``no_match_track_ids`` exist because the two outcomes the
+    pipeline used to *discard* are the two the negative cache is made of. A
+    below-threshold candidate that leaves no trace gets re-fetched, re-scored
+    and re-rejected on every subsequent import — the user sees the same wrong
+    match proposed forever and the provider is asked a question mixd already
+    answered (FM5c). ``rejected`` is a list rather than a by-track map because
+    one track can accumulate several distinct rejected candidates over time,
+    and each is its own cannot-link fact.
+    """
 
     accepted: MatchResultsById = field(factory=dict)
     review_candidates: MatchResultsById = field(factory=dict)
+    rejected: list[MatchResult] = field(factory=list)
+    # Tracks the provider returned nothing at all for — distinct from a
+    # rejection, which names a candidate that was considered and refused.
+    no_match_track_ids: list[UUID] = field(factory=list)
 
 
 @define(frozen=True, slots=True)

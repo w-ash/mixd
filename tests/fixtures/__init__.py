@@ -31,6 +31,7 @@ from tests.fixtures.factories import (
     nonexistent_id,
 )
 from tests.fixtures.mocks import (
+    attach_resolution_recorder,
     fake_run_async,
     make_mock_checkpoint_repo,
     make_mock_connector_playlist_repo,
@@ -43,6 +44,7 @@ from tests.fixtures.mocks import (
     make_mock_playlist_repo,
     make_mock_plays_repo,
     make_mock_preference_repo,
+    make_mock_resolution_recorder,
     make_mock_sync_base_repo,
     make_mock_tag_repo,
     make_mock_track_repo,
@@ -56,6 +58,7 @@ from tests.fixtures.pending_actions import InMemoryPendingActionStore
 
 __all__ = [
     "InMemoryPendingActionStore",
+    "attach_resolution_recorder",
     "fake_run_async",
     "make_connector_playlist",
     "make_connector_playlist_item",
@@ -71,6 +74,7 @@ __all__ = [
     "make_mock_playlist_repo",
     "make_mock_plays_repo",
     "make_mock_preference_repo",
+    "make_mock_resolution_recorder",
     "make_mock_sync_base_repo",
     "make_mock_tag_repo",
     "make_mock_track_repo",

@@ -106,9 +106,17 @@ def postgres_url():
 @async_fixture(scope="session", loop_scope="session")
 async def _init_test_schema(postgres_url: str):
     """Create database schema once per session, shared by all tests."""
+    from src.infrastructure.persistence.database.live_rows import (
+        register_live_rows_filter,
+    )
+
     os.environ["DATABASE_URL"] = postgres_url
     reset_engine_cache()
     await init_db()
+    # Production registers the live-rows filter in ``create_session_factory``;
+    # the harness builds sessions directly off an engine, so register it here
+    # or every integration test would read superseded mappings production hides.
+    register_live_rows_filter()
     yield
     reset_engine_cache()
 

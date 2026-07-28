@@ -1,5 +1,6 @@
 """Core track repository implementation for basic track operations."""
 
+from collections import Counter
 from collections.abc import Mapping, Sequence
 from datetime import UTC, datetime
 from typing import Any, ClassVar, Literal, NamedTuple, cast
@@ -28,13 +29,18 @@ from src.config.constants import DenormalizedTrackColumns, MappingOrigin
 from src.domain.entities import Track
 from src.domain.entities.preference import PREFERENCE_ORDER
 from src.domain.entities.sourced_metadata import SOURCE_PRIORITY
+from src.domain.entities.track_mapping import SupersessionReason
 from src.domain.exceptions import OptimisticLockError
 from src.domain.matching import normalize_for_comparison, strip_parentheticals
 from src.domain.matching.isrc_validation import (
     assess_isrc_match_reliability,
     compute_duration_diff_ms,
 )
-from src.domain.repositories.track import TrackFacets, TrackListingPage
+from src.domain.repositories.track import (
+    ConflationEdge,
+    TrackFacets,
+    TrackListingPage,
+)
 from src.infrastructure.persistence.database.db_models import (
     DBTrack,
     DBTrackLike,
@@ -42,11 +48,19 @@ from src.infrastructure.persistence.database.db_models import (
     DBTrackPreference,
     DBTrackTag,
 )
+from src.infrastructure.persistence.database.live_rows import (
+    expire_mapping_identity,
+    live_only,
+)
 from src.infrastructure.persistence.repositories.base_repo import BaseRepository
 from src.infrastructure.persistence.repositories.repo_decorator import db_operation
 from src.infrastructure.persistence.repositories.track.mapper import TrackMapper
 
 logger = get_logger(__name__)
+
+# The supersession reason a merge writes: the retired mapping pointed at a
+# duplicate canonical, not at a wrong connector track.
+_CONFLATION: SupersessionReason = "conflation"
 
 
 def _empty_facets() -> TrackFacets:
@@ -229,12 +243,19 @@ class _MoveReferenceCounts(NamedTuple):
     preference_events_moved: int
 
 
-class _MergeMappingCounts(NamedTuple):
-    """Final SELECT of the ``merge_mappings_to_track`` CTE chain."""
+class _MergeMappingRow(NamedTuple):
+    """One row of the ``merge_mappings_to_track`` CTE chain's tagged output.
 
-    same_ext_conflicts: int
-    diff_ext_conflicts: int
-    non_conflicts_moved: int
+    The chain returns rows rather than a count tuple because one of its arms
+    produces edges the caller must record as events, and a CTE chain gets
+    exactly one final SELECT to say everything in.
+    """
+
+    kind: str
+    mapping_id: UUID
+    successor_id: UUID | None
+    user_id: str | None
+    connector_name: str | None
 
 
 class _MergeMetricCounts(NamedTuple):
@@ -661,6 +682,7 @@ class TrackRepository(BaseRepository[DBTrack, Track]):
                 .where(
                     DBTrackMapping.connector_name == connector,
                     DBTrackMapping.user_id == user_id,
+                    live_only(DBTrackMapping),
                 )
                 .distinct()
             )
@@ -824,7 +846,11 @@ class TrackRepository(BaseRepository[DBTrack, Track]):
             )
             .select_from(DBTrack)
             .join(DBTrackMapping, DBTrackMapping.track_id == DBTrack.id)
-            .where(*conditions, DBTrackMapping.user_id == user_id)
+            .where(
+                *conditions,
+                DBTrackMapping.user_id == user_id,
+                live_only(DBTrackMapping),
+            )
             .group_by(DBTrackMapping.connector_name)
         )
         connector_rows = cast(
@@ -868,13 +894,36 @@ class TrackRepository(BaseRepository[DBTrack, Track]):
         )
 
     @db_operation("merge_mappings_to_track")
-    async def merge_mappings_to_track(self, from_id: UUID, to_id: UUID) -> None:
-        """Merge connector mappings from one track to another with conflict resolution.
+    async def merge_mappings_to_track(
+        self, from_id: UUID, to_id: UUID
+    ) -> list[ConflationEdge]:
+        """Merge connector mappings from one track to another, append-only.
 
-        Single CTE chain handling two conflict branches:
-        - Same connector_track_id: true duplicates — keep higher confidence, delete loser
-        - Different connector_track_ids: keep both on winner track (winner=primary, loser=secondary)
-        Non-conflicting mappings are moved directly to the winner.
+        Single CTE chain, four arms:
+
+        - **Same connector track on both sides.** One live row must survive, so
+          the loser is *retired into* the winner — ``superseded_at`` /
+          ``supersession_reason = 'conflation'`` / ``superseded_by_id`` pointing
+          at the winner's live row — and moved to the winner track so the loser
+          track's cascade cannot take the history with it. It is not deleted:
+          a merge is an assertion about identity, and deleting the row that
+          assertion revises destroys the only evidence for it.
+        - **Different connector tracks.** Both stay live on the winner; the
+          winner's is primary and the loser's secondary.
+        - **Non-conflicting live rows** follow their track and are re-stamped as
+          manually pinned.
+        - **Superseded rows** follow their track and *nothing else changes*.
+          Rewriting ``origin`` on a retired row would edit history — that row
+          records what mixd believed at the time, and it did not believe it
+          because a human pinned it.
+
+        No decision field (``confidence``, ``match_method``) is rewritten on any
+        row. The pre-v0.10.2 chain copied a better-scoring loser's confidence
+        onto the winner in place, which is a re-scoring disguised as a merge;
+        the append-only table has no way to express that except as a
+        supersession, and a merge is not the moment to re-score.
+
+        Returns the conflation edges for the caller to record as events.
         """
         result = await self.session.execute(
             text("""
@@ -883,57 +932,42 @@ class TrackRepository(BaseRepository[DBTrack, Track]):
                     loser.id AS loser_id,
                     winner.id AS winner_id,
                     loser.connector_track_id AS loser_ct_id,
-                    winner.connector_track_id AS winner_ct_id,
-                    loser.confidence AS loser_confidence,
-                    loser.match_method AS loser_match_method,
-                    loser.created_at AS loser_created_at,
-                    winner.confidence AS winner_confidence,
-                    winner.created_at AS winner_created_at
+                    winner.connector_track_id AS winner_ct_id
                 FROM track_mappings loser
                 JOIN track_mappings winner ON loser.connector_name = winner.connector_name
                 WHERE loser.track_id = :from_id AND winner.track_id = :to_id
+                  AND loser.superseded_at IS NULL
+                  AND winner.superseded_at IS NULL
             ),
 
-            -- Branch 1: Same connector_track_id (true duplicates)
-            -- Update winner with loser's confidence/method when loser is better
-            updated_same_ext_winners AS (
+            -- Branch 1: same connector track — retire the loser into the winner.
+            retired_same_ext_losers AS (
                 UPDATE track_mappings tm
                 SET
-                    confidence = ac.loser_confidence,
-                    match_method = ac.loser_match_method,
-                    origin = :manual_override,
+                    track_id = :to_id,
+                    superseded_at = :now,
+                    supersession_reason = :conflation,
+                    superseded_by_id = ac.winner_id,
+                    is_primary = FALSE,
                     updated_at = :now
                 FROM all_conflicts ac
-                WHERE tm.id = ac.winner_id
+                WHERE tm.id = ac.loser_id
                   AND ac.loser_ct_id = ac.winner_ct_id
-                  AND (
-                      ac.loser_confidence > ac.winner_confidence
-                      OR (ac.loser_confidence = ac.winner_confidence
-                          AND ac.loser_created_at > ac.winner_created_at)
-                  )
-                RETURNING tm.id
-            ),
-            -- Delete loser mapping for same-external-ID conflicts
-            deleted_same_ext_losers AS (
-                DELETE FROM track_mappings
-                WHERE id IN (
-                    SELECT loser_id FROM all_conflicts
-                    WHERE loser_ct_id = winner_ct_id
-                )
-                RETURNING id
+                  AND tm.superseded_at IS NULL
+                RETURNING tm.id, ac.winner_id AS successor_id,
+                          tm.user_id, tm.connector_name
             ),
 
-            -- Branch 2: Different connector_track_ids (keep both on winner track)
-            -- Ensure winner's mapping is primary
+            -- Branch 2: different connector tracks — keep both, winner primary.
             updated_diff_ext_winners AS (
                 UPDATE track_mappings tm
                 SET is_primary = TRUE, updated_at = :now
                 FROM all_conflicts ac
                 WHERE tm.id = ac.winner_id
                   AND ac.loser_ct_id != ac.winner_ct_id
+                  AND tm.superseded_at IS NULL
                 RETURNING tm.id
             ),
-            -- Move loser's mapping to winner track as secondary
             moved_diff_ext_losers AS (
                 UPDATE track_mappings tm
                 SET
@@ -944,39 +978,83 @@ class TrackRepository(BaseRepository[DBTrack, Track]):
                 FROM all_conflicts ac
                 WHERE tm.id = ac.loser_id
                   AND ac.loser_ct_id != ac.winner_ct_id
+                  AND tm.superseded_at IS NULL
                 RETURNING tm.id
             ),
 
-            -- Move all non-conflicting mappings from loser to winner
-            moved_non_conflict AS (
+            -- Non-conflicting live rows: move and re-stamp.
+            moved_live_non_conflict AS (
                 UPDATE track_mappings
                 SET
                     track_id = :to_id,
                     origin = :manual_override,
                     updated_at = :now
                 WHERE track_id = :from_id
+                  AND superseded_at IS NULL
                   AND id NOT IN (SELECT loser_id FROM all_conflicts)
                 RETURNING id
+            ),
+            -- Retired rows: move only. History follows its track untouched.
+            moved_history AS (
+                UPDATE track_mappings
+                SET track_id = :to_id
+                WHERE track_id = :from_id
+                  AND superseded_at IS NOT NULL
+                RETURNING id
             )
-            SELECT
-                (SELECT count(*) FROM deleted_same_ext_losers) AS same_ext_conflicts,
-                (SELECT count(*) FROM moved_diff_ext_losers) AS diff_ext_conflicts,
-                (SELECT count(*) FROM moved_non_conflict) AS non_conflicts_moved
+            SELECT 'retired' AS kind, id, successor_id, user_id, connector_name
+            FROM retired_same_ext_losers
+            UNION ALL
+            SELECT 'diff_ext', id, NULL::uuid, NULL::varchar, NULL::varchar
+            FROM moved_diff_ext_losers
+            UNION ALL
+            SELECT 'diff_ext_winner', id, NULL::uuid, NULL::varchar, NULL::varchar
+            FROM updated_diff_ext_winners
+            UNION ALL
+            SELECT 'non_conflict', id, NULL::uuid, NULL::varchar, NULL::varchar
+            FROM moved_live_non_conflict
+            UNION ALL
+            SELECT 'history', id, NULL::uuid, NULL::varchar, NULL::varchar
+            FROM moved_history
             """),
             {
                 "from_id": from_id,
                 "to_id": to_id,
                 "now": datetime.now(UTC),
                 "manual_override": MappingOrigin.MANUAL_OVERRIDE,
+                "conflation": _CONFLATION,
             },
         )
-        counts = _MergeMappingCounts._make(result.one())
+        rows = [_MergeMappingRow._make(row) for row in result.all()]
+        edges = [
+            ConflationEdge(
+                predecessor_id=row.mapping_id,
+                successor_id=row.successor_id,
+                user_id=row.user_id,
+                connector_name=row.connector_name,
+            )
+            for row in rows
+            if row.kind == "retired"
+            and row.successor_id is not None
+            and row.user_id is not None
+            and row.connector_name is not None
+        ]
+        # Every arm wrote through Core, so the identity map still holds the
+        # pre-merge copies of these rows and of both tracks' collections.
+        expire_mapping_identity(
+            self.session,
+            mapping_ids=[row.mapping_id for row in rows],
+            track_ids=[from_id, to_id],
+        )
+        counted = Counter(row.kind for row in rows)
         logger.debug(
             f"Merged track mappings: {from_id} → {to_id} "
-            f"({counts.same_ext_conflicts} same external ID, "
-            f"{counts.diff_ext_conflicts} different external ID conflicts, "
-            f"{counts.non_conflicts_moved} non-conflicts moved)"
+            f"({counted['retired']} same external ID retired, "
+            f"{counted['diff_ext']} different external ID conflicts, "
+            f"{counted['non_conflict']} non-conflicts moved, "
+            f"{counted['history']} superseded rows followed)"
         )
+        return edges
 
     @db_operation("merge_metrics_to_track")
     async def merge_metrics_to_track(self, from_id: UUID, to_id: UUID) -> None:

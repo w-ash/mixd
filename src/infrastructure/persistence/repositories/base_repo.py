@@ -624,10 +624,15 @@ class BaseRepository[TDBModel: DatabaseModel, TDomainModel]:
 
         if existing_id:
             # Entity exists, update it by ID
+            # ``id`` is excluded alongside ``created_at``: callers pass a
+            # freshly generated primary key in ``insert_values`` (it is the id
+            # the row would get if this were an insert), and letting it through
+            # here *renumbers the row that was just found* — every reference to
+            # it dangles and the follow-up fetch by the old id finds nothing.
             update_values = {
                 k: v
                 for k, v in insert_values.items()
-                if k != "created_at" and k not in lookup_attrs
+                if k not in {"created_at", "id"} and k not in lookup_attrs
             }
             update_values["updated_at"] = now  # Always update timestamp
 
@@ -703,15 +708,24 @@ class BaseRepository[TDBModel: DatabaseModel, TDomainModel]:
             )
         return entities
 
-    @staticmethod
-    def _add_timestamps(entities: list[dict[str, object]]) -> None:
-        """Add created_at / updated_at timestamps to entities missing them."""
+    def _add_timestamps(self, entities: list[dict[str, object]]) -> None:
+        """Add created_at / updated_at to entities missing them.
+
+        Only for columns the model actually declares. Nearly every table
+        inherits both from ``TimestampMixin``, but an append-only log whose
+        time is its own domain concept (``resolution_events.recorded_at``)
+        carries neither — and an INSERT naming a column that does not exist
+        fails at compile time, not with a helpful error.
+        """
+        columns = self.model_class.__table__.columns
+        stamped = [name for name in ("created_at", "updated_at") if name in columns]
+        if not stamped:
+            return
         now = datetime.now(UTC)
         for entity in entities:
-            if "created_at" not in entity:
-                entity["created_at"] = now
-            if "updated_at" not in entity:
-                entity["updated_at"] = now
+            for name in stamped:
+                if name not in entity:
+                    entity[name] = now
 
     @db_operation("bulk_insert_ignore_conflicts")
     async def bulk_insert_ignore_conflicts(
@@ -759,6 +773,7 @@ class BaseRepository[TDBModel: DatabaseModel, TDomainModel]:
         entities: list[dict[str, object]],
         lookup_keys: list[str],
         return_models: Literal[True] = ...,
+        index_where: ColumnElement[bool] | None = ...,
     ) -> list[TDomainModel]: ...
 
     @overload
@@ -767,6 +782,7 @@ class BaseRepository[TDBModel: DatabaseModel, TDomainModel]:
         entities: list[dict[str, object]],
         lookup_keys: list[str],
         return_models: Literal[False],
+        index_where: ColumnElement[bool] | None = ...,
     ) -> int: ...
 
     @db_operation("bulk_upsert")
@@ -775,6 +791,7 @@ class BaseRepository[TDBModel: DatabaseModel, TDomainModel]:
         entities: list[dict[str, object]],
         lookup_keys: list[str],
         return_models: bool = True,
+        index_where: ColumnElement[bool] | None = None,
     ) -> list[TDomainModel] | int:
         """Perform bulk upsert via PostgreSQL ON CONFLICT.
 
@@ -790,6 +807,11 @@ class BaseRepository[TDBModel: DatabaseModel, TDomainModel]:
             entities: List of dictionaries with entity attributes
             lookup_keys: Keys to use for looking up existing entities
             return_models: Whether to return domain models or count
+            index_where: Predicate of a *partial* unique index. PostgreSQL will
+                not infer a partial index from its columns alone, so a table
+                whose uniqueness is partial (``resolution_negatives``) has to
+                restate the predicate here or every conflict raises 23505 and
+                the batch silently degrades to the per-row fallback.
 
         Returns:
             List of domain models or count of affected rows
@@ -802,7 +824,7 @@ class BaseRepository[TDBModel: DatabaseModel, TDomainModel]:
 
         try:
             return await self._bulk_upsert_in_savepoint(
-                entities, lookup_keys, return_models
+                entities, lookup_keys, return_models, index_where
             )
         except Exception as e:
             logger.warning(
@@ -824,7 +846,12 @@ class BaseRepository[TDBModel: DatabaseModel, TDomainModel]:
                 }
 
                 try:
-                    entity = await self.upsert(lookup_dict, create_dict)
+                    # Savepoint per row: the fallback exists because the batch
+                    # already hit a constraint, so a second violation here is
+                    # likely — and an unwrapped 23505 aborts the *caller's*
+                    # whole transaction, turning one bad row into a lost import.
+                    async with self.session.begin_nested():
+                        entity = await self.upsert(lookup_dict, create_dict)
                     count += 1
                     if return_models:
                         results.append(entity)
@@ -841,6 +868,7 @@ class BaseRepository[TDBModel: DatabaseModel, TDomainModel]:
         entities: list[dict[str, object]],
         lookup_keys: list[str],
         return_models: bool,
+        index_where: ColumnElement[bool] | None = None,
     ) -> list[TDomainModel] | int:
         """Run the bulk ON CONFLICT upsert inside a savepoint.
 
@@ -865,9 +893,12 @@ class BaseRepository[TDBModel: DatabaseModel, TDomainModel]:
                 if hasattr(stmt.excluded, key)
             }
 
-            # Add the ON CONFLICT clause
+            # Add the ON CONFLICT clause. ``index_where`` is passed through
+            # verbatim — omitting it on a partial index means PostgreSQL cannot
+            # infer an arbiter and raises instead of updating.
             stmt = stmt.on_conflict_do_update(
                 index_elements=[getattr(self.model_class, k) for k in lookup_keys],
+                index_where=index_where,
                 set_=update_dict,
             )
 

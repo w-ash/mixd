@@ -373,6 +373,44 @@ def make_tracking_emitter(uow: MagicMock) -> tuple[AsyncMock, list[str]]:
 # ---------------------------------------------------------------------------
 
 
+def make_mock_resolution_recorder() -> AsyncMock:
+    """Recorder mock that records everything and suppresses nothing.
+
+    ``active_rejections`` and ``backoff_suppressed`` return empty on purpose:
+    the failure that matters is a real match silently withheld, so the default
+    has to be the permissive one.
+
+    ``matcher_version`` is passed to the constructor rather than assigned after
+    it — the protocol declares a read-only property, and a test that assigns to
+    it is asserting a capability production code does not have.
+    """
+    recorder = AsyncMock(matcher_version="test-matcher")
+    recorder.build_events = MagicMock(return_value=[])
+    recorder.record.return_value = 0
+    recorder.write_events.return_value = []
+    recorder.record_supersessions.return_value = 0
+    recorder.retire_mapping.return_value = True
+    recorder.active_rejections.return_value = frozenset()
+    recorder.remember_rejections.return_value = 0
+    recorder.remember_no_match.return_value = 0
+    recorder.clear_negatives.return_value = 0
+    recorder.backoff_suppressed.return_value = frozenset()
+    recorder.note_suspect.return_value = False
+    return recorder
+
+
+def attach_resolution_recorder(uow: MagicMock) -> AsyncMock:
+    """Wire a permissive recorder onto a hand-rolled UoW mock.
+
+    Connector tests build their own bare ``MagicMock()`` UoWs rather than using
+    ``make_mock_uow``; the resolvers now ask those for a recorder, and a bare
+    MagicMock hands back something that cannot be awaited.
+    """
+    recorder = make_mock_resolution_recorder()
+    uow.get_resolution_recorder.return_value = recorder
+    return recorder
+
+
 def make_mock_uow(**repo_overrides) -> MagicMock:
     """Build a mock UnitOfWork with pre-wired repository mocks.
 
@@ -476,6 +514,21 @@ def make_mock_uow(**repo_overrides) -> MagicMock:
 
     uow.get_chat_feedback_repository = MagicMock(
         return_value=repo_overrides.get("chat_feedback_repo", AsyncMock())
+    )
+
+    # Identity write seam (v0.10.2). Defaults return "nothing suppressed" so a
+    # use-case test that does not care about the negative cache behaves exactly
+    # as it did before the seam existed.
+    uow.get_resolution_event_repository = MagicMock(
+        return_value=repo_overrides.get("resolution_event_repo", AsyncMock())
+    )
+    uow.get_resolution_negative_repository = MagicMock(
+        return_value=repo_overrides.get("resolution_negative_repo", AsyncMock())
+    )
+    uow.get_resolution_recorder = MagicMock(
+        return_value=repo_overrides.get(
+            "resolution_recorder", make_mock_resolution_recorder()
+        )
     )
 
     # Connector provider (optional override)

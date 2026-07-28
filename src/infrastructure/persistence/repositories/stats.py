@@ -26,6 +26,7 @@ from src.infrastructure.persistence.database.db_models import (
     DBTrackPlay,
     DBTrackPreference,
 )
+from src.infrastructure.persistence.database.live_rows import live_only
 from src.infrastructure.persistence.repositories.repo_decorator import db_operation
 
 
@@ -107,7 +108,7 @@ class StatsRepository:
                 DBTrackMapping.connector_name,
                 func.count(distinct(DBTrackMapping.track_id)),
             )
-            .where(DBTrackMapping.user_id == user_id)
+            .where(DBTrackMapping.user_id == user_id, live_only(DBTrackMapping))
             .group_by(DBTrackMapping.connector_name)
         )
         tracks_rows = cast(

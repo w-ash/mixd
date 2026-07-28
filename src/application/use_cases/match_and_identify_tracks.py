@@ -17,8 +17,18 @@ from src.config import create_evaluation_service, get_logger
 from src.config.logging import logging_context
 from src.domain.entities.match_review import MatchReview
 from src.domain.entities.track import Track, TrackList
+from src.domain.matching.content_digest import service_side
 from src.domain.matching.evaluation_service import TrackMatchEvaluationService
-from src.domain.matching.types import MatchResultsById, RawProviderMatch
+from src.domain.matching.types import (
+    EvaluationResult,
+    MatchResultsById,
+    RawProviderMatch,
+)
+from src.domain.repositories.resolution import (
+    RejectionCandidate,
+    ResolutionDecision,
+    ResolutionRecorderProtocol,
+)
 from src.domain.repositories.track import TrackIdentityServiceProtocol
 from src.domain.repositories.uow import UnitOfWorkProtocol
 
@@ -219,8 +229,18 @@ class MatchAndIdentifyTracksUseCase:
             # STEP 5b: Persist review candidates to match_reviews table
             if evaluation.review_candidates:
                 await self._persist_review_candidates(
-                    evaluation.review_candidates, command.connector, uow
+                    evaluation.review_candidates,
+                    command.connector,
+                    uow,
+                    user_id=command.user_id,
                 )
+
+            # STEP 5c: Remember what was refused. Rejections and no-matches
+            # used to be logged and dropped, so every subsequent import
+            # re-fetched, re-scored and re-refused the same candidates —
+            # the user saw the same wrong match proposed forever and the
+            # provider was asked a question mixd had already answered.
+            await self._record_negative_outcomes(evaluation, command, uow)
 
             # Combine existing and newly accepted mappings
             identity_mappings = {**existing_mappings, **evaluation.accepted}
@@ -300,18 +320,91 @@ class MatchAndIdentifyTracksUseCase:
         else:
             return raw_matches
 
+    @staticmethod
+    async def _record_negative_outcomes(
+        evaluation: EvaluationResult,
+        command: MatchAndIdentifyTracksCommand,
+        uow: UnitOfWorkProtocol,
+    ) -> None:
+        """Log and cache the two outcomes the pipeline used to discard.
+
+        Rejections become sticky cannot-link constraints; no-matches become
+        events only. A no-match names no candidate *and* no connector track —
+        the provider returned nothing at all — so there is no row for the
+        backoff clock to hang on, and the event is the whole record. The
+        backoff half of the cache is driven by the inward resolvers, where a
+        connector id genuinely exists and can go missing.
+        """
+        if not evaluation.rejected and not evaluation.no_match_track_ids:
+            return
+        recorder = uow.get_resolution_recorder()
+        connector = command.connector
+
+        rejections = [
+            RejectionCandidate(
+                connector=service_side(match.connector_id, match.service_data),
+                candidate_track=match.track,
+                confidence=match.confidence,
+                score=match.evidence.final_score if match.evidence else None,
+            )
+            for match in evaluation.rejected
+        ]
+        decisions = [
+            ResolutionDecision(
+                event_type="rejected",
+                connector_name=connector,
+                track_id=match.track.id,
+                confidence=match.confidence,
+                score=match.evidence.final_score if match.evidence else None,
+                zone=match.zone,
+                payload={"connector_id": match.connector_id},
+            )
+            for match in evaluation.rejected
+        ]
+        decisions.extend(
+            ResolutionDecision(
+                event_type="no_match",
+                connector_name=connector,
+                track_id=track_id,
+                zone="reject",
+            )
+            for track_id in evaluation.no_match_track_ids
+        )
+
+        _ = await recorder.record(decisions, user_id=command.user_id)
+        if rejections:
+            _ = await recorder.remember_rejections(
+                rejections, user_id=command.user_id, connector_name=connector
+            )
+
     async def _persist_review_candidates(
         self,
         review_candidates: MatchResultsById,
         connector: str,
         uow: UnitOfWorkProtocol,
+        *,
+        user_id: str,
     ) -> int:
         """Persist review-zone matches to the match_reviews table.
 
-        Two-phase: ensures connector_tracks rows exist (required FK), then
-        batch-inserts MatchReview records. Returns count of reviews created.
+        Three phases: drop pairs the cannot-link store already refuses, ensure
+        connector_tracks rows exist (required FK), then batch-insert MatchReview
+        records. Returns count of reviews created.
+
+        The queue consults the same store the auto-accept path does, and for the
+        same reason: a pair a human already looked at and rejected must not come
+        back as a question. Asking it again is worse here than on the accept
+        path — the accept path merely writes a mapping nobody sees, while the
+        queue spends the user's attention on a verdict they already gave.
         """
         connector_repo = uow.get_connector_repository()
+        recorder = uow.get_resolution_recorder()
+
+        review_candidates = await self._drop_rejected_review_pairs(
+            review_candidates, connector, recorder, user_id=user_id
+        )
+        if not review_candidates:
+            return 0
 
         # Phase 1: Ensure connector_tracks rows exist for each review candidate
         tracks_data = [
@@ -334,6 +427,7 @@ class MatchAndIdentifyTracksUseCase:
 
         # Phase 2: Build MatchReview entities and batch-persist
         reviews: list[MatchReview] = []
+        queued: list[ResolutionDecision] = []
         for track_id, match in review_candidates.items():
             ct_id = ct_id_map.get((connector, match.connector_id))
             if ct_id is None:
@@ -355,9 +449,28 @@ class MatchAndIdentifyTracksUseCase:
                     confidence_evidence=match.evidence_dict,
                 )
             )
+            queued.append(
+                ResolutionDecision(
+                    event_type="queued",
+                    connector_name=connector,
+                    connector_track_id=ct_id,
+                    track_id=track_id,
+                    confidence=match.confidence,
+                    score=match.evidence.final_score if match.evidence else None,
+                    zone=match.zone,
+                    # Queue admission is deterministic today — every gray-zone
+                    # match is offered, so the probability of being offered is
+                    # 1.0. The field exists for a future randomly-sampled
+                    # stratum, which calibration needs alongside the queue
+                    # (review rejects are adversarial near-misses and would
+                    # bias an estimate on their own).
+                    selection_probability=1.0,
+                )
+            )
 
         review_repo = uow.get_match_review_repository()
         count = await review_repo.create_reviews_batch(reviews)
+        _ = await recorder.record(queued, user_id=user_id)
 
         logger.info(
             "Persisted review candidates",
@@ -365,3 +478,47 @@ class MatchAndIdentifyTracksUseCase:
             connector=connector,
         )
         return count
+
+    @staticmethod
+    async def _drop_rejected_review_pairs(
+        review_candidates: MatchResultsById,
+        connector: str,
+        recorder: ResolutionRecorderProtocol,
+        *,
+        user_id: str,
+    ) -> MatchResultsById:
+        """Filter review candidates through the cannot-link store.
+
+        Same digest and matcher-version semantics as the accept path's
+        ``_drop_rejected_pairs`` — one store, one set of expiry rules, so a
+        rejection cannot be honoured by one consumer and ignored by the other.
+        """
+        if not review_candidates:
+            return review_candidates
+        suppressed = await recorder.active_rejections(
+            [
+                RejectionCandidate(
+                    connector=service_side(match.connector_id, match.service_data),
+                    candidate_track=match.track,
+                    confidence=match.confidence,
+                )
+                for match in review_candidates.values()
+            ],
+            user_id=user_id,
+            connector_name=connector,
+        )
+        if not suppressed:
+            return review_candidates
+
+        kept = {
+            track_id: match
+            for track_id, match in review_candidates.items()
+            if (match.connector_id, match.track.id) not in suppressed
+        }
+        logger.info(
+            "Suppressed previously-rejected review candidates",
+            connector=connector,
+            suppressed=len(review_candidates) - len(kept),
+            proposed=len(review_candidates),
+        )
+        return kept

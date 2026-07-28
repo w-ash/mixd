@@ -1,17 +1,26 @@
 """Integration tests for TrackMergeService with real database operations."""
 
 from datetime import UTC, datetime
-from uuid import uuid7
+from uuid import uuid4, uuid7
 
 import pytest
+from sqlalchemy import select, text
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.domain.entities.preference import PreferenceEvent, TrackPreference
 from src.domain.exceptions import NotFoundError
 from src.infrastructure.persistence.database.db_models import (
+    DBConnectorTrack,
+    DBResolutionEvent,
     DBTrack,
     DBTrackLike,
+    DBTrackMapping,
     DBTrackPlay,
+)
+from src.infrastructure.persistence.database.live_rows import INCLUDE_SUPERSEDED
+from src.infrastructure.persistence.repositories.track.connector import (
+    TrackConnectorRepository,
+    TrackMappingRepository,
 )
 from src.infrastructure.persistence.repositories.track.preferences import (
     TrackPreferenceRepository,
@@ -311,3 +320,237 @@ class TestTrackMergePreferences:
         bob = await repo.get_preferences([winner.id], user_id="bob")
         assert alice[winner.id].state == "star"
         assert bob[winner.id].state == "nah"
+
+
+class TestMergePreservesMappingHistory:
+    """A merge is an assertion about identity; it may not destroy the evidence."""
+
+    @staticmethod
+    async def _track(db_session: AsyncSession, title: str, tracker) -> DBTrack:
+        row = DBTrack(title=title, artists={"names": ["Merge Artist"]})
+        db_session.add(row)
+        await db_session.flush()
+        tracker.add_track(row.id)
+        return row
+
+    @staticmethod
+    async def _connector_track(
+        db_session: AsyncSession, connector: str = "spotify"
+    ) -> DBConnectorTrack:
+        uid = uuid4().hex[:8]
+        row = DBConnectorTrack(
+            connector_name=connector,
+            connector_track_identifier=f"{connector}_merge_{uid}",
+            title=f"CT {uid}",
+            artists={"names": ["Merge Artist"]},
+            raw_metadata={},
+            last_updated=datetime.now(UTC),
+        )
+        db_session.add(row)
+        await db_session.flush()
+        return row
+
+    @staticmethod
+    def _mapping_row(
+        track_id, ct_id, *, confidence: int, connector: str = "spotify"
+    ) -> dict[str, object]:
+        return {
+            "user_id": "default",
+            "track_id": track_id,
+            "connector_track_id": ct_id,
+            "connector_name": connector,
+            "match_method": "isrc",
+            "confidence": confidence,
+        }
+
+    @staticmethod
+    async def _all_mappings(db_session: AsyncSession, track_id) -> list[DBTrackMapping]:
+        result = await db_session.execute(
+            select(DBTrackMapping)
+            .where(DBTrackMapping.track_id == track_id)
+            .execution_options(**{INCLUDE_SUPERSEDED: True}, populate_existing=True)
+        )
+        return list(result.scalars().all())
+
+    async def _legacy_same_connector_conflict(
+        self, db_session: AsyncSession, winner: DBTrack, loser: DBTrack
+    ):
+        """Two live mappings on one connector track — a pre-044 shape.
+
+        ``uq_track_mappings_live_connector`` forbids it, so the only way to
+        reach the merge's same-connector-track branch is to stand the index
+        down for the length of this test's transaction (which the savepoint
+        fixture rolls back) and insert the second live row through Core. Worth
+        reaching: that branch is the one that used to ``DELETE`` a mapping
+        outright, and a database restored from a pre-044 dump is exactly where
+        it would fire.
+        """
+        # Last.fm rather than Spotify: the shape below is already impossible,
+        # and a connector with a denormalized id column on ``tracks`` would
+        # additionally trip ``uq_tracks_user_spotify_id`` when both tracks'
+        # read-path healing claimed the same identifier.
+        ct = await self._connector_track(db_session, "lastfm")
+        winner_mapping = (
+            await TrackMappingRepository(db_session).assert_mappings([
+                self._mapping_row(winner.id, ct.id, confidence=90, connector="lastfm")
+            ])
+        ).created[0]
+
+        _ = await db_session.execute(
+            text("DROP INDEX uq_track_mappings_live_connector")
+        )
+        now = datetime.now(UTC)
+        loser_mapping = uuid7()
+        db_session.add(
+            DBTrackMapping(
+                id=loser_mapping,
+                user_id="default",
+                track_id=loser.id,
+                connector_track_id=ct.id,
+                connector_name="lastfm",
+                match_method="isrc",
+                confidence=95,
+                created_at=now,
+                updated_at=now,
+            )
+        )
+        await db_session.flush()
+        return ct, winner_mapping, loser_mapping
+
+    async def test_a_same_connector_track_loser_is_retired_not_deleted(
+        self, db_session: AsyncSession, test_data_tracker
+    ):
+        """Deleting it erased the only record of what the merge revised."""
+        winner = await self._track(db_session, "Winner", test_data_tracker)
+        loser = await self._track(db_session, "Loser", test_data_tracker)
+        _, winner_mapping, loser_mapping = await self._legacy_same_connector_conflict(
+            db_session, winner, loser
+        )
+
+        uow = DatabaseUnitOfWork(db_session)
+        async with uow:
+            await TrackMergeService().merge_tracks(winner.id, loser.id, uow)
+
+        rows = {row.id: row for row in await self._all_mappings(db_session, winner.id)}
+        assert loser_mapping in rows, "the loser mapping must not be deleted"
+        retired = rows[loser_mapping]
+        assert retired.superseded_at is not None
+        assert retired.supersession_reason == "conflation"
+        assert retired.superseded_by_id == winner_mapping
+        assert retired.is_primary is False
+        assert retired.confidence == 95, "a merge must not re-score a decision"
+        assert rows[winner_mapping].confidence == 90
+        live = [row for row in rows.values() if row.superseded_at is None]
+        assert [row.id for row in live] == [winner_mapping]
+
+    async def test_the_retirement_is_recorded_as_an_event(
+        self, db_session: AsyncSession, test_data_tracker
+    ):
+        winner = await self._track(db_session, "Winner", test_data_tracker)
+        loser = await self._track(db_session, "Loser", test_data_tracker)
+        _, _, loser_mapping = await self._legacy_same_connector_conflict(
+            db_session, winner, loser
+        )
+
+        uow = DatabaseUnitOfWork(db_session)
+        async with uow:
+            await TrackMergeService().merge_tracks(winner.id, loser.id, uow)
+
+        events = (
+            (
+                await db_session.execute(
+                    select(DBResolutionEvent).where(
+                        DBResolutionEvent.event_type == "superseded"
+                    )
+                )
+            )
+            .scalars()
+            .all()
+        )
+        conflations = [
+            event
+            for event in events
+            if event.payload.get("superseded_mapping_id") == str(loser_mapping)
+        ]
+        assert len(conflations) == 1
+        assert conflations[0].payload["reason"] == "conflation"
+
+    async def test_the_chain_walks_into_the_merged_history(
+        self, db_session: AsyncSession, test_data_tracker
+    ):
+        winner = await self._track(db_session, "Winner", test_data_tracker)
+        loser = await self._track(db_session, "Loser", test_data_tracker)
+        _, winner_mapping, loser_mapping = await self._legacy_same_connector_conflict(
+            db_session, winner, loser
+        )
+
+        uow = DatabaseUnitOfWork(db_session)
+        async with uow:
+            await TrackMergeService().merge_tracks(winner.id, loser.id, uow)
+
+        chain = await TrackConnectorRepository(db_session).get_supersession_chain(
+            loser_mapping, user_id="default"
+        )
+        assert [link.id for link in chain] == [loser_mapping, winner_mapping]
+
+    async def test_superseded_rows_follow_their_track_untouched(
+        self, db_session: AsyncSession, test_data_tracker
+    ):
+        """History moves with the track; rewriting its origin would edit it."""
+        winner = await self._track(db_session, "Winner", test_data_tracker)
+        loser = await self._track(db_session, "Loser", test_data_tracker)
+        ct = await self._connector_track(db_session)
+        mapping_repo = TrackMappingRepository(db_session)
+        first = (
+            await mapping_repo.assert_mappings([
+                self._mapping_row(loser.id, ct.id, confidence=70)
+            ])
+        ).created[0]
+        await mapping_repo.assert_mappings([
+            self._mapping_row(loser.id, ct.id, confidence=95)
+        ])
+        before = {
+            row.id: (row.origin, row.confidence, row.match_method)
+            for row in await self._all_mappings(db_session, loser.id)
+        }
+
+        uow = DatabaseUnitOfWork(db_session)
+        async with uow:
+            await TrackMergeService().merge_tracks(winner.id, loser.id, uow)
+
+        rows = {row.id: row for row in await self._all_mappings(db_session, winner.id)}
+        assert first in rows, "the retired row followed its track"
+        assert rows[first].superseded_at is not None
+        assert rows[first].origin == before[first][0]
+        assert rows[first].confidence == before[first][1]
+        assert rows[first].match_method == before[first][2]
+
+    async def test_a_different_connector_track_keeps_both_live(
+        self, db_session: AsyncSession, test_data_tracker
+    ):
+        winner = await self._track(db_session, "Winner", test_data_tracker)
+        loser = await self._track(db_session, "Loser", test_data_tracker)
+        winner_ct = await self._connector_track(db_session)
+        loser_ct = await self._connector_track(db_session)
+        mapping_repo = TrackMappingRepository(db_session)
+        winner_mapping = (
+            await mapping_repo.assert_mappings([
+                self._mapping_row(winner.id, winner_ct.id, confidence=90)
+            ])
+        ).created[0]
+        loser_mapping = (
+            await mapping_repo.assert_mappings([
+                self._mapping_row(loser.id, loser_ct.id, confidence=95)
+            ])
+        ).created[0]
+
+        uow = DatabaseUnitOfWork(db_session)
+        async with uow:
+            await TrackMergeService().merge_tracks(winner.id, loser.id, uow)
+
+        rows = {row.id: row for row in await self._all_mappings(db_session, winner.id)}
+        assert set(rows) == {winner_mapping, loser_mapping}
+        assert all(row.superseded_at is None for row in rows.values())
+        assert rows[winner_mapping].is_primary is True
+        assert rows[loser_mapping].is_primary is False
+        assert rows[loser_mapping].confidence == 95

@@ -13,6 +13,7 @@ from src.config.constants import ReviewStatus
 from src.infrastructure.persistence.database.db_models import (
     DBConnectorTrack,
     DBMatchReview,
+    DBResolutionNegative,
     DBTrack,
     DBTrackMapping,
 )
@@ -176,6 +177,50 @@ class TestOrphanedConnectorTracks:
         repo = TrackConnectorRepository(db_session)
         count = await repo.count_orphaned_connector_tracks()
         assert count == 0
+
+    async def test_a_cannot_link_stub_is_not_an_orphan(self, db_session: AsyncSession):
+        """v0.10.2 materializes connector tracks purely to key a rejection.
+
+        Those rows have no mapping *by design* — the pair was refused. Counting
+        them would report the negative cache working correctly as an integrity
+        failure, and the number would climb with every rejection the user made.
+        """
+        track_id = await _seed_track(db_session)
+        ct_id = await _seed_connector_track(db_session)
+        db_session.add(
+            DBResolutionNegative(
+                user_id="default",
+                kind="rejected_pair",
+                connector_name="spotify",
+                connector_track_id=ct_id,
+                candidate_track_id=track_id,
+                matcher_version="v1",
+                content_digest="abc",
+            )
+        )
+        await db_session.flush()
+
+        repo = TrackConnectorRepository(db_session)
+        assert await repo.count_orphaned_connector_tracks() == 0
+
+    async def test_a_no_match_backoff_stub_is_not_an_orphan(
+        self, db_session: AsyncSession
+    ):
+        ct_id = await _seed_connector_track(db_session)
+        db_session.add(
+            DBResolutionNegative(
+                user_id="default",
+                kind="no_match",
+                connector_name="spotify",
+                connector_track_id=ct_id,
+                matcher_version="v1",
+                check_again=datetime.now(UTC) + timedelta(days=1),
+            )
+        )
+        await db_session.flush()
+
+        repo = TrackConnectorRepository(db_session)
+        assert await repo.count_orphaned_connector_tracks() == 0
 
 
 class TestDuplicateTracksByFingerprint:

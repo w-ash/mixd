@@ -26,6 +26,20 @@ _DURATION_CLOSE_MS: Final = 1_000
 _DURATION_NEAR_MS: Final = 3_000
 _DURATION_MODERATE_MS: Final = 10_000
 
+# The same boundaries as a public, ordered (name, value) view. They shape
+# classification without appearing anywhere in ``MatchingConfig``, so
+# ``src.domain.matching.version`` has to hash them — and reaching into module
+# privates to do that would make the hash's inputs a matter of import
+# etiquette. Exporting the view instead keeps "what the matcher version
+# covers" a declared part of this module's surface: adding a boundary here is
+# what makes it hashed, not an edit in another file.
+TIER_BOUNDARIES: Final[tuple[tuple[str, float], ...]] = (
+    ("moderate_similarity", _MODERATE_SIMILARITY),
+    ("duration_close_ms", _DURATION_CLOSE_MS),
+    ("duration_near_ms", _DURATION_NEAR_MS),
+    ("duration_moderate_ms", _DURATION_MODERATE_MS),
+)
+
 
 @define(frozen=True, slots=True)
 class ComparisonLevel:

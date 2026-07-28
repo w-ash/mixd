@@ -7,6 +7,7 @@ handling transaction management and repository creation using a shared database 
 # Legitimate Any: SQLAlchemy column types, JSON fields
 
 from typing import Self
+from uuid import UUID
 
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -32,6 +33,11 @@ from src.domain.repositories.playlist import (
     PlaylistSyncBaseRepositoryProtocol,
 )
 from src.domain.repositories.preference import PreferenceRepositoryProtocol
+from src.domain.repositories.resolution import (
+    ResolutionEventRepositoryProtocol,
+    ResolutionNegativeRepositoryProtocol,
+    ResolutionRecorderProtocol,
+)
 from src.domain.repositories.schedule import ScheduleRepositoryProtocol
 from src.domain.repositories.stats import StatsRepositoryProtocol
 from src.domain.repositories.tag import TagRepositoryProtocol
@@ -52,6 +58,10 @@ from src.infrastructure.persistence.repositories.playlist.connector import (
     ConnectorPlaylistRepository,
 )
 from src.infrastructure.persistence.repositories.playlist.core import PlaylistRepository
+from src.infrastructure.persistence.repositories.resolution import (
+    ResolutionEventRepository,
+    ResolutionNegativeRepository,
+)
 from src.infrastructure.persistence.repositories.sync import SyncCheckpointRepository
 from src.infrastructure.persistence.repositories.track.connector import (
     TrackConnectorRepository,
@@ -62,6 +72,7 @@ from src.infrastructure.persistence.repositories.track.metrics import (
     TrackMetricsRepository,
 )
 from src.infrastructure.persistence.repositories.track.plays import TrackPlayRepository
+from src.infrastructure.services.resolution_recorder import ResolutionRecorder
 from src.infrastructure.services.track_identity_service_impl import (
     TrackIdentityServiceImpl,
 )
@@ -205,7 +216,9 @@ class DatabaseUnitOfWork:
         # Create repositories for the service to use
         track_repo = self.get_track_repository()
         connector_repo = self.get_connector_repository()
-        return TrackIdentityServiceImpl(track_repo, connector_repo)
+        return TrackIdentityServiceImpl(
+            track_repo, connector_repo, self.get_resolution_recorder()
+        )
 
     def get_service_connector_provider(self) -> ServiceConnectorProvider:
         """Get service connector provider with per-UoW instance caching."""
@@ -321,3 +334,24 @@ class DatabaseUnitOfWork:
         )
 
         return ChatFeedbackRepository(self._session)
+
+    def get_resolution_event_repository(self) -> ResolutionEventRepositoryProtocol:
+        """Get the append-only identity-resolution event log."""
+        return ResolutionEventRepository(self._session)
+
+    def get_resolution_negative_repository(
+        self,
+    ) -> ResolutionNegativeRepositoryProtocol:
+        """Get the negative cache (no-match backoff + sticky rejected pairs)."""
+        return ResolutionNegativeRepository(self._session)
+
+    def get_resolution_recorder(
+        self, *, run_id: UUID | None = None
+    ) -> ResolutionRecorderProtocol:
+        """Get the identity write seam, bound to this transaction."""
+        return ResolutionRecorder(
+            self._session,
+            events=self.get_resolution_event_repository(),
+            negatives=self.get_resolution_negative_repository(),
+            run_id=run_id,
+        )

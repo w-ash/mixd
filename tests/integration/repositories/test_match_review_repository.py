@@ -251,3 +251,72 @@ class TestCountPending:
 
         count = await repo.count_pending(user_id="default")
         assert count == 1
+
+
+class TestResolvedReviewsDoNotResurrect:
+    """A verdict is a decision, not a cache entry the next import may overwrite."""
+
+    async def test_re_importing_a_rejected_candidate_leaves_it_rejected(
+        self, db_session: AsyncSession
+    ):
+        """The blanket ``SET status = EXCLUDED.status`` flipped it back to pending.
+
+        Which meant the queue re-asked the same question on every import, and
+        the ``reviewed_at`` stamp proving the person had answered was
+        overwritten along with it.
+        """
+        track_id, ct_id = await _seed_track_and_connector_track(db_session)
+        repo = MatchReviewRepository(db_session)
+        review = MatchReview(
+            track_id=track_id,
+            connector_name="spotify",
+            connector_track_id=ct_id,
+            match_method="artist_title",
+            confidence=60,
+            match_weight=2.0,
+        )
+        await repo.create_reviews_batch([review])
+        existing = (await repo.list_pending_reviews(user_id="default"))[0][0]
+        rejected = await repo.update_review_status(existing.id, ReviewStatus.REJECTED)
+        assert rejected.reviewed_at is not None
+
+        written = await repo.create_reviews_batch([review])
+
+        assert written == 0
+        after = await repo.get_by_id(existing.id)
+        assert after is not None
+        assert after.status == ReviewStatus.REJECTED
+        assert after.reviewed_at is not None
+
+    async def test_a_pending_row_still_takes_fresher_evidence(
+        self, db_session: AsyncSession
+    ):
+        """The guard must not freeze the queue: unanswered rows still refresh."""
+        track_id, ct_id = await _seed_track_and_connector_track(db_session)
+        repo = MatchReviewRepository(db_session)
+        base = MatchReview(
+            track_id=track_id,
+            connector_name="spotify",
+            connector_track_id=ct_id,
+            match_method="artist_title",
+            confidence=60,
+            match_weight=2.0,
+        )
+        await repo.create_reviews_batch([base])
+
+        written = await repo.create_reviews_batch([
+            MatchReview(
+                track_id=track_id,
+                connector_name="spotify",
+                connector_track_id=ct_id,
+                match_method="isrc",
+                confidence=81,
+                match_weight=4.0,
+            )
+        ])
+
+        assert written == 1
+        rows, _ = await repo.list_pending_reviews(user_id="default")
+        current = next(row for row in rows if row.connector_track_id == ct_id)
+        assert current.confidence == 81
+        assert current.match_method == "isrc"

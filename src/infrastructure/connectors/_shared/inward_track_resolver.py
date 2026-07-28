@@ -18,8 +18,10 @@ from attrs import define
 from src.config import create_evaluation_service, get_logger
 from src.config.constants import MatchMethod
 from src.domain.entities import Track
+from src.domain.matching.content_digest import service_side
 from src.domain.matching.evaluation_service import TrackMatchEvaluationService
 from src.domain.matching.types import RawProviderMatch
+from src.domain.repositories.resolution import RejectionCandidate, ResolutionDecision
 from src.domain.repositories.uow import UnitOfWorkProtocol
 
 logger = get_logger(__name__)
@@ -32,6 +34,12 @@ class TrackResolutionMetrics:
     ``redirects``/``fallbacks`` are Spotify-specific (relinked/dead track ID
     recovery — see ``SpotifyInwardResolver``); connectors without an
     equivalent concept (e.g. Last.fm) leave them at the default 0.
+
+    ``suppressed`` counts ids the provider was deliberately *not* asked about
+    because their no-match backoff has not come due. They are neither failures
+    nor successes — nothing was attempted — so they get their own bucket rather
+    than inflating ``failed``, which would read as a rising error rate exactly
+    as the cache started doing its job.
     """
 
     existing: int = 0
@@ -40,10 +48,13 @@ class TrackResolutionMetrics:
     failed: int = 0
     redirects: int = 0
     fallbacks: int = 0
+    suppressed: int = 0
 
     @property
     def total(self) -> int:
-        return self.existing + self.reused + self.created + self.failed
+        return (
+            self.existing + self.reused + self.created + self.failed + self.suppressed
+        )
 
 
 class ReuseMetadata(NamedTuple):
@@ -156,6 +167,8 @@ class InwardTrackResolver(ABC):
 
         # Evaluate each candidate through the matching system
         result: dict[str, Track] = {}
+        refused: list[RejectionCandidate] = []
+        refusal_events: list[ResolutionDecision] = []
         for identifier in missing_ids:
             meta = id_to_meta.get(identifier)
             if not meta:
@@ -193,6 +206,38 @@ class InwardTrackResolver(ABC):
                     f"Canonical reuse rejected candidate {candidate.id} for {identifier} "
                     f"(confidence: {match_result.confidence}, title_sim: {title_sim:.2f})"
                 )
+                side = service_side(meta.connector_id, raw_match["service_data"])
+                refused.append(
+                    RejectionCandidate(
+                        connector=side,
+                        candidate_track=candidate,
+                        confidence=match_result.confidence,
+                        score=match_result.evidence.final_score
+                        if match_result.evidence
+                        else None,
+                    )
+                )
+                refusal_events.append(
+                    ResolutionDecision(
+                        event_type="rejected",
+                        connector_name=self.connector_name,
+                        track_id=candidate.id,
+                        confidence=match_result.confidence,
+                        score=match_result.evidence.final_score
+                        if match_result.evidence
+                        else None,
+                        zone=match_result.zone,
+                        payload={
+                            "connector_id": meta.connector_id,
+                            # The reuse gate is stricter than the matcher's own
+                            # accept threshold, so record which of the two
+                            # refused — otherwise a "rejected" event with a
+                            # high confidence looks like a contradiction.
+                            "title_similarity": round(title_sim, 4),
+                            "title_threshold": title_threshold,
+                        },
+                    )
+                )
                 continue
 
             try:
@@ -212,6 +257,13 @@ class InwardTrackResolver(ABC):
                 )
             except Exception as e:
                 logger.debug(f"Failed to create reuse mapping for {identifier}: {e}")
+
+        if refusal_events:
+            recorder = uow.get_resolution_recorder()
+            _ = await recorder.record(refusal_events, user_id=user_id)
+            _ = await recorder.remember_rejections(
+                refused, user_id=user_id, connector_name=self.connector_name
+            )
 
         return result
 
@@ -278,9 +330,25 @@ class InwardTrackResolver(ABC):
                     f"Canonical reuse matched {reused_count}/{len(missing_ids)} existing tracks for {self.connector_name}"
                 )
 
-        # Step 3 — Track Creation: batch-create remaining missing tracks
+        # Step 3 — Track Creation: batch-create remaining missing tracks.
+        # First, drop the ids whose no-match backoff has not come due: the
+        # provider has already been asked and answered "nothing", and asking
+        # again before the clock expires spends quota to learn the same thing.
         still_missing = [uid for uid in missing_ids if uid not in result]
         created_count = 0
+        suppressed_count = 0
+
+        if still_missing:
+            suppressed = await uow.get_resolution_recorder().backoff_suppressed(
+                still_missing, user_id=user_id, connector_name=self.connector_name
+            )
+            if suppressed:
+                still_missing = [uid for uid in still_missing if uid not in suppressed]
+                suppressed_count = len(suppressed)
+                logger.info(
+                    f"Skipped {suppressed_count} {self.connector_name} ids inside "
+                    f"their no-match backoff window"
+                )
 
         if still_missing:
             logger.info(
@@ -292,16 +360,23 @@ class InwardTrackResolver(ABC):
             result.update(new_tracks)
             created_count = len(new_tracks)
 
-        failed_count = len(unique_ids) - existing_count - reused_count - created_count
+        failed_count = (
+            len(unique_ids)
+            - existing_count
+            - reused_count
+            - created_count
+            - suppressed_count
+        )
         metrics = TrackResolutionMetrics(
             existing=existing_count,
             reused=reused_count,
             created=created_count,
             failed=failed_count,
+            suppressed=suppressed_count,
         )
 
         logger.info(
-            f"{self.connector_name} resolution: {metrics.existing} existing, {metrics.reused} reused, {metrics.created} created, {metrics.failed} failed"
+            f"{self.connector_name} resolution: {metrics.existing} existing, {metrics.reused} reused, {metrics.created} created, {metrics.failed} failed, {metrics.suppressed} suppressed"
         )
 
         return result, metrics

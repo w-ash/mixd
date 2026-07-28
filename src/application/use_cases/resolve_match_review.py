@@ -10,10 +10,13 @@ from uuid import UUID
 
 from attrs import define
 
+from src.application.use_cases._shared.event_log import apply_with_event_log
 from src.config import get_logger
 from src.config.constants import MappingOrigin, ReviewStatus
 from src.domain.entities.match_review import MatchReview
 from src.domain.exceptions import NotFoundError
+from src.domain.matching.content_digest import connector_side
+from src.domain.repositories.resolution import RejectionCandidate, ResolutionDecision
 from src.domain.repositories.uow import UnitOfWorkProtocol
 
 logger = get_logger(__name__)
@@ -57,6 +60,8 @@ class ResolveMatchReviewUseCase:
             )
 
         mapping_created = False
+        recorder = uow.get_resolution_recorder()
+        decisions: list[ResolutionDecision] = []
 
         if command.action == "accept":
             # Create a real track mapping via the connector repository
@@ -102,6 +107,9 @@ class ResolveMatchReviewUseCase:
             new_status = ReviewStatus.ACCEPTED
         else:
             new_status = ReviewStatus.REJECTED
+            decisions = await self._remember_human_rejection(
+                review, uow, user_id=command.user_id
+            )
             logger.info(
                 "Rejected match review",
                 review_id=command.review_id,
@@ -111,12 +119,81 @@ class ResolveMatchReviewUseCase:
         updated_review = await review_repo.update_review_status(
             command.review_id, new_status
         )
-        await uow.commit()
+        # The status flip is the change; its events ride the same commit. On
+        # accept the list is empty because the mapping write already emitted
+        # `manual_override` from the seam — one decision, one event, and the
+        # use case does not get to write a second version of it.
+        _ = await apply_with_event_log(
+            uow,
+            changed=True,
+            events=recorder.build_events(decisions, user_id=command.user_id),
+            add_events=recorder.write_events,
+            user_id=command.user_id,
+        )
 
         return ResolveMatchReviewResult(
             review=updated_review,
             mapping_created=mapping_created,
         )
+
+    @staticmethod
+    async def _remember_human_rejection(
+        review: MatchReview, uow: UnitOfWorkProtocol, *, user_id: str
+    ) -> list[ResolutionDecision]:
+        """Turn a human "no" into a sticky cannot-link; return its event.
+
+        A person looked at this pair and said they are not the same recording.
+        That is the strongest negative evidence mixd will ever hold, so it
+        outranks any TTL: the pair comes back only if the matcher version
+        changes, either side's metadata changes, or someone explicitly
+        un-rejects it. The accept path needs no event of its own — the mapping
+        write emits ``manual_override`` from the one seam.
+        """
+        recorder = uow.get_resolution_recorder()
+        decisions = [
+            ResolutionDecision(
+                event_type="rejected",
+                connector_name=review.connector_name,
+                connector_track_id=review.connector_track_id,
+                track_id=review.track_id,
+                confidence=review.confidence,
+                zone="review",
+                # Every gray-zone match is offered to the queue today, so
+                # the candidate's probability of being seen is 1.0.
+                selection_probability=1.0,
+                payload={"source": "review_queue", "review_id": str(review.id)},
+            )
+        ]
+
+        connector_repo = uow.get_connector_repository()
+        ct = await connector_repo.get_connector_track_by_id(review.connector_track_id)
+        if ct is None:
+            # The connector track is gone; the event still stands as the record
+            # of the verdict, but there is nothing left to key a constraint to.
+            return decisions
+        try:
+            track = await uow.get_track_repository().get_track_by_id(
+                review.track_id, user_id=user_id
+            )
+        except NotFoundError:
+            # Mirror the connector-track guard above: the canonical was merged
+            # away or deleted between queueing and reviewing. The verdict is
+            # still a fact worth logging; there is simply no pair left to
+            # constrain, and raising here would turn a stale queue row into a
+            # failed review action the user cannot clear.
+            logger.warning(
+                "Reviewed track no longer exists — recording verdict without a "
+                "cannot-link entry",
+                review_id=str(review.id),
+                track_id=str(review.track_id),
+            )
+            return decisions
+        _ = await recorder.remember_rejections(
+            [RejectionCandidate(connector=connector_side(ct), candidate_track=track)],
+            user_id=user_id,
+            connector_name=review.connector_name,
+        )
+        return decisions
 
     @staticmethod
     async def _merge_deferred_canonical(

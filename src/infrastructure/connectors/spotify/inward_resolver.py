@@ -26,11 +26,13 @@ from src.config import get_logger, settings
 from src.config.constants import MatchMethod, SpotifyConstants
 from src.domain.entities import Artist, Track
 from src.domain.entities.shared import JsonValue
+from src.domain.matching.content_digest import DigestSide
 from src.domain.matching.evaluation_service import TrackMatchEvaluationService
 from src.domain.matching.isrc_validation import (
     assess_isrc_match_reliability,
     compute_duration_diff_ms,
 )
+from src.domain.repositories.resolution import ResolutionDecision
 from src.domain.repositories.uow import UnitOfWorkProtocol
 from src.infrastructure.connectors._shared.inward_track_resolver import (
     InwardTrackResolver,
@@ -280,6 +282,15 @@ class SpotifyInwardResolver(InwardTrackResolver):
             except Exception as e:
                 logger.error(f"Failed to create track for {spotify_id}: {e}")
 
+        # Absence is Spotify's only death signal, and it lies: the measured
+        # transient band for a spurious 404 is seconds to minutes. So an id the
+        # API declined to return is recorded as *suspect* and the debounce
+        # decides — three failures spanning nine days before anything is
+        # retired (FM4f; IABot's contract).
+        absent_ids = [sid for sid in missing_ids if sid not in spotify_metadata]
+        if absent_ids:
+            await self._note_absent_ids(absent_ids, uow, user_id=user_id)
+
         # Fallback: resolve dead IDs via artist+title search
         dead_ids = [sid for sid in missing_ids if sid not in result]
         if dead_ids and self._fallback_hints:
@@ -287,7 +298,67 @@ class SpotifyInwardResolver(InwardTrackResolver):
             result.update(fallback_tracks)
             self._fallback_resolved_ids.update(fallback_tracks.keys())
 
+        # Any success clears the backoff, on either clock. The suspect streak
+        # needs no clearing at all — it is re-derived from the events, bounded
+        # by the most recent success, so recording one truncates the window.
+        #
+        # A *fallback* resolution is not a success for the id that was asked
+        # about: the search found some other recording and mapped it as a
+        # stand-in, while the requested id is still absent from the provider.
+        # Clearing its backoff would re-ask for it on the next import forever,
+        # which is precisely the amnesia the clock exists to end.
+        directly_resolved = [
+            spotify_id
+            for spotify_id in result
+            if spotify_id not in self._fallback_resolved_ids
+        ]
+        if directly_resolved:
+            _ = await uow.get_resolution_recorder().clear_negatives(
+                directly_resolved, user_id=user_id, connector_name="spotify"
+            )
+
         return result
+
+    async def _note_absent_ids(
+        self, absent_ids: list[str], uow: UnitOfWorkProtocol, *, user_id: str
+    ) -> None:
+        """Record the two clocks an absent id starts, which run in opposite directions.
+
+        *Suspicion* leans in: the streak is what the death debounce reads, and
+        it wants confirmation sooner rather than later. *Absence* backs off:
+        there is nothing to find yet, so re-asking on every import spends quota
+        to learn the same thing. Both are recorded here because an id the API
+        declines to return is simultaneously both.
+        """
+        recorder = uow.get_resolution_recorder()
+        sides = [self._absent_side(spotify_id) for spotify_id in absent_ids]
+        for side in sides:
+            dead = await recorder.note_suspect(
+                side,
+                user_id=user_id,
+                connector_name="spotify",
+                payload={
+                    "requested_id": side.identifier,
+                    "detection": "absent_from_batch",
+                },
+            )
+            if dead:
+                logger.info(
+                    "Spotify id debounced to dead — mapping retired",
+                    spotify_id=side.identifier,
+                )
+        _ = await recorder.remember_no_match(
+            sides, user_id=user_id, connector_name="spotify"
+        )
+
+    def _absent_side(self, spotify_id: str) -> DigestSide:
+        """The little that is known about an id the API would not return."""
+        hint = self._fallback_hints.get(spotify_id)
+        return DigestSide(
+            identifier=spotify_id,
+            title=hint.track_name if hint else "",
+            artists=(hint.artist_name,) if hint else (),
+        )
 
     async def _resolve_one_missing_track(
         self,
@@ -370,8 +441,50 @@ class SpotifyInwardResolver(InwardTrackResolver):
 
         if spotify_track.id != spotify_id:
             self._redirect_resolved_ids.add(spotify_id)
+            await self._record_substitution(
+                spotify_id, spotify_track.id, canonical_track, uow, user_id=user_id
+            )
 
         return canonical_track
+
+    async def _record_substitution(
+        self,
+        requested_id: str,
+        returned_id: str | None,
+        canonical_track: Track,
+        uow: UnitOfWorkProtocol,
+        *,
+        user_id: str,
+    ) -> None:
+        """Record a relink as a ``substituted`` event — never a supersession.
+
+        Spotify's own documentation says mutations must operate on the
+        *original* id, so the requested id stays valid and retiring it would
+        break writes and write-flap under a multi-market user. The dual mapping
+        already caches both ids; this records the assertion that produced it.
+
+        ``market`` is null because the batch fetch sends none: relinking only
+        fires when a market is supplied, so a substitution observed without one
+        is worth being able to distinguish later (memo §10.2). The pair is
+        detected by request/response correlation — ``linked_from`` was removed
+        in Feb 2026 and the label never came back.
+        """
+        _ = await uow.get_resolution_recorder().record(
+            [
+                ResolutionDecision(
+                    event_type="substituted",
+                    connector_name="spotify",
+                    track_id=canonical_track.id,
+                    payload={
+                        "requested_id": requested_id,
+                        "returned_id": returned_id,
+                        "market": None,
+                        "detection": "id_mismatch",
+                    },
+                )
+            ],
+            user_id=user_id,
+        )
 
     async def _fallback_resolve_by_search(
         self,

@@ -19,7 +19,13 @@ cd "$(dirname "$0")/.."
 # callers and reported both as dead — failing CI's dead-code step on every run
 # since they landed. Whitelisting is the honest fix; deleting them would break
 # three test modules.
-BASE_WHITELIST=74
+# 74 → 78 at v0.10.2: the identity ledger's read surfaces (get_supersession_chain,
+# events_for_mapping), the un-reject repository method (its only caller is
+# scripts/unreject_mapping_candidate.py, and scripts/ is outside vulture's paths), and
+# SUSPECT_RECHECK_SECONDS — declared substrate for the re-validation worker the milestone
+# deliberately deferred. The same commit removed 17 other flagged names by giving them
+# real consumers, so the net movement is down.
+BASE_WHITELIST=78
 BASE_NOQA=13
 BASE_TYPE_IGNORE=0
 BASE_PYRIGHT_IGNORE=18

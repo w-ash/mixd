@@ -35,6 +35,12 @@ class ConnectorMappingSpec:
     confidence: int
     metadata: dict[str, object] | None = None
     confidence_evidence: dict[str, object] | None = None
+    # Part of the asserted decision rather than a follow-up UPDATE (v0.10.2):
+    # origin is one of the four fields that decide whether a re-assertion
+    # supersedes the incumbent, so setting it afterwards would write the
+    # supersession against the wrong value — and the old follow-up statement
+    # matched on (track, connector) and flipped sibling mappings with it.
+    origin: str = "automatic"
 
 
 @define(frozen=True, slots=True)
@@ -293,7 +299,10 @@ class ConnectorRepositoryProtocol(Protocol):
     def get_mapping_by_id(
         self, mapping_id: UUID, *, user_id: str
     ) -> Awaitable[TrackMapping | None]:
-        """Get a single track mapping by its database ID, scoped to user.
+        """Get a single live track mapping by its database ID, scoped to user.
+
+        A superseded mapping reads as absent; ``get_supersession_chain`` is the
+        way to ask for history.
 
         Args:
             mapping_id: Database ID of the mapping row.
@@ -301,6 +310,26 @@ class ConnectorRepositoryProtocol(Protocol):
 
         Returns:
             TrackMapping domain entity if found and owned by user, None otherwise.
+        """
+        ...
+
+    def get_supersession_chain(
+        self, mapping_id: UUID, *, user_id: str, max_depth: int = 32
+    ) -> Awaitable[list[TrackMapping]]:
+        """Walk a mapping's supersession chain forward, oldest first.
+
+        Answers "what did we used to believe, and what replaced it": the list
+        starts at ``mapping_id`` and follows each ``superseded_by_id`` to the
+        live successor. Depth-capped and cycle-guarded — a corrupted chain
+        terminates instead of looping.
+
+        Args:
+            mapping_id: Database ID of the mapping to start from (live or not).
+            user_id: Authenticated user ID for ownership scoping.
+            max_depth: Maximum number of rows to visit.
+
+        Returns:
+            The chain in supersession order; empty when the id is unknown.
         """
         ...
 

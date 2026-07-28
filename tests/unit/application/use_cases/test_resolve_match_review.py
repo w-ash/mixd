@@ -128,3 +128,47 @@ class TestResolveErrors:
         )
         with pytest.raises(ValueError, match="already resolved"):
             await ResolveMatchReviewUseCase().execute(command, uow)
+
+
+class TestRejectSurvivesMissingEntities:
+    """A stale queue row must not turn the user's verdict into an error.
+
+    The connector track already had this guard; the canonical track did not, so
+    a review whose track had since been merged away raised ``NotFoundError``
+    from ``get_track_by_id`` — leaving the user with a row they could neither
+    resolve nor dismiss.
+    """
+
+    @staticmethod
+    def _rejected(review: MatchReview) -> MatchReview:
+        return MatchReview(**{
+            **{
+                f.name: getattr(review, f.name)
+                for f in review.__attrs_attrs__  # type: ignore[attr-defined]
+            },
+            "status": ReviewStatus.REJECTED,
+        })
+
+    async def test_a_missing_canonical_still_records_the_verdict(self):
+        review = _make_pending_review()
+        uow = make_mock_uow()
+        review_repo = uow.get_match_review_repository()
+        review_repo.get_review_by_id.return_value = review
+        review_repo.update_review_status.return_value = self._rejected(review)
+        uow.get_connector_repository().get_connector_track_by_id.return_value = (
+            MagicMock()
+        )
+        uow.get_track_repository().get_track_by_id.side_effect = NotFoundError(
+            "track gone"
+        )
+
+        command = ResolveMatchReviewCommand(
+            user_id="test-user", review_id=1, action="reject"
+        )
+        result = await ResolveMatchReviewUseCase().execute(command, uow)
+
+        assert result.review.status == ReviewStatus.REJECTED
+        recorder = uow.get_resolution_recorder()
+        recorder.build_events.assert_called_once()
+        # No pair left to constrain — the event alone is the record.
+        recorder.remember_rejections.assert_not_awaited()

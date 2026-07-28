@@ -13,7 +13,7 @@ from src.infrastructure.connectors._shared.inward_track_resolver import (
     InwardTrackResolver,
     TrackResolutionMetrics,
 )
-from tests.fixtures import make_track
+from tests.fixtures import attach_resolution_recorder, make_track
 
 
 class FakeInwardResolver(InwardTrackResolver):
@@ -74,6 +74,8 @@ class TestAllExisting:
         track_b = make_track(2, "Song B")
 
         uow = MagicMock()
+
+        attach_resolution_recorder(uow)
         connector_repo = AsyncMock()
         connector_repo.find_tracks_by_connectors.return_value = {
             ("fake", "id_a"): track_a,
@@ -101,6 +103,8 @@ class TestAllMissing:
         track_b = make_track(2, "Song B")
 
         uow = MagicMock()
+
+        attach_resolution_recorder(uow)
         connector_repo = AsyncMock()
         connector_repo.find_tracks_by_connectors.return_value = {}
         uow.get_connector_repository.return_value = connector_repo
@@ -125,6 +129,8 @@ class TestMixed:
         new_track = make_track(2, "New")
 
         uow = MagicMock()
+
+        attach_resolution_recorder(uow)
         connector_repo = AsyncMock()
         connector_repo.find_tracks_by_connectors.return_value = {
             ("fake", "existing_id"): existing_track,
@@ -150,6 +156,8 @@ class TestCreationFailure:
         # id_b intentionally not in batch_results → failure
 
         uow = MagicMock()
+
+        attach_resolution_recorder(uow)
         connector_repo = AsyncMock()
         connector_repo.find_tracks_by_connectors.return_value = {}
         uow.get_connector_repository.return_value = connector_repo
@@ -170,6 +178,7 @@ class TestEmptyInput:
 
     async def test_empty_input_returns_empty(self):
         uow = MagicMock()
+        attach_resolution_recorder(uow)
         resolver = FakeInwardResolver()
         result, metrics = await resolver.resolve_to_canonical_tracks(
             [], uow, user_id="test-user"
@@ -188,6 +197,8 @@ class TestDeduplication:
         track = make_track(1, "Song")
 
         uow = MagicMock()
+
+        attach_resolution_recorder(uow)
         connector_repo = AsyncMock()
         connector_repo.find_tracks_by_connectors.return_value = {}
         uow.get_connector_repository.return_value = connector_repo
@@ -221,6 +232,8 @@ class TestNormalization:
         track = make_track(1)
 
         uow = MagicMock()
+
+        attach_resolution_recorder(uow)
         connector_repo = AsyncMock()
         connector_repo.find_tracks_by_connectors.return_value = {
             ("fake", "id_a"): track,
@@ -273,6 +286,8 @@ class TestTrackResolutionMetrics:
         track = make_track(1, "Song")
 
         uow = MagicMock()
+
+        attach_resolution_recorder(uow)
         connector_repo = AsyncMock()
         connector_repo.find_tracks_by_connectors.return_value = {}
         uow.get_connector_repository.return_value = connector_repo
@@ -294,6 +309,8 @@ class TestCanonicalReuseHook:
         reused_track = make_track(10, "Reused Song")
 
         uow = MagicMock()
+
+        attach_resolution_recorder(uow)
         connector_repo = AsyncMock()
         connector_repo.find_tracks_by_connectors.return_value = {}
         uow.get_connector_repository.return_value = connector_repo
@@ -316,6 +333,8 @@ class TestCanonicalReuseHook:
         created_track = make_track(20, "Created")
 
         uow = MagicMock()
+
+        attach_resolution_recorder(uow)
         connector_repo = AsyncMock()
         connector_repo.find_tracks_by_connectors.return_value = {}
         uow.get_connector_repository.return_value = connector_repo
@@ -342,6 +361,8 @@ class TestCanonicalReuseHook:
         created_track = make_track(20, "Created")
 
         uow = MagicMock()
+
+        attach_resolution_recorder(uow)
         connector_repo = AsyncMock()
         connector_repo.find_tracks_by_connectors.return_value = {
             ("fake", "id_existing"): existing_track,
@@ -371,6 +392,8 @@ class TestCanonicalReuseHook:
         track = make_track(1, "New")
 
         uow = MagicMock()
+
+        attach_resolution_recorder(uow)
         connector_repo = AsyncMock()
         connector_repo.find_tracks_by_connectors.return_value = {}
         uow.get_connector_repository.return_value = connector_repo

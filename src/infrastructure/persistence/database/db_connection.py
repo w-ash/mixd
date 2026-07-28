@@ -114,7 +114,8 @@ def create_session_factory(
     """Create an async session factory for the given engine.
 
     Registers an ``after_begin`` event that sets ``app.user_id`` on each
-    PostgreSQL transaction for Row-Level Security enforcement.
+    PostgreSQL transaction for Row-Level Security enforcement, plus the
+    ``do_orm_execute`` filter that scopes track-mapping reads to live rows.
 
     Args:
         engine: Optional engine (uses global engine if None)
@@ -122,6 +123,9 @@ def create_session_factory(
     Returns:
         Async session factory for creating properly configured sessions
     """
+    from src.infrastructure.persistence.database.live_rows import (
+        register_live_rows_filter,
+    )
     from src.infrastructure.persistence.database.user_context import (
         set_rls_user_on_begin,
     )
@@ -139,6 +143,11 @@ def create_session_factory(
     event.listen(
         factory.class_.sync_session_class, "after_begin", set_rls_user_on_begin
     )
+    # Takes no target: the helper always registers on ``orm.Session`` itself,
+    # which every sync_session_class derives from, so its idempotence guard
+    # sees the test harness's registration and this one as the same event and
+    # the criteria cannot stack.
+    register_live_rows_filter()
 
     return factory
 

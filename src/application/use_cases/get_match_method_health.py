@@ -19,6 +19,7 @@ from attrs import define
 from src.config.constants import MatchMethod
 from src.domain.repositories.connector import ConnectorRepositoryProtocol
 from src.domain.repositories.match_review import MatchReviewRepositoryProtocol
+from src.domain.repositories.resolution import ResolutionNegativeRepositoryProtocol
 from src.domain.repositories.uow import UnitOfWorkProtocol
 
 # Review-inflow windows for the drift panel (days).
@@ -84,6 +85,12 @@ class MatchingDrift:
     isrc_suspect_pending_count: int
     confidence_evidence_divergence_count: int
     stale_denormalized_ids_count: int
+    # The negative cache's own size (v0.10.2). A sticky cannot-link store has
+    # no clock-based expiry, so it only ever grows; watching it grow is how the
+    # documented failure (silent undermatching) is caught before users report
+    # missing matches.
+    rejected_pairs_active: int
+    no_match_pending: int
 
 
 @define(frozen=True, slots=True)
@@ -140,7 +147,11 @@ class GetMatchMethodHealthUseCase:
             ]
 
             drift = await _compute_drift(
-                connector_repo, review_repo, command.user_id, stats
+                connector_repo,
+                review_repo,
+                uow.get_resolution_negative_repository(),
+                command.user_id,
+                stats,
             )
 
             return MatchMethodHealthResult(
@@ -154,11 +165,13 @@ class GetMatchMethodHealthUseCase:
 async def _compute_drift(
     connector_repo: ConnectorRepositoryProtocol,
     review_repo: MatchReviewRepositoryProtocol,
+    negative_repo: ResolutionNegativeRepositoryProtocol,
     user_id: str,
     stats: list[MethodHealthStat],
 ) -> MatchingDrift:
     """Assemble the drift-signals panel from repo queries + the stats already fetched."""
     pending_by_method = await review_repo.count_pending_by_method(user_id=user_id)
+    cache_size = await negative_repo.count_active_negatives(user_id=user_id)
     # list_pending_reviews already returns the pending total — reuse it for
     # review_pending_depth instead of a second identical count_pending() query.
     oldest_reviews, pending_depth = await review_repo.list_pending_reviews(
@@ -187,6 +200,8 @@ async def _compute_drift(
         stale_denormalized_ids_count=(
             await connector_repo.count_stale_denormalized_ids(user_id=user_id)
         ),
+        rejected_pairs_active=cache_size.rejected_pairs_active,
+        no_match_pending=cache_size.no_match_pending,
     )
 
 

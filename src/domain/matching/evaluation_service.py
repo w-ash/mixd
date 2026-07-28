@@ -157,7 +157,12 @@ class TrackMatchEvaluationService:
         Classifies each match into one of three zones:
         - **Auto-accept**: confidence >= auto_accept_threshold → accepted immediately
         - **Review**: review_threshold <= confidence < auto_accept_threshold → queued for human review
-        - **Auto-reject**: confidence < review_threshold → silently discarded
+        - **Auto-reject**: confidence < review_threshold → returned as ``rejected``
+
+        Rejections and no-matches are *returned*, not merely logged: they are
+        the raw material of the negative cache, and a decision that only ever
+        reached a log line is a decision the next import cannot learn from.
+        This service stays pure — it names the outcomes, the seam persists them.
 
         Args:
             tracks: List of internal track entities.
@@ -165,13 +170,17 @@ class TrackMatchEvaluationService:
             connector: Name of the external service connector.
 
         Returns:
-            EvaluationResult with accepted matches and review candidates.
+            EvaluationResult with all four outcomes: accepted, review
+            candidates, rejected candidates, and tracks with no match at all.
         """
         accepted: MatchResultsById = {}
         review_candidates: MatchResultsById = {}
+        rejected: list[MatchResult] = []
+        no_match_track_ids: list[UUID] = []
 
         for track in tracks:
             if track.id not in raw_matches:
+                no_match_track_ids.append(track.id)
                 continue
 
             raw_match = raw_matches[track.id]
@@ -196,6 +205,7 @@ class TrackMatchEvaluationService:
                     connector=connector,
                 )
             else:
+                rejected.append(match_result)
                 logger.warning(
                     f"Match rejected: '{track.title}' by '{track.artists_display or 'Unknown'}' "
                     f"(confidence {match_result.confidence} < {self.config.review_threshold})",
@@ -206,25 +216,21 @@ class TrackMatchEvaluationService:
                     connector=connector,
                 )
 
-        # Log evaluation summary
-        total_tracks = len(tracks)
-        raw_matches_found = len(raw_matches)
-        no_matches_found = total_tracks - raw_matches_found
-        rejected = raw_matches_found - len(accepted) - len(review_candidates)
-
-        if len(accepted) > 0 or len(review_candidates) > 0:
+        if accepted or review_candidates:
             logger.info(
                 f"Match evaluation: {len(accepted)} accepted, {len(review_candidates)} for review, "
-                f"{rejected} rejected, {no_matches_found} not found ({connector})",
+                f"{len(rejected)} rejected, {len(no_match_track_ids)} not found ({connector})",
                 connector=connector,
                 accepted=len(accepted),
                 review=len(review_candidates),
-                rejected=rejected,
-                no_matches=no_matches_found,
-                total=total_tracks,
+                rejected=len(rejected),
+                no_matches=len(no_match_track_ids),
+                total=len(tracks),
             )
 
         return EvaluationResult(
             accepted=accepted,
             review_candidates=review_candidates,
+            rejected=rejected,
+            no_match_track_ids=no_match_track_ids,
         )

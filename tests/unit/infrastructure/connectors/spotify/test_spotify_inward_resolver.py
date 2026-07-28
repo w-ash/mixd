@@ -13,7 +13,11 @@ from src.infrastructure.connectors.spotify.inward_resolver import (
     SpotifyInwardResolver,
 )
 from src.infrastructure.connectors.spotify.models import SpotifyExternalIds
-from tests.fixtures import make_spotify_track, make_track
+from tests.fixtures import (
+    attach_resolution_recorder,
+    make_spotify_track,
+    make_track,
+)
 
 
 class TestBatchFetch:
@@ -29,6 +33,8 @@ class TestBatchFetch:
         resolver = SpotifyInwardResolver(spotify_connector=connector)
 
         uow = MagicMock()
+
+        attach_resolution_recorder(uow)
         track_repo = AsyncMock()
         track_repo.save_track.side_effect = [make_track(1), make_track(2)]
         uow.get_track_repository.return_value = track_repo
@@ -54,6 +60,8 @@ class TestBatchFetch:
         resolver = SpotifyInwardResolver(spotify_connector=connector)
 
         uow = MagicMock()
+
+        attach_resolution_recorder(uow)
         connector_repo = AsyncMock()
         connector_repo.find_tracks_by_connectors.return_value = {
             ("spotify", "id1"): existing,
@@ -83,6 +91,8 @@ class TestMissingMetadata:
         resolver = SpotifyInwardResolver(spotify_connector=connector)
 
         uow = MagicMock()
+
+        attach_resolution_recorder(uow)
         track_repo = AsyncMock()
         track_repo.save_track.return_value = make_track(1)
         uow.get_track_repository.return_value = track_repo
@@ -132,6 +142,8 @@ class TestRedirectDetection:
         resolver = SpotifyInwardResolver(spotify_connector=connector)
 
         uow = MagicMock()
+
+        attach_resolution_recorder(uow)
         track_repo = AsyncMock()
         saved_track = make_track(1)
         track_repo.save_track.return_value = saved_track
@@ -182,6 +194,8 @@ class TestRedirectDetection:
         resolver = SpotifyInwardResolver(spotify_connector=connector)
 
         uow = MagicMock()
+
+        attach_resolution_recorder(uow)
         track_repo = AsyncMock()
         track_repo.save_track.return_value = make_track(1)
         uow.get_track_repository.return_value = track_repo
@@ -207,6 +221,8 @@ class TestRedirectDetection:
         resolver = SpotifyInwardResolver(spotify_connector=connector)
 
         uow = MagicMock()
+
+        attach_resolution_recorder(uow)
         track_repo = AsyncMock()
         track_repo.save_track.return_value = make_track(1)
         uow.get_track_repository.return_value = track_repo
@@ -226,6 +242,7 @@ class TestRedirectDetection:
 def _make_uow_with_repos():
     """Create a UoW mock with track and connector repos wired."""
     uow = MagicMock()
+    attach_resolution_recorder(uow)
     track_repo = AsyncMock()
     track_repo.save_track.return_value = make_track(1)
     track_repo.find_tracks_by_title_artist.return_value = {}
@@ -817,3 +834,58 @@ class TestISRCSuspectGuard:
         map_calls = connector_repo.map_track_to_connector.call_args_list
         assert any(call.args[3] == MatchMethod.ISRC_MATCH for call in map_calls)
         track_repo.save_track.assert_not_called()
+
+
+class TestFallbackDoesNotClearItsOwnBackoff:
+    """A stand-in found by search is not an answer about the id that was asked."""
+
+    async def test_a_fallback_resolved_dead_id_keeps_its_backoff(self):
+        """Clearing it would re-ask the provider for the same dead id forever.
+
+        The fallback search resolved *a different recording* and mapped it as a
+        substitute; the requested id is still absent upstream, which is exactly
+        the state the no-match clock exists to remember.
+        """
+        dead_id = "dead_id_000000000000000"
+        live_id = "live_id_000000000000000"
+        found_id = "found_id_00000000000000"
+
+        connector = AsyncMock()
+        connector.get_tracks_by_ids.return_value = {
+            live_id: make_spotify_track(live_id, "Present Song"),
+        }
+        connector.search_track.return_value = [make_spotify_track(found_id, "My Song")]
+
+        resolver = SpotifyInwardResolver(spotify_connector=connector)
+        uow, _, _ = _make_uow_with_repos()
+        recorder = attach_resolution_recorder(uow)
+
+        hints = {dead_id: FallbackHint(artist_name="Artist", track_name="My Song")}
+        result, _ = await resolver.resolve_to_canonical_tracks(
+            [live_id, dead_id], uow, fallback_hints=hints, user_id="test-user"
+        )
+
+        assert set(result) == {live_id, dead_id}
+        assert resolver.fallback_resolved_ids == {dead_id}
+        recorder.clear_negatives.assert_awaited_once()
+        cleared = recorder.clear_negatives.await_args.args[0]
+        assert list(cleared) == [live_id]
+
+    async def test_nothing_is_cleared_when_every_id_came_from_fallback(self):
+        dead_id = "dead_id_000000000000000"
+        found_id = "found_id_00000000000000"
+
+        connector = AsyncMock()
+        connector.get_tracks_by_ids.return_value = {}
+        connector.search_track.return_value = [make_spotify_track(found_id, "My Song")]
+
+        resolver = SpotifyInwardResolver(spotify_connector=connector)
+        uow, _, _ = _make_uow_with_repos()
+        recorder = attach_resolution_recorder(uow)
+
+        hints = {dead_id: FallbackHint(artist_name="Artist", track_name="My Song")}
+        _ = await resolver.resolve_to_canonical_tracks(
+            [dead_id], uow, fallback_hints=hints, user_id="test-user"
+        )
+
+        recorder.clear_negatives.assert_not_awaited()

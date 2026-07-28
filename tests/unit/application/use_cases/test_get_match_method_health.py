@@ -309,3 +309,24 @@ class TestMatchMethodHealthDrift:
 
         assert result.drift.confidence_evidence_divergence_count == 7
         assert result.drift.stale_denormalized_ids_count == 12
+
+    async def test_negative_cache_size_reaches_the_drift_panel(self, mock_uow):
+        """The cache's own size is a monitored metric, not an internal detail.
+
+        A cannot-link store with no clock-based expiry only grows, and the
+        documented failure (Reltio's) is silent undermatching as it does — so
+        the number has to be visible next to review throughput.
+        """
+        from src.domain.repositories.resolution import NegativeCacheSize
+
+        negatives = mock_uow.get_resolution_negative_repository()
+        negatives.count_active_negatives.return_value = NegativeCacheSize(
+            rejected_pairs_active=41, no_match_pending=7
+        )
+
+        result = await GetMatchMethodHealthUseCase().execute(
+            GetMatchMethodHealthCommand(user_id="test-user"), mock_uow
+        )
+
+        assert result.drift.rejected_pairs_active == 41
+        assert result.drift.no_match_pending == 7

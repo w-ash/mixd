@@ -406,69 +406,70 @@ class TestMatchAndIdentifyTracksProgress:
         identity_service.get_raw_external_matches.assert_not_called()
 
 
+@pytest.fixture
+def review_setup(mock_connector):
+    """Set up tracks and review candidates for review persistence tests."""
+    tracks = [make_track(), make_track()]
+    tracklist = TrackList(tracks=tracks)
+
+    # Build review candidates with realistic service_data
+    ct_id_0 = uuid7()
+    ct_id_1 = uuid7()
+
+    review_candidates = {
+        tracks[0].id: MatchResult(
+            track=tracks[0],
+            success=False,
+            review_required=True,
+            connector_id="sp_track_abc",
+            confidence=65,
+            match_method="artist_title",
+            service_data={
+                "title": "Close Match",
+                "artists": ["Artist A"],
+                "album": "Album X",
+                "duration_ms": 240000,
+                "isrc": "USRC12345678",
+            },
+            evidence=ConfidenceEvidence(
+                base_score=60,
+                title_similarity=0.85,
+                artist_similarity=0.90,
+                match_weight=3.5,
+                final_score=65,
+            ),
+        ),
+        tracks[1].id: MatchResult(
+            track=tracks[1],
+            success=False,
+            review_required=True,
+            connector_id="sp_track_def",
+            confidence=55,
+            match_method="artist_title",
+            service_data={
+                "title": "Maybe Match",
+                "artists": ["Artist B"],
+            },
+        ),
+    }
+
+    # Map connector IDs to database UUIDs
+    ct_id_map = {
+        ("spotify", "sp_track_abc"): ct_id_0,
+        ("spotify", "sp_track_def"): ct_id_1,
+    }
+
+    return {
+        "tracks": tracks,
+        "tracklist": tracklist,
+        "review_candidates": review_candidates,
+        "ct_id_map": ct_id_map,
+        "ct_ids": (ct_id_0, ct_id_1),
+    }
+
+
 class TestPersistReviewCandidates:
     """Test review candidate persistence through the use case execute path."""
-
-    @pytest.fixture
-    def review_setup(self, mock_connector):
-        """Set up tracks and review candidates for review persistence tests."""
-        tracks = [make_track(), make_track()]
-        tracklist = TrackList(tracks=tracks)
-
-        # Build review candidates with realistic service_data
-        ct_id_0 = uuid7()
-        ct_id_1 = uuid7()
-
-        review_candidates = {
-            tracks[0].id: MatchResult(
-                track=tracks[0],
-                success=False,
-                review_required=True,
-                connector_id="sp_track_abc",
-                confidence=65,
-                match_method="artist_title",
-                service_data={
-                    "title": "Close Match",
-                    "artists": ["Artist A"],
-                    "album": "Album X",
-                    "duration_ms": 240000,
-                    "isrc": "USRC12345678",
-                },
-                evidence=ConfidenceEvidence(
-                    base_score=60,
-                    title_similarity=0.85,
-                    artist_similarity=0.90,
-                    match_weight=3.5,
-                    final_score=65,
-                ),
-            ),
-            tracks[1].id: MatchResult(
-                track=tracks[1],
-                success=False,
-                review_required=True,
-                connector_id="sp_track_def",
-                confidence=55,
-                match_method="artist_title",
-                service_data={
-                    "title": "Maybe Match",
-                    "artists": ["Artist B"],
-                },
-            ),
-        }
-
-        # Map connector IDs to database UUIDs
-        ct_id_map = {
-            ("spotify", "sp_track_abc"): ct_id_0,
-            ("spotify", "sp_track_def"): ct_id_1,
-        }
-
-        return {
-            "tracks": tracks,
-            "tracklist": tracklist,
-            "review_candidates": review_candidates,
-            "ct_id_map": ct_id_map,
-            "ct_ids": (ct_id_0, ct_id_1),
-        }
 
     async def test_review_candidates_persisted(
         self, mock_uow, mock_connector, review_setup
@@ -611,3 +612,91 @@ class TestPersistReviewCandidates:
         connector_repo.ensure_connector_tracks.assert_not_called()
         review_repo = uow.get_match_review_repository()
         review_repo.create_reviews_batch.assert_not_called()
+
+
+class TestReviewQueueConsultsTheCannotLinkStore:
+    """A verdict already given must not come back as a question.
+
+    The accept path has consulted the store since v0.10.2; the queue did not,
+    so the one pair a human had actually looked at and refused was the one that
+    kept reappearing — and re-queueing it also spends the scarcest thing mixd
+    has, which is the user's attention.
+    """
+
+    async def test_a_rejected_pair_is_not_re_queued(
+        self, mock_uow, mock_connector, review_setup
+    ):
+        uow = mock_uow
+        connector_repo = uow.get_connector_repository()
+        connector_repo.ensure_connector_tracks.return_value = review_setup["ct_id_map"]
+        review_repo = uow.get_match_review_repository()
+        review_repo.create_reviews_batch.return_value = 1
+
+        recorder = uow.get_resolution_recorder()
+        rejected_track = review_setup["tracks"][0]
+        recorder.active_rejections.return_value = frozenset({
+            ("sp_track_abc", rejected_track.id)
+        })
+
+        evaluation = EvaluationResult(
+            accepted={}, review_candidates=review_setup["review_candidates"]
+        )
+        command = MatchAndIdentifyTracksCommand(
+            user_id="test-user",
+            tracklist=review_setup["tracklist"],
+            connector="spotify",
+            connector_instance=mock_connector,
+        )
+        use_case = MatchAndIdentifyTracksUseCase()
+
+        with patch.object(
+            MatchAndIdentifyTracksUseCase, "_evaluation_service", create=True
+        ) as mock_eval:
+            mock_eval.evaluate_raw_matches.return_value = evaluation
+            result = await use_case.execute(command, uow)
+
+        assert not result.errors
+        reviews = review_repo.create_reviews_batch.call_args[0][0]
+        assert [r.track_id for r in reviews] == [review_setup["tracks"][1].id]
+        # …and no `queued` event is written for the pair that was dropped.
+        queued = [
+            decision
+            for call in recorder.record.await_args_list
+            for decision in call.args[0]
+            if decision.event_type == "queued"
+        ]
+        assert [decision.track_id for decision in queued] == [
+            review_setup["tracks"][1].id
+        ]
+
+    async def test_nothing_is_queued_when_every_candidate_is_rejected(
+        self, mock_uow, mock_connector, review_setup
+    ):
+        uow = mock_uow
+        review_repo = uow.get_match_review_repository()
+        recorder = uow.get_resolution_recorder()
+        recorder.active_rejections.return_value = frozenset({
+            ("sp_track_abc", review_setup["tracks"][0].id),
+            ("sp_track_def", review_setup["tracks"][1].id),
+        })
+
+        evaluation = EvaluationResult(
+            accepted={}, review_candidates=review_setup["review_candidates"]
+        )
+        command = MatchAndIdentifyTracksCommand(
+            user_id="test-user",
+            tracklist=review_setup["tracklist"],
+            connector="spotify",
+            connector_instance=mock_connector,
+        )
+        use_case = MatchAndIdentifyTracksUseCase()
+
+        with patch.object(
+            MatchAndIdentifyTracksUseCase, "_evaluation_service", create=True
+        ) as mock_eval:
+            mock_eval.evaluate_raw_matches.return_value = evaluation
+            result = await use_case.execute(command, uow)
+
+        assert not result.errors
+        review_repo.create_reviews_batch.assert_not_called()
+        uow.get_connector_repository().ensure_connector_tracks.assert_not_called()

@@ -249,6 +249,10 @@ def _render_drift_panel(drift: MatchingDrift) -> None:
             f"{drift.confidence_evidence_divergence_count}"
         ),
         f"[cyan]Stale denormalized IDs:[/cyan] {drift.stale_denormalized_ids_count}",
+        (
+            f"[cyan]Negative cache:[/cyan] rejected pairs={drift.rejected_pairs_active}, "
+            f"no-match backoff pending={drift.no_match_pending}"
+        ),
     ])
 
     console.print(

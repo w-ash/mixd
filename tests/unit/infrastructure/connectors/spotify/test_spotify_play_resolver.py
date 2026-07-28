@@ -15,6 +15,7 @@ from src.infrastructure.connectors.spotify.play_resolver import (
     SpotifyConnectorPlayResolver,
     should_include_spotify_play,
 )
+from tests.fixtures import attach_resolution_recorder
 from tests.fixtures.factories import make_spotify_track, make_track
 
 
@@ -88,6 +89,7 @@ class TestResolverEmptyInput:
     async def test_empty_plays_returns_empty_result(self):
         resolver = SpotifyConnectorPlayResolver(spotify_connector=MagicMock())
         uow = MagicMock()
+        attach_resolution_recorder(uow)
 
         outcome = await resolver.resolve_connector_plays([], uow, user_id="test-user")
         plays, metrics = outcome.track_plays, outcome.metrics
@@ -108,6 +110,8 @@ class TestResolverFiltering:
         resolver = SpotifyConnectorPlayResolver(spotify_connector=connector)
 
         uow = MagicMock()
+
+        attach_resolution_recorder(uow)
         # Existing connector mappings return a canonical track
         canonical_track = make_track(duration_ms=300000)  # 5-minute track
         connector_repo = AsyncMock()
@@ -191,6 +195,8 @@ class TestResolverContextKeys:
         resolver = SpotifyConnectorPlayResolver(spotify_connector=connector)
 
         uow = MagicMock()
+
+        attach_resolution_recorder(uow)
         connector_repo = AsyncMock()
         connector_repo.find_tracks_by_connectors.return_value = {
             ("spotify", "4iV5W9uYEdYUVa79Axb7Rh"): make_track(duration_ms=300000),
@@ -230,6 +236,8 @@ class TestResolverContextKeys:
         resolver = SpotifyConnectorPlayResolver(spotify_connector=connector)
 
         uow = MagicMock()
+
+        attach_resolution_recorder(uow)
         connector_repo = AsyncMock()
         connector_repo.find_tracks_by_connectors.return_value = {
             ("spotify", "4iV5W9uYEdYUVa79Axb7Rh"): make_track(duration_ms=300000),
@@ -255,6 +263,7 @@ class TestResolverTrackResolution:
 
         canonical = make_track(id=42)
         uow = MagicMock()
+        attach_resolution_recorder(uow)
         connector_repo = AsyncMock()
         connector_repo.find_tracks_by_connectors.return_value = {
             ("spotify", "4iV5W9uYEdYUVa79Axb7Rh"): canonical,
@@ -281,6 +290,8 @@ class TestResolverTrackResolution:
         resolver = SpotifyConnectorPlayResolver(spotify_connector=connector)
 
         uow = MagicMock()
+
+        attach_resolution_recorder(uow)
         # No existing mappings
         connector_repo = AsyncMock()
         connector_repo.find_tracks_by_connectors.return_value = {}
@@ -310,6 +321,8 @@ class TestResolverTrackResolution:
         resolver = SpotifyConnectorPlayResolver(spotify_connector=connector)
 
         uow = MagicMock()
+
+        attach_resolution_recorder(uow)
         connector_repo = AsyncMock()
         connector_repo.find_tracks_by_connectors.return_value = {}
         uow.get_connector_repository.return_value = connector_repo
@@ -336,6 +349,7 @@ class TestResolverTrackResolution:
         # Track URI that doesn't match spotify:track: pattern
         play = _make_connector_play(track_uri="invalid:uri:format")
         uow = MagicMock()
+        attach_resolution_recorder(uow)
 
         outcome = await resolver.resolve_connector_plays(
             [play], uow, user_id="test-user"
@@ -356,6 +370,8 @@ class TestFallbackHintsIntegration:
         resolver = SpotifyConnectorPlayResolver(spotify_connector=connector)
 
         uow = MagicMock()
+
+        attach_resolution_recorder(uow)
         connector_repo = AsyncMock()
         connector_repo.find_tracks_by_connectors.return_value = {}
         uow.get_connector_repository.return_value = connector_repo
@@ -385,6 +401,8 @@ class TestFallbackHintsIntegration:
         resolver = SpotifyConnectorPlayResolver(spotify_connector=connector)
 
         uow = MagicMock()
+
+        attach_resolution_recorder(uow)
         connector_repo = AsyncMock()
         connector_repo.find_tracks_by_connectors.return_value = {}
         uow.get_connector_repository.return_value = connector_repo
@@ -422,6 +440,8 @@ class TestRedirectResolvedPlays:
         resolver = SpotifyConnectorPlayResolver(spotify_connector=connector)
 
         uow = MagicMock()
+
+        attach_resolution_recorder(uow)
         connector_repo = AsyncMock()
         connector_repo.find_tracks_by_connectors.return_value = {}
         uow.get_connector_repository.return_value = connector_repo
@@ -451,6 +471,8 @@ class TestRedirectResolvedPlays:
         resolver = SpotifyConnectorPlayResolver(spotify_connector=connector)
 
         uow = MagicMock()
+
+        attach_resolution_recorder(uow)
         connector_repo = AsyncMock()
         connector_repo.find_tracks_by_connectors.return_value = {}
         uow.get_connector_repository.return_value = connector_repo
@@ -474,6 +496,7 @@ class TestResolverMetrics:
     async def test_metrics_include_all_expected_keys(self):
         resolver = SpotifyConnectorPlayResolver(spotify_connector=MagicMock())
         uow = MagicMock()
+        attach_resolution_recorder(uow)
 
         outcome = await resolver.resolve_connector_plays([], uow, user_id="test-user")
         _, metrics = outcome.track_plays, outcome.metrics
@@ -504,6 +527,7 @@ class TestResolverMetrics:
 
         canonical = make_track(id=1, duration_ms=300000)
         uow = MagicMock()
+        attach_resolution_recorder(uow)
         connector_repo = AsyncMock()
         connector_repo.find_tracks_by_connectors.return_value = {
             ("spotify", "4iV5W9uYEdYUVa79Axb7Rh"): canonical,

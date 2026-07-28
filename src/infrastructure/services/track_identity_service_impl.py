@@ -10,8 +10,10 @@ from uuid import UUID
 
 from src.config import get_logger
 from src.domain.entities import Track
+from src.domain.matching.content_digest import service_side
 from src.domain.matching.protocols import MatchProvider
 from src.domain.matching.types import (
+    MatchResult,
     MatchResultsById,
     ProgressCallback,
     ProviderMatchResult,
@@ -20,6 +22,10 @@ from src.domain.matching.types import (
 from src.domain.repositories.connector import (
     ConnectorMappingSpec,
     ConnectorRepositoryProtocol,
+)
+from src.domain.repositories.resolution import (
+    RejectionCandidate,
+    ResolutionRecorderProtocol,
 )
 from src.domain.repositories.track import (
     TrackIdentityServiceProtocol,
@@ -45,16 +51,25 @@ class TrackIdentityServiceImpl(TrackIdentityServiceProtocol):
 
     track_repo: TrackRepositoryProtocol
     connector_repo: ConnectorRepositoryProtocol
+    _recorder: ResolutionRecorderProtocol | None
     _provider_factories: dict[str, Callable[[object], MatchProvider]]
 
     def __init__(
         self,
         track_repo: TrackRepositoryProtocol,
         connector_repo: ConnectorRepositoryProtocol,
+        recorder: ResolutionRecorderProtocol | None = None,
     ) -> None:
-        """Initialize with repository dependencies."""
+        """Initialize with repository dependencies.
+
+        ``recorder`` is optional so unit tests that only exercise the provider
+        plumbing need not build one; with it absent the negative cache simply
+        does not suppress anything, which is the safe direction (a candidate is
+        re-proposed rather than a real match silently withheld).
+        """
         self.track_repo = track_repo
         self.connector_repo = connector_repo
+        self._recorder = recorder
 
         # Lambda factories cast the generic connector_instance to each provider's
         # concrete client type, bridging heterogeneous __init__ signatures type-safely.
@@ -144,7 +159,18 @@ class TrackIdentityServiceImpl(TrackIdentityServiceProtocol):
     async def persist_identity_mappings(
         self, matches: MatchResultsById, connector: str
     ) -> None:
-        """Save identity mappings to database."""
+        """Persist accepted mappings, minus any pair the user already refused.
+
+        The negative cache is consulted *before* writing, not after: a pair
+        that was rejected under this same matcher version and unchanged
+        metadata is a decision mixd already has, and re-asserting it would
+        re-propose the same wrong match on every import — the amnesia the cache
+        exists to end. The mapping write itself emits the ``accepted`` events
+        (one seam, in ``map_tracks_to_connectors``).
+        """
+        accepted = await self._drop_rejected_pairs(matches, connector)
+        if not accepted:
+            return
         mappings = [
             ConnectorMappingSpec(
                 track=mr.track,
@@ -154,6 +180,42 @@ class TrackIdentityServiceImpl(TrackIdentityServiceProtocol):
                 confidence=mr.confidence,
                 confidence_evidence=mr.evidence_dict,
             )
-            for mr in matches.values()
+            for mr in accepted
         ]
         await self.connector_repo.map_tracks_to_connectors(mappings)
+
+    async def _drop_rejected_pairs(
+        self, matches: MatchResultsById, connector: str
+    ) -> list[MatchResult]:
+        """Filter out matches whose pair is an active cannot-link constraint."""
+        candidates = list(matches.values())
+        if self._recorder is None or not candidates:
+            return candidates
+
+        user_id = candidates[0].track.user_id
+        rejections = [
+            RejectionCandidate(
+                connector=service_side(match.connector_id, match.service_data),
+                candidate_track=match.track,
+                confidence=match.confidence,
+            )
+            for match in candidates
+        ]
+        suppressed = await self._recorder.active_rejections(
+            rejections, user_id=user_id, connector_name=connector
+        )
+        if not suppressed:
+            return candidates
+
+        kept = [
+            match
+            for match in candidates
+            if (match.connector_id, match.track.id) not in suppressed
+        ]
+        logger.info(
+            "Suppressed previously-rejected identity pairs",
+            connector=connector,
+            suppressed=len(candidates) - len(kept),
+            proposed=len(candidates),
+        )
+        return kept

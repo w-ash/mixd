@@ -5,7 +5,7 @@ Split from the former monolithic ``interfaces.py``.
 
 from collections.abc import Awaitable, Sequence
 from datetime import datetime
-from typing import TYPE_CHECKING, Literal, Protocol, TypedDict
+from typing import TYPE_CHECKING, Literal, NamedTuple, Protocol, TypedDict
 from uuid import UUID
 
 from src.domain.entities import (
@@ -33,6 +33,21 @@ class TrackFacets(TypedDict):
     preference: dict[str, int]  # "star"|"yah"|"hmm"|"nah"|"unrated" → count
     liked: dict[str, int]  # "true"|"false" → count
     connector: dict[str, int]
+
+
+class ConflationEdge(NamedTuple):
+    """A mapping a merge retired, and the winner's mapping that replaced it.
+
+    Returned by ``merge_mappings_to_track`` so the caller can record the
+    supersession as an event in the same transaction. The tenancy travels with
+    the edge because a merge can span users and connectors, and an event's
+    owner has to come from the row it describes.
+    """
+
+    predecessor_id: UUID
+    successor_id: UUID
+    user_id: str
+    connector_name: str
 
 
 class TrackListingPage(TypedDict):
@@ -95,16 +110,27 @@ class TrackRepositoryProtocol(Protocol):
         """
         ...
 
-    def merge_mappings_to_track(self, from_id: UUID, to_id: UUID) -> Awaitable[None]:
-        """Merge connector mappings from one track to another with conflict resolution.
+    def merge_mappings_to_track(
+        self, from_id: UUID, to_id: UUID
+    ) -> Awaitable[list[ConflationEdge]]:
+        """Merge connector mappings from one track to another, append-only.
 
         Handles two cases:
-        - Same connector + same external ID: keep the higher-confidence mapping
-        - Same connector + different external IDs: keep both, destination's stays primary
+        - Same connector + same external ID: the loser is *retired* into the
+          winner (``conflation``), never deleted — the history of a merged
+          mapping outlives the track it was merged from.
+        - Same connector + different external IDs: keep both, destination's
+          stays primary.
+
+        Superseded rows follow their track and are otherwise untouched; no
+        decision field is rewritten in place on any row.
 
         Args:
             from_id: Source track ID whose mappings will be merged.
             to_id: Destination track ID that will receive the mappings.
+
+        Returns:
+            The conflation edges, for the caller to record as events.
         """
         ...
 

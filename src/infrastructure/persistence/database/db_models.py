@@ -320,6 +320,31 @@ class DBTrackMapping(BaseEntity):
     # connector track exists, not that the canonical match is right (FM1a).
     last_seen_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
 
+    # Supersession (v0.10.2, migration 044) — mappings are append-only: a
+    # changed re-assertion retires this row and inserts a successor rather
+    # than overwriting in place.  DEFERRABLE INITIALLY DEFERRED because the
+    # write path stamps the predecessor with an id the successor INSERT has
+    # not written yet (legal alongside ON CONFLICT: the arbiter is the unique
+    # index, and only arbiters must be non-deferrable).
+    superseded_by_id: Mapped[UuidType | None] = mapped_column(
+        PgUuidCol(as_uuid=True),
+        ForeignKey(
+            "track_mappings.id",
+            ondelete="SET NULL",
+            deferrable=True,
+            initially="DEFERRED",
+        ),
+    )
+    superseded_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    supersession_reason: Mapped[str | None] = mapped_column(String(32))
+    # None = global. A non-None value scopes the retirement to one
+    # market/storefront (contextual substitution never retires an incumbent).
+    supersession_scope: Mapped[str | None] = mapped_column(String(64))
+    # FM4a substrate: next scheduled re-verification of a live mapping. No
+    # worker reads it yet — the column exists so one can be added without a
+    # migration.
+    next_verify_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+
     # Relationships
     track: Mapped[DBTrack] = relationship(
         back_populates="mappings",
@@ -332,27 +357,54 @@ class DBTrackMapping(BaseEntity):
         lazy="raise_on_sql",
     )
 
+    # MUST mirror migration 044 exactly: integration tests build the schema
+    # with ``metadata.create_all``, not the migration chain, so any divergence
+    # means every integration test runs against a schema production never has.
     __table_args__: tuple[SchemaItem, ...] = (
-        # User-scoped: prevent multiple canonical tracks mapping to same connector track per user
-        UniqueConstraint(
+        # Live uniqueness (044 replaced the full unique constraint): superseded
+        # rows are history and share the key with their successor.
+        Index(
+            "uq_track_mappings_live_connector",
             "user_id",
             "connector_track_id",
             "connector_name",
-            name="uq_track_mappings_user_connector",
+            unique=True,
+            postgresql_where=text("superseded_at IS NULL"),
         ),
-        # User-scoped partial unique: only one primary per user-track-connector triple
+        # User-scoped partial unique: one live primary per user-track-connector triple
         Index(
             "uq_primary_mapping",
             "user_id",
             "track_id",
             "connector_name",
             unique=True,
-            postgresql_where=text("is_primary = TRUE"),
+            postgresql_where=text("is_primary = TRUE AND superseded_at IS NULL"),
+        ),
+        # The three supersession columns move as a unit; the successor pointer
+        # is optional (retirement with no replacement).
+        CheckConstraint(
+            "(superseded_at IS NULL AND superseded_by_id IS NULL "
+            "AND supersession_reason IS NULL) "
+            "OR (superseded_at IS NOT NULL AND supersession_reason IS NOT NULL)",
+            name="supersession_coherent",
         ),
         # Performance indexes for common lookup patterns
         Index("ix_track_mappings_track_lookup", "track_id"),
         Index("ix_track_mappings_connector_lookup", "connector_track_id"),
         Index("ix_track_mappings_connector_name", "connector_name"),
+        # Live reader index; and the chain walk, which only ever visits rows
+        # that actually point at a successor.
+        Index(
+            "ix_track_mappings_live_track",
+            "user_id",
+            "track_id",
+            postgresql_where=text("superseded_at IS NULL"),
+        ),
+        Index(
+            "ix_track_mappings_superseded_by",
+            "superseded_by_id",
+            postgresql_where=text("superseded_by_id IS NOT NULL"),
+        ),
     )
 
 
@@ -403,6 +455,155 @@ class DBMatchReview(BaseEntity):
         ),
         Index("ix_match_reviews_status", "status"),
         Index("ix_match_reviews_track_id", "track_id"),
+    )
+
+
+class DBResolutionEvent(DatabaseModel):
+    """One immutable identity-resolution decision (v0.10.2, migration 045).
+
+    Deliberately NOT a ``BaseEntity``: ``created_at``/``updated_at`` are
+    meaningless on a row that is written once and never touched again — its
+    time is ``recorded_at`` (the DB clock), ``decided_at`` (the matcher clock),
+    and ``evidence_as_of`` (provider-snapshot freshness). Collapsing those into
+    one instant is the failure the split exists to prevent: a bulk
+    re-resolution would stamp its own wall clock over history and "what did we
+    believe on date X" would be gone for good.
+
+    **No foreign keys, in or out.** The ids here are references by value: the
+    log has to outlive the mapping, track, or connector track it describes, and
+    a table free of RI is the one that can be partitioned later without
+    dropping constraints first (memo §10.7).
+
+    MUST mirror migration 045 exactly — integration tests build the schema with
+    ``metadata.create_all``, so divergence means every integration test runs
+    against a schema production never has.
+    """
+
+    __tablename__: str = "resolution_events"
+
+    user_id: Mapped[str] = mapped_column(
+        String(), nullable=False, default="default", server_default="default"
+    )
+    # DB-assigned and never set from Python — the writer's clock is not a
+    # trustworthy ordering key across processes. ``clock_timestamp()`` rather
+    # than ``now()``: the latter is the transaction's start instant, so every
+    # event one transaction writes would tie and the log would lose the order
+    # of decisions within it.
+    recorded_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True),
+        nullable=False,
+        server_default=text("clock_timestamp()"),
+    )
+    decided_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    evidence_as_of: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    event_type: Mapped[str] = mapped_column(String(32), nullable=False)
+    matcher_version: Mapped[str] = mapped_column(String(32), nullable=False)
+    run_id: Mapped[UuidType | None] = mapped_column(PgUuidCol(as_uuid=True))
+    connector_name: Mapped[str | None] = mapped_column(String(32))
+    connector_track_id: Mapped[UuidType | None] = mapped_column(PgUuidCol(as_uuid=True))
+    track_id: Mapped[UuidType | None] = mapped_column(PgUuidCol(as_uuid=True))
+    resulting_mapping_id: Mapped[UuidType | None] = mapped_column(
+        PgUuidCol(as_uuid=True)
+    )
+    # Recorded at decision time because none of them is recoverable afterwards:
+    # future calibration needs the score, the zone it fell in, and the
+    # probability the candidate was offered for review at all.
+    confidence: Mapped[int | None]
+    score: Mapped[float | None]
+    zone: Mapped[str | None] = mapped_column(String(16))
+    selection_probability: Mapped[float | None]
+    payload: Mapped[JsonDict] = mapped_column(
+        PgJsonb, nullable=False, server_default=text("'{}'::jsonb")
+    )
+
+    __table_args__: tuple[SchemaItem, ...] = (
+        # Btree, not BRIN: tenant-scoped small-result queries, and uuid7
+        # arrival interleaves tenants so BRIN's clustering premise never holds.
+        Index("ix_resolution_events_user_time", "user_id", text("recorded_at DESC")),
+        Index(
+            "ix_resolution_events_connector_track",
+            "user_id",
+            "connector_track_id",
+            postgresql_where=text("connector_track_id IS NOT NULL"),
+        ),
+        Index(
+            "ix_resolution_events_matcher_version",
+            "matcher_version",
+            text("recorded_at DESC"),
+        ),
+    )
+
+
+class DBResolutionNegative(BaseEntity):
+    """Remembered non-match: a retry clock or a sticky cannot-link (v0.10.2).
+
+    Mutable state rather than history, which is why (unlike the event log) both
+    id columns are real cascading foreign keys — when the connector track or
+    the candidate goes away, so does the constraint about it.
+
+    Uniqueness is two partial indexes, not one constraint: ``no_match`` rows
+    carry a NULL ``candidate_track_id``, and under default NULL semantics a
+    single unique over the triple would admit unlimited duplicates of exactly
+    the row that must be a singleton.
+    """
+
+    __tablename__: str = "resolution_negatives"
+
+    user_id: Mapped[str] = mapped_column(
+        String(), nullable=False, default="default", server_default="default"
+    )
+    kind: Mapped[str] = mapped_column(String(16), nullable=False)
+    connector_name: Mapped[str] = mapped_column(String(32), nullable=False)
+    connector_track_id: Mapped[UuidType] = mapped_column(
+        PgUuidCol(as_uuid=True),
+        ForeignKey("connector_tracks.id", ondelete="CASCADE"),
+        nullable=False,
+    )
+    # NULL for `no_match` — an empty search names no candidate.
+    candidate_track_id: Mapped[UuidType | None] = mapped_column(
+        PgUuidCol(as_uuid=True), ForeignKey("tracks.id", ondelete="CASCADE")
+    )
+    matcher_version: Mapped[str] = mapped_column(String(32), nullable=False)
+    # `rejected_pair` only: digest of both sides' match-relevant fields, so
+    # editing either side expires the rejection instead of letting it outlive
+    # the data it was computed from.
+    content_digest: Mapped[str | None] = mapped_column(String(64))
+    consecutive_misses: Mapped[int] = mapped_column(
+        nullable=False, default=0, server_default="0"
+    )
+    check_again: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    last_checked_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    unrejected_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+
+    __table_args__: tuple[SchemaItem, ...] = (
+        # The partial indexes below only *assume* the kind/candidate split; a
+        # `no_match` row that acquired a candidate would escape both key spaces
+        # and duplicate without limit. This is what makes the assumption true.
+        CheckConstraint(
+            "(kind = 'no_match' AND candidate_track_id IS NULL) "
+            "OR (kind = 'rejected_pair' AND candidate_track_id IS NOT NULL)",
+            name="ck_resolution_negatives_kind_candidate",
+        ),
+        Index(
+            "uq_resolution_negatives_no_match",
+            "user_id",
+            "connector_track_id",
+            "connector_name",
+            unique=True,
+            postgresql_where=text("kind = 'no_match'"),
+        ),
+        Index(
+            "uq_resolution_negatives_pair",
+            "user_id",
+            "connector_track_id",
+            "candidate_track_id",
+            unique=True,
+            postgresql_where=text("kind = 'rejected_pair'"),
+        ),
+        # Both CASCADE FKs need their own index — the unique indexes above are
+        # partial and lead with user_id, so neither serves the delete probe.
+        Index("ix_resolution_negatives_connector_track", "connector_track_id"),
+        Index("ix_resolution_negatives_candidate_track", "candidate_track_id"),
     )
 
 
