@@ -13,7 +13,7 @@ paths:
 - `docs/backlog/v0.X.x.md` — one file per minor version.
 - `docs/backlog/README.md` — roadmap, version matrix, tech decisions.
 - `docs/backlog/unscheduled.md` — uncommitted ideas (start new ideas here).
-- `docs/backlog/completed/` — archive: minor series + records & handoffs, indexed in its README.
+- `docs/backlog/completed/` — archive: minor series files + durable records (findings, migration notes), indexed in its README. Never handoffs.
 - `CHANGELOG.md` (repo root) — canonical release log, one dated entry per ship (see Lifecycle).
 - One-off records (handoffs, findings memos, migration records, research commissions) live in `docs/backlog/` root with a `Status:` header while active.
 
@@ -127,14 +127,16 @@ A minor series archives **wholesale** — `git mv` all its files (a series may s
 
 1. Ask the user which of the previous cycle's `🚀 Shipped` features they confirm `✅ Completed`.
 2. If that closes the whole series: archive it now — `git mv` all its files to `completed/`, update the `completed/README.md` index, re-point README matrix links.
-3. Move `Complete`/`Superseded` one-off records (below) to `completed/` under its "Records & handoffs" index section.
+3. Sweep one-off records (below): delete completed handoffs outright; move `Complete`/`Superseded` findings and migration records to `completed/` under its "Records" index section.
 4. Trim the README narrative per the release-log retention rule above.
 
 `scripts/check_backlog.py` (version-bump bar) flags drift: broken links, stale archive index, all-✅ series left in root.
 
 ### One-off records
 
-Handoffs, findings memos, migration records, and research commissions carry a `Status:` header line — `Active` / `Superseded` / `Complete (YYYY-MM-DD)`. Research references that future milestones still cite (e.g. design-space memos) stay `Active` in root; `Complete`/`Superseded` records move to `completed/` at the next cycle close.
+Handoffs, findings memos, migration records, and research commissions carry a `Status:` header line — `Active` / `Superseded` / `Complete (YYYY-MM-DD)`. Research references that future milestones still cite (e.g. design-space memos) stay `Active` in root; `Complete`/`Superseded` findings and migration records move to `completed/` at the next cycle close.
+
+**Handoffs are ephemeral** — cross-session working state, not history. When a handoff's work ships, delete the file (git history is its archive); it never moves to `completed/`. Convert any inbound links to backticked-filename prose.
 
 ### Campaign hubs
 
