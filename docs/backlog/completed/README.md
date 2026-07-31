@@ -13,14 +13,7 @@ For active backlog, see [../](../).
 | **v0.6.x** | [v0.6.x.md](v0.6.x.md) | v0.6.0–v0.6.12 (+ v0.6.0.post1) |
 | **v0.7.x** | [v0.7.0-1.md](v0.7.0-1.md) · [v0.7.2-3.md](v0.7.2-3.md) · [v0.7.4-5.md](v0.7.4-5.md) · [v0.7.6.md](v0.7.6.md) · [v0.7.7.md](v0.7.7.md) · [v0.7.8.md](v0.7.8.md) | v0.7.0–v0.7.8 (series archived whole, 2026-07-03) |
 
-## Records
-
-Completed one-off records (findings, migration notes) — see the `backlog-format` rule's One-off records lifecycle. Handoffs never land here: they're ephemeral cross-session state, deleted at completion (git history is their archive).
-
-| Record | What it was |
-|--------|-------------|
-| [explicit-any-cleanup-batches-1-3.md](explicit-any-cleanup-batches-1-3.md) | Domain + App XS Any-cleanup (448→385) — early batches before v0.6.12 |
-| [uuid-type-migration.md](uuid-type-migration.md) | int→UUID FK migration + review-candidate persistence (2026-04-04) |
+This archive holds **version series files only**. One-off records (handoffs, findings memos, migration notes, research commissions) are ephemeral: when a record's findings are drained into the backlog and its work has shipped, the file is deleted rather than archived — git history is its archive. See the `backlog-format` rule's One-off records lifecycle.
 
 ---
 

@@ -9,6 +9,8 @@ token storage is a pure infrastructure concern with no business logic.
 
 from typing import Protocol, TypedDict
 
+from src.domain.services.oauth_grant import grant_scopes
+
 
 class StoredToken(TypedDict, total=False):
     """Token data as stored. All fields optional to support both Spotify and Last.fm.
@@ -48,6 +50,23 @@ class TokenStorage(Protocol):
     async def delete_token(self, service: str, user_id: str) -> None:
         """Remove stored token for a service and user."""
         ...
+
+
+class TokenStorageGrantProvider:
+    """Reads scopes off stored tokens; hands out no secrets.
+
+    Satisfies ``ConnectorGrantProvider`` (domain) by narrowing a full
+    ``TokenStorage`` down to the one question callers are allowed to ask: which
+    scopes does this user's stored grant still carry? No token ever escapes.
+    """
+
+    def __init__(self, storage: TokenStorage) -> None:
+        self._storage = storage
+
+    async def granted_scopes(self, service: str, user_id: str) -> frozenset[str]:
+        """Scopes on the stored token for ``service``/``user_id``."""
+        token = await self._storage.load_token(service, user_id)
+        return grant_scopes(token.get("scope") if token else None)
 
 
 def get_token_storage() -> TokenStorage:

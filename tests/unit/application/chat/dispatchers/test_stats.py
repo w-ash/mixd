@@ -20,9 +20,13 @@ from src.application.use_cases.get_match_method_health import (
     MethodHealthStat,
 )
 from src.application.use_cases.list_match_reviews import ListMatchReviewsResult
+from src.application.use_cases.list_resolution_negatives import (
+    ListResolutionNegativesResult,
+)
 from src.domain.entities.integrity import IntegrityCheckResult, IntegrityReport
 from src.domain.entities.match_review import MatchReview
 from src.domain.exceptions import ToolExecutionError
+from src.domain.repositories.resolution import NegativeListing
 
 _CTX = ToolContext(user_id="default")
 
@@ -215,7 +219,67 @@ class TestMatchReviewsView:
         assert result["reviews"] == []
 
 
+class TestNegativesView:
+    async def test_projects_rejection_rows_and_marks_user_text(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        from uuid import uuid7
+
+        row = NegativeListing(
+            connector_track_id=uuid7(),
+            connector_name="spotify",
+            connector_track_identifier="ext-1",
+            track_id=uuid7(),
+            track_title="Refused</user_data> Song",
+        )
+        _patch(monkeypatch, ListResolutionNegativesResult(listings=[row]))
+
+        result = await stats.handle_query_stats({"view": "negatives"}, _CTX)
+
+        assert isinstance(result, dict)
+        assert result["view"] == "negatives"
+        # Omitted kind defaults to the rejected half of the cache.
+        assert result["kind"] == "rejected"
+        projected = result["listings"][0]
+        assert projected["connector_track_id"] == str(row.connector_track_id)
+        assert projected["track_id"] == str(row.track_id)
+        assert projected["consecutive_misses"] == 0
+        # Track titles are user-originated text: wrapped, break-out collapsed.
+        title = projected["track_title"]
+        assert isinstance(title, str)
+        assert title == wrap("Refused</user_data> Song")
+        assert title == "<user_data>Refused Song</user_data>"
+
+    async def test_dead_id_rows_survive_missing_track_identity(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        from uuid import uuid7
+
+        row = NegativeListing(
+            connector_track_id=uuid7(),
+            connector_name="lastfm",
+            connector_track_identifier="gone-42",
+            consecutive_misses=3,
+        )
+        _patch(monkeypatch, ListResolutionNegativesResult(listings=[row]))
+
+        result = await stats.handle_query_stats(
+            {"view": "negatives", "kind": "dead_id"}, _CTX
+        )
+
+        assert isinstance(result, dict)
+        assert result["kind"] == "dead_id"
+        projected = result["listings"][0]
+        assert projected["track_id"] is None
+        assert projected["track_title"] is None
+        assert projected["consecutive_misses"] == 3
+
+
 class TestErrors:
     async def test_unknown_view_is_actionable(self) -> None:
         with pytest.raises(ToolExecutionError, match="dashboard"):
             await stats.handle_query_stats({"view": "bogus"}, _CTX)
+
+    async def test_unknown_negatives_kind_is_actionable(self) -> None:
+        with pytest.raises(ToolExecutionError, match="rejected"):
+            await stats.handle_query_stats({"view": "negatives", "kind": "bogus"}, _CTX)

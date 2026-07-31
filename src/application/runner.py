@@ -13,6 +13,8 @@ from src.domain.repositories.uow import UnitOfWorkProtocol
 async def execute_use_case[TResult](
     use_case_factory: Callable[[UnitOfWorkProtocol], Awaitable[TResult]],
     user_id: str | None = None,
+    *,
+    rollback: bool = True,
 ) -> TResult:
     """Run a use case with proper session/UoW lifecycle.
 
@@ -30,6 +32,13 @@ async def execute_use_case[TResult](
             Typically constructs and executes a use case.
         user_id: Neon Auth ``sub`` claim from the route handler, or ``None``
             for CLI callers.
+        rollback: When ``False``, an exception closes the session without an
+            explicit ``rollback()`` first. Only ``services/run_lifecycle.py``
+            wants this: it writes terminal run status *during* failure
+            teardown, when the connection may already be unhappy and a
+            rollback round-trip can raise or hang on top of the original
+            error. ``close()`` discards the uncommitted work either way, so
+            the committed/not-committed outcome is identical.
 
     Returns:
         The result of the use case execution.
@@ -45,7 +54,7 @@ async def execute_use_case[TResult](
     from src.infrastructure.persistence.database.user_context import user_context
     from src.infrastructure.persistence.repositories.factories import get_unit_of_work
 
-    async with get_session() as session:
+    async with get_session(rollback=rollback) as session:
         uow = get_unit_of_work(session)
         if user_id is not None:
             with user_context(user_id):

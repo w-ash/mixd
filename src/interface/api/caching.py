@@ -3,7 +3,7 @@
 Pure ASGI middleware (not BaseHTTPMiddleware) for better performance and
 correct contextvars propagation. Adds:
 
-- **Weak ETags** from MD5 of response body (GET only)
+- **Weak ETags** from MD5 of response body (GET only, small bodies only)
 - **304 Not Modified** when ``If-None-Match`` matches
 - **Cache-Control** headers based on endpoint path
 - **Server-Timing** header for API response time measurement
@@ -11,7 +11,7 @@ correct contextvars propagation. Adds:
 
 import hashlib
 import time
-from typing import cast
+from typing import Final, cast
 
 from starlette.datastructures import Headers, MutableHeaders
 from starlette.types import ASGIApp, Message, Receive, Scope, Send
@@ -35,6 +35,15 @@ _CACHE_POLICIES: tuple[tuple[str, str], ...] = tuple(
 
 _DEFAULT_POLICY = "max-age=10, stale-while-revalidate=30"
 
+# Bodies larger than this skip the ETag entirely and stream through unbuffered.
+# Hashing needs the whole body in memory twice (the chunk list plus the join), and
+# ``GET /playlists/{id}/tracks`` defaults to limit=10000, which serialises to
+# several MB. With uvicorn's --limit-concurrency 50 on a 1 GB machine, capping the
+# buffer bounds the duplicated payload at ~12 MB across all in-flight requests.
+# Everything clients actually revalidate is far below this — ``GET /tracks`` caps
+# at limit=200, and the stats/settings/connectors payloads are a few KB.
+_MAX_ETAG_BODY_BYTES: Final = 256 * 1024
+
 
 def _get_cache_policy(path: str) -> str:
     """Return Cache-Control value for a given path."""
@@ -48,7 +57,9 @@ class CachingMiddleware:
     """Pure ASGI middleware for HTTP caching headers.
 
     Adds ETag, Cache-Control, and Server-Timing to GET responses.
-    Skips SSE streams and non-GET requests.
+    Skips SSE streams and non-GET requests. Bodies past
+    ``_MAX_ETAG_BODY_BYTES`` keep Cache-Control and Server-Timing but lose the
+    ETag — conditional requests are not worth buffering multi-MB payloads for.
     """
 
     def __init__(self, app: ASGIApp) -> None:
@@ -73,11 +84,13 @@ class CachingMiddleware:
         start = time.monotonic()
         response_headers: MutableHeaders | None = None
         body_parts: list[bytes] = []
+        buffered_bytes = 0
         initial_message: Message | None = None
-        is_streaming = False
+        # Headers already sent — forward every later chunk untouched (SSE, oversized)
+        is_passthrough = False
 
         async def send_wrapper(message: Message) -> None:
-            nonlocal response_headers, initial_message, is_streaming
+            nonlocal response_headers, initial_message, is_passthrough, buffered_bytes
 
             if message["type"] == "http.response.start":
                 initial_message = message
@@ -86,25 +99,45 @@ class CachingMiddleware:
                 # Detect SSE — skip caching for streaming responses
                 content_type = response_headers.get("content-type", "")
                 if "text/event-stream" in content_type:
-                    is_streaming = True
+                    is_passthrough = True
                     _add_server_timing(response_headers, start)
                     await send(message)
                 return
 
             if message["type"] == "http.response.body":
-                if is_streaming:
+                if is_passthrough:
                     await send(message)
                     return
 
                 body = cast(bytes, message.get("body", b""))
                 more_body = cast(bool, message.get("more_body", False))
                 body_parts.append(body)
+                buffered_bytes += len(body)
 
-                if (
-                    not more_body
-                    and response_headers is not None
-                    and initial_message is not None
-                ):
+                if response_headers is None or initial_message is None:
+                    return
+
+                if buffered_bytes > _MAX_ETAG_BODY_BYTES:
+                    # Too large to hash — an ETag would cost a second full copy.
+                    # Send the headers unhashed, drain what is buffered, and let the
+                    # rest of the response stream straight through.
+                    is_passthrough = True
+                    response_headers["cache-control"] = _get_cache_policy(path)
+                    _add_server_timing(response_headers, start)
+                    await send(initial_message)
+
+                    last = len(body_parts) - 1
+                    for index, part in enumerate(body_parts):
+                        await send({
+                            "type": "http.response.body",
+                            "body": part,
+                            # Only the chunk we just received can end the response
+                            "more_body": more_body if index == last else True,
+                        })
+                    body_parts.clear()
+                    return
+
+                if not more_body:
                     # Final body chunk — compute ETag and send
                     full_body = b"".join(body_parts)
 

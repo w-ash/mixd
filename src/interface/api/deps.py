@@ -16,7 +16,7 @@ from src.domain.exceptions import (
     ConnectorNotConnectedError,
     ConnectorScopeMissingError,
 )
-from src.infrastructure.connectors._shared.oauth_scopes import missing_from_grant
+from src.domain.services.oauth_grant import missing_from_grant
 from src.infrastructure.connectors._shared.token_storage import get_token_storage
 from src.interface.api.auth_gate import JWTClaims
 

@@ -8,7 +8,7 @@ polite.
 """
 
 from datetime import UTC, datetime, timedelta
-from unittest.mock import AsyncMock, patch
+from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
@@ -25,6 +25,7 @@ from src.application.use_cases._shared.sync_targets import (
 )
 from src.domain.entities.operations import OperationResult, SyncCheckpoint
 from src.domain.entities.schedule import Schedule
+from src.domain.repositories.play import RECENTLY_PLAYED_SCOPE
 from src.domain.services.play_poll_decision import (
     BASE_INTERVAL_SECONDS,
     MIN_INTERVAL_SECONDS,
@@ -51,8 +52,18 @@ def _checkpoint(**kwargs: object) -> SyncCheckpoint:
     return SyncCheckpoint(**(base | kwargs))  # pyright: ignore[reportArgumentType]
 
 
-def _uow_with(checkpoints: dict[tuple[str, str], SyncCheckpoint | None], **repo_kw):
-    """A mock UoW whose checkpoint repo answers per (service, entity_type)."""
+def _uow_with(
+    checkpoints: dict[tuple[str, str], SyncCheckpoint | None],
+    *,
+    has_scope: bool = True,
+    **repo_kw,
+):
+    """A mock UoW whose checkpoint repo answers per (service, entity_type).
+
+    ``has_scope`` drives the grant provider the policy now reads through, so
+    the scope gate is exercised on the same UoW as the rest of the decision
+    rather than as a separate patched call.
+    """
     uow = make_mock_uow()
     repo = uow.get_checkpoint_repository()
     repo.get_sync_checkpoint = AsyncMock(
@@ -63,6 +74,12 @@ def _uow_with(checkpoints: dict[tuple[str, str], SyncCheckpoint | None], **repo_
     )
     for k, v in repo_kw.items():
         setattr(repo, k, v)
+
+    grants = MagicMock()
+    grants.granted_scopes = AsyncMock(
+        return_value=frozenset({RECENTLY_PLAYED_SCOPE}) if has_scope else frozenset()
+    )
+    uow.get_connector_grant_provider = MagicMock(return_value=grants)
     return uow
 
 
@@ -78,14 +95,7 @@ def _run_with(uow):
 class TestTryBeginPoll:
     async def test_claims_when_due(self) -> None:
         uow = _uow_with({}, try_claim_poll=AsyncMock(return_value=True))
-        with (
-            _run_with(uow),
-            patch.object(
-                play_poll_policy,
-                "_has_recently_played_scope",
-                AsyncMock(return_value=True),
-            ),
-        ):
+        with _run_with(uow):
             claim = await try_begin_poll(_ctx())
 
         assert claim.granted is True
@@ -95,15 +105,8 @@ class TestTryBeginPoll:
         # A scope gap already surfaces as "re-connect needed" on the connector
         # card; claiming and failing here would add nothing but noise.
         claim_mock = AsyncMock(return_value=True)
-        uow = _uow_with({}, try_claim_poll=claim_mock)
-        with (
-            _run_with(uow),
-            patch.object(
-                play_poll_policy,
-                "_has_recently_played_scope",
-                AsyncMock(return_value=False),
-            ),
-        ):
+        uow = _uow_with({}, has_scope=False, try_claim_poll=claim_mock)
+        with _run_with(uow):
             claim = await try_begin_poll(_ctx())
 
         assert claim.granted is False
@@ -117,14 +120,7 @@ class TestTryBeginPoll:
         path (a page load and the heartbeat can easily coincide), not a fault.
         """
         uow = _uow_with({}, try_claim_poll=AsyncMock(return_value=False))
-        with (
-            _run_with(uow),
-            patch.object(
-                play_poll_policy,
-                "_has_recently_played_scope",
-                AsyncMock(return_value=True),
-            ),
-        ):
+        with _run_with(uow):
             claim = await try_begin_poll(_ctx())
 
         assert claim.granted is False
@@ -136,14 +132,7 @@ class TestTryBeginPoll:
         # would let through a poll the decision would have rejected.
         claim_mock = AsyncMock(return_value=True)
         uow = _uow_with({}, try_claim_poll=claim_mock)
-        with (
-            _run_with(uow),
-            patch.object(
-                play_poll_policy,
-                "_has_recently_played_scope",
-                AsyncMock(return_value=True),
-            ),
-        ):
+        with _run_with(uow):
             await try_begin_poll(_ctx("demand", max_age=timedelta(minutes=2)))
 
         assert claim_mock.await_args.kwargs["max_age"] == timedelta(minutes=2)
@@ -161,14 +150,7 @@ class TestTryBeginPoll:
             ),
         }
         uow = _uow_with(checkpoints, try_claim_poll=AsyncMock(return_value=True))
-        with (
-            _run_with(uow),
-            patch.object(
-                play_poll_policy,
-                "_has_recently_played_scope",
-                AsyncMock(return_value=True),
-            ),
-        ):
+        with _run_with(uow):
             claim = await try_begin_poll(_ctx())
 
         payload = claim.payload

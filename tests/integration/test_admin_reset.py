@@ -1,4 +1,4 @@
-"""Integration tests for the admin reset command.
+"""Integration tests for the admin reset repository.
 
 Verifies that TRUNCATE CASCADE wipes data tables while preserving
 oauth_tokens, oauth_states, user_settings, and the externally-managed
@@ -7,19 +7,20 @@ users table (not in our schema).
 
 from datetime import UTC, datetime
 
-from sqlalchemy import func, select, table as sa_table, text
+from sqlalchemy import func, select, table as sa_table
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from src.application.use_cases.reset_database import PRESERVED_TABLES
 from src.domain.entities.preference import PreferenceEvent, TrackPreference
 from src.infrastructure.persistence.database.db_models import (
     DBOAuthToken,
     DBTrack,
     DBTrackLike,
 )
+from src.infrastructure.persistence.repositories.admin import AdminRepository
 from src.infrastructure.persistence.repositories.track.preferences import (
     TrackPreferenceRepository,
 )
-from src.interface.cli.admin_commands import _PRESERVED_TABLES, _data_tables
 
 
 async def test_truncate_removes_all_data_tables(db_session: AsyncSession):
@@ -64,11 +65,11 @@ async def test_truncate_removes_all_data_tables(db_session: AsyncSession):
         await db_session.execute(select(func.count()).select_from(DBTrack))
     ).scalar_one() > 0
 
-    truncate_sql = "TRUNCATE TABLE " + ", ".join(_data_tables()) + " CASCADE"
-    await db_session.execute(text(truncate_sql))
+    truncated = await AdminRepository(db_session).truncate_data_tables(PRESERVED_TABLES)
     await db_session.commit()
 
-    for table in _data_tables():
+    assert truncated, "reset must report the tables it emptied"
+    for table in truncated:
         count = (
             await db_session.execute(select(func.count()).select_from(sa_table(table)))
         ).scalar_one()
@@ -76,7 +77,11 @@ async def test_truncate_removes_all_data_tables(db_session: AsyncSession):
 
 
 async def test_truncate_preserves_oauth_tokens(db_session: AsyncSession):
-    """Seed an oauth_tokens row, truncate, verify it survives."""
+    """Seed an oauth_tokens row, truncate, verify it survives.
+
+    This is the point of the preserved set: a reset the user has to
+    re-authorise Spotify after is a reset they will not run.
+    """
     token = DBOAuthToken(
         user_id="default",
         service="spotify",
@@ -89,8 +94,7 @@ async def test_truncate_preserves_oauth_tokens(db_session: AsyncSession):
     await db_session.commit()
     token_id = token.id
 
-    truncate_sql = "TRUNCATE TABLE " + ", ".join(_data_tables()) + " CASCADE"
-    await db_session.execute(text(truncate_sql))
+    await AdminRepository(db_session).truncate_data_tables(PRESERVED_TABLES)
     await db_session.commit()
 
     survivor = (
@@ -102,7 +106,8 @@ async def test_truncate_preserves_oauth_tokens(db_session: AsyncSession):
     assert survivor.access_token == "preserve_me"
 
 
-def test_preserved_tables_not_in_data_list():
+async def test_preserved_tables_not_in_data_list(db_session: AsyncSession):
     """Sanity: the metadata-derived data list must not include preserved tables."""
-    data_tables = set(_data_tables())
-    assert not (data_tables & _PRESERVED_TABLES)
+    data_tables = set(AdminRepository(db_session).data_tables(PRESERVED_TABLES))
+    assert not (data_tables & PRESERVED_TABLES)
+    assert data_tables, "metadata reflection must find the schema's tables"

@@ -17,7 +17,7 @@ References:
 import math
 from typing import Final
 
-from attrs import define
+from attrs import Factory, define, field
 
 # Classification tier boundaries for fuzzy similarity and duration comparisons.
 # These define where one ComparisonLevel ends and the next begins.
@@ -41,6 +41,15 @@ TIER_BOUNDARIES: Final[tuple[tuple[str, float], ...]] = (
 )
 
 
+def _derive_log_likelihood_ratio(self: ComparisonLevel) -> float:
+    if self.u_probability <= 0 or self.m_probability <= 0:
+        # Avoid log(0); treat as very strong/weak evidence
+        if self.m_probability > 0:
+            return 15.0  # Extremely strong evidence for match
+        return -15.0  # Extremely strong evidence against match
+    return math.log(self.m_probability / self.u_probability)
+
+
 @define(frozen=True, slots=True)
 class ComparisonLevel:
     """A single comparison outcome tier for an attribute.
@@ -48,21 +57,19 @@ class ComparisonLevel:
     Each level has m-probability (P(agree at this level | true match)) and
     u-probability (P(agree at this level | random pair)). The log-likelihood
     ratio log(m/u) measures the discriminating power of this outcome.
+
+    ``log_likelihood_ratio`` is derived once at construction rather than per
+    access: the levels below are frozen module-level singletons, and every
+    confidence evaluation reads the ratio several times.
     """
 
     name: str
     m_probability: float
     u_probability: float
-
-    @property
-    def log_likelihood_ratio(self) -> float:
-        """Log-likelihood ratio: evidence strength of this comparison outcome."""
-        if self.u_probability <= 0 or self.m_probability <= 0:
-            # Avoid log(0); treat as very strong/weak evidence
-            if self.m_probability > 0:
-                return 15.0  # Extremely strong evidence for match
-            return -15.0  # Extremely strong evidence against match
-        return math.log(self.m_probability / self.u_probability)
+    log_likelihood_ratio: float = field(
+        init=False,
+        default=Factory(_derive_log_likelihood_ratio, takes_self=True),
+    )
 
 
 @define(frozen=True, slots=True)

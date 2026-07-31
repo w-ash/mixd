@@ -4,6 +4,8 @@ Verifies the preprocessing pipeline that handles diacritics, transliterations,
 and common equivalences before fuzzy string comparison.
 """
 
+import unicodedata
+
 import pytest
 
 from src.domain.matching.text_normalization import (
@@ -149,6 +151,107 @@ class TestNormalizeNonLatinScripts:
             normalize_for_comparison(strip_parentheticals("光辉岁月 (Glory Days)"))
             == "光辉岁月"
         )
+
+
+class TestCombiningMarkSemantics:
+    """Lock diacritic stripping to the Unicode ``Mn`` general category.
+
+    The implementation filters on ``unicodedata.category(c) != "Mn"``, which
+    covers combining marks in *every* script — Hebrew niqqud and Arabic
+    harakat included, not just the Latin block. A regex character class is
+    the tempting "faster" rewrite and is wrong: 753 of the 865 ``Mn``
+    codepoints below U+2000 fall outside U+0300-U+036F. These tests fail if
+    that substitution is ever made.
+    """
+
+    @pytest.mark.parametrize(
+        ("input_text", "stripped", "normalized"),
+        [
+            # Latin
+            ("Björk", "Bjork", "bjork"),
+            ("Sigur Rós", "Sigur Ros", "sigur ros"),
+            # Cyrillic — combining breve on й (U+0306)
+            ("Мумий Тролль", "Мумии Тролль", "мумии тролль"),
+            # Greek — tonos on ί and ά (U+0301)
+            (
+                "Ελευθερία Αρβανιτάκη",
+                "Ελευθερια Αρβανιτακη",
+                "ελευθερια αρβανιτακη",
+            ),
+            # Hebrew with niqqud (U+05B0-U+05C2) — outside any Latin range
+            ("שָׁלוֹם", "שלום", "שלום"),
+            ("אֱלֹהִים", "אלהים", "אלהים"),
+            # Arabic with harakat (U+064B-U+0652) — likewise
+            ("الْعَرَبِيَّة", "العربية", "العربية"),
+            ("مُحَمَّد", "محمد", "محمد"),
+        ],
+    )
+    def test_strips_combining_marks_across_scripts(
+        self, input_text: str, stripped: str, normalized: str
+    ):
+        assert strip_diacritics(input_text) == stripped
+        assert normalize_for_comparison(input_text) == normalized
+
+    def test_every_mn_codepoint_is_removed(self):
+        """No standalone ``Mn`` codepoint survives, across all scripts."""
+        survivors = [
+            f"U+{cp:04X}"
+            for cp in range(0x2000)
+            if unicodedata.category(chr(cp)) == "Mn" and strip_diacritics(chr(cp))
+        ]
+        assert survivors == []
+
+    def test_non_mn_codepoints_are_preserved(self):
+        """Only combining marks are dropped — nothing else is."""
+        casualties = [
+            f"U+{cp:04X}"
+            for cp in range(0x2000)
+            if unicodedata.category(chr(cp)) != "Mn"
+            # NFD-stable codepoints only: ones that decompose (é → e + ́ )
+            # legitimately lose their mark.
+            and unicodedata.normalize("NFD", chr(cp)) == chr(cp)
+            and strip_diacritics(chr(cp)) != chr(cp)
+        ]
+        assert casualties == []
+
+
+class TestNormalizationCaching:
+    """Both functions are memoized; results must be indistinguishable."""
+
+    def test_repeat_calls_hit_the_cache(self):
+        normalize_for_comparison.cache_clear()
+        text = "The Motörhead ft. Björk & Friends"
+
+        first = normalize_for_comparison(text)
+        before = normalize_for_comparison.cache_info().hits
+        second = normalize_for_comparison(text)
+
+        assert second == first
+        assert normalize_for_comparison.cache_info().hits == before + 1
+
+    def test_strip_diacritics_repeat_calls_hit_the_cache(self):
+        strip_diacritics.cache_clear()
+        text = "Ελευθερία Αρβανιτάκη"
+
+        first = strip_diacritics(text)
+        before = strip_diacritics.cache_info().hits
+        second = strip_diacritics(text)
+
+        assert second == first
+        assert strip_diacritics.cache_info().hits == before + 1
+
+    def test_distinct_inputs_do_not_collide(self):
+        normalize_for_comparison.cache_clear()
+        assert normalize_for_comparison("The Beatles") == "beatles"
+        assert normalize_for_comparison("The Beatles ") == "beatles"
+        assert normalize_for_comparison("Beatles") == "beatles"
+        assert normalize_for_comparison("AC/DC") == "acdc"
+        assert normalize_for_comparison.cache_info().currsize == 4
+
+    def test_cache_is_bounded(self):
+        """A long-lived process must not accumulate entries without limit."""
+        assert normalize_for_comparison.cache_info().maxsize is not None
+        assert strip_diacritics.cache_info().maxsize is not None
 
 
 class TestPhoneticKey:

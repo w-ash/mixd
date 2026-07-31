@@ -56,6 +56,7 @@ class WorkflowRunRepositoryProtocol(Protocol):
         duration_ms: int | None = None,
         output_track_count: int | None = None,
         output_playlist_id: UUID | None = None,
+        output_tracks: list[dict[str, object]] | None = None,
         error_message: str | None = None,
     ) -> Awaitable[bool]:
         """Update run status and optional completion fields.
@@ -94,6 +95,7 @@ class WorkflowRunRepositoryProtocol(Protocol):
         input_track_count: int | None = None,
         output_track_count: int | None = None,
         error_message: str | None = None,
+        node_details: dict[str, object] | None = None,
     ) -> Awaitable[None]:
         """Update a node's status and execution metrics."""
         ...

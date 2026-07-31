@@ -271,6 +271,8 @@ class ConnectorTrackPlay:
     def create_from_spotify_record(
         cls,
         spotify_record: SpotifyPlayRecord,
+        *,
+        user_id: str,
         import_timestamp: datetime | None = None,
         import_batch_id: str | None = None,
     ) -> Self:
@@ -278,6 +280,10 @@ class ConnectorTrackPlay:
 
         Args:
             spotify_record: Parsed Spotify personal data record
+            user_id: The mixd user this ledger row belongs to. Required (not
+                defaulted) so tenancy is set at construction rather than by a
+                second pass over the whole import — a 198k-record export cannot
+                afford a rebuilt copy of every row just to stamp one field.
             import_timestamp: When this import was initiated
             import_batch_id: Batch identifier for bulk imports
 
@@ -289,6 +295,7 @@ class ConnectorTrackPlay:
             track_name=spotify_record.track_name,
             played_at=spotify_record.timestamp,
             service="spotify",
+            user_id=user_id,
             album_name=spotify_record.album_name,
             ms_played=spotify_record.ms_played,
             service_metadata={

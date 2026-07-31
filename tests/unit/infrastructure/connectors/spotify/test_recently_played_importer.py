@@ -37,6 +37,12 @@ _ALL_SCOPES = (
     "playlist-modify-public playlist-modify-private playlist-read-private "
     "playlist-read-collaborative user-library-read user-read-recently-played"
 )
+# Batch identity the pipeline threads into the fetch as well as the conversion.
+# This importer takes a single page, so it ignores both.
+_RUN = {
+    "batch_id": "batch-1",
+    "import_timestamp": datetime(2026, 7, 20, 13, tzinfo=UTC),
+}
 
 
 def _item(
@@ -134,7 +140,7 @@ class TestFetchData:
         uow, _ = _uow_with_checkpoint(None)
 
         await importer._fetch_data(
-            SpotifyRecentImportParams(), uow=uow, user_id="user-1"
+            SpotifyRecentImportParams(), uow=uow, user_id="user-1", **_RUN
         )
 
         assert client.get_recently_played.await_args.kwargs["after_ms"] is None
@@ -152,7 +158,7 @@ class TestFetchData:
         )
 
         await importer._fetch_data(
-            SpotifyRecentImportParams(), uow=uow, user_id="user-1"
+            SpotifyRecentImportParams(), uow=uow, user_id="user-1", **_RUN
         )
 
         assert client.get_recently_played.await_args.kwargs["after_ms"] == 1753012800000
@@ -163,7 +169,7 @@ class TestFetchData:
         uow, repo = _uow_with_checkpoint(None)
 
         await importer._fetch_data(
-            SpotifyRecentImportParams(), uow=uow, user_id="mixd-user-42"
+            SpotifyRecentImportParams(), uow=uow, user_id="mixd-user-42", **_RUN
         )
 
         repo.get_sync_checkpoint.assert_awaited_once_with(
@@ -183,7 +189,7 @@ class TestFetchData:
         )
 
         await importer._fetch_data(
-            SpotifyRecentImportParams(), uow=uow, user_id="user-1"
+            SpotifyRecentImportParams(), uow=uow, user_id="user-1", **_RUN
         )
 
         assert client.get_recently_played.await_args.kwargs["after_ms"] is None
@@ -206,7 +212,7 @@ class TestFetchData:
         )
 
         await importer._fetch_data(
-            SpotifyRecentImportParams(force=True), uow=uow, user_id="user-1"
+            SpotifyRecentImportParams(force=True), uow=uow, user_id="user-1", **_RUN
         )
 
         assert client.get_recently_played.await_args.kwargs["after_ms"] is None
@@ -226,7 +232,7 @@ class TestFetchData:
 
         with pytest.raises(RuntimeError, match="no recently-played response"):
             await importer._fetch_data(
-                SpotifyRecentImportParams(), uow=uow, user_id="user-1"
+                SpotifyRecentImportParams(), uow=uow, user_id="user-1", **_RUN
             )
 
 
@@ -245,6 +251,7 @@ class TestProcessData:
                     )
                 )
             ],
+            user_id="user-1",
             batch_id="batch-1",
             import_timestamp=import_ts,
         )
@@ -257,6 +264,8 @@ class TestProcessData:
         assert play.album_name == "Pablo Honey"
         assert play.played_at == datetime(2026, 7, 20, 12, 0, tzinfo=UTC)
         assert play.import_batch_id == "batch-1"
+        # Tenancy at construction — the pipeline no longer re-stamps it.
+        assert play.user_id == "user-1"
 
     async def test_ms_played_stays_null(self):
         """Survivorship takes the first non-null ms_played across channels.
@@ -267,7 +276,10 @@ class TestProcessData:
         importer = SpotifyRecentlyPlayedImporter(client=_client())
 
         plays = await importer._process_data(
-            [_item()], batch_id="b", import_timestamp=datetime.now(UTC)
+            [_item()],
+            user_id="user-1",
+            batch_id="b",
+            import_timestamp=datetime.now(UTC),
         )
 
         assert plays[0].ms_played is None
@@ -278,7 +290,10 @@ class TestProcessData:
         importer = SpotifyRecentlyPlayedImporter(client=_client())
 
         plays = await importer._process_data(
-            [_item()], batch_id="b", import_timestamp=datetime.now(UTC)
+            [_item()],
+            user_id="user-1",
+            batch_id="b",
+            import_timestamp=datetime.now(UTC),
         )
 
         play = plays[0]
@@ -295,6 +310,7 @@ class TestProcessData:
                 _item(context=SpotifyPlayContext(type="album", uri="spotify:album:x")),
                 _item(minute=5),
             ],
+            user_id="user-1",
             batch_id="b",
             import_timestamp=datetime.now(UTC),
         )

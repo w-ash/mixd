@@ -53,6 +53,10 @@ from src.infrastructure.persistence.database.live_rows import (
     expire_mapping_identity,
     live_only,
 )
+from src.infrastructure.persistence.repositories._shared.connector_tracks import (
+    build_connector_track_row,
+    extract_db_artist_names,
+)
 from src.infrastructure.persistence.repositories.resolution import (
     ResolutionEventRepository,
     ResolutionNegativeRepository,
@@ -452,13 +456,6 @@ class ResolutionRecorder(ResolutionRecorderProtocol):
         would give one pair two digests, and the second writer would overwrite
         the first's working entry with one that can never match.
         """
-        # Lazy import: the track repositories import this module (the write
-        # seam), so the package-level import would close a cycle — same
-        # precedent as ``track/mapper.py::_get_promote_primary_fn``.
-        from src.infrastructure.persistence.repositories.track.mapper import (
-            extract_db_artist_names,
-        )
-
         wanted = sorted({identifier for identifier in identifiers if identifier})
         if not wanted:
             return {}
@@ -503,21 +500,18 @@ class ResolutionRecorder(ResolutionRecorderProtocol):
         if not by_identifier:
             return {}
         now = datetime.now(UTC)
+        # ``pg_insert`` bypasses the ORM defaults ``bulk_upsert`` relies on, so
+        # the two timestamp columns are unioned onto the shared row shape here.
         rows: list[dict[str, object]] = [
-            {
-                "connector_name": connector_name,
-                "connector_track_identifier": side.identifier,
-                "title": side.title,
-                "artists": {"names": list(side.artists)},
-                "album": None,
-                "duration_ms": side.duration_ms,
-                "release_date": None,
-                "isrc": None,
-                "raw_metadata": {},
-                "last_updated": now,
-                "created_at": now,
-                "updated_at": now,
-            }
+            build_connector_track_row(
+                connector_name,
+                side.identifier,
+                title=side.title,
+                artist_names=side.artists,
+                duration_ms=side.duration_ms,
+                last_updated=now,
+            )
+            | {"created_at": now, "updated_at": now}
             for side in by_identifier.values()
         ]
         _ = await self._session.execute(

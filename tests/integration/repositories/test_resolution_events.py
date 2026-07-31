@@ -679,6 +679,31 @@ class TestRetirementReplacesDeletion:
         assert [link.track_id for link in chain] == [old_track, new_track]
         assert chain[0].supersession_reason == "manual"
 
+    async def test_relink_supersession_event_carries_manual_reason(
+        self, db_session: AsyncSession, events: ResolutionEventRepository
+    ):
+        """The event has to agree with the column the test above checks.
+
+        Emission used to take the recorder's default, so every supersession
+        event read ``rematch`` — including a relink whose row said ``manual``.
+        A log that contradicts the data it exists to explain is worse than no
+        log: "why does my library believe this" gets a confident wrong answer.
+        """
+        old_track = await _make_track(db_session, "Old")
+        new_track = await _make_track(db_session, "New")
+        ct_id, _ = await _make_connector_track(db_session)
+        mapping_id = await _make_live_mapping(db_session, old_track, ct_id)
+
+        successor = await TrackConnectorRepository(db_session).update_mapping_track(
+            mapping_id, new_track, "manual_override", user_id=_USER
+        )
+
+        recorded = await events.events_for_mapping(successor.id, user_id=_USER)
+        superseded = [event for event in recorded if event.event_type == "superseded"]
+        assert len(superseded) == 1
+        assert superseded[0].payload["superseded_mapping_id"] == str(mapping_id)
+        assert superseded[0].payload["reason"] == "manual"
+
 
 class TestTenantIsolation:
     """One user's identity decisions are invisible to another."""

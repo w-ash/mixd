@@ -222,6 +222,11 @@ def make_mock_match_review_repo(**overrides) -> AsyncMock:
     # and "all of them" is the right default. A test that needs the guard to
     # skip a row overrides this with a narrower list.
     repo.create_reviews_batch.side_effect = overrides.pop("create_reviews_batch", list)
+    # Must stay a real frozenset: callers test membership against it, and an
+    # AsyncMock's default return is a truthy Mock that swallows every `not in`.
+    repo.existing_review_keys.return_value = overrides.pop(
+        "existing_review_keys", frozenset()
+    )
     repo.update_review_status.return_value = overrides.pop("update_review_status", None)
     repo.count_pending.return_value = overrides.pop("count_pending", 0)
     repo.count_stale_pending.return_value = overrides.pop("count_stale_pending", 0)

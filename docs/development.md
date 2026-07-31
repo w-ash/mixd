@@ -180,7 +180,7 @@ If it reports drift, check Dependabot's jobs first. GitHub also offers a one-sho
 uvx deptry .
 ```
 
-**Transitive vulnerabilities** are pinned as security floors in `web/pnpm-workspace.yaml` `overrides`, each with a comment saying what pulls the package and why the floor is safe against the parent's declared range. Alerts that cannot be fixed are documented there too rather than dismissed — `better-auth` is the standing example (see W8 in [dependency-audit-findings](backlog/dependency-audit-findings.md)).
+**Transitive vulnerabilities** are pinned as security floors in `web/pnpm-workspace.yaml` `overrides`, each with a comment saying what pulls the package and why the floor is safe against the parent's declared range. Alerts that cannot be fixed are documented there too rather than dismissed — `better-auth` is the standing example — the reason it cannot be floored, and the evidence that its open alerts are unreachable from our client-only usage, is written out in `web/pnpm-workspace.yaml` beside the override block.
 
 ## Subagents and Skills
 

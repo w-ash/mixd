@@ -6,6 +6,10 @@ introspection (``vars(probabilistic)``) actually finding every
 still produce *a* hash, just one blind to most of the matcher's behavior.
 """
 
+import attrs
+import pytest
+
+from src.domain.matching import algorithms, isrc_validation
 from src.domain.matching.config import MatchingConfig
 from src.domain.matching.probabilistic import TIER_BOUNDARIES
 from src.domain.matching.version import (
@@ -75,3 +79,53 @@ class TestBreadth:
         serialized = _canonical_serialization(make_config())
         for level in _comparison_levels():
             assert f"level:{level.name}:" in serialized
+
+    def test_canonical_serialization_covers_every_matching_config_field(self):
+        # The config section is built by attrs introspection precisely so a
+        # newly added field can't escape the hash — this asserts that property
+        # directly rather than trusting the six names someone typed out.
+        serialized = _canonical_serialization(make_config())
+        for field in attrs.fields(MatchingConfig):
+            assert field.name in serialized
+
+    def test_canonical_serialization_includes_markers_equivalences_and_isrc_constants(
+        self,
+    ):
+        # The four constants that used to drive behavior from outside the hash.
+        serialized = _canonical_serialization(make_config())
+        assert "variation_markers:" in serialized
+        assert "text_equivalences:" in serialized
+        assert "isrc_validation:" in serialized
+        assert "live" in serialized  # a variation marker
+        assert "featuring" in serialized  # an equivalence replacement
+        assert "10000" in serialized  # SUSPECT_DURATION_DIFF_MS
+
+
+class TestConstantSensitivity:
+    """Changing a module constant must change the serialization.
+
+    These target ``_canonical_serialization`` rather than ``matcher_version``
+    on purpose: the latter is ``functools.cache``d on the config, so a
+    monkeypatched constant would be invisible behind a stale cached hash and
+    the test would pass for the wrong reason.
+    """
+
+    def test_mutated_variation_marker_changes_the_serialization(
+        self, monkeypatch: pytest.MonkeyPatch
+    ):
+        config = make_config()
+        baseline = _canonical_serialization(config)
+
+        monkeypatch.setattr(algorithms, "VARIATION_MARKERS", frozenset({"live"}))
+
+        assert _canonical_serialization(config) != baseline
+
+    def test_mutated_suspect_duration_changes_the_serialization(
+        self, monkeypatch: pytest.MonkeyPatch
+    ):
+        config = make_config()
+        baseline = _canonical_serialization(config)
+
+        monkeypatch.setattr(isrc_validation, "SUSPECT_DURATION_DIFF_MS", 12_000)
+
+        assert _canonical_serialization(config) != baseline

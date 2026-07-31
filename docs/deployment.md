@@ -172,7 +172,7 @@ The health check (`GET /api/v1/health`) runs every 30s with a 30s grace period o
 |---------|-------|
 | Hosting | [Fly.io](https://fly.io) |
 | Region | `sjc` (San Jose) |
-| VM | `shared-cpu-1x`, 512MB |
+| VM | `shared-cpu-2x`, 1GB, 2 CPUs |
 | Scaling | Always-on (1 machine minimum for webhook reliability) |
 | HTTPS | Forced (Fly proxy terminates TLS) |
 | Internal port | 8000 |
@@ -182,7 +182,7 @@ The health check (`GET /api/v1/health`) runs every 30s with a 30s grace period o
 | Database | PostgreSQL 17 via [Neon](https://neon.tech) (pooler endpoint, scale-to-zero) |
 | CI Database | Neon branch per PR (replaces postgres container) |
 | Auth Webhooks | `user.created` event at `/webhooks/neon-auth` |
-| Container | Multi-stage Dockerfile (Python 3.14 + Node 22) |
+| Container | Multi-stage Dockerfile (Python 3.14 + Node 24) |
 
 ## Neon Integration
 

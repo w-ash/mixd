@@ -15,6 +15,11 @@ from src.domain.repositories.play import LastfmImportParams, SpotifyImportParams
 from src.infrastructure.connectors.spotify.personal_data import SpotifyPlayRecord
 from src.infrastructure.connectors.spotify.play_importer import SpotifyPlayImporter
 
+# Batch identity the pipeline threads into _fetch_data as well as _process_data,
+# so a chunked source can build ledger rows as it fetches. The file importer
+# ignores both, but the signature is shared.
+_RUN = {"batch_id": "batch-1", "import_timestamp": datetime(2024, 7, 1, tzinfo=UTC)}
+
 
 @pytest.fixture
 def importer():
@@ -70,6 +75,7 @@ class TestFetchData:
                 SpotifyImportParams(file_path=Path("/nonexistent/file.json")),
                 uow=mock_uow,
                 user_id="user-1",
+                **_RUN,
             )
 
     async def test_directory_path_raises_value_error(
@@ -77,7 +83,10 @@ class TestFetchData:
     ):
         with pytest.raises(ValueError, match="not a file"):
             await importer._fetch_data(
-                SpotifyImportParams(file_path=tmp_path), uow=mock_uow, user_id="user-1"
+                SpotifyImportParams(file_path=tmp_path),
+                uow=mock_uow,
+                user_id="user-1",
+                **_RUN,
             )
 
     async def test_valid_file_returns_records(self, importer, mock_uow, tmp_path: Path):
@@ -105,7 +114,7 @@ class TestFetchData:
         file.write_text(json.dumps(data))
 
         records = await importer._fetch_data(
-            SpotifyImportParams(file_path=file), uow=mock_uow, user_id="user-1"
+            SpotifyImportParams(file_path=file), uow=mock_uow, user_id="user-1", **_RUN
         )
         assert len(records) == 1
         assert isinstance(records[0], SpotifyPlayRecord)
@@ -117,6 +126,7 @@ class TestProcessData:
     async def test_empty_data_returns_empty_list(self, importer):
         result = await importer._process_data(
             raw_data=[],
+            user_id="user-1",
             batch_id="batch-1",
             import_timestamp=datetime.now(UTC),
         )
@@ -126,6 +136,7 @@ class TestProcessData:
         import_ts = datetime(2024, 7, 1, tzinfo=UTC)
         result = await importer._process_data(
             raw_data=[sample_record],
+            user_id="user-1",
             batch_id="batch-42",
             import_timestamp=import_ts,
         )
@@ -142,10 +153,14 @@ class TestProcessData:
         assert play.import_batch_id == "batch-42"
         assert play.import_timestamp == import_ts
         assert play.import_source == "spotify_export"
+        # Tenancy is set by the factory call, not by a second pass over the
+        # whole export — a miss files every row under the "default" tenant.
+        assert play.user_id == "user-1"
 
     async def test_service_metadata_populated(self, importer, sample_record):
         result = await importer._process_data(
             raw_data=[sample_record],
+            user_id="user-1",
             batch_id="batch-1",
             import_timestamp=datetime.now(UTC),
         )
@@ -163,6 +178,7 @@ class TestProcessData:
         """connector_name and connector_track_identifier are set by __attrs_post_init__."""
         result = await importer._process_data(
             raw_data=[sample_record],
+            user_id="user-1",
             batch_id="batch-1",
             import_timestamp=datetime.now(UTC),
         )
@@ -194,6 +210,7 @@ class TestProcessData:
 
         result = await importer._process_data(
             raw_data=records,
+            user_id="user-1",
             batch_id="batch-multi",
             import_timestamp=datetime.now(UTC),
         )

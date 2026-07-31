@@ -18,16 +18,20 @@ from sqlalchemy import (
     ColumnElement,
     Integer,
     Numeric,
+    String,
     case,
+    column,
     func,
     select,
     text,
     tuple_,
     update,
+    values,
 )
-from sqlalchemy.dialects.postgresql import insert as pg_insert
+from sqlalchemy.dialects.postgresql import UUID as PGUUID, insert as pg_insert
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy.orm import aliased
 from structlog.stdlib import BoundLogger
 
 from src.config import get_logger
@@ -65,6 +69,10 @@ from src.infrastructure.persistence.database.live_rows import (
     expire_mapping_identity,
     live_only,
 )
+from src.infrastructure.persistence.repositories._shared.connector_tracks import (
+    build_connector_track_row,
+    extract_db_artist_names,
+)
 from src.infrastructure.persistence.repositories.base_repo import (
     BaseRepository,
     rows_affected,
@@ -73,9 +81,6 @@ from src.infrastructure.persistence.repositories.mappers import BaseModelMapper
 from src.infrastructure.persistence.repositories.repo_decorator import db_operation
 from src.infrastructure.persistence.repositories.resolution import actively_suppressing
 from src.infrastructure.persistence.repositories.track.core import TrackRepository
-from src.infrastructure.persistence.repositories.track.mapper import (
-    extract_db_artist_names,
-)
 from src.infrastructure.services.resolution_recorder import ResolutionRecorder
 
 logger = get_logger(__name__)
@@ -322,6 +327,10 @@ class MappingAssertion:
     confidence, origin, evidence — for every mapping that landed live this
     batch (``created`` plus ``superseded.values()``). It is what
     ``_record_assertion`` sources its events from.
+
+    ``reason`` is the reason stamped on every retired row this batch produced,
+    so event emission agrees with the column. Without it the supersession
+    events always read ``rematch`` while the rows themselves said ``manual``.
     """
 
     created: tuple[UUID, ...] = ()
@@ -330,6 +339,7 @@ class MappingAssertion:
     primacy_restorations: tuple[PrimacyRestoration, ...] = ()
     vacated_tracks: tuple[tuple[UUID, str], ...] = ()
     written: tuple[AssertedMappingRow, ...] = ()
+    reason: SupersessionReason = "rematch"
 
 
 def _is_unique_violation(error: IntegrityError) -> bool:
@@ -375,7 +385,7 @@ class TrackMappingRepository(BaseRepository[DBTrackMapping, TrackMapping]):
         predecessors left the partial index the moment they were superseded.
         """
         if not rows:
-            return MappingAssertion()
+            return MappingAssertion(reason=reason)
 
         prepared = self._deduplicate_batch(
             [self._prepare_assert_row(row) for row in rows],
@@ -489,7 +499,18 @@ class TrackMappingRepository(BaseRepository[DBTrackMapping, TrackMapping]):
                     # it left a live mapping permanently explained by the first
                     # scoring run that ever produced it, which is precisely the
                     # provenance the column exists to carry.
-                    "confidence_evidence": excluded.confidence_evidence,
+                    #
+                    # But only on a freshness touch. When the decision changed,
+                    # this row is about to become history, and history explained
+                    # by the evidence for a *different* decision is worse than
+                    # no explanation at all — the successor row carries the new
+                    # evidence, inserted from ``prepared`` by the second
+                    # statement, so nothing is lost by leaving the retired row
+                    # holding the evidence that actually justified it.
+                    "confidence_evidence": case(
+                        (decision_differs, model.confidence_evidence),
+                        else_=excluded.confidence_evidence,
+                    ),
                     "superseded_at": case((decision_differs, func.now()), else_=None),
                     "superseded_by_id": case(
                         (decision_differs, excluded.id), else_=None
@@ -593,6 +614,7 @@ class TrackMappingRepository(BaseRepository[DBTrackMapping, TrackMapping]):
             primacy_restorations=restorations,
             vacated_tracks=vacated,
             written=written,
+            reason=reason,
         )
 
 
@@ -616,34 +638,6 @@ class TrackConnectorRepository:
         self.mapping_repo = TrackMappingRepository(session)
         self.track_repo = TrackRepository(session)
 
-    @staticmethod
-    def _build_connector_track_dict(
-        connector_name: str,
-        identifier: str,
-        title: str,
-        artists: list[Artist],
-        album: str | None,
-        duration_ms: int | None,
-        release_date: datetime | None,
-        isrc: str | None,
-        raw_metadata: Mapping[str, object] | None,
-    ) -> dict[str, object]:
-        """Build a dict suitable for bulk_upsert of connector tracks."""
-        return {
-            "connector_name": connector_name,
-            "connector_track_identifier": identifier,
-            "title": title,
-            "artists": {"names": [a.name for a in artists]}
-            if artists
-            else {"names": []},
-            "album": album,
-            "duration_ms": duration_ms,
-            "release_date": release_date,
-            "isrc": isrc,
-            "raw_metadata": raw_metadata or {},
-            "last_updated": datetime.now(UTC),
-        }
-
     @db_operation("ensure_connector_tracks")
     async def ensure_connector_tracks(
         self,
@@ -658,19 +652,23 @@ class TrackConnectorRepository:
             return {}
 
         now = datetime.now(UTC)
+        # Application-layer rows are ``Mapping[str, object]`` — the casts state
+        # what each key is known to hold; the shared builder types the columns.
         upsert_data: list[dict[str, object]] = [
-            {
-                "connector_name": connector_name,
-                "connector_track_identifier": td["connector_id"],
-                "title": td.get("title", ""),
-                "artists": {"names": td.get("artists", [])},
-                "album": td.get("album"),
-                "duration_ms": td.get("duration_ms"),
-                "release_date": td.get("release_date"),
-                "isrc": td.get("isrc"),
-                "raw_metadata": td.get("raw_metadata", {}),
-                "last_updated": now,
-            }
+            build_connector_track_row(
+                connector_name,
+                cast("str", td["connector_id"]),
+                title=cast("str", td.get("title", "")),
+                artist_names=cast("Sequence[str]", td.get("artists", [])),
+                album=cast("str | None", td.get("album")),
+                duration_ms=cast("int | None", td.get("duration_ms")),
+                release_date=cast("datetime | None", td.get("release_date")),
+                isrc=cast("str | None", td.get("isrc")),
+                raw_metadata=cast(
+                    "Mapping[str, object] | None", td.get("raw_metadata")
+                ),
+                last_updated=now,
+            )
             for td in tracks_data
         ]
 
@@ -845,6 +843,7 @@ class TrackConnectorRepository:
         self, mappings: list[ConnectorMappingSpec]
     ) -> list[dict[str, object]]:
         """Build deduplicated connector-track upsert rows (one per external id)."""
+        now = datetime.now(UTC)
         rows: list[dict[str, object]] = []
         seen_keys: set[tuple[str, str]] = set()
         for spec in mappings:
@@ -853,16 +852,17 @@ class TrackConnectorRepository:
                 continue
             seen_keys.add(key)
             rows.append(
-                self._build_connector_track_dict(
+                build_connector_track_row(
                     spec.connector,
                     spec.connector_id,
-                    spec.track.title,
-                    spec.track.artists,
-                    spec.track.album,
-                    spec.track.duration_ms,
-                    spec.track.release_date,
-                    spec.track.isrc,
-                    spec.metadata,
+                    title=spec.track.title,
+                    artist_names=[a.name for a in spec.track.artists],
+                    album=spec.track.album,
+                    duration_ms=spec.track.duration_ms,
+                    release_date=spec.track.release_date,
+                    isrc=spec.track.isrc,
+                    raw_metadata=spec.metadata,
+                    last_updated=now,
                 )
             )
         return rows
@@ -919,7 +919,17 @@ class TrackConnectorRepository:
 
         ``PrimacyRestoration`` already carries the connector track's internal
         UUID, so this goes straight to ``_batch_ensure_primary_mappings`` —
-        no need to round-trip it through the external string id and back.
+        no need to round-trip it through the external string id and back. That
+        path fills a vacancy and never deposes, so a successor arriving on a
+        track that already has a primary (pinned or automatic) leaves it be:
+        the restoration exists to repair the slot supersession emptied, not to
+        claim one that is still occupied.
+
+        The vacated-pairs loop above stays per-pair on purpose. It is 0-2
+        entries in practice, and each one needs
+        ``ensure_primary_for_connector``'s selection policy — pick the
+        highest-confidence survivor, or clear the denormalized column when
+        there is none — which is a decision per track, not a set operation.
         """
         for track_id, connector_name in assertion.vacated_tracks:
             await self.ensure_primary_for_connector(track_id, connector_name)
@@ -1142,17 +1152,19 @@ class TrackConnectorRepository:
 
         Returns a lookup keyed by external identifier.
         """
+        now = datetime.now(UTC)
         connector_track_data: list[dict[str, object]] = [
-            self._build_connector_track_dict(
+            build_connector_track_row(
                 connector,
                 identifier,
-                group[-1].title,
-                group[-1].artists,
-                group[-1].album,
-                group[-1].duration_ms,
-                group[-1].release_date,
-                group[-1].isrc,
-                group[-1].raw_metadata,
+                title=group[-1].title,
+                artist_names=[a.name for a in group[-1].artists],
+                album=group[-1].album,
+                duration_ms=group[-1].duration_ms,
+                release_date=group[-1].release_date,
+                isrc=group[-1].isrc,
+                raw_metadata=group[-1].raw_metadata,
+                last_updated=now,
             )
             for identifier, group in groups.items()
         ]
@@ -1362,7 +1374,10 @@ class TrackConnectorRepository:
         for user_id, decisions in by_user.items():
             _ = await recorder.record(decisions, user_id=user_id)
         await self._record_supersession_edges(
-            recorder, assertion.superseded, successor_owners
+            recorder,
+            assertion.superseded,
+            successor_owners,
+            reason=assertion.reason,
         )
 
     @staticmethod
@@ -1370,6 +1385,8 @@ class TrackConnectorRepository:
         recorder: ResolutionRecorderProtocol,
         edges: Mapping[UUID, UUID],
         successor_owners: dict[UUID, tuple[str, str]],
+        *,
+        reason: SupersessionReason,
     ) -> None:
         """Emit one ``superseded`` event per edge; the seam groups by owner.
 
@@ -1377,6 +1394,11 @@ class TrackConnectorRepository:
         manual-override filter upstream (the same guard ``_record_assertion``
         applies via ``assertion.written``) and is skipped — there is no live
         row left to describe an event about.
+
+        ``reason`` comes from the assertion that produced these edges rather
+        than defaulting: a relink asserts with ``manual``, and an event saying
+        ``rematch`` about a row whose ``supersession_reason`` column says
+        ``manual`` is the log contradicting the data it exists to explain.
         """
         supersession_edges = [
             SupersessionEdge(
@@ -1390,7 +1412,7 @@ class TrackConnectorRepository:
         ]
         if not supersession_edges:
             return
-        _ = await recorder.record_supersessions(supersession_edges)
+        _ = await recorder.record_supersessions(supersession_edges, reason=reason)
 
     def _resolution_recorder(self) -> ResolutionRecorderProtocol:
         """The identity write seam bound to this repository's transaction."""
@@ -1724,8 +1746,8 @@ class TrackConnectorRepository:
         # one place. A second copy here is the disagreement migration 044's
         # pre-pass had to repair on 366 production rows, written again.
         #
-        # The batch path's reset step is a no-op on this track: it only runs
-        # once the check above has established nothing is primary.
+        # The batch path only fills a vacancy, which is precisely the state the
+        # check above has just established this track to be in.
         _ = await self._batch_ensure_primary_mappings([
             (track_id, connector_name, remaining[0].connector_track_id)
         ])
@@ -2027,10 +2049,15 @@ class TrackConnectorRepository:
     async def _reset_primaries[T](self, primaries: list[tuple[UUID, str, T]]) -> None:
         """Clear ``is_primary`` on every live mapping for these track/connector pairs.
 
-        Shared first step of both primary-promotion paths below — a track must
-        end up with at most one live primary per connector, whichever
-        identifier shape (UUID or external string) the caller started with,
-        which is why the third element is unconstrained here.
+        One caller left: ``_batch_ensure_primary_mappings_by_external_id``,
+        which deliberately re-elects the primary for every pair it is given.
+        The generic type parameter survives that narrowing because the third
+        element is still never read here — only the (track, connector) pair is.
+
+        Its deliberate reset is what makes the promotion step's vacancy guard
+        vacuously true for those pairs: nothing is primary by the time the
+        promote runs, so "promote only into a vacancy" and "promote" coincide,
+        and that path's behaviour is unchanged by the guard's introduction.
 
         Grouped by connector so each statement clears only the tracks that
         actually appear under *that* connector. Taking the cross-product of
@@ -2060,25 +2087,74 @@ class TrackConnectorRepository:
     async def _promote_primaries_by_uuid(
         self, primaries: list[tuple[UUID, str, UUID]]
     ) -> int:
-        """Mark each (track, connector track) pair primary; sync what landed.
+        """Fill a vacant primary slot for each pair, in one statement.
 
-        Assumes ``_reset_primaries`` already ran for these pairs. Each tuple
-        is (track_id, connector_name, connector_track_id) — the connector
-        track's internal database id.
+        Each tuple is (track_id, connector_name, connector_track_id) — the
+        connector track's internal database id.
+
+        **Vacancy-fill, never a deposition.** The ``NOT EXISTS`` peer guard is
+        what makes that true: a pair that already has a live primary is left
+        exactly as it is, whether that primary is user-pinned
+        (``manual_override``) or automatic. Same precedent as
+        ``merge_mappings_to_track`` — "flipping an existing primary is not the
+        merge's business" — and the same reasoning applies here: an arriving
+        mapping's confidence is not a mandate to overrule a decision the track
+        already holds. Same-track re-scoring is unaffected, because the
+        upsert's ``decision_differs`` arm already cleared the predecessor's
+        ``is_primary`` in an earlier statement, so the pair reads as vacant.
+
+        **Deduplicated first, by (track_id, connector_name), first wins.**
+        ``uq_primary_mapping`` admits one live primary per
+        (user, track, connector), and the guard below is evaluated against the
+        statement-start snapshot — it cannot see rows this same UPDATE is
+        promoting. Two rows for one pair in one batch would therefore both pass
+        the guard and collide.
+
+        **``RETURNING`` is the "promotion landed" signal**, replacing the
+        per-row ``rows_affected`` the loop version used: with one statement for
+        the whole batch there is no per-row count left, and the FM4d rule needs
+        to know exactly which pairs moved before it touches a denormalized id.
         """
-        promoted: list[tuple[UUID, str, UUID]] = []
+        deduped: dict[tuple[UUID, str], tuple[UUID, str, UUID]] = {}
         for track_id, connector_name, ct_db_id in primaries:
-            result = await self.session.execute(
-                update(DBTrackMapping)
-                .where(
-                    DBTrackMapping.track_id == track_id,
-                    DBTrackMapping.connector_track_id == ct_db_id,
-                    live_only(DBTrackMapping),
-                )
-                .values(is_primary=True)
+            _ = deduped.setdefault(
+                (track_id, connector_name), (track_id, connector_name, ct_db_id)
             )
-            if rows_affected(result) > 0:
-                promoted.append((track_id, connector_name, ct_db_id))
+
+        promotion_values = values(
+            column("track_id", PGUUID(as_uuid=True)),
+            column("connector_track_id", PGUUID(as_uuid=True)),
+            name="promotion_values",
+        ).data([(track_id, ct_db_id) for track_id, _, ct_db_id in deduped.values()])
+
+        peer = aliased(DBTrackMapping)
+        result = await self.session.execute(
+            update(DBTrackMapping)
+            .where(
+                DBTrackMapping.track_id == promotion_values.c.track_id,
+                DBTrackMapping.connector_track_id
+                == promotion_values.c.connector_track_id,
+                live_only(DBTrackMapping),
+                ~select(peer.id)
+                .where(
+                    peer.user_id == DBTrackMapping.user_id,
+                    peer.track_id == DBTrackMapping.track_id,
+                    peer.connector_name == DBTrackMapping.connector_name,
+                    peer.is_primary.is_(True),
+                    live_only(peer),
+                )
+                .correlate(DBTrackMapping)
+                .exists(),
+            )
+            .values(is_primary=True)
+            .returning(
+                DBTrackMapping.track_id,
+                DBTrackMapping.connector_name,
+                DBTrackMapping.connector_track_id,
+            )
+            .execution_options(synchronize_session=False)
+        )
+        promoted: list[tuple[UUID, str, UUID]] = list(result.tuples().all())
 
         if promoted:
             await self._sync_promoted_denormalized_ids(promoted)
@@ -2090,17 +2166,22 @@ class TrackConnectorRepository:
         """Sync the fast-path column for pairs whose promotion actually landed.
 
         FM4d rule — the denormalized id must move ONLY when the promotion
-        landed (``rows_affected(result) > 0`` in the caller), never
+        landed (the caller's ``RETURNING`` rows, never its input), never
         unconditionally: a promotion that changes which row is primary
         without moving the column leaves ``tracks.spotify_id``/``mbid``
         describing a mapping that no longer holds primacy, the same
         disagreement migration 044's pre-pass had to repair on 366 rows.
 
-        ``_sync_denormalized_id`` writes the external identifier *string*,
-        while ``promoted`` only carries the connector track's UUID, so it
-        still needs resolving — one lookup here for the promoted subset, in
-        place of a lookup for every candidate regardless of whether its
-        promotion landed.
+        The external identifier *string* is what the column stores, while
+        ``promoted`` only carries the connector track's UUID, so it still needs
+        resolving — one lookup here for the promoted subset, in place of a
+        lookup for every candidate regardless of whether its promotion landed.
+
+        Written back one statement per denormalized *column* rather than one
+        per row: the column name cannot be parameterised, so rows are grouped
+        by it and each group joins its own VALUES list. A connector with no
+        fast-path column is dropped by the ``COLUMN_MAP`` lookup — most of
+        them have none, and nothing to sync is not a failure.
         """
         ct_ids = [ct_id for _, _, ct_id in promoted]
         result = await self.session.execute(
@@ -2109,17 +2190,32 @@ class TrackConnectorRepository:
             ).where(DBConnectorTrack.id.in_(ct_ids))
         )
         external_by_ct_id = dict(result.tuples().all())
+
+        by_column: dict[str, list[tuple[UUID, str]]] = defaultdict(list)
         for track_id, connector_name, ct_id in promoted:
+            column_name = DenormalizedTrackColumns.COLUMN_MAP.get(connector_name)
             external_id = external_by_ct_id.get(ct_id)
-            if external_id:
-                await self._sync_denormalized_id(track_id, connector_name, external_id)
+            if column_name and external_id:
+                by_column[column_name].append((track_id, external_id))
+
+        for column_name, pairs in by_column.items():
+            identifier_values = values(
+                column("track_id", PGUUID(as_uuid=True)),
+                column("external_id", String()),
+                name="denormalized_values",
+            ).data(pairs)
+            _ = await self.session.execute(
+                update(DBTrack)
+                .where(DBTrack.id == identifier_values.c.track_id)
+                .values(**{column_name: identifier_values.c.external_id})
+            )
 
     @db_operation("batch_ensure_primary_mappings")
     async def _batch_ensure_primary_mappings(
         self,
         primaries: list[tuple[UUID, str, UUID]],
     ) -> int:
-        """Set primary mappings for multiple track-connector pairs in bulk.
+        """Fill a vacant primary slot for multiple track-connector pairs in bulk.
 
         Replaces per-track ensure_primary_mapping() loops with fewer queries.
         Each tuple is (track_id, connector_name, connector_track_id) — the
@@ -2129,15 +2225,27 @@ class TrackConnectorRepository:
         ``_batch_ensure_primary_mappings_by_external_id`` is the sibling entry
         point for the one caller that only holds the external string id.
 
+        **Vacancy-fill only.** This used to clear ``is_primary`` across every
+        live mapping for the pair before promoting, which made a supersession
+        restoration into a deposition: a mapping re-asserted onto a track that
+        already had a primary — including a user-pinned ``manual_override`` —
+        demoted it and took the slot. Deposing a live primary is the explicit
+        ``set_primary`` path's business, exactly as
+        ``merge_mappings_to_track`` decided for merges ("deposing an existing
+        primary is not something a merge gets to decide"). Re-scoring a track's
+        own primary still works: the upsert cleared the predecessor's
+        ``is_primary`` when it retired it, so the successor arrives to an empty
+        slot rather than having to take one.
+
         Args:
             primaries: List of (track_id, connector_name, connector_track_id).
 
         Returns:
-            Number of mappings successfully promoted to primary.
+            Number of mappings promoted — pairs that already had a live
+            primary are left alone and are not counted.
         """
         if not primaries:
             return 0
-        await self._reset_primaries(primaries)
         return await self._promote_primaries_by_uuid(primaries)
 
     @db_operation("batch_ensure_primary_mappings_by_external_id")
@@ -2154,6 +2262,12 @@ class TrackConnectorRepository:
         shares the UUID path's promotion step. A caller that already holds
         the UUID should call ``_batch_ensure_primary_mappings`` directly
         instead of routing through here just to convert it back.
+
+        Unlike its sibling this one still resets first, and so still re-elects
+        rather than merely filling a vacancy: it runs at the end of
+        ``_create_mappings_and_set_primaries``, where the caller has just named
+        which connector id each track's primary should be. Its reset is also
+        what keeps the shared promotion step's vacancy guard a no-op here.
 
         Args:
             primaries: List of (track_id, connector_name, connector_track_identifier).

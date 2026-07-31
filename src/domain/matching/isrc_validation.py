@@ -4,10 +4,16 @@ Reliability assessment for ISRC-based matches to detect known problems like
 remaster reuse and clean/explicit version duplication.
 """
 
+from typing import Final
+
 from attrs import define
 
-# Duration difference thresholds for ISRC reliability assessment
-SUSPECT_DURATION_DIFF_MS = 10_000  # >10s suggests remaster/different version
+# Duration difference threshold for ISRC reliability assessment: the line
+# between an ISRC_EXACT and an ISRC_SUSPECT comparison level. >10s suggests a
+# remaster or a different version. Part of the matcher-version surface —
+# ``src.domain.matching.version`` hashes it, so changing this number changes
+# the matcher version.
+SUSPECT_DURATION_DIFF_MS: Final[int] = 10_000
 
 
 @define(frozen=True, slots=True)

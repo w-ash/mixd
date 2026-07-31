@@ -8,6 +8,7 @@ import math
 
 import pytest
 
+from src.domain.matching import probabilistic
 from src.domain.matching.probabilistic import (
     ARTIST_EXACT,
     ARTIST_HIGH_FUZZY,
@@ -72,6 +73,36 @@ class TestComparisonLevel:
         """ISRC exact match should be the strongest single signal."""
         assert ISRC_EXACT.log_likelihood_ratio > TITLE_EXACT.log_likelihood_ratio
         assert ISRC_EXACT.log_likelihood_ratio > ARTIST_EXACT.log_likelihood_ratio
+
+
+class TestDerivedLogLikelihoodRatio:
+    """``log_likelihood_ratio`` is computed once at construction, not per access.
+
+    It used to be a ``@property`` recomputing ``math.log`` on every read, of
+    which there are several per confidence evaluation against frozen
+    module-level singletons. These tests pin the derived values to the
+    original formula so the change stays behavior-preserving.
+    """
+
+    @pytest.mark.parametrize(
+        "level",
+        [
+            value
+            for value in vars(probabilistic).values()
+            if isinstance(value, ComparisonLevel)
+        ],
+        ids=lambda level: level.name,
+    )
+    def test_matches_the_original_formula(self, level: ComparisonLevel):
+        if level.u_probability <= 0 or level.m_probability <= 0:
+            expected = 15.0 if level.m_probability > 0 else -15.0
+        else:
+            expected = math.log(level.m_probability / level.u_probability)
+        assert level.log_likelihood_ratio == expected
+
+    def test_value_is_stored_not_recomputed(self):
+        first = TITLE_EXACT.log_likelihood_ratio
+        assert TITLE_EXACT.log_likelihood_ratio is first
 
 
 class TestClassifyTitle:

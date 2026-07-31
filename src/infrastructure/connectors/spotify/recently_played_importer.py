@@ -21,14 +21,14 @@ from src.domain.entities.progress import ProgressEmitter
 from src.domain.entities.shared import JsonValue
 from src.domain.exceptions import SpotifyAuthRequiredError
 from src.domain.repositories.play import (
+    RECENTLY_PLAYED_SCOPE,
     PlayImporterProtocol,
     PlayImportParams,
     SpotifyRecentImportParams,
 )
 from src.domain.repositories.uow import UnitOfWorkProtocol
-from src.infrastructure.connectors._shared.oauth_scopes import missing_from_grant
+from src.domain.services.oauth_grant import missing_from_grant
 from src.infrastructure.connectors._shared.token_storage import get_token_storage
-from src.infrastructure.connectors.spotify.auth import RECENTLY_PLAYED_SCOPE
 from src.infrastructure.connectors.spotify.client import SpotifyAPIClient
 from src.infrastructure.connectors.spotify.models import SpotifyPlayHistoryItem
 from src.infrastructure.services.base_play_importer import BasePlayImporter
@@ -142,11 +142,13 @@ class SpotifyRecentlyPlayedImporter(
         *,
         uow: UnitOfWorkProtocol,
         user_id: str,
+        batch_id: str,
+        import_timestamp: datetime,
         progress_emitter: ProgressEmitter | None = None,
         operation_id: str | None = None,
     ) -> list[SpotifyPlayHistoryItem]:
         """Fetch plays newer than the stored cursor (all of them on a first poll)."""
-        _ = progress_emitter, operation_id
+        _ = batch_id, import_timestamp, progress_emitter, operation_id
 
         after_ms = (
             None if params.force else await self._resolve_after_cursor(user_id, uow)
@@ -196,6 +198,7 @@ class SpotifyRecentlyPlayedImporter(
         self,
         raw_data: list[SpotifyPlayHistoryItem],
         *,
+        user_id: str,
         batch_id: str,
         import_timestamp: datetime,
     ) -> list[ConnectorTrackPlay]:
@@ -206,6 +209,7 @@ class SpotifyRecentlyPlayedImporter(
                 track_name=item.track.name,
                 played_at=item.played_at,
                 service="spotify",
+                user_id=user_id,
                 album_name=item.track.album.name if item.track.album else None,
                 # The API reports no listening duration. Survivorship takes the
                 # first non-null ms_played, so a synthetic stand-in (e.g. the

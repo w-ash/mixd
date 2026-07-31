@@ -27,10 +27,10 @@ from src.infrastructure.persistence.database.db_models import (
     DBTrack,
     DBTrackMapping,
 )
-from src.infrastructure.persistence.repositories.mappers import BaseModelMapper
-from src.infrastructure.persistence.repositories.track.mapper import (
+from src.infrastructure.persistence.repositories._shared.connector_tracks import (
     extract_db_artist_names,
 )
+from src.infrastructure.persistence.repositories.mappers import BaseModelMapper
 
 # Create module logger
 logger = get_logger(__name__)

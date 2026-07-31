@@ -474,9 +474,9 @@ class DBResolutionEvent(DatabaseModel):
     a table free of RI is the one that can be partitioned later without
     dropping constraints first (memo §10.7).
 
-    MUST mirror migration 045 exactly — integration tests build the schema with
-    ``metadata.create_all``, so divergence means every integration test runs
-    against a schema production never has.
+    MUST mirror migrations 045 + 046 exactly — integration tests build the
+    schema with ``metadata.create_all``, so divergence means every integration
+    test runs against a schema production never has.
     """
 
     __tablename__: str = "resolution_events"
@@ -526,10 +526,15 @@ class DBResolutionEvent(DatabaseModel):
             "connector_track_id",
             postgresql_where=text("connector_track_id IS NOT NULL"),
         ),
+        # The log's only read path (``events_for_mapping``): one mapping's
+        # history, newest first. Partial because most events name no mapping,
+        # and a NULL there can never satisfy the equality predicate anyway.
         Index(
-            "ix_resolution_events_matcher_version",
-            "matcher_version",
+            "ix_resolution_events_mapping",
+            "user_id",
+            "resulting_mapping_id",
             text("recorded_at DESC"),
+            postgresql_where=text("resulting_mapping_id IS NOT NULL"),
         ),
     )
 

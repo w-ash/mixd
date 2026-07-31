@@ -80,6 +80,14 @@ jobs:
       - name: Dependency check
         run: uvx deptry .
 
+      # Layer boundaries: Interface → Application → Domain ← Infrastructure.
+      # --no-cache is load-bearing — a cached run silently under-reports (18
+      # edges vs 22 measured on the same tree), so a cache-hit green would be
+      # indistinguishable from a real green. Contracts in pyproject.toml; every
+      # sanctioned edge is documented in .claude/rules/.
+      - name: Layer contracts
+        run: uv run lint-imports --no-cache
+
       - name: Test with coverage
         run: uv run pytest -m "" --cov --cov-report=term-missing --cov-fail-under=80
 

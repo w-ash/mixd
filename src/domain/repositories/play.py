@@ -3,7 +3,7 @@
 Split from the former monolithic ``interfaces.py``.
 """
 
-from collections.abc import Awaitable, Callable, Mapping, Sequence
+from collections.abc import Awaitable, Callable, Iterable, Mapping, Sequence
 from datetime import datetime
 from pathlib import Path
 from typing import TYPE_CHECKING, Final, Literal, Protocol, TypedDict
@@ -50,6 +50,12 @@ class SpotifyImportParams:
 # that, so a larger request is silently unachievable. Declared once, beside the
 # params type it bounds, so the application clamp and the HTTP client agree.
 RECENTLY_PLAYED_PAGE_LIMIT: Final = 50
+
+# The one scope the recently-played poller gates on (v0.10.1) — a grant can be
+# short only this and still serve likes/playlists. Declared here for the same
+# reason as the page limit: the poll policy, the pre-flight dependency, and the
+# connector all have to agree on it, and they sit in three different layers.
+RECENTLY_PLAYED_SCOPE: Final = "user-read-recently-played"
 
 
 @define(frozen=True, slots=True)
@@ -263,15 +269,20 @@ class ConnectorPlayRepositoryProtocol(Protocol):
     """
 
     def bulk_insert_connector_plays(
-        self, connector_plays: list[ConnectorTrackPlay]
+        self, connector_plays: Iterable[ConnectorTrackPlay]
     ) -> Awaitable[tuple[int, int]]:
         """Bulk insert connector plays from external API data.
 
         Args:
-            connector_plays: List of ConnectorTrackPlay domain objects from API ingestion
+            connector_plays: Any iterable of ConnectorTrackPlay from ingestion.
+                A generator is valid and preferred for large imports — the
+                implementation streams and counts as it goes, so nothing forces
+                a 198k-row export to be resident all at once. ``len()`` is
+                never taken.
 
         Returns:
-            tuple[int, int]: (inserted_count, duplicate_count)
+            tuple[int, int]: (inserted_count, duplicate_count), where the counts
+            sum to the number of items the iterable yielded.
         """
         ...
 
@@ -372,4 +383,26 @@ class PlayResolverProtocol(Protocol):
             PlayResolutionOutcome with track plays, metrics, and the
             connector-play↔track resolution pairs for ledger write-back.
         """
+        ...
+
+
+class PlayImportProvider(Protocol):
+    """Looks up the importer/resolver a given service and import kind need.
+
+    Only the *lookup* is infrastructure — both return values are already
+    domain protocols. Declaring the lookup here is what lets the import use
+    case pick a per-service implementation without naming any connector, which
+    is the property its docstrings have always claimed.
+    """
+
+    def create_play_importer(
+        self, service: str, kind: ImportKind, uow: UnitOfWorkProtocol
+    ) -> Awaitable[PlayImporterProtocol]:
+        """Importer for ``service`` reading from ``kind`` (live API or export file)."""
+        ...
+
+    def create_play_resolver(
+        self, service: str, uow: UnitOfWorkProtocol | None = None
+    ) -> Awaitable[PlayResolverProtocol]:
+        """Resolver for ``service`` — how its identifiers map to canonical tracks."""
         ...

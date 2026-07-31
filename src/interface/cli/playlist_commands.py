@@ -536,18 +536,13 @@ async def _create_playlist_impl(name: str, description: str | None) -> None:
         CreateCanonicalPlaylistCommand,
         CreateCanonicalPlaylistUseCase,
     )
-    from src.infrastructure.connectors._shared.metric_registry import (
-        MetricConfigProviderImpl,
-    )
 
     user_id = get_cli_user_id()
     command = CreateCanonicalPlaylistCommand(
         user_id=user_id, name=name, description=description
     )
     result = await execute_use_case(
-        lambda uow: CreateCanonicalPlaylistUseCase(
-            metric_config=MetricConfigProviderImpl()
-        ).execute(command, uow),
+        lambda uow: CreateCanonicalPlaylistUseCase().execute(command, uow),
         user_id=user_id,
     )
 
@@ -580,9 +575,6 @@ async def _update_playlist_impl(
         UpdateCanonicalPlaylistUseCase,
     )
     from src.domain.entities.track import TrackList
-    from src.infrastructure.connectors._shared.metric_registry import (
-        MetricConfigProviderImpl,
-    )
 
     user_id = get_cli_user_id()
     command = UpdateCanonicalPlaylistCommand(
@@ -593,9 +585,7 @@ async def _update_playlist_impl(
         playlist_description=description,
     )
     result = await execute_use_case(
-        lambda uow: UpdateCanonicalPlaylistUseCase(
-            metric_config=MetricConfigProviderImpl()
-        ).execute(command, uow),
+        lambda uow: UpdateCanonicalPlaylistUseCase().execute(command, uow),
         user_id=user_id,
     )
 

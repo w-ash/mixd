@@ -220,7 +220,9 @@ class TestEnsurePrimaryForConnector:
 
         await connector_repo.ensure_primary_for_connector(db_track.id, "spotify")
 
-        # Verify by querying the database directly
+        # Verify by querying the database directly. populate_existing: the
+        # promote is Core DML (a VALUES-join UPDATE), so the identity map still
+        # holds the pre-write instances added above and must be refreshed.
         result = await db_session.execute(
             select(DBTrackMapping)
             .where(
@@ -228,6 +230,7 @@ class TestEnsurePrimaryForConnector:
                 DBTrackMapping.connector_name == "spotify",
             )
             .order_by(DBTrackMapping.confidence.desc())
+            .execution_options(populate_existing=True)
         )
         mappings = result.scalars().all()
         primaries = [m for m in mappings if m.is_primary]

@@ -32,3 +32,19 @@ class MetricConfigProvider(Protocol):
     def get_all_field_mappings(self) -> dict[str, str]:
         """Return mapping of all metric names to their field names."""
         ...
+
+
+def default_metric_config() -> MetricConfigProvider:
+    """Build the default metric provider (approved infrastructure bridge).
+
+    Function-scoped so the layer edge stays narrow. Defaulting it here is what
+    keeps the *interface* layer from having to know the concrete provider just
+    to construct a use case — callers that already hold a provider still pass it
+    explicitly. Lives beside the protocol so the bridge has one home rather than
+    a copy per use case.
+    """
+    from src.infrastructure.connectors._shared.metric_registry import (
+        MetricConfigProviderImpl,
+    )
+
+    return MetricConfigProviderImpl()

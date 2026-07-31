@@ -73,9 +73,6 @@ from src.domain.entities.playlist_link import SyncDirection
 from src.domain.entities.shared import ConnectorPlaylistIdentifier
 from src.domain.entities.track import TrackList
 from src.domain.exceptions import NotFoundError
-from src.infrastructure.connectors._shared.metric_registry import (
-    MetricConfigProviderImpl,
-)
 from src.interface.api.deps import get_current_user_id
 from src.interface.api.schemas.common import PaginatedResponse
 from src.interface.api.schemas.imports import OperationStartedResponse
@@ -146,9 +143,7 @@ async def create_playlist(
         description=body.description,
     )
     result = await execute_use_case(
-        lambda uow: CreateCanonicalPlaylistUseCase(
-            metric_config=MetricConfigProviderImpl()
-        ).execute(command, uow),
+        lambda uow: CreateCanonicalPlaylistUseCase().execute(command, uow),
         user_id=user_id,
     )
     return to_playlist_detail(result.playlist)
@@ -195,9 +190,7 @@ async def update_playlist(
         playlist_description=body.description,
     )
     result = await execute_use_case(
-        lambda uow: UpdateCanonicalPlaylistUseCase(
-            metric_config=MetricConfigProviderImpl()
-        ).execute(command, uow),
+        lambda uow: UpdateCanonicalPlaylistUseCase().execute(command, uow),
         user_id=user_id,
     )
     return to_playlist_detail(result.playlist)

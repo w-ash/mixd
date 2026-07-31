@@ -1,6 +1,6 @@
 # Design-Debt Review — Findings
 
-**Status**: Active — findings still feed future milestones.
+**Status**: Active, mostly spent (reviewed 2026-07-31) — F1–F5 + F9–F12 shipped as [v0.8.5/v0.8.6](v0.8.5-0.8.6.md), F6 as [v0.8.11](v0.8.11.md), and **both rule-change proposals were accepted**: §9.1's reflection carve-out is in `.claude/rules/python-conventions.md`, §9.2 was legalized (not closed) in `.claude/rules/interface-patterns.md`. Still live: §6 F11's god-file split, scheduled into [v0.12.x](v0.12.x.md) for the cycle that adds ~10 tables; F7 (connector-side search) and F8 (persistent operation awareness) are findings with no scheduled home. Known-stale in place: the `interfaces.py` figures predate the v0.8.6 per-aggregate split, and the layer edges §9.2 *didn't* cover are tracked in [unscheduled.md](unscheduled.md#deferred-clean-architecture-improvements).
 
 **Scope**: the second of two mid-2026 audits. The hygiene pass cleaned lint-visible debt (suppressions, dead symbols, copy-paste). This pass walked the codebase **use case by use case** against documented user goals, hunting over-engineering, accretion drift, misleading names, and disproportionate paths. Review-and-recommend only — no refactors were applied.
 

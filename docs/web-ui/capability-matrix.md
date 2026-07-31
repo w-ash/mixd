@@ -10,11 +10,14 @@ internal plumbing). This table is generated from
 `src/application/tools/registry.py` and enforced by
 `tests/unit/application/tools/test_registry_parity.py`.
 
-**84 capabilities: 76 covered, 8 excluded.**
+**88 capabilities: 77 covered, 11 excluded.**
 
 | Capability (use case) | Chat tool | Disposition | Rationale |
 | --- | --- | --- | --- |
+| GetUserSettingsUseCase | — | blacklisted | Interface chrome (theme), not music data; the user decides how mixd looks. |
+| PatchUserSettingsUseCase | — | blacklisted | Interface chrome (theme), not music data; an assistant restyling the app mid-conversation is a surprise, not a capability. |
 | RecordChatFeedbackUseCase | — | blacklisted | Feedback about the assistant comes from the human thumbs UI only — the agent must never file feedback on itself. |
+| ResetDatabaseUseCase | — | blacklisted | ``mixd admin reset`` truncates every data table for every user — irreversible and unscoped, so it stays a deliberate human action. |
 | AddPlaylistTracksUseCase | manage_playlist_entries | covered | — |
 | ApplyPlaylistAssignmentsUseCase | apply_playlist_assignments | covered | — |
 | BatchTagTracksUseCase | manage_tags | covered | — |
@@ -55,6 +58,7 @@ internal plumbing). This table is generated from
 | ListOperationRunsUseCase | query_operations | covered | — |
 | ListPlaylistLinksUseCase | query_playlist_links | covered | — |
 | ListPlaylistsUseCase | query_playlists | covered | — |
+| ListResolutionNegativesUseCase | query_stats | covered | — |
 | ListSchedulesUseCase | query_schedules | covered | — |
 | ListTagsUseCase | list_tags | covered | — |
 | ListTracksUseCase | query_library | covered | — |

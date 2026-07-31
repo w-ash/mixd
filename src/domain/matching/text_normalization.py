@@ -4,10 +4,20 @@ Preprocessing pipeline applied before fuzzy string comparison to handle
 diacritics, transliterations, and common equivalences across music services.
 """
 
+import functools
 import re
+from typing import Final
 import unicodedata
 
 import jellyfish
+
+# Normalization is called once per title and per artist name on every
+# comparison, and the same strings recur constantly across a library — a
+# hit is ~60x cheaper than the seven-pass pipeline. Bounded because the API
+# process is long-lived: 32k entries covers the distinct titles plus artist
+# names of a large library with headroom, while an unbounded cache would be
+# a slow leak.
+_NORMALIZATION_CACHE_SIZE: Final = 32_768
 
 # Common equivalences in music metadata
 _EQUIVALENCES: list[tuple[re.Pattern[str], str]] = [
@@ -17,6 +27,19 @@ _EQUIVALENCES: list[tuple[re.Pattern[str], str]] = [
     (re.compile(r"\s*\+\s*"), " and "),
 ]
 
+# The same equivalences as a public, hashable view: pattern source, flags, and
+# replacement. They rewrite text before every comparison without appearing
+# anywhere in ``MatchingConfig``, so ``src.domain.matching.version`` has to hash
+# them — and reaching into a module private to do that would make the hash's
+# inputs a matter of import etiquette. Derived from ``_EQUIVALENCES`` rather
+# than restated so the two cannot drift: adding a rule above is what makes it
+# hashed, not an edit in another file. Order is preserved, never sorted — the
+# rules apply in sequence and reordering them is itself a behavior change.
+EQUIVALENCE_RULES: Final[tuple[tuple[str, int, str], ...]] = tuple(
+    (pattern.pattern, pattern.flags, replacement)
+    for pattern, replacement in _EQUIVALENCES
+)
+
 # Leading article to strip for comparison (preserves original for display)
 _LEADING_ARTICLE = re.compile(r"^the\s+", re.IGNORECASE)
 
@@ -24,6 +47,7 @@ _LEADING_ARTICLE = re.compile(r"^the\s+", re.IGNORECASE)
 _NON_ALNUM = re.compile(r"[^\w\s]", re.UNICODE)
 
 
+@functools.lru_cache(maxsize=_NORMALIZATION_CACHE_SIZE)
 def strip_diacritics(text: str) -> str:
     """Remove diacritical marks from text via Unicode NFD decomposition.
 
@@ -36,9 +60,14 @@ def strip_diacritics(text: str) -> str:
     'Motorhead'
     """
     nfd = unicodedata.normalize("NFD", text)
+    # The ``Mn`` category test is deliberate, not a slow stand-in for a regex
+    # character class: 753 of the 865 ``Mn`` codepoints below U+2000 sit
+    # outside the Latin combining block (U+0300-U+036F), so a class over that
+    # block silently keeps Arabic harakat, Hebrew niqqud, and Tibetan marks.
     return "".join(c for c in nfd if unicodedata.category(c) != "Mn")
 
 
+@functools.lru_cache(maxsize=_NORMALIZATION_CACHE_SIZE)
 def normalize_for_comparison(text: str) -> str:
     """Full normalization pipeline for fuzzy string comparison.
 

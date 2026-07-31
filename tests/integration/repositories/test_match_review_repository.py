@@ -359,3 +359,37 @@ class TestOneBadRowDoesNotPoisonTheTransaction:
         # Still usable: the proof the failure stayed inside its savepoint
         # rather than aborting the transaction this repository was called in.
         assert await repo.count_pending(user_id="default") == 1
+
+
+class TestExistingReviewKeys:
+    """Which questions were already asked, which a batch write cannot answer."""
+
+    async def test_existing_review_keys_reports_only_pairs_already_present(
+        self, db_session: AsyncSession
+    ):
+        track_id, ct_id = await _seed_track_and_connector_track(db_session)
+        repo = MatchReviewRepository(db_session)
+        await repo.create_review(
+            MatchReview(
+                track_id=track_id,
+                connector_name="spotify",
+                connector_track_id=ct_id,
+                match_method="artist_title",
+                confidence=64,
+                match_weight=3.0,
+            )
+        )
+
+        present = await repo.existing_review_keys([
+            (track_id, ct_id),
+            (uuid4(), uuid4()),
+        ])
+
+        assert present == frozenset({(track_id, ct_id)}), (
+            "a pair never reviewed must not be reported as already asked"
+        )
+
+    async def test_no_keys_asks_nothing_of_the_database(self, db_session: AsyncSession):
+        repo = MatchReviewRepository(db_session)
+
+        assert await repo.existing_review_keys([]) == frozenset()

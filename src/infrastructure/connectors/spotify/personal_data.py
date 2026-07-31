@@ -72,6 +72,16 @@ def parse_spotify_personal_data(file_path: Path) -> list[SpotifyPlayRecord]:
     """Parse Spotify personal data JSON file into play records."""
     logger.info(f"Parsing Spotify personal data file: {file_path}")
 
+    # Eager by measurement, not by omission: yielding these records instead of
+    # listing them saves nothing at peak. `json.load` materializes the whole
+    # dict tree before the first record exists, and its own transient decode
+    # overhead IS the peak — 48.9 MB on a real 12.2 MB export (15,806 records)
+    # and 400.7 MB on an 80 MB one, identical to the byte whether the records
+    # are listed, yielded, or yielded and discarded in chunks. Only a streaming
+    # parser would move that number; `orjson.loads` makes it 3x worse (1.26 GB
+    # peak on the same 80 MB input). One import is one file (~12.8 MB in a real
+    # GDPR export, capped at MAX_UPLOAD_BYTES on the web path), so the typical
+    # peak is ~49 MB on a 1 GB VM.
     with file_path.open(encoding="utf-8") as f:
         data = cast("list[JsonDict]", json.load(f))
 

@@ -260,7 +260,11 @@ class TestCheckpointRls:
         with user_context(_MIXD_USER):
             async with sessions() as session:
                 _ = await importer._fetch_data(
-                    params, uow=get_unit_of_work(session), user_id=_MIXD_USER
+                    params,
+                    uow=get_unit_of_work(session),
+                    user_id=_MIXD_USER,
+                    batch_id="rls-probe-batch",
+                    import_timestamp=datetime.now(UTC),
                 )
                 await session.commit()
         return importer.fetched

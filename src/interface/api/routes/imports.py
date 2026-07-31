@@ -13,7 +13,7 @@ from fastapi import APIRouter, Depends, HTTPException, UploadFile
 
 from src.config import get_logger
 from src.config.constants import BusinessLimits
-from src.infrastructure.connectors.spotify.auth import RECENTLY_PLAYED_SCOPE
+from src.domain.repositories.play import RECENTLY_PLAYED_SCOPE
 from src.interface.api.deps import (
     get_current_user_id,
     require_connector_connected,

@@ -3,7 +3,7 @@
 Split from the former monolithic ``interfaces.py``.
 """
 
-from collections.abc import Awaitable
+from collections.abc import Awaitable, Sequence
 from typing import Protocol
 from uuid import UUID
 
@@ -43,6 +43,12 @@ class MatchReviewRepositoryProtocol(Protocol):
         omitted from the result — the caller needs to know which questions it
         actually asked, not which ones it offered.
         """
+        ...
+
+    def existing_review_keys(
+        self, keys: Sequence[tuple[UUID, UUID]]
+    ) -> Awaitable[frozenset[tuple[UUID, UUID]]]:
+        """Which (track_id, connector_track_id) pairs already have a review row, any status."""
         ...
 
     def update_review_status(

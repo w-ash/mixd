@@ -33,13 +33,13 @@ _WEB_DIST = Path(__file__).resolve().parents[3] / "web" / "dist"
 async def _prune_expired_oauth_states() -> None:
     """Delete expired OAuth CSRF state rows that weren't consumed within their TTL."""
     try:
-        from src.application.services.oauth_state_cleanup import (
-            prune_expired_oauth_states,
+        # v0.6.5 credential carve-out: connector-OAuth state is the same
+        # surface routes/auth.py already owns directly, not domain data.
+        from src.infrastructure.persistence.repositories.oauth_states import (
+            prune_expired_states,
         )
-        from src.infrastructure.persistence.database.db_connection import get_session
 
-        async with get_session() as session:
-            await prune_expired_oauth_states(session)
+        await prune_expired_states()
     except Exception as e:
         logger.warning("Failed to prune expired OAuth states", error=str(e))
 
@@ -97,12 +97,12 @@ async def lifespan(_app: FastAPI) -> AsyncGenerator[None]:
 
     scheduler_task: asyncio.Task[None] | None = None
     if settings.scheduler.enabled:
-        from src.application.services.scheduler import run_scheduler_loop
-        from src.interface._shared.run_lifecycle import (
+        from src.application.services.run_lifecycle import (
             bump_heartbeat,
             update_node_status,
             update_run_status,
         )
+        from src.application.services.scheduler import run_scheduler_loop
 
         # Every replica runs this loop; per-tick advisory locking inside the tick
         # ensures only one instance scans each tick (no leader wiring needed here).

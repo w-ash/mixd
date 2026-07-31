@@ -18,7 +18,10 @@ from src.application.use_cases._shared import (
     count_operation_types,
 )
 from src.application.use_cases._shared.command_validators import non_empty_string
-from src.application.use_cases._shared.metric_config import MetricConfigProvider
+from src.application.use_cases._shared.metric_config import (
+    MetricConfigProvider,
+    default_metric_config,
+)
 from src.application.use_cases._shared.playlist_resolver import require_playlist
 from src.application.utilities.timing import ExecutionTimer
 from src.config import get_logger
@@ -108,7 +111,7 @@ class UpdateCanonicalPlaylistUseCase:
     Also extracts music metadata from track connector data for analytics.
     """
 
-    metric_config: MetricConfigProvider
+    metric_config: MetricConfigProvider = field(factory=default_metric_config)
     metrics_service: MetricsApplicationService = field(init=False)
 
     def __attrs_post_init__(self) -> None:

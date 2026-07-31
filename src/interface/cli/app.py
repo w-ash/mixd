@@ -304,7 +304,7 @@ def main() -> int:
         from sqlalchemy.exc import DatabaseError
 
         if isinstance(e, DatabaseError):
-            from src.infrastructure.persistence.database.error_classification import (
+            from src.interface._shared.error_classification import (
                 classify_database_error,
             )
 

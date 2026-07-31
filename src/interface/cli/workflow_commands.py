@@ -17,15 +17,15 @@ from rich.prompt import Prompt
 from rich.table import Table
 import typer
 
-from src.application.use_cases.workflow_runs import ExecuteWorkflowRunResult
-from src.config.constants import WorkflowConstants
-from src.domain.entities.shared import JsonDict
-from src.domain.entities.workflow import Workflow
-from src.interface._shared.run_lifecycle import (
+from src.application.services.run_lifecycle import (
     bump_heartbeat,
     update_node_status,
     update_run_status,
 )
+from src.application.use_cases.workflow_runs import ExecuteWorkflowRunResult
+from src.config.constants import WorkflowConstants
+from src.domain.entities.shared import JsonDict
+from src.domain.entities.workflow import Workflow
 from src.interface.cli.async_runner import run_async
 from src.interface.cli.cli_helpers import (
     ScheduleCommandSpec,
@@ -55,7 +55,7 @@ app = typer.Typer(
 
 
 # Run/node status updaters are shared with the API path — see
-# src/interface/_shared/run_lifecycle.py. The CLI injects them into
+# src/application/services/run_lifecycle.py. The CLI injects them into
 # ExecuteWorkflowRunUseCase exactly as the web route does, so the run lifecycle
 # (RUNNING → completed/failed/cancelled/crashed) lives in one place.
 

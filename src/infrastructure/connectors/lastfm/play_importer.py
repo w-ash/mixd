@@ -53,13 +53,18 @@ def _decode_cursor(cursor: str) -> tuple[str, str | None]:
 
 
 class LastfmPlayImporter(
-    BasePlayImporter[PlayRecord, LastfmImportParams], PlayImporterProtocol
+    BasePlayImporter[ConnectorTrackPlay, LastfmImportParams], PlayImporterProtocol
 ):
     """Last.fm play importer with daily chunking and checkpoint logic.
 
     Implements PlayImporterProtocol for use with the generic
     PlayImportOrchestrator. Ingests connector plays only; canonical resolution
     is the resolver's job (two-phase import).
+
+    The pipeline's ``TRawData`` is ``ConnectorTrackPlay``, not ``PlayRecord``:
+    the day loop converts each day's scrobbles the moment they land and drops
+    the raw records, so a multi-year import never accumulates the whole span
+    twice. :meth:`_process_data` is therefore a pass-through.
     """
 
     operation_name: str
@@ -202,13 +207,18 @@ class LastfmPlayImporter(
         *,
         uow: UnitOfWorkProtocol,
         user_id: str,
+        batch_id: str,
+        import_timestamp: datetime,
         progress_emitter: ProgressEmitter | None = None,
         operation_id: str | None = None,
-    ) -> list[PlayRecord]:
+    ) -> list[ConnectorTrackPlay]:
         """Unified import using checkpoint-bounded date ranges.
 
         1. Explicit range: from_date/to_date provided (establishes/expands boundaries)
         2. Incremental: no dates (checkpoint-bounded, last run to now)
+
+        Returns ledger rows rather than raw scrobbles — conversion happens per
+        day inside the chunking loop (see :meth:`_fetch_date_range_strategy`).
         """
         username = self._require_resolved_username(params)
 
@@ -231,6 +241,8 @@ class LastfmPlayImporter(
             to_date=effective_to,
             user_id=user_id,
             username=username,
+            batch_id=batch_id,
+            import_timestamp=import_timestamp,
             checkpoint=checkpoint,  # Already resolved; avoids a redundant lookup
             progress_emitter=progress_emitter,
             uow=uow,
@@ -331,20 +343,31 @@ class LastfmPlayImporter(
         to_date: datetime,
         user_id: str,
         username: str,
+        batch_id: str,
+        import_timestamp: datetime,
         checkpoint: SyncCheckpoint | None = None,
         progress_emitter: ProgressEmitter | None = None,
         uow: UnitOfWorkProtocol | None = None,
         explicit_range: bool = False,
         operation_id: str | None = None,
-    ) -> list[PlayRecord]:
+    ) -> list[ConnectorTrackPlay]:
         """Download scrobbles using smart daily chunking.
 
         Most users listen to <200 tracks/day, so daily chunks are optimal;
         the Last.fm client paginates within a day when needed.
 
+        Each day is converted to ledger rows before the next one is fetched, so
+        only the accumulated ``ConnectorTrackPlay`` list survives the loop — a
+        full-history import (up to 50,000 plays) never holds the raw scrobbles
+        for the whole span on top of it.
+
         Args:
-            user_id: The mixd user the per-day checkpoints are keyed on.
+            user_id: The mixd user the per-day checkpoints are keyed on, and the
+                tenancy stamped onto each day's ledger rows.
             username: The resolved Last.fm account the plays are fetched from.
+            batch_id: The import batch each day's rows are tagged with.
+            import_timestamp: When the import started — shared by every row so
+                the batch has one timestamp, not one per day of the loop.
             explicit_range: When True, the caller explicitly requested this date range.
                 The checkpoint will NOT override the start date, allowing historical
                 fetches even when the checkpoint is ahead of the requested range.
@@ -369,7 +392,7 @@ class LastfmPlayImporter(
             )
             return []
 
-        all_play_records: list[PlayRecord] = []
+        all_connector_plays: list[ConnectorTrackPlay] = []
         days_processed = 0
         batch_commit = getattr(uow, "commit_batch", None) if uow else None
 
@@ -396,7 +419,21 @@ class LastfmPlayImporter(
                 current_date=current_date,
             )
 
-            all_play_records.extend(day_records)
+            self._warn_if_outside_bounds(
+                day_records, current_date, effective_start, effective_end
+            )
+
+            # Convert now and let the day's raw records go: this is the only
+            # place the two representations of a day coexist, and the loop is
+            # already committing per day, so nothing downstream needs them.
+            all_connector_plays.extend(
+                self._to_connector_plays(
+                    day_records,
+                    user_id=user_id,
+                    batch_id=batch_id,
+                    import_timestamp=import_timestamp,
+                )
+            )
 
             if progress_emitter and operation_id:
                 await progress_emitter.emit_progress(
@@ -404,13 +441,9 @@ class LastfmPlayImporter(
                         operation_id=operation_id,
                         current=days_processed,
                         total=total_days,
-                        message=f"Fetched {len(all_play_records)} plays ({days_processed}/{total_days} days)",
+                        message=f"Fetched {len(all_connector_plays)} plays ({days_processed}/{total_days} days)",
                     )
                 )
-
-            self._warn_if_outside_bounds(
-                day_records, current_date, effective_start, effective_end
-            )
 
             # Save checkpoint and commit batch after each day so data
             # survives machine restarts (at most one day lost on crash)
@@ -428,7 +461,7 @@ class LastfmPlayImporter(
             current_date += timedelta(days=1)
 
         logger.info(
-            f"📡 Daily chunking complete: {len(all_play_records)} records across {days_processed} days"
+            f"📡 Daily chunking complete: {len(all_connector_plays)} records across {days_processed} days"
         )
 
         if checkpoint:
@@ -440,7 +473,35 @@ class LastfmPlayImporter(
                 f"📋 Full import complete: processed {days_processed} days total"
             )
 
-        return all_play_records
+        return all_connector_plays
+
+    @staticmethod
+    def _to_connector_plays(
+        day_records: list[PlayRecord],
+        *,
+        user_id: str,
+        batch_id: str,
+        import_timestamp: datetime,
+    ) -> list[ConnectorTrackPlay]:
+        """Build one day's ledger rows, tenancy stamped at construction."""
+        return [
+            ConnectorTrackPlay(
+                service="lastfm",
+                user_id=user_id,
+                track_name=play_record.track_name,
+                artist_name=play_record.artist_name,
+                album_name=play_record.album_name,
+                played_at=play_record.played_at,
+                ms_played=play_record.ms_played,  # Will be None for Last.fm
+                service_metadata=play_record.service_metadata or {},
+                api_page=play_record.api_page,
+                raw_data=play_record.raw_data or {},
+                import_timestamp=import_timestamp,
+                import_source="lastfm_api",
+                import_batch_id=batch_id,
+            )
+            for play_record in day_records
+        ]
 
     @staticmethod
     def _resolve_chunk_start(
@@ -566,30 +627,21 @@ class LastfmPlayImporter(
     @override
     async def _process_data(
         self,
-        raw_data: list[PlayRecord],
+        raw_data: list[ConnectorTrackPlay],
         *,
+        user_id: str,
         batch_id: str,
         import_timestamp: datetime,
     ) -> list[ConnectorTrackPlay]:
-        """Convert PlayRecord objects to ConnectorTrackPlay objects."""
-        _ = import_timestamp  # Last.fm stamps each play at conversion time
-        return [
-            ConnectorTrackPlay(
-                service="lastfm",
-                track_name=play_record.track_name,
-                artist_name=play_record.artist_name,
-                album_name=play_record.album_name,
-                played_at=play_record.played_at,
-                ms_played=play_record.ms_played,  # Will be None for Last.fm
-                service_metadata=play_record.service_metadata or {},
-                api_page=play_record.api_page,
-                raw_data=play_record.raw_data or {},
-                import_timestamp=datetime.now(UTC),
-                import_source="lastfm_api",
-                import_batch_id=batch_id,
-            )
-            for play_record in raw_data
-        ]
+        """Pass through: the day loop already built these rows as it fetched.
+
+        Conversion moved into :meth:`_to_connector_plays`, called per calendar
+        day, so the span-wide raw list this step used to consume no longer
+        exists. Everything it would stamp here — tenancy, batch, timestamp — is
+        set at construction there.
+        """
+        _ = user_id, batch_id, import_timestamp
+        return raw_data
 
     async def _reset_checkpoint_for_full_history(
         self, *, user_id: str, account: str, uow: UnitOfWorkProtocol
@@ -620,7 +672,7 @@ class LastfmPlayImporter(
     @override
     async def _handle_checkpoints(
         self,
-        raw_data: list[PlayRecord],
+        raw_data: list[ConnectorTrackPlay],
         params: LastfmImportParams,
         uow: UnitOfWorkProtocol,
         *,

@@ -11,6 +11,7 @@ constructor have no meaningful mock.
 """
 
 from datetime import UTC, datetime
+from typing import NamedTuple
 from uuid import UUID, uuid4, uuid7
 
 import pytest
@@ -19,6 +20,8 @@ from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
+from src.config.constants import MappingOrigin, MatchMethod
+from src.domain.repositories.connector import ConnectorMappingSpec
 from src.infrastructure.persistence.database.db_models import (
     DBConnectorTrack,
     DBTrack,
@@ -88,6 +91,120 @@ async def _all_rows(db_session: AsyncSession, ct_id: UUID) -> list[DBTrackMappin
         .execution_options(**{INCLUDE_SUPERSEDED: True}, populate_existing=True)
     )
     return list(result.scalars().all())
+
+
+async def _track_rows(db_session: AsyncSession, track_id: UUID) -> list[DBTrackMapping]:
+    """Every mapping row on a canonical track, superseded included."""
+    result = await db_session.execute(
+        select(DBTrackMapping)
+        .where(DBTrackMapping.track_id == track_id)
+        .order_by(DBTrackMapping.created_at, DBTrackMapping.id)
+        .execution_options(**{INCLUDE_SUPERSEDED: True}, populate_existing=True)
+    )
+    return list(result.scalars().all())
+
+
+async def _connector_track_id(db_session: AsyncSession, identifier: str) -> UUID:
+    """The internal id of the connector track carrying this external identifier."""
+    result = await db_session.execute(
+        select(DBConnectorTrack.id).where(
+            DBConnectorTrack.connector_track_identifier == identifier
+        )
+    )
+    return result.scalar_one()
+
+
+async def _spotify_id(db_session: AsyncSession, track_id: UUID) -> str | None:
+    """The denormalized fast-path column, read past the identity map."""
+    # Column select, not the identity map: Core DML wrote these rows.
+    result = await db_session.execute(
+        select(DBTrack.spotify_id).where(DBTrack.id == track_id)
+    )
+    return result.scalar_one()
+
+
+class _CrossTrackMove(NamedTuple):
+    """The two tracks and two external ids a cross-track re-assertion involves."""
+
+    source: UUID
+    destination: UUID
+    incumbent_identifier: str
+    moving_identifier: str
+
+
+async def _move_a_primary_mapping_onto_the_destination(
+    db_session: AsyncSession,
+    connector_repo: TrackConnectorRepository,
+    *,
+    incumbent_origin: str,
+    incumbent_is_primary: bool,
+) -> _CrossTrackMove:
+    """Re-assert a source track's primary spotify mapping onto a destination.
+
+    The destination starts out holding its own live mapping, on a *different*
+    connector track — pinned or automatic, primary or not, per the arguments.
+    That mapping is the incumbent whose slot the arriving successor is or is
+    not entitled to take, which is the whole question these tests ask.
+
+    Shared because the three cases differ only in how the destination's
+    incumbent is set up; the arrival itself is identical in all three.
+    """
+    source = await _make_track(db_session, "Source")
+    destination = await _make_track(db_session, "Destination")
+    incumbent_identifier = f"sp_incumbent_{uuid4().hex[:8]}"
+    moving_identifier = f"sp_moving_{uuid4().hex[:8]}"
+
+    destination_domain = await connector_repo.track_repo.get_by_id(destination)
+    await connector_repo.map_tracks_to_connectors([
+        ConnectorMappingSpec(
+            track=destination_domain,
+            connector="spotify",
+            connector_id=incumbent_identifier,
+            match_method=MatchMethod.ISRC_MATCH,
+            confidence=60,
+            origin=incumbent_origin,
+        )
+    ])
+    if incumbent_is_primary:
+        await connector_repo.ensure_primary_for_connector(destination, "spotify")
+
+    source_domain = await connector_repo.track_repo.get_by_id(source)
+    await connector_repo.map_tracks_to_connectors([
+        ConnectorMappingSpec(
+            track=source_domain,
+            connector="spotify",
+            connector_id=moving_identifier,
+            match_method=MatchMethod.ISRC_MATCH,
+            confidence=70,
+        )
+    ])
+    await connector_repo.ensure_primary_for_connector(source, "spotify")
+
+    # The same connector track, re-asserted onto the destination at a higher
+    # confidence: a changed decision, so the source's mapping is retired and
+    # the successor lands on the destination — which is where restoration
+    # tries to re-promote it.
+    await connector_repo.map_tracks_to_connectors([
+        ConnectorMappingSpec(
+            track=destination_domain,
+            connector="spotify",
+            connector_id=moving_identifier,
+            match_method=MatchMethod.ISRC_MATCH,
+            confidence=95,
+        )
+    ])
+    return _CrossTrackMove(source, destination, incumbent_identifier, moving_identifier)
+
+
+async def _live_spotify_mappings_by_connector_track(
+    db_session: AsyncSession, track_id: UUID
+) -> dict[UUID, DBTrackMapping]:
+    """A track's live spotify mappings, keyed by connector track id."""
+    return {
+        row.connector_track_id: row
+        for row in await _track_rows(db_session, track_id)
+        if row.superseded_at is None and row.connector_name == "spotify"
+    }
 
 
 class TestAssertMappingsSemantics:
@@ -564,8 +681,6 @@ class TestSupersessionAndPrimacy:
         self, db_session: AsyncSession, connector_repo: TrackConnectorRepository
     ):
         """The whole path: ``map_tracks_to_connectors`` re-promotes after a re-score."""
-        from src.config.constants import MatchMethod
-        from src.domain.repositories.connector import ConnectorMappingSpec
 
         track_id = await _make_track(db_session)
         domain_track = await connector_repo.track_repo.get_by_id(track_id)
@@ -610,8 +725,6 @@ class TestSupersessionAndPrimacy:
         — the FM4d drift migration 044's pre-pass had to repair on 366
         production rows, reintroduced one supersession at a time.
         """
-        from src.config.constants import MatchMethod
-        from src.domain.repositories.connector import ConnectorMappingSpec
 
         departed = await _make_track(db_session, "Departed")
         arrived = await _make_track(db_session, "Arrived")
@@ -650,6 +763,94 @@ class TestSupersessionAndPrimacy:
         )
         assert await connector_repo.count_stale_denormalized_ids(user_id=_USER) == 0
 
+    async def test_cross_track_successor_does_not_depose_a_pinned_destination_primary(
+        self, db_session: AsyncSession, connector_repo: TrackConnectorRepository
+    ):
+        """A user-pinned primary is not something an arriving successor may take.
+
+        Restoration exists to refill the slot supersession emptied on the
+        successor's *own* track. When the successor lands somewhere else, the
+        destination's slot was never emptied — and clearing it to make room
+        silently discarded a ``manual_override`` the user had chosen, the one
+        decision the whole origin column exists to protect.
+        """
+        move = await _move_a_primary_mapping_onto_the_destination(
+            db_session,
+            connector_repo,
+            incumbent_origin=MappingOrigin.MANUAL_OVERRIDE,
+            incumbent_is_primary=True,
+        )
+        incumbent_ct = await _connector_track_id(db_session, move.incumbent_identifier)
+        moving_ct = await _connector_track_id(db_session, move.moving_identifier)
+
+        live = await _live_spotify_mappings_by_connector_track(
+            db_session, move.destination
+        )
+        assert live[incumbent_ct].is_primary is True
+        assert live[moving_ct].is_primary is False, (
+            "the arrival is live, but the slot was occupied"
+        )
+        assert await _spotify_id(db_session, move.destination) == (
+            move.incumbent_identifier
+        )
+        assert sum(1 for row in live.values() if row.is_primary) == 1
+
+    async def test_cross_track_successor_does_not_depose_an_automatic_destination_primary(
+        self, db_session: AsyncSession, connector_repo: TrackConnectorRepository
+    ):
+        """Not just pinned ones: no live primary is deposed, ever.
+
+        This is the choice the pinned case alone would leave ambiguous — the
+        arrival scores higher (95 against 60) and still does not win. Promotion
+        here is vacancy-fill; changing which live mapping holds primacy is the
+        explicit ``set_primary`` path's decision to make, not a side effect of
+        re-asserting a mapping somewhere else.
+        """
+        move = await _move_a_primary_mapping_onto_the_destination(
+            db_session,
+            connector_repo,
+            incumbent_origin=MappingOrigin.AUTOMATIC,
+            incumbent_is_primary=True,
+        )
+        incumbent_ct = await _connector_track_id(db_session, move.incumbent_identifier)
+        moving_ct = await _connector_track_id(db_session, move.moving_identifier)
+
+        live = await _live_spotify_mappings_by_connector_track(
+            db_session, move.destination
+        )
+        assert live[incumbent_ct].is_primary is True
+        assert live[moving_ct].is_primary is False
+        assert await _spotify_id(db_session, move.destination) == (
+            move.incumbent_identifier
+        )
+        assert sum(1 for row in live.values() if row.is_primary) == 1
+
+    async def test_cross_track_successor_fills_a_vacant_destination_primary(
+        self, db_session: AsyncSession, connector_repo: TrackConnectorRepository
+    ):
+        """Never deposing must not become never promoting.
+
+        A destination holding live mappings but no primary is exactly the FM4d
+        drift the restoration path exists to drain, so the arrival takes the
+        empty slot and the denormalized column follows it.
+        """
+        move = await _move_a_primary_mapping_onto_the_destination(
+            db_session,
+            connector_repo,
+            incumbent_origin=MappingOrigin.AUTOMATIC,
+            incumbent_is_primary=False,
+        )
+        incumbent_ct = await _connector_track_id(db_session, move.incumbent_identifier)
+        moving_ct = await _connector_track_id(db_session, move.moving_identifier)
+
+        live = await _live_spotify_mappings_by_connector_track(
+            db_session, move.destination
+        )
+        assert live[moving_ct].is_primary is True
+        assert live[incumbent_ct].is_primary is False
+        assert await _spotify_id(db_session, move.destination) == move.moving_identifier
+        assert sum(1 for row in live.values() if row.is_primary) == 1
+
 
 class TestEvidenceIsDriftNotDecision:
     """Evidence explains a decision; refreshing it must not restate one."""
@@ -673,3 +874,39 @@ class TestEvidenceIsDriftNotDecision:
         rows = await _all_rows(db_session, ct_id)
         assert len(rows) == 1
         assert rows[0].confidence_evidence == {"final_score": 71.5}
+
+    async def test_a_retired_row_keeps_its_own_evidence(
+        self, db_session: AsyncSession, mapping_repo: TrackMappingRepository
+    ):
+        """Refreshing stops at the point the row becomes history.
+
+        A retired row's evidence is the answer to "why did my library believe
+        *that*", and overwriting it with the score that replaced it makes the
+        chain explain every past decision with the newest one's reasoning —
+        the provenance is not merely lost, it is confidently wrong. The
+        successor carries the new evidence; the predecessor keeps its own.
+        """
+        track_id = await _make_track(db_session)
+        ct_id = await _make_connector_track(db_session)
+        await mapping_repo.assert_mappings([
+            {
+                **_row(track_id, ct_id, confidence=70),
+                "confidence_evidence": {"final_score": 70.0},
+            }
+        ])
+
+        outcome = await mapping_repo.assert_mappings([
+            {
+                **_row(track_id, ct_id, confidence=95),
+                "confidence_evidence": {"final_score": 95.0},
+            }
+        ])
+
+        assert len(outcome.superseded) == 1
+        rows = await _all_rows(db_session, ct_id)
+        retired = [row for row in rows if row.superseded_at is not None]
+        live = [row for row in rows if row.superseded_at is None]
+        assert len(retired) == 1
+        assert len(live) == 1
+        assert retired[0].confidence_evidence == {"final_score": 70.0}
+        assert live[0].confidence_evidence == {"final_score": 95.0}

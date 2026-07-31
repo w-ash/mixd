@@ -210,7 +210,8 @@ export function SyncConfirmationDialog({
             );
             return;
           }
-          // Any other error keeps the dialog up so the user sees it (BK-9).
+          // Any other error keeps the dialog up so the user sees it — never
+          // self-dismiss on confirm, or the failure vanishes with the modal.
           setSyncError(formatApiError(err).description ?? "Sync failed");
         },
       },

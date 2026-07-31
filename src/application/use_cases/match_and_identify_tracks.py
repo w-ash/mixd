@@ -17,7 +17,6 @@ from src.config import create_evaluation_service, get_logger
 from src.config.logging import logging_context
 from src.domain.entities.match_review import MatchReview
 from src.domain.entities.track import Track, TrackList
-from src.domain.matching.content_digest import service_side
 from src.domain.matching.evaluation_service import TrackMatchEvaluationService
 from src.domain.matching.types import (
     EvaluationResult,
@@ -25,7 +24,6 @@ from src.domain.matching.types import (
     RawProviderMatch,
 )
 from src.domain.repositories.resolution import (
-    RejectionCandidate,
     ResolutionDecision,
     ResolutionRecorderProtocol,
     rejection_candidates,
@@ -341,13 +339,7 @@ class MatchAndIdentifyTracksUseCase:
         recorder = uow.get_resolution_recorder()
         connector = command.connector
 
-        rejections = [
-            RejectionCandidate(
-                connector=service_side(match.connector_id, match.service_data),
-                candidate_track=match.track,
-            )
-            for match in evaluation.rejected
-        ]
+        rejections = rejection_candidates(evaluation.rejected)
         decisions = [
             ResolutionDecision(
                 event_type="rejected",
@@ -466,12 +458,18 @@ class MatchAndIdentifyTracksUseCase:
             )
 
         review_repo = uow.get_match_review_repository()
+        preexisting = await review_repo.existing_review_keys(list(queued_by_key))
         written = await review_repo.create_reviews_batch(reviews)
-        # Log only the questions actually asked. A candidate whose review the
-        # user has already accepted or rejected is skipped by the pending
-        # guard, and recording it as `queued` would seed the queue-admission
-        # stratum with an offer that never happened — at a stated probability
-        # of 1.0, which is precisely the number calibration would trust.
+        # Log only the questions actually asked, which `written` alone cannot
+        # tell us. A candidate whose review the user already answered is skipped
+        # by the pending guard, so recording it as `queued` would seed the
+        # queue-admission stratum with an offer that never happened. But a
+        # still-pending review comes *back* in `written` on every re-import —
+        # by design, so its evidence stays fresh — and counting each refresh as
+        # a fresh offer multiplies one question into N. Both errors land at a
+        # stated probability of 1.0, precisely the number calibration trusts.
+        # Pre-existence of any status is the right predicate: a non-pending row
+        # never reaches `written` anyway, so this only ever subtracts repeats.
         queued = [
             decision
             for review in written
@@ -482,6 +480,7 @@ class MatchAndIdentifyTracksUseCase:
                 ))
             )
             is not None
+            and (review.track_id, review.connector_track_id) not in preexisting
         ]
         _ = await recorder.record(queued, user_id=user_id)
 

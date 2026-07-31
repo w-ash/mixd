@@ -5,9 +5,11 @@ Split from the former monolithic ``interfaces.py``.
 
 from typing import Protocol, Self
 
+from src.domain.repositories.admin import AdminRepositoryProtocol
 from src.domain.repositories.chat_feedback import ChatFeedbackRepositoryProtocol
 from src.domain.repositories.checkpoint import CheckpointRepositoryProtocol
 from src.domain.repositories.connector import (
+    ConnectorGrantProvider,
     ConnectorPlaylistRepositoryProtocol,
     ConnectorRepositoryProtocol,
     ServiceConnectorProvider,
@@ -16,8 +18,10 @@ from src.domain.repositories.like import LikeRepositoryProtocol
 from src.domain.repositories.match_review import MatchReviewRepositoryProtocol
 from src.domain.repositories.metric import MetricsRepositoryProtocol
 from src.domain.repositories.operation_run import OperationRunRepositoryProtocol
+from src.domain.repositories.pending_action import PendingActionRepositoryProtocol
 from src.domain.repositories.play import (
     ConnectorPlayRepositoryProtocol,
+    PlayImportProvider,
     PlaysRepositoryProtocol,
 )
 from src.domain.repositories.playlist import (
@@ -40,6 +44,7 @@ from src.domain.repositories.track import (
     TrackMergeServiceProtocol,
     TrackRepositoryProtocol,
 )
+from src.domain.repositories.user_settings import UserSettingsRepositoryProtocol
 from src.domain.repositories.workflow import (
     WorkflowRepositoryProtocol,
     WorkflowRunRepositoryProtocol,
@@ -181,6 +186,26 @@ class UnitOfWorkProtocol(Protocol):
 
     def get_chat_feedback_repository(self) -> ChatFeedbackRepositoryProtocol:
         """Get chat feedback repository for thumbs-up/down on generated workflows."""
+        ...
+
+    def get_pending_action_repository(self) -> PendingActionRepositoryProtocol:
+        """Get the store for chat mutations awaiting user confirmation."""
+        ...
+
+    def get_connector_grant_provider(self) -> ConnectorGrantProvider:
+        """Get the read-only view of scopes on users' stored connector grants."""
+        ...
+
+    def get_play_import_provider(self) -> PlayImportProvider:
+        """Get the per-service importer/resolver lookup for play history."""
+        ...
+
+    def get_admin_repository(self) -> AdminRepositoryProtocol:
+        """Get destructive whole-schema operations (``mixd admin reset``)."""
+        ...
+
+    def get_user_settings_repository(self) -> UserSettingsRepositoryProtocol:
+        """Get the acting user's interface-settings blob."""
         ...
 
     def get_resolution_event_repository(self) -> ResolutionEventRepositoryProtocol:

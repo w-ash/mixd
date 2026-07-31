@@ -1,14 +1,11 @@
-"""Unit tests for pure track-mapper helpers and mapper healing behavior.
+"""Unit tests for the track mapper's read-path healing behavior.
 
-``extract_db_artist_names`` is the JSONB ``{"names": [...]}`` boundary narrower
-shared by ``TrackMapper`` and the playlist mapper. It is pure (no DB), and after
-the relationship-mapping refactor it is load-bearing for the playlist mapper's
-artist extraction — so its narrowing of the ``JsonValue`` union is tested here.
+The v0.8.18 characterization tests for read-path healing (FM4b healing mask,
+FM4c promotion policy) — transient DB models plus a promote-callback spy, no
+database. See docs/backlog/identity-resolution-design-space.md §4 (tests 4, 9).
 
-Also hosts the v0.8.18 characterization tests for the mapper's read-path
-healing (FM4b healing mask, FM4c promotion policy) — transient DB models plus
-a promote-callback spy, no database. See
-docs/backlog/identity-resolution-design-space.md §4 (tests 4, 9).
+``extract_db_artist_names`` moved to
+``repositories/_shared/connector_tracks.py``; its tests moved with it.
 """
 
 from datetime import UTC, datetime
@@ -19,10 +16,7 @@ from src.infrastructure.persistence.database.db_models import (
     DBTrack,
     DBTrackMapping,
 )
-from src.infrastructure.persistence.repositories.track.mapper import (
-    TrackMapper,
-    extract_db_artist_names,
-)
+from src.infrastructure.persistence.repositories.track.mapper import TrackMapper
 
 
 def _transient_track(*, spotify_id: str | None) -> DBTrack:
@@ -180,28 +174,3 @@ class TestMapperPromotesHighestConfidence:
 
         assert domain_track.connector_track_identifiers["spotify"] == "sp_first"
         assert spy.calls == [(track.id, "spotify")]
-
-
-class TestExtractDbArtistNames:
-    def test_extracts_string_names(self):
-        assert extract_db_artist_names({"names": ["Radiohead", "Björk"]}) == [
-            "Radiohead",
-            "Björk",
-        ]
-
-    def test_missing_names_key_returns_empty(self):
-        assert extract_db_artist_names({}) == []
-
-    def test_names_not_a_list_returns_empty(self):
-        # JsonValue union: a stray scalar under "names" must not blow up.
-        assert extract_db_artist_names({"names": "Radiohead"}) == []
-
-    def test_non_string_elements_filtered_out(self):
-        # Defensive narrowing: only str elements survive.
-        assert extract_db_artist_names({"names": ["ok", 123, None, "fine"]}) == [
-            "ok",
-            "fine",
-        ]
-
-    def test_empty_names_list_returns_empty(self):
-        assert extract_db_artist_names({"names": []}) == []

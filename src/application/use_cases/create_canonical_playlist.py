@@ -14,7 +14,10 @@ from src.application.services.metrics_application_service import (
     MetricsApplicationService,
 )
 from src.application.use_cases._shared.command_validators import non_empty_string
-from src.application.use_cases._shared.metric_config import MetricConfigProvider
+from src.application.use_cases._shared.metric_config import (
+    MetricConfigProvider,
+    default_metric_config,
+)
 from src.application.use_cases._shared.timed_execution import timed_query
 from src.application.utilities.timing import ExecutionTimer
 from src.config import get_logger
@@ -84,7 +87,7 @@ class CreateCanonicalPlaylistUseCase:
     All operations use provided UnitOfWork for transaction management.
     """
 
-    metric_config: MetricConfigProvider
+    metric_config: MetricConfigProvider = field(factory=default_metric_config)
     metrics_service: MetricsApplicationService = field(init=False)
 
     def __attrs_post_init__(self) -> None:

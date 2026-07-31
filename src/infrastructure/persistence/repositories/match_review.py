@@ -7,11 +7,12 @@ review, including listing pending reviews and resolving (accept/reject).
 # pyright: reportUnknownArgumentType=false, reportUnknownVariableType=false, reportUnknownMemberType=false
 # Legitimate: SQLAlchemy JSON columns produce unknown types for artists field
 
+from collections.abc import Sequence
 from datetime import UTC, datetime, timedelta
 from uuid import UUID
 
 import attrs
-from sqlalchemy import func, select
+from sqlalchemy import func, select, tuple_
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
@@ -202,6 +203,30 @@ class MatchReviewRepository(BaseRepository[DBMatchReview, MatchReview]):
             ],
             update_where=DBMatchReview.status == ReviewStatus.PENDING,
         )
+
+    @db_operation("existing_review_keys")
+    async def existing_review_keys(
+        self, keys: Sequence[tuple[UUID, UUID]]
+    ) -> frozenset[tuple[UUID, UUID]]:
+        """Which (track_id, connector_track_id) pairs already have a row, any status.
+
+        "Which questions were already asked" is not answerable from what a batch
+        write returns: a still-pending row is deliberately rewritten and reported
+        so its evidence stays fresh. Only the rows that existed *before* the
+        write separate a first offer from a repeat, and status is irrelevant to
+        that — an answered review is as much a question already asked as an
+        unanswered one.
+        """
+        if not keys:
+            return frozenset()
+
+        stmt = select(DBMatchReview.track_id, DBMatchReview.connector_track_id).where(
+            tuple_(DBMatchReview.track_id, DBMatchReview.connector_track_id).in_(
+                list(keys)
+            )
+        )
+        result = await self.session.execute(stmt)
+        return frozenset(result.tuples().all())
 
     @db_operation("update_review_status")
     async def update_review_status(self, review_id: UUID, status: str) -> MatchReview:

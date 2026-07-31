@@ -545,19 +545,14 @@ def _fetch_negatives(
     kind: NegativeListingKind, connector_track_id: str | None
 ) -> list[NegativeListing]:
     """Read one half of the negative cache, optionally narrowed to one id."""
-    from src.application.runner import execute_use_case
-    from src.domain.repositories.uow import UnitOfWorkProtocol
+    from src.application.use_cases.list_resolution_negatives import (
+        run_list_resolution_negatives,
+    )
 
     user_id = get_cli_user_id()
     ct_ids = [UUID(connector_track_id)] if connector_track_id is not None else None
 
-    async def _fetch(uow: UnitOfWorkProtocol):
-        async with uow:
-            return await uow.get_resolution_negative_repository().list_negatives(
-                user_id=user_id, kind=kind, connector_track_ids=ct_ids
-            )
-
-    return run_async(execute_use_case(_fetch, user_id=user_id))
+    return run_async(run_list_resolution_negatives(user_id, kind, ct_ids)).listings
 
 
 def _render_negatives(

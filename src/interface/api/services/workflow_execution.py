@@ -5,7 +5,7 @@ Business logic (run status management, workflow execution) lives in
 only SSE event emission, heartbeat scheduling, and operation cleanup.
 
 Run/node status updaters + heartbeat ticker are shared with the CLI — see
-``src/interface/_shared/run_lifecycle.py``. Both interfaces inject these into
+``src/application/services/run_lifecycle.py``. Both interfaces inject these into
 ``ExecuteWorkflowRunUseCase`` so the run lifecycle lives in exactly one place.
 """
 
@@ -17,6 +17,11 @@ from uuid import UUID
 
 from src.application.runner import execute_use_case
 from src.application.services.run_activity import track_run
+from src.application.services.run_lifecycle import (
+    bump_heartbeat,
+    update_node_status,
+    update_run_status,
+)
 from src.application.use_cases.workflow_runs import (
     ExecuteWorkflowRunUseCase,
     RunWorkflowCommand,
@@ -25,11 +30,6 @@ from src.application.use_cases.workflow_runs import (
 from src.config import get_logger
 from src.config.constants import WorkflowConstants, truncate_error_message
 from src.domain.entities.workflow import WorkflowDef
-from src.interface._shared.run_lifecycle import (
-    bump_heartbeat,
-    update_node_status,
-    update_run_status,
-)
 from src.interface.api.schemas.workflows import WorkflowRunStartedResponse
 from src.interface.api.services.background import (
     finalize_sse_operation,

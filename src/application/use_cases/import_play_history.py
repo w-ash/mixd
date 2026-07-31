@@ -293,11 +293,8 @@ class ImportTracksUseCase:
                     f"Spotify service doesn't support mode: {command.mode}"
                 )
 
-    async def _create_play_import_orchestrator(self):
+    async def _create_play_import_orchestrator(self, uow: UnitOfWorkProtocol):
         """Create play import orchestrator for two-phase workflow.
-
-        Infrastructure bridge: imports registry here to inject resolver factory,
-        consolidating the infrastructure import to one location.
 
         Returns:
             Configured PlayImportOrchestrator instance for coordinating ingestion and resolution.
@@ -305,12 +302,9 @@ class ImportTracksUseCase:
         from src.application.services.play_import_orchestrator import (
             PlayImportOrchestrator,
         )
-        from src.infrastructure.services.play_import_registry import (
-            get_play_import_registry,
-        )
 
-        registry = get_play_import_registry()
-        return PlayImportOrchestrator(resolver_factory=registry.create_play_resolver)
+        provider = uow.get_play_import_provider()
+        return PlayImportOrchestrator(resolver_factory=provider.create_play_resolver)
 
     async def _create_service_importer(
         self,
@@ -318,13 +312,14 @@ class ImportTracksUseCase:
         uow: UnitOfWorkProtocol,
         kind: ImportKind = "api",
     ) -> PlayImporterProtocol:
-        """Create service-specific importer using infrastructure registry.
+        """Create service-specific importer via the UoW's import provider.
 
-        CLEAN ARCHITECTURE: Application layer never mentions specific connectors.
-        Uses infrastructure registry to map service names to implementations.
+        The application layer never mentions specific connectors: the provider
+        (``PlayImportProvider``) maps service names to implementations, and
+        both its return types are domain protocols.
 
         Args:
-            service: Generic service identifier (handled by infrastructure layer)
+            service: Generic service identifier (resolved by the provider)
             uow: Database transaction manager providing repository access.
             kind: Where the data comes from — a live API read or an uploaded
                 export file. One service can offer both (Spotify does).
@@ -332,12 +327,9 @@ class ImportTracksUseCase:
         Returns:
             Service-specific importer implementing PlayImporterProtocol
         """
-        from src.infrastructure.services.play_import_registry import (
-            get_play_import_registry,
+        return await uow.get_play_import_provider().create_play_importer(
+            service, kind, uow
         )
-
-        registry = get_play_import_registry()
-        return await registry.create_play_importer(service, kind, uow)
 
     async def _run_lastfm_recent(
         self,
@@ -363,7 +355,7 @@ class ImportTracksUseCase:
 
         # Create generic service importer and orchestrator
         importer = await self._create_service_importer(command.service, uow)
-        orchestrator = await self._create_play_import_orchestrator()
+        orchestrator = await self._create_play_import_orchestrator(uow)
 
         try:
             # Execute two-phase import: ingestion then resolution
@@ -410,7 +402,7 @@ class ImportTracksUseCase:
         """
         # Create generic service importer and orchestrator
         importer = await self._create_service_importer(command.service, uow)
-        orchestrator = await self._create_play_import_orchestrator()
+        orchestrator = await self._create_play_import_orchestrator(uow)
 
         try:
             # Execute two-phase import: ingestion then resolution
@@ -471,7 +463,7 @@ class ImportTracksUseCase:
 
         # Create generic service importer and orchestrator
         importer = await self._create_service_importer(command.service, uow)
-        orchestrator = await self._create_play_import_orchestrator()
+        orchestrator = await self._create_play_import_orchestrator(uow)
 
         try:
             # Execute two-phase import: ingestion then resolution
@@ -522,7 +514,7 @@ class ImportTracksUseCase:
 
         # Create generic service importer and orchestrator
         importer = await self._create_service_importer(command.service, uow, "file")
-        orchestrator = await self._create_play_import_orchestrator()
+        orchestrator = await self._create_play_import_orchestrator(uow)
 
         try:
             # Execute two-phase import: ingestion then resolution
@@ -579,7 +571,7 @@ class ImportTracksUseCase:
         force = bool(command.additional_options.get("force"))
 
         importer = await self._create_service_importer(command.service, uow, "api")
-        orchestrator = await self._create_play_import_orchestrator()
+        orchestrator = await self._create_play_import_orchestrator(uow)
 
         try:
             result = await orchestrator.import_plays_two_phase(

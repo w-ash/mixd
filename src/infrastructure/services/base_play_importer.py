@@ -1,10 +1,9 @@
 """Base class for importing music listening data from external sources."""
 
 from abc import ABC, abstractmethod
+from collections.abc import Sequence
 from datetime import UTC, datetime
 from uuid import uuid4
-
-from attrs import evolve
 
 from src.config import get_logger
 from src.domain.entities import ConnectorTrackPlay, OperationResult
@@ -26,6 +25,28 @@ from src.domain.results import (
 )
 
 logger = get_logger(__name__)
+
+
+def _require_uniform_tenancy(
+    track_plays: Sequence[ConnectorTrackPlay], user_id: str, importer_name: str
+) -> None:
+    """Assert every ledger row is stamped with the importing user's ID.
+
+    Raises:
+        RuntimeError: If any play carries a different ``user_id``, naming the
+            first offending index and the value it was stamped with.
+    """
+    offender = next(
+        ((i, p.user_id) for i, p in enumerate(track_plays) if p.user_id != user_id),
+        None,
+    )
+    if offender is not None:
+        index, stamped = offender
+        raise RuntimeError(
+            f"{importer_name}._process_data returned play {index} stamped "
+            f"{stamped!r} instead of {user_id!r} — every ledger row would land "
+            f"under the wrong tenant."
+        )
 
 
 class BasePlayImporter[TRawData, TParams: PlayImportParams](ABC):
@@ -169,6 +190,8 @@ class BasePlayImporter[TRawData, TParams: PlayImportParams](ABC):
             params,
             uow=uow,
             user_id=user_id,
+            batch_id=batch_id,
+            import_timestamp=import_timestamp,
             progress_emitter=progress_emitter,
             operation_id=operation_id,
         )
@@ -205,15 +228,24 @@ class BasePlayImporter[TRawData, TParams: PlayImportParams](ABC):
 
         track_plays = await self._process_data(
             raw_data,
+            user_id=user_id,
             batch_id=batch_id,
             import_timestamp=import_timestamp,
         )
 
-        # Stamp tenancy at the single persistence choke point — subclass
-        # _process_data implementations stay tenancy-unaware. Without this,
-        # every ledger row lands under the "default" local-dev tenant and
-        # per-user ledger reads (the play projection) see nothing.
-        track_plays = [evolve(play, user_id=user_id) for play in track_plays]
+        # Tenancy is stamped at construction time inside _process_data rather
+        # than re-derived here: a second `evolve` pass rebuilt every frozen
+        # instance purely to set one field, so a 198k-record Spotify export held
+        # two full copies of the span at once. The invariant is unchanged and
+        # verified for every row — an implementation that drops user_id would
+        # file that ledger row under the "default" local-dev tenant, and
+        # per-user ledger reads (the play projection) would silently miss it.
+        # A chunked source can stamp some rows and default others (the Last.fm
+        # day loop builds rows in _fetch_data while _process_data passes them
+        # through), so checking only the first row would wave that batch past.
+        # One pass of string compares is microseconds even at 198k rows, and
+        # unlike the `evolve` pass it replaced the guard is O(n) time, O(1) memory.
+        _require_uniform_tenancy(track_plays, user_id, type(self).__name__)
 
         # Step 4: Save connector plays (always the same path)
         await progress_emitter.emit_progress(
@@ -281,6 +313,8 @@ class BasePlayImporter[TRawData, TParams: PlayImportParams](ABC):
         *,
         uow: UnitOfWorkProtocol,
         user_id: str,
+        batch_id: str,
+        import_timestamp: datetime,
         progress_emitter: ProgressEmitter | None = None,
         operation_id: str | None = None,
     ) -> list[TRawData]:
@@ -294,6 +328,11 @@ class BasePlayImporter[TRawData, TParams: PlayImportParams](ABC):
             uow: UnitOfWork for checkpoint reads/writes during fetching.
             user_id: The mixd user to resume from — the key for any checkpoint
                 read here, matching the key :meth:`_handle_checkpoints` writes.
+            batch_id: Unique identifier for this import batch. Carried into the
+                fetch (not just :meth:`_process_data`) so a chunked source can
+                build its ledger rows as each chunk lands instead of holding the
+                whole span in raw form — see the Last.fm day loop.
+            import_timestamp: When this import was initiated, for the same reason.
             progress_emitter: Progress emitter for operation status tracking.
             operation_id: Operation ID for progress event emission.
 
@@ -306,6 +345,7 @@ class BasePlayImporter[TRawData, TParams: PlayImportParams](ABC):
         self,
         raw_data: list[TRawData],
         *,
+        user_id: str,
         batch_id: str,
         import_timestamp: datetime,
     ) -> list[ConnectorTrackPlay]:
@@ -315,6 +355,9 @@ class BasePlayImporter[TRawData, TParams: PlayImportParams](ABC):
 
         Args:
             raw_data: Raw data objects returned from _fetch_data.
+            user_id: The mixd user the ledger rows belong to. Implementations
+                MUST stamp it at construction time — it is the RLS key for
+                ``connector_plays``, and the pipeline verifies it on return.
             batch_id: Unique identifier for this import batch.
             import_timestamp: When this import was initiated.
 
@@ -381,11 +424,7 @@ class BasePlayImporter[TRawData, TParams: PlayImportParams](ABC):
         duplicate_count: int,
         batch_id: str,
     ) -> OperationResult:
-        """Create success result with import statistics.
-
-        Builds the base import data and lets subclasses enrich it with
-        service-specific statistics via :meth:`_enrich_import_data`.
-        """
+        """Create success result with import statistics."""
         import_data = ImportResultData(
             raw_data_count=len(raw_data),
             imported_count=imported_count,
@@ -394,26 +433,10 @@ class BasePlayImporter[TRawData, TParams: PlayImportParams](ABC):
             tracks=processed_data,  # Note: contains ConnectorTrackPlay objects
         )
 
-        enriched_data = self._enrich_import_data(import_data, raw_data, processed_data)
-
         return create_import_result(
             operation_name=self.operation_name,
-            import_data=enriched_data,
+            import_data=import_data,
         )
-
-    def _enrich_import_data(
-        self,
-        base_data: ImportResultData,
-        raw_data: list[TRawData],
-        processed_data: list[ConnectorTrackPlay],
-    ) -> ImportResultData:
-        """Enrich import data with service-specific statistics.
-
-        Hook for subclasses to add metrics like filtering counts or track
-        resolution stats. Base implementation returns the data unchanged.
-        """
-        _ = raw_data, processed_data  # Mark as unused in base implementation
-        return base_data
 
     def _create_empty_result(self, batch_id: str) -> OperationResult:
         """Create result when no data was available to import."""

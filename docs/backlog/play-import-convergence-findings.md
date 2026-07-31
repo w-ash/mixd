@@ -1,6 +1,6 @@
 # Play-Import Convergence Findings
 
-**Status**: Active — feeds v0.10.0 (Convergent Play History) and v0.10.1 (Continuous Play Polling)
+**Status**: Active as reference (reviewed 2026-07-31) — the milestones it fed have shipped ([v0.10.0](v0.10.x.md#v0100-convergent-play-history) convergent play history, [v0.10.1](v0.10.x.md#v0101-continuous-play-polling) continuous polling). Retained in root because live readers still cite it: the [v0.10.3 audit](v0.10.x.md#v0103-post-import-data-integrity-audit) uses it as source material for extending its checklist, [PDR-001](../decisions/PDR-001-data-ownership-model.md) carries its §1 prod probe as an evidence row, and `alembic/versions/040_plays_nulls_not_distinct.py` + `src/domain/matching/play_projection.py` cite it by path. **§1's environment survey is a 2026-07-16 snapshot, not current state** — it recorded zero prod play rows, which v0.10.3 re-measures once the at-scale imports land
 **Run**: 2026-07-16, git `c3773737`
 **Environments probed** (all read-only):
 - Production Neon (`neondb_owner`, `rolbypassrls = t` re-verified) — **zero play rows** (see §1)

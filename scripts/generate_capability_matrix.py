@@ -57,6 +57,17 @@ _RATIONALE: dict[str, str] = {
         "Feedback about the assistant comes from the human thumbs UI only — the "
         "agent must never file feedback on itself."
     ),
+    "ResetDatabaseUseCase": (
+        "``mixd admin reset`` truncates every data table for every user — "
+        "irreversible and unscoped, so it stays a deliberate human action."
+    ),
+    "GetUserSettingsUseCase": (
+        "Interface chrome (theme), not music data; the user decides how mixd looks."
+    ),
+    "PatchUserSettingsUseCase": (
+        "Interface chrome (theme), not music data; an assistant restyling the "
+        "app mid-conversation is a surprise, not a capability."
+    ),
     # Mechanically excluded (no chat file channel).
     "ExportLastFmLikesUseCase": (
         "Produces a file export; chat has no file input/output channel."

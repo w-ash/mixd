@@ -567,3 +567,18 @@ class ServiceConnectorProvider(Protocol):
             Callers narrow via capability protocols (PlaylistConnector, etc.).
         """
         ...
+
+
+class ConnectorGrantProvider(Protocol):
+    """Read-only view of what a user's stored OAuth grant still permits.
+
+    Narrower than handing out ``TokenStorage``: callers get the *scopes* on a
+    stored token and nothing else, so an access-token secret never reaches a
+    caller that only wants to know whether a capability is still authorised.
+    Returns an empty set when no token is stored — a missing grant permits
+    nothing, which is the same answer a revoked one gives.
+    """
+
+    def granted_scopes(self, service: str, user_id: str) -> Awaitable[frozenset[str]]:
+        """Scopes on the stored token for ``service``/``user_id``."""
+        ...

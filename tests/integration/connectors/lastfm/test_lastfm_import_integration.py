@@ -76,9 +76,12 @@ class TestLastfmPlayImporterIntegration:
             ),
         ]
 
-        # Act - Process data into connector plays
-        connector_plays = await importer._process_data(
-            raw_data=play_records,
+        # Act - Convert a day's records into connector plays. Conversion is
+        # per-day now (the day loop calls this as each day lands), so this is
+        # the seam that used to be _process_data.
+        connector_plays = importer._to_connector_plays(
+            play_records,
+            user_id="integration-user",
             batch_id="integration-test-batch",
             import_timestamp=datetime.now(UTC),
         )
@@ -96,6 +99,8 @@ class TestLastfmPlayImporterIntegration:
         assert bohemian_play.service_metadata["mbid"] == "test-mbid-123"
         assert "lastfm_track_url" in bohemian_play.service_metadata
         assert bohemian_play.import_batch_id == "integration-test-batch"
+        # Tenancy is stamped at construction, not by a later pass over the span.
+        assert bohemian_play.user_id == "integration-user"
 
         # Verify second track
         we_will_rock_play = connector_plays[1]
@@ -143,8 +148,9 @@ class TestLastfmPlayImporterIntegration:
         importer, _ = lastfm_importer_with_mocked_api
 
         # Test empty data handling
-        result = await importer._process_data(
-            raw_data=[],
+        result = importer._to_connector_plays(
+            [],
+            user_id="integration-user",
             batch_id="empty-test-batch",
             import_timestamp=datetime.now(UTC),
         )
@@ -211,8 +217,9 @@ class TestLastfmPlayImporterIntegration:
             },
         )
 
-        connector_plays = await importer._process_data(
-            raw_data=[lastfm_play_record],
+        connector_plays = importer._to_connector_plays(
+            [lastfm_play_record],
+            user_id="integration-user",
             batch_id="metadata-test-batch",
             import_timestamp=datetime.now(UTC),
         )

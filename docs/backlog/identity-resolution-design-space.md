@@ -1,6 +1,6 @@
 # Identity Resolution — Design-Space Memo
 
-**Date**: 2026-07-02 · **Commission**: `identity-resolution-research-handoff.md` (handoff retired; in git history) · **Status**: Active — research deliverable (no code changed); feeds v0.8.18, v0.10.2 (supersession), v0.12.x (artist identity), v1.1.0 (cross-user)
+**Date**: 2026-07-02 · **Commission**: `identity-resolution-research-handoff.md` (handoff retired; in git history) · **Status**: Active (reviewed 2026-07-31) — research deliverable (no code changed). Shipped from it: [v0.8.18](v0.8.18.md) identity integrity (D1 repairs + the §4 characterization tests, which now cite this memo from `tests/`) and [v0.10.2](v0.10.x.md#v0102-mapping-supersession--resolution-event-log) supersession (its §10 addendum reshaped that design). Still feeding: [v0.12.x](v0.12.x.md) artist identity + the entity-modeling spike, [v1.1.x](v1.1.x.md) cross-user, [v1.2.x](v1.2.x.md) public resolution. **§8's quantification pack is still unrun** — every `[Qn — pending prod]` tag below is unresolved, and the [v0.10.3 audit](v0.10.x.md#v0103-post-import-data-integrity-audit) is the milestone positioned to answer them
 
 **Mission recap**: map how mixd resolves track identity across Spotify / Last.fm / MusicBrainz today, measure it against 2026 entity-resolution practice and fresh provider documentation, assess Apple Music readiness plus an 8–10-service future, and lay out *directions with trade-offs* — not a chosen design. Scope extensions (2026-07-02): artist-level identity (§7) and the omni-integration breadth ring (§6).
 

@@ -687,14 +687,24 @@ async def execute_confirmed_action(
 
 # --- Parity accounting (asserted by test_registry_parity.py) ---------------
 
-# Human-only by product decision (D4). mixd's broader human-only capabilities
-# — connector OAuth/token flows, account management, ``mixd admin reset`` —
-# are not application use cases (they live in the connector/interface layer).
-# RecordChatFeedbackUseCase is the set's first member: feedback *about the
-# assistant* comes from the human thumbs UI only — the agent must never file
-# feedback on itself.
+# Human-only by product decision (D4). mixd's remaining human-only
+# capabilities — connector OAuth/token flows, account management — are not
+# application use cases (they live in the connector/interface layer).
 BLACKLISTED_USE_CASES: frozenset[str] = frozenset({
+    # Feedback *about the assistant* comes from the human thumbs UI only —
+    # the agent must never file feedback on itself.
     "RecordChatFeedbackUseCase",
+    # ``mixd admin reset`` truncates every data table for every user. It was
+    # already human-only; it became an application use case when the layer
+    # contract moved the TRUNCATE out of the CLI, so it needs naming here
+    # rather than being human-only by accident of where it lived. Irreversible
+    # and unscoped — the two properties a confirmation prompt handles worst.
+    "ResetDatabaseUseCase",
+    # Interface chrome (theme), not music data. The user sets how mixd looks;
+    # an assistant restyling the app mid-conversation is a surprise, not a
+    # capability, and nothing in the parity contract is served by it.
+    "GetUserSettingsUseCase",
+    "PatchUserSettingsUseCase",
 })
 
 # Excluded because chat has no file input/output channel, not by policy.

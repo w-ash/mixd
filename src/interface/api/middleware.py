@@ -271,7 +271,7 @@ def register_exception_handlers(app: FastAPI) -> None:
         )
 
     async def database_error_handler(_request: Request, exc: Exception) -> JSONResponse:
-        from src.infrastructure.persistence.database.error_classification import (
+        from src.interface._shared.error_classification import (
             classify_database_error,
         )
 

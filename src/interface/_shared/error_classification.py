@@ -4,6 +4,13 @@ Walks the exception __cause__ chain to identify the root cause (DNS failure,
 auth error, timeout, etc.) and returns a structured result with a one-line
 message the user can act on. Consumed by the API middleware, health endpoint,
 and CLI error handler.
+
+Layer note: this reads as infrastructure but is presentation. It produces
+user-facing copy — ``user_message`` becomes an HTTP 503 body and a CLI red
+line — and it imports nothing from ``src``, does no I/O, and has no consumer
+outside ``interface/``. It lived under ``persistence/database/`` until the
+layer contract was enforced, which is why the name says "database": that is
+the exception taxonomy it reads, not the layer it belongs to.
 """
 
 import re

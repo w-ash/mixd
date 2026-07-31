@@ -753,3 +753,56 @@ class TestQueuedEventsMatchWhatWasActuallyAsked:
         assert [decision.track_id for decision in queued] == [offered], (
             "only the review actually written counts as a question asked"
         )
+
+    async def test_a_refreshed_pending_review_from_a_reimport_is_not_logged_again(
+        self, mock_uow, mock_connector, review_setup
+    ):
+        """A row rewritten to keep its evidence fresh is not a second offer.
+
+        The pending guard lets an unanswered review take fresher evidence, so a
+        re-import returns it in `written` exactly like a brand-new one. Trusting
+        `written` alone turns one question into one per import, all at p=1.0.
+        """
+        uow = mock_uow
+        connector_repo = uow.get_connector_repository()
+        connector_repo.ensure_connector_tracks.return_value = review_setup["ct_id_map"]
+        recorder = uow.get_resolution_recorder()
+
+        # Candidate 0 was queued by an earlier import and is still unanswered:
+        # it is rewritten and returned (default echo), but already asked.
+        asked_before = review_setup["tracks"][0].id
+        fresh = review_setup["tracks"][1].id
+        review_repo = uow.get_match_review_repository()
+        review_repo.existing_review_keys.return_value = frozenset({
+            (asked_before, review_setup["ct_ids"][0])
+        })
+
+        evaluation = EvaluationResult(
+            accepted={}, review_candidates=review_setup["review_candidates"]
+        )
+        command = MatchAndIdentifyTracksCommand(
+            user_id="test-user",
+            tracklist=review_setup["tracklist"],
+            connector="spotify",
+            connector_instance=mock_connector,
+        )
+        use_case = MatchAndIdentifyTracksUseCase()
+
+        with patch.object(
+            MatchAndIdentifyTracksUseCase, "_evaluation_service", create=True
+        ) as mock_eval:
+            mock_eval.evaluate_raw_matches.return_value = evaluation
+            result = await use_case.execute(command, uow)
+
+        assert not result.errors
+        written = review_repo.create_reviews_batch.call_args[0][0]
+        assert len(written) == 2, "both rows are still written — evidence stays fresh"
+        queued = [
+            decision
+            for call in recorder.record.await_args_list
+            for decision in call.args[0]
+            if decision.event_type == "queued"
+        ]
+        assert [decision.track_id for decision in queued] == [fresh], (
+            "the re-offered review is not logged twice; the new one still is"
+        )

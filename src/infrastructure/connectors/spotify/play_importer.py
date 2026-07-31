@@ -95,11 +95,13 @@ class SpotifyPlayImporter(
         *,
         uow: UnitOfWorkProtocol,
         user_id: str,
+        batch_id: str,
+        import_timestamp: datetime,
         progress_emitter: ProgressEmitter | None = None,
         operation_id: str | None = None,
     ) -> list[SpotifyPlayRecord]:
         """Fetch and parse a Spotify JSON export file."""
-        _ = uow, user_id, progress_emitter, operation_id
+        _ = uow, user_id, batch_id, import_timestamp, progress_emitter, operation_id
         file_path = params.file_path
 
         if not file_path.exists():
@@ -133,6 +135,7 @@ class SpotifyPlayImporter(
         self,
         raw_data: list[SpotifyPlayRecord],
         *,
+        user_id: str,
         batch_id: str,
         import_timestamp: datetime,
     ) -> list[ConnectorTrackPlay]:
@@ -140,6 +143,7 @@ class SpotifyPlayImporter(
         return [
             ConnectorTrackPlay.create_from_spotify_record(
                 record,
+                user_id=user_id,
                 import_timestamp=import_timestamp,
                 import_batch_id=batch_id,
             )

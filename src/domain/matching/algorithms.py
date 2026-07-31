@@ -5,7 +5,7 @@ for determining how well tracks match across different music services.
 """
 
 from collections.abc import Callable, Sequence
-from typing import NotRequired, TypedDict
+from typing import Final, NotRequired, TypedDict
 
 from attrs import define
 from rapidfuzz import fuzz
@@ -24,6 +24,28 @@ from .probabilistic import (
 )
 from .text_normalization import are_phonetic_matches, normalize_for_comparison
 from .types import ISRC_GRADE_METHODS, ConfidenceEvidence
+
+# Tokens that mark a title as a variant of another release rather than a
+# different song ("Paranoid Android" vs "Paranoid Android - Live").
+#
+# Public because it is part of the matcher-version surface: these markers decide
+# variation-vs-mismatch title scoring without appearing anywhere in
+# ``MatchingConfig``, so ``src.domain.matching.version`` has to hash them — and
+# reaching into a module private to do that would make the hash's inputs a
+# matter of import etiquette. Adding a marker here is what makes it hashed, not
+# an edit in another file.
+VARIATION_MARKERS: Final[frozenset[str]] = frozenset({
+    "live",
+    "remix",
+    "acoustic",
+    "demo",
+    "remaster",
+    "radio edit",
+    "extended",
+    "instrumental",
+    "album version",
+    "single version",
+})
 
 
 class InternalTrackData(TypedDict):
@@ -54,29 +76,15 @@ def calculate_title_similarity(
     if lower1 == lower2:
         return config.identical_similarity_score
 
-    # 2. Check for containment with extra tokens
+    # 2. Check if one is contained in the other with variation markers
     # This catches cases like "Paranoid Android" vs "Paranoid Android - Live"
-    variation_markers = [
-        "live",
-        "remix",
-        "acoustic",
-        "demo",
-        "remaster",
-        "radio edit",
-        "extended",
-        "instrumental",
-        "album version",
-        "single version",
-    ]
-
-    # Check if one is contained in the other with variation markers
     if lower1 in lower2:
-        remaining = lower2.replace(lower1, "").strip("- ()[]").strip()
-        if any(marker in remaining.lower() for marker in variation_markers):
+        remaining = lower2.replace(lower1, "").strip("- ()[]").strip().lower()
+        if any(marker in remaining for marker in VARIATION_MARKERS):
             return config.variation_similarity_score
     elif lower2 in lower1:
-        remaining = lower1.replace(lower2, "").strip("- ()[]").strip()
-        if any(marker in remaining.lower() for marker in variation_markers):
+        remaining = lower1.replace(lower2, "").strip("- ()[]").strip().lower()
+        if any(marker in remaining for marker in VARIATION_MARKERS):
             return config.variation_similarity_score
 
     # 3. Normalize (strip diacritics, equivalences) and check exact match

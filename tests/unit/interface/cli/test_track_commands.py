@@ -12,6 +12,9 @@ from uuid import uuid7
 import pytest
 from typer.testing import CliRunner
 
+from src.application.use_cases.list_resolution_negatives import (
+    ListResolutionNegativesResult,
+)
 from src.application.use_cases.unreject_mapping_candidate import (
     UnrejectMappingCandidateResult,
 )
@@ -20,6 +23,13 @@ from src.domain.repositories.resolution import NegativeListing
 from src.interface.cli.app import app
 
 runner = CliRunner()
+
+# The listing commands go through the use-case runner helper, imported
+# function-scoped at the call site — so the patchable name lives on the use-case
+# module, as with `run_list_tags` in test_tag_commands.py.
+RUN_LIST_NEGATIVES = (
+    "src.application.use_cases.list_resolution_negatives.run_list_resolution_negatives"
+)
 
 
 class TestUnrejectCommand:
@@ -107,9 +117,8 @@ class TestNegativeListingCommands:
         listing = self._listing()
 
         with patch(
-            "src.application.runner.execute_use_case",
-            new_callable=AsyncMock,
-            return_value=[listing],
+            RUN_LIST_NEGATIVES,
+            return_value=ListResolutionNegativesResult(listings=[listing]),
         ):
             result = runner.invoke(app, ["tracks", command])
 
@@ -130,9 +139,8 @@ class TestNegativeListingCommands:
     )
     def test_empty_listing_says_so(self, command: str, empty_message: str) -> None:
         with patch(
-            "src.application.runner.execute_use_case",
-            new_callable=AsyncMock,
-            return_value=[],
+            RUN_LIST_NEGATIVES,
+            return_value=ListResolutionNegativesResult(listings=[]),
         ):
             result = runner.invoke(app, ["tracks", command])
 
@@ -150,8 +158,7 @@ class TestNegativeListingCommands:
         self, command: str, error_message: str
     ) -> None:
         with patch(
-            "src.application.runner.execute_use_case",
-            new_callable=AsyncMock,
+            RUN_LIST_NEGATIVES,
             side_effect=NotFoundError("Connector track deadbeef not found"),
         ):
             result = runner.invoke(app, ["tracks", command, str(uuid7())])
@@ -162,9 +169,8 @@ class TestNegativeListingCommands:
 
     def test_rejections_points_at_the_command_that_withdraws_one(self) -> None:
         with patch(
-            "src.application.runner.execute_use_case",
-            new_callable=AsyncMock,
-            return_value=[self._listing()],
+            RUN_LIST_NEGATIVES,
+            return_value=ListResolutionNegativesResult(listings=[self._listing()]),
         ):
             result = runner.invoke(app, ["tracks", "rejections"])
 
@@ -173,9 +179,8 @@ class TestNegativeListingCommands:
     def test_dead_ids_shows_the_miss_count(self) -> None:
         """The count is what separates "worth a look" from "asked once"."""
         with patch(
-            "src.application.runner.execute_use_case",
-            new_callable=AsyncMock,
-            return_value=[self._listing(7)],
+            RUN_LIST_NEGATIVES,
+            return_value=ListResolutionNegativesResult(listings=[self._listing(7)]),
         ):
             result = runner.invoke(app, ["tracks", "dead-ids"])
 

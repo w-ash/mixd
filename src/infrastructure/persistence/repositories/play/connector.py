@@ -1,8 +1,8 @@
 """Repository for connector play operations."""
 
-from collections.abc import Mapping, Sequence
-from datetime import datetime
-from typing import cast
+from collections.abc import Iterable, Iterator, Mapping, Sequence
+from datetime import UTC, datetime
+from typing import Final, cast
 from uuid import UUID
 
 import sqlalchemy as sa
@@ -12,6 +12,10 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from src.config import get_logger
 from src.domain.entities import ConnectorTrackPlay, ensure_utc
 from src.infrastructure.persistence.database.db_models import DBConnectorPlay
+from src.infrastructure.persistence.repositories._shared.copy_insert import (
+    CopyRow,
+    copy_insert_ignore_conflicts,
+)
 from src.infrastructure.persistence.repositories.base_repo import (
     BaseRepository,
     rows_affected,
@@ -23,6 +27,41 @@ logger = get_logger(__name__)
 # Bounded VALUES-list size for the resolution write-back UPDATE — a full
 # Last.fm history import resolves 50k+ plays in one Phase 2 pass.
 _RESOLUTION_BATCH_SIZE = 5_000
+
+# Ledger columns the COPY path writes, and the order every streamed row uses.
+_COPY_COLUMNS: Final[tuple[str, ...]] = (
+    "id",
+    "user_id",
+    "connector_name",
+    "connector_track_identifier",
+    "played_at",
+    "ms_played",
+    "raw_metadata",
+    "import_timestamp",
+    "import_source",
+    "import_batch_id",
+    "resolved_track_id",
+    "resolved_at",
+    "created_at",
+    "updated_at",
+)
+
+# Arbiter for ON CONFLICT DO NOTHING: ``uq_connector_plays_deduplication``.
+_DEDUPLICATION_COLUMNS: Final[tuple[str, ...]] = (
+    "user_id",
+    "connector_name",
+    "connector_track_identifier",
+    "played_at",
+    "ms_played",
+)
+
+_COPY_STAGING_TABLE: Final = "connector_plays_copy_staging"
+
+# Resolved through the registry rather than ``DBConnectorPlay.__table__``, which
+# the declarative stubs type as the wider ``FromClause``.
+_LEDGER_TABLE: Final[sa.Table] = DBConnectorPlay.metadata.tables[
+    DBConnectorPlay.__tablename__
+]
 
 
 class ConnectorTrackPlayRepository(BaseRepository[DBConnectorPlay, ConnectorTrackPlay]):
@@ -44,34 +83,17 @@ class ConnectorTrackPlayRepository(BaseRepository[DBConnectorPlay, ConnectorTrac
         self.session = session
         self.model_class = DBConnectorPlay
 
-    @db_operation("bulk_insert_connector_plays")
-    async def bulk_insert_connector_plays(
-        self, connector_plays: list[ConnectorTrackPlay]
-    ) -> tuple[int, int]:
-        """Bulk insert connector plays with ON CONFLICT DO NOTHING deduplication.
+    @staticmethod
+    def _to_copy_rows(
+        connector_plays: Iterable[ConnectorTrackPlay],
+    ) -> Iterator[CopyRow]:
+        """Project entities onto ``_COPY_COLUMNS`` value tuples, lazily.
 
-        PostgreSQL's unique constraint ``uq_connector_plays_deduplication``
-        (connector_name, connector_track_identifier, played_at, ms_played)
-        atomically skips duplicates. No pre-query needed.
-
-        Args:
-            connector_plays: List of ConnectorTrackPlay domain objects from API ingestion
-
-        Returns:
-            tuple[int, int]: (inserted_count, duplicate_count)
+        A generator, not a list: a Spotify GDPR export is 198k plays, and the
+        COPY path's reason for existing is that neither the caller's iterable
+        nor this projection of it is ever fully resident.
         """
-        if not connector_plays:
-            return (0, 0)
-
-        logger.info(f"Bulk inserting {len(connector_plays)} connector plays")
-
-        # Prepare data for bulk insert by converting domain objects to db format
-        play_data: list[dict[str, object]] = []
         for play in connector_plays:
-            played_at = ensure_utc(play.played_at)
-            import_timestamp = ensure_utc(play.import_timestamp)
-            resolved_at = ensure_utc(play.resolved_at)
-
             raw_metadata = {
                 "artist_name": play.artist_name,
                 "track_name": play.track_name,
@@ -80,35 +102,70 @@ class ConnectorTrackPlayRepository(BaseRepository[DBConnectorPlay, ConnectorTrac
                 "api_page": play.api_page,
                 **play.raw_data,
             }
-
-            play_data.append({
+            # Stamped per row rather than once per batch: ``created_at`` /
+            # ``updated_at`` have Python-side column defaults that an INSERT
+            # ... SELECT out of staging never evaluates, so the values have to
+            # travel with the data.
+            now = datetime.now(UTC)
+            yield (
                 # Persist the entity's own id (instead of minting a fresh one
                 # via the column default) so first-import ledger rows share the
                 # domain entity's id — log/debug correlation.
-                "id": play.id,
-                "user_id": play.user_id,
-                "connector_name": play.connector_name,
-                "connector_track_identifier": play.connector_track_identifier,
-                "played_at": played_at,
-                "ms_played": play.ms_played,
-                "raw_metadata": raw_metadata,
-                "import_timestamp": import_timestamp,
-                "import_source": play.import_source,
-                "import_batch_id": play.import_batch_id,
-                "resolved_track_id": play.resolved_track_id,
-                "resolved_at": resolved_at,
-            })
+                play.id,
+                play.user_id,
+                play.connector_name,
+                play.connector_track_identifier,
+                ensure_utc(play.played_at),
+                play.ms_played,
+                raw_metadata,
+                ensure_utc(play.import_timestamp),
+                play.import_source,
+                play.import_batch_id,
+                play.resolved_track_id,
+                ensure_utc(play.resolved_at),
+                now,
+                now,
+            )
 
-        conflict_keys = [
-            "user_id",
-            "connector_name",
-            "connector_track_identifier",
-            "played_at",
-            "ms_played",
-        ]
-        inserted = await self.bulk_insert_ignore_conflicts(play_data, conflict_keys)
+    @db_operation("bulk_insert_connector_plays")
+    async def bulk_insert_connector_plays(
+        self, connector_plays: Iterable[ConnectorTrackPlay]
+    ) -> tuple[int, int]:
+        """Stream connector plays into the ledger via ``COPY``, skipping duplicates.
 
-        duplicate_count = len(connector_plays) - inserted
+        Rows are COPY'd into a per-transaction staging table and then moved
+        across in one ``INSERT ... SELECT ... ON CONFLICT DO NOTHING``, where
+        PostgreSQL's ``uq_connector_plays_deduplication`` constraint (user_id,
+        connector_name, connector_track_identifier, played_at, ms_played)
+        atomically skips what is already stored. No pre-query needed.
+
+        This does *not* go through ``bulk_insert_ignore_conflicts``: that path
+        compiles one multi-VALUES statement, which caps out at 4,681 ledger rows
+        on PostgreSQL's 65535-parameter limit and materialises the whole batch
+        twice on the way there. A 198k-row Spotify export needs neither ceiling.
+
+        Args:
+            connector_plays: Any iterable of ConnectorTrackPlay — a generator is
+                consumed lazily and never materialised. The batch size is
+                counted while streaming, so callers need not know it up front.
+
+        Returns:
+            tuple[int, int]: (inserted_count, duplicate_count)
+        """
+        # Savepoint, as the multi-VALUES path had: a failed batch rolls back to
+        # here rather than poisoning the caller's whole import transaction, and
+        # it takes the staging table with it so a retry starts clean.
+        async with self.session.begin_nested():
+            streamed, inserted = await copy_insert_ignore_conflicts(
+                self.session,
+                target=_LEDGER_TABLE,
+                columns=_COPY_COLUMNS,
+                conflict_columns=_DEDUPLICATION_COLUMNS,
+                rows=self._to_copy_rows(connector_plays),
+                staging_name=_COPY_STAGING_TABLE,
+            )
+
+        duplicate_count = streamed - inserted
         if duplicate_count > 0:
             logger.info(
                 f"Skipped {duplicate_count} duplicate connector plays "

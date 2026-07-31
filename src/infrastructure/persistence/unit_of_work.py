@@ -10,9 +10,11 @@ from typing import Self
 
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from src.domain.repositories.admin import AdminRepositoryProtocol
 from src.domain.repositories.chat_feedback import ChatFeedbackRepositoryProtocol
 from src.domain.repositories.checkpoint import CheckpointRepositoryProtocol
 from src.domain.repositories.connector import (
+    ConnectorGrantProvider,
     ConnectorPlaylistRepositoryProtocol,
     ConnectorRepositoryProtocol,
     ServiceConnectorProvider,
@@ -21,8 +23,10 @@ from src.domain.repositories.like import LikeRepositoryProtocol
 from src.domain.repositories.match_review import MatchReviewRepositoryProtocol
 from src.domain.repositories.metric import MetricsRepositoryProtocol
 from src.domain.repositories.operation_run import OperationRunRepositoryProtocol
+from src.domain.repositories.pending_action import PendingActionRepositoryProtocol
 from src.domain.repositories.play import (
     ConnectorPlayRepositoryProtocol,
+    PlayImportProvider,
     PlaysRepositoryProtocol,
 )
 from src.domain.repositories.playlist import (
@@ -45,6 +49,7 @@ from src.domain.repositories.track import (
     TrackMergeServiceProtocol,
     TrackRepositoryProtocol,
 )
+from src.domain.repositories.user_settings import UserSettingsRepositoryProtocol
 from src.domain.repositories.workflow import (
     WorkflowRepositoryProtocol,
     WorkflowRunRepositoryProtocol,
@@ -339,6 +344,45 @@ class DatabaseUnitOfWork:
         )
 
         return ChatFeedbackRepository(self._session)
+
+    def get_pending_action_repository(self) -> PendingActionRepositoryProtocol:
+        """Get the store for chat mutations awaiting user confirmation."""
+        from src.infrastructure.persistence.repositories.pending_actions import (
+            PendingActionRepository,
+        )
+
+        return PendingActionRepository(self._session)
+
+    def get_connector_grant_provider(self) -> ConnectorGrantProvider:
+        """Get the read-only view of scopes on users' stored connector grants."""
+        from src.infrastructure.connectors._shared.token_storage import (
+            TokenStorageGrantProvider,
+            get_token_storage,
+        )
+
+        return TokenStorageGrantProvider(get_token_storage())
+
+    def get_play_import_provider(self) -> PlayImportProvider:
+        """Get the per-service importer/resolver lookup for play history."""
+        from src.infrastructure.services.play_import_registry import (
+            get_play_import_registry,
+        )
+
+        return get_play_import_registry()
+
+    def get_admin_repository(self) -> AdminRepositoryProtocol:
+        """Get destructive whole-schema operations (``mixd admin reset``)."""
+        from src.infrastructure.persistence.repositories.admin import AdminRepository
+
+        return AdminRepository(self._session)
+
+    def get_user_settings_repository(self) -> UserSettingsRepositoryProtocol:
+        """Get the acting user's interface-settings blob."""
+        from src.infrastructure.persistence.repositories.user_settings import (
+            UserSettingsRepository,
+        )
+
+        return UserSettingsRepository(self._session)
 
     def get_resolution_event_repository(self) -> ResolutionEventRepositoryProtocol:
         """Get the append-only identity-resolution event log."""

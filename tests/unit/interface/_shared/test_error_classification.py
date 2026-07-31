@@ -10,7 +10,7 @@ from sqlalchemy.exc import (
     TimeoutError as SATimeoutError,
 )
 
-from src.infrastructure.persistence.database.error_classification import (
+from src.interface._shared.error_classification import (
     DatabaseErrorInfo,
     classify_database_error,
 )
@@ -161,8 +161,9 @@ class TestClassifyDatabaseError:
         info = classify_database_error(exc)
 
         assert isinstance(info, DatabaseErrorInfo)
+        frozen_field = "category"
         with pytest.raises(AttributeError):
-            info.category = "hacked"  # type: ignore[misc]
+            setattr(info, frozen_field, "hacked")
 
     def test_user_message_never_empty(self) -> None:
         """Every classification path produces a non-empty user message."""

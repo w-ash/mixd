@@ -3,49 +3,25 @@
 Concrete ``RunStatusUpdater`` / ``NodeStatusUpdater`` implementations (and the
 heartbeat ticker) injected into ``ExecuteWorkflowRunUseCase``. Both interfaces
 import these so the run lifecycle lives in exactly one place — the use case owns
-the RUNNING→terminal state machine; these helpers are just the thin DB-session
-adapters it calls. They legitimately import infrastructure for session/repo
-wiring, which is why they sit in the interface layer rather than the application
-layer.
+the RUNNING→terminal state machine; these helpers are just the thin persistence
+adapters it calls.
+
+Each helper runs on its own short-lived UoW rather than the run's: the terminal
+status write must land even when the workflow's own session has been torn down
+by the error that caused it. ``rollback=False`` is part of that — see
+``runner.execute_use_case``.
 """
 
-import contextlib
 from datetime import datetime
 from typing import Unpack
 from uuid import UUID
 
+from src.application.runner import execute_use_case
 from src.application.workflows.protocols import RunStatusKwargs
 from src.config.logging import get_logger
 from src.domain.entities.workflow import RunStatus
 
 logger = get_logger(__name__)
-
-
-@contextlib.asynccontextmanager
-async def run_repo_session():
-    """Short-lived independent session for run/node status updates.
-
-    Status updates use their own session (``rollback=False``) so they survive
-    a workflow failure — the terminal write must land even when the run's own
-    session has been torn down by the error. Commits on clean exit.
-    """
-    from src.infrastructure.persistence.database.db_connection import get_session
-    from src.infrastructure.persistence.repositories.workflow.runs import (
-        WorkflowRunRepository,
-    )
-
-    async with get_session(rollback=False) as session:
-        committed = False
-        try:
-            yield WorkflowRunRepository(session)
-            committed = True
-        finally:
-            # Commit only on clean exit — a consumer error (or cancellation)
-            # leaves ``committed`` False and the session is discarded unchanged,
-            # exactly as before. The try/finally just guarantees the commit
-            # decision is evaluated even though it follows the ``yield``.
-            if committed:
-                await session.commit()
 
 
 async def update_run_status(
@@ -54,8 +30,12 @@ async def update_run_status(
     **kwargs: Unpack[RunStatusKwargs],
 ) -> bool:
     """Concrete ``RunStatusUpdater``. Returns whether a row was transitioned."""
-    async with run_repo_session() as repo:
-        return await repo.update_run_status(run_id, status, **kwargs)
+    return await execute_use_case(
+        lambda uow: uow.get_workflow_run_repository().update_run_status(
+            run_id, status, **kwargs
+        ),
+        rollback=False,
+    )
 
 
 async def update_node_status(
@@ -72,8 +52,8 @@ async def update_node_status(
     node_details: dict[str, object] | None = None,
 ) -> None:
     """Concrete ``NodeStatusUpdater``."""
-    async with run_repo_session() as repo:
-        await repo.update_node_status(
+    await execute_use_case(
+        lambda uow: uow.get_workflow_run_repository().update_node_status(
             run_id,
             node_id,
             status,
@@ -84,7 +64,9 @@ async def update_node_status(
             output_track_count=output_track_count,
             error_message=error_message,
             node_details=node_details,
-        )
+        ),
+        rollback=False,
+    )
 
 
 async def bump_heartbeat(run_id: UUID) -> None:
@@ -98,7 +80,9 @@ async def bump_heartbeat(run_id: UUID) -> None:
     heavy transforms.
     """
     try:
-        async with run_repo_session() as repo:
-            await repo.bump_heartbeat(run_id)
+        await execute_use_case(
+            lambda uow: uow.get_workflow_run_repository().bump_heartbeat(run_id),
+            rollback=False,
+        )
     except Exception:
         logger.warning("Heartbeat bump failed", run_id=str(run_id), exc_info=True)

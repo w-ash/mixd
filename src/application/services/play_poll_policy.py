@@ -27,8 +27,12 @@ from src.config import get_logger
 from src.domain.entities.operations import OperationResult
 from src.domain.entities.schedule import Schedule
 from src.domain.entities.shared import JsonDict
-from src.domain.repositories.play import RECENTLY_PLAYED_PAGE_LIMIT
+from src.domain.repositories.play import (
+    RECENTLY_PLAYED_PAGE_LIMIT,
+    RECENTLY_PLAYED_SCOPE,
+)
 from src.domain.repositories.uow import UnitOfWorkProtocol
+from src.domain.services.oauth_grant import missing_from_grant
 from src.domain.services.play_poll_decision import (
     BASE_INTERVAL_SECONDS,
     CLAIM_TTL,
@@ -62,36 +66,22 @@ class _ClaimPayload:
     resumed: bool = True
 
 
-async def _has_recently_played_scope(user_id: str) -> bool:
-    """Whether the stored Spotify grant still covers recently-played.
-
-    Function-scoped connector import: this is the sanctioned narrow edge for
-    reaching token storage from the application layer (the same shape the metric
-    config provider uses), keeping the dependency at one call site rather than
-    at module scope.
-    """
-    from src.infrastructure.connectors._shared.token_storage import get_token_storage
-    from src.infrastructure.connectors.spotify.auth import (
-        RECENTLY_PLAYED_SCOPE,
-        missing_scopes,
-    )
-
-    token = await get_token_storage().load_token(_SERVICE, user_id)
-    if token is None:
-        return False
-    return RECENTLY_PLAYED_SCOPE not in missing_scopes(token.get("scope"))
-
-
 async def try_begin_poll(context: TriggerContext) -> PollClaim:
     """Decide whether this trigger polls, and claim the lease if so.
 
     One transaction, one read of everything the decision needs — this runs on
     every play-surface read, so a second round trip here is a second reason to
-    wake a suspended database.
+    wake a suspended database. The grant check reads through the UoW's
+    ``ConnectorGrantProvider`` for that reason: it used to open its own token
+    session before this transaction even started.
     """
-    has_scope = await _has_recently_played_scope(context.user_id)
 
     async def _decide(uow: UnitOfWorkProtocol) -> PollClaim:
+        scopes = await uow.get_connector_grant_provider().granted_scopes(
+            _SERVICE, context.user_id
+        )
+        has_scope = RECENTLY_PLAYED_SCOPE in scopes
+
         async with uow:
             repo = uow.get_checkpoint_repository()
             own = await repo.get_sync_checkpoint(context.user_id, _SERVICE, _ENTITY)
@@ -338,13 +328,8 @@ async def sync_play_polling_after_auth(user_id: str, granted_scope: str | None) 
     scheduling side effect would be a worse outcome than not polling — the next
     connect, or the user enabling it from the Sync page, recovers.
     """
-    from src.infrastructure.connectors.spotify.auth import (
-        RECENTLY_PLAYED_SCOPE,
-        missing_scopes,
-    )
-
     try:
-        if RECENTLY_PLAYED_SCOPE in missing_scopes(granted_scope):
+        if missing_from_grant(granted_scope, (RECENTLY_PLAYED_SCOPE,)):
             return
         await enable_play_polling(user_id)
     except Exception:

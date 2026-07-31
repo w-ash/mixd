@@ -9,6 +9,7 @@ track titles/artists on a review row) is wrapped in :class:`UserText` via
 """
 
 from collections.abc import Mapping
+from typing import cast
 
 from src.application.chat.dispatchers._common import (
     opt_choice,
@@ -33,9 +34,15 @@ from src.application.use_cases.list_match_reviews import (
     ListMatchReviewsCommand,
     ListMatchReviewsUseCase,
 )
+from src.application.use_cases.list_resolution_negatives import (
+    ListResolutionNegativesCommand,
+    ListResolutionNegativesUseCase,
+)
 from src.domain.entities.shared import JsonDict, JsonValue
+from src.domain.repositories.resolution import NegativeListingKind
 
-_VIEWS = ("dashboard", "match_health", "integrity", "match_reviews")
+_VIEWS = ("dashboard", "match_health", "integrity", "match_reviews", "negatives")
+_NEGATIVE_KINDS: tuple[str, ...] = ("rejected", "dead_id")
 
 
 async def _view_dashboard(ctx: ToolContext) -> JsonDict:
@@ -143,6 +150,40 @@ async def _view_match_reviews(
     }
 
 
+async def _view_negatives(
+    tool_input: Mapping[str, JsonValue], ctx: ToolContext
+) -> JsonDict:
+    """The negative cache: remembered rejections or dead identifiers.
+
+    This is where ``manage_track_matches``' instruction to "look up rejected
+    pairs first" gets answered — the rows carry the ids an unreject proposal
+    needs, so the model never guesses them.
+    """
+    kind = cast(
+        "NegativeListingKind",
+        opt_choice(tool_input, "kind", _NEGATIVE_KINDS, "rejected"),
+    )
+    command = ListResolutionNegativesCommand(user_id=ctx.user_id, kind=kind)
+    result = await execute_use_case(
+        lambda uow: ListResolutionNegativesUseCase().execute(command, uow),
+        user_id=ctx.user_id,
+    )
+    listings: list[JsonValue] = [
+        {
+            "connector_track_id": str(row.connector_track_id),
+            "connector_name": row.connector_name,
+            "connector_track_identifier": row.connector_track_identifier,
+            "track_id": str(row.track_id) if row.track_id is not None else None,
+            "track_title": user_text(row.track_title)
+            if row.track_title is not None
+            else None,
+            "consecutive_misses": row.consecutive_misses,
+        }
+        for row in result.listings
+    ]
+    return {"view": "negatives", "kind": kind, "listings": listings}
+
+
 async def handle_query_stats(
     tool_input: Mapping[str, JsonValue],
     ctx: ToolContext,
@@ -160,6 +201,8 @@ async def handle_query_stats(
         return await _view_integrity(ctx)
     if view == "match_reviews":
         return await _view_match_reviews(tool_input, ctx)
+    if view == "negatives":
+        return await _view_negatives(tool_input, ctx)
     return await _view_dashboard(ctx)
 
 
@@ -174,7 +217,18 @@ QUERY_STATS_INPUT_SCHEMA: JsonDict = {
                 "totals and per-connector breakdowns. 'match_health': "
                 "identity-resolution method health and review drift. "
                 "'integrity': data-consistency check results. 'match_reviews': "
-                "the pending match-review queue (supports limit/offset)."
+                "the pending match-review queue (supports limit/offset). "
+                "'negatives': the negative cache — remembered cannot-link "
+                "rejections or dead identifiers (pick with `kind`)."
+            ),
+        },
+        "kind": {
+            "type": "string",
+            "enum": list(_NEGATIVE_KINDS),
+            "description": (
+                "negatives only: 'rejected' (default) for remembered "
+                "cannot-link pairs, 'dead_id' for identifiers that stopped "
+                "answering."
             ),
         },
         "limit": {
@@ -199,7 +253,9 @@ SPECS: list[dict[str, object]] = [
             "breakdowns, 'match_health' for identity-resolution method health "
             "and review drift, 'integrity' for data-consistency check results, "
             "'match_reviews' for the pending match-review queue (paginate with "
-            "limit/offset). Use it before answering questions about counts, "
+            "limit/offset), 'negatives' for remembered cannot-link rejections "
+            "or dead identifiers (the lookup manage_track_matches needs before "
+            "an unreject). Use it before answering questions about counts, "
             "matching quality, data integrity, or the review backlog."
         ),
         "input_schema": QUERY_STATS_INPUT_SCHEMA,
@@ -209,6 +265,7 @@ SPECS: list[dict[str, object]] = [
             "GetMatchMethodHealthUseCase",
             "CheckDataIntegrityUseCase",
             "ListMatchReviewsUseCase",
+            "ListResolutionNegativesUseCase",
         ),
         "kind": "read",
     },

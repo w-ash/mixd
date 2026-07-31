@@ -38,7 +38,7 @@ async def _probe_database() -> str | None:
         async with get_engine().connect() as conn:
             await conn.execute(text("SELECT 1"))
     except Exception as exc:
-        from src.infrastructure.persistence.database.error_classification import (
+        from src.interface._shared.error_classification import (
             classify_database_error,
         )
 

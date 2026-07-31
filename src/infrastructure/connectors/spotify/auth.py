@@ -30,11 +30,12 @@ import httpx2
 
 from src.config import get_logger, settings
 from src.domain.exceptions import SpotifyAuthRequiredError
+from src.domain.repositories.play import RECENTLY_PLAYED_SCOPE
+from src.domain.services.oauth_grant import missing_from_grant
 from src.infrastructure.connectors._shared.http_client import (
     make_spotify_auth_client,
     parse_json_response,
 )
-from src.infrastructure.connectors._shared.oauth_scopes import missing_from_grant
 from src.infrastructure.connectors._shared.token_storage import (
     StoredToken,
     TokenStorage,
@@ -50,10 +51,9 @@ logger = get_logger(__name__).bind(service="spotify_auth")
 
 SPOTIFY_AUTHORIZE_URL = "https://accounts.spotify.com/authorize"
 
-# Named because the recently-played poller gates on this one scope specifically
-# (v0.10.1) — a grant can be short only this and still serve likes/playlists.
-RECENTLY_PLAYED_SCOPE = "user-read-recently-played"
-
+# RECENTLY_PLAYED_SCOPE is declared in domain (``repositories/play.py``) beside
+# RECENTLY_PLAYED_PAGE_LIMIT — the poll policy gates on it from the application
+# layer, so it cannot live here. The rest of the grant is Spotify's own business.
 SPOTIFY_SCOPES = [
     "playlist-modify-public",
     "playlist-modify-private",

@@ -19,6 +19,9 @@ from src.infrastructure.persistence.database.db_models import (
     DBTrackLike,
     DBTrackMapping,
 )
+from src.infrastructure.persistence.repositories._shared.connector_tracks import (
+    extract_db_artist_names,
+)
 from src.infrastructure.persistence.repositories.mappers import BaseModelMapper
 
 logger = get_logger(__name__)
@@ -43,19 +46,6 @@ def _get_promote_primary_fn(session: AsyncSession) -> PromotePrimaryMappingFn:
     )
 
     return TrackConnectorRepository(session).ensure_primary_for_connector
-
-
-def extract_db_artist_names(artists: JsonDict) -> list[str]:
-    """Extract artist names from a JSONB ``{"names": [...]}`` column.
-
-    The column type is ``JsonDict`` (``dict[str, JsonValue]``) so the inner
-    ``"names"`` value is a ``JsonValue`` union — narrow defensively before
-    iterating. Used by both ``TrackMapper`` and ``ConnectorTrackMapper``.
-    """
-    names_value = artists.get("names")
-    if isinstance(names_value, list):
-        return [n for n in names_value if isinstance(n, str)]
-    return []
 
 
 @define(frozen=True, slots=True)

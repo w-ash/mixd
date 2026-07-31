@@ -1,6 +1,6 @@
 [project]
 name = "mixd"
-version = "0.10.2"
+version = "0.10.2.1"
 description = "Music metadata integration and playlist management platform"
 authors = [{name = "Ash Wright", email = "a@ashwright.net"}]
 readme = "README.md"
@@ -521,6 +521,13 @@ ignore_imports = [
     "src.application.use_cases.preview_playlist_sync -> src.infrastructure.connectors._shared.metric_registry",
     "src.application.use_cases.import_connector_playlist_as_canonical -> src.infrastructure.connectors._shared.metric_registry",
     "src.application.chat.dispatchers.playlists_write -> src.infrastructure.connectors._shared.metric_registry",
+    # Same bridge, as an attrs `factory=` default rather than a call-site
+    # construction. It lives once, beside the protocol it provides, so the use
+    # cases the CLI and API construct directly get a default without
+    # `interface/` needing to know the concrete class — callers holding a
+    # provider still pass it explicitly. Consumers reach it indirectly, which
+    # this contract's `allow_indirect_imports` already covers.
+    "src.application.use_cases._shared.metric_config -> src.infrastructure.connectors._shared.metric_registry",
 ]
 
 [[tool.importlinter.contracts]]
@@ -548,10 +555,15 @@ ignore_imports = [
     "src.interface.cli.connector_commands -> src.infrastructure.connectors.discovery",
     "src.interface.cli.connector_commands -> src.infrastructure.connectors.lastfm.client",
     "src.interface.cli.connector_commands -> src.infrastructure.connectors.spotify.auth",
-    "src.interface.api.routes.imports -> src.infrastructure.connectors.spotify.auth",
+    # Same carve-out: `whoami` probes connectors exactly as `connector status`
+    # does, and the probe reads (and silently refreshes) the stored grant.
+    "src.interface.cli.app -> src.infrastructure.connectors._shared.connector_status",
+    # Same carve-out: the startup prune of expired connector-OAuth CSRF state.
+    # `routes/auth.py` evicts opportunistically on the next state creation; this
+    # catches rows that expired while the server was down.
+    "src.interface.api.app -> src.infrastructure.persistence.repositories.oauth_states",
     # Same carve-out, factored into the FastAPI dependency module that the
     # OAuth/assistant-key routes above depend on.
-    "src.interface.api.deps -> src.infrastructure.connectors._shared.oauth_scopes",
     "src.interface.api.deps -> src.infrastructure.connectors._shared.token_storage",
     "src.interface.api.deps -> src.infrastructure.chat.credentials",
     "src.interface.api.deps -> src.infrastructure.chat.anthropic_adapter",
@@ -566,6 +578,15 @@ ignore_imports = [
     # RLS/`user_context` path a use case assumes does not apply.
     "src.interface.api.oauth.cimd -> src.infrastructure.persistence.repositories.oauth_as",
     "src.interface.api.oauth.provider -> src.infrastructure.persistence.repositories.oauth_as",
+    # interface-patterns.md, operational probes — the readiness check reads the
+    # raw engine on purpose. Through `execute_use_case()` it would open and
+    # commit a transaction, and would report ORM/UoW/RLS health rather than
+    # connectivity, which is a broader claim than the endpoint makes.
+    "src.interface.api.routes.health -> src.infrastructure.persistence.database.db_connection",
+    # interface-patterns.md, composition root — process teardown of cached
+    # httpx2 pools in the lifespan `finally`. No session, no data access;
+    # nothing in application/ owns adapter lifetime.
+    "src.interface.api.app -> src.infrastructure.chat.anthropic_adapter",
 ]
 
 [tool.typer.app]
