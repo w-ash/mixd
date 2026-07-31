@@ -5,6 +5,21 @@ allowBuilds:
 onlyBuiltDependencies:
   - esbuild
   - msw
+# Minimum age (minutes) before a published version may be installed. Stated
+# explicitly so it survives a pnpm major changing its default, which is the whole
+# point — 1440 happens to match pnpm 11's default today.
+#
+# It is deliberately NOT 10080 (7 days) to match dependabot.yml's cooldown, even
+# though that parity was the original intent (audit W5). pnpm 11 enforces this as a
+# *lockfile* policy on every install, including `--frozen-lockfile` — not just on
+# new resolutions. At 7 days the committed lockfile fails verification for a week
+# after any dependency sweep (measured: 84 entries rejected the day after the orval
+# 8.23 / radix-ui sweep), which would red every CI job and the Docker build until
+# the window passed. Dependabot's 7-day cooldown still governs the automated path;
+# this floor governs the manual `pnpm add` path, and 1 day is what pnpm can express
+# without holding CI hostage to the release calendar.
+minimumReleaseAge: 1440
+
 # Migrated from package.json "pnpm.overrides" — pnpm 11.5+ reads overrides here.
 # Security floors for transitive deps; keep the minimum-safe versions pinned.
 overrides:

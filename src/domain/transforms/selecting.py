@@ -75,7 +75,7 @@ def sample_random(
 
     def transform(t: TrackList) -> TrackList:
         n = min(count, len(t.tracks))
-        selected = random.sample(t.tracks, n)  # nosec B311
+        selected = random.sample(t.tracks, n)
         return t.with_tracks(selected)
 
     return dual_mode(transform, tracklist)

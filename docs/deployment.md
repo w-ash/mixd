@@ -1,5 +1,11 @@
 # Running & Deploying Mixd
 
+> **Never `pip install mixd`.** The name is taken on PyPI by an unrelated project
+> (a Cloudflared tunnel dev-server, last published 2025-08) — installing it gets you
+> someone else's package, not this one. Mixd is never published to PyPI; it is a
+> uv-workspace-local package, installed only by `uv sync` from this repo. The
+> `mixd` and `mixd-api` commands come from that local install.
+
 ## Local Development
 
 ### Quick start
