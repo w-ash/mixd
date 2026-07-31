@@ -155,7 +155,7 @@ jobs:
 
       # Build only, never pushed — the real image is still built by Fly at deploy.
       # VITE_NEON_AUTH_URL defaults to "" in the Dockerfile, so no secret is needed.
-      - uses: docker/build-push-action@v6
+      - uses: docker/build-push-action@v7
         with:
           context: .
           target: runtime
