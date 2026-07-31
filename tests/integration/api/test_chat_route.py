@@ -10,7 +10,7 @@ from contextlib import asynccontextmanager
 import json
 from uuid import UUID, uuid4, uuid7
 
-import httpx
+import httpx2
 import pytest
 
 from src.application.chat.events import TextDelta
@@ -96,7 +96,7 @@ def _describe_node_then_reply() -> list[_Turn]:
 
 
 async def test_chat_streams_sse_and_dispatches_tool_through_registry(
-    client: httpx.AsyncClient, monkeypatch: pytest.MonkeyPatch
+    client: httpx2.AsyncClient, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     _inject_llm(monkeypatch, _describe_node_then_reply())
 
@@ -125,7 +125,7 @@ async def test_chat_streams_sse_and_dispatches_tool_through_registry(
 
 
 async def test_chat_unavailable_when_key_unset(
-    client: httpx.AsyncClient, monkeypatch: pytest.MonkeyPatch
+    client: httpx2.AsyncClient, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     from src.domain.exceptions import ChatUnavailableError
 
@@ -142,7 +142,7 @@ async def test_chat_unavailable_when_key_unset(
 
 
 async def test_rate_limit_returns_429(
-    client: httpx.AsyncClient, monkeypatch: pytest.MonkeyPatch
+    client: httpx2.AsyncClient, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     _inject_llm(monkeypatch, _describe_node_then_reply())
     monkeypatch.setattr(
@@ -176,7 +176,7 @@ def _system_text(request: LLMRequest) -> str:
 
 
 async def test_system_prompt_carries_user_context_block(
-    client: httpx.AsyncClient, monkeypatch: pytest.MonkeyPatch
+    client: httpx2.AsyncClient, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     fake = _inject_llm(monkeypatch, _reply_only())
 
@@ -194,7 +194,7 @@ async def test_system_prompt_carries_user_context_block(
 
 
 async def test_system_prompt_carries_current_workflow_when_id_sent(
-    client: httpx.AsyncClient, monkeypatch: pytest.MonkeyPatch
+    client: httpx2.AsyncClient, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     from tests.integration.api.conftest import valid_workflow_definition
 
@@ -220,7 +220,7 @@ async def test_system_prompt_carries_current_workflow_when_id_sent(
 
 
 async def test_stale_current_workflow_id_degrades_to_no_context(
-    client: httpx.AsyncClient, monkeypatch: pytest.MonkeyPatch
+    client: httpx2.AsyncClient, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     fake = _inject_llm(monkeypatch, _reply_only())
 
@@ -270,7 +270,7 @@ def _end_turn(text: str) -> _Turn:
 
 
 async def test_generate_result_carries_workflow_def(
-    client: httpx.AsyncClient, monkeypatch: pytest.MonkeyPatch
+    client: httpx2.AsyncClient, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     generate = ToolUseBlock(
         id="g1", name="generate_workflow_def", input={"workflow_def": _VALID_DEF}
@@ -292,7 +292,7 @@ async def test_generate_result_carries_workflow_def(
 
 
 async def test_invalid_generate_streams_error_result_and_loop_continues(
-    client: httpx.AsyncClient, monkeypatch: pytest.MonkeyPatch
+    client: httpx2.AsyncClient, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     bad = ToolUseBlock(
         id="g1",
@@ -321,7 +321,7 @@ async def test_invalid_generate_streams_error_result_and_loop_continues(
 
 
 async def test_generate_and_save_in_one_turn_then_confirm_persists_once(
-    client: httpx.AsyncClient, monkeypatch: pytest.MonkeyPatch
+    client: httpx2.AsyncClient, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     generate = ToolUseBlock(
         id="g1", name="generate_workflow_def", input={"workflow_def": _VALID_DEF}
@@ -377,7 +377,7 @@ async def test_generate_and_save_in_one_turn_then_confirm_persists_once(
 
 
 async def test_confirming_run_workflow_streams_operation_started(
-    client: httpx.AsyncClient, monkeypatch: pytest.MonkeyPatch
+    client: httpx2.AsyncClient, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     """A confirmed long-running tool launches the op and streams a progress card.
 
@@ -448,7 +448,7 @@ async def test_confirming_run_workflow_streams_operation_started(
 
 
 async def test_expired_confirmation_returns_action_expired(
-    client: httpx.AsyncClient, monkeypatch: pytest.MonkeyPatch
+    client: httpx2.AsyncClient, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     _inject_llm(monkeypatch, _describe_node_then_reply())
 

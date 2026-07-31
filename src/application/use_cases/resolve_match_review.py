@@ -10,7 +10,6 @@ from uuid import UUID
 
 from attrs import define
 
-from src.application.use_cases._shared.event_log import apply_with_event_log
 from src.config import get_logger
 from src.config.constants import MappingOrigin, ReviewStatus
 from src.domain.entities.match_review import MatchReview
@@ -122,14 +121,12 @@ class ResolveMatchReviewUseCase:
         # The status flip is the change; its events ride the same commit. On
         # accept the list is empty because the mapping write already emitted
         # `manual_override` from the seam — one decision, one event, and the
-        # use case does not get to write a second version of it.
-        _ = await apply_with_event_log(
-            uow,
-            changed=True,
-            events=recorder.build_events(decisions, user_id=command.user_id),
-            add_events=recorder.write_events,
-            user_id=command.user_id,
-        )
+        # use case does not get to write a second version of it. This review
+        # resolution always commits (unlike the tag/preference use cases'
+        # `apply_with_event_log`), so there is no `changed` guard to thread
+        # through — record then commit, directly.
+        _ = await recorder.record(decisions, user_id=command.user_id)
+        await uow.commit()
 
         return ResolveMatchReviewResult(
             review=updated_review,

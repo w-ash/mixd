@@ -16,7 +16,7 @@ import secrets
 from urllib.parse import parse_qs, urlparse
 
 from fastapi import FastAPI
-import httpx
+import httpx2
 
 from src.interface.api.oauth.tokens import verify_access_token
 
@@ -24,9 +24,9 @@ RESOURCE_URI = "http://localhost/mcp"
 REDIRECT_URI = "http://localhost:33418/callback"
 
 
-def _client(app: FastAPI) -> httpx.AsyncClient:
-    return httpx.AsyncClient(
-        transport=httpx.ASGITransport(app=app),
+def _client(app: FastAPI) -> httpx2.AsyncClient:
+    return httpx2.AsyncClient(
+        transport=httpx2.ASGITransport(app=app),
         base_url="http://localhost",
         timeout=30,
     )
@@ -39,7 +39,7 @@ def _pkce() -> tuple[str, str]:
     return verifier, challenge
 
 
-async def _register(client: httpx.AsyncClient) -> str:
+async def _register(client: httpx2.AsyncClient) -> str:
     resp = await client.post(
         "/register",
         json={
@@ -57,7 +57,7 @@ async def _register(client: httpx.AsyncClient) -> str:
 
 
 async def _authorize_to_consent(
-    client: httpx.AsyncClient,
+    client: httpx2.AsyncClient,
     client_id: str,
     challenge: str,
     *,
@@ -83,7 +83,7 @@ async def _authorize_to_consent(
     return parse_qs(urlparse(location).query)["request_id"][0]
 
 
-async def _approve(client: httpx.AsyncClient, request_id: str) -> dict[str, str]:
+async def _approve(client: httpx2.AsyncClient, request_id: str) -> dict[str, str]:
     """Approve consent (as the dev-default session user); return redirect params."""
     resp = await client.post(f"/api/v1/oauth/consent/{request_id}/approve")
     assert resp.status_code == 200, resp.text
@@ -93,8 +93,8 @@ async def _approve(client: httpx.AsyncClient, request_id: str) -> dict[str, str]
 
 
 async def _exchange(
-    client: httpx.AsyncClient, client_id: str, code: str, verifier: str
-) -> httpx.Response:
+    client: httpx2.AsyncClient, client_id: str, code: str, verifier: str
+) -> httpx2.Response:
     return await client.post(
         "/token",
         data={
@@ -190,7 +190,7 @@ class TestFullAuthorizationFlow:
 
 class TestRefreshRotation:
     async def _token_pair(
-        self, client: httpx.AsyncClient, client_id: str
+        self, client: httpx2.AsyncClient, client_id: str
     ) -> dict[str, str]:
         verifier, challenge = _pkce()
         request_id = await _authorize_to_consent(client, client_id, challenge)
@@ -200,8 +200,8 @@ class TestRefreshRotation:
         return resp.json()
 
     async def _refresh(
-        self, client: httpx.AsyncClient, client_id: str, refresh_token: str
-    ) -> httpx.Response:
+        self, client: httpx2.AsyncClient, client_id: str, refresh_token: str
+    ) -> httpx2.Response:
         return await client.post(
             "/token",
             data={

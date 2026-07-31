@@ -5,7 +5,7 @@ Tests GET /workflows/{id}/versions (list), GET /workflows/{id}/versions/{version
 Version records are created automatically when a workflow's task pipeline changes.
 """
 
-import httpx
+import httpx2
 import pytest
 
 import src.interface.api.routes.workflows as _workflows_mod
@@ -51,7 +51,7 @@ def _stub_workflow_background(monkeypatch):
 
 
 async def _update_workflow_tasks(
-    client: httpx.AsyncClient, wf_id: str, definition: dict
+    client: httpx2.AsyncClient, wf_id: str, definition: dict
 ) -> None:
     """Helper: update a workflow with a new definition (task pipeline change)."""
     resp = await client.patch(
@@ -63,7 +63,7 @@ async def _update_workflow_tasks(
 class TestListWorkflowVersions:
     """GET /workflows/{id}/versions — list version history."""
 
-    async def test_empty_versions_initially(self, client: httpx.AsyncClient) -> None:
+    async def test_empty_versions_initially(self, client: httpx2.AsyncClient) -> None:
         """A new workflow has no version history (versions are created on update)."""
         wf_id = await _create_workflow(client)
 
@@ -74,7 +74,7 @@ class TestListWorkflowVersions:
         assert isinstance(body, list)
         assert len(body) == 0
 
-    async def test_versions_after_task_update(self, client: httpx.AsyncClient) -> None:
+    async def test_versions_after_task_update(self, client: httpx2.AsyncClient) -> None:
         """Updating the task pipeline creates a version record."""
         wf_id = await _create_workflow(client)
 
@@ -96,7 +96,7 @@ class TestListWorkflowVersions:
         assert len(v["definition"]["tasks"]) == 1
 
     async def test_multiple_updates_create_multiple_versions(
-        self, client: httpx.AsyncClient
+        self, client: httpx2.AsyncClient
     ) -> None:
         """Each task pipeline change creates a new version record."""
         wf_id = await _create_workflow(client)
@@ -116,14 +116,14 @@ class TestListWorkflowVersions:
         assert version_nums == [1, 2]
 
     async def test_nonexistent_workflow_returns_404(
-        self, client: httpx.AsyncClient
+        self, client: httpx2.AsyncClient
     ) -> None:
         response = await client.get(f"/api/v1/workflows/{nonexistent_id()}/versions")
 
         assert response.status_code == 404
 
     async def test_name_only_update_does_not_create_version(
-        self, client: httpx.AsyncClient
+        self, client: httpx2.AsyncClient
     ) -> None:
         """Changing only name/description (same tasks) does not create a version."""
         wf_id = await _create_workflow(client)
@@ -142,7 +142,7 @@ class TestListWorkflowVersions:
 class TestGetWorkflowVersion:
     """GET /workflows/{id}/versions/{version} — get specific version."""
 
-    async def test_get_specific_version(self, client: httpx.AsyncClient) -> None:
+    async def test_get_specific_version(self, client: httpx2.AsyncClient) -> None:
         wf_id = await _create_workflow(client)
         await _update_workflow_tasks(client, wf_id, _two_task_definition())
 
@@ -156,7 +156,7 @@ class TestGetWorkflowVersion:
         # Version 1 is a snapshot of the original definition (1 task)
         assert len(body["definition"]["tasks"]) == 1
 
-    async def test_version_has_change_summary(self, client: httpx.AsyncClient) -> None:
+    async def test_version_has_change_summary(self, client: httpx2.AsyncClient) -> None:
         """Version records include a change summary describing what changed."""
         wf_id = await _create_workflow(client)
         await _update_workflow_tasks(client, wf_id, _two_task_definition())
@@ -168,7 +168,7 @@ class TestGetWorkflowVersion:
         assert "change_summary" in body
 
     async def test_nonexistent_version_returns_404(
-        self, client: httpx.AsyncClient
+        self, client: httpx2.AsyncClient
     ) -> None:
         wf_id = await _create_workflow(client)
 
@@ -177,7 +177,7 @@ class TestGetWorkflowVersion:
         assert response.status_code == 404
 
     async def test_nonexistent_workflow_returns_404(
-        self, client: httpx.AsyncClient
+        self, client: httpx2.AsyncClient
     ) -> None:
         response = await client.get(f"/api/v1/workflows/{nonexistent_id()}/versions/1")
 
@@ -187,7 +187,7 @@ class TestGetWorkflowVersion:
 class TestRevertWorkflowVersion:
     """POST /workflows/{id}/versions/{version}/revert — restore previous definition."""
 
-    async def test_revert_restores_definition(self, client: httpx.AsyncClient) -> None:
+    async def test_revert_restores_definition(self, client: httpx2.AsyncClient) -> None:
         """Reverting to version 1 restores the original definition."""
         wf_id = await _create_workflow(client)
 
@@ -207,7 +207,7 @@ class TestRevertWorkflowVersion:
         assert body["definition"]["tasks"][0]["id"] == "source"
 
     async def test_revert_bumps_definition_version(
-        self, client: httpx.AsyncClient
+        self, client: httpx2.AsyncClient
     ) -> None:
         """Reverting increments the workflow's definition_version."""
         wf_id = await _create_workflow(client)
@@ -226,7 +226,7 @@ class TestRevertWorkflowVersion:
         assert resp.json()["definition_version"] == version_before_revert + 1
 
     async def test_revert_creates_snapshot_of_current(
-        self, client: httpx.AsyncClient
+        self, client: httpx2.AsyncClient
     ) -> None:
         """Reverting snapshots the current definition before restoring."""
         wf_id = await _create_workflow(client)
@@ -248,7 +248,7 @@ class TestRevertWorkflowVersion:
         assert "Before revert" in (v2["change_summary"] or "")
 
     async def test_revert_nonexistent_version_returns_404(
-        self, client: httpx.AsyncClient
+        self, client: httpx2.AsyncClient
     ) -> None:
         wf_id = await _create_workflow(client)
 
@@ -257,7 +257,7 @@ class TestRevertWorkflowVersion:
         assert response.status_code == 404
 
     async def test_revert_nonexistent_workflow_returns_404(
-        self, client: httpx.AsyncClient
+        self, client: httpx2.AsyncClient
     ) -> None:
         response = await client.post(
             f"/api/v1/workflows/{nonexistent_id()}/versions/1/revert"

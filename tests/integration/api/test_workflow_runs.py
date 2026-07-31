@@ -6,7 +6,7 @@ and GET /runs/{run_id} (200, 404, with nodes).
 
 import asyncio
 
-import httpx
+import httpx2
 import pytest
 
 from src.interface.api.services.progress import get_operation_registry
@@ -65,7 +65,7 @@ async def _seed_completed_runs(workflow_id: str, count: int) -> None:
 class TestRunWorkflowEndpoint:
     """POST /workflows/{id}/run — starts execution."""
 
-    async def test_run_returns_202(self, client: httpx.AsyncClient) -> None:
+    async def test_run_returns_202(self, client: httpx2.AsyncClient) -> None:
         wf_id = await _create_workflow(client)
 
         response = await client.post(f"/api/v1/workflows/{wf_id}/run")
@@ -77,7 +77,7 @@ class TestRunWorkflowEndpoint:
         assert isinstance(body["run_id"], str)
 
     async def test_run_pushes_run_accepted_to_sse_queue(
-        self, client: httpx.AsyncClient
+        self, client: httpx2.AsyncClient
     ) -> None:
         """run_accepted lands on the SSE queue before launch_background runs.
 
@@ -113,14 +113,14 @@ class TestRunWorkflowEndpoint:
         assert isinstance(data["accepted_at"], str)
 
     async def test_run_nonexistent_workflow_404(
-        self, client: httpx.AsyncClient
+        self, client: httpx2.AsyncClient
     ) -> None:
         response = await client.post(f"/api/v1/workflows/{nonexistent_id()}/run")
 
         assert response.status_code == 404
 
     async def test_run_creates_pending_run_in_db(
-        self, client: httpx.AsyncClient
+        self, client: httpx2.AsyncClient
     ) -> None:
         wf_id = await _create_workflow(client)
 
@@ -135,7 +135,7 @@ class TestRunWorkflowEndpoint:
         assert body["status"] == "pending"
 
     async def test_run_returns_409_when_already_running(
-        self, client: httpx.AsyncClient, monkeypatch
+        self, client: httpx2.AsyncClient, monkeypatch
     ) -> None:
         wf_id = await _create_workflow(client)
 
@@ -163,7 +163,7 @@ class TestRunWorkflowEndpoint:
 class TestListWorkflowRuns:
     """GET /workflows/{id}/runs — paginated run list."""
 
-    async def test_empty_runs(self, client: httpx.AsyncClient) -> None:
+    async def test_empty_runs(self, client: httpx2.AsyncClient) -> None:
         wf_id = await _create_workflow(client)
 
         response = await client.get(f"/api/v1/workflows/{wf_id}/runs")
@@ -173,7 +173,7 @@ class TestListWorkflowRuns:
         assert body["data"] == []
         assert body["total"] == 0
 
-    async def test_lists_runs_after_execution(self, client: httpx.AsyncClient) -> None:
+    async def test_lists_runs_after_execution(self, client: httpx2.AsyncClient) -> None:
         wf_id = await _create_workflow(client)
         # A workflow accumulates many *completed* runs over time. Only one
         # active run is allowed at a time (uq_workflow_runs_active), so build
@@ -186,7 +186,7 @@ class TestListWorkflowRuns:
         assert body["total"] >= 2
         assert len(body["data"]) >= 2
 
-    async def test_pagination(self, client: httpx.AsyncClient) -> None:
+    async def test_pagination(self, client: httpx2.AsyncClient) -> None:
         wf_id = await _create_workflow(client)
         await _seed_completed_runs(wf_id, 3)
 
@@ -196,7 +196,7 @@ class TestListWorkflowRuns:
         assert body["total"] >= 3
         assert len(body["data"]) == 2
 
-    async def test_nonexistent_workflow_404(self, client: httpx.AsyncClient) -> None:
+    async def test_nonexistent_workflow_404(self, client: httpx2.AsyncClient) -> None:
         response = await client.get(f"/api/v1/workflows/{nonexistent_id()}/runs")
 
         assert response.status_code == 404
@@ -205,7 +205,7 @@ class TestListWorkflowRuns:
 class TestOperationSnapshotEndpoint:
     """GET /operations/{operation_id}/snapshot — REST fallback for SSE stalls."""
 
-    async def test_snapshot_returns_run_state(self, client: httpx.AsyncClient) -> None:
+    async def test_snapshot_returns_run_state(self, client: httpx2.AsyncClient) -> None:
         """A POST /run lets us fetch the snapshot for that operation_id."""
         wf_id = await _create_workflow(client)
 
@@ -227,7 +227,7 @@ class TestOperationSnapshotEndpoint:
         assert len(snap["nodes"]) >= 1
 
     async def test_snapshot_404_for_unknown_operation(
-        self, client: httpx.AsyncClient
+        self, client: httpx2.AsyncClient
     ) -> None:
         from uuid import uuid4
 
@@ -239,7 +239,7 @@ class TestOperationSnapshotEndpoint:
 class TestGetWorkflowRun:
     """GET /workflows/{id}/runs/{run_id} — run detail with nodes."""
 
-    async def test_returns_run_with_nodes(self, client: httpx.AsyncClient) -> None:
+    async def test_returns_run_with_nodes(self, client: httpx2.AsyncClient) -> None:
         wf_id = await _create_workflow(client)
         run_resp = await client.post(f"/api/v1/workflows/{wf_id}/run")
         run_id = run_resp.json()["run_id"]
@@ -257,7 +257,7 @@ class TestGetWorkflowRun:
         assert body["nodes"][0]["status"] == "pending"
         assert "definition_snapshot" in body
 
-    async def test_nonexistent_run_404(self, client: httpx.AsyncClient) -> None:
+    async def test_nonexistent_run_404(self, client: httpx2.AsyncClient) -> None:
         wf_id = await _create_workflow(client)
 
         response = await client.get(
@@ -266,7 +266,7 @@ class TestGetWorkflowRun:
 
         assert response.status_code == 404
 
-    async def test_run_wrong_workflow_404(self, client: httpx.AsyncClient) -> None:
+    async def test_run_wrong_workflow_404(self, client: httpx2.AsyncClient) -> None:
         """Accessing run from workflow A via workflow B's URL returns 404."""
         wf_id_a = await _create_workflow(client)
         wf_id_b = await _create_workflow(client)
@@ -284,7 +284,7 @@ class TestRunDefinitionVersion:
     """definition_version in run API responses."""
 
     async def test_run_detail_has_definition_version(
-        self, client: httpx.AsyncClient
+        self, client: httpx2.AsyncClient
     ) -> None:
         wf_id = await _create_workflow(client)
         run_resp = await client.post(f"/api/v1/workflows/{wf_id}/run")
@@ -296,7 +296,7 @@ class TestRunDefinitionVersion:
         assert response.json()["definition_version"] == 1
 
     async def test_run_list_has_definition_version(
-        self, client: httpx.AsyncClient
+        self, client: httpx2.AsyncClient
     ) -> None:
         wf_id = await _create_workflow(client)
         await client.post(f"/api/v1/workflows/{wf_id}/run")
@@ -311,7 +311,7 @@ class TestRunDefinitionVersion:
 class TestWorkflowListIncludesLastRun:
     """GET /workflows includes last_run field when runs exist."""
 
-    async def test_list_shows_last_run(self, client: httpx.AsyncClient) -> None:
+    async def test_list_shows_last_run(self, client: httpx2.AsyncClient) -> None:
         wf_id = await _create_workflow(client)
         await client.post(f"/api/v1/workflows/{wf_id}/run")
 
@@ -333,7 +333,7 @@ class TestSuccessfulRunCountField:
     """
 
     async def test_list_counts_completed_runs_only(
-        self, client: httpx.AsyncClient
+        self, client: httpx2.AsyncClient
     ) -> None:
         wf_id = await _create_workflow(client)
         await _seed_completed_runs(wf_id, 2)
@@ -346,7 +346,7 @@ class TestSuccessfulRunCountField:
         assert our_wf["successful_run_count"] == 2
 
     async def test_never_run_workflow_reports_zero(
-        self, client: httpx.AsyncClient
+        self, client: httpx2.AsyncClient
     ) -> None:
         wf_id = await _create_workflow(client)
 
@@ -355,7 +355,7 @@ class TestSuccessfulRunCountField:
 
         assert our_wf["successful_run_count"] == 0
 
-    async def test_detail_carries_real_count(self, client: httpx.AsyncClient) -> None:
+    async def test_detail_carries_real_count(self, client: httpx2.AsyncClient) -> None:
         wf_id = await _create_workflow(client)
         await _seed_completed_runs(wf_id, 3)
 
@@ -365,7 +365,7 @@ class TestSuccessfulRunCountField:
         assert response.json()["successful_run_count"] == 3
 
     async def test_update_response_carries_real_count(
-        self, client: httpx.AsyncClient
+        self, client: httpx2.AsyncClient
     ) -> None:
         """The PATCH body is what the editor writes into the detail cache."""
         wf_id = await _create_workflow(client)
@@ -386,7 +386,7 @@ class TestSuccessfulRunCountField:
 class TestListActiveRuns:
     """GET /workflows/active-runs — cross-workflow in-flight runs for the user."""
 
-    async def test_empty_when_nothing_running(self, client: httpx.AsyncClient) -> None:
+    async def test_empty_when_nothing_running(self, client: httpx2.AsyncClient) -> None:
         await _create_workflow(client)
 
         response = await client.get("/api/v1/workflows/active-runs")
@@ -397,7 +397,7 @@ class TestListActiveRuns:
         assert body["total"] == 0
 
     async def test_lists_active_run_with_operation_id(
-        self, client: httpx.AsyncClient
+        self, client: httpx2.AsyncClient
     ) -> None:
         wf_id = await _create_workflow(client)
         run_resp = await client.post(f"/api/v1/workflows/{wf_id}/run")
@@ -414,7 +414,7 @@ class TestListActiveRuns:
         # operation_id is the field that lets the client reconnect (snapshot/SSE).
         assert active["operation_id"] == operation_id
 
-    async def test_excludes_completed_runs(self, client: httpx.AsyncClient) -> None:
+    async def test_excludes_completed_runs(self, client: httpx2.AsyncClient) -> None:
         wf_id = await _create_workflow(client)
         await _seed_completed_runs(wf_id, 1)
 

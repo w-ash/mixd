@@ -22,6 +22,7 @@ change warrants re-resolving anything.
 """
 
 from collections.abc import Mapping
+import functools
 import hashlib
 from typing import Final
 
@@ -34,11 +35,17 @@ from src.domain.matching.probabilistic import TIER_BOUNDARIES, ComparisonLevel
 _HASH_LENGTH: Final = 12
 
 
+@functools.cache
 def matcher_version(config: MatchingConfig) -> str:
     """Content hash identifying this exact matcher configuration.
 
     Same ``config`` and same ``probabilistic`` module contents always yield
     the same hash; any difference in either changes it.
+
+    Cached on the frozen config: the other hashed inputs are module-level
+    constants, so within one process the answer cannot change. Without this,
+    every ``ResolutionRecorder`` re-introspected ``probabilistic`` and re-ran
+    sha256 — and the recorders are built several times per import run.
     """
     canonical = _canonical_serialization(config)
     return hashlib.sha256(canonical.encode("utf-8")).hexdigest()[:_HASH_LENGTH]

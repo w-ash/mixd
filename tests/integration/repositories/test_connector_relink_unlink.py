@@ -132,7 +132,7 @@ class TestUpdateMappingTrack:
         await db_session.flush()
 
         result = await connector_repo.update_mapping_track(
-            mapping_id, target.id, "manual_override"
+            mapping_id, target.id, "manual_override", user_id="default"
         )
 
         assert result.track_id == target.id
@@ -144,7 +144,19 @@ class TestUpdateMappingTrack:
     ) -> None:
         with pytest.raises(NotFoundError):
             await connector_repo.update_mapping_track(
-                uuid7(), uuid7(), "manual_override"
+                uuid7(), uuid7(), "manual_override", user_id="default"
+            )
+
+    async def test_raises_not_found_for_mismatched_user_id(
+        self, db_session: AsyncSession, connector_repo
+    ) -> None:
+        """A user_id that doesn't own the mapping sees it as absent — same
+        contract get_mapping_by_id and delete_mapping already have."""
+        _, _, mapping_id = await _setup_track_with_mapping(db_session)
+
+        with pytest.raises(NotFoundError):
+            await connector_repo.update_mapping_track(
+                mapping_id, uuid7(), "manual_override", user_id="someone-else"
             )
 
 

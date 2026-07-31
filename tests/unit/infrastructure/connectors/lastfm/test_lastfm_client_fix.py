@@ -2,7 +2,7 @@
 
 from unittest.mock import AsyncMock, patch
 
-import httpx
+import httpx2
 import pytest
 
 from src.infrastructure.connectors.lastfm.client import LastFMAPIClient, _sign_params
@@ -10,7 +10,7 @@ from src.infrastructure.connectors.lastfm.models import LastFMAPIError
 
 
 class TestLastFMClientFix:
-    """Test that the client initialization works correctly with the httpx implementation."""
+    """Test that the client initialization works correctly with the httpx2 implementation."""
 
     def test_client_attributes_initialized(self):
         """Test that all required attributes are initialized properly."""
@@ -32,7 +32,7 @@ class TestLastFMClientFix:
             # Verify all required attributes exist
             assert client.api_key == "test_key"
             assert client.lastfm_username == "test_user"
-            # No lastfm_password_hash in httpx implementation — session key is obtained on demand
+            # No lastfm_password_hash in httpx2 implementation — session key is obtained on demand
             assert not hasattr(client, "lastfm_password_hash")
             # is_configured uses api_key presence
             assert client.is_configured
@@ -104,17 +104,17 @@ class TestLastFMAPIError:
         assert error.details == "Authentication Failed"
 
 
-def _make_ok_response(json_body: dict | None = None) -> httpx.Response:
+def _make_ok_response(json_body: dict | None = None) -> httpx2.Response:
     """Create a fake 200 OK response with optional JSON body."""
-    return httpx.Response(
+    return httpx2.Response(
         200,
         json=json_body or {"track": {}},
-        request=httpx.Request("GET", "https://ws.audioscrobbler.com/2.0/"),
+        request=httpx2.Request("GET", "https://ws.audioscrobbler.com/2.0/"),
     )
 
 
 def _make_client() -> LastFMAPIClient:
-    """Create a LastFMAPIClient with mocked settings and httpx client."""
+    """Create a LastFMAPIClient with mocked settings and httpx2 client."""
     with patch("src.infrastructure.connectors.lastfm.client.settings") as s:
         s.credentials.lastfm_key = "test_key"
         s.credentials.lastfm_secret.get_secret_value.return_value = "test_secret"
@@ -127,12 +127,12 @@ class TestDoubleDecodeWorkaround:
     """Tests for Last.fm double URL decoding workaround.
 
     Last.fm's PHP stack double-decodes URL parameters. We pre-encode param
-    values with urllib.parse.quote() so httpx sends double-encoded values
+    values with urllib.parse.quote() so httpx2 sends double-encoded values
     that Last.fm correctly resolves back to the originals.
     """
 
     async def test_get_params_pre_encoded_for_special_chars(self):
-        """GET params containing + are pre-encoded so httpx double-encodes them."""
+        """GET params containing + are pre-encoded so httpx2 double-encodes them."""
         client = _make_client()
         mock_get = AsyncMock(return_value=_make_ok_response())
         client._client.get = mock_get  # type: ignore[assignment]
@@ -141,7 +141,7 @@ class TestDoubleDecodeWorkaround:
 
         _, kwargs = mock_get.call_args
         params = kwargs["params"]
-        # + should be pre-encoded as %2B (httpx will then encode % → %25 on the wire)
+        # + should be pre-encoded as %2B (httpx2 will then encode % → %25 on the wire)
         assert params["track"] == "%2B1"
         assert params["artist"] == "B.Miles"  # No special chars → unchanged
 
@@ -208,7 +208,7 @@ class TestDoubleDecodeWorkaround:
 
         _, kwargs = mock_get.call_args
         params = kwargs["params"]
-        # é → %C3%A9 (pre-encoded; httpx will double-encode the % signs)
+        # é → %C3%A9 (pre-encoded; httpx2 will double-encode the % signs)
         assert params["artist"] == "Beyonc%C3%A9"
         assert params["track"] == "Halo"  # Plain ASCII unchanged
 

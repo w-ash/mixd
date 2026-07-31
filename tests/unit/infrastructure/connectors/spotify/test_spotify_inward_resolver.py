@@ -12,7 +12,11 @@ from src.infrastructure.connectors.spotify.inward_resolver import (
     FallbackHint,
     SpotifyInwardResolver,
 )
-from src.infrastructure.connectors.spotify.models import SpotifyExternalIds
+from src.infrastructure.connectors.spotify.models import (
+    SpotifyExternalIds,
+    SpotifyRestrictions,
+    SpotifyTrack,
+)
 from tests.fixtures import (
     attach_resolution_recorder,
     make_spotify_track,
@@ -889,3 +893,109 @@ class TestFallbackDoesNotClearItsOwnBackoff:
         )
 
         recorder.clear_negatives.assert_not_awaited()
+
+
+class TestRestrictionIsNotDeath:
+    """Spotify answers "unavailable here" positively; absence is the weak signal.
+
+    A track returned with ``is_playable: false`` and a ``restrictions.reason``
+    of market, product or explicit has *answered* — the id is fine, it just
+    cannot be played in this context. Counting one as a miss would back off an
+    identifier that responded correctly every time, and a listener who moved
+    country would watch their library decay.
+    """
+
+    @staticmethod
+    def _track(
+        track_id: str,
+        *,
+        is_playable: bool | None = None,
+        restrictions: SpotifyRestrictions | None = None,
+    ) -> SpotifyTrack:
+        return SpotifyTrack(
+            id=track_id,
+            name=f"Track {track_id}",
+            is_playable=is_playable,
+            restrictions=restrictions,
+        )
+
+    def test_a_market_restricted_track_is_not_absent(self):
+        returned = {
+            "sp_restricted": self._track(
+                "sp_restricted",
+                is_playable=False,
+                restrictions=SpotifyRestrictions(reason="market"),
+            )
+        }
+
+        absent = SpotifyInwardResolver._absent_from(["sp_restricted"], returned)
+
+        assert absent == [], "a restricted track answered; it is not a miss"
+
+    def test_an_id_the_api_withheld_is_absent(self):
+        absent = SpotifyInwardResolver._absent_from(["sp_gone"], {})
+
+        assert absent == ["sp_gone"]
+
+    def test_a_playable_track_is_not_absent(self):
+        returned = {"sp_fine": self._track("sp_fine", is_playable=True)}
+
+        assert SpotifyInwardResolver._absent_from(["sp_fine"], returned) == []
+
+    def test_only_the_withheld_ids_come_back_from_a_mixed_batch(self):
+        returned = {
+            "sp_ok": self._track("sp_ok"),
+            "sp_restricted": self._track(
+                "sp_restricted",
+                is_playable=False,
+                restrictions=SpotifyRestrictions(reason="product"),
+            ),
+        }
+
+        absent = SpotifyInwardResolver._absent_from(
+            ["sp_ok", "sp_restricted", "sp_gone"], returned
+        )
+
+        assert absent == ["sp_gone"]
+
+    def test_the_model_reads_both_shapes_of_the_signal(self):
+        """Either field alone is enough — Spotify does not always send both."""
+        assert self._track("a", is_playable=False).is_market_restricted
+        assert self._track(
+            "b", restrictions=SpotifyRestrictions(reason="explicit")
+        ).is_market_restricted
+        assert not self._track("c", is_playable=True).is_market_restricted
+        assert not self._track("d").is_market_restricted
+
+    def test_an_unresolved_restricted_id_is_never_swapped_for_a_search_result(self):
+        """Substitution answers "the provider cannot account for this id".
+
+        Spotify accounted for this one. Swapping in another recording would
+        replace the user's track with a different master because they happened
+        to be travelling — so a restricted id stays unresolved rather than
+        being quietly answered with something else.
+        """
+        restricted = self._track(
+            "sp_restricted",
+            is_playable=False,
+            restrictions=SpotifyRestrictions(reason="market"),
+        )
+        returned = {"sp_restricted": restricted, "sp_broken": self._track("sp_broken")}
+
+        substitutable = SpotifyInwardResolver._substitutable_from(
+            ["sp_restricted", "sp_broken", "sp_gone"], returned, {}
+        )
+
+        assert substitutable == ["sp_broken", "sp_gone"], (
+            "an id the provider vouched for is not a substitution candidate"
+        )
+
+    def test_a_resolved_id_needs_no_substitute(self):
+        resolved = {"sp_ok": make_track(1)}
+
+        assert (
+            SpotifyInwardResolver._substitutable_from(
+                ["sp_ok"], {"sp_ok": self._track("sp_ok")}, resolved
+            )
+            == []
+        )

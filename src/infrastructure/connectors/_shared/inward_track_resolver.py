@@ -18,10 +18,9 @@ from attrs import define
 from src.config import create_evaluation_service, get_logger
 from src.config.constants import MatchMethod
 from src.domain.entities import Track
-from src.domain.matching.content_digest import service_side
 from src.domain.matching.evaluation_service import TrackMatchEvaluationService
 from src.domain.matching.types import RawProviderMatch
-from src.domain.repositories.resolution import RejectionCandidate, ResolutionDecision
+from src.domain.repositories.resolution import ResolutionDecision
 from src.domain.repositories.uow import UnitOfWorkProtocol
 
 logger = get_logger(__name__)
@@ -167,7 +166,6 @@ class InwardTrackResolver(ABC):
 
         # Evaluate each candidate through the matching system
         result: dict[str, Track] = {}
-        refused: list[RejectionCandidate] = []
         refusal_events: list[ResolutionDecision] = []
         for identifier in missing_ids:
             meta = id_to_meta.get(identifier)
@@ -205,17 +203,6 @@ class InwardTrackResolver(ABC):
                 logger.debug(
                     f"Canonical reuse rejected candidate {candidate.id} for {identifier} "
                     f"(confidence: {match_result.confidence}, title_sim: {title_sim:.2f})"
-                )
-                side = service_side(meta.connector_id, raw_match["service_data"])
-                refused.append(
-                    RejectionCandidate(
-                        connector=side,
-                        candidate_track=candidate,
-                        confidence=match_result.confidence,
-                        score=match_result.evidence.final_score
-                        if match_result.evidence
-                        else None,
-                    )
                 )
                 refusal_events.append(
                     ResolutionDecision(
@@ -258,11 +245,26 @@ class InwardTrackResolver(ABC):
             except Exception as e:
                 logger.debug(f"Failed to create reuse mapping for {identifier}: {e}")
 
+        # Events only — this gate does not write to the negative cache.
+        #
+        # It refuses on a stricter similarity bar than the matcher's own accept
+        # threshold, deliberately: reusing an existing canonical is harder to
+        # undo than proposing a match. Every reader of the cache honours
+        # everything in it, so storing a refusal made on that narrower bar
+        # suppressed, everywhere, pairs the matcher would have auto-accepted.
+        #
+        # Nor would the entry earn its keep for this gate itself. A refusal
+        # ends in step 3 creating a canonical and mapping the identifier, so
+        # the next import resolves it at step 1 and never reaches here again —
+        # the row could only ever be written, never read. And the decision is
+        # local string similarity over data already in hand, so re-deciding it
+        # is cheaper than a cached answer with expiry rules to keep honest.
+        #
+        # The `rejected` event above is the durable record, carrying the
+        # confidence, the title similarity, and the threshold that refused it.
         if refusal_events:
-            recorder = uow.get_resolution_recorder()
-            _ = await recorder.record(refusal_events, user_id=user_id)
-            _ = await recorder.remember_rejections(
-                refused, user_id=user_id, connector_name=self.connector_name
+            _ = await uow.get_resolution_recorder().record(
+                refusal_events, user_id=user_id
             )
 
         return result

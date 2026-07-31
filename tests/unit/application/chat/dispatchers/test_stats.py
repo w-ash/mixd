@@ -98,6 +98,7 @@ class TestMatchHealthView:
             stale_denormalized_ids_count=0,
             rejected_pairs_active=0,
             no_match_pending=0,
+            dead_id_candidates=0,
         )
         _patch(
             monkeypatch,

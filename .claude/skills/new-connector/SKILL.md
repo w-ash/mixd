@@ -69,7 +69,7 @@ class NewServiceMatchingProvider(BaseMatchingProvider):
 - **Validate at the boundary**: raw `dict[str, Any]` -> Pydantic model at the API client, never downstream
 - **Typed everywhere**: conversions and matching receive typed models, not raw dicts
 - **Extend BaseAPIClient**: use `_api_call("op_name", impl, *args)` for retry + context + suppress
-- **Implement `aclose()`**: delegate to `_client.aclose()` for httpx pool cleanup
+- **Implement `aclose()`**: delegate to `_client.aclose()` for httpx2 pool cleanup
 - **Retry via tenacity**: use policies from `_shared/retry_policies.py`, integrated with `ErrorClassifier`
 
 ## After Creating the Connector

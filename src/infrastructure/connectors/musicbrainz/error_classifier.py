@@ -6,13 +6,13 @@ for rate limiting (503 Service Unavailable instead of 429).
 The base HTTPErrorClassifier template handles everything else:
 - 404 → not_found, 400-403 → permanent, 500-504 → temporary
 - Network/timeout errors → temporary
-- Text pattern fallback for non-httpx exceptions
+- Text pattern fallback for non-httpx2 exceptions
 """
 
 from http import HTTPStatus
 from typing import override
 
-import httpx
+import httpx2
 
 from src.infrastructure.connectors._shared.error_classifier import (
     HTTPErrorClassifier,
@@ -39,7 +39,7 @@ class MusicBrainzErrorClassifier(HTTPErrorClassifier):
     ) -> tuple[str, str, str] | None:
         """Classify 503 as rate_limit (MusicBrainz rate enforcement)."""
         if (
-            isinstance(exception, httpx.HTTPStatusError)
+            isinstance(exception, httpx2.HTTPStatusError)
             and exception.response.status_code == HTTPStatus.SERVICE_UNAVAILABLE
         ):
             return ("rate_limit", "503", "Rate limit exceeded (1 req/sec)")

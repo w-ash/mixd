@@ -1,7 +1,7 @@
 """Database-backed token storage for hosted deployment.
 
 Uses standalone get_session() (not UoW) because token refresh happens inside
-httpx auth flows (SpotifyBearerAuth.async_auth_flow) which have no UoW context.
+httpx2 auth flows (SpotifyBearerAuth.async_auth_flow) which have no UoW context.
 Each operation is a single-row read/upsert — no multi-table transaction needed.
 
 All methods require ``user_id`` for per-user token isolation (v0.6.3).
@@ -64,7 +64,7 @@ class DatabaseTokenStorage:
     """Database-backed token storage for hosted deployment.
 
     Creates its own short-lived session for each operation because token
-    operations happen outside the UoW lifecycle (e.g., inside httpx auth flows).
+    operations happen outside the UoW lifecycle (e.g., inside httpx2 auth flows).
     """
 
     async def load_token(self, service: str, user_id: str) -> StoredToken | None:

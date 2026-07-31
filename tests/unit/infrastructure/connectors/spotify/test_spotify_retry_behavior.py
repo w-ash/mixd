@@ -10,31 +10,31 @@ retry policy into each client method. Covers:
 - Recovery: Success after transient failures
 - All 13 client methods wired with retry
 
-Injection strategy: patch individual _impl methods to inject httpx errors.
+Injection strategy: patch individual _impl methods to inject httpx2 errors.
 """
 
 from unittest.mock import AsyncMock, patch
 
-import httpx
+import httpx2
 import pytest
 
 from src.infrastructure.connectors.spotify.client import SpotifyAPIClient
 from src.infrastructure.connectors.spotify.models import SpotifyPaginatedPlaylistItems
 
 
-def make_httpx_error(status_code: int, message: str = "") -> httpx.HTTPStatusError:
-    """Create an httpx.HTTPStatusError with the given status code."""
-    req = httpx.Request("GET", "https://api.spotify.com/v1/tracks")
-    resp = httpx.Response(status_code, request=req)
-    return httpx.HTTPStatusError(
+def make_httpx_error(status_code: int, message: str = "") -> httpx2.HTTPStatusError:
+    """Create an httpx2.HTTPStatusError with the given status code."""
+    req = httpx2.Request("GET", "https://api.spotify.com/v1/tracks")
+    resp = httpx2.Response(status_code, request=req)
+    return httpx2.HTTPStatusError(
         message or f"HTTP {status_code}", request=req, response=resp
     )
 
 
-def make_network_error(message: str = "Connection refused") -> httpx.ConnectError:
-    """Create an httpx.ConnectError (subclass of httpx.RequestError)."""
-    req = httpx.Request("GET", "https://api.spotify.com/v1/tracks")
-    return httpx.ConnectError(message, request=req)
+def make_network_error(message: str = "Connection refused") -> httpx2.ConnectError:
+    """Create an httpx2.ConnectError (subclass of httpx2.RequestError)."""
+    req = httpx2.Request("GET", "https://api.spotify.com/v1/tracks")
+    return httpx2.ConnectError(message, request=req)
 
 
 @pytest.mark.slow
@@ -153,7 +153,7 @@ class TestComprehensiveErrorClassification:
             f"Expected 3 calls for server error {status_code}, got {mock_impl.call_count}"
         )
 
-    # NETWORK ERRORS (httpx.RequestError) - Retried as temporary (not propagated)
+    # NETWORK ERRORS (httpx2.RequestError) - Retried as temporary (not propagated)
     @pytest.mark.parametrize(
         "error_message",
         [
@@ -165,14 +165,14 @@ class TestComprehensiveErrorClassification:
     async def test_network_errors_retried_as_temporary(
         self, fast_retry_client, error_message
     ):
-        """Test httpx network errors (RequestError) are retried 3 times as temporary.
+        """Test httpx2 network errors (RequestError) are retried 3 times as temporary.
 
         Unlike the old spotipy-based implementation where non-SpotifyException errors
-        propagated immediately, httpx.RequestError is explicitly in the retry type filter
+        propagated immediately, httpx2.RequestError is explicitly in the retry type filter
         and is classified as 'temporary' — so it gets 3 retry attempts before returning None.
         """
-        req = httpx.Request("GET", "https://api.spotify.com/v1/tracks")
-        error = httpx.ConnectError(error_message, request=req)
+        req = httpx2.Request("GET", "https://api.spotify.com/v1/tracks")
+        error = httpx2.ConnectError(error_message, request=req)
 
         mock_impl = AsyncMock(side_effect=error)
         with patch.object(SpotifyAPIClient, "_get_track_impl", mock_impl):

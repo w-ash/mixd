@@ -253,6 +253,7 @@ def _render_drift_panel(drift: MatchingDrift) -> None:
             f"[cyan]Negative cache:[/cyan] rejected pairs={drift.rejected_pairs_active}, "
             f"no-match backoff pending={drift.no_match_pending}"
         ),
+        f"[cyan]Ids that look dead:[/cyan] {drift.dead_id_candidates}",
     ])
 
     console.print(

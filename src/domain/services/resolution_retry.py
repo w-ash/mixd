@@ -8,16 +8,15 @@ Two clocks, never conflated (memo §10.5-10.6):
   sooner buys nothing but API quota. Counter-free at read time, exactly like
   the play poller's ``BackoffPolicy`` (``src.domain.services.play_poll_decision``):
   state lives in two timestamps, not an incrementing field.
-- **Suspicion leans in.** Once a previously-live connector id starts failing,
-  the recheck interval *shortens* (``SUSPECT_RECHECK_SECONDS``) rather than
-  backing off further — the opposite direction from absence, because a
-  flip-flopping id is exactly the case where confirming sooner matters (IABot
-  tightens its own recheck 7d to 3d once a link starts failing; mixd starts at
-  3d directly since the measured Spotify transient band is seconds-to-minutes,
-  not days).
+- **Death is derived, not tracked.** An id that has missed
+  ``DEATH_DEBOUNCE_FAILURES`` times over at least
+  ``DEATH_DEBOUNCE_MIN_SPAN_SECONDS`` *looks* dead — read off the same
+  backoff row, so there is no second counter to keep in step. Both halves
+  are required: a count alone condemns an id that flickered inside one
+  import, an age alone condemns a single old failure.
 - **Success resets immediately**, on either clock — no hysteresis on recovery.
 
-All four constants below are starting points, to revisit against real
+All three constants below are starting points, to revisit against real
 telemetry once resolution runs at scale.
 """
 
@@ -39,12 +38,6 @@ DEATH_DEBOUNCE_FAILURES: Final = 3
 # and the first candidate to tighten once telemetry exists. Starting point,
 # revisit against telemetry.
 DEATH_DEBOUNCE_MIN_SPAN_SECONDS: Final = 9 * 86_400
-
-# Recheck interval once a mapping enters `suspect` state (one or more failures,
-# not yet enough to debounce to `id_dead`) — shorter than the no-match curve's
-# base on purpose (suspicion leans in; see module docstring). Starting point,
-# revisit against telemetry.
-SUSPECT_RECHECK_SECONDS: Final = 3 * 86_400
 
 
 def next_no_match_check(consecutive_misses: int, *, key: str = "") -> int:

@@ -1,11 +1,11 @@
 """Integration tests for playlist CRUD API endpoints.
 
 Tests the full request → route handler → use case → database → response cycle
-using httpx.AsyncClient with ASGITransport. Each test gets a fresh database
+using httpx2.AsyncClient with ASGITransport. Each test gets a fresh database
 via the db_session fixture.
 """
 
-import httpx
+import httpx2
 
 from tests.fixtures.factories import nonexistent_id
 
@@ -13,7 +13,7 @@ from tests.fixtures.factories import nonexistent_id
 class TestListPlaylists:
     """GET /api/v1/playlists returns paginated playlist summaries."""
 
-    async def test_empty_list(self, client: httpx.AsyncClient) -> None:
+    async def test_empty_list(self, client: httpx2.AsyncClient) -> None:
         response = await client.get("/api/v1/playlists")
 
         assert response.status_code == 200
@@ -23,7 +23,7 @@ class TestListPlaylists:
         assert body["limit"] == 50
         assert body["offset"] == 0
 
-    async def test_list_after_create(self, client: httpx.AsyncClient) -> None:
+    async def test_list_after_create(self, client: httpx2.AsyncClient) -> None:
         await client.post("/api/v1/playlists", json={"name": "Test Playlist"})
 
         response = await client.get("/api/v1/playlists")
@@ -33,7 +33,7 @@ class TestListPlaylists:
         assert body["data"][0]["name"] == "Test Playlist"
         assert body["data"][0]["track_count"] == 0
 
-    async def test_pagination_params(self, client: httpx.AsyncClient) -> None:
+    async def test_pagination_params(self, client: httpx2.AsyncClient) -> None:
         for i in range(3):
             await client.post("/api/v1/playlists", json={"name": f"Playlist {i}"})
 
@@ -49,7 +49,7 @@ class TestListPlaylists:
 class TestCreatePlaylist:
     """POST /api/v1/playlists creates a new playlist."""
 
-    async def test_create_with_name_only(self, client: httpx.AsyncClient) -> None:
+    async def test_create_with_name_only(self, client: httpx2.AsyncClient) -> None:
         response = await client.post("/api/v1/playlists", json={"name": "My Playlist"})
 
         assert response.status_code == 201
@@ -60,7 +60,7 @@ class TestCreatePlaylist:
         assert body["entries"] == []
         assert "id" in body
 
-    async def test_create_with_description(self, client: httpx.AsyncClient) -> None:
+    async def test_create_with_description(self, client: httpx2.AsyncClient) -> None:
         response = await client.post(
             "/api/v1/playlists",
             json={"name": "Chill Vibes", "description": "Relaxing tunes"},
@@ -72,7 +72,7 @@ class TestCreatePlaylist:
         assert body["description"] == "Relaxing tunes"
 
     async def test_create_empty_name_returns_400(
-        self, client: httpx.AsyncClient
+        self, client: httpx2.AsyncClient
     ) -> None:
         response = await client.post("/api/v1/playlists", json={"name": ""})
 
@@ -81,7 +81,7 @@ class TestCreatePlaylist:
         assert body["error"]["code"] == "VALIDATION_ERROR"
 
     async def test_create_missing_name_returns_422(
-        self, client: httpx.AsyncClient
+        self, client: httpx2.AsyncClient
     ) -> None:
         response = await client.post("/api/v1/playlists", json={})
 
@@ -91,7 +91,7 @@ class TestCreatePlaylist:
 class TestGetPlaylist:
     """GET /api/v1/playlists/{id} returns playlist detail."""
 
-    async def test_get_existing_playlist(self, client: httpx.AsyncClient) -> None:
+    async def test_get_existing_playlist(self, client: httpx2.AsyncClient) -> None:
         create_resp = await client.post("/api/v1/playlists", json={"name": "Fetch Me"})
         playlist_id = create_resp.json()["id"]
 
@@ -103,7 +103,9 @@ class TestGetPlaylist:
         assert body["id"] == playlist_id
         assert "entries" in body
 
-    async def test_get_nonexistent_returns_404(self, client: httpx.AsyncClient) -> None:
+    async def test_get_nonexistent_returns_404(
+        self, client: httpx2.AsyncClient
+    ) -> None:
         response = await client.get(f"/api/v1/playlists/{nonexistent_id()}")
 
         assert response.status_code == 404
@@ -114,7 +116,7 @@ class TestGetPlaylist:
 class TestUpdatePlaylist:
     """PATCH /api/v1/playlists/{id} updates playlist metadata."""
 
-    async def test_update_name(self, client: httpx.AsyncClient) -> None:
+    async def test_update_name(self, client: httpx2.AsyncClient) -> None:
         create_resp = await client.post("/api/v1/playlists", json={"name": "Original"})
         playlist_id = create_resp.json()["id"]
 
@@ -125,7 +127,7 @@ class TestUpdatePlaylist:
         assert response.status_code == 200
         assert response.json()["name"] == "Updated"
 
-    async def test_update_description(self, client: httpx.AsyncClient) -> None:
+    async def test_update_description(self, client: httpx2.AsyncClient) -> None:
         create_resp = await client.post("/api/v1/playlists", json={"name": "Test"})
         playlist_id = create_resp.json()["id"]
 
@@ -138,7 +140,7 @@ class TestUpdatePlaylist:
         assert response.json()["description"] == "New description"
 
     async def test_update_nonexistent_returns_404(
-        self, client: httpx.AsyncClient
+        self, client: httpx2.AsyncClient
     ) -> None:
         response = await client.patch(
             f"/api/v1/playlists/{nonexistent_id()}", json={"name": "Nope"}
@@ -150,7 +152,7 @@ class TestUpdatePlaylist:
 class TestDeletePlaylist:
     """DELETE /api/v1/playlists/{id} removes a playlist."""
 
-    async def test_delete_existing(self, client: httpx.AsyncClient) -> None:
+    async def test_delete_existing(self, client: httpx2.AsyncClient) -> None:
         create_resp = await client.post("/api/v1/playlists", json={"name": "Delete Me"})
         playlist_id = create_resp.json()["id"]
 
@@ -163,7 +165,7 @@ class TestDeletePlaylist:
         assert get_resp.status_code == 404
 
     async def test_delete_nonexistent_returns_404(
-        self, client: httpx.AsyncClient
+        self, client: httpx2.AsyncClient
     ) -> None:
         response = await client.delete(f"/api/v1/playlists/{nonexistent_id()}")
 
@@ -173,7 +175,7 @@ class TestDeletePlaylist:
 class TestGetPlaylistTracks:
     """GET /api/v1/playlists/{id}/tracks returns paginated entries."""
 
-    async def test_empty_playlist_tracks(self, client: httpx.AsyncClient) -> None:
+    async def test_empty_playlist_tracks(self, client: httpx2.AsyncClient) -> None:
         create_resp = await client.post("/api/v1/playlists", json={"name": "Empty"})
         playlist_id = create_resp.json()["id"]
 
@@ -185,7 +187,7 @@ class TestGetPlaylistTracks:
         assert body["total"] == 0
 
     async def test_nonexistent_playlist_returns_404(
-        self, client: httpx.AsyncClient
+        self, client: httpx2.AsyncClient
     ) -> None:
         response = await client.get(f"/api/v1/playlists/{nonexistent_id()}/tracks")
 
@@ -201,12 +203,12 @@ class TestManualTrackEditingContract:
     204 no-content shape for deletes.
     """
 
-    async def _make_playlist(self, client: httpx.AsyncClient) -> str:
+    async def _make_playlist(self, client: httpx2.AsyncClient) -> str:
         resp = await client.post("/api/v1/playlists", json={"name": "Editable"})
         return resp.json()["id"]
 
     async def test_add_empty_track_ids_returns_400(
-        self, client: httpx.AsyncClient
+        self, client: httpx2.AsyncClient
     ) -> None:
         # Empty list parses as JSON; the Command's min_len validator rejects it
         # as a domain ValueError → 400 VALIDATION_ERROR.
@@ -220,7 +222,7 @@ class TestManualTrackEditingContract:
         assert response.json()["error"]["code"] == "VALIDATION_ERROR"
 
     async def test_add_unknown_track_returns_404(
-        self, client: httpx.AsyncClient
+        self, client: httpx2.AsyncClient
     ) -> None:
         playlist_id = await self._make_playlist(client)
 
@@ -232,7 +234,7 @@ class TestManualTrackEditingContract:
         assert response.status_code == 404
 
     async def test_remove_unknown_entry_returns_404(
-        self, client: httpx.AsyncClient
+        self, client: httpx2.AsyncClient
     ) -> None:
         playlist_id = await self._make_playlist(client)
 
@@ -243,7 +245,7 @@ class TestManualTrackEditingContract:
         assert response.status_code == 404
 
     async def test_batch_remove_empty_returns_400(
-        self, client: httpx.AsyncClient
+        self, client: httpx2.AsyncClient
     ) -> None:
         playlist_id = await self._make_playlist(client)
 
@@ -256,7 +258,7 @@ class TestManualTrackEditingContract:
         assert response.status_code == 400
 
     async def test_reorder_mismatched_ids_returns_404(
-        self, client: httpx.AsyncClient
+        self, client: httpx2.AsyncClient
     ) -> None:
         # Empty playlist has 0 entries, so a stray id is not a valid permutation.
         playlist_id = await self._make_playlist(client)

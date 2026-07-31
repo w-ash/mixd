@@ -1,13 +1,13 @@
 """Unit tests for SpotifyErrorClassifier.
 
-Tests focus on the pure classification logic using httpx exceptions:
+Tests focus on the pure classification logic using httpx2 exceptions:
 - HTTP status code mapping (4xx → permanent, 5xx → temporary, 429 → rate_limit, 404 → not_found)
 - Text pattern recognition (rate limit, auth, not found, service issues)
-- httpx.RequestError handling (network errors → temporary)
+- httpx2.RequestError handling (network errors → temporary)
 - Edge cases and unknown errors
 """
 
-import httpx
+import httpx2
 import pytest
 
 from src.infrastructure.connectors.spotify.error_classifier import (
@@ -15,11 +15,11 @@ from src.infrastructure.connectors.spotify.error_classifier import (
 )
 
 
-def make_http_error(status_code: int, message: str = "") -> httpx.HTTPStatusError:
-    """Create an httpx.HTTPStatusError with the given status code."""
-    request = httpx.Request("GET", "https://api.spotify.com/v1/tracks")
-    response = httpx.Response(status_code, request=request)
-    return httpx.HTTPStatusError(
+def make_http_error(status_code: int, message: str = "") -> httpx2.HTTPStatusError:
+    """Create an httpx2.HTTPStatusError with the given status code."""
+    request = httpx2.Request("GET", "https://api.spotify.com/v1/tracks")
+    response = httpx2.Response(status_code, request=request)
+    return httpx2.HTTPStatusError(
         message or f"HTTP {status_code}", request=request, response=response
     )
 
@@ -106,7 +106,7 @@ class TestSpotifyErrorClassifier:
         assert error_code == str(status_code)
         assert expected_description_part.lower() in error_description.lower()
 
-    # TEXT PATTERN CLASSIFICATION TESTS (via non-httpx exceptions)
+    # TEXT PATTERN CLASSIFICATION TESTS (via non-httpx2 exceptions)
 
     @pytest.mark.parametrize(
         "error_message",
@@ -196,7 +196,7 @@ class TestSpotifyErrorClassifier:
             or "unavailable" in error_description.lower()
         )
 
-    # httpx.RequestError TESTS (network errors)
+    # httpx2.RequestError TESTS (network errors)
 
     @pytest.mark.parametrize(
         "error_message",
@@ -209,9 +209,9 @@ class TestSpotifyErrorClassifier:
         ],
     )
     def test_httpx_request_errors_temporary(self, classifier, error_message):
-        """Test that httpx.RequestError instances are classified as temporary network errors."""
-        request = httpx.Request("GET", "https://api.spotify.com/v1/tracks")
-        exception = httpx.ConnectError(error_message, request=request)
+        """Test that httpx2.RequestError instances are classified as temporary network errors."""
+        request = httpx2.Request("GET", "https://api.spotify.com/v1/tracks")
+        exception = httpx2.ConnectError(error_message, request=request)
 
         error_type, error_code, error_description = classifier.classify_error(exception)
 
@@ -219,7 +219,7 @@ class TestSpotifyErrorClassifier:
         assert error_code == "network"
 
     def test_non_network_exception_unknown(self, classifier):
-        """Test that unknown non-httpx exceptions are classified as unknown."""
+        """Test that unknown non-httpx2 exceptions are classified as unknown."""
         exception = ValueError("Unexpected value error")
 
         error_type, error_code, error_description = classifier.classify_error(exception)

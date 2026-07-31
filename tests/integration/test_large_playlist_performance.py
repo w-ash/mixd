@@ -13,6 +13,11 @@ from src.domain.entities.track import Artist, Track, TrackList
 from src.domain.playlist.diff_engine import calculate_playlist_diff
 from src.domain.playlist.execution_strategies import plan_api_operations
 
+# Peak allocation budget for a 10K-track diff + operation plan. The measured
+# figure is ~4.7MB; this is ~5x headroom so the assertion is a regression guard,
+# not a tripwire on ordinary variation.
+_MEMORY_BUDGET_MB = 25
+
 
 @pytest.mark.slow
 @pytest.mark.performance
@@ -193,32 +198,41 @@ class TestLargePlaylistPerformance:
     async def test_memory_efficiency_large_playlist(
         self, large_playlist_10k, db_session, test_data_tracker
     ):
-        """Test that large playlist operations don't consume excessive memory."""
-        import os
+        """Test that large playlist operations don't consume excessive memory.
 
-        import psutil
+        Measured with ``tracemalloc``, which attributes allocations to the traced
+        block, rather than process RSS. RSS is a property of the whole worker
+        process — under ``-n auto`` it also carries other tests' allocations,
+        coverage's tracing tables, and pages the allocator never returned to the
+        OS — so an RSS-delta assertion passes alone and fails in a full parallel
+        run without the code under test having changed.
+        """
+        import tracemalloc
 
-        process = psutil.Process(os.getpid())
-        initial_memory = process.memory_info().rss / 1024 / 1024  # MB
-
-        # Perform a complex operation
         target_tracks = (
             large_playlist_10k.tracks[1000:] + large_playlist_10k.tracks[:1000]
         )
         target_tracklist = TrackList(tracks=target_tracks)
 
-        diff = calculate_playlist_diff(large_playlist_10k, target_tracklist)
+        tracemalloc.start()
+        try:
+            diff = calculate_playlist_diff(large_playlist_10k, target_tracklist)
 
-        # Exercise the API operation planner for memory testing
-        plan_api_operations(diff)
+            # Exercise the API operation planner for memory testing
+            plan_api_operations(diff)
 
-        final_memory = process.memory_info().rss / 1024 / 1024  # MB
-        memory_increase = final_memory - initial_memory
+            _, peak_bytes = tracemalloc.get_traced_memory()
+        finally:
+            tracemalloc.stop()
 
-        # Should not consume more than 100MB additional memory
-        assert memory_increase < 100
+        peak_mb = peak_bytes / 1024 / 1024
 
-        print(f"Memory usage for 10K playlist operations: +{memory_increase:.1f}MB")
+        # Measures ~4.7MB; the bound is a regression guard with headroom, sized to
+        # catch an accidental full-playlist copy rather than to track the exact figure.
+        assert peak_mb < _MEMORY_BUDGET_MB, (
+            f"10K playlist diff + plan peaked at {peak_mb:.1f}MB "
+            f"(budget {_MEMORY_BUDGET_MB}MB)"
+        )
 
     async def test_concurrent_large_playlist_operations(
         self, large_playlist_5k, db_session, test_data_tracker

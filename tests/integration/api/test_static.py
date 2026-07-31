@@ -12,7 +12,7 @@ import pathlib
 import tempfile
 from unittest.mock import patch
 
-import httpx
+import httpx2
 import pytest
 
 from tests.integration.api.conftest import _test_db_env
@@ -47,7 +47,7 @@ async def client_with_static(
     dist_dir: pathlib.Path,
     postgres_url: str,
     _init_test_schema: None,
-) -> AsyncGenerator[httpx.AsyncClient]:
+) -> AsyncGenerator[httpx2.AsyncClient]:
     """Client with static serving enabled (patched _WEB_DIST)."""
     with _test_db_env(postgres_url):
         with patch("src.interface.api.app._WEB_DIST", dist_dir):
@@ -55,8 +55,8 @@ async def client_with_static(
 
             app = create_app()
 
-        transport = httpx.ASGITransport(app=app)
-        async with httpx.AsyncClient(transport=transport, base_url="http://test") as c:
+        transport = httpx2.ASGITransport(app=app)
+        async with httpx2.AsyncClient(transport=transport, base_url="http://test") as c:
             yield c
 
 
@@ -64,7 +64,7 @@ async def client_with_static(
 async def client_without_static(
     postgres_url: str,
     _init_test_schema: None,
-) -> AsyncGenerator[httpx.AsyncClient]:
+) -> AsyncGenerator[httpx2.AsyncClient]:
     """Client without static serving (no web/dist/ directory)."""
     with _test_db_env(postgres_url):
         nonexistent = pathlib.Path(tempfile.gettempdir()) / "nonexistent_dist"
@@ -73,8 +73,8 @@ async def client_without_static(
 
             app = create_app()
 
-        transport = httpx.ASGITransport(app=app)
-        async with httpx.AsyncClient(transport=transport, base_url="http://test") as c:
+        transport = httpx2.ASGITransport(app=app)
+        async with httpx2.AsyncClient(transport=transport, base_url="http://test") as c:
             yield c
 
 
@@ -82,41 +82,41 @@ class TestStaticServing:
     """Tests for when web/dist/ exists."""
 
     async def test_root_serves_index_html(
-        self, client_with_static: httpx.AsyncClient
+        self, client_with_static: httpx2.AsyncClient
     ) -> None:
         resp = await client_with_static.get("/")
         assert resp.status_code == 200
         assert "root" in resp.text
 
     async def test_spa_route_serves_index_html(
-        self, client_with_static: httpx.AsyncClient
+        self, client_with_static: httpx2.AsyncClient
     ) -> None:
         resp = await client_with_static.get("/playlists")
         assert resp.status_code == 200
         assert "root" in resp.text
 
     async def test_nested_spa_route_serves_index_html(
-        self, client_with_static: httpx.AsyncClient
+        self, client_with_static: httpx2.AsyncClient
     ) -> None:
         resp = await client_with_static.get("/playlists/42")
         assert resp.status_code == 200
         assert "root" in resp.text
 
     async def test_static_asset_served(
-        self, client_with_static: httpx.AsyncClient
+        self, client_with_static: httpx2.AsyncClient
     ) -> None:
         resp = await client_with_static.get("/assets/index-abc123.js")
         assert resp.status_code == 200
         assert "mixd" in resp.text
 
     async def test_favicon_served_directly(
-        self, client_with_static: httpx.AsyncClient
+        self, client_with_static: httpx2.AsyncClient
     ) -> None:
         resp = await client_with_static.get("/favicon.ico")
         assert resp.status_code == 200
 
     async def test_api_routes_still_work(
-        self, client_with_static: httpx.AsyncClient
+        self, client_with_static: httpx2.AsyncClient
     ) -> None:
         resp = await client_with_static.get("/api/v1/health")
         assert resp.status_code == 200
@@ -127,14 +127,14 @@ class TestWithoutStatic:
     """Tests for when web/dist/ doesn't exist."""
 
     async def test_api_works_without_frontend(
-        self, client_without_static: httpx.AsyncClient
+        self, client_without_static: httpx2.AsyncClient
     ) -> None:
         resp = await client_without_static.get("/api/v1/health")
         assert resp.status_code == 200
         assert resp.json()["status"] == "ok"
 
     async def test_spa_routes_not_served(
-        self, client_without_static: httpx.AsyncClient
+        self, client_without_static: httpx2.AsyncClient
     ) -> None:
         resp = await client_without_static.get("/playlists")
         # Without static serving, unknown routes return 404

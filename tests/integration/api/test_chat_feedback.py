@@ -1,6 +1,6 @@
 """Integration tests for POST /api/v1/chat/feedback."""
 
-import httpx
+import httpx2
 
 _BODY = {
     "prompt": "build me a chill weekend playlist",
@@ -13,7 +13,7 @@ _BODY = {
 }
 
 
-async def test_feedback_persists_with_full_context(client: httpx.AsyncClient) -> None:
+async def test_feedback_persists_with_full_context(client: httpx2.AsyncClient) -> None:
     resp = await client.post(
         "/api/v1/chat/feedback", json={**_BODY, "signal": "negative", "note": "meh"}
     )
@@ -22,13 +22,13 @@ async def test_feedback_persists_with_full_context(client: httpx.AsyncClient) ->
     assert resp.json()["id"]
 
 
-async def test_feedback_without_note_is_valid(client: httpx.AsyncClient) -> None:
+async def test_feedback_without_note_is_valid(client: httpx2.AsyncClient) -> None:
     resp = await client.post("/api/v1/chat/feedback", json=_BODY)
 
     assert resp.status_code == 201
 
 
-async def test_bad_signal_rejected(client: httpx.AsyncClient) -> None:
+async def test_bad_signal_rejected(client: httpx2.AsyncClient) -> None:
     resp = await client.post(
         "/api/v1/chat/feedback", json={**_BODY, "signal": "amazing"}
     )

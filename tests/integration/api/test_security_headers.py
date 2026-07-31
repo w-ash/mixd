@@ -2,7 +2,7 @@
 
 from unittest.mock import AsyncMock, patch
 
-import httpx
+import httpx2
 
 from src.infrastructure.connectors._shared.token_storage import StoredToken
 
@@ -11,7 +11,7 @@ class TestSecurityHeaders:
     """Security headers must appear on every response regardless of status code."""
 
     async def test_success_response_has_security_headers(
-        self, client: httpx.AsyncClient
+        self, client: httpx2.AsyncClient
     ) -> None:
         response = await client.get("/api/v1/health")
         assert response.headers["x-content-type-options"] == "nosniff"
@@ -19,7 +19,7 @@ class TestSecurityHeaders:
         assert response.headers["referrer-policy"] == "strict-origin-when-cross-origin"
 
     async def test_not_found_response_has_security_headers(
-        self, client: httpx.AsyncClient
+        self, client: httpx2.AsyncClient
     ) -> None:
         response = await client.get("/api/v1/nonexistent")
         assert response.status_code == 404
@@ -28,7 +28,7 @@ class TestSecurityHeaders:
         assert response.headers["referrer-policy"] == "strict-origin-when-cross-origin"
 
     async def test_validation_error_response_has_security_headers(
-        self, client: httpx.AsyncClient
+        self, client: httpx2.AsyncClient
     ) -> None:
         # Report Last.fm connected so the 6c pre-flight passes and request reaches
         # body validation (the point of this test — security headers on a 422).

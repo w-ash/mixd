@@ -129,7 +129,7 @@ class _FakeResponse:
 
 
 class _FakeAsyncClient:
-    """Stands in for httpx.AsyncClient — returns a canned metadata response."""
+    """Stands in for httpx2.AsyncClient — returns a canned metadata response."""
 
     response: _FakeResponse = _FakeResponse(200, {})
 
@@ -154,7 +154,7 @@ def fetch(monkeypatch: pytest.MonkeyPatch):
             host="client.example", port=443, ip="93.184.216.34", fetch_url=url
         ),
     )
-    monkeypatch.setattr(cimd.httpx, "AsyncClient", _FakeAsyncClient)
+    monkeypatch.setattr(cimd.httpx2, "AsyncClient", _FakeAsyncClient)
 
     async def _no_cache(_client_id: str) -> None:
         return None

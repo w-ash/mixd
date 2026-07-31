@@ -284,7 +284,7 @@ class TestGracefulShutdown:
         """A CancelledError during cleanup (SIGTERM) must not abort aclose().
 
         The cleanup finally shields ``connectors.aclose()`` so a deploy/autoscale
-        cancellation can't interrupt the close mid-flight and leak httpx pools.
+        cancellation can't interrupt the close mid-flight and leak httpx2 pools.
         Without the shield, cancelling the flow task mid-aclose would leave the
         connectors open (``closed`` never set) and this test would time out.
         """

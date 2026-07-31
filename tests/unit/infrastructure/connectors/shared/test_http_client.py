@@ -1,20 +1,20 @@
-"""Unit tests for the shared httpx event hooks in http_client.py.
+"""Unit tests for the shared httpx2 event hooks in http_client.py.
 
 Regression suite for:
 - _elapsed_ms(): safe access to response.elapsed (raises RuntimeError when
   the response body hasn't been consumed yet — common for auth/redirect hops).
 - _log_response(): correct branching for success vs error responses, body
   buffering via aread(), and elapsed logging in both paths.
-- End-to-end smoke tests: verifies that making a real httpx call through a
+- End-to-end smoke tests: verifies that making a real httpx2 call through a
   mock transport does not crash in the event hooks. These tests catch bugs that
-  only surface when the full httpx request/response lifecycle runs — not when
+  only surface when the full httpx2 request/response lifecycle runs — not when
   impl methods are patched before the HTTP layer.
 """
 
 from typing import Any
 from unittest.mock import AsyncMock, MagicMock, patch
 
-import httpx
+import httpx2
 import pytest
 from tenacity import wait_none
 
@@ -28,11 +28,11 @@ from src.infrastructure.connectors._shared.http_client import (
 # ---------------------------------------------------------------------------
 
 
-class _QueueTransport(httpx.AsyncBaseTransport):
+class _QueueTransport(httpx2.AsyncBaseTransport):
     """Async transport that returns pre-configured responses in FIFO order.
 
     Unlike patching _impl methods (which bypasses the HTTP layer entirely),
-    this transport exercises the full httpx request/response lifecycle,
+    this transport exercises the full httpx2 request/response lifecycle,
     including event hooks, elapsed timing, and body streaming.
 
     Usage::
@@ -46,13 +46,13 @@ class _QueueTransport(httpx.AsyncBaseTransport):
     def __init__(self, *specs: tuple[int, dict[str, Any] | None]):
         self._specs = list(specs)
 
-    async def handle_async_request(self, request: httpx.Request) -> httpx.Response:
+    async def handle_async_request(self, request: httpx2.Request) -> httpx2.Response:
         if not self._specs:
             raise AssertionError(
                 f"_QueueTransport exhausted: no response queued for {request.url}"
             )
         status, body = self._specs.pop(0)
-        return httpx.Response(status, json=body, request=request)
+        return httpx2.Response(status, json=body, request=request)
 
 
 # ---------------------------------------------------------------------------
@@ -67,17 +67,17 @@ class TestElapsedMs:
         """When response.elapsed is set, returns rounded milliseconds."""
         import datetime
 
-        response = MagicMock(spec=httpx.Response)
+        response = MagicMock(spec=httpx2.Response)
         response.elapsed = datetime.timedelta(seconds=0.2345)
         assert _elapsed_ms(response) == 234.5
 
     def test_returns_none_when_response_not_yet_read(self):
         """When response.elapsed raises RuntimeError (body not read), returns None.
 
-        Regression: httpx raises RuntimeError for `.elapsed` on streaming responses
+        Regression: httpx2 raises RuntimeError for `.elapsed` on streaming responses
         that haven't been consumed yet (e.g. intermediate auth/redirect responses).
         """
-        response = MagicMock(spec=httpx.Response)
+        response = MagicMock(spec=httpx2.Response)
         type(response).elapsed = property(
             lambda self: (_ for _ in ()).throw(  # type: ignore[misc]
                 RuntimeError(
@@ -91,7 +91,7 @@ class TestElapsedMs:
         """Zero elapsed time is valid and returns 0.0, not None."""
         import datetime
 
-        response = MagicMock(spec=httpx.Response)
+        response = MagicMock(spec=httpx2.Response)
         response.elapsed = datetime.timedelta(seconds=0)
         assert _elapsed_ms(response) == 0.0
 
@@ -106,9 +106,9 @@ class TestLogResponseSuccess:
 
     async def test_success_response_logs_at_debug(self):
         """2xx responses are logged at DEBUG after reading the body for timing."""
-        response = MagicMock(spec=httpx.Response)
+        response = MagicMock(spec=httpx2.Response)
         response.status_code = 200
-        response.url = httpx.URL("https://api.spotify.com/v1/me")
+        response.url = httpx2.URL("https://api.spotify.com/v1/me")
         response.headers = {}
         response.aread = AsyncMock()
         # elapsed raises RuntimeError — simulates edge case where aread()
@@ -134,9 +134,9 @@ class TestLogResponseSuccess:
         """Success responses call aread() to populate elapsed timing."""
         import datetime
 
-        response = MagicMock(spec=httpx.Response)
+        response = MagicMock(spec=httpx2.Response)
         response.status_code = 200
-        response.url = httpx.URL("https://api.spotify.com/v1/me")
+        response.url = httpx2.URL("https://api.spotify.com/v1/me")
         response.elapsed = datetime.timedelta(milliseconds=150)
         response.aread = AsyncMock()
 
@@ -149,9 +149,9 @@ class TestLogResponseSuccess:
         """When elapsed is available (response already read), logs the value."""
         import datetime
 
-        response = MagicMock(spec=httpx.Response)
+        response = MagicMock(spec=httpx2.Response)
         response.status_code = 201
-        response.url = httpx.URL("https://api.spotify.com/v1/playlists")
+        response.url = httpx2.URL("https://api.spotify.com/v1/playlists")
         response.elapsed = datetime.timedelta(milliseconds=87.3)
         response.aread = AsyncMock()
 
@@ -180,9 +180,9 @@ class TestLogResponseError:
         """
         import datetime
 
-        response = MagicMock(spec=httpx.Response)
+        response = MagicMock(spec=httpx2.Response)
         response.status_code = 429
-        response.url = httpx.URL("https://api.spotify.com/v1/tracks")
+        response.url = httpx2.URL("https://api.spotify.com/v1/tracks")
         response.headers = MagicMock()
         response.headers.get.return_value = "60"
         response.text = "Rate limit exceeded"
@@ -207,9 +207,9 @@ class TestLogResponseError:
         import datetime
 
         long_body = "x" * 600
-        response = MagicMock(spec=httpx.Response)
+        response = MagicMock(spec=httpx2.Response)
         response.status_code = 500
-        response.url = httpx.URL("https://api.spotify.com/v1/tracks")
+        response.url = httpx2.URL("https://api.spotify.com/v1/tracks")
         response.headers = MagicMock()
         response.headers.get.return_value = None
         response.text = long_body
@@ -228,9 +228,9 @@ class TestLogResponseError:
         """4xx/5xx responses are logged at WARNING, not DEBUG."""
         import datetime
 
-        response = MagicMock(spec=httpx.Response)
+        response = MagicMock(spec=httpx2.Response)
         response.status_code = 401
-        response.url = httpx.URL("https://api.spotify.com/v1/me")
+        response.url = httpx2.URL("https://api.spotify.com/v1/me")
         response.headers = MagicMock()
         response.headers.get.return_value = None
         response.text = "Unauthorized"
@@ -249,9 +249,9 @@ class TestLogResponseError:
         """Status 399 logs at DEBUG (success path), not WARNING."""
         import datetime
 
-        response = MagicMock(spec=httpx.Response)
+        response = MagicMock(spec=httpx2.Response)
         response.status_code = 399
-        response.url = httpx.URL("https://api.spotify.com/v1/me")
+        response.url = httpx2.URL("https://api.spotify.com/v1/me")
         response.elapsed = datetime.timedelta(milliseconds=10)
 
         with patch(
@@ -266,9 +266,9 @@ class TestLogResponseError:
         """Status 400 logs at WARNING (error path) and calls aread."""
         import datetime
 
-        response = MagicMock(spec=httpx.Response)
+        response = MagicMock(spec=httpx2.Response)
         response.status_code = 400
-        response.url = httpx.URL("https://api.spotify.com/v1/me")
+        response.url = httpx2.URL("https://api.spotify.com/v1/me")
         response.headers = MagicMock()
         response.headers.get.return_value = None
         response.text = "Bad Request"
@@ -285,15 +285,15 @@ class TestLogResponseError:
 
 
 # ---------------------------------------------------------------------------
-# End-to-end smoke tests — real httpx lifecycle, mock network
+# End-to-end smoke tests — real httpx2 lifecycle, mock network
 # ---------------------------------------------------------------------------
 
 
-class TestClientSmokeViaRealHttpx:
-    """Smoke tests that exercise the full httpx request/response lifecycle.
+class TestClientSmokeViaRealHttpx2:
+    """Smoke tests that exercise the full httpx2 request/response lifecycle.
 
     These use ``_QueueTransport`` so actual HTTP requests never leave the
-    process, but all httpx machinery runs: event hooks, timing, streaming,
+    process, but all httpx2 machinery runs: event hooks, timing, streaming,
     body buffering.  Bugs in ``_log_response`` that only surface when the
     real hook-firing path runs (e.g. ``response.elapsed`` raising
     ``RuntimeError``) are caught here, not by the unit tests above.
@@ -329,7 +329,7 @@ class TestClientSmokeViaRealHttpx:
         transport = _QueueTransport((200, payload))
 
         # Patch make_spotify_client to inject our mock transport (same event hooks)
-        mock_client = httpx.AsyncClient(
+        mock_client = httpx2.AsyncClient(
             base_url="https://api.spotify.com/v1",
             transport=transport,
             event_hooks=_EVENT_HOOKS,
@@ -372,7 +372,7 @@ class TestClientSmokeViaRealHttpx:
             (429, {"error": {"status": 429, "message": "rate limit"}}),
             (429, {"error": {"status": 429, "message": "rate limit"}}),
         )
-        mock_client = httpx.AsyncClient(
+        mock_client = httpx2.AsyncClient(
             base_url="https://api.spotify.com/v1",
             transport=transport,
             event_hooks=_EVENT_HOOKS,
@@ -403,7 +403,7 @@ class TestClientSmokeViaRealHttpx:
 
         payload = {"track": {"name": "Creep", "artist": {"name": "Radiohead"}}}
         transport = _QueueTransport((200, payload))
-        mock_client = httpx.AsyncClient(
+        mock_client = httpx2.AsyncClient(
             base_url="https://ws.audioscrobbler.com/2.0",
             transport=transport,
             event_hooks=_EVENT_HOOKS,

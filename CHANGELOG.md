@@ -6,6 +6,24 @@ linked backlog version file. Versioning follows mixd's four-segment
 `major.minor.feature.revision` scheme (`.claude/rules/version-management.md`), not strict
 SemVer. Format inspired by [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [0.10.2] — 2026-07-31
+
+**Your library remembers why it believes things — and lets you take a decision back.** Until now an identity mapping was a single mutable row: a re-import could overwrite the link between a connector track and your canonical track, and nothing recorded that it had happened. v0.10.2 makes mappings append-only — a new resolution supersedes the old one instead of clobbering it — and writes every accept, reject, merge, and supersession to an immutable event log carrying the matcher version that made the call. So "why is this track linked to that one?" now has an answer, a wrong match you reject stays rejected instead of returning on the next import, and a rejection you made by mistake can be withdrawn.
+
+What you can do now:
+- **Reject a bad match once.** A rejected pair becomes a sticky cannot-link constraint — not re-proposed until the matcher version changes or one side's match-relevant metadata does, so the same wrong suggestion stops reappearing on every import.
+- **Take a rejection back.** `mixd tracks unreject <connector-track> <candidate>` withdraws one, and the assistant can too (a fifth `unreject` operation on `manage_track_matches`, behind the same two-phase confirmation as the other four). Nothing is deleted — the withdrawal stamps `unrejected_at` and emits its own `unrejected` event recording which surface asked, so a reversal is as auditable as the rejection it reverses.
+- **See what mixd has stopped trying.** `mixd tracks rejections` lists active cannot-link pairs; `mixd tracks dead-ids` lists connector IDs that have missed often enough to look dead, so you can relink them yourself.
+
+How it works:
+- **Supersession, not overwrite** (migration `044`). Mappings gain a live/superseded lifecycle with partial live indexes and a two-statement `assert_mappings` with bounded 23505 retry; a session-level live filter plus a src-wide per-statement `live_only()` conformance scan keeps every reader on the live set. Merge retires losers as `conflation` supersessions instead of deleting rows.
+- **One write seam.** Every mapping mutation — relink, unlink, set-primary, delete, review-accept, merge — routes through a single recorder, so no mutation can outrun its event and the integrity rules live in one place. Denormalized `tracks.spotify_id` now sources from the primary live mapping only, fixing the redirect-flow ordering bug; 044's pre-pass repairs the 366 affected prod rows.
+- **Death is reported, never acted on** (migration `045`). Nothing writes an `id_dead` supersession; repeated misses feed a `dead_id_candidates` counter and the CLI view. Providers relink far more often than they delete, and the asymmetry decides it — a track silently losing its link surfaces weeks later when a playlist comes up short, while a lingering stale mapping only costs quota.
+- **Calibration-ready from birth.** Events record score, zone, and selection probability at queue time, because recall is unmeasurable later if those fields were never written.
+- **Toolchain, same ship.** uv is pinned to one version across local/CI/production via `[tool.uv] required-version`; CI moved from `uv sync --frozen` to `--locked`, so lockfile drift fails on the PR instead of at deploy; the Dockerfile now builds on every PR (it was previously first built by `flyctl deploy` — *after* the release tag was published); Dependabot gained the `docker` ecosystem. `mcp` moved to stable v2.0.0, and the repo migrated off the unmaintained `encode/httpx` to Pydantic's `httpx2`, closing dependency-audit work order W4 and clearing 15 Starlette deprecation warnings.
+
+→ [details](docs/backlog/v0.10.x.md#v0102-mapping-supersession--resolution-event-log)
+
 ## [0.10.1] — 2026-07-27
 
 **Today's listening counts today.** Play history used to arrive only when you asked for it — a GDPR export that lands weeks late and stops the day you requested it, or a manual import you had to remember to run. v0.10.1 makes Spotify's recently-played API a live observer: it is polled on a cadence that adapts to how you actually listen, and refreshed on demand at the moments plays are read, so a workflow filtering on "played this week" sees this morning's plays. The same release stops the workflow surfaces lying about their own state — a save is visible the moment it lands, and a run is visible wherever you happen to be watching.

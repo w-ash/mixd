@@ -58,7 +58,7 @@ class SpotifyRecentlyPlayedImporter(
         self._client = client or SpotifyAPIClient()
         # A client we built is ours to close; an injected one belongs to the
         # caller. The importer is created per import (never cached on the UoW),
-        # so without this every poll would strand an httpx connection pool —
+        # so without this every poll would strand an httpx2 connection pool —
         # and the scheduled poller runs this on a loop.
         self._owns_client = client is None
 

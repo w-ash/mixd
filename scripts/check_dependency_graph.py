@@ -34,7 +34,7 @@ import re
 import sys
 import tomllib
 
-import httpx
+import httpx2
 from pydantic import BaseModel, Field
 
 REPO = Path(__file__).resolve().parent.parent
@@ -111,7 +111,7 @@ def locked_versions(lockfile: Path = LOCKFILE) -> dict[str, str]:
 
 def graph_versions(repository: str, token: str) -> dict[str, str]:
     """Package name → version, as GitHub's dependency graph currently reports it."""
-    response = httpx.get(
+    response = httpx2.get(
         f"{API_ROOT}/repos/{repository}/dependency-graph/sbom",
         headers={
             "Accept": "application/vnd.github+json",

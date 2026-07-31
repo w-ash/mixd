@@ -32,7 +32,7 @@ class ConnectorRegistryImpl:
 
     Manages access to connectors for music services like Spotify, Last.fm,
     and MusicBrainz. Automatically discovers available connectors and caches
-    instances so repeated calls return the same connector (same httpx pool).
+    instances so repeated calls return the same connector (same httpx2 pool).
     """
 
     _connectors: dict[str, ConnectorConfig]
@@ -75,11 +75,11 @@ class ConnectorRegistryImpl:
         return list(self._connectors.keys())
 
     async def aclose(self) -> None:
-        """Close all cached connector instances and their httpx connection pools.
+        """Close all cached connector instances and their httpx2 connection pools.
 
         Mirrors the cleanup pattern in DatabaseUnitOfWork.__aexit__ (lines 90-94).
         Must be called when the workflow completes (success or failure) to avoid
-        leaking httpx connection pools until GC.
+        leaking httpx2 connection pools until GC.
         """
         from src.application.connector_protocols import Closeable
 

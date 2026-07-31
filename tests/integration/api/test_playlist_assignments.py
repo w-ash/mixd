@@ -6,7 +6,7 @@ Covers POST create-and-apply, POST re-apply, DELETE, and the
 
 from uuid import UUID, uuid4, uuid7
 
-import httpx
+import httpx2
 
 from src.application.runner import execute_use_case
 from tests.fixtures import make_connector_playlist
@@ -37,7 +37,7 @@ async def _seed_cp() -> UUID:
 
 class TestCreateAssignment:
     async def test_422_on_invalid_preference_value(
-        self, client: httpx.AsyncClient
+        self, client: httpx2.AsyncClient
     ) -> None:
         cp_id = await _seed_cp()
 
@@ -54,7 +54,7 @@ class TestCreateAssignment:
         body = response.json()
         assert "must be one of" in str(body).lower()
 
-    async def test_422_on_invalid_tag_value(self, client: httpx.AsyncClient) -> None:
+    async def test_422_on_invalid_tag_value(self, client: httpx2.AsyncClient) -> None:
         cp_id = await _seed_cp()
 
         response = await client.post(
@@ -69,7 +69,7 @@ class TestCreateAssignment:
         assert response.status_code == 422
 
     async def test_creates_and_returns_assignment_plus_result(
-        self, client: httpx.AsyncClient
+        self, client: httpx2.AsyncClient
     ) -> None:
         cp_id = await _seed_cp()
 
@@ -94,7 +94,9 @@ class TestCreateAssignment:
 
 
 class TestApplyAssignment:
-    async def test_reapply_existing_assignment(self, client: httpx.AsyncClient) -> None:
+    async def test_reapply_existing_assignment(
+        self, client: httpx2.AsyncClient
+    ) -> None:
         cp_id = await _seed_cp()
 
         created = await client.post(
@@ -117,7 +119,7 @@ class TestApplyAssignment:
         assert body["assignments_processed"] == 1
 
     async def test_apply_unknown_id_returns_zero_processed(
-        self, client: httpx.AsyncClient
+        self, client: httpx2.AsyncClient
     ) -> None:
         """Unknown id simply yields nothing — engine is idempotent."""
         response = await client.post(f"/api/v1/playlist-assignments/{uuid7()}/apply")
@@ -127,7 +129,7 @@ class TestApplyAssignment:
 
 
 class TestDeleteAssignment:
-    async def test_delete_succeeds_with_204(self, client: httpx.AsyncClient) -> None:
+    async def test_delete_succeeds_with_204(self, client: httpx2.AsyncClient) -> None:
         cp_id = await _seed_cp()
         created = await client.post(
             "/api/v1/playlist-assignments",
@@ -143,7 +145,7 @@ class TestDeleteAssignment:
 
         assert response.status_code == 204
 
-    async def test_delete_missing_returns_404(self, client: httpx.AsyncClient) -> None:
+    async def test_delete_missing_returns_404(self, client: httpx2.AsyncClient) -> None:
         response = await client.delete(f"/api/v1/playlist-assignments/{uuid7()}")
 
         assert response.status_code == 404
@@ -151,7 +153,7 @@ class TestDeleteAssignment:
 
 class TestCurrentAssignmentsOnPickerRows:
     async def test_picker_row_exposes_active_assignments(
-        self, client: httpx.AsyncClient
+        self, client: httpx2.AsyncClient
     ) -> None:
         cp_id = await _seed_cp()
         await client.post(
@@ -180,7 +182,7 @@ class TestCurrentAssignmentsOnPickerRows:
         assert action_types == {"add_tag", "set_preference"}
 
     async def test_picker_row_empty_when_no_assignments(
-        self, client: httpx.AsyncClient
+        self, client: httpx2.AsyncClient
     ) -> None:
         cp_id = await _seed_cp()
 

@@ -218,7 +218,10 @@ def make_mock_match_review_repo(**overrides) -> AsyncMock:
     )
     repo.get_review_by_id.return_value = overrides.pop("get_review_by_id", None)
     repo.create_review.side_effect = overrides.pop("create_review", lambda r: r)
-    repo.create_reviews_batch.return_value = overrides.pop("create_reviews_batch", 0)
+    # Echoes its input: the real repository returns the rows it actually wrote,
+    # and "all of them" is the right default. A test that needs the guard to
+    # skip a row overrides this with a narrower list.
+    repo.create_reviews_batch.side_effect = overrides.pop("create_reviews_batch", list)
     repo.update_review_status.return_value = overrides.pop("update_review_status", None)
     repo.count_pending.return_value = overrides.pop("count_pending", 0)
     repo.count_stale_pending.return_value = overrides.pop("count_stale_pending", 0)
@@ -385,9 +388,7 @@ def make_mock_resolution_recorder() -> AsyncMock:
     it is asserting a capability production code does not have.
     """
     recorder = AsyncMock(matcher_version="test-matcher")
-    recorder.build_events = MagicMock(return_value=[])
     recorder.record.return_value = 0
-    recorder.write_events.return_value = []
     recorder.record_supersessions.return_value = 0
     recorder.retire_mapping.return_value = True
     recorder.active_rejections.return_value = frozenset()
@@ -395,7 +396,6 @@ def make_mock_resolution_recorder() -> AsyncMock:
     recorder.remember_no_match.return_value = 0
     recorder.clear_negatives.return_value = 0
     recorder.backoff_suppressed.return_value = frozenset()
-    recorder.note_suspect.return_value = False
     return recorder
 
 

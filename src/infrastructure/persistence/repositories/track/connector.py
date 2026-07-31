@@ -6,6 +6,7 @@ tracks to canonical internal tracks, and stores service-specific metadata and ID
 
 # Lazy import cycle (mapper.py → this module for set_primary_mapping) handled by TYPE_CHECKING guard
 
+from collections import defaultdict
 from collections.abc import Mapping, Sequence
 from datetime import UTC, datetime, timedelta
 from typing import NamedTuple, cast, overload, override
@@ -50,6 +51,7 @@ from src.domain.repositories.connector import (
 from src.domain.repositories.resolution import (
     ResolutionDecision,
     ResolutionRecorderProtocol,
+    SupersessionEdge,
 )
 from src.infrastructure.persistence.database.db_models import (
     DBConnectorTrack,
@@ -69,6 +71,7 @@ from src.infrastructure.persistence.repositories.base_repo import (
 )
 from src.infrastructure.persistence.repositories.mappers import BaseModelMapper
 from src.infrastructure.persistence.repositories.repo_decorator import db_operation
+from src.infrastructure.persistence.repositories.resolution import actively_suppressing
 from src.infrastructure.persistence.repositories.track.core import TrackRepository
 from src.infrastructure.persistence.repositories.track.mapper import (
     extract_db_artist_names,
@@ -275,6 +278,28 @@ class PrimacyRestoration(NamedTuple):
 
 
 @define(frozen=True, slots=True)
+class AssertedMappingRow:
+    """One row ``assert_mappings`` actually wrote this batch — new or successor.
+
+    Populated in ``_assert_once`` straight from ``prepared`` (the repository's
+    own normalised insert rows, keyed by the pre-generated ``id``), never
+    re-read from the database. ``_record_assertion`` groups over these to emit
+    events instead of re-querying: within one transaction, the row this
+    session just inserted already *is* what a same-transaction SELECT would
+    return.
+    """
+
+    id: UUID
+    user_id: str
+    track_id: UUID
+    connector_track_id: UUID
+    connector_name: str
+    confidence: int
+    origin: str
+    confidence_evidence: JsonDict | None
+
+
+@define(frozen=True, slots=True)
 class MappingAssertion:
     """Outcome of one ``assert_mappings`` batch.
 
@@ -284,12 +309,27 @@ class MappingAssertion:
 
     ``primacy_restorations`` names the pairs whose retired incumbent had been
     primary, for the caller that owns external identifiers to re-promote.
+
+    ``vacated_tracks`` names the (track, connector) pairs a supersession left
+    without a primary because the successor landed on a *different* track. The
+    restoration above only re-promotes on the successor's track; the track the
+    mapping departed keeps a stale denormalized ``spotify_id``/``mbid`` and no
+    primary at all — the FM4d drift migration 044's pre-pass had to repair on
+    366 production rows. These need the read-path healer, not a re-promotion:
+    the identifier they used to point at now belongs to someone else.
+
+    ``written`` carries the full row — id, owner, track, connector identity,
+    confidence, origin, evidence — for every mapping that landed live this
+    batch (``created`` plus ``superseded.values()``). It is what
+    ``_record_assertion`` sources its events from.
     """
 
     created: tuple[UUID, ...] = ()
     touched: tuple[UUID, ...] = ()
     superseded: Mapping[UUID, UUID] = field(factory=dict[UUID, UUID])
     primacy_restorations: tuple[PrimacyRestoration, ...] = ()
+    vacated_tracks: tuple[tuple[UUID, str], ...] = ()
+    written: tuple[AssertedMappingRow, ...] = ()
 
 
 def _is_unique_violation(error: IntegrityError) -> bool:
@@ -464,35 +504,54 @@ class TrackMappingRepository(BaseRepository[DBTrackMapping, TrackMapping]):
                     ),
                 },
             )
-            .returning(model.id, model.superseded_by_id)
+            # track_id is the *predecessor's* — supersession does not rewrite
+            # it, so this is the track the mapping is leaving behind.
+            .returning(model.id, model.superseded_by_id, model.track_id)
             .execution_options(synchronize_session=False)
         )
         result = await self.session.execute(upsert)
-        affected: Sequence[tuple[UUID, UUID | None]] = result.tuples().all()
+        affected: Sequence[tuple[UUID, UUID | None, UUID]] = result.tuples().all()
 
         inserted_ids = {row["id"] for row in prepared}
-        created = tuple(mid for mid, _ in affected if mid in inserted_ids)
+        created = tuple(mid for mid, _, _ in affected if mid in inserted_ids)
         touched = tuple(
             mid
-            for mid, successor in affected
+            for mid, successor, _ in affected
             if mid not in inserted_ids and successor is None
         )
         superseded = {
-            mid: successor for mid, successor in affected if successor is not None
+            mid: successor for mid, successor, _ in affected if successor is not None
         }
+        departed_from = {
+            successor: track_id
+            for _, successor, track_id in affected
+            if successor is not None
+        }
+        written_ids = set(created) | set(superseded.values())
+        written = tuple(
+            AssertedMappingRow(
+                id=cast("UUID", row["id"]),
+                user_id=cast("str", row["user_id"]),
+                track_id=cast("UUID", row["track_id"]),
+                connector_track_id=cast("UUID", row["connector_track_id"]),
+                connector_name=cast("str", row["connector_name"]),
+                confidence=cast("int", row["confidence"]),
+                origin=cast("str", row["origin"]),
+                confidence_evidence=cast("JsonDict | None", row["confidence_evidence"]),
+            )
+            for row in prepared
+            if row["id"] in written_ids
+        )
 
         restorations: tuple[PrimacyRestoration, ...] = ()
+        vacated: tuple[tuple[UUID, str], ...] = ()
         if superseded:
             successors = [
                 row for row in prepared if row["id"] in set(superseded.values())
             ]
             _ = await self.session.execute(pg_insert(model).values(successors))
-            restorations = tuple(
-                PrimacyRestoration(
-                    track_id=cast("UUID", row["track_id"]),
-                    connector_name=cast("str", row["connector_name"]),
-                    connector_track_id=cast("UUID", row["connector_track_id"]),
-                )
+            was_primary = [
+                row
                 for row in successors
                 if (
                     row["user_id"],
@@ -500,7 +559,25 @@ class TrackMappingRepository(BaseRepository[DBTrackMapping, TrackMapping]):
                     row["connector_name"],
                 )
                 in primary_keys
+            ]
+            restorations = tuple(
+                PrimacyRestoration(
+                    track_id=cast("UUID", row["track_id"]),
+                    connector_name=cast("str", row["connector_name"]),
+                    connector_track_id=cast("UUID", row["connector_track_id"]),
+                )
+                for row in was_primary
             )
+            # A re-score that also moves the mapping to another track leaves
+            # the old one with no primary and a denormalized id pointing at an
+            # identifier it no longer owns. Only the successor's track is
+            # re-promoted above, so name the departed track for the healer.
+            vacated = tuple({
+                (departed, cast("str", row["connector_name"]))
+                for row in was_primary
+                if (departed := departed_from.get(cast("UUID", row["id"]))) is not None
+                and departed != row["track_id"]
+            })
             # Core statements do not touch the identity map, so a session that
             # already loaded these rows would keep serving the retired one.
             expire_mapping_identity(
@@ -514,6 +591,8 @@ class TrackMappingRepository(BaseRepository[DBTrackMapping, TrackMapping]):
             touched=touched,
             superseded=superseded,
             primacy_restorations=restorations,
+            vacated_tracks=vacated,
+            written=written,
         )
 
 
@@ -756,7 +835,7 @@ class TrackConnectorRepository:
         if mapping_rows:
             assertion = await self.mapping_repo.assert_mappings(mapping_rows)
             await self._record_assertion(assertion)
-            await self._restore_superseded_primaries(assertion, connector_id_map)
+            await self._restore_superseded_primaries(assertion)
 
         # Note: metrics extraction lives in the application layer
         # (MetricsApplicationService); this repository maps track identity only.
@@ -825,7 +904,6 @@ class TrackConnectorRepository:
     async def _restore_superseded_primaries(
         self,
         assertion: MappingAssertion,
-        connector_id_map: dict[tuple[str, str], UUID],
     ) -> None:
         """Re-promote the successors of mappings that had been primary.
 
@@ -833,19 +911,30 @@ class TrackConnectorRepository:
         of a track's primary mapping leaves it with a live mapping and no
         primary at all — the denormalized ``spotify_id``/``mbid`` fast path
         stops resolving and the review queue's provenance reads as absent.
+
+        When the successor landed on a *different* track, the track it left
+        needs the opposite treatment: not a re-promotion (the identifier it
+        held now belongs elsewhere) but the read-path healer, which promotes a
+        surviving sibling or clears the denormalized column.
+
+        ``PrimacyRestoration`` already carries the connector track's internal
+        UUID, so this goes straight to ``_batch_ensure_primary_mappings`` —
+        no need to round-trip it through the external string id and back.
         """
+        for track_id, connector_name in assertion.vacated_tracks:
+            await self.ensure_primary_for_connector(track_id, connector_name)
+
         if not assertion.primacy_restorations:
             return
-        external_by_ct_id = {
-            ct_id: external_id for (_, external_id), ct_id in connector_id_map.items()
-        }
         primaries = [
-            (restoration.track_id, restoration.connector_name, external_id)
+            (
+                restoration.track_id,
+                restoration.connector_name,
+                restoration.connector_track_id,
+            )
             for restoration in assertion.primacy_restorations
-            if (external_id := external_by_ct_id.get(restoration.connector_track_id))
         ]
-        if primaries:
-            _ = await self._batch_ensure_primary_mappings(primaries)
+        _ = await self._batch_ensure_primary_mappings(primaries)
 
     @staticmethod
     def _build_mapping_rows(
@@ -1232,52 +1321,39 @@ class TrackConnectorRepository:
         decision is freshness, not a decision (the same reason it never
         re-scores confidence).
         """
-        new_ids = set(assertion.created) | set(assertion.superseded.values())
-        if not new_ids:
+        if not assertion.written:
             return
-        # Every field comes from the rows the database actually wrote, not from
-        # the caller's inputs: a batch may span users, and a spec that got
-        # dropped by the manual-override filter must not produce an event.
-        result = await self.session.execute(
-            select(
-                DBTrackMapping.id,
-                DBTrackMapping.user_id,
-                DBTrackMapping.track_id,
-                DBTrackMapping.connector_track_id,
-                DBTrackMapping.connector_name,
-                DBTrackMapping.confidence,
-                DBTrackMapping.origin,
-                DBTrackMapping.confidence_evidence,
-            ).where(DBTrackMapping.id.in_(new_ids), live_only(DBTrackMapping))
-        )
-
+        # Event data comes from ``assertion.written`` — rows ``_assert_once``
+        # copied out of ``prepared``, the repository's own normalised insert
+        # rows — never from the caller's raw input: a batch may span users,
+        # and a spec dropped by the manual-override filter (upstream of
+        # ``assert_mappings``) never reaches ``prepared`` and so never reaches
+        # here either. This used to re-SELECT the same rows back from the
+        # database instead; that was redundant, not safer. This method and
+        # the INSERT that wrote these rows run on the same ``AsyncSession``
+        # inside one open transaction with no intervening commit, so the row
+        # just inserted already *is* what a same-transaction SELECT would
+        # see — a concurrent writer targeting the same live key blocks on the
+        # row lock until this transaction commits, so there was never a
+        # second answer the SELECT could have found.
         by_user: dict[str, list[ResolutionDecision]] = {}
         successor_owners: dict[UUID, tuple[str, str]] = {}
-        for (
-            mapping_id,
-            user_id,
-            track_id,
-            connector_track_id,
-            connector_name,
-            confidence,
-            origin,
-            evidence,
-        ) in result.tuples():
-            successor_owners[mapping_id] = (user_id, connector_name)
-            by_user.setdefault(user_id, []).append(
+        for row in assertion.written:
+            successor_owners[row.id] = (row.user_id, row.connector_name)
+            by_user.setdefault(row.user_id, []).append(
                 ResolutionDecision(
                     # A user-pinned mapping is an override, not an automatic
                     # accept, and the log has to be able to tell them apart —
                     # "why does my library believe this" answers differently.
                     event_type="manual_override"
-                    if origin == MappingOrigin.MANUAL_OVERRIDE
+                    if row.origin == MappingOrigin.MANUAL_OVERRIDE
                     else "accepted",
-                    connector_name=connector_name,
-                    connector_track_id=connector_track_id,
-                    track_id=track_id,
-                    resulting_mapping_id=mapping_id,
-                    confidence=confidence,
-                    score=_evidence_score(evidence),
+                    connector_name=row.connector_name,
+                    connector_track_id=row.connector_track_id,
+                    track_id=row.track_id,
+                    resulting_mapping_id=row.id,
+                    confidence=row.confidence,
+                    score=_evidence_score(row.confidence_evidence),
                     zone="accept",
                 )
             )
@@ -1295,22 +1371,26 @@ class TrackConnectorRepository:
         edges: Mapping[UUID, UUID],
         successor_owners: dict[UUID, tuple[str, str]],
     ) -> None:
-        """Emit one ``superseded`` event per edge, grouped by its successor's owner.
+        """Emit one ``superseded`` event per edge; the seam groups by owner.
 
-        Grouped rather than emitted one at a time because a batch may span
-        users and connectors, and the event's tenancy has to come from the row
-        it describes — not from whichever spec happened to be first.
+        A successor absent from ``successor_owners`` was dropped by the
+        manual-override filter upstream (the same guard ``_record_assertion``
+        applies via ``assertion.written``) and is skipped — there is no live
+        row left to describe an event about.
         """
-        grouped: dict[tuple[str, str], dict[UUID, UUID]] = {}
-        for predecessor, successor in edges.items():
-            owner = successor_owners.get(successor)
-            if owner is None:
-                continue
-            grouped.setdefault(owner, {})[predecessor] = successor
-        for (user_id, connector_name), group in grouped.items():
-            _ = await recorder.record_supersessions(
-                group, user_id=user_id, connector_name=connector_name
+        supersession_edges = [
+            SupersessionEdge(
+                predecessor_id=predecessor,
+                successor_id=successor,
+                user_id=owner[0],
+                connector_name=owner[1],
             )
+            for predecessor, successor in edges.items()
+            if (owner := successor_owners.get(successor)) is not None
+        ]
+        if not supersession_edges:
+            return
+        _ = await recorder.record_supersessions(supersession_edges)
 
     def _resolution_recorder(self) -> ResolutionRecorderProtocol:
         """The identity write seam bound to this repository's transaction."""
@@ -1338,7 +1418,7 @@ class TrackConnectorRepository:
 
         primaries = [(tid, connector, cid) for tid, cid in primaries_set.items()]
         if primaries:
-            _ = await self._batch_ensure_primary_mappings(primaries)
+            _ = await self._batch_ensure_primary_mappings_by_external_id(primaries)
 
     async def _sync_denormalized_id(
         self, track_id: UUID, connector: str, connector_id: str
@@ -1367,6 +1447,42 @@ class TrackConnectorRepository:
                 .values(**{column_name: None})
             )
 
+    async def _live_mapping_row(
+        self, mapping_id: UUID, *, user_id: str
+    ) -> DBTrackMapping | None:
+        """Fetch one live mapping row by id, refreshed past the identity map.
+
+        The shared body behind every "fetch the live row, then act on it" site
+        — ``get_mapping_by_id``, ``delete_mapping``, and the two lookups inside
+        ``update_mapping_track`` used to each repeat this query verbatim.
+
+        ``populate_existing``: supersession lands via Core DML, so a row
+        already in this session's identity map would otherwise answer from
+        its pre-flip state (v0.10.0 hit exactly this on plays).
+
+        ``user_id`` is required, with no "scope it if you happen to have one"
+        escape: per PDR-002 the Neon owner role has BYPASSRLS in production, so
+        this WHERE clause — not RLS — is the isolation that actually runs, and
+        a fetch-then-act helper that can be called unscoped is one refactor
+        away from being called unscoped somewhere it matters.
+        """
+        # ``live_only`` stays inside the statement that builds the select rather
+        # than in a conditions list assembled above it. The source-level guard in
+        # ``test_live_rows_conformance`` reads one statement at a time, so a
+        # predicate added from elsewhere is invisible to it — and a guard that
+        # cannot see the predicate is a guard that cannot protect the next
+        # reader who forgets it.
+        result = await self.session.execute(
+            select(DBTrackMapping)
+            .where(
+                DBTrackMapping.id == mapping_id,
+                DBTrackMapping.user_id == user_id,
+                live_only(DBTrackMapping),
+            )
+            .execution_options(populate_existing=True)
+        )
+        return result.scalar_one_or_none()
+
     @db_operation("get_mapping_by_id")
     async def get_mapping_by_id(
         self, mapping_id: UUID, *, user_id: str
@@ -1377,19 +1493,7 @@ class TrackConnectorRepository:
         current identity, and ``get_supersession_chain`` is the way to ask for
         history.
         """
-        result = await self.session.execute(
-            select(DBTrackMapping)
-            .where(
-                DBTrackMapping.id == mapping_id,
-                DBTrackMapping.user_id == user_id,
-                live_only(DBTrackMapping),
-            )
-            # ``populate_existing``: supersession lands via Core DML, so a row
-            # already in this session's identity map would otherwise answer
-            # from its pre-flip state (v0.10.0 hit exactly this on plays).
-            .execution_options(populate_existing=True)
-        )
-        row = result.scalar_one_or_none()
+        row = await self._live_mapping_row(mapping_id, user_id=user_id)
         if row is None:
             return None
         return await TrackMappingMapper.to_domain(row)
@@ -1453,16 +1557,7 @@ class TrackConnectorRepository:
         comes back, and the same ``NotFoundError`` is raised when there is
         nothing live to retire.
         """
-        result = await self.session.execute(
-            select(DBTrackMapping)
-            .where(
-                DBTrackMapping.id == mapping_id,
-                DBTrackMapping.user_id == user_id,
-                live_only(DBTrackMapping),
-            )
-            .execution_options(populate_existing=True)
-        )
-        row = result.scalar_one_or_none()
+        row = await self._live_mapping_row(mapping_id, user_id=user_id)
         if row is None:
             raise NotFoundError(f"Mapping {mapping_id} not found")
         mapping = await TrackMappingMapper.to_domain(row)
@@ -1487,7 +1582,12 @@ class TrackConnectorRepository:
 
     @db_operation("update_mapping_track")
     async def update_mapping_track(
-        self, mapping_id: UUID, new_track_id: UUID, origin: str
+        self,
+        mapping_id: UUID,
+        new_track_id: UUID,
+        origin: str,
+        *,
+        user_id: str,
     ) -> TrackMapping:
         """Move a live mapping to a different canonical track, append-only.
 
@@ -1501,20 +1601,28 @@ class TrackConnectorRepository:
         The returned entity is the *successor*, carrying the new track and the
         given origin; its id differs from ``mapping_id``, which is what
         "append-only" means.
+
+        ``user_id`` scopes both lookups the same way ``get_mapping_by_id`` and
+        ``delete_mapping`` are scoped (see ``_live_mapping_row``). The sole
+        caller already validates ownership via ``require_owned_mapping``, so
+        this is not the only guard — but PDR-002 records the Neon owner role as
+        BYPASSRLS in production, and a move that can be issued unscoped should
+        not be reachable just because today's caller happens to check first.
         """
-        result = await self.session.execute(
-            select(DBTrackMapping)
-            .where(DBTrackMapping.id == mapping_id, live_only(DBTrackMapping))
-            .execution_options(populate_existing=True)
-        )
-        row = result.scalar_one_or_none()
+        row = await self._live_mapping_row(mapping_id, user_id=user_id)
         if row is None:
             raise NotFoundError(f"Mapping {mapping_id} not found")
+
+        # Read off the row *before* asserting: ``assert_mappings`` expires this
+        # row from the identity map (it supersedes it via Core DML), and an
+        # attribute touched after that would try to refresh itself with sync IO
+        # from an async context.
+        owner = row.user_id
 
         assertion = await self.mapping_repo.assert_mappings(
             [
                 {
-                    "user_id": row.user_id,
+                    "user_id": owner,
                     "track_id": new_track_id,
                     "connector_track_id": row.connector_track_id,
                     "connector_name": row.connector_name,
@@ -1533,12 +1641,14 @@ class TrackConnectorRepository:
             iter(set(assertion.created) | set(assertion.superseded.values())),
             mapping_id,
         )
-        refreshed = await self.session.execute(
-            select(DBTrackMapping)
-            .where(DBTrackMapping.id == successor_id, live_only(DBTrackMapping))
-            .execution_options(populate_existing=True)
-        )
-        return await TrackMappingMapper.to_domain(refreshed.scalar_one())
+        # The predecessor's owner rather than the argument: the successor was
+        # inserted under it, and the two are equal only because the fetch above
+        # was scoped. Using the row's own value keeps this correct even if that
+        # ever stops being true.
+        refreshed = await self._live_mapping_row(successor_id, user_id=owner)
+        if refreshed is None:
+            raise NotFoundError(f"Mapping {successor_id} not found")
+        return await TrackMappingMapper.to_domain(refreshed)
 
     @db_operation("count_mappings_for_connector_track")
     async def count_mappings_for_connector_track(self, connector_track_id: UUID) -> int:
@@ -1608,27 +1718,17 @@ class TrackConnectorRepository:
             return
         if any(m.is_primary for m in remaining):
             return
-        # Promote highest-confidence mapping. The denormalized column syncs
-        # ONLY if the promotion actually landed (FM4d residue): set_primary_mapping
-        # swallows its own failures and returns False, and writing the column
-        # anyway would put a non-primary identifier in the fast-path lookup —
-        # the exact disagreement migration 044's pre-pass had to repair on 366
-        # production rows.
-        best = remaining[0]
-        promoted = await self.set_primary_mapping(
-            track_id, connector_name, best.connector_track_id
-        )
-        if not promoted:
-            return
-        # Sync denormalized ID column
-        ct_result = await self.session.execute(
-            select(DBConnectorTrack.connector_track_identifier).where(
-                DBConnectorTrack.id == best.connector_track_id
-            )
-        )
-        external_id = ct_result.scalar_one_or_none()
-        if external_id:
-            await self._sync_denormalized_id(track_id, connector_name, external_id)
+        # Choosing the winner is this method's whole job; promoting it is the
+        # batch path's, and going through it is what keeps the FM4d rule — sync
+        # the denormalized column ONLY if the promotion actually landed — in
+        # one place. A second copy here is the disagreement migration 044's
+        # pre-pass had to repair on 366 production rows, written again.
+        #
+        # The batch path's reset step is a no-op on this track: it only runs
+        # once the check above has established nothing is primary.
+        _ = await self._batch_ensure_primary_mappings([
+            (track_id, connector_name, remaining[0].connector_track_id)
+        ])
 
     @db_operation("get_primary_mapping_details")
     async def get_primary_mapping_details(
@@ -1924,15 +2024,136 @@ class TrackConnectorRepository:
             log.warning("Failed to set primary mapping - no matching record found")
         return success
 
+    async def _reset_primaries[T](self, primaries: list[tuple[UUID, str, T]]) -> None:
+        """Clear ``is_primary`` on every live mapping for these track/connector pairs.
+
+        Shared first step of both primary-promotion paths below — a track must
+        end up with at most one live primary per connector, whichever
+        identifier shape (UUID or external string) the caller started with,
+        which is why the third element is unconstrained here.
+
+        Grouped by connector so each statement clears only the tracks that
+        actually appear under *that* connector. Taking the cross-product of
+        every track and every connector in the batch — one `IN` list against
+        each connector in turn — demotes primaries no caller asked about and
+        then promotes nothing back, leaving a track live but primary-less: the
+        exact FM4d drift the promotion path exists to prevent. Inert while
+        every caller passes a single-connector batch, which is why it has to be
+        fixed here rather than trusted to stay that way — ``ConnectorMappingSpec``
+        carries its connector per row, so the batch that spans two is legal
+        input the moment someone assembles one.
+        """
+        by_connector: dict[str, list[UUID]] = defaultdict(list)
+        for track_id, connector_name, _ in primaries:
+            by_connector[connector_name].append(track_id)
+        for connector_name, track_ids in by_connector.items():
+            await self.session.execute(
+                update(DBTrackMapping)
+                .where(
+                    DBTrackMapping.track_id.in_(track_ids),
+                    DBTrackMapping.connector_name == connector_name,
+                    live_only(DBTrackMapping),
+                )
+                .values(is_primary=False)
+            )
+
+    async def _promote_primaries_by_uuid(
+        self, primaries: list[tuple[UUID, str, UUID]]
+    ) -> int:
+        """Mark each (track, connector track) pair primary; sync what landed.
+
+        Assumes ``_reset_primaries`` already ran for these pairs. Each tuple
+        is (track_id, connector_name, connector_track_id) — the connector
+        track's internal database id.
+        """
+        promoted: list[tuple[UUID, str, UUID]] = []
+        for track_id, connector_name, ct_db_id in primaries:
+            result = await self.session.execute(
+                update(DBTrackMapping)
+                .where(
+                    DBTrackMapping.track_id == track_id,
+                    DBTrackMapping.connector_track_id == ct_db_id,
+                    live_only(DBTrackMapping),
+                )
+                .values(is_primary=True)
+            )
+            if rows_affected(result) > 0:
+                promoted.append((track_id, connector_name, ct_db_id))
+
+        if promoted:
+            await self._sync_promoted_denormalized_ids(promoted)
+        return len(promoted)
+
+    async def _sync_promoted_denormalized_ids(
+        self, promoted: list[tuple[UUID, str, UUID]]
+    ) -> None:
+        """Sync the fast-path column for pairs whose promotion actually landed.
+
+        FM4d rule — the denormalized id must move ONLY when the promotion
+        landed (``rows_affected(result) > 0`` in the caller), never
+        unconditionally: a promotion that changes which row is primary
+        without moving the column leaves ``tracks.spotify_id``/``mbid``
+        describing a mapping that no longer holds primacy, the same
+        disagreement migration 044's pre-pass had to repair on 366 rows.
+
+        ``_sync_denormalized_id`` writes the external identifier *string*,
+        while ``promoted`` only carries the connector track's UUID, so it
+        still needs resolving — one lookup here for the promoted subset, in
+        place of a lookup for every candidate regardless of whether its
+        promotion landed.
+        """
+        ct_ids = [ct_id for _, _, ct_id in promoted]
+        result = await self.session.execute(
+            select(
+                DBConnectorTrack.id, DBConnectorTrack.connector_track_identifier
+            ).where(DBConnectorTrack.id.in_(ct_ids))
+        )
+        external_by_ct_id = dict(result.tuples().all())
+        for track_id, connector_name, ct_id in promoted:
+            external_id = external_by_ct_id.get(ct_id)
+            if external_id:
+                await self._sync_denormalized_id(track_id, connector_name, external_id)
+
     @db_operation("batch_ensure_primary_mappings")
     async def _batch_ensure_primary_mappings(
         self,
-        primaries: list[tuple[UUID, str, str]],
+        primaries: list[tuple[UUID, str, UUID]],
     ) -> int:
         """Set primary mappings for multiple track-connector pairs in bulk.
 
         Replaces per-track ensure_primary_mapping() loops with fewer queries.
-        Each tuple is (track_id, connector_name, connector_track_identifier).
+        Each tuple is (track_id, connector_name, connector_track_id) — the
+        connector track's internal database id, already known to the caller
+        (``_restore_superseded_primaries`` reads it straight off
+        ``PrimacyRestoration`` — no need to look it up).
+        ``_batch_ensure_primary_mappings_by_external_id`` is the sibling entry
+        point for the one caller that only holds the external string id.
+
+        Args:
+            primaries: List of (track_id, connector_name, connector_track_id).
+
+        Returns:
+            Number of mappings successfully promoted to primary.
+        """
+        if not primaries:
+            return 0
+        await self._reset_primaries(primaries)
+        return await self._promote_primaries_by_uuid(primaries)
+
+    @db_operation("batch_ensure_primary_mappings_by_external_id")
+    async def _batch_ensure_primary_mappings_by_external_id(
+        self,
+        primaries: list[tuple[UUID, str, str]],
+    ) -> int:
+        """``_batch_ensure_primary_mappings``, keyed by external connector id.
+
+        For the one caller that genuinely only holds the string —
+        ``_create_mappings_and_set_primaries`` reads it straight off
+        ``domain_tracks[].connector_track_identifiers``, never the connector
+        track's internal id. Resolves ids in a single bulk lookup, then
+        shares the UUID path's promotion step. A caller that already holds
+        the UUID should call ``_batch_ensure_primary_mappings`` directly
+        instead of routing through here just to convert it back.
 
         Args:
             primaries: List of (track_id, connector_name, connector_track_identifier).
@@ -1943,10 +2164,11 @@ class TrackConnectorRepository:
         if not primaries:
             return 0
 
-        # Single bulk query: find all connector track DB IDs
-        connector_ids = list({cid for _, _, cid in primaries})
-        connectors = list({cn for _, cn, _ in primaries})
+        await self._reset_primaries(primaries)
 
+        # Single bulk query: find all connector track DB IDs
+        connectors = list({cn for _, cn, _ in primaries})
+        connector_ids = list({cid for _, _, cid in primaries})
         ct_records = await self.connector_repo.find_by([
             self.connector_repo.model_class.connector_name.in_(connectors),
             self.connector_repo.model_class.connector_track_identifier.in_(
@@ -1958,38 +2180,12 @@ class TrackConnectorRepository:
             for ct in ct_records
         }
 
-        # Step 1: Bulk reset all primaries for affected track-connector pairs
-        track_ids = [tid for tid, _, _ in primaries]
-        for connector_name in connectors:
-            await self.session.execute(
-                update(DBTrackMapping)
-                .where(
-                    DBTrackMapping.track_id.in_(track_ids),
-                    DBTrackMapping.connector_name == connector_name,
-                    live_only(DBTrackMapping),
-                )
-                .values(is_primary=False)
-            )
-
-        # Step 2: Set new primaries (per-row — each has a unique (track_id, ct_db_id) pair)
-        promoted = 0
-        for track_id, connector_name, connector_id in primaries:
-            ct_db_id = ct_id_map.get((connector_name, connector_id))
-            if ct_db_id is None:
-                continue
-            result = await self.session.execute(
-                update(DBTrackMapping)
-                .where(
-                    DBTrackMapping.track_id == track_id,
-                    DBTrackMapping.connector_track_id == ct_db_id,
-                    live_only(DBTrackMapping),
-                )
-                .values(is_primary=True)
-            )
-            if rows_affected(result) > 0:
-                promoted += 1
-
-        return promoted
+        by_uuid = [
+            (track_id, connector_name, ct_db_id)
+            for track_id, connector_name, connector_id in primaries
+            if (ct_db_id := ct_id_map.get((connector_name, connector_id))) is not None
+        ]
+        return await self._promote_primaries_by_uuid(by_uuid)
 
     # ── Integrity check queries ──────────────────────────────────────
 
@@ -2069,6 +2265,12 @@ class TrackConnectorRepository:
         no mapping by design — counting it as an orphan would report the
         negative cache working correctly as a data-integrity failure, and the
         count grows with every rejection.
+
+        ``actively_suppressing`` is what bounds that excuse in time. Matching
+        any negative row ever written would blind the metric permanently: a
+        withdrawn rejection or a long-expired backoff clock explains nothing,
+        and a connector track whose mapping later leaked for real would stay
+        uncounted forever because of a row that stopped mattering months ago.
         """
         stmt = (
             select(func.count(DBConnectorTrack.id))
@@ -2079,7 +2281,8 @@ class TrackConnectorRepository:
             )
             .outerjoin(
                 DBResolutionNegative,
-                DBConnectorTrack.id == DBResolutionNegative.connector_track_id,
+                (DBConnectorTrack.id == DBResolutionNegative.connector_track_id)
+                & actively_suppressing(),
             )
             .where(DBTrackMapping.id.is_(None), DBResolutionNegative.id.is_(None))
         )

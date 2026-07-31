@@ -9,7 +9,7 @@ deliberate-404-for-non-owner contract.
 
 from datetime import UTC, datetime, timedelta
 
-import httpx
+import httpx2
 
 from src.application.runner import execute_use_case
 from src.domain.entities.operation_run import OperationRun
@@ -53,7 +53,7 @@ class TestListOperationRuns:
     """GET /api/v1/operation-runs — pagination, filtering, scoping."""
 
     async def test_returns_empty_data_when_none(
-        self, client: httpx.AsyncClient
+        self, client: httpx2.AsyncClient
     ) -> None:
         response = await client.get("/api/v1/operation-runs")
         assert response.status_code == 200
@@ -63,7 +63,7 @@ class TestListOperationRuns:
         assert body["limit"] == 20
 
     async def test_returns_user_runs_newest_first(
-        self, client: httpx.AsyncClient
+        self, client: httpx2.AsyncClient
     ) -> None:
         now = datetime.now(UTC)
         await _seed_run(started_at=now - timedelta(hours=2))
@@ -77,7 +77,7 @@ class TestListOperationRuns:
         assert rows[1]["id"] == str(middle.id)
 
     async def test_default_filter_excludes_non_import_types(
-        self, client: httpx.AsyncClient
+        self, client: httpx2.AsyncClient
     ) -> None:
         """The default ``type=imports`` filter hides workflow_run / playlist_sync."""
         await _seed_run(operation_type="import_lastfm_history")
@@ -91,7 +91,9 @@ class TestListOperationRuns:
         assert "workflow_run" not in types
         assert "playlist_sync" not in types
 
-    async def test_type_all_returns_everything(self, client: httpx.AsyncClient) -> None:
+    async def test_type_all_returns_everything(
+        self, client: httpx2.AsyncClient
+    ) -> None:
         await _seed_run(operation_type="import_lastfm_history")
         await _seed_run(operation_type="workflow_run")
 
@@ -101,7 +103,7 @@ class TestListOperationRuns:
         assert types == {"import_lastfm_history", "workflow_run"}
 
     async def test_pagination_returns_next_cursor(
-        self, client: httpx.AsyncClient
+        self, client: httpx2.AsyncClient
     ) -> None:
         now = datetime.now(UTC)
         for i in range(5):
@@ -125,7 +127,7 @@ class TestListOperationRuns:
         assert page1_ids.isdisjoint(page2_ids)
 
     async def test_summary_omits_full_issues_payload(
-        self, client: httpx.AsyncClient
+        self, client: httpx2.AsyncClient
     ) -> None:
         await _seed_run(
             issues=[{"track_id": "abc"}, {"track_id": "def"}],
@@ -138,7 +140,7 @@ class TestListOperationRuns:
         assert row["issue_count"] == 2
 
     async def test_summary_exposes_initiated_by(
-        self, client: httpx.AsyncClient
+        self, client: httpx2.AsyncClient
     ) -> None:
         """The list row carries the attribution so the UI can badge agent runs."""
         await _seed_run(initiated_by="assistant")
@@ -156,7 +158,7 @@ class TestActiveOperationAwareness:
     """
 
     async def test_status_running_filters_to_in_flight(
-        self, client: httpx.AsyncClient
+        self, client: httpx2.AsyncClient
     ) -> None:
         await _seed_run(status="running", operation_id="op-live")
         await _seed_run(status="complete")
@@ -169,7 +171,7 @@ class TestActiveOperationAwareness:
         assert rows[0]["status"] == "running"
 
     async def test_rows_expose_operation_id_for_reattach(
-        self, client: httpx.AsyncClient
+        self, client: httpx2.AsyncClient
     ) -> None:
         await _seed_run(status="running", operation_id="op-reattach")
 
@@ -180,7 +182,7 @@ class TestActiveOperationAwareness:
         assert rows[0]["operation_id"] == "op-reattach"
 
     async def test_detail_also_exposes_operation_id(
-        self, client: httpx.AsyncClient
+        self, client: httpx2.AsyncClient
     ) -> None:
         run = await _seed_run(operation_id="op-detail")
 
@@ -191,7 +193,7 @@ class TestActiveOperationAwareness:
 class TestGetOperationRun:
     """GET /api/v1/operation-runs/{run_id} — full detail with 404 for non-owner."""
 
-    async def test_owner_gets_full_payload(self, client: httpx.AsyncClient) -> None:
+    async def test_owner_gets_full_payload(self, client: httpx2.AsyncClient) -> None:
         run = await _seed_run(
             counts={"tracks": 100},
             issues=[{"track_id": "abc", "reason": "no_match"}],
@@ -207,21 +209,21 @@ class TestGetOperationRun:
         assert body["initiated_by"] == "manual"
 
     async def test_detail_exposes_assistant_attribution(
-        self, client: httpx.AsyncClient
+        self, client: httpx2.AsyncClient
     ) -> None:
         run = await _seed_run(initiated_by="assistant")
 
         body = (await client.get(f"/api/v1/operation-runs/{run.id}")).json()
         assert body["initiated_by"] == "assistant"
 
-    async def test_non_existent_returns_404(self, client: httpx.AsyncClient) -> None:
+    async def test_non_existent_returns_404(self, client: httpx2.AsyncClient) -> None:
         from uuid import uuid7
 
         response = await client.get(f"/api/v1/operation-runs/{uuid7()}")
         assert response.status_code == 404
 
     async def test_non_owner_returns_404_not_403(
-        self, client: httpx.AsyncClient
+        self, client: httpx2.AsyncClient
     ) -> None:
         """Existence-leak guard: another user's run looks identical to a missing one."""
         run = await _seed_run(user_id="alice")
@@ -249,18 +251,20 @@ class TestRetryFailed:
             **overrides,
         )
 
-    async def test_missing_run_returns_404(self, client: httpx.AsyncClient) -> None:
+    async def test_missing_run_returns_404(self, client: httpx2.AsyncClient) -> None:
         from uuid import uuid7
 
         response = await client.post(f"/api/v1/operation-runs/{uuid7()}/retry-failed")
         assert response.status_code == 404
 
-    async def test_still_running_returns_409(self, client: httpx.AsyncClient) -> None:
+    async def test_still_running_returns_409(self, client: httpx2.AsyncClient) -> None:
         run = await self._failed_import_run(status="running")
         response = await client.post(f"/api/v1/operation-runs/{run.id}/retry-failed")
         assert response.status_code == 409
 
-    async def test_no_failed_items_returns_409(self, client: httpx.AsyncClient) -> None:
+    async def test_no_failed_items_returns_409(
+        self, client: httpx2.AsyncClient
+    ) -> None:
         run = await _seed_run(
             operation_type="import_connector_playlists",
             status="error",
@@ -270,7 +274,9 @@ class TestRetryFailed:
         response = await client.post(f"/api/v1/operation-runs/{run.id}/retry-failed")
         assert response.status_code == 409
 
-    async def test_non_import_type_returns_409(self, client: httpx.AsyncClient) -> None:
+    async def test_non_import_type_returns_409(
+        self, client: httpx2.AsyncClient
+    ) -> None:
         run = await _seed_run(
             operation_type="import_lastfm_history",
             status="error",
@@ -280,7 +286,7 @@ class TestRetryFailed:
         response = await client.post(f"/api/v1/operation-runs/{run.id}/retry-failed")
         assert response.status_code == 409
 
-    async def test_happy_path_returns_202(self, client: httpx.AsyncClient) -> None:
+    async def test_happy_path_returns_202(self, client: httpx2.AsyncClient) -> None:
         """A failed import run with stored params + failed ids is retryable.
 
         The conftest no-ops the background spawner, so this exercises the
@@ -294,7 +300,7 @@ class TestRetryFailed:
         assert body["operation_id"]
 
     async def test_reinvokes_use_case_with_failed_subset_and_auth_owner(
-        self, client: httpx.AsyncClient
+        self, client: httpx2.AsyncClient
     ) -> None:
         """The retry rebuilds the call from the run: only failed ids, stored
         connector + direction, and the owner from auth (never stored data)."""

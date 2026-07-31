@@ -8,7 +8,7 @@ handles unexpected errors correctly.
 
 from unittest.mock import patch
 
-import httpx
+import httpx2
 
 from src import __version__
 
@@ -16,7 +16,7 @@ from src import __version__
 class TestHealthEndpoint:
     """GET /api/v1/health returns service status."""
 
-    async def test_health_returns_ok(self, client: httpx.AsyncClient) -> None:
+    async def test_health_returns_ok(self, client: httpx2.AsyncClient) -> None:
         response = await client.get("/api/v1/health")
 
         assert response.status_code == 200
@@ -28,7 +28,9 @@ class TestHealthEndpoint:
         assert "chat_available" not in body
         assert isinstance(body["server_anthropic_key_configured"], bool)
 
-    async def test_health_content_type_is_json(self, client: httpx.AsyncClient) -> None:
+    async def test_health_content_type_is_json(
+        self, client: httpx2.AsyncClient
+    ) -> None:
         response = await client.get("/api/v1/health")
 
         assert response.headers["content-type"] == "application/json"
@@ -42,7 +44,7 @@ class TestHealthDoesNotWakeTheDatabase:
     """
 
     async def test_shallow_health_never_touches_the_engine(
-        self, client: httpx.AsyncClient
+        self, client: httpx2.AsyncClient
     ) -> None:
         with patch("src.interface.api.routes.health.get_engine") as mock_get_engine:
             response = await client.get("/api/v1/health")
@@ -52,7 +54,7 @@ class TestHealthDoesNotWakeTheDatabase:
         assert "database" not in response.json()
 
     async def test_deep_health_probes_the_database(
-        self, client: httpx.AsyncClient
+        self, client: httpx2.AsyncClient
     ) -> None:
         response = await client.get("/api/v1/health?deep=true")
 
@@ -62,7 +64,7 @@ class TestHealthDoesNotWakeTheDatabase:
         assert body["database"] == "connected"
 
     async def test_deep_health_reports_503_when_database_is_unreachable(
-        self, client: httpx.AsyncClient
+        self, client: httpx2.AsyncClient
     ) -> None:
         with patch(
             "src.interface.api.routes.health._probe_database",
@@ -80,12 +82,14 @@ class TestHealthDoesNotWakeTheDatabase:
 class TestErrorHandling:
     """Global exception handlers produce standard error envelopes."""
 
-    async def test_not_found_route_returns_404(self, client: httpx.AsyncClient) -> None:
+    async def test_not_found_route_returns_404(
+        self, client: httpx2.AsyncClient
+    ) -> None:
         response = await client.get("/api/v1/nonexistent")
 
         assert response.status_code == 404
 
-    async def test_openapi_schema_accessible(self, client: httpx.AsyncClient) -> None:
+    async def test_openapi_schema_accessible(self, client: httpx2.AsyncClient) -> None:
         response = await client.get("/api/openapi.json")
 
         assert response.status_code == 200

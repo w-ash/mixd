@@ -244,7 +244,7 @@ def resolve_love_track_connector(uow) -> LoveTrackConnector: ...
 def resolve_playlist_connector(service, uow) -> PlaylistConnector: ...
 ```
 
-**Benefits**: Call sites get type-checked method access instead of `Any`, each use case depends only on the capability it needs (Interface Segregation), and per-UoW connector caching ensures one httpx pool per transaction scope with deterministic `aclose()` cleanup.
+**Benefits**: Call sites get type-checked method access instead of `Any`, each use case depends only on the capability it needs (Interface Segregation), and per-UoW connector caching ensures one httpx2 pool per transaction scope with deterministic `aclose()` cleanup.
 
 ### Workflow Pattern
 Declarative transformation pipelines.

@@ -129,7 +129,7 @@ class TestGetRecentlyPlayedParams:
 
 
 class _FakeResponse:
-    """Minimal httpx.Response stand-in for the _impl-level query assertions."""
+    """Minimal httpx2.Response stand-in for the _impl-level query assertions."""
 
     def __init__(self, payload: dict) -> None:
         self._payload = payload

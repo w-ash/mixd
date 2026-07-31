@@ -11,7 +11,7 @@ from attrs import define
 
 from src.config import get_logger
 from src.domain.entities import Track
-from src.domain.repositories.track import ConflationEdge
+from src.domain.repositories.resolution import SupersessionEdge
 from src.domain.repositories.uow import UnitOfWorkProtocol
 
 logger = get_logger(__name__)
@@ -63,25 +63,16 @@ class TrackMergeService:
 
     @staticmethod
     async def _record_conflations(
-        edges: Sequence[ConflationEdge], uow: UnitOfWorkProtocol
+        edges: Sequence[SupersessionEdge], uow: UnitOfWorkProtocol
     ) -> None:
         """Emit one ``superseded`` event per mapping the merge retired.
 
-        Grouped by owner and connector because a merge can span both, and the
-        event's tenancy has to come from the row it describes.
+        A near pass-through: the edges already carry their own (user_id,
+        connector_name) tenancy, so the seam does the grouping a merge can
+        span — this used to hand-roll the same group-by the seam now owns.
         """
         if not edges:
             return
-        recorder = uow.get_resolution_recorder()
-        grouped: dict[tuple[str, str], dict[UUID, UUID]] = {}
-        for edge in edges:
-            grouped.setdefault((edge.user_id, edge.connector_name), {})[
-                edge.predecessor_id
-            ] = edge.successor_id
-        for (user_id, connector_name), group in grouped.items():
-            _ = await recorder.record_supersessions(
-                group,
-                user_id=user_id,
-                connector_name=connector_name,
-                reason="conflation",
-            )
+        _ = await uow.get_resolution_recorder().record_supersessions(
+            edges, reason="conflation"
+        )

@@ -7,7 +7,7 @@ handling for HTTP and request failures.
 
 from unittest.mock import AsyncMock, MagicMock
 
-import httpx
+import httpx2
 
 from src.infrastructure.connectors.listenbrainz.lookup import ListenBrainzLookup
 
@@ -16,8 +16,8 @@ class TestSpotifyIdFromMetadata:
     """Spotify ID resolution from artist + recording name."""
 
     async def test_returns_spotify_id_on_success(self):
-        mock_client = AsyncMock(spec=httpx.AsyncClient)
-        mock_response = MagicMock(spec=httpx.Response)
+        mock_client = AsyncMock(spec=httpx2.AsyncClient)
+        mock_response = MagicMock(spec=httpx2.Response)
         mock_response.json.return_value = [{"spotify_track_id": "abc123"}]
         mock_response.raise_for_status = MagicMock()
         mock_client.post.return_value = mock_response
@@ -28,8 +28,8 @@ class TestSpotifyIdFromMetadata:
         assert result == "abc123"
 
     async def test_strips_spotify_uri_prefix(self):
-        mock_client = AsyncMock(spec=httpx.AsyncClient)
-        mock_response = MagicMock(spec=httpx.Response)
+        mock_client = AsyncMock(spec=httpx2.AsyncClient)
+        mock_response = MagicMock(spec=httpx2.Response)
         mock_response.json.return_value = [{"spotify_track_id": "spotify:track:abc123"}]
         mock_response.raise_for_status = MagicMock()
         mock_client.post.return_value = mock_response
@@ -40,8 +40,8 @@ class TestSpotifyIdFromMetadata:
         assert result == "abc123"
 
     async def test_returns_none_on_empty_response(self):
-        mock_client = AsyncMock(spec=httpx.AsyncClient)
-        mock_response = MagicMock(spec=httpx.Response)
+        mock_client = AsyncMock(spec=httpx2.AsyncClient)
+        mock_response = MagicMock(spec=httpx2.Response)
         mock_response.json.return_value = []
         mock_response.raise_for_status = MagicMock()
         mock_client.post.return_value = mock_response
@@ -52,8 +52,8 @@ class TestSpotifyIdFromMetadata:
         assert result is None
 
     async def test_returns_none_on_missing_field(self):
-        mock_client = AsyncMock(spec=httpx.AsyncClient)
-        mock_response = MagicMock(spec=httpx.Response)
+        mock_client = AsyncMock(spec=httpx2.AsyncClient)
+        mock_response = MagicMock(spec=httpx2.Response)
         mock_response.json.return_value = [{}]
         mock_response.raise_for_status = MagicMock()
         mock_client.post.return_value = mock_response
@@ -64,10 +64,10 @@ class TestSpotifyIdFromMetadata:
         assert result is None
 
     async def test_returns_none_on_http_error(self):
-        mock_client = AsyncMock(spec=httpx.AsyncClient)
-        mock_error_response = MagicMock(spec=httpx.Response)
+        mock_client = AsyncMock(spec=httpx2.AsyncClient)
+        mock_error_response = MagicMock(spec=httpx2.Response)
         mock_error_response.status_code = 500
-        mock_client.post.side_effect = httpx.HTTPStatusError(
+        mock_client.post.side_effect = httpx2.HTTPStatusError(
             "error", request=MagicMock(), response=mock_error_response
         )
 
@@ -77,8 +77,8 @@ class TestSpotifyIdFromMetadata:
         assert result is None
 
     async def test_returns_none_on_request_error(self):
-        mock_client = AsyncMock(spec=httpx.AsyncClient)
-        mock_client.post.side_effect = httpx.RequestError(
+        mock_client = AsyncMock(spec=httpx2.AsyncClient)
+        mock_client.post.side_effect = httpx2.RequestError(
             "connection failed", request=MagicMock()
         )
 
@@ -88,8 +88,8 @@ class TestSpotifyIdFromMetadata:
         assert result is None
 
     async def test_sends_correct_payload(self):
-        mock_client = AsyncMock(spec=httpx.AsyncClient)
-        mock_response = MagicMock(spec=httpx.Response)
+        mock_client = AsyncMock(spec=httpx2.AsyncClient)
+        mock_response = MagicMock(spec=httpx2.Response)
         mock_response.json.return_value = [{"spotify_track_id": "abc123"}]
         mock_response.raise_for_status = MagicMock()
         mock_client.post.return_value = mock_response

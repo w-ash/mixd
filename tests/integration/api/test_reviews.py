@@ -7,13 +7,13 @@ for the review queue endpoints.
 from datetime import UTC, datetime
 from uuid import UUID, uuid7
 
-import httpx
+import httpx2
 from sqlalchemy import text
 
 from tests.fixtures.factories import nonexistent_id
 
 
-async def _seed_review(client: httpx.AsyncClient) -> UUID:
+async def _seed_review(client: httpx2.AsyncClient) -> UUID:
     """Seed a match review by inserting raw data into the test database.
 
     Returns the review ID (UUID).
@@ -87,7 +87,7 @@ async def _seed_review(client: httpx.AsyncClient) -> UUID:
 class TestListReviews:
     """GET /api/v1/reviews — list pending match reviews."""
 
-    async def test_empty_list(self, client: httpx.AsyncClient):
+    async def test_empty_list(self, client: httpx2.AsyncClient):
         response = await client.get("/api/v1/reviews")
         assert response.status_code == 200
         body = response.json()
@@ -96,7 +96,7 @@ class TestListReviews:
         assert body["limit"] == 50
         assert body["offset"] == 0
 
-    async def test_lists_seeded_review(self, client: httpx.AsyncClient):
+    async def test_lists_seeded_review(self, client: httpx2.AsyncClient):
         await _seed_review(client)
         response = await client.get("/api/v1/reviews")
         body = response.json()
@@ -107,7 +107,7 @@ class TestListReviews:
         assert review["confidence"] == 72
         assert review["status"] == "pending"
 
-    async def test_pagination_params(self, client: httpx.AsyncClient):
+    async def test_pagination_params(self, client: httpx2.AsyncClient):
         response = await client.get("/api/v1/reviews?limit=10&offset=0")
         assert response.status_code == 200
         body = response.json()
@@ -118,7 +118,7 @@ class TestListReviews:
 class TestResolveReview:
     """POST /api/v1/reviews/{id}/resolve — accept or reject."""
 
-    async def test_reject_review(self, client: httpx.AsyncClient):
+    async def test_reject_review(self, client: httpx2.AsyncClient):
         review_id = await _seed_review(client)
         response = await client.post(
             f"/api/v1/reviews/{review_id}/resolve",
@@ -129,7 +129,7 @@ class TestResolveReview:
         assert body["review"]["status"] == "rejected"
         assert body["mapping_created"] is False
 
-    async def test_accept_review(self, client: httpx.AsyncClient):
+    async def test_accept_review(self, client: httpx2.AsyncClient):
         review_id = await _seed_review(client)
         response = await client.post(
             f"/api/v1/reviews/{review_id}/resolve",
@@ -140,14 +140,14 @@ class TestResolveReview:
         assert body["review"]["status"] == "accepted"
         assert body["mapping_created"] is True
 
-    async def test_resolve_nonexistent_returns_404(self, client: httpx.AsyncClient):
+    async def test_resolve_nonexistent_returns_404(self, client: httpx2.AsyncClient):
         response = await client.post(
             f"/api/v1/reviews/{nonexistent_id()}/resolve",
             json={"action": "reject"},
         )
         assert response.status_code == 404
 
-    async def test_invalid_action_returns_422(self, client: httpx.AsyncClient):
+    async def test_invalid_action_returns_422(self, client: httpx2.AsyncClient):
         review_id = await _seed_review(client)
         response = await client.post(
             f"/api/v1/reviews/{review_id}/resolve",

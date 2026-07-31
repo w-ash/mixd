@@ -4,13 +4,13 @@ This service provides the infrastructure layer implementation of track identity 
 while delegating to the new unambiguous identity pipeline components.
 """
 
+from collections import defaultdict
 from collections.abc import Callable
 from typing import cast, override
 from uuid import UUID
 
 from src.config import get_logger
 from src.domain.entities import Track
-from src.domain.matching.content_digest import service_side
 from src.domain.matching.protocols import MatchProvider
 from src.domain.matching.types import (
     MatchResult,
@@ -24,8 +24,8 @@ from src.domain.repositories.connector import (
     ConnectorRepositoryProtocol,
 )
 from src.domain.repositories.resolution import (
-    RejectionCandidate,
     ResolutionRecorderProtocol,
+    rejection_candidates,
 )
 from src.domain.repositories.track import (
     TrackIdentityServiceProtocol,
@@ -51,22 +51,16 @@ class TrackIdentityServiceImpl(TrackIdentityServiceProtocol):
 
     track_repo: TrackRepositoryProtocol
     connector_repo: ConnectorRepositoryProtocol
-    _recorder: ResolutionRecorderProtocol | None
+    _recorder: ResolutionRecorderProtocol
     _provider_factories: dict[str, Callable[[object], MatchProvider]]
 
     def __init__(
         self,
         track_repo: TrackRepositoryProtocol,
         connector_repo: ConnectorRepositoryProtocol,
-        recorder: ResolutionRecorderProtocol | None = None,
+        recorder: ResolutionRecorderProtocol,
     ) -> None:
-        """Initialize with repository dependencies.
-
-        ``recorder`` is optional so unit tests that only exercise the provider
-        plumbing need not build one; with it absent the negative cache simply
-        does not suppress anything, which is the safe direction (a candidate is
-        re-proposed rather than a real match silently withheld).
-        """
+        """Initialize with repository dependencies."""
         self.track_repo = track_repo
         self.connector_repo = connector_repo
         self._recorder = recorder
@@ -187,23 +181,31 @@ class TrackIdentityServiceImpl(TrackIdentityServiceProtocol):
     async def _drop_rejected_pairs(
         self, matches: MatchResultsById, connector: str
     ) -> list[MatchResult]:
-        """Filter out matches whose pair is an active cannot-link constraint."""
+        """Filter out matches whose pair is an active cannot-link constraint.
+
+        Grouped by owner because a batch may span users — the same reason
+        ``TrackConnectorRepository._record_assertion`` groups its assertions.
+        Reading the tenant off the first candidate checked everyone else's
+        pairs against the wrong owner, and with RLS inert in production
+        (PDR-002: the Neon owner role has BYPASSRLS) that is not an error but a
+        silently empty answer — the rejection is ignored and the pair the user
+        already refused gets proposed again.
+        """
         candidates = list(matches.values())
-        if self._recorder is None or not candidates:
+        if not candidates:
             return candidates
 
-        user_id = candidates[0].track.user_id
-        rejections = [
-            RejectionCandidate(
-                connector=service_side(match.connector_id, match.service_data),
-                candidate_track=match.track,
-                confidence=match.confidence,
+        by_owner: dict[str, list[MatchResult]] = defaultdict(list)
+        for match in candidates:
+            by_owner[match.track.user_id].append(match)
+
+        suppressed: set[tuple[str, UUID]] = set()
+        for user_id, owned in by_owner.items():
+            suppressed |= await self._recorder.active_rejections(
+                rejection_candidates(owned),
+                user_id=user_id,
+                connector_name=connector,
             )
-            for match in candidates
-        ]
-        suppressed = await self._recorder.active_rejections(
-            rejections, user_id=user_id, connector_name=connector
-        )
         if not suppressed:
             return candidates
 

@@ -619,7 +619,7 @@ def build_flow(
                 "_node_records": state.node_records,
             }
         finally:
-            # Close cached connector instances (httpx pools) on success or failure.
+            # Close cached connector instances (httpx2 pools) on success or failure.
             # Shielded so a CancelledError arriving during SIGTERM (deploy/autoscale)
             # can't abort the close mid-flight and leak pools into the next process.
             # aclose() is idempotent, so the shield is safe. A strong reference is

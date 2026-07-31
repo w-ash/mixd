@@ -3,7 +3,7 @@
 from http import HTTPStatus
 from typing import override
 
-import httpx
+import httpx2
 
 from src.infrastructure.connectors._shared.error_classifier import (
     HTTPErrorClassifier,
@@ -30,7 +30,7 @@ class SpotifyErrorClassifier(HTTPErrorClassifier):
     ) -> tuple[str, str, str] | None:
         """Treat expired-token 401s as temporary (token refresh already triggered)."""
         if (
-            isinstance(exception, httpx.HTTPStatusError)
+            isinstance(exception, httpx2.HTTPStatusError)
             and exception.response.status_code == HTTPStatus.UNAUTHORIZED
             and "access token expired" in exception.response.text.lower()
         ):

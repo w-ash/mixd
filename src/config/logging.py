@@ -146,7 +146,7 @@ def setup_logging(
     root.setLevel(logging.DEBUG)  # Let handlers filter by their own levels
 
     # Suppress noisy third-party loggers
-    logging.getLogger("httpx").setLevel(logging.WARNING)
+    logging.getLogger("httpx2").setLevel(logging.WARNING)
     logging.getLogger("httpcore").setLevel(logging.WARNING)
     logging.getLogger("asyncio").setLevel(logging.WARNING)
 

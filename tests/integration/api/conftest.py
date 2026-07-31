@@ -1,6 +1,6 @@
 """Shared fixtures for API integration tests.
 
-Provides an httpx.AsyncClient wired to the FastAPI app via ASGITransport,
+Provides an httpx2.AsyncClient wired to the FastAPI app via ASGITransport,
 with an isolated PostgreSQL test database for full request → response testing.
 """
 
@@ -11,7 +11,7 @@ from types import SimpleNamespace
 from typing import Any
 from unittest.mock import patch
 
-import httpx
+import httpx2
 import pytest
 
 from src.infrastructure.persistence.database.db_connection import (
@@ -120,7 +120,7 @@ def valid_workflow_definition() -> dict:
     }
 
 
-async def create_workflow(client: httpx.AsyncClient) -> str:
+async def create_workflow(client: httpx2.AsyncClient) -> str:
     """Create a workflow via POST and return its ID (string UUID)."""
     resp = await client.post(
         "/api/v1/workflows", json={"definition": valid_workflow_definition()}
@@ -133,7 +133,7 @@ async def create_workflow(client: httpx.AsyncClient) -> str:
 async def client(
     postgres_url: str,
     _init_test_schema: None,
-) -> AsyncGenerator[httpx.AsyncClient]:
+) -> AsyncGenerator[httpx2.AsyncClient]:
     """Async HTTP client backed by the test PostgreSQL database.
 
     Sets up the global DATABASE_URL to point at the test container so
@@ -151,8 +151,8 @@ async def client(
             _sse_operations_mod, _workflows_mod, _workflow_execution_mod
         ):
             app = create_app()
-            transport = httpx.ASGITransport(app=app)
-            async with httpx.AsyncClient(
+            transport = httpx2.ASGITransport(app=app)
+            async with httpx2.AsyncClient(
                 transport=transport, base_url="http://test"
             ) as c:
                 yield c

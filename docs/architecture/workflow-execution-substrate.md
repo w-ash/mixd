@@ -154,7 +154,7 @@ regardless of the swap** (all three ship in **v0.8.0**, including the cleanup-sh
   run. Add `WHERE status NOT IN (terminal_set)` to `update_run_status` (first-writer-wins). Mirrors
   Prefect `HandleFlowTerminalStateTransitions` (`core_policy.py:1589-1607`). *Highest value.*
 - **[fix-now] Unshielded cleanup.** `await ...connectors.aclose()` (`prefect.py:471`) can be hit by
-  `CancelledError` on SIGTERM mid-`await` → leaked httpx pools. Wrap in `asyncio.shield()`. Mirrors
+  `CancelledError` on SIGTERM mid-`await` → leaked httpx2 pools. Wrap in `asyncio.shield()`. Mirrors
   Prefect's shielded finalizers (`flow_engine.py:1491-1497`).
 - **[fix-now] Heartbeat false-positives.** If the heartbeat ticker is an asyncio task, a CPU-bound
   node blocks the loop and the sweeper reaps a *healthy* run (mixd's own sweeper docstring names this

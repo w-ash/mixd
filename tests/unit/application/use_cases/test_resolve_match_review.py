@@ -169,6 +169,6 @@ class TestRejectSurvivesMissingEntities:
 
         assert result.review.status == ReviewStatus.REJECTED
         recorder = uow.get_resolution_recorder()
-        recorder.build_events.assert_called_once()
+        recorder.record.assert_awaited_once()
         # No pair left to constrain — the event alone is the record.
         recorder.remember_rejections.assert_not_awaited()

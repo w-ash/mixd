@@ -599,6 +599,57 @@ class TestSupersessionAndPrimacy:
         assert live[0].is_primary is True
         assert all(row.is_primary is False for row in rows if row.superseded_at)
 
+    async def test_the_track_a_mapping_departs_is_healed_too(
+        self, db_session: AsyncSession, connector_repo: TrackConnectorRepository
+    ):
+        """Re-asserting onto another track vacates the first one's primary.
+
+        Restoration re-promotes on the *successor's* track. The track the
+        mapping left keeps a denormalized ``spotify_id`` pointing at an
+        identifier that now belongs to someone else, and no primary of its own
+        — the FM4d drift migration 044's pre-pass had to repair on 366
+        production rows, reintroduced one supersession at a time.
+        """
+        from src.config.constants import MatchMethod
+        from src.domain.repositories.connector import ConnectorMappingSpec
+
+        departed = await _make_track(db_session, "Departed")
+        arrived = await _make_track(db_session, "Arrived")
+        connector_id = f"sp_moved_{uuid4().hex[:8]}"
+
+        departed_domain = await connector_repo.track_repo.get_by_id(departed)
+        await connector_repo.map_tracks_to_connectors([
+            ConnectorMappingSpec(
+                track=departed_domain,
+                connector="spotify",
+                connector_id=connector_id,
+                match_method=MatchMethod.ISRC_MATCH,
+                confidence=70,
+            )
+        ])
+        await connector_repo.ensure_primary_for_connector(departed, "spotify")
+
+        # The same connector track, re-asserted onto a different canonical.
+        arrived_domain = await connector_repo.track_repo.get_by_id(arrived)
+        await connector_repo.map_tracks_to_connectors([
+            ConnectorMappingSpec(
+                track=arrived_domain,
+                connector="spotify",
+                connector_id=connector_id,
+                match_method=MatchMethod.ISRC_MATCH,
+                confidence=95,
+            )
+        ])
+
+        # Column select, not the identity map: Core DML wrote these rows.
+        stale = await db_session.execute(
+            select(DBTrack.spotify_id).where(DBTrack.id == departed)
+        )
+        assert stale.scalar_one() is None, (
+            "the departed track must not keep an identifier it no longer owns"
+        )
+        assert await connector_repo.count_stale_denormalized_ids(user_id=_USER) == 0
+
 
 class TestEvidenceIsDriftNotDecision:
     """Evidence explains a decision; refreshing it must not restate one."""

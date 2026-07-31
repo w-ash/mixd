@@ -6,11 +6,11 @@ Each test gets a fresh database via the client fixture.
 
 from uuid import UUID, uuid7
 
-import httpx
+import httpx2
 
 
 async def _create_track(
-    client: httpx.AsyncClient, title: str, artist: str = "Artist"
+    client: httpx2.AsyncClient, title: str, artist: str = "Artist"
 ) -> UUID:
     """Create a track via playlist creation (tracks need to exist in DB).
 
@@ -39,7 +39,7 @@ async def _save_track(uow, track) -> UUID:
 class TestListTracksEndpoint:
     """GET /api/v1/tracks returns paginated track listing."""
 
-    async def test_empty_library(self, client: httpx.AsyncClient) -> None:
+    async def test_empty_library(self, client: httpx2.AsyncClient) -> None:
         response = await client.get("/api/v1/tracks")
 
         assert response.status_code == 200
@@ -49,7 +49,7 @@ class TestListTracksEndpoint:
         assert body["limit"] == 50
         assert body["offset"] == 0
 
-    async def test_returns_tracks(self, client: httpx.AsyncClient) -> None:
+    async def test_returns_tracks(self, client: httpx2.AsyncClient) -> None:
         await _create_track(client, "Creep", "Radiohead")
         await _create_track(client, "Yellow", "Coldplay")
 
@@ -59,7 +59,7 @@ class TestListTracksEndpoint:
         assert body["total"] == 2
         assert len(body["data"]) == 2
 
-    async def test_pagination(self, client: httpx.AsyncClient) -> None:
+    async def test_pagination(self, client: httpx2.AsyncClient) -> None:
         for i in range(5):
             await _create_track(client, f"Track {i}")
 
@@ -71,7 +71,7 @@ class TestListTracksEndpoint:
         assert body["offset"] == 2
         assert len(body["data"]) == 2
 
-    async def test_search_by_title(self, client: httpx.AsyncClient) -> None:
+    async def test_search_by_title(self, client: httpx2.AsyncClient) -> None:
         await _create_track(client, "Creep", "Radiohead")
         await _create_track(client, "Yellow", "Coldplay")
 
@@ -81,7 +81,7 @@ class TestListTracksEndpoint:
         assert body["total"] == 1
         assert body["data"][0]["title"] == "Creep"
 
-    async def test_search_by_artist(self, client: httpx.AsyncClient) -> None:
+    async def test_search_by_artist(self, client: httpx2.AsyncClient) -> None:
         await _create_track(client, "Creep", "Radiohead")
         await _create_track(client, "Yellow", "Coldplay")
 
@@ -91,13 +91,13 @@ class TestListTracksEndpoint:
         assert body["total"] == 1
 
     async def test_search_min_length_validation(
-        self, client: httpx.AsyncClient
+        self, client: httpx2.AsyncClient
     ) -> None:
         response = await client.get("/api/v1/tracks?q=a")
 
         assert response.status_code == 422
 
-    async def test_sort_parameter(self, client: httpx.AsyncClient) -> None:
+    async def test_sort_parameter(self, client: httpx2.AsyncClient) -> None:
         await _create_track(client, "Zebra")
         await _create_track(client, "Alpha")
 
@@ -107,7 +107,7 @@ class TestListTracksEndpoint:
         titles = [t["title"] for t in body["data"]]
         assert titles == ["Alpha", "Zebra"]
 
-    async def test_track_schema_fields(self, client: httpx.AsyncClient) -> None:
+    async def test_track_schema_fields(self, client: httpx2.AsyncClient) -> None:
         await _create_track(client, "Test Song", "Test Artist")
 
         response = await client.get("/api/v1/tracks")
@@ -125,7 +125,7 @@ class TestListTracksEndpoint:
 class TestGetTrackDetailEndpoint:
     """GET /api/v1/tracks/{id} returns full track details."""
 
-    async def test_get_existing_track(self, client: httpx.AsyncClient) -> None:
+    async def test_get_existing_track(self, client: httpx2.AsyncClient) -> None:
         track_id = await _create_track(client, "Creep", "Radiohead")
 
         response = await client.get(f"/api/v1/tracks/{track_id}")
@@ -135,7 +135,7 @@ class TestGetTrackDetailEndpoint:
         assert body["title"] == "Creep"
         assert body["artists"][0]["name"] == "Radiohead"
 
-    async def test_detail_schema_fields(self, client: httpx.AsyncClient) -> None:
+    async def test_detail_schema_fields(self, client: httpx2.AsyncClient) -> None:
         track_id = await _create_track(client, "Test Song")
 
         response = await client.get(f"/api/v1/tracks/{track_id}")
@@ -148,7 +148,7 @@ class TestGetTrackDetailEndpoint:
         assert body["play_summary"]["total_plays"] == 0
 
     async def test_nonexistent_track_returns_404(
-        self, client: httpx.AsyncClient
+        self, client: httpx2.AsyncClient
     ) -> None:
         response = await client.get(f"/api/v1/tracks/{uuid7()}")
 
@@ -158,7 +158,7 @@ class TestGetTrackDetailEndpoint:
 class TestMergeTrackEndpoint:
     """POST /api/v1/tracks/{id}/merge merges a duplicate into the winner."""
 
-    async def test_merge_returns_winner(self, client: httpx.AsyncClient) -> None:
+    async def test_merge_returns_winner(self, client: httpx2.AsyncClient) -> None:
         winner_id = await _create_track(client, "Creep", "Radiohead")
         loser_id = await _create_track(client, "Creep (Remaster)", "Radiohead")
 
@@ -173,7 +173,7 @@ class TestMergeTrackEndpoint:
         assert body["title"] == "Creep"
 
     async def test_loser_is_deleted_after_merge(
-        self, client: httpx.AsyncClient
+        self, client: httpx2.AsyncClient
     ) -> None:
         winner_id = await _create_track(client, "Winner")
         loser_id = await _create_track(client, "Loser")
@@ -186,7 +186,7 @@ class TestMergeTrackEndpoint:
         response = await client.get(f"/api/v1/tracks/{loser_id}")
         assert response.status_code == 404
 
-    async def test_self_merge_returns_400(self, client: httpx.AsyncClient) -> None:
+    async def test_self_merge_returns_400(self, client: httpx2.AsyncClient) -> None:
         track_id = await _create_track(client, "Solo")
 
         response = await client.post(
@@ -197,7 +197,7 @@ class TestMergeTrackEndpoint:
         assert response.status_code == 400
 
     async def test_nonexistent_loser_returns_404(
-        self, client: httpx.AsyncClient
+        self, client: httpx2.AsyncClient
     ) -> None:
         winner_id = await _create_track(client, "Winner")
 
@@ -212,14 +212,14 @@ class TestMergeTrackEndpoint:
 class TestListTracksFacets:
     """GET /api/v1/tracks?include_facets=true returns per-facet counts."""
 
-    async def test_facets_default_absent(self, client: httpx.AsyncClient) -> None:
+    async def test_facets_default_absent(self, client: httpx2.AsyncClient) -> None:
         """Without include_facets, facets field is absent/null."""
         await _create_track(client, "Song")
         response = await client.get("/api/v1/tracks")
         body = response.json()
         assert body.get("facets") is None
 
-    async def test_facets_empty_library(self, client: httpx.AsyncClient) -> None:
+    async def test_facets_empty_library(self, client: httpx2.AsyncClient) -> None:
         """Empty library returns zero-valued facets without errors."""
         response = await client.get("/api/v1/tracks?include_facets=true")
         assert response.status_code == 200
@@ -231,7 +231,7 @@ class TestListTracksFacets:
         assert facets["connector"] == {}
 
     async def test_unrated_count_populated_when_tracks_have_no_preference(
-        self, client: httpx.AsyncClient
+        self, client: httpx2.AsyncClient
     ) -> None:
         """Tracks without a preference row contribute to the 'unrated' bucket."""
         await _create_track(client, "A")

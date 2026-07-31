@@ -45,3 +45,21 @@ updates:
       interval: "weekly"
     cooldown:
       default-days: 7
+
+  # Watches the Dockerfile's FROM tags. Added because nothing did: the uv builder
+  # image sat on 0.11 while local and CI moved to 0.12, and a uv that predates the
+  # uv.lock schema fails the production build at deploy.
+  - package-ecosystem: "docker"
+    directory: "/"
+    schedule:
+      interval: "weekly"
+    cooldown:
+      default-days: 7
+    ignore:
+      # These two major lines are deliberate, not drift: requires-python pins
+      # 3.14.x, and node 24 matches ci.yml's setup-node. Only the uv image — the
+      # one tag that should track — is left unscoped.
+      - dependency-name: "python"
+        update-types: ["version-update:semver-major"]
+      - dependency-name: "node"
+        update-types: ["version-update:semver-major"]

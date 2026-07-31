@@ -6,13 +6,13 @@ Each test gets a fresh database via the client fixture.
 
 from uuid import UUID
 
-import httpx
+import httpx2
 
 from tests.fixtures.factories import nonexistent_id
 
 
 async def _create_track_with_mapping(
-    client: httpx.AsyncClient,
+    client: httpx2.AsyncClient,
     title: str = "Test Track",
     artist: str = "Artist",
     connector: str = "spotify",
@@ -49,7 +49,7 @@ async def _create_track_with_mapping(
 
 
 async def _create_bare_track(
-    client: httpx.AsyncClient, title: str, artist: str = "Artist"
+    client: httpx2.AsyncClient, title: str, artist: str = "Artist"
 ) -> UUID:
     """Create a track with no connector mappings."""
     from src.application.runner import execute_use_case
@@ -70,7 +70,7 @@ class TestRelinkMappingEndpoint:
     """PATCH /api/v1/tracks/{track_id}/mappings/{mapping_id} relinks a mapping."""
 
     async def test_relink_returns_updated_track(
-        self, client: httpx.AsyncClient
+        self, client: httpx2.AsyncClient
     ) -> None:
         track_id, mapping_id = await _create_track_with_mapping(client)
         target_id = await _create_bare_track(client, "Target Track")
@@ -85,7 +85,7 @@ class TestRelinkMappingEndpoint:
         # After relink, the source track should have fewer mappings
         assert body["id"] == str(track_id)
 
-    async def test_self_relink_returns_400(self, client: httpx.AsyncClient) -> None:
+    async def test_self_relink_returns_400(self, client: httpx2.AsyncClient) -> None:
         track_id, mapping_id = await _create_track_with_mapping(client)
 
         response = await client.patch(
@@ -96,7 +96,7 @@ class TestRelinkMappingEndpoint:
         assert response.status_code == 400
 
     async def test_nonexistent_target_returns_404(
-        self, client: httpx.AsyncClient
+        self, client: httpx2.AsyncClient
     ) -> None:
         track_id, mapping_id = await _create_track_with_mapping(client)
 
@@ -108,7 +108,7 @@ class TestRelinkMappingEndpoint:
         assert response.status_code == 404
 
     async def test_nonexistent_mapping_returns_404(
-        self, client: httpx.AsyncClient
+        self, client: httpx2.AsyncClient
     ) -> None:
         track_id, _ = await _create_track_with_mapping(client)
 
@@ -120,7 +120,7 @@ class TestRelinkMappingEndpoint:
         assert response.status_code == 404
 
     async def test_track_id_mismatch_returns_400(
-        self, client: httpx.AsyncClient
+        self, client: httpx2.AsyncClient
     ) -> None:
         track_id, mapping_id = await _create_track_with_mapping(client)
         other_id = await _create_bare_track(client, "Other")
@@ -136,7 +136,7 @@ class TestRelinkMappingEndpoint:
 class TestUnlinkMappingEndpoint:
     """DELETE /api/v1/tracks/{track_id}/mappings/{mapping_id} unlinks a mapping."""
 
-    async def test_unlink_returns_result(self, client: httpx.AsyncClient) -> None:
+    async def test_unlink_returns_result(self, client: httpx2.AsyncClient) -> None:
         track_id, mapping_id = await _create_track_with_mapping(client)
 
         response = await client.delete(
@@ -150,7 +150,7 @@ class TestUnlinkMappingEndpoint:
         assert body["orphan_track_id"] is not None
 
     async def test_nonexistent_mapping_returns_404(
-        self, client: httpx.AsyncClient
+        self, client: httpx2.AsyncClient
     ) -> None:
         track_id, _ = await _create_track_with_mapping(client)
 
@@ -161,7 +161,7 @@ class TestUnlinkMappingEndpoint:
         assert response.status_code == 404
 
     async def test_track_id_mismatch_returns_400(
-        self, client: httpx.AsyncClient
+        self, client: httpx2.AsyncClient
     ) -> None:
         track_id, mapping_id = await _create_track_with_mapping(client)
         other_id = await _create_bare_track(client, "Other")
@@ -176,7 +176,7 @@ class TestUnlinkMappingEndpoint:
 class TestSetPrimaryMappingEndpoint:
     """PATCH /api/v1/tracks/{track_id}/mappings/{mapping_id}/primary sets primary."""
 
-    async def test_set_primary_returns_track(self, client: httpx.AsyncClient) -> None:
+    async def test_set_primary_returns_track(self, client: httpx2.AsyncClient) -> None:
         track_id, mapping_id = await _create_track_with_mapping(client)
 
         response = await client.patch(
@@ -188,7 +188,7 @@ class TestSetPrimaryMappingEndpoint:
         assert body["id"] == str(track_id)
 
     async def test_nonexistent_mapping_returns_404(
-        self, client: httpx.AsyncClient
+        self, client: httpx2.AsyncClient
     ) -> None:
         track_id, _ = await _create_track_with_mapping(client)
 
@@ -199,7 +199,7 @@ class TestSetPrimaryMappingEndpoint:
         assert response.status_code == 404
 
     async def test_track_id_mismatch_returns_400(
-        self, client: httpx.AsyncClient
+        self, client: httpx2.AsyncClient
     ) -> None:
         track_id, mapping_id = await _create_track_with_mapping(client)
         other_id = await _create_bare_track(client, "Other")

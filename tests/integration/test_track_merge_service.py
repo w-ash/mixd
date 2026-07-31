@@ -554,3 +554,169 @@ class TestMergePreservesMappingHistory:
         assert rows[winner_mapping].is_primary is True
         assert rows[loser_mapping].is_primary is False
         assert rows[loser_mapping].confidence == 95
+
+
+class TestMergeSourceIsUnambiguous:
+    """One loser row, one decision — the CTE arms may not both claim it.
+
+    ``all_conflicts`` joins losers to winners, and a data-modifying CTE that
+    lets two arms UPDATE the same row applies exactly one of them, chosen
+    unpredictably. Collapsing the source to one winner per loser is the fix
+    PostgreSQL's own documentation prescribes; these tests pin the two shapes
+    that reach it.
+    """
+
+    _track = staticmethod(TestMergePreservesMappingHistory._track)
+    _connector_track = staticmethod(TestMergePreservesMappingHistory._connector_track)
+    _mapping_row = staticmethod(TestMergePreservesMappingHistory._mapping_row)
+    _all_mappings = staticmethod(TestMergePreservesMappingHistory._all_mappings)
+
+    @staticmethod
+    def _raw_mapping(
+        mapping_id,
+        track_id,
+        ct_id,
+        *,
+        user_id: str = "default",
+        is_primary: bool = True,
+    ) -> DBTrackMapping:
+        now = datetime.now(UTC)
+        return DBTrackMapping(
+            id=mapping_id,
+            user_id=user_id,
+            track_id=track_id,
+            connector_track_id=ct_id,
+            connector_name="lastfm",
+            match_method="isrc",
+            confidence=90,
+            is_primary=is_primary,
+            created_at=now,
+            updated_at=now,
+        )
+
+    async def test_a_loser_matching_two_winners_retires_into_the_shared_one(
+        self, db_session: AsyncSession, test_data_tracker
+    ):
+        """The same-connector-track arm must win when both arms apply.
+
+        The winner holds two live lastfm mappings on different connector
+        tracks, which ``uq_track_mappings_live_connector`` permits. The loser
+        shares one of them, so it joins *both* winners: once same-ext, once
+        diff-ext. If the diff-ext arm won, the loser row would be moved to the
+        winner track still live, and (user, shared_ct, lastfm) would hold two
+        live rows — a 23505 that aborts the whole merge.
+        """
+        winner = await self._track(db_session, "Winner", test_data_tracker)
+        loser = await self._track(db_session, "Loser", test_data_tracker)
+        shared_ct = await self._connector_track(db_session, "lastfm")
+        other_ct = await self._connector_track(db_session, "lastfm")
+
+        winner_shared, winner_other, loser_mapping = uuid7(), uuid7(), uuid7()
+        db_session.add_all([
+            self._raw_mapping(winner_shared, winner.id, shared_ct.id),
+            self._raw_mapping(winner_other, winner.id, other_ct.id, is_primary=False),
+        ])
+        await db_session.flush()
+        # The loser's duplicate live row on shared_ct is the pre-044 shape the
+        # index now forbids, so stand it down for this transaction (the
+        # savepoint fixture rolls the DDL back with everything else).
+        _ = await db_session.execute(
+            text("DROP INDEX uq_track_mappings_live_connector")
+        )
+        db_session.add(
+            self._raw_mapping(loser_mapping, loser.id, shared_ct.id, is_primary=False)
+        )
+        await db_session.flush()
+
+        uow = DatabaseUnitOfWork(db_session)
+        async with uow:
+            await TrackMergeService().merge_tracks(winner.id, loser.id, uow)
+
+        rows = {row.id: row for row in await self._all_mappings(db_session, winner.id)}
+        retired = rows[loser_mapping]
+        assert retired.superseded_at is not None, (
+            "the shared-connector-track arm must claim the loser, not the diff-ext arm"
+        )
+        assert retired.superseded_by_id == winner_shared
+        live_on_shared = [
+            row
+            for row in rows.values()
+            if row.connector_track_id == shared_ct.id and row.superseded_at is None
+        ]
+        assert len(live_on_shared) == 1, "one live mapping per connector track"
+        assert winner_other in rows, "the unrelated winner mapping is untouched"
+
+    async def test_a_merge_never_pairs_mappings_across_tenants(
+        self, db_session: AsyncSession, test_data_tracker
+    ):
+        """Two tenants' rows joined on connector_name alone before the fix.
+
+        RLS does not backstop this: PDR-002 records a verified probe showing
+        the Neon owner role has BYPASSRLS, so ``FORCE ROW LEVEL SECURITY`` is
+        skipped and the join predicate is the isolation. A cross-tenant pair
+        would stamp one tenant's ``superseded_by_id`` with another's mapping
+        id and emit an edge whose successor the owner can never read.
+        """
+        winner = await self._track(db_session, "Winner", test_data_tracker)
+        loser = await self._track(db_session, "Loser", test_data_tracker)
+        shared_ct = await self._connector_track(db_session, "lastfm")
+
+        alice_mapping, bob_mapping = uuid7(), uuid7()
+        db_session.add_all([
+            self._raw_mapping(alice_mapping, winner.id, shared_ct.id, user_id="alice"),
+            self._raw_mapping(bob_mapping, loser.id, shared_ct.id, user_id="bob"),
+        ])
+        await db_session.flush()
+
+        uow = DatabaseUnitOfWork(db_session)
+        async with uow:
+            await TrackMergeService().merge_tracks(winner.id, loser.id, uow)
+
+        rows = {row.id: row for row in await self._all_mappings(db_session, winner.id)}
+        moved = rows[bob_mapping]
+        assert moved.superseded_at is None, (
+            "bob's mapping does not conflict with alice's — different tenants"
+        )
+        assert moved.superseded_by_id is None
+        assert moved.user_id == "bob", "the row keeps its own owner"
+
+    async def test_the_merge_does_not_depose_an_existing_primary(
+        self, db_session: AsyncSession, test_data_tracker
+    ):
+        """``uq_primary_mapping`` admits one live primary per connector.
+
+        The diff-ext arm used to set ``is_primary = TRUE`` on every winner it
+        matched. When the winner track already has a primary that is not the
+        one the arm picked, that is a second live primary for
+        (user, track, connector) — another 044 index the merge would trip.
+        """
+        winner = await self._track(db_session, "Winner", test_data_tracker)
+        loser = await self._track(db_session, "Loser", test_data_tracker)
+        winner_ct_a = await self._connector_track(db_session, "lastfm")
+        winner_ct_b = await self._connector_track(db_session, "lastfm")
+        loser_ct = await self._connector_track(db_session, "lastfm")
+
+        # uuid7 is time-ordered, so `older` sorts first on the winner tiebreak
+        # while `newer` is the one actually holding primacy — the shape that
+        # makes an unguarded promotion collide.
+        older, newer, loser_mapping = uuid7(), uuid7(), uuid7()
+        db_session.add_all([
+            self._raw_mapping(older, winner.id, winner_ct_a.id, is_primary=False),
+            self._raw_mapping(newer, winner.id, winner_ct_b.id, is_primary=True),
+            self._raw_mapping(loser_mapping, loser.id, loser_ct.id, is_primary=False),
+        ])
+        await db_session.flush()
+
+        uow = DatabaseUnitOfWork(db_session)
+        async with uow:
+            await TrackMergeService().merge_tracks(winner.id, loser.id, uow)
+
+        rows = {row.id: row for row in await self._all_mappings(db_session, winner.id)}
+        primaries = [
+            row.id
+            for row in rows.values()
+            if row.is_primary and row.superseded_at is None
+        ]
+        assert primaries == [newer], (
+            "the incumbent primary stands; the merge promotes nothing over it"
+        )

@@ -9,6 +9,7 @@ from rich.table import Table
 import typer
 
 from src.domain.exceptions import NotFoundError
+from src.domain.repositories.resolution import NegativeListing, NegativeListingKind
 from src.interface.cli.async_runner import run_async
 from src.interface.cli.cli_helpers import (
     get_cli_user_id,
@@ -537,4 +538,171 @@ def set_primary_mapping(
 
     console.print(
         f"[green]Set mapping {mapping_id} as primary for track {track_id}[/green]"
+    )
+
+
+def _fetch_negatives(
+    kind: NegativeListingKind, connector_track_id: str | None
+) -> list[NegativeListing]:
+    """Read one half of the negative cache, optionally narrowed to one id."""
+    from src.application.runner import execute_use_case
+    from src.domain.repositories.uow import UnitOfWorkProtocol
+
+    user_id = get_cli_user_id()
+    ct_ids = [UUID(connector_track_id)] if connector_track_id is not None else None
+
+    async def _fetch(uow: UnitOfWorkProtocol):
+        async with uow:
+            return await uow.get_resolution_negative_repository().list_negatives(
+                user_id=user_id, kind=kind, connector_track_ids=ct_ids
+            )
+
+    return run_async(execute_use_case(_fetch, user_id=user_id))
+
+
+def _render_negatives(
+    listings: list[NegativeListing], *, title: str, track_column: str, misses: bool
+) -> None:
+    """Render a negative-cache listing.
+
+    Shared by both commands because both are answering the same question in
+    the same shape — which connector track, which of my tracks, and (for the
+    dead half) how badly. Only the column labels differ, so only they are
+    parameters.
+    """
+    table = Table(title=title)
+    table.add_column("Connector Track", style="dim")
+    table.add_column("Connector", style="cyan")
+    table.add_column(track_column, style="dim")
+    table.add_column("Title", style="cyan")
+    if misses:
+        table.add_column("Misses", style="yellow", justify="right")
+    for listing in listings:
+        row = [
+            str(listing.connector_track_id),
+            f"{listing.connector_name}:{listing.connector_track_identifier}",
+            str(listing.track_id) if listing.track_id else "—",
+            listing.track_title or "(deleted track)",
+        ]
+        if misses:
+            row.append(str(listing.consecutive_misses))
+        table.add_row(*row)
+    console.print(table)
+
+
+@track_app.command("rejections")
+def list_rejections(
+    connector_track_id: Annotated[
+        str | None,
+        typer.Argument(
+            help="Connector track UUID. Omit to list every active rejection."
+        ),
+    ] = None,
+) -> None:
+    """Show which candidates are currently refused — for one connector track,
+    or across the whole library when no connector track is given.
+
+    Shows every un-withdrawn rejection regardless of matcher version. A pair
+    the current matcher has stopped enforcing is not suppressing anything
+    today, but it is still a standing refusal a person may want gone for good,
+    and hiding it would make `unreject` unable to reach it.
+    """
+    try:
+        listings = _fetch_negatives("rejected", connector_track_id)
+    except Exception as e:
+        handle_cli_error(e, "Failed to list rejections")
+
+    if not listings:
+        console.print("[dim]No active rejections.[/dim]")
+        return
+
+    _render_negatives(
+        listings,
+        title="Rejected candidates",
+        track_column="Candidate Track",
+        misses=False,
+    )
+    console.print(
+        "[dim]Withdraw with: mixd tracks unreject <connector-track-id> "
+        "<candidate-track-id>[/dim]"
+    )
+
+
+@track_app.command("dead-ids")
+def list_dead_ids(
+    connector_track_id: Annotated[
+        str | None,
+        typer.Argument(help="Connector track UUID. Omit to list every candidate."),
+    ] = None,
+) -> None:
+    """Show connector identifiers that have stopped resolving.
+
+    The drill-down behind the `dead_id_candidates` figure on the matching
+    drift report. Nothing is retired automatically — providers relink and
+    redirect far more often than they delete, so a disappearing id is usually
+    transient and mixd will not unlink your track on its own. These are the
+    ones that have now missed enough times, over a long enough stretch, to be
+    worth a look: relink them, or leave them and they will clear themselves
+    the moment the provider answers again.
+    """
+    try:
+        listings = _fetch_negatives("dead_id", connector_track_id)
+    except Exception as e:
+        handle_cli_error(e, "Failed to list dead ids")
+
+    if not listings:
+        console.print("[dim]No identifiers look dead.[/dim]")
+        return
+
+    _render_negatives(
+        listings,
+        title="Identifiers that stopped resolving",
+        track_column="Mapped Track",
+        misses=True,
+    )
+    console.print("[dim]Relink with: mixd tracks relink <mapping-id> <track-id>[/dim]")
+
+
+@track_app.command("unreject")
+def unreject_mapping(
+    connector_track_id: Annotated[str, typer.Argument(help="Connector track UUID")],
+    candidate_track_id: Annotated[
+        str, typer.Argument(help="Candidate track UUID to un-reject")
+    ],
+) -> None:
+    """Withdraw a remembered cannot-link rejection so the pair can match again.
+
+    Use `mixd tracks rejections <connector-track-id>` first to find the
+    candidate track ids currently suppressed for a connector track.
+    """
+
+    async def _unreject():
+        from src.application.runner import execute_use_case
+        from src.application.use_cases.unreject_mapping_candidate import (
+            UnrejectMappingCandidateCommand,
+            UnrejectMappingCandidateUseCase,
+        )
+
+        user_id = get_cli_user_id()
+        return await execute_use_case(
+            lambda uow: UnrejectMappingCandidateUseCase().execute(
+                UnrejectMappingCandidateCommand(
+                    user_id=user_id,
+                    connector_track_id=UUID(connector_track_id),
+                    candidate_track_id=UUID(candidate_track_id),
+                ),
+                uow,
+            ),
+            user_id=user_id,
+        )
+
+    try:
+        result = run_async(_unreject())
+    except Exception as e:
+        handle_cli_error(e, "Failed to unreject mapping candidate")
+
+    console.print(
+        f"[green]Withdrew rejection {result.connector_name}:{connector_track_id} "
+        f"x {candidate_track_id}. The pair is a candidate again on the next "
+        "resolution pass.[/green]"
     )

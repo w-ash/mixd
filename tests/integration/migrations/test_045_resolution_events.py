@@ -287,7 +287,7 @@ def test_045_recorded_at_orders_events_inside_one_transaction(migration_db: str)
 
     with engine.begin() as conn:
         track_id, ct_id = _seed_entities(conn)
-        for event_type in ("accepted", "suspect"):
+        for event_type in ("accepted", "queued"):
             conn.execute(
                 sa.text(
                     "INSERT INTO resolution_events (id, user_id, event_type, "

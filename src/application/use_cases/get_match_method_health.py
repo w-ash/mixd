@@ -91,6 +91,12 @@ class MatchingDrift:
     # missing matches.
     rejected_pairs_active: int
     no_match_pending: int
+    # Ids that have missed enough times, for long enough, to look dead rather
+    # than transient. Reported, never acted on: Spotify relinks and MusicBrainz
+    # merges rather than deleting, so this should sit near zero — a number that
+    # climbs means identifiers really are disappearing, which is a question for
+    # a human, not something an importer should silently retire.
+    dead_id_candidates: int
 
 
 @define(frozen=True, slots=True)
@@ -202,6 +208,7 @@ async def _compute_drift(
         ),
         rejected_pairs_active=cache_size.rejected_pairs_active,
         no_match_pending=cache_size.no_match_pending,
+        dead_id_candidates=cache_size.dead_id_candidates,
     )
 
 

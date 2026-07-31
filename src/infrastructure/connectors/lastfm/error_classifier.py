@@ -63,7 +63,7 @@ class LastFMErrorClassifier(HTTPErrorClassifier):
         """Classify Last.fm API-level errors (HTTP 200 with error body).
 
         Returns ``None`` for non-LastFMAPIError exceptions so the base class
-        handles httpx transport errors via the standard dispatch cascade.
+        handles httpx2 transport errors via the standard dispatch cascade.
         """
         if not isinstance(exception, LastFMAPIError):
             return None

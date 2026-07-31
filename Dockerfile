@@ -9,7 +9,10 @@
 # ---------------------------------------------------------------------------
 # Stage 1: Python builder (dependencies only — project source copied in runtime)
 # ---------------------------------------------------------------------------
-FROM ghcr.io/astral-sh/uv:0.11-python3.14-trixie-slim AS python-builder
+# Keep this tag in step with `required-version` in pyproject.toml — uv rejects a
+# uv.lock whose schema is newer than it understands, so a stale tag here fails the
+# `uv sync --locked` below at deploy time, long after CI went green.
+FROM ghcr.io/astral-sh/uv:0.12-python3.14-trixie-slim AS python-builder
 
 WORKDIR /app
 

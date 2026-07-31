@@ -774,6 +774,7 @@ class BaseRepository[TDBModel: DatabaseModel, TDomainModel]:
         lookup_keys: list[str],
         return_models: Literal[True] = ...,
         index_where: ColumnElement[bool] | None = ...,
+        update_where: ColumnElement[bool] | None = ...,
     ) -> list[TDomainModel]: ...
 
     @overload
@@ -783,6 +784,7 @@ class BaseRepository[TDBModel: DatabaseModel, TDomainModel]:
         lookup_keys: list[str],
         return_models: Literal[False],
         index_where: ColumnElement[bool] | None = ...,
+        update_where: ColumnElement[bool] | None = ...,
     ) -> int: ...
 
     @db_operation("bulk_upsert")
@@ -792,6 +794,7 @@ class BaseRepository[TDBModel: DatabaseModel, TDomainModel]:
         lookup_keys: list[str],
         return_models: bool = True,
         index_where: ColumnElement[bool] | None = None,
+        update_where: ColumnElement[bool] | None = None,
     ) -> list[TDomainModel] | int:
         """Perform bulk upsert via PostgreSQL ON CONFLICT.
 
@@ -812,9 +815,17 @@ class BaseRepository[TDBModel: DatabaseModel, TDomainModel]:
                 whose uniqueness is partial (``resolution_negatives``) has to
                 restate the predicate here or every conflict raises 23505 and
                 the batch silently degrades to the per-row fallback.
+            update_where: Predicate on the DO UPDATE action — the conflicting
+                row is refreshed only if it satisfies this. Rows that fail it
+                are left exactly as they are and are *not* returned, so a
+                caller with a terminal state to protect (``match_reviews``: a
+                row the user already accepted or rejected must not be reopened)
+                can express that without hand-rolling the statement and losing
+                the savepoint below.
 
         Returns:
-            List of domain models or count of affected rows
+            List of domain models, or the count of rows actually written —
+            which, with ``update_where``, is smaller than ``len(entities)``.
         """
         if not entities:
             return [] if return_models else 0
@@ -824,7 +835,7 @@ class BaseRepository[TDBModel: DatabaseModel, TDomainModel]:
 
         try:
             return await self._bulk_upsert_in_savepoint(
-                entities, lookup_keys, return_models, index_where
+                entities, lookup_keys, return_models, index_where, update_where
             )
         except Exception as e:
             logger.warning(
@@ -845,6 +856,17 @@ class BaseRepository[TDBModel: DatabaseModel, TDomainModel]:
                     k: v for k, v in entity_dict.items() if k not in lookup_keys
                 }
 
+                # ``upsert`` is a find-then-write, so it cannot express the DO
+                # UPDATE predicate the batch statement carries. Ask the database
+                # the same question first: if a row exists that *fails* the
+                # predicate, the batch would have skipped it, and writing it
+                # here would resurrect exactly the terminal state
+                # ``update_where`` exists to protect.
+                if update_where is not None and await self._conflict_row_is_locked(
+                    lookup_dict, update_where
+                ):
+                    continue
+
                 try:
                     # Savepoint per row: the fallback exists because the batch
                     # already hit a constraint, so a second violation here is
@@ -863,12 +885,32 @@ class BaseRepository[TDBModel: DatabaseModel, TDomainModel]:
 
             return results if return_models else count
 
+    async def _conflict_row_is_locked(
+        self,
+        lookup_dict: dict[str, object],
+        update_where: ColumnElement[bool],
+    ) -> bool:
+        """Does a row exist on this key that the DO UPDATE predicate excludes?
+
+        Evaluated in SQL rather than Python: ``update_where`` is a SQLAlchemy
+        expression over the model, and the database is the only thing that
+        agrees with the batch statement about what it means.
+        """
+        stmt = (
+            self
+            ._apply_conditions(select(self.model_class.id), lookup_dict)
+            .where(~update_where)
+            .limit(1)
+        )
+        return (await self.session.execute(stmt)).scalar_one_or_none() is not None
+
     async def _bulk_upsert_in_savepoint(
         self,
         entities: list[dict[str, object]],
         lookup_keys: list[str],
         return_models: bool,
         index_where: ColumnElement[bool] | None = None,
+        update_where: ColumnElement[bool] | None = None,
     ) -> list[TDomainModel] | int:
         """Run the bulk ON CONFLICT upsert inside a savepoint.
 
@@ -900,11 +942,17 @@ class BaseRepository[TDBModel: DatabaseModel, TDomainModel]:
                 index_elements=[getattr(self.model_class, k) for k in lookup_keys],
                 index_where=index_where,
                 set_=update_dict,
+                where=update_where,
             )
 
             # Add RETURNING clause if needed
             if return_models:
                 stmt = stmt.returning(self.model_class)
+            elif update_where is not None:
+                # A conditional DO UPDATE skips rows failing the predicate, so
+                # the submitted count is no longer the written count and the
+                # caller has to be told the truth about what it changed.
+                stmt = stmt.returning(self.model_class.id)
 
             # Execute the statement
             result = await self.session.execute(stmt)
@@ -916,4 +964,6 @@ class BaseRepository[TDBModel: DatabaseModel, TDomainModel]:
                 await self._load_relationships_via_identity_map(db_entities)
 
                 return await self.mapper.map_collection(db_entities)
+            if update_where is not None:
+                return len(result.scalars().all())
             return len(entities)

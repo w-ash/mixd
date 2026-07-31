@@ -4,7 +4,6 @@ Split from the former monolithic ``interfaces.py``.
 """
 
 from typing import Protocol, Self
-from uuid import UUID
 
 from src.domain.repositories.chat_feedback import ChatFeedbackRepositoryProtocol
 from src.domain.repositories.checkpoint import CheckpointRepositoryProtocol
@@ -194,14 +193,6 @@ class UnitOfWorkProtocol(Protocol):
         """Get the negative cache (no-match backoff + sticky rejected pairs)."""
         ...
 
-    def get_resolution_recorder(
-        self, *, run_id: UUID | None = None
-    ) -> ResolutionRecorderProtocol:
-        """Get the identity write seam, bound to this transaction.
-
-        ``run_id`` stamps every event this recorder writes with the operation
-        run that caused it, so "which import decided this?" is answerable
-        without correlating timestamps. Sites without a run in scope pass
-        nothing and the column stays NULL.
-        """
+    def get_resolution_recorder(self) -> ResolutionRecorderProtocol:
+        """Get the identity write seam, bound to this transaction."""
         ...

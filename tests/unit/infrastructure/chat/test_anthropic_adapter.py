@@ -9,7 +9,7 @@ from types import SimpleNamespace
 from typing import Any
 
 from anthropic import AuthenticationError, BadRequestError
-import httpx
+import httpx2
 import pytest
 
 from src.application.chat.protocols import LLMRequest
@@ -65,8 +65,8 @@ class _FakeClient:
 
 
 def _status_error(exc_type: type[Any], status: int) -> Any:
-    request = httpx.Request("POST", "https://api.anthropic.com/v1/messages")
-    response = httpx.Response(status, request=request)
+    request = httpx2.Request("POST", "https://api.anthropic.com/v1/messages")
+    response = httpx2.Response(status, request=request)
     return exc_type("nope", response=response, body=None)
 
 

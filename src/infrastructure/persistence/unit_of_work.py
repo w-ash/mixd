@@ -7,7 +7,6 @@ handling transaction management and repository creation using a shared database 
 # Legitimate Any: SQLAlchemy column types, JSON fields
 
 from typing import Self
-from uuid import UUID
 
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -92,6 +91,9 @@ class DatabaseUnitOfWork:
     _session: AsyncSession
     _committed: bool
     _connector_cache: dict[str, object]
+    _resolution_events: ResolutionEventRepositoryProtocol | None
+    _resolution_negatives: ResolutionNegativeRepositoryProtocol | None
+    _resolution_recorder: ResolutionRecorderProtocol | None
 
     def __init__(self, session: AsyncSession) -> None:
         """Initialize with database session.
@@ -102,6 +104,9 @@ class DatabaseUnitOfWork:
         self._session = session
         self._committed = False
         self._connector_cache = {}
+        self._resolution_events = None
+        self._resolution_negatives = None
+        self._resolution_recorder = None
 
     async def __aenter__(self) -> Self:
         """Enter async context manager."""
@@ -337,21 +342,33 @@ class DatabaseUnitOfWork:
 
     def get_resolution_event_repository(self) -> ResolutionEventRepositoryProtocol:
         """Get the append-only identity-resolution event log."""
-        return ResolutionEventRepository(self._session)
+        if self._resolution_events is None:
+            self._resolution_events = ResolutionEventRepository(self._session)
+        return self._resolution_events
 
     def get_resolution_negative_repository(
         self,
     ) -> ResolutionNegativeRepositoryProtocol:
         """Get the negative cache (no-match backoff + sticky rejected pairs)."""
-        return ResolutionNegativeRepository(self._session)
+        if self._resolution_negatives is None:
+            self._resolution_negatives = ResolutionNegativeRepository(self._session)
+        return self._resolution_negatives
 
-    def get_resolution_recorder(
-        self, *, run_id: UUID | None = None
-    ) -> ResolutionRecorderProtocol:
-        """Get the identity write seam, bound to this transaction."""
-        return ResolutionRecorder(
-            self._session,
-            events=self.get_resolution_event_repository(),
-            negatives=self.get_resolution_negative_repository(),
-            run_id=run_id,
-        )
+    def get_resolution_recorder(self) -> ResolutionRecorderProtocol:
+        """Get the identity write seam, bound to this transaction.
+
+        Memoized: ``ResolutionRecorder.__init__`` recomputes the matcher
+        version on every construction — a sha256 over the probabilistic config
+        plus a fresh settings read — and the use cases build two or three
+        recorders per execution. The recorder's own docstring already promised
+        that every accessor resolves to the same objects on the same
+        transaction; caching here is what makes that true rather than
+        aspirational.
+        """
+        if self._resolution_recorder is None:
+            self._resolution_recorder = ResolutionRecorder(
+                self._session,
+                events=self.get_resolution_event_repository(),
+                negatives=self.get_resolution_negative_repository(),
+            )
+        return self._resolution_recorder

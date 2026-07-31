@@ -153,7 +153,7 @@ async def lifespan(_app: FastAPI) -> AsyncGenerator[None]:
             with contextlib.suppress(asyncio.CancelledError):
                 await task
         await manager.unsubscribe(sub_id)
-        # Close cached Anthropic clients so their httpx pools don't leak on exit.
+        # Close cached Anthropic clients so their httpx2 pools don't leak on exit.
         from src.infrastructure.chat.anthropic_adapter import aclose_all_adapters
 
         await aclose_all_adapters()

@@ -4,13 +4,13 @@ Tests the full request → route handler → use case → database → response 
 for GET /api/v1/stats/dashboard.
 """
 
-import httpx
+import httpx2
 
 
 class TestGetDashboardStats:
     """GET /api/v1/stats/dashboard returns aggregate library statistics."""
 
-    async def test_get_dashboard_stats_200(self, client: httpx.AsyncClient) -> None:
+    async def test_get_dashboard_stats_200(self, client: httpx2.AsyncClient) -> None:
         """Returns 200 with all expected fields."""
         response = await client.get("/api/v1/stats/dashboard")
 
@@ -24,7 +24,7 @@ class TestGetDashboardStats:
         assert "liked_by_connector" in body
 
     async def test_get_dashboard_stats_empty_db(
-        self, client: httpx.AsyncClient
+        self, client: httpx2.AsyncClient
     ) -> None:
         """Empty database returns all zeros and empty dicts."""
         response = await client.get("/api/v1/stats/dashboard")

@@ -28,7 +28,7 @@ paths:
 - Use cases → always unit (mock repos via `make_mock_uow()`).
 - Connectors → always unit (mock HTTP clients via `AsyncMock`).
 - Repositories → always integration (real SQL behavior).
-- API routes → always integration (real request/response cycle via httpx AsyncClient).
+- API routes → always integration (real request/response cycle via httpx2 AsyncClient).
 
 ## Factories and Mocks (use existing)
 - `from tests.fixtures import make_track, make_tracks, make_playlist, make_mock_uow`

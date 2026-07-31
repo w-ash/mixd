@@ -1,9 +1,11 @@
 """``manage_track_matches`` — two-phase writes over connector-mapping matches.
 
-One tool, four operations selected by an ``operation`` discriminator:
+One tool, five operations selected by an ``operation`` discriminator:
 ``relink`` (move a mapping to a different canonical track), ``unlink`` (sever a
 mapping, destructive), ``set_primary`` (promote a mapping to primary for its
-connector), and ``resolve_review`` (accept/reject a queued match review).
+connector), ``resolve_review`` (accept/reject a queued match review), and
+``unreject`` (withdraw a remembered cannot-link rejection so a pair can be
+proposed again).
 
 ``handle_manage_track_matches`` *proposes*: it coerces the per-operation fields,
 builds a human-readable confirmation card (with a destructive ``warning`` for
@@ -42,15 +44,19 @@ from src.application.use_cases.unlink_connector_track import (
     UnlinkConnectorTrackCommand,
     UnlinkConnectorTrackUseCase,
 )
+from src.application.use_cases.unreject_mapping_candidate import (
+    UnrejectMappingCandidateCommand,
+    UnrejectMappingCandidateUseCase,
+)
 from src.domain.entities.shared import JsonDict, JsonValue
 
-_OPERATIONS = ("relink", "unlink", "set_primary", "resolve_review")
+_OPERATIONS = ("relink", "unlink", "set_primary", "resolve_review", "unreject")
 _REVIEW_ACTIONS = ("accept", "reject")
 
 # Shared commit-time failure messages for this module's match use cases.
 _COMMIT_NOT_FOUND = (
-    "The mapping, track, or review no longer exists — it may have changed since "
-    "this action was proposed. Re-check the match and try again."
+    "The mapping, track, review, or rejection no longer exists — it may have "
+    "changed since this action was proposed. Re-check the match and try again."
 )
 _COMMIT_INVALID_PREFIX = "The match operation is no longer valid"
 
@@ -66,7 +72,9 @@ MANAGE_TRACK_MATCHES_INPUT_SCHEMA: JsonDict = {
                 "'unlink' severs a mapping (destructive; needs mapping_id, "
                 "current_track_id). 'set_primary' promotes a mapping to primary "
                 "for its connector (needs mapping_id, track_id). 'resolve_review' "
-                "accepts or rejects a queued match review (needs review_id, action)."
+                "accepts or rejects a queued match review (needs review_id, action). "
+                "'unreject' withdraws a remembered cannot-link rejection so the pair "
+                "can be proposed again (needs connector_track_id, candidate_track_id)."
             ),
         },
         "mapping_id": {
@@ -101,6 +109,20 @@ MANAGE_TRACK_MATCHES_INPUT_SCHEMA: JsonDict = {
             "description": (
                 "resolve_review: 'accept' creates the real mapping, 'reject' "
                 "marks it rejected so it is not re-queued."
+            ),
+        },
+        "connector_track_id": {
+            "type": "string",
+            "description": (
+                "UUID of the connector track whose rejection to withdraw. "
+                "Required for unreject."
+            ),
+        },
+        "candidate_track_id": {
+            "type": "string",
+            "description": (
+                "UUID of the previously-rejected candidate track. Required for "
+                "unreject."
             ),
         },
     },
@@ -203,6 +225,32 @@ async def _propose_resolve_review(
     )
 
 
+async def _propose_unreject(
+    tool_input: Mapping[str, JsonValue], ctx: ToolContext
+) -> JsonValue:
+    connector_track_id = require_uuid(tool_input, "connector_track_id")
+    candidate_track_id = require_uuid(tool_input, "candidate_track_id")
+    details: JsonDict = {
+        "operation": "unreject",
+        "connector_track_id": str(connector_track_id),
+        "candidate_track_id": str(candidate_track_id),
+        "changes": [
+            (
+                f"Rejection between connector track {connector_track_id} and "
+                f"candidate track {candidate_track_id} is withdrawn — the pair "
+                "is a candidate again"
+            ),
+        ],
+    }
+    description = (
+        f"Withdraw rejection between connector track {connector_track_id} "
+        f"and candidate track {candidate_track_id}"
+    )
+    return await propose_action(
+        ctx, "manage_track_matches", tool_input, description, details
+    )
+
+
 async def handle_manage_track_matches(
     tool_input: Mapping[str, JsonValue], ctx: ToolContext
 ) -> JsonValue:
@@ -220,6 +268,8 @@ async def handle_manage_track_matches(
         return await _propose_unlink(tool_input, ctx)
     if operation == "set_primary":
         return await _propose_set_primary(tool_input, ctx)
+    if operation == "unreject":
+        return await _propose_unreject(tool_input, ctx)
     return await _propose_resolve_review(tool_input, ctx)
 
 
@@ -308,13 +358,35 @@ async def _exec_resolve_review(d: JsonDict, user_id: str) -> JsonValue:
     }
 
 
+async def _exec_unreject(d: JsonDict, user_id: str) -> JsonValue:
+    command = UnrejectMappingCandidateCommand(
+        user_id=user_id,
+        connector_track_id=UUID(str(d["connector_track_id"])),
+        candidate_track_id=UUID(str(d["candidate_track_id"])),
+        source="assistant",
+    )
+    result = await commit(
+        lambda uow: UnrejectMappingCandidateUseCase().execute(command, uow),
+        user_id,
+        not_found=_COMMIT_NOT_FOUND,
+        invalid_prefix=_COMMIT_INVALID_PREFIX,
+    )
+    return {
+        "status": "confirmed",
+        "operation": "unreject",
+        "connector_name": result.connector_name,
+        "connector_track_id": str(result.connector_track_id),
+        "candidate_track_id": str(result.candidate_track_id),
+    }
+
+
 async def exec_manage_track_matches(action: PendingAction, user_id: str) -> JsonValue:
     """Commit the proposed match operation through its use case.
 
-    Re-validates at commit time: a mapping/track/review that changed or vanished
-    between propose and confirm surfaces as an actionable ``ToolExecutionError``
-    (``NotFoundError`` → gone; ``ValueError`` → the guard/state check the use
-    case runs) instead of a raw failure.
+    Re-validates at commit time: a mapping/track/review/rejection that changed
+    or vanished between propose and confirm surfaces as an actionable
+    ``ToolExecutionError`` (``NotFoundError`` → gone; ``ValueError`` → the
+    guard/state check the use case runs) instead of a raw failure.
     """
     d = action.details
     operation = str(d["operation"])
@@ -324,6 +396,8 @@ async def exec_manage_track_matches(action: PendingAction, user_id: str) -> Json
         return await _exec_unlink(d, user_id)
     if operation == "set_primary":
         return await _exec_set_primary(d, user_id)
+    if operation == "unreject":
+        return await _exec_unreject(d, user_id)
     return await _exec_resolve_review(d, user_id)
 
 
@@ -333,9 +407,11 @@ SPECS: list[dict[str, object]] = [
         "description": (
             "Call this to propose a change to how a connector track is matched "
             "to a canonical track — relinking a mapping to another track, "
-            "severing it, promoting it to primary for its connector, or "
-            "resolving a queued match review. Unlink is destructive. Look up "
-            "real mapping_ids and review_ids first; never guess them."
+            "severing it, promoting it to primary for its connector, "
+            "resolving a queued match review, or withdrawing a remembered "
+            "cannot-link rejection so a pair can be proposed again. Unlink is "
+            "destructive. Look up real mapping_ids, review_ids, and rejected "
+            "pairs first; never guess them."
         ),
         "input_schema": MANAGE_TRACK_MATCHES_INPUT_SCHEMA,
         "dispatch": handle_manage_track_matches,
@@ -344,6 +420,7 @@ SPECS: list[dict[str, object]] = [
             "UnlinkConnectorTrackUseCase",
             "SetPrimaryMappingUseCase",
             "ResolveMatchReviewUseCase",
+            "UnrejectMappingCandidateUseCase",
         ),
         "kind": "write",
         "executor": exec_manage_track_matches,

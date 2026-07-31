@@ -93,7 +93,7 @@ WARNING "HTTP error response"   — 4xx/5xx responses; .status + .url + .retry_a
 
 ### HTTP request hook fires before network I/O
 
-The "HTTP request" log is emitted by the httpx event hook at the start of `send()`, **before** the TCP connection or TLS handshake happens:
+The "HTTP request" log is emitted by the httpx2 event hook at the start of `send()`, **before** the TCP connection or TLS handshake happens:
 
 - **"HTTP request" → "HTTP response/error" gap ≥ 50ms**: normal network latency
 - **"HTTP request" → "Operation failed" gap ≤ 5ms, no response log**: the error happened **inside the send call** — in the hook itself, during connection setup, or in the event loop — NOT from a server response.

@@ -8,7 +8,7 @@ isolated test database.
 import json
 from unittest.mock import AsyncMock, patch
 
-import httpx
+import httpx2
 import pytest
 
 from src.infrastructure.connectors._shared.token_storage import StoredToken
@@ -69,7 +69,7 @@ class TestImportEndpoints:
             yield
 
     async def test_import_lastfm_history_returns_operation_id(
-        self, client: httpx.AsyncClient
+        self, client: httpx2.AsyncClient
     ):
         response = await client.post(
             "/api/v1/imports/lastfm/history",
@@ -84,7 +84,7 @@ class TestImportEndpoints:
         assert isinstance(data["operation_id"], str)
         assert len(data["operation_id"]) > 0
 
-    async def test_import_lastfm_history_default_mode(self, client: httpx.AsyncClient):
+    async def test_import_lastfm_history_default_mode(self, client: httpx2.AsyncClient):
         response = await client.post(
             "/api/v1/imports/lastfm/history",
             json={},
@@ -93,7 +93,7 @@ class TestImportEndpoints:
         assert response.status_code == 200
         assert "operation_id" in response.json()
 
-    async def test_import_lastfm_history_invalid_mode(self, client: httpx.AsyncClient):
+    async def test_import_lastfm_history_invalid_mode(self, client: httpx2.AsyncClient):
         response = await client.post(
             "/api/v1/imports/lastfm/history",
             json={"mode": "invalid_mode"},
@@ -102,7 +102,7 @@ class TestImportEndpoints:
         assert response.status_code == 422  # Validation error
 
     async def test_import_spotify_likes_returns_operation_id(
-        self, client: httpx.AsyncClient
+        self, client: httpx2.AsyncClient
     ):
         response = await client.post(
             "/api/v1/imports/spotify/likes",
@@ -113,7 +113,7 @@ class TestImportEndpoints:
         data = response.json()
         assert "operation_id" in data
 
-    async def test_import_spotify_likes_with_params(self, client: httpx.AsyncClient):
+    async def test_import_spotify_likes_with_params(self, client: httpx2.AsyncClient):
         response = await client.post(
             "/api/v1/imports/spotify/likes",
             json={"limit": 10, "max_imports": 5},
@@ -123,7 +123,7 @@ class TestImportEndpoints:
         assert "operation_id" in response.json()
 
     async def test_export_lastfm_likes_returns_operation_id(
-        self, client: httpx.AsyncClient
+        self, client: httpx2.AsyncClient
     ):
         response = await client.post(
             "/api/v1/imports/lastfm/likes",
@@ -134,7 +134,7 @@ class TestImportEndpoints:
         data = response.json()
         assert "operation_id" in data
 
-    async def test_export_lastfm_likes_with_params(self, client: httpx.AsyncClient):
+    async def test_export_lastfm_likes_with_params(self, client: httpx2.AsyncClient):
         response = await client.post(
             "/api/v1/imports/lastfm/likes",
             json={"batch_size": 10, "max_exports": 5},
@@ -153,7 +153,7 @@ class TestLastfmUsernameResolution:
     """
 
     async def test_resolves_connected_account_never_env_or_other_tenant(
-        self, client: httpx.AsyncClient, monkeypatch
+        self, client: httpx2.AsyncClient, monkeypatch
     ):
         from src.config import settings
         from src.infrastructure.connectors.lastfm.play_importer import (
@@ -187,7 +187,7 @@ class TestLastfmUsernameResolution:
         assert await importer._resolve_username(None, "other_user") == "mallory"
 
     async def test_no_token_and_no_env_raises_clean_error(
-        self, client: httpx.AsyncClient, monkeypatch
+        self, client: httpx2.AsyncClient, monkeypatch
     ):
         from src.config import settings
         from src.domain.exceptions import LastfmAuthRequiredError
@@ -214,7 +214,7 @@ class TestConnectorConnectPreflight:
         return patch("src.interface.api.deps.get_token_storage", return_value=storage)
 
     async def test_lastfm_history_409_when_not_connected(
-        self, client: httpx.AsyncClient
+        self, client: httpx2.AsyncClient
     ):
         with self._disconnected():
             response = await client.post(
@@ -225,7 +225,7 @@ class TestConnectorConnectPreflight:
         assert response.json()["error"]["details"]["connector"] == "lastfm"
 
     async def test_spotify_likes_409_when_not_connected(
-        self, client: httpx.AsyncClient
+        self, client: httpx2.AsyncClient
     ):
         with self._disconnected():
             response = await client.post("/api/v1/imports/spotify/likes", json={})
@@ -233,14 +233,14 @@ class TestConnectorConnectPreflight:
         assert response.json()["error"]["details"]["connector"] == "spotify"
 
     async def test_lastfm_likes_export_409_when_not_connected(
-        self, client: httpx.AsyncClient
+        self, client: httpx2.AsyncClient
     ):
         with self._disconnected():
             response = await client.post("/api/v1/imports/lastfm/likes", json={})
         assert response.status_code == 409
 
     async def test_spotify_recent_409_when_not_connected(
-        self, client: httpx.AsyncClient
+        self, client: httpx2.AsyncClient
     ):
         with self._disconnected():
             response = await client.post("/api/v1/imports/spotify/recent", json={})
@@ -248,7 +248,7 @@ class TestConnectorConnectPreflight:
         assert response.json()["error"]["code"] == "CONNECTOR_NOT_CONNECTED"
 
     async def test_spotify_recent_409_when_grant_lacks_the_scope(
-        self, client: httpx.AsyncClient
+        self, client: httpx2.AsyncClient
     ):
         """A pre-v0.10.1 grant passes the connected check but not this route.
 
@@ -274,7 +274,7 @@ class TestConnectorConnectPreflight:
         assert error["details"]["missing_scopes"] == ["user-read-recently-played"]
 
     async def test_spotify_recent_accepted_when_scope_granted(
-        self, client: httpx.AsyncClient
+        self, client: httpx2.AsyncClient
     ):
         storage = AsyncMock()
         storage.load_token = AsyncMock(
@@ -293,7 +293,7 @@ class TestConnectorConnectPreflight:
         assert response.json()["operation_id"]
 
     async def test_spotify_recent_accepts_force_like_the_chat_surface(
-        self, client: httpx.AsyncClient
+        self, client: httpx2.AsyncClient
     ):
         """`force` re-reads the whole window; REST and chat must offer the same lever."""
         storage = AsyncMock()
@@ -311,7 +311,9 @@ class TestConnectorConnectPreflight:
 
         assert response.status_code == 200
 
-    async def test_spotify_history_upload_is_not_gated(self, client: httpx.AsyncClient):
+    async def test_spotify_history_upload_is_not_gated(
+        self, client: httpx2.AsyncClient
+    ):
         # The GDPR file upload needs no live token — it must NOT be gated.
         with self._disconnected():
             response = await client.post(
@@ -331,7 +333,7 @@ class TestSpotifyHistoryUploadSize:
     """Server-side upload size enforcement rejects oversized files."""
 
     async def test_oversized_upload_returns_413(
-        self, client: httpx.AsyncClient
+        self, client: httpx2.AsyncClient
     ) -> None:
         """Files exceeding MAX_UPLOAD_BYTES are rejected mid-stream."""
 
@@ -345,7 +347,7 @@ class TestSpotifyHistoryUploadSize:
             assert response.status_code == 413
 
     async def test_upload_within_limit_succeeds(
-        self, client: httpx.AsyncClient
+        self, client: httpx2.AsyncClient
     ) -> None:
         """A file within size limits is accepted and returns an operation_id."""
         content = json.dumps([]).encode()
@@ -360,7 +362,7 @@ class TestSpotifyHistoryUploadSize:
 class TestCheckpointEndpoints:
     """Tests the checkpoint status retrieval endpoint."""
 
-    async def test_get_checkpoints_returns_list(self, client: httpx.AsyncClient):
+    async def test_get_checkpoints_returns_list(self, client: httpx2.AsyncClient):
         response = await client.get("/api/v1/imports/checkpoints")
 
         assert response.status_code == 200
@@ -370,7 +372,7 @@ class TestCheckpointEndpoints:
             len(data) == 4
         )  # spotify/likes, lastfm/likes, lastfm/plays, spotify/plays
 
-    async def test_get_checkpoints_schema(self, client: httpx.AsyncClient):
+    async def test_get_checkpoints_schema(self, client: httpx2.AsyncClient):
         response = await client.get("/api/v1/imports/checkpoints")
 
         data = response.json()
@@ -381,7 +383,7 @@ class TestCheckpointEndpoints:
             assert checkpoint["entity_type"] in ("likes", "plays")
 
     async def test_checkpoints_no_previous_sync_for_fresh_db(
-        self, client: httpx.AsyncClient
+        self, client: httpx2.AsyncClient
     ):
         response = await client.get("/api/v1/imports/checkpoints")
 
@@ -395,7 +397,7 @@ class TestOperationEndpoints:
     """Tests for the operation progress endpoints."""
 
     async def test_unknown_operation_progress_returns_404(
-        self, client: httpx.AsyncClient
+        self, client: httpx2.AsyncClient
     ):
         response = await client.get("/api/v1/operations/nonexistent-id/progress")
 
@@ -409,7 +411,7 @@ class TestSSEProgressStreaming:
     so the generator yields them immediately and terminates on the sentinel.
     """
 
-    async def test_sse_stream_delivers_progress_event(self, client: httpx.AsyncClient):
+    async def test_sse_stream_delivers_progress_event(self, client: httpx2.AsyncClient):
         """A single progress event is delivered in SSE wire format."""
         registry = get_operation_registry()
         operation_id = "test-sse-progress"
@@ -440,7 +442,9 @@ class TestSSEProgressStreaming:
         finally:
             await registry.unregister(operation_id)
 
-    async def test_sse_stream_delivers_multiple_events(self, client: httpx.AsyncClient):
+    async def test_sse_stream_delivers_multiple_events(
+        self, client: httpx2.AsyncClient
+    ):
         """Multiple events are delivered in sequence."""
         registry = get_operation_registry()
         operation_id = "test-sse-multi"
@@ -482,7 +486,7 @@ class TestSSEProgressStreaming:
             await registry.unregister(operation_id)
 
     async def test_sse_reconnection_skips_already_received_events(
-        self, client: httpx.AsyncClient
+        self, client: httpx2.AsyncClient
     ):
         """Last-Event-ID causes events with lower sequence numbers to be skipped."""
         registry = get_operation_registry()
@@ -524,7 +528,7 @@ class TestSSEProgressStreaming:
         finally:
             await registry.unregister(operation_id)
 
-    async def test_sse_data_is_json_encoded(self, client: httpx.AsyncClient):
+    async def test_sse_data_is_json_encoded(self, client: httpx2.AsyncClient):
         """SSE data field contains valid JSON (auto-serialized by ServerSentEvent)."""
         registry = get_operation_registry()
         operation_id = "test-sse-json"
@@ -557,7 +561,7 @@ class TestSSEProgressStreaming:
         finally:
             await registry.unregister(operation_id)
 
-    async def test_sse_sentinel_closes_stream(self, client: httpx.AsyncClient):
+    async def test_sse_sentinel_closes_stream(self, client: httpx2.AsyncClient):
         """Sentinel without any preceding events produces an empty stream."""
         registry = get_operation_registry()
         operation_id = "test-sse-sentinel"

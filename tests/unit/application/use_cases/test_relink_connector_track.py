@@ -74,8 +74,11 @@ class TestRelinkHappyPath:
 
         assert result.old_track_id == 10
         assert result.new_track_id == 20
+        # ``user_id`` is threaded even though require_owned_mapping already
+        # validated ownership: RLS is inert in production (PDR-002), so the
+        # repository's WHERE clause is the isolation, not a second opinion.
         connector_repo.update_mapping_track.assert_awaited_once_with(
-            1, 20, "manual_override"
+            1, 20, "manual_override", user_id="test-user"
         )
 
     async def test_primary_reassigned_on_both_tracks(self) -> None:

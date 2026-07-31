@@ -37,7 +37,7 @@ class TrackConversionConnector(Protocol):
 
 @runtime_checkable
 class Closeable(Protocol):
-    """Connector that owns resources (httpx pools) requiring explicit cleanup."""
+    """Connector that owns resources (httpx2 pools) requiring explicit cleanup."""
 
     async def aclose(self) -> None:
         """Release resources held by this connector instance."""

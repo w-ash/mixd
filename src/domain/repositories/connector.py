@@ -351,7 +351,12 @@ class ConnectorRepositoryProtocol(Protocol):
         ...
 
     def update_mapping_track(
-        self, mapping_id: UUID, new_track_id: UUID, origin: str
+        self,
+        mapping_id: UUID,
+        new_track_id: UUID,
+        origin: str,
+        *,
+        user_id: str,
     ) -> Awaitable[TrackMapping]:
         """Move a mapping to a different canonical track.
 
@@ -362,6 +367,10 @@ class ConnectorRepositoryProtocol(Protocol):
             mapping_id: Database ID of the mapping to update.
             new_track_id: Target canonical track ID.
             origin: New origin value (e.g., "manual_override").
+            user_id: Ownership scope. Required rather than inferred: PDR-002
+                records the Neon owner role as BYPASSRLS in production, so the
+                WHERE clause this builds is the isolation that actually runs,
+                not a second opinion on RLS.
 
         Returns:
             Updated TrackMapping entity.

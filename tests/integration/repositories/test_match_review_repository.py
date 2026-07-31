@@ -118,8 +118,8 @@ class TestCreateBatch:
                 match_weight=3.2,
             ),
         ]
-        count = await repo.create_reviews_batch(reviews)
-        assert count == 2
+        written = await repo.create_reviews_batch(reviews)
+        assert len(written) == 2
 
 
 class TestListPendingReviews:
@@ -282,7 +282,7 @@ class TestResolvedReviewsDoNotResurrect:
 
         written = await repo.create_reviews_batch([review])
 
-        assert written == 0
+        assert written == [], "a rejected row is neither rewritten nor reported"
         after = await repo.get_by_id(existing.id)
         assert after is not None
         assert after.status == ReviewStatus.REJECTED
@@ -315,8 +315,47 @@ class TestResolvedReviewsDoNotResurrect:
             )
         ])
 
-        assert written == 1
+        assert len(written) == 1
         rows, _ = await repo.list_pending_reviews(user_id="default")
         current = next(row for row in rows if row.connector_track_id == ct_id)
         assert current.confidence == 81
         assert current.match_method == "isrc"
+
+
+class TestOneBadRowDoesNotPoisonTheTransaction:
+    """The savepoint is what keeps a constraint failure local to its row.
+
+    Phase 1 materializes connector tracks and Phase 2 writes the reviews, so a
+    connector track cascaded away in between leaves a review row pointing at
+    nothing. Without a savepoint that 23503 aborts the caller's whole import
+    transaction — every accepted mapping in it lost to save one review row.
+    """
+
+    async def test_an_orphaned_review_is_dropped_and_the_session_survives(
+        self, db_session: AsyncSession
+    ):
+        track_id, ct_id = await _seed_track_and_connector_track(db_session)
+        repo = MatchReviewRepository(db_session)
+
+        def _review(connector_track_id, confidence: int) -> MatchReview:
+            return MatchReview(
+                track_id=track_id,
+                connector_name="spotify",
+                connector_track_id=connector_track_id,
+                match_method="isrc",
+                confidence=confidence,
+                match_weight=3.0,
+            )
+
+        # The second row's connector track does not exist — the FK fails.
+        written = await repo.create_reviews_batch([
+            _review(ct_id, 70),
+            _review(uuid4(), 72),
+        ])
+
+        assert [row.connector_track_id for row in written] == [ct_id], (
+            "the good row survives; only the orphan is dropped"
+        )
+        # Still usable: the proof the failure stayed inside its savepoint
+        # rather than aborting the transaction this repository was called in.
+        assert await repo.count_pending(user_id="default") == 1

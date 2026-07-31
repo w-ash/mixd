@@ -26,7 +26,7 @@ import urllib.parse
 import webbrowser
 
 from attrs import define, field
-import httpx
+import httpx2
 
 from src.config import get_logger, settings
 from src.domain.exceptions import SpotifyAuthRequiredError
@@ -328,7 +328,7 @@ class SpotifyTokenManager:
             Valid access token string.
 
         Raises:
-            httpx.HTTPStatusError: If token refresh request fails.
+            httpx2.HTTPStatusError: If token refresh request fails.
             SpotifyAuthRequiredError: If no token is stored. Server-safe: this
                 method never launches the interactive browser flow, so it is
                 callable from the FastAPI worker / per-request auth flow without
@@ -395,7 +395,7 @@ class SpotifyTokenManager:
             New valid access token string.
 
         Raises:
-            httpx.HTTPStatusError: If the refresh request fails.
+            httpx2.HTTPStatusError: If the refresh request fails.
             RuntimeError: If no refresh token is available.
         """
         async with self._refresh_lock:
@@ -417,12 +417,12 @@ _HTTP_UNAUTHORIZED = 401
 
 
 # -------------------------------------------------------------------------
-# HTTPX AUTH FLOW
+# HTTPX2 AUTH FLOW
 # -------------------------------------------------------------------------
 
 
-class SpotifyBearerAuth(httpx.Auth):
-    """httpx async auth flow: injects Bearer token and retries on 401.
+class SpotifyBearerAuth(httpx2.Auth):
+    """httpx2 async auth flow: injects Bearer token and retries on 401.
 
     Used with a long-lived AsyncClient so token injection and 401 retry
     are handled transparently without per-call boilerplate in _impl methods.
@@ -435,8 +435,8 @@ class SpotifyBearerAuth(httpx.Auth):
 
     @override
     async def async_auth_flow(
-        self, request: httpx.Request
-    ) -> collections.abc.AsyncGenerator[httpx.Request, httpx.Response]:
+        self, request: httpx2.Request
+    ) -> collections.abc.AsyncGenerator[httpx2.Request, httpx2.Response]:
         token = await self._token_manager.get_valid_token()
         request.headers["Authorization"] = f"Bearer {token}"
         response = yield request

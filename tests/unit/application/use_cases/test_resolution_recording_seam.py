@@ -66,18 +66,10 @@ def _recorder(uow) -> AsyncMock:
 
 
 def _recorded_types(recorder: AsyncMock) -> list[str]:
-    """Every event type handed to the seam, by either entry point.
-
-    Sites that own no commit call ``record``; sites that do build their events
-    first and let ``apply_with_event_log`` write them on the same commit as the
-    mutation. Both are the seam, so both count.
-    """
+    """Every event type handed to the seam via ``record``, the one write path."""
     return [
         decision.event_type
-        for call in (
-            *recorder.record.call_args_list,
-            *recorder.build_events.call_args_list,
-        )
+        for call in recorder.record.call_args_list
         for decision in call.args[0]
     ]
 
@@ -232,7 +224,7 @@ class TestReviewResolutionRouting:
         track = make_track(5)
         await self._reject(uow, track)
         uow.commit.assert_awaited_once()
-        _recorder(uow).write_events.assert_awaited_once()
+        _recorder(uow).record.assert_awaited_once()
 
 
 class TestFailedWritesLeaveNoTrace:
@@ -263,5 +255,4 @@ class TestFailedWritesLeaveNoTrace:
             )
 
         _recorder(uow).record.assert_not_awaited()
-        _recorder(uow).write_events.assert_not_awaited()
         uow.commit.assert_not_awaited()

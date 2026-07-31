@@ -9,34 +9,19 @@ sites live in three different layers (a use case, an infrastructure service, a
 repository) and none of them may reach outward to find it.
 """
 
-from collections.abc import Awaitable, Mapping, Sequence
+from collections.abc import Awaitable, Iterable, Mapping, Sequence
 from datetime import datetime
-from typing import Protocol
+from typing import Literal, NamedTuple, Protocol
 from uuid import UUID
 
 from attrs import define, field
 
 from src.domain.entities.resolution_event import ResolutionEvent, ResolutionEventType
-from src.domain.entities.resolution_negative import ResolutionNegative
 from src.domain.entities.shared import JsonDict
 from src.domain.entities.track import Track
 from src.domain.entities.track_mapping import SupersessionReason
-from src.domain.matching.content_digest import DigestSide
-
-
-@define(frozen=True, slots=True)
-class SuspectWindow:
-    """How many recent ``suspect`` events there are, and how long they span.
-
-    The two numbers together are the death debounce: a count alone would
-    declare a flapping id dead within one import run, and a span alone would
-    accept a single failure that happened to be old. Both must clear their
-    thresholds (``DEATH_DEBOUNCE_FAILURES`` over
-    ``DEATH_DEBOUNCE_MIN_SPAN_SECONDS``) before an id is retired.
-    """
-
-    count: int = 0
-    span_seconds: float = 0.0
+from src.domain.matching.content_digest import DigestSide, service_side
+from src.domain.matching.types import MatchResult
 
 
 @define(frozen=True, slots=True)
@@ -52,6 +37,12 @@ class NegativeCacheSize:
 
     rejected_pairs_active: int = 0
     no_match_pending: int = 0
+    # Ids that have now missed enough times, over a long enough span, to look
+    # dead rather than transient. Reported rather than acted on: providers
+    # relink and redirect rather than delete (Spotify's track relinking,
+    # MusicBrainz's merge-not-delete), so a number that stays near zero is the
+    # expected shape and a number that climbs is worth a human looking.
+    dead_id_candidates: int = 0
 
 
 @define(frozen=True, slots=True)
@@ -93,9 +84,25 @@ class RejectionCandidate:
 
     connector: DigestSide
     candidate_track: Track
-    confidence: int = 0
-    score: float | None = None
-    payload: JsonDict = field(factory=dict)
+
+
+def rejection_candidates(matches: Iterable[MatchResult]) -> list[RejectionCandidate]:
+    """Build the ``active_rejections`` query payload for a batch of matches.
+
+    Both the accept path and the review-queue path ask the same question of
+    the same store — "is this pair still refused?" — and must build the
+    identical candidate shape to ask it, or a rejection honoured by one could
+    silently be ignored by the other. What differs between the two callers is
+    tenancy handling (grouped by owner vs. a single caller-supplied user) and
+    what they do with the returned frozenset, not this construction step.
+    """
+    return [
+        RejectionCandidate(
+            connector=service_side(match.connector_id, match.service_data),
+            candidate_track=match.track,
+        )
+        for match in matches
+    ]
 
 
 @define(frozen=True, slots=True)
@@ -108,6 +115,42 @@ class RejectedPairRow:
     content_digest: str
 
 
+# Which half of the negative cache a listing is asking about. A *selector*, not
+# a predicate: the predicates are SQL and live in the repository, and naming
+# them here would drag the storage layer's expression types into the domain and
+# out to the CLI. Both kinds answer the same shape of question — "what is this
+# table currently holding against me, and about which track" — which is why one
+# listing serves both.
+type NegativeListingKind = Literal["rejected", "dead_id"]
+
+
+@define(frozen=True, slots=True)
+class NegativeListing:
+    """One negative-cache row, read-shaped for a human deciding what to do.
+
+    The counterpart to :class:`RejectedPairRow` on the way out: that is what a
+    caller hands the repository to record a rejection, this is what a caller
+    gets back to *display* one — connector and track identity joined in, so a
+    human (or the ``manage_track_matches`` agent tool) never needs a second
+    lookup per row.
+
+    ``track_id``/``track_title`` are "the track this row is about", which
+    differs by kind and deliberately reads the same either way: for a rejection
+    it is the candidate that was refused, for a dead id it is the track whose
+    live mapping still points at the identifier that stopped answering. A
+    listing exists so a person can act, and in both cases the track is the
+    thing they act on.
+    """
+
+    connector_track_id: UUID
+    connector_name: str
+    connector_track_identifier: str
+    track_id: UUID | None = None
+    track_title: str | None = None
+    # Consecutive failed lookups. Zero for a rejection — nothing was missing.
+    consecutive_misses: int = 0
+
+
 class ResolutionEventRepositoryProtocol(Protocol):
     """Append-only storage for :class:`ResolutionEvent`."""
 
@@ -117,17 +160,6 @@ class ResolutionEventRepositoryProtocol(Protocol):
         ``recorded_at`` is never supplied — the column's ``now()`` default is
         the only writer, so ordering stays monotone regardless of what clock
         the calling process believes in.
-        """
-        ...
-
-    def recent_suspect_window(
-        self, *, user_id: str, connector_name: str, connector_track_id: UUID
-    ) -> Awaitable[SuspectWindow]:
-        """Count and time-span of the ``suspect`` streak since the last success.
-
-        "Since the last success" is what makes the streak reset free: a
-        ``verified``/``accepted`` event later than the oldest suspect truncates
-        the window, so recovery needs no counter to clear.
         """
         ...
 
@@ -146,10 +178,15 @@ class ResolutionNegativeRepositoryProtocol(Protocol):
         *,
         user_id: str,
         connector_name: str,
-        connector_track_id: UUID,
+        connector_track_ids: Sequence[UUID],
         matcher_version: str,
-    ) -> Awaitable[ResolutionNegative]:
-        """Record (or extend) a no-match backoff for one connector track."""
+    ) -> Awaitable[int]:
+        """Record (or extend) the no-match backoff for a batch of connector tracks.
+
+        Returns the number of rows written. One statement per batch, not per
+        id: the counter increment and the clock doubling are both SQL, so the
+        whole batch is one atomic upsert.
+        """
         ...
 
     def clear_no_match(
@@ -200,9 +237,60 @@ class ResolutionNegativeRepositoryProtocol(Protocol):
         """Stamp ``unrejected_at``; return whether a live rejection was found."""
         ...
 
+    def list_negatives(
+        self,
+        *,
+        user_id: str,
+        kind: NegativeListingKind,
+        connector_track_ids: Sequence[UUID] | None = None,
+    ) -> Awaitable[list[NegativeListing]]:
+        """What the negative cache is holding against this user, identity joined in.
+
+        One listing for both halves because both answer the same question for
+        the same reader: *something is being withheld or has stopped working —
+        which track, and what would I do about it?* ``rejected`` is the
+        discovery step ``unreject`` depends on; ``dead_id`` is the drill-down
+        behind ``NegativeCacheSize.dead_id_candidates``, which is a bare number
+        and cannot be acted on without it.
+
+        ``connector_track_ids`` narrows to specific connector tracks (the
+        per-track view); omitted, returns the user's whole set.
+
+        "Active" here is deliberately broader than
+        :meth:`active_rejected_pairs`'s matcher-scoped view: un-withdrawn,
+        regardless of matcher version. That view exists for automatic
+        re-matching, which must honour the version expiry; this one is for a
+        human to browse, and a pair a matcher bump quietly stopped enforcing is
+        still something they may want to see and withdraw for good.
+
+        Batch-fetches connector-track and track identity in the query rather
+        than one lookup per row — this is a listing, and the codebase is
+        batch-first.
+        """
+        ...
+
     def count_active_negatives(self, *, user_id: str) -> Awaitable[NegativeCacheSize]:
         """How many pairs are suppressed and how many ids are inside a backoff."""
         ...
+
+
+class SupersessionEdge(NamedTuple):
+    """A live mapping's predecessor→successor edge, with the tenancy to key it.
+
+    Not merge-specific despite the shape's origin there (it moved from
+    ``TrackRepositoryProtocol.merge_mappings_to_track``'s return type, where it
+    was ``ConflationEdge``): an automated re-match's ``assert_mappings`` batch
+    and a track merge's mapping conflation both retire a mapping in favor of
+    another, and both need the same four fields to record it as an event.
+    Tenancy travels with the edge, rather than being supplied once per caller,
+    because a single batch can span users and connectors — the recorder groups
+    by (user_id, connector_name) internally, so no caller has to.
+    """
+
+    predecessor_id: UUID
+    successor_id: UUID
+    user_id: str
+    connector_name: str
 
 
 class ResolutionRecorderProtocol(Protocol):
@@ -223,43 +311,36 @@ class ResolutionRecorderProtocol(Protocol):
         """
         ...
 
-    def write_events(
-        self, events: Sequence[ResolutionEvent], *, user_id: str
-    ) -> Awaitable[Sequence[ResolutionEvent]]:
-        """Append pre-built events, stamping ``user_id`` on every one.
-
-        The stamp is unconditional — an event built with a different owner is
-        overwritten, because the argument is the authority on whose decision
-        this is.
-        """
-        ...
-
-    def build_events(
-        self, decisions: Sequence[ResolutionDecision], *, user_id: str
-    ) -> list[ResolutionEvent]:
-        """Stamp decisions with matcher version, decision clock, and run id.
-
-        Pure — separated from :meth:`record` so a use case can hand the events
-        to ``apply_with_event_log`` and keep "rows changed ⇒ event" in one
-        place instead of re-implementing the guard per site.
-        """
-        ...
-
     def record(
         self, decisions: Sequence[ResolutionDecision], *, user_id: str
     ) -> Awaitable[int]:
-        """Build and append in one step, for sites that own no commit."""
+        """Build and append in one step, for sites that own no commit.
+
+        ``user_id`` is stamped onto every event unconditionally, not filled in
+        only where a decision lacks one. ``ResolutionDecision`` carries no
+        owner of its own — the seam is the single place that supplies it — so
+        a caller running under the local-dev default could otherwise have its
+        events recorded as another tenant's history, past an RLS policy that
+        reads ``app.user_id`` and would have rejected them.
+        """
         ...
 
     def record_supersessions(
         self,
-        edges: Mapping[UUID, UUID],
+        edges: Sequence[SupersessionEdge],
         *,
-        user_id: str,
-        connector_name: str,
         reason: SupersessionReason = "rematch",
     ) -> Awaitable[int]:
-        """One ``superseded`` event per predecessor→successor edge."""
+        """One ``superseded`` event per edge, grouped by (user_id, connector_name).
+
+        Callers hand over whatever they already have — the edges from an
+        ``assert_mappings`` batch or a merge's mapping conflation already carry
+        their own tenancy — so there is no group-by to hand-roll before
+        calling this; the recorder does it once, internally. Each event is
+        written against its edge's *successor*: "this mapping is what
+        replaced that one" is the question a reader asks, and the successor is
+        the row still reachable by a live lookup.
+        """
         ...
 
     def retire_mapping(
@@ -268,7 +349,6 @@ class ResolutionRecorderProtocol(Protocol):
         *,
         user_id: str,
         reason: SupersessionReason,
-        scope: str | None = None,
     ) -> Awaitable[bool]:
         """Retire a live mapping with no successor; return whether a row moved.
 
@@ -295,7 +375,14 @@ class ResolutionRecorderProtocol(Protocol):
         user_id: str,
         connector_name: str,
     ) -> Awaitable[int]:
-        """Persist cannot-link entries, materializing connector tracks as needed."""
+        """Persist cannot-link entries, materializing connector tracks as needed.
+
+        Every refusal stored here binds every reader of the store, so only a
+        decision that should stop *all* future matching belongs in it. A gate
+        that refuses on its own stricter bar records a ``rejected`` event and
+        nothing more — see :class:`ResolutionEvent`, which is where "who
+        decided what, and why" lives.
+        """
         ...
 
     def remember_no_match(
@@ -333,21 +420,13 @@ class ResolutionRecorderProtocol(Protocol):
         """
         ...
 
-    def note_suspect(
-        self,
-        connector_side: DigestSide,
-        *,
-        user_id: str,
-        connector_name: str,
-        payload: JsonDict | None = None,
-    ) -> Awaitable[bool]:
-        """Record one failed lookup and report whether it proves the id dead.
+    def connector_track_ids(
+        self, identifiers: Sequence[str], *, connector_name: str
+    ) -> Awaitable[dict[str, UUID]]:
+        """The connector-track rows these external ids name (no writes).
 
-        Returns True only when the debounce thresholds are both met, at which
-        point the live mapping (if any) has been retired as ``id_dead`` and the
-        matching ``superseded`` event written. A single 404 never gets there:
-        the measured Spotify transient band is seconds to minutes, and one
-        spurious miss retiring a good id would be worse than the staleness it
-        was trying to fix.
+        Every event, streak and backoff query keys on ``connector_track_id``,
+        so anything recording an event *about* an external id has to trade the
+        string for the row first. Unknown ids are absent from the result.
         """
         ...

@@ -18,6 +18,9 @@ from src.application.chat.protocols import ToolContext
 from src.application.use_cases.relink_connector_track import RelinkConnectorTrackResult
 from src.application.use_cases.resolve_match_review import ResolveMatchReviewResult
 from src.application.use_cases.unlink_connector_track import UnlinkConnectorTrackResult
+from src.application.use_cases.unreject_mapping_candidate import (
+    UnrejectMappingCandidateResult,
+)
 from src.domain.entities.match_review import MatchReview
 from src.domain.exceptions import NotFoundError, ToolExecutionError
 from tests.fixtures import InMemoryPendingActionStore
@@ -110,6 +113,44 @@ class TestManageTrackMatchesPropose:
         assert result["details"]["operation"] == "resolve_review"
         assert result["details"]["action"] == "accept"
         assert "Accept" in result["description"]
+
+    async def test_unreject_proposes_pending_confirmation(
+        self, fresh_store: InMemoryPendingActionStore
+    ) -> None:
+        connector_track_id, candidate_track_id = uuid4(), uuid4()
+
+        result = await matches_write.handle_manage_track_matches(
+            {
+                "operation": "unreject",
+                "connector_track_id": str(connector_track_id),
+                "candidate_track_id": str(candidate_track_id),
+            },
+            _CTX,
+        )
+
+        assert result["status"] == "pending_confirmation"
+        details = result["details"]
+        assert details["operation"] == "unreject"
+        assert details["connector_track_id"] == str(connector_track_id)
+        assert details["candidate_track_id"] == str(candidate_track_id)
+        assert details["changes"]
+        # unreject is not destructive — it withdraws a suppression.
+        assert "severity" not in details
+
+        action = await fresh_store.claim(UUID(result["action_id"]), "default")
+        assert action.tool_name == "manage_track_matches"
+
+    async def test_unreject_missing_field_rejected(
+        self, fresh_store: InMemoryPendingActionStore
+    ) -> None:
+        with pytest.raises(ToolExecutionError, match="candidate_track_id"):
+            await matches_write.handle_manage_track_matches(
+                {
+                    "operation": "unreject",
+                    "connector_track_id": str(uuid4()),
+                },
+                _CTX,
+            )
 
     async def test_unknown_operation_rejected(
         self, fresh_store: InMemoryPendingActionStore
@@ -231,6 +272,33 @@ class TestExecManageTrackMatches:
         assert result["operation"] == "resolve_review"
         assert result["review_status"] == "accepted"
         assert result["mapping_created"] is True
+
+    async def test_unreject_commits(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        connector_track_id, candidate_track_id = uuid4(), uuid4()
+        monkeypatch.setattr(
+            _common,
+            "execute_use_case",
+            _fake_use_case_runner(
+                UnrejectMappingCandidateResult(
+                    connector_name="spotify",
+                    connector_track_id=connector_track_id,
+                    candidate_track_id=candidate_track_id,
+                )
+            ),
+        )
+        action = await _action({
+            "operation": "unreject",
+            "connector_track_id": str(connector_track_id),
+            "candidate_track_id": str(candidate_track_id),
+        })
+
+        result = await matches_write.exec_manage_track_matches(action, "default")
+
+        assert result["status"] == "confirmed"
+        assert result["operation"] == "unreject"
+        assert result["connector_name"] == "spotify"
+        assert result["connector_track_id"] == str(connector_track_id)
+        assert result["candidate_track_id"] == str(candidate_track_id)
 
     async def test_not_found_at_confirm_is_actionable(
         self, monkeypatch: pytest.MonkeyPatch

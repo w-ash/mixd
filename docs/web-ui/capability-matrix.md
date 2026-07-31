@@ -10,7 +10,7 @@ internal plumbing). This table is generated from
 `src/application/tools/registry.py` and enforced by
 `tests/unit/application/tools/test_registry_parity.py`.
 
-**83 capabilities: 75 covered, 8 excluded.**
+**84 capabilities: 76 covered, 8 excluded.**
 
 | Capability (use case) | Chat tool | Disposition | Rationale |
 | --- | --- | --- | --- |
@@ -85,6 +85,7 @@ internal plumbing). This table is generated from
 | TagTrackUseCase | manage_tags | covered | — |
 | ToggleScheduleUseCase | manage_schedule | covered | — |
 | UnlinkConnectorTrackUseCase | manage_track_matches | covered | — |
+| UnrejectMappingCandidateUseCase | manage_track_matches | covered | — |
 | UntagTrackUseCase | manage_tags | covered | — |
 | UpdateCanonicalPlaylistUseCase | manage_playlist | covered | — |
 | UpdatePlaylistLinkUseCase | manage_playlist_link | covered | — |
@@ -125,7 +126,7 @@ chat-only for now — the latter pending the gated Tasks-extension epic.
 | query_workflow_history | read | exposed | Call this to read workflow run history or version history. |
 | query_schedules | read | exposed | Call this to read the user's automation schedules before answering questions about when a workflow or sync runs, or proposing a schedule change. |
 | merge_tracks | write | exposed | Call this to propose merging two duplicate canonical tracks into one. |
-| manage_track_matches | write | exposed | Call this to propose a change to how a connector track is matched to a canonical track — relinking a mapping to another track, severing it, promoting it to primary for its connector, or resolving a queued match review. |
+| manage_track_matches | write | exposed | Call this to propose a change to how a connector track is matched to a canonical track — relinking a mapping to another track, severing it, promoting it to primary for its connector, resolving a queued match review, or withdrawing a remembered cannot-link rejection so a pair can be proposed again. |
 | manage_tags | write | exposed | Call this to propose a tag change on the user's library — tagging or untagging one track, batch-tagging many, or renaming, merging, or deleting a tag everywhere. |
 | set_preferences | write | exposed | Call this to propose a preference change on the user's library — recording (or clearing) one track's hmm/nah/yah/star verdict, or deriving preferences in bulk from already-imported Spotify likes and Last.fm loves. |
 | manage_playlist | write | exposed | Call this to propose creating, renaming, or deleting a canonical playlist. |

@@ -14,7 +14,7 @@ and the recorder finalizes the row.
 
 import asyncio
 
-import httpx
+import httpx2
 
 from src.domain.repositories.uow import UnitOfWorkProtocol
 
@@ -23,7 +23,7 @@ class TestBulkApplyAssignmentsRoute:
     """Smoke tests for the new SSE-backed bulk apply endpoint."""
 
     async def test_returns_operation_id_with_202(
-        self, client: httpx.AsyncClient
+        self, client: httpx2.AsyncClient
     ) -> None:
         response = await client.post("/api/v1/playlist-assignments/apply-bulk")
 
@@ -33,7 +33,7 @@ class TestBulkApplyAssignmentsRoute:
         assert isinstance(body["operation_id"], str)
         assert len(body["operation_id"]) > 0
 
-    async def test_operation_run_row_persists(self, client: httpx.AsyncClient) -> None:
+    async def test_operation_run_row_persists(self, client: httpx2.AsyncClient) -> None:
         """The seam writes one OperationRun row at kickoff and finalizes it.
 
         We don't have a stable user_id for the test client (auth is mocked

@@ -301,7 +301,7 @@ class AnthropicAdapter:
         self._client = client
 
     async def aclose(self) -> None:
-        """Close the underlying ``AsyncAnthropic`` (and its httpx pool).
+        """Close the underlying ``AsyncAnthropic`` (and its httpx2 pool).
 
         Named to match the connector ``aclose()`` convention even though the SDK
         exposes ``close()``; called by :func:`aclose_all_adapters` on shutdown.
@@ -330,14 +330,14 @@ class AnthropicAdapter:
             yield _AdapterStream(sdk_stream)
 
 
-# One adapter (and httpx pool) per distinct credential. Bounded in practice by
+# One adapter (and httpx2 pool) per distinct credential. Bounded in practice by
 # the number of active keys — one per per-user key plus the server fallback.
 _adapters: dict[str, AnthropicAdapter] = {}
 
 
 def get_anthropic_adapter_for_key(api_key: str) -> AnthropicAdapter:
     """Adapter for a specific API key, cached so each distinct key reuses one
-    ``AsyncAnthropic`` (and its httpx connection pool).
+    ``AsyncAnthropic`` (and its httpx2 connection pool).
 
     Keyed on the *credential*, not the user id: a rotated key builds a fresh
     adapter automatically, and a removed key's entry is dropped via
@@ -362,7 +362,7 @@ def evict_adapter_cache() -> None:
 
 
 async def aclose_all_adapters() -> None:
-    """Close every cached ``AsyncAnthropic`` (httpx pools) — call on API shutdown.
+    """Close every cached ``AsyncAnthropic`` (httpx2 pools) — call on API shutdown.
 
     Safe to await at shutdown when nothing is streaming; this is the guaranteed
     close path that ``evict_adapter_cache`` deliberately leaves to GC mid-life.

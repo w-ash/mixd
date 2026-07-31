@@ -15,7 +15,7 @@ import time
 from typing import TypedDict, cast
 from urllib.parse import urlparse
 
-import httpx
+import httpx2
 import jwt
 from starlette.datastructures import Headers
 from starlette.types import ASGIApp, Receive, Scope, Send
@@ -71,7 +71,7 @@ async def get_jwk_set(jwks_url: str) -> jwt.PyJWKSet:
         if jwk_set is not None and (time.monotonic() - fetched_at) < _JWKS_CACHE_TTL:
             return jwk_set
 
-        async with httpx.AsyncClient(verify=True) as client:
+        async with httpx2.AsyncClient(verify=True) as client:
             resp = await client.get(jwks_url, timeout=10)
             resp.raise_for_status()
             jwk_set = jwt.PyJWKSet.from_dict(cast("dict[str, object]", resp.json()))
@@ -214,7 +214,7 @@ class NeonAuthMiddleware:
             try:
                 jwk_set = await get_jwk_set(self.jwks_url)
                 claims = _decode_jwt(token, jwk_set, auth_origin=self.auth_origin)
-            except (jwt.InvalidTokenError, httpx.HTTPError) as exc:
+            except (jwt.InvalidTokenError, httpx2.HTTPError) as exc:
                 logger.warning("jwt_validation_failed", error=str(exc))
                 await _send_401(send)
                 return

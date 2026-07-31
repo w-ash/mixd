@@ -75,6 +75,18 @@ class SpotifyExternalIds(SpotifyBaseModel):
     isrc: str | None = Field(default=None)
 
 
+class SpotifyRestrictions(SpotifyBaseModel):
+    """Why a track is not playable here — Spotify's *positive* answer.
+
+    Present only when the request carried a ``market`` (mixd's client always
+    does). ``reason`` is ``market``, ``product`` or ``explicit``; all three mean
+    "this id is fine, you just cannot play it in this context", which is the
+    opposite of a dead identifier and must never be counted as one.
+    """
+
+    reason: str | None = Field(default=None)
+
+
 class SpotifyTrack(SpotifyBaseModel):
     """Full track object from GET /tracks/{id} and embedded in playlist items."""
 
@@ -85,6 +97,15 @@ class SpotifyTrack(SpotifyBaseModel):
     duration_ms: int = Field(default=0)
     explicit: bool = Field(default=False)
     external_ids: SpotifyExternalIds = Field(default_factory=SpotifyExternalIds)
+    # Availability, not existence. Returned alongside the track, so an id that
+    # comes back restricted has *answered* — it is not a miss.
+    is_playable: bool | None = Field(default=None)
+    restrictions: SpotifyRestrictions | None = Field(default=None)
+
+    @property
+    def is_market_restricted(self) -> bool:
+        """Returned by the API but unplayable here — available, not dead."""
+        return self.is_playable is False or self.restrictions is not None
 
 
 class SpotifyOwner(SpotifyBaseModel):

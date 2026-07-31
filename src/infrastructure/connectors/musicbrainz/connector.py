@@ -42,7 +42,7 @@ class MusicBrainzConnector(BaseAPIConnector):
         return "musicbrainz"
 
     async def aclose(self) -> None:
-        """Close the underlying httpx client."""
+        """Close the underlying httpx2 client."""
         await self._client.aclose()
 
     # Public API Methods

@@ -18,6 +18,7 @@ instantly via the bulk lookup fast path (no API call needed).
 """
 
 import asyncio
+from collections.abc import Mapping
 from typing import ClassVar, override
 
 from attrs import define, evolve
@@ -282,17 +283,11 @@ class SpotifyInwardResolver(InwardTrackResolver):
             except Exception as e:
                 logger.error(f"Failed to create track for {spotify_id}: {e}")
 
-        # Absence is Spotify's only death signal, and it lies: the measured
-        # transient band for a spurious 404 is seconds to minutes. So an id the
-        # API declined to return is recorded as *suspect* and the debounce
-        # decides — three failures spanning nine days before anything is
-        # retired (FM4f; IABot's contract).
-        absent_ids = [sid for sid in missing_ids if sid not in spotify_metadata]
+        absent_ids = self._absent_from(missing_ids, spotify_metadata)
         if absent_ids:
             await self._note_absent_ids(absent_ids, uow, user_id=user_id)
 
-        # Fallback: resolve dead IDs via artist+title search
-        dead_ids = [sid for sid in missing_ids if sid not in result]
+        dead_ids = self._substitutable_from(missing_ids, spotify_metadata, result)
         if dead_ids and self._fallback_hints:
             fallback_tracks = await self._fallback_resolve_by_search(dead_ids, uow)
             result.update(fallback_tracks)
@@ -322,34 +317,70 @@ class SpotifyInwardResolver(InwardTrackResolver):
     async def _note_absent_ids(
         self, absent_ids: list[str], uow: UnitOfWorkProtocol, *, user_id: str
     ) -> None:
-        """Record the two clocks an absent id starts, which run in opposite directions.
+        """Start or extend the backoff clock for ids the API would not return.
 
-        *Suspicion* leans in: the streak is what the death debounce reads, and
-        it wants confirmation sooner rather than later. *Absence* backs off:
-        there is nothing to find yet, so re-asking on every import spends quota
-        to learn the same thing. Both are recorded here because an id the API
-        declines to return is simultaneously both.
+        One counter, not two. The backoff row already records how many times in
+        a row an id has missed and when the run of misses began, so a separate
+        streak scanned out of the event log was a second count of the same
+        failures — written in the same call, over the same ids. "Does this look
+        dead" is now a question asked of that row (``looks_dead``), and asked by
+        the drift report rather than by an importer: providers relink and
+        redirect rather than delete, so an id that stops answering is far more
+        often a transient or a market restriction than a death.
+
+        Only ids the API *declined to return* reach here. One that comes back
+        unplayable has answered — see ``_absent_from``.
         """
-        recorder = uow.get_resolution_recorder()
-        sides = [self._absent_side(spotify_id) for spotify_id in absent_ids]
-        for side in sides:
-            dead = await recorder.note_suspect(
-                side,
-                user_id=user_id,
-                connector_name="spotify",
-                payload={
-                    "requested_id": side.identifier,
-                    "detection": "absent_from_batch",
-                },
-            )
-            if dead:
-                logger.info(
-                    "Spotify id debounced to dead — mapping retired",
-                    spotify_id=side.identifier,
-                )
-        _ = await recorder.remember_no_match(
-            sides, user_id=user_id, connector_name="spotify"
+        _ = await uow.get_resolution_recorder().remember_no_match(
+            [self._absent_side(spotify_id) for spotify_id in absent_ids],
+            user_id=user_id,
+            connector_name="spotify",
         )
+
+    @staticmethod
+    def _absent_from(
+        requested: list[str], returned: Mapping[str, SpotifyTrack]
+    ) -> list[str]:
+        """The ids Spotify declined to answer for — and only those.
+
+        Absence means *no answer*, which is why the rule is membership in the
+        response rather than anything about the track in it. A restricted
+        track — ``is_playable: false`` with a ``restrictions.reason`` of
+        market, product or explicit — is returned, so it can never land here:
+        Spotify is saying "this id is fine, you just cannot play it *there*",
+        which is availability, not existence. Counting one as a miss would back
+        off an identifier that answered correctly every time, and a listener
+        who moved country would watch their library decay.
+
+        Absence proper is still a weak signal — the measured transient band for
+        a spurious Spotify 404 is seconds to minutes — which is why it only
+        advances a counter rather than deciding anything.
+        """
+        return [spotify_id for spotify_id in requested if spotify_id not in returned]
+
+    @staticmethod
+    def _substitutable_from(
+        requested: list[str],
+        returned: Mapping[str, SpotifyTrack],
+        resolved: Mapping[str, Track],
+    ) -> list[str]:
+        """Unresolved ids a search may stand in for — never a restricted one.
+
+        Substitution answers "the provider cannot account for this id". Spotify
+        has accounted for a restricted track and said it exists but is
+        unplayable here, so searching up a stand-in would answer a question
+        nobody asked: the user would find their track quietly replaced by a
+        different master because they were travelling.
+        """
+        return [
+            spotify_id
+            for spotify_id in requested
+            if spotify_id not in resolved
+            and not (
+                (track := returned.get(spotify_id)) is not None
+                and track.is_market_restricted
+            )
+        ]
 
     def _absent_side(self, spotify_id: str) -> DigestSide:
         """The little that is known about an id the API would not return."""
@@ -468,12 +499,23 @@ class SpotifyInwardResolver(InwardTrackResolver):
         is worth being able to distinguish later (memo §10.2). The pair is
         detected by request/response correlation — ``linked_from`` was removed
         in Feb 2026 and the label never came back.
+
+        The event names the *requested* id's connector track, not the returned
+        one. ``substituted`` is a streak-resetting event, and the streak it has
+        to reset belongs to the id that kept coming back absent — recording it
+        against nothing (or against the substitute) left a relinked id
+        accumulating suspicion it had already disproved.
         """
-        _ = await uow.get_resolution_recorder().record(
+        recorder = uow.get_resolution_recorder()
+        requested_ct = await recorder.connector_track_ids(
+            [requested_id], connector_name="spotify"
+        )
+        _ = await recorder.record(
             [
                 ResolutionDecision(
                     event_type="substituted",
                     connector_name="spotify",
+                    connector_track_id=requested_ct.get(requested_id),
                     track_id=canonical_track.id,
                     payload={
                         "requested_id": requested_id,

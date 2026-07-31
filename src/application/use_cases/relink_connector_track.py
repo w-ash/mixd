@@ -68,9 +68,16 @@ class RelinkConnectorTrackUseCase:
             old_track_id = mapping.track_id
             connector_name = mapping.connector_name
 
-            # 3. Move the mapping (resets is_primary to False)
+            # 3. Move the mapping (resets is_primary to False). ``user_id`` is
+            # redundant with the ``require_owned_mapping`` check above and is
+            # passed anyway: PDR-002 records that the Neon owner role has
+            # BYPASSRLS, so RLS is inert in production and the repository's own
+            # WHERE clause is the isolation rather than a second opinion on it.
             await connector_repo.update_mapping_track(
-                command.mapping_id, command.new_track_id, MappingOrigin.MANUAL_OVERRIDE
+                command.mapping_id,
+                command.new_track_id,
+                MappingOrigin.MANUAL_OVERRIDE,
+                user_id=command.user_id,
             )
 
             # 4. Old track: promote next primary or clear denormalized ID

@@ -5,13 +5,13 @@ metadata lookup API to resolve artist+title → Spotify track ID. This
 complements the Spotify search API by providing an independent matching
 source based on MusicBrainz's linked data graph.
 
-No authentication required. Uses shared httpx client patterns with
+No authentication required. Uses shared httpx2 client patterns with
 event hooks for structured logging.
 """
 
 from typing import cast
 
-import httpx
+import httpx2
 
 from src.config import get_logger
 from src.domain.entities.shared import JsonValue
@@ -22,9 +22,9 @@ logger = get_logger(__name__)
 class ListenBrainzLookup:
     """Targeted ListenBrainz Labs API for Spotify ID resolution."""
 
-    _client: httpx.AsyncClient
+    _client: httpx2.AsyncClient
 
-    def __init__(self, client: httpx.AsyncClient) -> None:
+    def __init__(self, client: httpx2.AsyncClient) -> None:
         self._client = client
 
     async def spotify_id_from_metadata(
@@ -41,12 +41,12 @@ class ListenBrainzLookup:
         """
         try:
             spotify_id = await self._request_spotify_id(artist_name, recording_name)
-        except httpx.HTTPStatusError as e:
+        except httpx2.HTTPStatusError as e:
             logger.debug(
                 f"ListenBrainz lookup HTTP error for {artist_name} - {recording_name}: {e.response.status_code}"
             )
             return None
-        except (httpx.RequestError, KeyError, IndexError, TypeError) as e:
+        except (httpx2.RequestError, KeyError, IndexError, TypeError) as e:
             logger.debug(
                 f"ListenBrainz lookup failed for {artist_name} - {recording_name}: {e}"
             )

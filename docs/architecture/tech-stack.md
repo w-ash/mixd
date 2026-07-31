@@ -33,7 +33,7 @@ Core technology decisions, supporting libraries, and architectural benefits that
 
 | Technology | Purpose | Rationale |
 |------------|---------|-----------|
-| **httpx** | HTTP client for all APIs | Async-first, native OAuth/rate limiting, replaces spotipy/pylast/musicbrainzngs |
+| **httpx2** | HTTP client for all APIs | Async-first, native OAuth/rate limiting, replaces spotipy/pylast/musicbrainzngs |
 | **tenacity** | Retry logic | Declarative retry patterns, exponential backoff, async-native |
 | **aiolimiter** | Rate limiting | Async rate limiting for API compliance, leaky bucket algorithm |
 | **rapidfuzz** | String matching | High-performance fuzzy matching for track resolution |

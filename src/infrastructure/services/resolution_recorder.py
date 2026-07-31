@@ -22,7 +22,7 @@ already a decision, and the recorder's whole job is to make it durable, keyed,
 and explicable.
 """
 
-from collections.abc import Mapping, Sequence
+from collections.abc import Sequence
 from datetime import UTC, datetime
 from typing import NamedTuple, override
 from uuid import UUID
@@ -33,7 +33,6 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.config import create_matching_config, get_logger
 from src.domain.entities.resolution_event import ResolutionEvent
-from src.domain.entities.shared import JsonDict
 from src.domain.entities.track_mapping import SupersessionReason
 from src.domain.matching.content_digest import DigestSide, content_digest, track_side
 from src.domain.matching.version import matcher_version as compute_matcher_version
@@ -44,10 +43,7 @@ from src.domain.repositories.resolution import (
     ResolutionEventRepositoryProtocol,
     ResolutionNegativeRepositoryProtocol,
     ResolutionRecorderProtocol,
-)
-from src.domain.services.resolution_retry import (
-    DEATH_DEBOUNCE_FAILURES,
-    DEATH_DEBOUNCE_MIN_SPAN_SECONDS,
+    SupersessionEdge,
 )
 from src.infrastructure.persistence.database.db_models import (
     DBConnectorTrack,
@@ -81,7 +77,6 @@ class ResolutionRecorder(ResolutionRecorderProtocol):
         *,
         events: ResolutionEventRepositoryProtocol | None = None,
         negatives: ResolutionNegativeRepositoryProtocol | None = None,
-        run_id: UUID | None = None,
     ) -> None:
         """Bind to a session; the two repositories may be supplied or derived.
 
@@ -92,7 +87,6 @@ class ResolutionRecorder(ResolutionRecorderProtocol):
         self._session = session
         self._events = events or ResolutionEventRepository(session)
         self._negatives = negatives or ResolutionNegativeRepository(session)
-        self._run_id = run_id
         # Computed once per recorder: the hash covers a module's contents plus
         # a config object, neither of which changes inside one transaction.
         self._matcher_version: str = compute_matcher_version(create_matching_config())
@@ -111,8 +105,7 @@ class ResolutionRecorder(ResolutionRecorderProtocol):
 
     # ── event writing ────────────────────────────────────────────────
 
-    @override
-    def build_events(
+    def _build_events(
         self, decisions: Sequence[ResolutionDecision], *, user_id: str
     ) -> list[ResolutionEvent]:
         """Stamp decisions with the provenance no call site should supply itself.
@@ -120,16 +113,25 @@ class ResolutionRecorder(ResolutionRecorderProtocol):
         ``decided_at`` is *now* because every current writer decides online; a
         future backfill or offline re-resolution would pass its own value here
         and ``recorded_at`` would still say when mixd learned it.
+
+        ``user_id`` is stamped unconditionally, not filled in only where a
+        decision lacks one — ``ResolutionDecision`` carries no owner of its
+        own, so the seam is the only place that supplies it. Private: the only
+        caller is :meth:`record`, which used to be reachable from two entry
+        points before ``write_events`` (the pre-v0.10.2-consolidation partner
+        of this method) was folded away as dead code — its only caller passed
+        a literal ``changed=True``.
         """
         decided_at = datetime.now(UTC)
         return [
+            # ``run_id`` is left at its default (None): no online writer has
+            # one to stamp. See ``ResolutionEvent.run_id`` for what it is for.
             ResolutionEvent(
                 user_id=user_id,
                 event_type=decision.event_type,
                 matcher_version=self.matcher_version,
                 decided_at=decided_at,
                 evidence_as_of=decision.evidence_as_of,
-                run_id=self._run_id,
                 connector_name=decision.connector_name,
                 connector_track_id=decision.connector_track_id,
                 track_id=decision.track_id,
@@ -144,35 +146,23 @@ class ResolutionRecorder(ResolutionRecorderProtocol):
         ]
 
     @override
-    async def write_events(
-        self, events: Sequence[ResolutionEvent], *, user_id: str
-    ) -> Sequence[ResolutionEvent]:
-        """Append pre-built events, stamping the caller's tenancy on every one.
-
-        The stamp is unconditional, not a fill-in-the-blank. ``ResolutionEvent``
-        defaults ``user_id`` to ``"default"``, so a "only if missing" guard is
-        dead code by construction — and its live consequence is worse than
-        dead: a caller that built events under the local-dev default would
-        write them into the log as another tenant's history, past an RLS
-        policy that reads ``app.user_id`` and would have rejected them.
-
-        Callers who deliberately construct events with a different ``user_id``
-        get it overwritten. That is the contract: the seam's ``user_id``
-        argument is the authority on whose decision this is.
-        """
-        owned = [_with_user(event, user_id) for event in events]
-        _ = await self._events.append_events(owned)
-        return owned
-
-    @override
     async def record(
         self, decisions: Sequence[ResolutionDecision], *, user_id: str
     ) -> int:
-        """Build and append in one step, for sites that own no commit."""
+        """Build and append in one step, for sites that own no commit.
+
+        The ``user_id`` stamp ``_build_events`` applies is unconditional, not
+        a fill-in-the-blank. ``ResolutionEvent`` defaults ``user_id`` to
+        ``"default"``, so an "only if missing" guard would be dead code by
+        construction — and its live consequence would be worse than dead: a
+        caller running under the local-dev default could otherwise have its
+        events recorded as another tenant's history, past an RLS policy that
+        reads ``app.user_id`` and would have rejected them.
+        """
         if not decisions:
             return 0
         return await self._events.append_events(
-            self.build_events(decisions, user_id=user_id)
+            self._build_events(decisions, user_id=user_id)
         )
 
     # ── supersession ─────────────────────────────────────────────────
@@ -180,35 +170,52 @@ class ResolutionRecorder(ResolutionRecorderProtocol):
     @override
     async def record_supersessions(
         self,
-        edges: Mapping[UUID, UUID],
+        edges: Sequence[SupersessionEdge],
         *,
-        user_id: str,
-        connector_name: str,
         reason: SupersessionReason = "rematch",
     ) -> int:
-        """One ``superseded`` event per predecessor→successor edge.
+        """One ``superseded`` event per edge, grouped by (user_id, connector_name).
 
-        The event is written against the *successor*: "this mapping is what
+        Grouped rather than emitted one at a time because a caller's batch can
+        span both — the edges from an ``assert_mappings`` call or a merge's
+        conflation set already carry their own per-edge tenancy, and an
+        event's owner has to come from the row it describes, not from
+        whichever edge happened to be first in the caller's list. Each event
+        is written against its edge's *successor*: "this mapping is what
         replaced that one" is the question a reader asks, and the successor is
         the row still reachable by a live lookup.
         """
         if not edges:
             return 0
-        rows = await self._mapping_rows(list(edges.values()), user_id=user_id)
-        decisions = [
-            ResolutionDecision(
-                event_type="superseded",
-                connector_name=connector_name,
-                connector_track_id=rows[successor].connector_track_id
-                if successor in rows
-                else None,
-                track_id=rows[successor].track_id if successor in rows else None,
-                resulting_mapping_id=successor,
-                payload={"superseded_mapping_id": str(predecessor), "reason": reason},
+        grouped: dict[tuple[str, str], list[SupersessionEdge]] = {}
+        for edge in edges:
+            grouped.setdefault((edge.user_id, edge.connector_name), []).append(edge)
+
+        total = 0
+        for (user_id, connector_name), group in grouped.items():
+            rows = await self._mapping_rows(
+                [edge.successor_id for edge in group], user_id=user_id
             )
-            for predecessor, successor in edges.items()
-        ]
-        return await self.record(decisions, user_id=user_id)
+            decisions = [
+                ResolutionDecision(
+                    event_type="superseded",
+                    connector_name=connector_name,
+                    connector_track_id=rows[edge.successor_id].connector_track_id
+                    if edge.successor_id in rows
+                    else None,
+                    track_id=rows[edge.successor_id].track_id
+                    if edge.successor_id in rows
+                    else None,
+                    resulting_mapping_id=edge.successor_id,
+                    payload={
+                        "superseded_mapping_id": str(edge.predecessor_id),
+                        "reason": reason,
+                    },
+                )
+                for edge in group
+            ]
+            total += await self.record(decisions, user_id=user_id)
+        return total
 
     @override
     async def retire_mapping(
@@ -217,7 +224,6 @@ class ResolutionRecorder(ResolutionRecorderProtocol):
         *,
         user_id: str,
         reason: SupersessionReason,
-        scope: str | None = None,
     ) -> bool:
         """Retire a live mapping with no successor. True when a row moved.
 
@@ -236,7 +242,10 @@ class ResolutionRecorder(ResolutionRecorderProtocol):
             .values(
                 superseded_at=datetime.now(UTC),
                 supersession_reason=reason,
-                supersession_scope=scope,
+                # No caller passes a scope — every retirement today is global.
+                # See ``TrackMapping.supersession_scope`` for what would write
+                # a non-None value here.
+                supersession_scope=None,
                 superseded_by_id=None,
                 is_primary=False,
             )
@@ -275,24 +284,31 @@ class ResolutionRecorder(ResolutionRecorderProtocol):
         if not by_identifier:
             return frozenset()
 
-        digests: dict[tuple[UUID, UUID], str] = {}
-        pair_identifiers: dict[tuple[UUID, UUID], str] = {}
+        # One dict keyed by the pair, holding both things the pair needs
+        # downstream (the digest to ask the negative cache with, the external
+        # identifier to answer the caller with) — built in a single pass
+        # rather than two same-keyed dicts that a later step re-joins.
+        by_pair: dict[tuple[UUID, UUID], tuple[str, str]] = {}
         for candidate in candidates:
             fact = by_identifier.get(candidate.connector.identifier)
             if fact is None:
                 continue
             key = (fact.id, candidate.candidate_track.id)
-            digests[key] = _digest(fact.side, candidate)
-            pair_identifiers[key] = candidate.connector.identifier
+            by_pair[key] = (
+                candidate.connector.identifier,
+                _digest(fact.side, candidate),
+            )
 
         active = await self._negatives.active_rejected_pairs(
             user_id=user_id,
-            connector_track_ids=list({ct_id for ct_id, _ in digests}),
+            connector_track_ids=list({ct_id for ct_id, _ in by_pair}),
             matcher_version=self.matcher_version,
-            content_digests=digests,
+            content_digests={pair: digest for pair, (_, digest) in by_pair.items()},
         )
         return frozenset(
-            (pair_identifiers[pair], pair[1]) for pair in active if pair in digests
+            (identifier, pair[1])
+            for pair, (identifier, _) in by_pair.items()
+            if pair in active
         )
 
     @override
@@ -309,6 +325,12 @@ class ResolutionRecorder(ResolutionRecorderProtocol):
         track row, and a rejected candidate has usually never been persisted
         (only accepted ones were). Without the row there is nothing to hang the
         constraint on, and the same wrong candidate returns next import.
+
+        Every reader of this store honours everything in it, so a refusal
+        belongs here only if it should stop *all* future matching. A decision
+        made on a narrower bar than the matcher's is a ``rejected`` event and
+        nothing more — recording it here would suppress, everywhere, pairs the
+        matcher itself would have auto-accepted.
         """
         if not candidates:
             return 0
@@ -343,16 +365,12 @@ class ResolutionRecorder(ResolutionRecorderProtocol):
         by_identifier = await self._materialize_connector_tracks(
             connector_name, connector_sides
         )
-        recorded = 0
-        for fact in by_identifier.values():
-            _ = await self._negatives.upsert_no_match(
-                user_id=user_id,
-                connector_name=connector_name,
-                connector_track_id=fact.id,
-                matcher_version=self.matcher_version,
-            )
-            recorded += 1
-        return recorded
+        return await self._negatives.upsert_no_match(
+            user_id=user_id,
+            connector_name=connector_name,
+            connector_track_ids=[fact.id for fact in by_identifier.values()],
+            matcher_version=self.matcher_version,
+        )
 
     @override
     async def clear_negatives(
@@ -365,8 +383,8 @@ class ResolutionRecorder(ResolutionRecorderProtocol):
         """Any success clears the backoff — no hysteresis on recovery."""
         if not connector_identifiers:
             return 0
-        by_identifier = await self._lookup_connector_tracks(
-            connector_name, connector_identifiers
+        by_identifier = await self.connector_track_ids(
+            connector_identifiers, connector_name=connector_name
         )
         if not by_identifier:
             return 0
@@ -387,8 +405,8 @@ class ResolutionRecorder(ResolutionRecorderProtocol):
         """External ids still inside their no-match backoff window."""
         if not connector_identifiers:
             return frozenset()
-        by_identifier = await self._lookup_connector_tracks(
-            connector_name, connector_identifiers
+        by_identifier = await self.connector_track_ids(
+            connector_identifiers, connector_name=connector_name
         )
         if not by_identifier:
             return frozenset()
@@ -403,132 +421,22 @@ class ResolutionRecorder(ResolutionRecorderProtocol):
             if ct_id in pending
         )
 
-    @override
-    async def note_suspect(
-        self,
-        connector_side: DigestSide,
-        *,
-        user_id: str,
-        connector_name: str,
-        payload: JsonDict | None = None,
-    ) -> bool:
-        """Record one failed lookup; report (and act on) proof that the id is dead.
-
-        The suspect streak is never stored as a counter — it is re-derived from
-        the events each time, bounded by the most recent success. That is what
-        makes "one success resets immediately" free rather than another piece
-        of state to keep in step.
-        """
-        by_identifier = await self._materialize_connector_tracks(
-            connector_name, [connector_side]
-        )
-        fact = by_identifier.get(connector_side.identifier)
-        if fact is None:
-            return False
-        ct_id = fact.id
-
-        _ = await self.record(
-            [
-                ResolutionDecision(
-                    event_type="suspect",
-                    connector_name=connector_name,
-                    connector_track_id=ct_id,
-                    payload=dict(payload or {}),
-                )
-            ],
-            user_id=user_id,
-        )
-
-        window = await self._events.recent_suspect_window(
-            user_id=user_id,
-            connector_name=connector_name,
-            connector_track_id=ct_id,
-        )
-        if (
-            window.count < DEATH_DEBOUNCE_FAILURES
-            or window.span_seconds < DEATH_DEBOUNCE_MIN_SPAN_SECONDS
-        ):
-            return False
-
-        return await self._retire_dead_id(
-            ct_id,
-            user_id=user_id,
-            connector_name=connector_name,
-            window_count=window.count,
-        )
-
-    async def _retire_dead_id(
-        self,
-        connector_track_id: UUID,
-        *,
-        user_id: str,
-        connector_name: str,
-        window_count: int,
-    ) -> bool:
-        """Retire the live mapping behind a debounced-dead connector id."""
-        result = await self._session.execute(
-            select(DBTrackMapping.id, DBTrackMapping.track_id).where(
-                DBTrackMapping.user_id == user_id,
-                DBTrackMapping.connector_track_id == connector_track_id,
-                live_only(DBTrackMapping),
-            )
-        )
-        rows = result.tuples().all()
-        if not rows:
-            # Nothing live to retire — the id is dead but mixd never believed
-            # anything about it. The suspect events stand as the record.
-            return False
-        for mapping_id, track_id in rows:
-            _ = await self.retire_mapping(mapping_id, user_id=user_id, reason="id_dead")
-            # Retiring the row is only half the repair: the track keeps a
-            # denormalized ``spotify_id``/``mbid`` pointing at the dead
-            # identifier, and if the retired row was the primary the track now
-            # has none. The read-path healer promotes a surviving sibling or
-            # clears the column — the same policy the read path would apply,
-            # applied here so nothing has to hit the stale value first.
-            await self._heal_primary(track_id, connector_name)
-            _ = await self.record(
-                [
-                    ResolutionDecision(
-                        event_type="superseded",
-                        connector_name=connector_name,
-                        connector_track_id=connector_track_id,
-                        track_id=track_id,
-                        resulting_mapping_id=mapping_id,
-                        payload={
-                            "reason": "id_dead",
-                            "consecutive_failures": window_count,
-                        },
-                    )
-                ],
-                user_id=user_id,
-            )
-        logger.info(
-            "identity_id_dead",
-            connector=connector_name,
-            connector_track_id=str(connector_track_id),
-            retired=len(rows),
-        )
-        return True
-
-    async def _heal_primary(self, track_id: UUID, connector_name: str) -> None:
-        """Promote a surviving mapping to primary, or clear the denormalized id.
-
-        Reaching into the connector repository from the seam follows the
-        precedent in ``track/mapper.py``: the promotion *policy* (highest
-        confidence, then sync the fast-path column only if the promotion
-        actually landed) lives in one place, and a second copy here would be
-        the disagreement migration 044 had to repair on 366 production rows.
-        """
-        from src.infrastructure.persistence.repositories.track.connector import (
-            TrackConnectorRepository,
-        )
-
-        await TrackConnectorRepository(self._session).ensure_primary_for_connector(
-            track_id, connector_name
-        )
-
     # ── connector-track plumbing ─────────────────────────────────────
+
+    @override
+    async def connector_track_ids(
+        self, identifiers: Sequence[str], *, connector_name: str
+    ) -> dict[str, UUID]:
+        """The connector-track rows these external ids name (no writes).
+
+        Every event, streak and backoff query keys on ``connector_track_id``,
+        so anything recording an event *about* an external id has to trade the
+        string for the row first. Ids mixd has never stored are simply absent
+        from the result — a caller that needs a row created should go through
+        the negative cache, which materializes deliberately.
+        """
+        facts = await self._connector_track_facts(connector_name, identifiers)
+        return {identifier: fact.id for identifier, fact in facts.items()}
 
     async def _connector_track_facts(
         self, connector_name: str, identifiers: Sequence[str]
@@ -578,13 +486,6 @@ class ResolutionRecorder(ResolutionRecorderProtocol):
             )
             for identifier, ct_id, title, artists, duration_ms in result.tuples()
         }
-
-    async def _lookup_connector_tracks(
-        self, connector_name: str, identifiers: Sequence[str]
-    ) -> dict[str, UUID]:
-        """Existing connector-track ids for these external ids (no writes)."""
-        facts = await self._connector_track_facts(connector_name, identifiers)
-        return {identifier: fact.id for identifier, fact in facts.items()}
 
     async def _materialize_connector_tracks(
         self, connector_name: str, sides: Sequence[DigestSide]
@@ -654,12 +555,6 @@ def _digest(connector: DigestSide, candidate: RejectionCandidate) -> str:
     :meth:`ResolutionRecorder._connector_track_facts`.
     """
     return content_digest(connector, track_side(candidate.candidate_track))
-
-
-def _with_user(event: ResolutionEvent, user_id: str) -> ResolutionEvent:
-    from attrs import evolve
-
-    return evolve(event, user_id=user_id)
 
 
 __all__ = ["ResolutionRecorder"]

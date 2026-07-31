@@ -34,8 +34,15 @@ class MatchReviewRepositoryProtocol(Protocol):
         """Create a new match review entry."""
         ...
 
-    def create_reviews_batch(self, reviews: list[MatchReview]) -> Awaitable[int]:
-        """Create multiple review entries, skipping duplicates."""
+    def create_reviews_batch(
+        self, reviews: list[MatchReview]
+    ) -> Awaitable[list[MatchReview]]:
+        """Create or refresh review entries, returning only the rows written.
+
+        A review the user has already accepted or rejected is left alone and
+        omitted from the result — the caller needs to know which questions it
+        actually asked, not which ones it offered.
+        """
         ...
 
     def update_review_status(

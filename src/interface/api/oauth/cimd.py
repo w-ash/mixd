@@ -26,7 +26,7 @@ from typing import cast, override
 from urllib.parse import urlparse
 
 from attrs import define
-import httpx
+import httpx2
 from mcp.shared.auth import (
     InvalidRedirectUriError,
     OAuthClientInformationFull,
@@ -152,7 +152,7 @@ async def resolve_cimd_client(client_id: str) -> CIMDClient:
 
     target = _assert_public_https(client_id)
     try:
-        async with httpx.AsyncClient(
+        async with httpx2.AsyncClient(
             follow_redirects=False, timeout=_FETCH_TIMEOUT_SECONDS
         ) as http:
             # Connect to the pre-validated IP (rebinding can't redirect us),
@@ -163,7 +163,7 @@ async def resolve_cimd_client(client_id: str) -> CIMDClient:
                 headers={"Accept": "application/json", "Host": target.host},
                 extensions={"sni_hostname": target.host},
             )
-    except httpx.HTTPError as err:
+    except httpx2.HTTPError as err:
         raise CIMDResolutionError(f"metadata fetch failed: {err}") from err
     if response.status_code != _HTTP_OK:
         raise CIMDResolutionError(f"metadata fetch returned {response.status_code}")

@@ -8,7 +8,7 @@ so they're tested at the unit level with mocks.
 from datetime import UTC, datetime
 from uuid import UUID, uuid4
 
-import httpx
+import httpx2
 
 from src.infrastructure.persistence.database.db_connection import get_session
 from src.infrastructure.persistence.database.db_models import (
@@ -18,7 +18,7 @@ from src.infrastructure.persistence.database.db_models import (
 from tests.fixtures.factories import nonexistent_id
 
 
-async def _seed_link(client: httpx.AsyncClient) -> tuple[str, str]:
+async def _seed_link(client: httpx2.AsyncClient) -> tuple[str, str]:
     """Create a playlist via API, then seed a link directly in the DB.
 
     Returns (playlist_id, link_id) as string UUIDs.
@@ -71,7 +71,7 @@ async def _seed_link(client: httpx.AsyncClient) -> tuple[str, str]:
 class TestListPlaylistLinks:
     """GET /api/v1/playlists/{id}/links"""
 
-    async def test_empty_links(self, client: httpx.AsyncClient) -> None:
+    async def test_empty_links(self, client: httpx2.AsyncClient) -> None:
         resp = await client.post("/api/v1/playlists", json={"name": "No Links"})
         playlist_id = resp.json()["id"]
 
@@ -80,7 +80,7 @@ class TestListPlaylistLinks:
         assert response.status_code == 200
         assert response.json() == []
 
-    async def test_returns_link_details(self, client: httpx.AsyncClient) -> None:
+    async def test_returns_link_details(self, client: httpx2.AsyncClient) -> None:
         playlist_id, _link_id = await _seed_link(client)
 
         response = await client.get(f"/api/v1/playlists/{playlist_id}/links")
@@ -105,7 +105,7 @@ class TestRepairUnresolved:
     """POST /api/v1/playlists/{id}/repair — re-resolve unresolved entries."""
 
     async def test_repair_noop_when_no_unresolved(
-        self, client: httpx.AsyncClient
+        self, client: httpx2.AsyncClient
     ) -> None:
         playlist_id, _link_id = await _seed_link(client)
 
@@ -115,7 +115,7 @@ class TestRepairUnresolved:
         assert response.json() == {"repaired": 0, "still_unresolved": 0}
 
     async def test_repair_unknown_playlist_returns_404(
-        self, client: httpx.AsyncClient
+        self, client: httpx2.AsyncClient
     ) -> None:
         response = await client.post(f"/api/v1/playlists/{nonexistent_id()}/repair")
         assert response.status_code == 404
@@ -124,7 +124,7 @@ class TestRepairUnresolved:
 class TestDeletePlaylistLink:
     """DELETE /api/v1/playlists/{id}/links/{link_id}"""
 
-    async def test_delete_existing_link(self, client: httpx.AsyncClient) -> None:
+    async def test_delete_existing_link(self, client: httpx2.AsyncClient) -> None:
         playlist_id, link_id = await _seed_link(client)
 
         response = await client.delete(
@@ -138,7 +138,7 @@ class TestDeletePlaylistLink:
         assert links_resp.json() == []
 
     async def test_delete_nonexistent_returns_404(
-        self, client: httpx.AsyncClient
+        self, client: httpx2.AsyncClient
     ) -> None:
         resp = await client.post("/api/v1/playlists", json={"name": "Del Test"})
         playlist_id = resp.json()["id"]
@@ -153,7 +153,7 @@ class TestDeletePlaylistLink:
 class TestPlaylistDetailIncludesLinks:
     """GET /api/v1/playlists/{id} returns connector_links from links."""
 
-    async def test_detail_shows_link_briefs(self, client: httpx.AsyncClient) -> None:
+    async def test_detail_shows_link_briefs(self, client: httpx2.AsyncClient) -> None:
         playlist_id, _link_id = await _seed_link(client)
 
         response = await client.get(f"/api/v1/playlists/{playlist_id}")
@@ -170,7 +170,7 @@ class TestPlaylistDetailIncludesLinks:
 class TestListPlaylistsIncludesLinkBriefs:
     """GET /api/v1/playlists list includes connector_links as brief objects."""
 
-    async def test_list_has_link_briefs(self, client: httpx.AsyncClient) -> None:
+    async def test_list_has_link_briefs(self, client: httpx2.AsyncClient) -> None:
         playlist_id, _link_id = await _seed_link(client)
 
         response = await client.get("/api/v1/playlists")
@@ -187,7 +187,7 @@ class TestCreatePlaylistLinkValidation:
     """POST /api/v1/playlists/{id}/links — validation edge cases."""
 
     async def test_invalid_connector_returns_422(
-        self, client: httpx.AsyncClient
+        self, client: httpx2.AsyncClient
     ) -> None:
         resp = await client.post("/api/v1/playlists", json={"name": "Validate"})
         playlist_id = resp.json()["id"]

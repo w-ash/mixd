@@ -23,16 +23,9 @@ from attrs import define, field
 #   conflation            - the mapping pointed at a duplicate/non-canonical
 #                           track; retargeted to the surviving canonical sibling
 #                           (the FM3b/FM2c class).
-#   platform_superseded   - the connector itself asserts permanent succession —
-#                           MusicBrainz 301 merge redirects only. Never Spotify
-#                           relinking, Apple equivalents, or Tidal/Deezer
-#                           substitution, which are contextual and never retire
-#                           the incumbent (see supersession_scope below).
 #   manual                - a human (review UI, admin action) overrode the
 #                           mapping directly.
-type SupersessionReason = Literal[
-    "id_dead", "rematch", "conflation", "platform_superseded", "manual"
-]
+type SupersessionReason = Literal["id_dead", "rematch", "conflation", "manual"]
 
 
 @define(frozen=True, slots=True)
@@ -52,10 +45,12 @@ class TrackMapping:
     is never overwritten in place, only retired in favor of a successor row
     referenced by ``superseded_by_id``. ``supersession_scope`` distinguishes a
     global retirement (``None``) from a context-scoped one (e.g. ``"market:GB"``,
-    ``"storefront:jp"``) — contextual substitution never supersedes the
-    incumbent (see ``SupersessionReason.platform_superseded``), so a scoped
-    value here only ever comes from a secondary mapping recorded alongside a
-    ``substituted`` resolution event, not from a live mapping's own retirement.
+    ``"storefront:jp"``) — contextual substitution (Spotify relinking, Apple
+    equivalents, Tidal/Deezer substitution) never supersedes the incumbent, so
+    a scoped value would only ever come from a secondary mapping recorded
+    alongside a ``substituted`` resolution event, not from a live mapping's own
+    retirement. No writer produces that event today, so the column stays
+    ``None`` in practice — see the field below.
     """
 
     user_id: str = "default"
@@ -76,7 +71,10 @@ class TrackMapping:
     superseded_at: datetime | None = None
     supersession_reason: SupersessionReason | None = None
     # None = global (the mapping is superseded everywhere). A non-None value
-    # scopes the supersession to one market/storefront/context.
+    # would scope the supersession to one market/storefront/context, but
+    # nothing writes one yet — ``retire_mapping`` dropped its ``scope``
+    # parameter (v0.10.2) once grep showed neither call site ever passed it.
+    # The column awaits a future context-scoped-retirement writer.
     supersession_scope: str | None = None
     # Next scheduled re-verification for this (still-live) mapping — the FM4a
     # substrate (GLEIF "lapsed" analog). No worker reads this yet; the column

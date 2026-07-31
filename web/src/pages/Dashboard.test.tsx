@@ -107,6 +107,9 @@ const mockMatchingHealth: MatchMethodHealthSchema = {
     isrc_suspect_pending_count: 3,
     confidence_evidence_divergence_count: 1,
     stale_denormalized_ids_count: 0,
+    rejected_pairs_active: 4,
+    no_match_pending: 2,
+    dead_id_candidates: 0,
   },
 };
 
@@ -293,6 +296,9 @@ describe("Matching Health Section", () => {
         isrc_suspect_pending_count: 0,
         confidence_evidence_divergence_count: 0,
         stale_denormalized_ids_count: 0,
+        rejected_pairs_active: 0,
+        no_match_pending: 0,
+        dead_id_candidates: 0,
       },
     });
 

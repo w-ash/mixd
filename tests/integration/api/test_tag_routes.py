@@ -10,11 +10,11 @@ Covers the full request → route → use case → DB → response cycle for:
 
 from uuid import UUID, uuid7
 
-import httpx
+import httpx2
 
 
 async def _create_track(
-    client: httpx.AsyncClient, title: str, artist: str = "Artist"
+    client: httpx2.AsyncClient, title: str, artist: str = "Artist"
 ) -> UUID:
     from src.application.runner import execute_use_case
     from src.domain.entities.track import Artist, Track
@@ -33,7 +33,7 @@ async def _create_track(
 
 class TestAddTrackTag:
     async def test_normalizes_and_returns_changed(
-        self, client: httpx.AsyncClient
+        self, client: httpx2.AsyncClient
     ) -> None:
         track_id = await _create_track(client, "Song")
 
@@ -47,7 +47,7 @@ class TestAddTrackTag:
         assert body["changed"] is True
 
     async def test_duplicate_returns_not_changed(
-        self, client: httpx.AsyncClient
+        self, client: httpx2.AsyncClient
     ) -> None:
         track_id = await _create_track(client, "Song")
         await client.post(f"/api/v1/tracks/{track_id}/tags", json={"tag": "mood:chill"})
@@ -59,7 +59,7 @@ class TestAddTrackTag:
         assert response.status_code == 201
         assert response.json()["changed"] is False
 
-    async def test_invalid_tag_returns_422(self, client: httpx.AsyncClient) -> None:
+    async def test_invalid_tag_returns_422(self, client: httpx2.AsyncClient) -> None:
         track_id = await _create_track(client, "Song")
 
         response = await client.post(
@@ -68,7 +68,7 @@ class TestAddTrackTag:
 
         assert response.status_code == 422
 
-    async def test_too_long_tag_returns_422(self, client: httpx.AsyncClient) -> None:
+    async def test_too_long_tag_returns_422(self, client: httpx2.AsyncClient) -> None:
         track_id = await _create_track(client, "Song")
 
         response = await client.post(
@@ -77,7 +77,7 @@ class TestAddTrackTag:
 
         assert response.status_code == 422
 
-    async def test_missing_track_returns_404(self, client: httpx.AsyncClient) -> None:
+    async def test_missing_track_returns_404(self, client: httpx2.AsyncClient) -> None:
         response = await client.post(
             f"/api/v1/tracks/{uuid7()}/tags", json={"tag": "mood:chill"}
         )
@@ -87,7 +87,7 @@ class TestAddTrackTag:
 
 class TestDeleteTrackTag:
     async def test_removes_existing_returns_204(
-        self, client: httpx.AsyncClient
+        self, client: httpx2.AsyncClient
     ) -> None:
         track_id = await _create_track(client, "Song")
         await client.post(f"/api/v1/tracks/{track_id}/tags", json={"tag": "mood:chill"})
@@ -96,7 +96,7 @@ class TestDeleteTrackTag:
 
         assert response.status_code == 204
 
-    async def test_missing_tag_returns_204(self, client: httpx.AsyncClient) -> None:
+    async def test_missing_tag_returns_204(self, client: httpx2.AsyncClient) -> None:
         """DELETE is idempotent — same response whether or not the tag existed."""
         track_id = await _create_track(client, "Song")
 
@@ -104,7 +104,7 @@ class TestDeleteTrackTag:
 
         assert response.status_code == 204
 
-    async def test_url_encoded_tag_normalized(self, client: httpx.AsyncClient) -> None:
+    async def test_url_encoded_tag_normalized(self, client: httpx2.AsyncClient) -> None:
         """Clients that URL-encode Mood%3AChill still match stored mood:chill."""
         track_id = await _create_track(client, "Song")
         await client.post(f"/api/v1/tracks/{track_id}/tags", json={"tag": "mood:chill"})
@@ -116,7 +116,7 @@ class TestDeleteTrackTag:
         detail = await client.get(f"/api/v1/tracks/{track_id}")
         assert "mood:chill" not in detail.json()["tags"]
 
-    async def test_invalid_tag_returns_422(self, client: httpx.AsyncClient) -> None:
+    async def test_invalid_tag_returns_422(self, client: httpx2.AsyncClient) -> None:
         track_id = await _create_track(client, "Song")
 
         response = await client.delete(f"/api/v1/tracks/{track_id}/tags/cafe!")
@@ -126,7 +126,7 @@ class TestDeleteTrackTag:
 
 class TestBatchTag:
     async def test_tags_multiple_tracks_atomically(
-        self, client: httpx.AsyncClient
+        self, client: httpx2.AsyncClient
     ) -> None:
         ids = [await _create_track(client, f"Song-{i}") for i in range(3)]
 
@@ -142,7 +142,7 @@ class TestBatchTag:
         assert body["tagged"] == 3
 
     async def test_invalid_tag_rejects_whole_batch_with_422(
-        self, client: httpx.AsyncClient
+        self, client: httpx2.AsyncClient
     ) -> None:
         ids = [await _create_track(client, f"Song-{i}") for i in range(3)]
 
@@ -158,7 +158,7 @@ class TestBatchTag:
             detail = await client.get(f"/api/v1/tracks/{tid}")
             assert detail.json()["tags"] == []
 
-    async def test_over_15k_returns_422(self, client: httpx.AsyncClient) -> None:
+    async def test_over_15k_returns_422(self, client: httpx2.AsyncClient) -> None:
         response = await client.post(
             "/api/v1/tracks/tags/batch",
             json={
@@ -170,7 +170,7 @@ class TestBatchTag:
         assert response.status_code == 422
 
     async def test_returns_tagged_count_for_mix(
-        self, client: httpx.AsyncClient
+        self, client: httpx2.AsyncClient
     ) -> None:
         """Repo skips duplicates via ON CONFLICT; ``tagged`` reflects real inserts."""
         ids = [await _create_track(client, f"Song-{i}") for i in range(3)]
@@ -188,12 +188,12 @@ class TestBatchTag:
 
 
 class TestListTags:
-    async def test_empty_when_no_tags(self, client: httpx.AsyncClient) -> None:
+    async def test_empty_when_no_tags(self, client: httpx2.AsyncClient) -> None:
         response = await client.get("/api/v1/tags")
         assert response.status_code == 200
         assert response.json() == []
 
-    async def test_returns_tags_with_counts(self, client: httpx.AsyncClient) -> None:
+    async def test_returns_tags_with_counts(self, client: httpx2.AsyncClient) -> None:
         ids = [await _create_track(client, f"Song-{i}") for i in range(3)]
         for tid in ids:
             await client.post(f"/api/v1/tracks/{tid}/tags", json={"tag": "mood:chill"})
@@ -206,7 +206,7 @@ class TestListTags:
         assert tags_by_name == {"mood:chill": 3, "banger": 1}
 
     async def test_response_includes_namespace_value_and_last_used_at(
-        self, client: httpx.AsyncClient
+        self, client: httpx2.AsyncClient
     ) -> None:
         """Tag Management page consumes the full enriched shape."""
         track_id = await _create_track(client, "Song")
@@ -226,7 +226,7 @@ class TestListTags:
         assert banger["namespace"] is None
         assert banger["value"] == "banger"
 
-    async def test_query_filters_results(self, client: httpx.AsyncClient) -> None:
+    async def test_query_filters_results(self, client: httpx2.AsyncClient) -> None:
         track_id = await _create_track(client, "Song")
         for t in ("mood:chill", "energy:high", "banger"):
             await client.post(f"/api/v1/tracks/{track_id}/tags", json={"tag": t})
@@ -238,7 +238,7 @@ class TestListTags:
 
 
 class TestTrackListingTagFilter:
-    async def test_filter_by_single_tag(self, client: httpx.AsyncClient) -> None:
+    async def test_filter_by_single_tag(self, client: httpx2.AsyncClient) -> None:
         tagged = await _create_track(client, "Tagged")
         _untagged = await _create_track(client, "Untagged")
         await client.post(f"/api/v1/tracks/{tagged}/tags", json={"tag": "mood:chill"})
@@ -248,7 +248,7 @@ class TestTrackListingTagFilter:
         body = response.json()
         assert [UUID(t["id"]) for t in body["data"]] == [tagged]
 
-    async def test_and_mode_intersection(self, client: httpx.AsyncClient) -> None:
+    async def test_and_mode_intersection(self, client: httpx2.AsyncClient) -> None:
         both = await _create_track(client, "Both")
         only_one = await _create_track(client, "Only one")
         for t in ("mood:chill", "energy:low"):
@@ -262,13 +262,13 @@ class TestTrackListingTagFilter:
         assert [UUID(t["id"]) for t in response.json()["data"]] == [both]
 
     async def test_invalid_tag_query_returns_422(
-        self, client: httpx.AsyncClient
+        self, client: httpx2.AsyncClient
     ) -> None:
         response = await client.get("/api/v1/tracks?tag=cafe!")
         assert response.status_code == 422
 
     async def test_tags_included_in_detail_response(
-        self, client: httpx.AsyncClient
+        self, client: httpx2.AsyncClient
     ) -> None:
         track_id = await _create_track(client, "Song")
         await client.post(f"/api/v1/tracks/{track_id}/tags", json={"tag": "mood:chill"})
@@ -282,7 +282,7 @@ class TestTrackListingTagFilter:
 class TestRenameTagRoute:
     """PATCH /api/v1/tags/{tag} — bulk rename across user's tracks."""
 
-    async def test_rename_updates_all_tracks(self, client: httpx.AsyncClient) -> None:
+    async def test_rename_updates_all_tracks(self, client: httpx2.AsyncClient) -> None:
         ids = [await _create_track(client, f"Song-{i}") for i in range(3)]
         for tid in ids:
             await client.post(f"/api/v1/tracks/{tid}/tags", json={"tag": "mood:chill"})
@@ -300,7 +300,7 @@ class TestRenameTagRoute:
             assert "mood:chill" not in detail.json()["tags"]
 
     async def test_rename_normalizes_path_param(
-        self, client: httpx.AsyncClient
+        self, client: httpx2.AsyncClient
     ) -> None:
         """Path tag is normalized via TagString validator."""
         track_id = await _create_track(client, "Song")
@@ -315,7 +315,7 @@ class TestRenameTagRoute:
         assert detail.json()["tags"] == ["mood:ambient"]
 
     async def test_rename_missing_source_returns_zero(
-        self, client: httpx.AsyncClient
+        self, client: httpx2.AsyncClient
     ) -> None:
         """Idempotent — renaming a tag the user never used returns affected=0."""
         response = await client.patch(
@@ -325,7 +325,7 @@ class TestRenameTagRoute:
         assert response.json() == {"affected_count": 0}
 
     async def test_rename_invalid_new_tag_returns_422(
-        self, client: httpx.AsyncClient
+        self, client: httpx2.AsyncClient
     ) -> None:
         response = await client.patch(
             "/api/v1/tags/mood:chill", json={"new_tag": "cafe!"}
@@ -337,7 +337,7 @@ class TestDeleteTagRoute:
     """DELETE /api/v1/tags/{tag} — bulk delete across user's tracks."""
 
     async def test_delete_removes_tag_from_all_tracks(
-        self, client: httpx.AsyncClient
+        self, client: httpx2.AsyncClient
     ) -> None:
         ids = [await _create_track(client, f"Song-{i}") for i in range(2)]
         for tid in ids:
@@ -352,14 +352,14 @@ class TestDeleteTagRoute:
             assert detail.json()["tags"] == []
 
     async def test_delete_missing_tag_returns_zero(
-        self, client: httpx.AsyncClient
+        self, client: httpx2.AsyncClient
     ) -> None:
         response = await client.delete("/api/v1/tags/never:tagged")
         assert response.status_code == 200
         assert response.json() == {"affected_count": 0}
 
     async def test_delete_leaves_other_tags_intact(
-        self, client: httpx.AsyncClient
+        self, client: httpx2.AsyncClient
     ) -> None:
         track_id = await _create_track(client, "Song")
         for t in ("mood:chill", "banger"):
@@ -375,7 +375,7 @@ class TestMergeTagsRoute:
     """POST /api/v1/tags/merge — collapse source into target."""
 
     async def test_merge_collapses_into_existing_target(
-        self, client: httpx.AsyncClient
+        self, client: httpx2.AsyncClient
     ) -> None:
         ids = [await _create_track(client, f"Song-{i}") for i in range(3)]
         for tid in ids:
@@ -395,7 +395,7 @@ class TestMergeTagsRoute:
             detail = await client.get(f"/api/v1/tracks/{tid}")
             assert detail.json()["tags"] == ["context:workout"]
 
-    async def test_merge_normalizes_inputs(self, client: httpx.AsyncClient) -> None:
+    async def test_merge_normalizes_inputs(self, client: httpx2.AsyncClient) -> None:
         track_id = await _create_track(client, "Song")
         await client.post(
             f"/api/v1/tracks/{track_id}/tags", json={"tag": "context:gym"}
@@ -410,7 +410,7 @@ class TestMergeTagsRoute:
         assert response.json() == {"affected_count": 1}
 
     async def test_merge_invalid_tag_returns_422(
-        self, client: httpx.AsyncClient
+        self, client: httpx2.AsyncClient
     ) -> None:
         response = await client.post(
             "/api/v1/tags/merge",

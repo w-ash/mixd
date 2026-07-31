@@ -1,6 +1,6 @@
-"""Spotify API client - Pure API wrapper using native httpx.
+"""Spotify API client - Pure API wrapper using native httpx2.
 
-Provides a thin async wrapper around the Spotify Web API using httpx.AsyncClient
+Provides a thin async wrapper around the Spotify Web API using httpx2.AsyncClient
 directly. All methods are natively async — no asyncio.to_thread() bridging.
 
 Key components:
@@ -15,7 +15,7 @@ from collections.abc import Awaitable, Callable
 from typing import ClassVar, cast, override
 
 from attrs import define, field
-import httpx
+import httpx2
 from tenacity import AsyncRetrying
 
 from src.config import get_logger, settings
@@ -44,7 +44,7 @@ logger = get_logger(__name__).bind(service="spotify_client")
 
 @define(slots=True)
 class SpotifyAPIClient(BaseAPIClient):
-    """Pure Spotify API client using native httpx.
+    """Pure Spotify API client using native httpx2.
 
     Provides thin wrappers around the Spotify Web API with authentication,
     centralized retry policy, and individual API method calls. No business
@@ -57,13 +57,13 @@ class SpotifyAPIClient(BaseAPIClient):
     """
 
     _SUPPRESS_ERRORS: ClassVar[tuple[type[BaseException], ...]] = (
-        httpx.HTTPStatusError,
-        httpx.RequestError,
+        httpx2.HTTPStatusError,
+        httpx2.RequestError,
     )
 
     _token_manager: SpotifyTokenManager = field(init=False, repr=False)
     _retry_policy: AsyncRetrying = field(init=False, repr=False)
-    _client: httpx.AsyncClient = field(init=False, repr=False)
+    _client: httpx2.AsyncClient = field(init=False, repr=False)
     _cached_user_id: str | None = field(init=False, default=None, repr=False)
 
     @property
@@ -289,7 +289,7 @@ class SpotifyAPIClient(BaseAPIClient):
     async def _get_next_page_impl(self, next_url: str) -> JsonDict | None:
         """Pure implementation without retry logic.
 
-        Spotify's "next" cursor is an absolute URL. httpx uses absolute URLs
+        Spotify's "next" cursor is an absolute URL. httpx2 uses absolute URLs
         as-is when a base_url is set, so self._client handles them correctly.
         """
         response = await self._client.get(next_url)

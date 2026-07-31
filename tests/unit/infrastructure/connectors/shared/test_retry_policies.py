@@ -21,8 +21,8 @@ class TestRetryPolicyFactory:
     """Tests for retry policy factory methods."""
 
     def test_spotify_policy_only_retries_spotify_exceptions(self):
-        """Critical: Spotify policy must filter to httpx exception types only."""
-        import httpx
+        """Critical: Spotify policy must filter to httpx2 exception types only."""
+        import httpx2
 
         from src.infrastructure.connectors.spotify.error_classifier import (
             SpotifyErrorClassifier,
@@ -38,7 +38,7 @@ class TestRetryPolicyFactory:
             )
         )
 
-        # Plain Python ConnectionError (not httpx) should NOT be retried (fails type filter)
+        # Plain Python ConnectionError (not httpx2) should NOT be retried (fails type filter)
         network_error = Mock()
         network_error.outcome.failed = True
         network_error.outcome.exception.return_value = ConnectionError(
@@ -47,20 +47,20 @@ class TestRetryPolicyFactory:
 
         assert policy.retry(network_error) is False
 
-        # httpx.HTTPStatusError with permanent status (400) should also not retry (error classifier)
-        req = httpx.Request("GET", "https://api.spotify.com/v1/tracks")
-        resp = httpx.Response(400, request=req)
+        # httpx2.HTTPStatusError with permanent status (400) should also not retry (error classifier)
+        req = httpx2.Request("GET", "https://api.spotify.com/v1/tracks")
+        resp = httpx2.Response(400, request=req)
         permanent_error = Mock()
         permanent_error.outcome.failed = True
-        permanent_error.outcome.exception.return_value = httpx.HTTPStatusError(
+        permanent_error.outcome.exception.return_value = httpx2.HTTPStatusError(
             "HTTP 400 Bad Request", request=req, response=resp
         )
 
         assert policy.retry(permanent_error) is False
 
     def test_lastfm_policy_retries_lastfm_and_httpx_errors(self):
-        """Critical: Last.FM policy must filter to LastFMAPIError and httpx exceptions."""
-        import httpx
+        """Critical: Last.FM policy must filter to LastFMAPIError and httpx2 exceptions."""
+        import httpx2
 
         from src.infrastructure.connectors.lastfm.error_classifier import (
             LastFMErrorClassifier,
@@ -88,17 +88,17 @@ class TestRetryPolicyFactory:
 
         assert policy.retry(lastfm_error) is True
 
-        # httpx.RequestError SHOULD be retried (network failures are temporary)
-        request = httpx.Request("POST", "https://ws.audioscrobbler.com/2.0")
+        # httpx2.RequestError SHOULD be retried (network failures are temporary)
+        request = httpx2.Request("POST", "https://ws.audioscrobbler.com/2.0")
         httpx_error = Mock()
         httpx_error.outcome.failed = True
-        httpx_error.outcome.exception.return_value = httpx.ConnectError(
+        httpx_error.outcome.exception.return_value = httpx2.ConnectError(
             "Connection refused", request=request
         )
 
         assert policy.retry(httpx_error) is True
 
-        # Plain ConnectionError (not httpx) should NOT be retried (fails type filter)
+        # Plain ConnectionError (not httpx2) should NOT be retried (fails type filter)
         connection_error = Mock()
         connection_error.outcome.failed = True
         connection_error.outcome.exception.return_value = ConnectionError(
@@ -108,8 +108,8 @@ class TestRetryPolicyFactory:
         assert policy.retry(connection_error) is False
 
     def test_musicbrainz_policy_retries_httpx_errors(self):
-        """Critical: MusicBrainz retries httpx errors (native async httpx client)."""
-        import httpx
+        """Critical: MusicBrainz retries httpx2 errors (native async httpx2 client)."""
+        import httpx2
 
         from src.infrastructure.connectors.musicbrainz.error_classifier import (
             MusicBrainzErrorClassifier,
@@ -126,17 +126,17 @@ class TestRetryPolicyFactory:
             )
         )
 
-        # httpx network errors SHOULD be retried
-        request = httpx.Request("GET", "https://musicbrainz.org/ws/2/recording")
+        # httpx2 network errors SHOULD be retried
+        request = httpx2.Request("GET", "https://musicbrainz.org/ws/2/recording")
         httpx_error = Mock()
         httpx_error.outcome.failed = True
-        httpx_error.outcome.exception.return_value = httpx.ConnectError(
+        httpx_error.outcome.exception.return_value = httpx2.ConnectError(
             "Connection refused", request=request
         )
 
         assert policy.retry(httpx_error) is True
 
-        # Plain ConnectionError (not httpx) should NOT be retried (fails type filter)
+        # Plain ConnectionError (not httpx2) should NOT be retried (fails type filter)
         plain_error = Mock()
         plain_error.outcome.failed = True
         plain_error.outcome.exception.return_value = ConnectionError("Network issue")

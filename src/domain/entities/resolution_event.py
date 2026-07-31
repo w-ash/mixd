@@ -42,7 +42,6 @@ type ResolutionEventType = Literal[
     "no_match",
     "superseded",
     "substituted",
-    "suspect",
     "verified",
     "manual_override",
     "unrejected",
@@ -76,6 +75,11 @@ class ResolutionEvent:
     recorded_at: datetime | None = None
     decided_at: datetime | None = None
     evidence_as_of: datetime | None = None
+    # Substrate for a batch correlation id — an offline re-resolution or
+    # backfill run stamping every decision it made with one shared value, so
+    # "which run decided this?" is answerable without correlating timestamps.
+    # No online writer sets this today (the seam always leaves it None); that
+    # is expected, not a bug, until such a run exists to populate it.
     run_id: UUID | None = None
     connector_name: str | None = None
     connector_track_id: UUID | None = None

@@ -284,11 +284,11 @@ class RetryConfig:
         max_delay: Optional time-based stop in seconds (``None`` = no limit).
             Source: ``settings.api.<service>_retry_max_delay`` when a hard
             wall-clock cap is also needed (e.g. LastFM).
-        include_httpx_errors: If True, type-filter to httpx exceptions before
-            passing to the error classifier. Set False for non-httpx clients
+        include_httpx_errors: If True, type-filter to httpx2 exceptions before
+            passing to the error classifier. Set False for non-httpx2 clients
             like MusicBrainz that use a sync library and catch all exceptions.
         service_error_types: Additional exception types to retry on beyond
-            httpx errors (e.g., LastFMAPIError).
+            httpx2 errors (e.g., LastFMAPIError).
     """
 
     service_name: str
@@ -325,7 +325,7 @@ class RetryPolicyFactory:
 
         Builds the tenacity retry predicate, stop condition, and wait strategy
         from the supplied configuration.  When ``include_httpx_errors=True``
-        (the default) the predicate type-filters to httpx exceptions (plus any
+        (the default) the predicate type-filters to httpx2 exceptions (plus any
         ``service_error_types``) before invoking the error classifier.  When
         False, all exception types flow through the classifier directly.
 
@@ -336,11 +336,11 @@ class RetryPolicyFactory:
             Configured AsyncRetrying instance ready for ``await policy(fn, *args)``.
         """
         if config.include_httpx_errors:
-            import httpx
+            import httpx2
 
             retry_predicate = retry_if_exception_type(
-                httpx.HTTPStatusError
-            ) | retry_if_exception_type(httpx.RequestError)
+                httpx2.HTTPStatusError
+            ) | retry_if_exception_type(httpx2.RequestError)
             if config.service_error_types:
                 retry_predicate |= retry_if_exception_type(config.service_error_types)
             retry_predicate &= create_error_classifier_retry(config.classifier)

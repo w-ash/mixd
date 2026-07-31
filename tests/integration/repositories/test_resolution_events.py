@@ -4,15 +4,15 @@ What these cover is the user-visible promise of v0.10.2: the same wrong match
 stops being proposed on every import, an id that flickers is not mistaken for a
 dead one, and every identity decision leaves an answer to "why does my library
 believe this". None of it can be checked against a mock — the expiry rules live
-in partial unique indexes and a ``clock_timestamp()`` column default, and the debounce is a
-query over event timestamps rather than a counter anyone could stub.
+in partial unique indexes, a ``clock_timestamp()`` column default, and SQL
+interval arithmetic over the backoff row, none of which anyone could stub.
 """
 
 from datetime import UTC, datetime, timedelta
 from uuid import UUID, uuid4
 
 import pytest
-from sqlalchemy import select, text, update
+from sqlalchemy import select, update
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -153,14 +153,13 @@ class TestEventLogTemporality:
     ):
         """``clock_timestamp()``, not ``now()`` — the latter ties inside a
         transaction, and every consumer of the log's order depends on it not
-        tying. The suspect-streak window asks for events *after* the last
-        success; with one shared instant per transaction, a success and the
-        suspect that followed it are simultaneous and the streak never
-        truncates.
+        tying. "What did mixd believe, and in what order" is the whole point of
+        an append-only ledger; a batch of decisions written in one transaction
+        that all share an instant cannot answer it.
         """
         track_id = await _make_track(db_session)
 
-        for event_type in ("accepted", "suspect"):
+        for event_type in ("accepted", "queued"):
             await recorder.record(
                 [
                     ResolutionDecision(
@@ -183,7 +182,7 @@ class TestEventLogTemporality:
             .scalars()
             .all()
         )
-        assert [row.event_type for row in rows] == ["accepted", "suspect"]
+        assert [row.event_type for row in rows] == ["accepted", "queued"]
         assert rows[0].recorded_at < rows[1].recorded_at
 
     async def test_every_event_carries_the_matcher_that_made_it(
@@ -409,16 +408,95 @@ class TestNoMatchBackoff:
         assert check_again is not None
         return (check_again - datetime.now(UTC)).total_seconds() / _DAY
 
+    @staticmethod
+    async def _miss(
+        db_session: AsyncSession,
+        negatives: ResolutionNegativeRepository,
+        ct_id: UUID,
+        *,
+        user_id: str = _USER,
+    ) -> DBResolutionNegative:
+        """Record one miss for one id, then read back the row it wrote.
+
+        The upsert is batch-shaped and returns a count, so these assertions go
+        to the row — which is the more honest check anyway: the counter and the
+        clock are both computed in SQL, so what matters is what the statement
+        left behind, not what Python believed it sent.
+        """
+        _ = await negatives.upsert_no_match(
+            user_id=user_id,
+            connector_name="spotify",
+            connector_track_ids=[ct_id],
+            matcher_version="v1",
+        )
+        return (
+            await db_session.execute(
+                select(DBResolutionNegative)
+                .where(
+                    DBResolutionNegative.user_id == user_id,
+                    DBResolutionNegative.connector_track_id == ct_id,
+                    DBResolutionNegative.kind == "no_match",
+                )
+                .execution_options(populate_existing=True)
+            )
+        ).scalar_one()
+
+    async def test_one_statement_backs_off_a_whole_batch(
+        self, db_session: AsyncSession, negatives: ResolutionNegativeRepository
+    ):
+        """An import with 300 absent ids should not issue 300 round-trips.
+
+        Each row still gets its own jittered interval — a batch that missed
+        together must not all come due in the same second — so the batching is
+        in the statement, not in the schedule.
+        """
+        ct_ids = [(await _make_connector_track(db_session))[0] for _ in range(4)]
+
+        written = await negatives.upsert_no_match(
+            user_id=_USER,
+            connector_name="spotify",
+            connector_track_ids=ct_ids,
+            matcher_version="v1",
+        )
+
+        assert written == 4
+        rows = (
+            (
+                await db_session.execute(
+                    select(DBResolutionNegative).where(
+                        DBResolutionNegative.connector_track_id.in_(ct_ids)
+                    )
+                )
+            )
+            .scalars()
+            .all()
+        )
+        assert {row.connector_track_id for row in rows} == set(ct_ids)
+        assert all(row.consecutive_misses == 1 for row in rows)
+        assert len({row.check_again for row in rows}) > 1, (
+            "each id carries its own jitter, so the batch does not come due together"
+        )
+
+    async def test_a_repeated_id_in_one_batch_is_collapsed(
+        self, db_session: AsyncSession, negatives: ResolutionNegativeRepository
+    ):
+        """Two copies of one id in a single statement is a cardinality error."""
+        ct_id, _ = await _make_connector_track(db_session)
+
+        written = await negatives.upsert_no_match(
+            user_id=_USER,
+            connector_name="spotify",
+            connector_track_ids=[ct_id, ct_id, ct_id],
+            matcher_version="v1",
+        )
+
+        assert written == 1
+
     async def test_first_miss_schedules_one_day(
         self, db_session: AsyncSession, negatives: ResolutionNegativeRepository
     ):
         ct_id, _ = await _make_connector_track(db_session)
-        row = await negatives.upsert_no_match(
-            user_id=_USER,
-            connector_name="spotify",
-            connector_track_id=ct_id,
-            matcher_version="v1",
-        )
+        row = await self._miss(db_session, negatives, ct_id)
         assert row.consecutive_misses == 1
         assert 0.8 < self._days_until(row.check_again) < 1.2
 
@@ -427,12 +505,7 @@ class TestNoMatchBackoff:
     ):
         ct_id, _ = await _make_connector_track(db_session)
         for _ in range(2):
-            row = await negatives.upsert_no_match(
-                user_id=_USER,
-                connector_name="spotify",
-                connector_track_id=ct_id,
-                matcher_version="v1",
-            )
+            row = await self._miss(db_session, negatives, ct_id)
         assert row.consecutive_misses == 2
         assert 1.7 < self._days_until(row.check_again) < 2.3
 
@@ -442,12 +515,7 @@ class TestNoMatchBackoff:
         """Six misses would be 32 days; sixty would still be 32 days."""
         ct_id, _ = await _make_connector_track(db_session)
         for _ in range(8):
-            row = await negatives.upsert_no_match(
-                user_id=_USER,
-                connector_name="spotify",
-                connector_track_id=ct_id,
-                matcher_version="v1",
-            )
+            row = await self._miss(db_session, negatives, ct_id)
         assert 28 < self._days_until(row.check_again) < 36
 
     async def test_the_whole_curve_doubles_in_sql(
@@ -465,12 +533,7 @@ class TestNoMatchBackoff:
         expected = [1, 2, 4, 8, 16, 32, 32]
 
         for miss, days in enumerate(expected, start=1):
-            row = await negatives.upsert_no_match(
-                user_id=_USER,
-                connector_name="spotify",
-                connector_track_id=ct_id,
-                matcher_version="v1",
-            )
+            row = await self._miss(db_session, negatives, ct_id)
             assert row.consecutive_misses == miss
             # ±10% deterministic jitter on the base interval, inherited by
             # every doubling; the cap is exact.
@@ -560,172 +623,6 @@ class TestNoMatchBackoff:
         assert active == frozenset({(identifier, track_id)})
 
 
-class TestDeathDebounce:
-    """A spurious 404 must not retire an id the user still listens to."""
-
-    @staticmethod
-    async def _backdate_suspects(
-        db_session: AsyncSession, ct_id: UUID, *, seconds: float
-    ) -> None:
-        """Push the oldest suspect back so the streak spans a real interval.
-
-        ``recorded_at`` is the DB's clock by design, so a test that needs
-        history has to state it explicitly rather than pretend to write it.
-        """
-        oldest = await db_session.scalar(
-            select(DBResolutionEvent.id)
-            .where(
-                DBResolutionEvent.connector_track_id == ct_id,
-                DBResolutionEvent.event_type == "suspect",
-            )
-            .order_by(DBResolutionEvent.recorded_at.asc())
-            .limit(1)
-        )
-        await db_session.execute(
-            update(DBResolutionEvent)
-            .where(DBResolutionEvent.id == oldest)
-            .values(recorded_at=datetime.now(UTC) - timedelta(seconds=seconds))
-        )
-
-    async def test_two_failures_are_not_death(
-        self, db_session: AsyncSession, recorder: ResolutionRecorder
-    ):
-        track_id = await _make_track(db_session)
-        ct_id, identifier = await _make_connector_track(db_session)
-        mapping_id = await _make_live_mapping(db_session, track_id, ct_id)
-        side = DigestSide(identifier=identifier)
-
-        await recorder.note_suspect(side, user_id=_USER, connector_name="spotify")
-        await self._backdate_suspects(
-            db_session, ct_id, seconds=DEATH_DEBOUNCE_MIN_SPAN_SECONDS + _DAY
-        )
-        dead = await recorder.note_suspect(
-            side, user_id=_USER, connector_name="spotify"
-        )
-
-        assert dead is False
-        row = await db_session.get(DBTrackMapping, mapping_id)
-        assert row is not None
-        assert row.superseded_at is None
-
-    async def test_three_failures_inside_a_day_are_not_death_either(
-        self, db_session: AsyncSession, recorder: ResolutionRecorder
-    ):
-        """The count is met, the span is not — a flapping id, not a dead one."""
-        track_id = await _make_track(db_session)
-        ct_id, identifier = await _make_connector_track(db_session)
-        mapping_id = await _make_live_mapping(db_session, track_id, ct_id)
-        side = DigestSide(identifier=identifier)
-
-        for _ in range(3):
-            dead = await recorder.note_suspect(
-                side, user_id=_USER, connector_name="spotify"
-            )
-
-        assert dead is False
-        row = await db_session.get(DBTrackMapping, mapping_id)
-        assert row is not None
-        assert row.superseded_at is None
-
-    async def test_three_failures_over_nine_days_retire_the_mapping(
-        self, db_session: AsyncSession, recorder: ResolutionRecorder
-    ):
-        track_id = await _make_track(db_session)
-        ct_id, identifier = await _make_connector_track(db_session)
-        mapping_id = await _make_live_mapping(db_session, track_id, ct_id)
-        side = DigestSide(identifier=identifier)
-
-        for _ in range(2):
-            await recorder.note_suspect(side, user_id=_USER, connector_name="spotify")
-        await self._backdate_suspects(
-            db_session, ct_id, seconds=DEATH_DEBOUNCE_MIN_SPAN_SECONDS + _DAY
-        )
-        dead = await recorder.note_suspect(
-            side, user_id=_USER, connector_name="spotify"
-        )
-
-        assert dead is True
-        row = (
-            await db_session.execute(
-                select(DBTrackMapping)
-                .where(DBTrackMapping.id == mapping_id)
-                .execution_options(**{INCLUDE_SUPERSEDED: True}, populate_existing=True)
-            )
-        ).scalar_one()
-        assert row.superseded_at is not None
-        assert row.supersession_reason == "id_dead"
-        # Retirement, not replacement: nothing succeeded this mapping.
-        assert row.superseded_by_id is None
-
-    async def test_a_retirement_is_explained_by_a_superseded_event(
-        self,
-        db_session: AsyncSession,
-        recorder: ResolutionRecorder,
-        events: ResolutionEventRepository,
-    ):
-        track_id = await _make_track(db_session)
-        ct_id, identifier = await _make_connector_track(db_session)
-        mapping_id = await _make_live_mapping(db_session, track_id, ct_id)
-        side = DigestSide(identifier=identifier)
-
-        for _ in range(2):
-            await recorder.note_suspect(side, user_id=_USER, connector_name="spotify")
-        await self._backdate_suspects(
-            db_session, ct_id, seconds=DEATH_DEBOUNCE_MIN_SPAN_SECONDS + _DAY
-        )
-        await recorder.note_suspect(side, user_id=_USER, connector_name="spotify")
-
-        found = await events.events_for_mapping(mapping_id, user_id=_USER)
-        superseded = [e for e in found if e.event_type == "superseded"]
-        assert superseded
-        assert superseded[0].payload["reason"] == "id_dead"
-
-    async def test_one_success_resets_the_streak_immediately(
-        self, db_session: AsyncSession, recorder: ResolutionRecorder
-    ):
-        """No counter to clear — the window simply stops at the last success."""
-        track_id = await _make_track(db_session)
-        ct_id, identifier = await _make_connector_track(db_session)
-        mapping_id = await _make_live_mapping(db_session, track_id, ct_id)
-        side = DigestSide(identifier=identifier)
-
-        for _ in range(2):
-            await recorder.note_suspect(side, user_id=_USER, connector_name="spotify")
-        await self._backdate_suspects(
-            db_session, ct_id, seconds=DEATH_DEBOUNCE_MIN_SPAN_SECONDS + _DAY
-        )
-        # The id came back. Everything before this instant is history.
-        await recorder.record(
-            [
-                ResolutionDecision(
-                    event_type="accepted",
-                    connector_name="spotify",
-                    connector_track_id=ct_id,
-                    track_id=track_id,
-                )
-            ],
-            user_id=_USER,
-        )
-        # `now()` is the transaction clock, so the success and the next suspect
-        # would otherwise share a timestamp; nudge it back by a second.
-        await db_session.execute(
-            text(
-                "UPDATE resolution_events SET recorded_at = recorded_at - interval "
-                "'1 second' WHERE event_type = 'accepted' AND connector_track_id = :ct"
-            ),
-            {"ct": ct_id},
-        )
-
-        dead = await recorder.note_suspect(
-            side, user_id=_USER, connector_name="spotify"
-        )
-
-        assert dead is False
-        row = await db_session.get(DBTrackMapping, mapping_id)
-        assert row is not None
-        assert row.superseded_at is None
-
-
 class TestRetirementReplacesDeletion:
     """Unlinking is a correction the ledger has to keep, not an erasure."""
 
@@ -773,7 +670,7 @@ class TestRetirementReplacesDeletion:
         repo = TrackConnectorRepository(db_session)
 
         successor = await repo.update_mapping_track(
-            mapping_id, new_track, "manual_override"
+            mapping_id, new_track, "manual_override", user_id=_USER
         )
 
         assert successor.track_id == new_track
@@ -828,10 +725,14 @@ class TestTenantIsolation:
         )
 
         mine = await negatives.active_rejected_pairs(
-            user_id=_USER, connector_track_ids=[ct_id], matcher_version="v1"
+            user_id=_USER,
+            connector_track_ids=[ct_id],
+            matcher_version="v1",
         )
         theirs = await negatives.active_rejected_pairs(
-            user_id=_OTHER_USER, connector_track_ids=[ct_id], matcher_version="v1"
+            user_id=_OTHER_USER,
+            connector_track_ids=[ct_id],
+            matcher_version="v1",
         )
 
         assert mine == {(ct_id, track_id)}
@@ -843,20 +744,17 @@ class TestTenantIsolation:
         """Both users may hold their own no-match row for the same shared id."""
         ct_id, _ = await _make_connector_track(db_session)
 
-        mine = await negatives.upsert_no_match(
-            user_id=_USER,
-            connector_name="spotify",
-            connector_track_id=ct_id,
-            matcher_version="v1",
-        )
-        theirs = await negatives.upsert_no_match(
-            user_id=_OTHER_USER,
-            connector_name="spotify",
-            connector_track_id=ct_id,
-            matcher_version="v1",
-        )
+        for owner in (_USER, _OTHER_USER):
+            assert (
+                await negatives.upsert_no_match(
+                    user_id=owner,
+                    connector_name="spotify",
+                    connector_track_ids=[ct_id],
+                    matcher_version="v1",
+                )
+                == 1
+            ), "each owner gets their own row for the same shared connector track"
 
-        assert mine.id != theirs.id
         cleared = await negatives.clear_no_match(
             user_id=_OTHER_USER, connector_name="spotify", connector_track_ids=[ct_id]
         )
@@ -1029,83 +927,406 @@ class TestNegativeCacheSizeIsMonitored:
         assert size.no_match_pending == 0
 
 
-class TestRetirementHealsTheDenormalizedFastPath:
-    """Retiring a mapping is only half the repair; the fast path follows it."""
+class TestIdsThatLookDead:
+    """Death is derived from the backoff row, not from a second counter.
+
+    The row the miss already wrote records how many times in a row an id has
+    failed and when the run began — which is the whole debounce. Scanning the
+    event log for a ``suspect`` streak was a second count of the same failures,
+    written in the same call, that only one connector ever fed.
+
+    It is reported, never acted on. Spotify relinks and MusicBrainz merges
+    rather than deleting, so this number sitting near zero is the expected
+    shape; a number that climbs is a question for a person.
+    """
 
     @staticmethod
-    async def _backdate(db_session: AsyncSession, ct_id: UUID, *, seconds: int) -> None:
+    async def _age_the_row(
+        db_session: AsyncSession,
+        ct_id: UUID,
+        *,
+        misses: int,
+        days_old: float,
+        span_days: float | None = None,
+    ) -> None:
+        """Backdate the run of misses.
+
+        Both ends move, because the span the debounce reads is
+        ``last_checked_at - created_at`` and moving only one end cannot tell a
+        run of failures spread over weeks from a burst that happened weeks ago
+        and stopped. ``span_days`` defaults to the row's full age (a run still
+        going as of now); pass a smaller value for a burst that went quiet.
+        """
+        started = datetime.now(UTC) - timedelta(days=days_old)
+        last = started + timedelta(days=days_old if span_days is None else span_days)
         _ = await db_session.execute(
-            update(DBResolutionEvent)
-            .where(
-                DBResolutionEvent.connector_track_id == ct_id,
-                DBResolutionEvent.event_type == "suspect",
+            update(DBResolutionNegative)
+            .where(DBResolutionNegative.connector_track_id == ct_id)
+            .values(
+                consecutive_misses=misses,
+                created_at=started,
+                last_checked_at=last,
             )
-            .values(recorded_at=datetime.now(UTC) - timedelta(seconds=seconds))
         )
 
-    async def _debounce_to_death(
+    async def _missed_id(
         self,
         db_session: AsyncSession,
         recorder: ResolutionRecorder,
-        ct_id: UUID,
-        identifier: str,
-    ) -> bool:
-        side = DigestSide(identifier=identifier)
-        for _ in range(2):
-            await recorder.note_suspect(side, user_id=_USER, connector_name="spotify")
-        await self._backdate(
-            db_session, ct_id, seconds=DEATH_DEBOUNCE_MIN_SPAN_SECONDS + _DAY
-        )
-        return await recorder.note_suspect(
-            side, user_id=_USER, connector_name="spotify"
-        )
-
-    async def test_retiring_the_only_mapping_clears_the_denormalized_id(
-        self, db_session: AsyncSession, recorder: ResolutionRecorder
-    ):
-        """``tracks.spotify_id`` pointing at a dead id is the FM4d disagreement.
-
-        Migration 044 had to repair 366 production rows of exactly this shape,
-        so the write that creates it has to heal it rather than leave it for
-        the next read.
-        """
-        track_id = await _make_track(db_session)
+        *,
+        misses: int,
+        days_old: float,
+        span_days: float | None = None,
+    ) -> UUID:
         ct_id, identifier = await _make_connector_track(db_session)
-        await _make_live_mapping(db_session, track_id, ct_id)
-        connector_repo = TrackConnectorRepository(db_session)
-        await connector_repo.ensure_primary_for_connector(track_id, "spotify")
-        assert (await db_session.get(DBTrack, track_id)).spotify_id == identifier
+        await recorder.remember_no_match(
+            [DigestSide(identifier=identifier)],
+            user_id=_USER,
+            connector_name="spotify",
+        )
+        await self._age_the_row(
+            db_session,
+            ct_id,
+            misses=misses,
+            days_old=days_old,
+            span_days=span_days,
+        )
+        return ct_id
 
-        assert await self._debounce_to_death(db_session, recorder, ct_id, identifier)
-
-        track = await db_session.get(DBTrack, track_id)
-        await db_session.refresh(track)
-        assert track.spotify_id is None
-
-    async def test_a_surviving_sibling_is_promoted_instead(
-        self, db_session: AsyncSession, recorder: ResolutionRecorder
+    async def test_enough_misses_over_enough_time_looks_dead(
+        self,
+        db_session: AsyncSession,
+        recorder: ResolutionRecorder,
+        negatives: ResolutionNegativeRepository,
     ):
-        track_id = await _make_track(db_session)
-        dead_ct, dead_identifier = await _make_connector_track(db_session)
-        live_ct, live_identifier = await _make_connector_track(db_session)
-        await _make_live_mapping(db_session, track_id, dead_ct)
-        await _make_live_mapping(db_session, track_id, live_ct)
-        connector_repo = TrackConnectorRepository(db_session)
-        await connector_repo.set_primary_mapping(track_id, "spotify", dead_ct)
-
-        assert await self._debounce_to_death(
-            db_session, recorder, dead_ct, dead_identifier
+        _ = await self._missed_id(
+            db_session,
+            recorder,
+            misses=3,
+            days_old=DEATH_DEBOUNCE_MIN_SPAN_SECONDS / _DAY + 1,
         )
 
-        track = await db_session.get(DBTrack, track_id)
-        await db_session.refresh(track)
-        assert track.spotify_id == live_identifier
-        promoted = (
-            await db_session.execute(
-                select(DBTrackMapping).where(
-                    DBTrackMapping.track_id == track_id,
-                    DBTrackMapping.is_primary.is_(True),
+        size = await negatives.count_active_negatives(user_id=_USER)
+        assert size.dead_id_candidates == 1
+
+    async def test_a_flapping_id_inside_one_run_does_not(
+        self,
+        db_session: AsyncSession,
+        recorder: ResolutionRecorder,
+        negatives: ResolutionNegativeRepository,
+    ):
+        """Three failures in an afternoon is a bad afternoon, not a dead id."""
+        _ = await self._missed_id(db_session, recorder, misses=3, days_old=0)
+
+        size = await negatives.count_active_negatives(user_id=_USER)
+        assert size.dead_id_candidates == 0
+
+    async def test_that_afternoon_does_not_become_a_death_by_growing_old(
+        self,
+        db_session: AsyncSession,
+        recorder: ResolutionRecorder,
+        negatives: ResolutionNegativeRepository,
+    ):
+        """The same burst, a month later, with nothing re-checked since.
+
+        The row has not changed — no new failure, no new evidence — so a
+        threshold measured from ``created_at`` to *now* would condemn the id
+        purely for having sat still long enough. The span has to be bounded by
+        the last observation, not by the clock.
+        """
+        _ = await self._missed_id(
+            db_session,
+            recorder,
+            misses=3,
+            days_old=DEATH_DEBOUNCE_MIN_SPAN_SECONDS / _DAY + 30,
+            span_days=0,
+        )
+
+        size = await negatives.count_active_negatives(user_id=_USER)
+        assert size.dead_id_candidates == 0
+
+    async def test_one_old_failure_does_not(
+        self,
+        db_session: AsyncSession,
+        recorder: ResolutionRecorder,
+        negatives: ResolutionNegativeRepository,
+    ):
+        """A single miss that happened to be long ago proves nothing."""
+        _ = await self._missed_id(
+            db_session,
+            recorder,
+            misses=1,
+            days_old=DEATH_DEBOUNCE_MIN_SPAN_SECONDS / _DAY + 1,
+        )
+
+        size = await negatives.count_active_negatives(user_id=_USER)
+        assert size.dead_id_candidates == 0
+
+    async def test_a_success_clears_it_with_no_counter_to_reset(
+        self,
+        db_session: AsyncSession,
+        recorder: ResolutionRecorder,
+        negatives: ResolutionNegativeRepository,
+    ):
+        """Recovery has no hysteresis: the row *is* the streak, and it is gone.
+
+        This is what the consolidation buys. The old streak had to enumerate
+        every event type that counts as a success, and missing one —
+        ``manual_override``, emitted for exactly the mappings a user pinned by
+        hand — meant an id a human had vouched for still counted down.
+        """
+        ct_id, identifier = await _make_connector_track(db_session)
+        await recorder.remember_no_match(
+            [DigestSide(identifier=identifier)],
+            user_id=_USER,
+            connector_name="spotify",
+        )
+        await self._age_the_row(
+            db_session,
+            ct_id,
+            misses=9,
+            days_old=DEATH_DEBOUNCE_MIN_SPAN_SECONDS / _DAY + 30,
+        )
+        assert (
+            await negatives.count_active_negatives(user_id=_USER)
+        ).dead_id_candidates == 1
+
+        _ = await recorder.clear_negatives(
+            [identifier], user_id=_USER, connector_name="spotify"
+        )
+
+        size = await negatives.count_active_negatives(user_id=_USER)
+        assert size.dead_id_candidates == 0
+        assert size.no_match_pending == 0
+
+
+class TestOneRefusalOneRow:
+    """Every reader of this store honours everything in it.
+
+    That is why the pair key has no asserter in it: a second row on the same
+    pair could say nothing the first does not already say, and the column that
+    let two rows exist was only ever there to contain refusals the canonical
+    reuse gate should not have been writing at all.
+    """
+
+    async def test_re_asserting_a_pair_refreshes_rather_than_duplicates(
+        self, db_session: AsyncSession, negatives: ResolutionNegativeRepository
+    ):
+        track_id = await _make_track(db_session)
+        ct_id, _ = await _make_connector_track(db_session)
+
+        def _pair(digest: str) -> RejectedPairRow:
+            return RejectedPairRow(
+                connector_track_id=ct_id,
+                candidate_track_id=track_id,
+                connector_name="spotify",
+                content_digest=digest,
+            )
+
+        _ = await negatives.record_rejected_pairs(
+            [_pair("first")], user_id=_USER, matcher_version="v1"
+        )
+        _ = await negatives.record_rejected_pairs(
+            [_pair("second")], user_id=_USER, matcher_version="v1"
+        )
+
+        rows = (
+            (
+                await db_session.execute(
+                    select(DBResolutionNegative).where(
+                        DBResolutionNegative.connector_track_id == ct_id,
+                        DBResolutionNegative.kind == "rejected_pair",
+                    )
                 )
             )
-        ).scalar_one()
-        assert promoted.connector_track_id == live_ct
+            .scalars()
+            .all()
+        )
+        assert len(rows) == 1, "one refusal per pair"
+        assert rows[0].content_digest == "second", "the re-assertion won"
+
+
+class TestListNegatives:
+    """One listing over both halves of the cache, identity joined in.
+
+    ``rejected`` is the discovery step ``unreject`` depends on — without it a
+    human (or the ``manage_track_matches`` agent tool) would need to already
+    know a connector-track id to find a candidate worth withdrawing.
+    ``dead_id`` is the drill-down behind ``dead_id_candidates``, which is a
+    bare count and cannot be acted on without one.
+    """
+
+    async def test_lists_with_identities_joined_in(
+        self,
+        db_session: AsyncSession,
+        recorder: ResolutionRecorder,
+        negatives: ResolutionNegativeRepository,
+    ):
+        track_id = await _make_track(db_session, "Rejected Candidate")
+        ct_id, identifier = await _make_connector_track(db_session)
+        candidate = _candidate(identifier, _domain_track(track_id))
+
+        await recorder.remember_rejections(
+            [candidate], user_id=_USER, connector_name="spotify"
+        )
+
+        listings = await negatives.list_negatives(user_id=_USER, kind="rejected")
+
+        assert len(listings) == 1
+        listing = listings[0]
+        assert listing.connector_track_id == ct_id
+        assert listing.connector_name == "spotify"
+        assert listing.connector_track_identifier == identifier
+        assert listing.track_id == track_id
+        assert "Rejected Candidate" in (listing.track_title or "")
+
+    async def test_narrows_to_given_connector_track_ids(
+        self,
+        db_session: AsyncSession,
+        recorder: ResolutionRecorder,
+        negatives: ResolutionNegativeRepository,
+    ):
+        """One statement covers a batch of connector tracks, not one per id."""
+        track_id = await _make_track(db_session)
+        ct_id_a, identifier_a = await _make_connector_track(db_session)
+        ct_id_b, identifier_b = await _make_connector_track(db_session)
+        await recorder.remember_rejections(
+            [_candidate(identifier_a, _domain_track(track_id))],
+            user_id=_USER,
+            connector_name="spotify",
+        )
+        await recorder.remember_rejections(
+            [_candidate(identifier_b, _domain_track(track_id))],
+            user_id=_USER,
+            connector_name="spotify",
+        )
+
+        narrowed = await negatives.list_negatives(
+            user_id=_USER, kind="rejected", connector_track_ids=[ct_id_a]
+        )
+
+        assert {listing.connector_track_id for listing in narrowed} == {ct_id_a}
+
+    async def test_an_empty_connector_track_id_filter_returns_nothing(
+        self,
+        db_session: AsyncSession,
+        recorder: ResolutionRecorder,
+        negatives: ResolutionNegativeRepository,
+    ):
+        track_id = await _make_track(db_session)
+        _, identifier = await _make_connector_track(db_session)
+        await recorder.remember_rejections(
+            [_candidate(identifier, _domain_track(track_id))],
+            user_id=_USER,
+            connector_name="spotify",
+        )
+
+        assert (
+            await negatives.list_negatives(
+                user_id=_USER, kind="rejected", connector_track_ids=[]
+            )
+            == []
+        )
+
+    async def test_a_withdrawn_rejection_does_not_appear(
+        self,
+        db_session: AsyncSession,
+        recorder: ResolutionRecorder,
+        negatives: ResolutionNegativeRepository,
+    ):
+        track_id = await _make_track(db_session)
+        ct_id, identifier = await _make_connector_track(db_session)
+        await recorder.remember_rejections(
+            [_candidate(identifier, _domain_track(track_id))],
+            user_id=_USER,
+            connector_name="spotify",
+        )
+
+        await negatives.unreject(
+            user_id=_USER, connector_track_id=ct_id, candidate_track_id=track_id
+        )
+
+        assert await negatives.list_negatives(user_id=_USER, kind="rejected") == []
+
+    async def test_scoped_to_its_user(
+        self,
+        db_session: AsyncSession,
+        recorder: ResolutionRecorder,
+        negatives: ResolutionNegativeRepository,
+    ):
+        track_id = await _make_track(db_session)
+        _, identifier = await _make_connector_track(db_session)
+        await recorder.remember_rejections(
+            [_candidate(identifier, _domain_track(track_id))],
+            user_id=_USER,
+            connector_name="spotify",
+        )
+
+        assert await negatives.list_negatives(user_id=_USER, kind="rejected")
+        assert (
+            await negatives.list_negatives(user_id=_OTHER_USER, kind="rejected") == []
+        )
+
+    async def test_dead_ids_name_the_track_still_mapped_to_them(
+        self,
+        db_session: AsyncSession,
+        recorder: ResolutionRecorder,
+        negatives: ResolutionNegativeRepository,
+    ):
+        """A dead id names no candidate, so the track comes via its mapping.
+
+        That is the whole reason one listing serves both kinds: "which of my
+        tracks is this about" is the question either way, and answering it
+        needs a different join per kind rather than a different listing.
+        """
+        ct_id, identifier = await _make_connector_track(db_session)
+        track_id = await _make_track(db_session, "Still Mapped")
+        db_session.add(
+            DBTrackMapping(
+                user_id=_USER,
+                track_id=track_id,
+                connector_track_id=ct_id,
+                connector_name="spotify",
+                match_method="isrc",
+                confidence=90,
+            )
+        )
+        await db_session.flush()
+
+        await recorder.remember_no_match(
+            [DigestSide(identifier=identifier)],
+            user_id=_USER,
+            connector_name="spotify",
+        )
+        await TestIdsThatLookDead._age_the_row(
+            db_session,
+            ct_id,
+            misses=5,
+            days_old=DEATH_DEBOUNCE_MIN_SPAN_SECONDS / _DAY + 1,
+        )
+
+        listings = await negatives.list_negatives(user_id=_USER, kind="dead_id")
+
+        assert len(listings) == 1
+        listing = listings[0]
+        assert listing.connector_track_identifier == identifier
+        assert listing.track_id == track_id
+        assert (listing.track_title or "").startswith("Still Mapped")
+        assert listing.consecutive_misses == 5
+
+    async def test_a_rejection_does_not_appear_among_dead_ids(
+        self,
+        db_session: AsyncSession,
+        recorder: ResolutionRecorder,
+        negatives: ResolutionNegativeRepository,
+    ):
+        """The two halves expire on different triggers and never share a view."""
+        track_id = await _make_track(db_session)
+        _, identifier = await _make_connector_track(db_session)
+        await recorder.remember_rejections(
+            [_candidate(identifier, _domain_track(track_id))],
+            user_id=_USER,
+            connector_name="spotify",
+        )
+
+        assert await negatives.list_negatives(user_id=_USER, kind="dead_id") == []

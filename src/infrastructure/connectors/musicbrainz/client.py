@@ -1,4 +1,4 @@
-"""MusicBrainz API client — native async httpx wrapper.
+"""MusicBrainz API client — native async httpx2 wrapper.
 
 Provides a thin wrapper around the MusicBrainz JSON API with:
 - Rate limiting (1 request/second per API policy)
@@ -14,7 +14,7 @@ import time
 from typing import ClassVar, override
 
 from attrs import define, field
-import httpx
+import httpx2
 from tenacity import AsyncRetrying
 
 from src.config import get_logger, settings
@@ -36,22 +36,22 @@ logger = get_logger(__name__).bind(service="musicbrainz_client")
 class MusicBrainzAPIClient(BaseAPIClient):
     """Pure MusicBrainz API client with rate limiting and centralized retry policy.
 
-    Uses native httpx AsyncClient instead of musicbrainzngs, providing true
-    async I/O and consistent httpx error types for classification.
+    Uses native httpx2 AsyncClient instead of musicbrainzngs, providing true
+    async I/O and consistent httpx2 error types for classification.
     """
 
     _SUPPRESS_ERRORS: ClassVar[tuple[type[BaseException], ...]] = (
-        httpx.HTTPStatusError,
-        httpx.RequestError,
+        httpx2.HTTPStatusError,
+        httpx2.RequestError,
     )
 
-    _client: httpx.AsyncClient = field(init=False, repr=False)
+    _client: httpx2.AsyncClient = field(init=False, repr=False)
     _last_request_time: float = field(default=0.0, init=False, repr=False)
     _request_lock: asyncio.Lock = field(factory=asyncio.Lock, init=False, repr=False)
     _retry_policy: AsyncRetrying = field(init=False, repr=False)
 
     def __attrs_post_init__(self) -> None:
-        """Initialize httpx client and retry policy."""
+        """Initialize httpx2 client and retry policy."""
         from src.infrastructure.connectors.musicbrainz.error_classifier import (
             MusicBrainzErrorClassifier,
         )
@@ -75,7 +75,7 @@ class MusicBrainzAPIClient(BaseAPIClient):
 
     @override
     async def aclose(self) -> None:
-        """Close the underlying httpx client."""
+        """Close the underlying httpx2 client."""
         await self._client.aclose()
 
     # ── ISRC Lookup ──────────────────────────────────────────────────────
@@ -158,7 +158,7 @@ class MusicBrainzAPIClient(BaseAPIClient):
 
     async def _rate_limited_request(
         self, path: str, *, params: dict[str, str] | None = None
-    ) -> httpx.Response:
+    ) -> httpx2.Response:
         """Execute GET request with 1-request-per-second rate limiting."""
         async with self._request_lock:
             current_time = time.time()

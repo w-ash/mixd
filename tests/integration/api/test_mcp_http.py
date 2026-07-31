@@ -19,7 +19,7 @@ from contextlib import asynccontextmanager
 import json
 
 from fastapi import FastAPI
-import httpx
+import httpx2
 from mcp.client.session import ClientSession
 from mcp.client.streamable_http import streamable_http_client
 from mcp_types import TextContent
@@ -46,10 +46,10 @@ def _token(sub: str = "user-a", email: str = "a@example.com") -> str:
 
 def _raw_client(
     app: FastAPI, token: str | None = None, host: str = "localhost"
-) -> httpx.AsyncClient:
+) -> httpx2.AsyncClient:
     headers = {"Authorization": f"Bearer {token}"} if token else {}
-    return httpx.AsyncClient(
-        transport=httpx.ASGITransport(app=app),
+    return httpx2.AsyncClient(
+        transport=httpx2.ASGITransport(app=app),
         base_url=f"http://{host}",
         headers=headers,
         timeout=30,

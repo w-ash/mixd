@@ -222,6 +222,54 @@ class TestOrphanedConnectorTracks:
         repo = TrackConnectorRepository(db_session)
         assert await repo.count_orphaned_connector_tracks() == 0
 
+    async def test_an_expired_backoff_stops_excusing_the_orphan(
+        self, db_session: AsyncSession
+    ):
+        """A negative only excuses a missing mapping while it is in force.
+
+        Matching any negative row ever written blinded the metric for good:
+        once a connector track had been backed off once, a mapping that leaked
+        for real months later could never be counted.
+        """
+        ct_id = await _seed_connector_track(db_session)
+        db_session.add(
+            DBResolutionNegative(
+                user_id="default",
+                kind="no_match",
+                connector_name="spotify",
+                connector_track_id=ct_id,
+                matcher_version="v1",
+                check_again=datetime.now(UTC) - timedelta(days=1),
+            )
+        )
+        await db_session.flush()
+
+        repo = TrackConnectorRepository(db_session)
+        assert await repo.count_orphaned_connector_tracks() == 1
+
+    async def test_a_withdrawn_rejection_stops_excusing_the_orphan(
+        self, db_session: AsyncSession
+    ):
+        """Unrejecting a pair puts the connector track back in scope."""
+        track_id = await _seed_track(db_session)
+        ct_id = await _seed_connector_track(db_session)
+        db_session.add(
+            DBResolutionNegative(
+                user_id="default",
+                kind="rejected_pair",
+                connector_name="spotify",
+                connector_track_id=ct_id,
+                candidate_track_id=track_id,
+                matcher_version="v1",
+                content_digest="abc",
+                unrejected_at=datetime.now(UTC),
+            )
+        )
+        await db_session.flush()
+
+        repo = TrackConnectorRepository(db_session)
+        assert await repo.count_orphaned_connector_tracks() == 1
+
 
 class TestDuplicateTracksByFingerprint:
     async def test_no_duplicates_on_clean_db(self, db_session: AsyncSession):

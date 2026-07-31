@@ -52,7 +52,7 @@ class TestLastFMRetryBehavior:
         """Non-LastFMAPIError exceptions propagate immediately without retries.
 
         ValueError from _api_request is a programming error. The retry policy
-        only retries LastFMAPIError/httpx exceptions; others propagate to caller.
+        only retries LastFMAPIError/httpx2 exceptions; others propagate to caller.
         """
         mock_api = AsyncMock(
             side_effect=ValueError("Programming error - not an API error")

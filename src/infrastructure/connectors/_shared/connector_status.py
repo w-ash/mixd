@@ -11,7 +11,7 @@ scaffold would hide the differences that matter for each provider.
 import time
 from typing import cast
 
-import httpx
+import httpx2
 
 from src.config import get_logger, settings
 from src.domain.entities.connector import ConnectorAuthError, ConnectorStatus
@@ -30,12 +30,14 @@ SPOTIFY_ME_TIMEOUT = 5.0
 async def fetch_spotify_display_name(access_token: str) -> str | None:
     """Best-effort fetch of Spotify display name via GET /me.
 
-    Uses a bare httpx client — avoids heavy SpotifyAPIClient initialization,
+    Uses a bare httpx2 client — avoids heavy SpotifyAPIClient initialization,
     token manager, and retry policies. Returns display_name or user id,
     or None on any error.
     """
     try:
-        async with httpx.AsyncClient(timeout=SPOTIFY_ME_TIMEOUT, verify=True) as client:
+        async with httpx2.AsyncClient(
+            timeout=SPOTIFY_ME_TIMEOUT, verify=True
+        ) as client:
             resp = await client.get(
                 SPOTIFY_ME_URL,
                 headers={"Authorization": f"Bearer {access_token}"},

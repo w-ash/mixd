@@ -67,7 +67,7 @@ class BaseAPIClient:
         """Execute API call with retry policy, context propagation, and error suppression.
 
         Operation name propagates via structlog contextvars into ALL nested log calls
-        (httpx hooks, tenacity callbacks, _impl methods).
+        (httpx2 hooks, tenacity callbacks, _impl methods).
         """
         with logging_context(operation=operation):
             try:

@@ -25,7 +25,15 @@ cd "$(dirname "$0")/.."
 # SUSPECT_RECHECK_SECONDS — declared substrate for the re-validation worker the milestone
 # deliberately deferred. The same commit removed 17 other flagged names by giving them
 # real consumers, so the net movement is down.
-BASE_WHITELIST=78
+# 78 → 77 post-v0.10.2: SUSPECT_RECHECK_SECONDS deleted. The id-death debounce was folded
+# into the negative cache's own consecutive-miss counter, so the separate suspect state it
+# paced no longer exists — the constant had nothing left to be substrate for.
+# 77 → 76, 2026-07-30: `unreject` deleted from the whitelist. `mixd tracks unreject`
+# (backed by a real UnrejectMappingCandidateUseCase) replaced
+# scripts/unreject_mapping_candidate.py as the repository method's caller, so it now has
+# an in-src call site vulture can see — confirmed by running `vulture src/ alembic/`
+# (no whitelist) before removing the entry, per this file's own standing precedent.
+BASE_WHITELIST=76
 BASE_NOQA=13
 BASE_TYPE_IGNORE=0
 BASE_PYRIGHT_IGNORE=18

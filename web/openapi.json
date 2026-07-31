@@ -3,7 +3,7 @@
   "info": {
     "title": "Mixd",
     "description": "Personal music metadata hub",
-    "version": "0.10.1"
+    "version": "0.10.2"
   },
   "paths": {
     "/api/v1/connectors/{service}/auth-url": {
@@ -6784,6 +6784,18 @@
           "stale_denormalized_ids_count": {
             "type": "integer",
             "title": "Stale Denormalized Ids Count"
+          },
+          "rejected_pairs_active": {
+            "type": "integer",
+            "title": "Rejected Pairs Active"
+          },
+          "no_match_pending": {
+            "type": "integer",
+            "title": "No Match Pending"
+          },
+          "dead_id_candidates": {
+            "type": "integer",
+            "title": "Dead Id Candidates"
           }
         },
         "type": "object",
@@ -6796,7 +6808,10 @@
           "review_pending_by_method",
           "isrc_suspect_pending_count",
           "confidence_evidence_divergence_count",
-          "stale_denormalized_ids_count"
+          "stale_denormalized_ids_count",
+          "rejected_pairs_active",
+          "no_match_pending",
+          "dead_id_candidates"
         ],
         "title": "MatchingDriftSchema",
         "description": "Drift signals for the matching-health dashboard.\n\nExploratory metrics with no fixed thresholds \u2014 baseline empirically and\ncompare week-over-week."

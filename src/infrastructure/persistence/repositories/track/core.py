@@ -36,8 +36,8 @@ from src.domain.matching.isrc_validation import (
     assess_isrc_match_reliability,
     compute_duration_diff_ms,
 )
+from src.domain.repositories.resolution import SupersessionEdge
 from src.domain.repositories.track import (
-    ConflationEdge,
     TrackFacets,
     TrackListingPage,
 )
@@ -896,7 +896,7 @@ class TrackRepository(BaseRepository[DBTrack, Track]):
     @db_operation("merge_mappings_to_track")
     async def merge_mappings_to_track(
         self, from_id: UUID, to_id: UUID
-    ) -> list[ConflationEdge]:
+    ) -> list[SupersessionEdge]:
         """Merge connector mappings from one track to another, append-only.
 
         Single CTE chain, four arms:
@@ -907,9 +907,15 @@ class TrackRepository(BaseRepository[DBTrack, Track]):
           at the winner's live row — and moved to the winner track so the loser
           track's cascade cannot take the history with it. It is not deleted:
           a merge is an assertion about identity, and deleting the row that
-          assertion revises destroys the only evidence for it.
-        - **Different connector tracks.** Both stay live on the winner; the
-          winner's is primary and the loser's secondary.
+          assertion revises destroys the only evidence for it. Reachable only
+          on data predating migration 044 —
+          ``uq_track_mappings_live_connector`` now forbids the two live rows
+          this arm reconciles — so it is a restore path, not a hot one.
+        - **Different connector tracks.** Both stay live on the winner and the
+          loser's becomes secondary. One winner per connector is promoted to
+          primary *only if the track has none*: ``uq_primary_mapping`` admits
+          a single live primary per (user, track, connector), and deposing an
+          existing primary is not something a merge gets to decide.
         - **Non-conflicting live rows** follow their track and are re-stamped as
           manually pinned.
         - **Superseded rows** follow their track and *nothing else changes*.
@@ -928,19 +934,59 @@ class TrackRepository(BaseRepository[DBTrack, Track]):
         result = await self.session.execute(
             text("""
             WITH all_conflicts AS (
-                SELECT
+                -- DISTINCT ON collapses the source to one winner per loser.
+                -- A loser can join two live winners on the same connector
+                -- (one sharing its connector track, one not), and Branch 1
+                -- and Branch 2 would then both UPDATE that loser row in a
+                -- single statement — PostgreSQL applies one arm, and which
+                -- one is not predictable. If the diff-ext arm won, the row
+                -- would survive live on the winner track and trip
+                -- uq_track_mappings_live_connector, aborting the merge.
+                --
+                -- Reachable only on pre-044 data. That index makes two live
+                -- rows on one connector track impossible, so the
+                -- same-connector-track join can only pair rows a database
+                -- restored from an older dump still holds. Kept because that
+                -- restore is exactly when a merge would hit it, and the arm
+                -- it guards used to DELETE a mapping outright. The tests
+                -- reach it by standing the index down for one transaction.
+                -- (No semicolons in this literal, please — the live-rows
+                -- conformance guard splits fragments on them.)
+                --
+                -- Preferring the same-connector-track winner is the correct
+                -- reading when both apply: retiring a loser into a mapping
+                -- that already asserts the same identity is the narrower
+                -- claim. winner.id is the final tiebreak so the choice is
+                -- deterministic across runs rather than plan-dependent.
+                SELECT DISTINCT ON (loser.id)
                     loser.id AS loser_id,
                     winner.id AS winner_id,
                     loser.connector_track_id AS loser_ct_id,
-                    winner.connector_track_id AS winner_ct_id
+                    winner.connector_track_id AS winner_ct_id,
+                    loser.connector_name AS connector_name,
+                    winner.is_primary AS winner_is_primary
                 FROM track_mappings loser
-                JOIN track_mappings winner ON loser.connector_name = winner.connector_name
+                JOIN track_mappings winner
+                  ON loser.connector_name = winner.connector_name
+                 -- track_mappings carries its own user_id, so without this
+                 -- two tenants' mappings on the same pair of tracks pair up
+                 -- and the merge stamps a cross-tenant superseded_by_id.
+                 -- RLS does not backstop it: PDR-002 records that the Neon
+                 -- owner role has BYPASSRLS, so this predicate *is* the
+                 -- isolation, not defense in depth.
+                 AND loser.user_id = winner.user_id
                 WHERE loser.track_id = :from_id AND winner.track_id = :to_id
                   AND loser.superseded_at IS NULL
                   AND winner.superseded_at IS NULL
+                ORDER BY
+                    loser.id,
+                    (loser.connector_track_id = winner.connector_track_id) DESC,
+                    winner.id
             ),
 
             -- Branch 1: same connector track — retire the loser into the winner.
+            -- Pre-044 shape only (see all_conflicts): the live-connector index
+            -- forbids the two rows this arm exists to reconcile.
             retired_same_ext_losers AS (
                 UPDATE track_mappings tm
                 SET
@@ -959,13 +1005,37 @@ class TrackRepository(BaseRepository[DBTrack, Track]):
             ),
 
             -- Branch 2: different connector tracks — keep both, winner primary.
+            --
+            -- uq_primary_mapping admits exactly one live primary per
+            -- (user_id, track_id, connector_name), so promoting every
+            -- diff-ext winner is unsafe twice over: two losers can select
+            -- two different winners on one connector, and the winner track
+            -- may already have a primary that is not in the conflict set.
+            -- Pick one winner per connector, then promote only when the
+            -- track has no live primary — so this arm heals a track that
+            -- lacks one and is a no-op for a track that already has one.
+            -- Flipping an existing primary is not the merge's business.
+            diff_ext_winner_choice AS (
+                SELECT DISTINCT ON (connector_name) winner_id
+                FROM all_conflicts
+                WHERE loser_ct_id != winner_ct_id
+                ORDER BY connector_name, winner_is_primary DESC, winner_id
+            ),
             updated_diff_ext_winners AS (
                 UPDATE track_mappings tm
                 SET is_primary = TRUE, updated_at = :now
-                FROM all_conflicts ac
-                WHERE tm.id = ac.winner_id
-                  AND ac.loser_ct_id != ac.winner_ct_id
+                FROM diff_ext_winner_choice c
+                WHERE tm.id = c.winner_id
                   AND tm.superseded_at IS NULL
+                  AND NOT EXISTS (
+                      SELECT 1
+                      FROM track_mappings p
+                      WHERE p.user_id = tm.user_id
+                        AND p.track_id = tm.track_id
+                        AND p.connector_name = tm.connector_name
+                        AND p.is_primary
+                        AND p.superseded_at IS NULL
+                  )
                 RETURNING tm.id
             ),
             moved_diff_ext_losers AS (
@@ -1027,7 +1097,7 @@ class TrackRepository(BaseRepository[DBTrack, Track]):
         )
         rows = [_MergeMappingRow._make(row) for row in result.all()]
         edges = [
-            ConflationEdge(
+            SupersessionEdge(
                 predecessor_id=row.mapping_id,
                 successor_id=row.successor_id,
                 user_id=row.user_id,

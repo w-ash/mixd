@@ -1,7 +1,7 @@
-"""Last.fm API client - Pure API wrapper using native httpx with JSON responses.
+"""Last.fm API client - Pure API wrapper using native httpx2 with JSON responses.
 
 Provides a thin async wrapper around the Last.fm Web Services API using
-httpx.AsyncClient directly. All requests use JSON format (format=json param),
+httpx2.AsyncClient directly. All requests use JSON format (format=json param),
 eliminating the XML parsing required by the previous pylast-based implementation.
 
 Key components:
@@ -17,7 +17,7 @@ from typing import ClassVar, cast, override
 from urllib.parse import quote as _percent_encode
 
 from attrs import define, field
-import httpx
+import httpx2
 from pydantic import ValidationError
 from tenacity import AsyncRetrying
 
@@ -83,7 +83,7 @@ def _default_user_id() -> str:
 
 @define(slots=True)
 class LastFMAPIClient(BaseAPIClient):
-    """Last.fm API client using native httpx with JSON format.
+    """Last.fm API client using native httpx2 with JSON format.
 
     Reads track info, recent tracks, and love tracks via the Last.fm Web Services.
     Authenticated write operations use a session key obtained via auth.getMobileSession.
@@ -95,8 +95,8 @@ class LastFMAPIClient(BaseAPIClient):
 
     _SUPPRESS_ERRORS: ClassVar[tuple[type[BaseException], ...]] = (
         LastFMAPIError,
-        httpx.HTTPStatusError,
-        httpx.RequestError,
+        httpx2.HTTPStatusError,
+        httpx2.RequestError,
     )
 
     api_key: str | None = field(default=None)
@@ -106,7 +106,7 @@ class LastFMAPIClient(BaseAPIClient):
     _session_key: str | None = field(default=None, init=False, repr=False)
     _session_lock: asyncio.Lock = field(factory=asyncio.Lock, init=False, repr=False)
     _retry_policy: AsyncRetrying = field(init=False, repr=False)
-    _client: httpx.AsyncClient = field(init=False, repr=False)
+    _client: httpx2.AsyncClient = field(init=False, repr=False)
     _storage: TokenStorage = field(init=False, repr=False)
 
     def __attrs_post_init__(self) -> None:
@@ -183,8 +183,8 @@ class LastFMAPIClient(BaseAPIClient):
 
         Raises:
             LastFMAPIError: If the API returns {"error": N, ...} in the body
-            httpx.HTTPStatusError: On 4xx/5xx HTTP responses
-            httpx.RequestError: On network/connection failures
+            httpx2.HTTPStatusError: On 4xx/5xx HTTP responses
+            httpx2.RequestError: On network/connection failures
         """
         base_params: dict[str, str] = {
             "method": method,
@@ -202,7 +202,7 @@ class LastFMAPIClient(BaseAPIClient):
 
         # Work around Last.fm's double URL decoding (see
         # https://support.last.fm/t/api-and-website-are-decoding-url-parameters-twice/116278).
-        # Pre-encode values so httpx sends double-encoded params (%252B etc.)
+        # Pre-encode values so httpx2 sends double-encoded params (%252B etc.)
         # that Last.fm correctly double-decodes back to the original characters.
         encoded_params = {
             k: _percent_encode(v, safe="") for k, v in base_params.items()

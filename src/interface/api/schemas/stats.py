@@ -80,6 +80,12 @@ class MatchingDriftSchema(BaseModel):
     isrc_suspect_pending_count: int
     confidence_evidence_divergence_count: int
     stale_denormalized_ids_count: int
+    # Negative-cache stock. Watching these grow is how silent undermatching is
+    # caught before users report missing matches, which only works if the
+    # dashboard can see them — the CLI rendered them alone for a release.
+    rejected_pairs_active: int
+    no_match_pending: int
+    dead_id_candidates: int
 
 
 class MatchMethodHealthSchema(BaseModel):
@@ -111,6 +117,9 @@ def _to_drift_schema(drift: MatchingDrift) -> MatchingDriftSchema:
         isrc_suspect_pending_count=drift.isrc_suspect_pending_count,
         confidence_evidence_divergence_count=drift.confidence_evidence_divergence_count,
         stale_denormalized_ids_count=drift.stale_denormalized_ids_count,
+        rejected_pairs_active=drift.rejected_pairs_active,
+        no_match_pending=drift.no_match_pending,
+        dead_id_candidates=drift.dead_id_candidates,
     )
 
 

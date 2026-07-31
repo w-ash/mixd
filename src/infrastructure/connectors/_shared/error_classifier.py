@@ -7,7 +7,7 @@ while maintaining consistent retry behavior patterns across all connectors.
 from abc import ABC, abstractmethod
 from typing import Protocol
 
-import httpx
+import httpx2
 
 from src.config import get_logger
 from src.config.constants import HTTPStatus as HTTPStatusCode
@@ -246,9 +246,9 @@ class HTTPErrorClassifier(ABC):
 
         Dispatch order:
         1. ``_classify_service_error`` — service-specific hook (override in subclass)
-        2. ``httpx.HTTPStatusError`` — HTTP status code lookup then text patterns
-        3. ``httpx.RequestError`` — network errors (always temporary)
-        4. Text pattern fallback for non-httpx exceptions
+        2. ``httpx2.HTTPStatusError`` — HTTP status code lookup then text patterns
+        3. ``httpx2.RequestError`` — network errors (always temporary)
+        4. Text pattern fallback for non-httpx2 exceptions
         5. Unknown fallback
 
         Returns:
@@ -259,7 +259,7 @@ class HTTPErrorClassifier(ABC):
         if result := self._classify_service_error(exception):
             return result
 
-        if isinstance(exception, httpx.HTTPStatusError):
+        if isinstance(exception, httpx2.HTTPStatusError):
             status = exception.response.status_code
             error_msg = str(exception)
             if result := self.classify_http_status(status, error_msg):
@@ -268,7 +268,7 @@ class HTTPErrorClassifier(ABC):
                 return result
             return ("unknown", str(status), error_msg)
 
-        if isinstance(exception, httpx.RequestError):
+        if isinstance(exception, httpx2.RequestError):
             error_str = str(exception).lower()
             if result := self.classify_text_patterns(error_str):
                 return result

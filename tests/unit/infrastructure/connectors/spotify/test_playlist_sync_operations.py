@@ -48,7 +48,7 @@ class TestAddOperationOutcomeAccounting:
         """
         client = AsyncMock()
         # First add returns a snapshot (success); second returns None (the client
-        # swallowed an httpx error and returned None rather than raising).
+        # swallowed an httpx2 error and returned None rather than raising).
         client.playlist_add_items = AsyncMock(side_effect=[AsyncMock(), None])
         client.get_playlist = AsyncMock(return_value=None)
         ops = SpotifyPlaylistSyncOperations(client=client)

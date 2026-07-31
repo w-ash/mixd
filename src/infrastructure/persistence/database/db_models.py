@@ -592,6 +592,9 @@ class DBResolutionNegative(BaseEntity):
             unique=True,
             postgresql_where=text("kind = 'no_match'"),
         ),
+        # One row per (owner, connector track, candidate). Every reader of this
+        # table honours every rejection in it, so there is nothing a second row
+        # on the same pair could say that the first does not already say.
         Index(
             "uq_resolution_negatives_pair",
             "user_id",

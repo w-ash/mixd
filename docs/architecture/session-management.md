@@ -38,7 +38,7 @@ class DatabaseUnitOfWork:
 
     async def __aexit__(self, exc_type, exc_val, exc_tb) -> None:
         # ... commit/rollback logic ...
-        # Close cached connector instances (httpx pools, etc.)
+        # Close cached connector instances (httpx2 pools, etc.)
         for connector in self._connector_cache.values():
             if hasattr(connector, "aclose"):
                 await connector.aclose()

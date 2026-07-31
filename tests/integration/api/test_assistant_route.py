@@ -13,7 +13,7 @@ between tests) and holds exactly one row per ``(user, service)`` — sharing
 from collections.abc import AsyncGenerator
 import uuid
 
-import httpx
+import httpx2
 from pydantic import SecretStr
 import pytest
 
@@ -30,14 +30,14 @@ _VALID_KEY = "sk-ant-api03-test0000000000000000000000"
 async def user_client(
     postgres_url: str,
     _init_test_schema: None,
-) -> AsyncGenerator[httpx.AsyncClient]:
-    """An httpx client acting as a fresh, unique user (isolated credential row)."""
+) -> AsyncGenerator[httpx2.AsyncClient]:
+    """An httpx2 client acting as a fresh, unique user (isolated credential row)."""
     with _test_db_env(postgres_url):
         app = create_app()
         uid = f"assist-{uuid.uuid4().hex[:12]}"
         app.dependency_overrides[get_current_user_id] = lambda: uid
-        transport = httpx.ASGITransport(app=app)
-        async with httpx.AsyncClient(transport=transport, base_url="http://test") as c:
+        transport = httpx2.ASGITransport(app=app)
+        async with httpx2.AsyncClient(transport=transport, base_url="http://test") as c:
             yield c
 
 
@@ -56,14 +56,14 @@ def _stub_validate(monkeypatch: pytest.MonkeyPatch, result: bool) -> None:
 
 class TestStatus:
     async def test_unavailable_without_any_key(
-        self, user_client: httpx.AsyncClient
+        self, user_client: httpx2.AsyncClient
     ) -> None:
         resp = await user_client.get("/api/v1/assistant/status")
         assert resp.status_code == 200
         assert resp.json() == {"connected": False, "source": None}
 
     async def test_server_fallback_reports_connected(
-        self, user_client: httpx.AsyncClient, monkeypatch: pytest.MonkeyPatch
+        self, user_client: httpx2.AsyncClient, monkeypatch: pytest.MonkeyPatch
     ) -> None:
         monkeypatch.setattr(
             settings.credentials, "anthropic_api_key", SecretStr("sk-ant-server")
@@ -74,7 +74,7 @@ class TestStatus:
 
 class TestConnect:
     async def test_malformed_key_rejected_without_calling_anthropic(
-        self, user_client: httpx.AsyncClient, monkeypatch: pytest.MonkeyPatch
+        self, user_client: httpx2.AsyncClient, monkeypatch: pytest.MonkeyPatch
     ) -> None:
         called = False
 
@@ -95,7 +95,7 @@ class TestConnect:
         assert status.json()["connected"] is False
 
     async def test_key_rejected_by_anthropic_not_stored(
-        self, user_client: httpx.AsyncClient, monkeypatch: pytest.MonkeyPatch
+        self, user_client: httpx2.AsyncClient, monkeypatch: pytest.MonkeyPatch
     ) -> None:
         _stub_validate(monkeypatch, result=False)
         resp = await user_client.put(
@@ -107,7 +107,7 @@ class TestConnect:
         assert status.json()["connected"] is False
 
     async def test_valid_key_connects(
-        self, user_client: httpx.AsyncClient, monkeypatch: pytest.MonkeyPatch
+        self, user_client: httpx2.AsyncClient, monkeypatch: pytest.MonkeyPatch
     ) -> None:
         _stub_validate(monkeypatch, result=True)
         resp = await user_client.put(
@@ -120,7 +120,7 @@ class TestConnect:
         assert status.json() == {"connected": True, "source": "user"}
 
     async def test_key_never_echoed_back(
-        self, user_client: httpx.AsyncClient, monkeypatch: pytest.MonkeyPatch
+        self, user_client: httpx2.AsyncClient, monkeypatch: pytest.MonkeyPatch
     ) -> None:
         _stub_validate(monkeypatch, result=True)
         put = await user_client.put(
@@ -134,7 +134,7 @@ class TestConnect:
 
 class TestTestAndDelete:
     async def test_probe_stored_key(
-        self, user_client: httpx.AsyncClient, monkeypatch: pytest.MonkeyPatch
+        self, user_client: httpx2.AsyncClient, monkeypatch: pytest.MonkeyPatch
     ) -> None:
         _stub_validate(monkeypatch, result=True)
         await user_client.put("/api/v1/assistant/key", json={"api_key": _VALID_KEY})
@@ -143,13 +143,13 @@ class TestTestAndDelete:
         assert resp.json()["ok"] is True
 
     async def test_probe_without_stored_key(
-        self, user_client: httpx.AsyncClient
+        self, user_client: httpx2.AsyncClient
     ) -> None:
         resp = await user_client.post("/api/v1/assistant/key/test", json={})
         assert resp.json() == {"ok": False, "detail": "No API key stored to test."}
 
     async def test_delete_removes_key(
-        self, user_client: httpx.AsyncClient, monkeypatch: pytest.MonkeyPatch
+        self, user_client: httpx2.AsyncClient, monkeypatch: pytest.MonkeyPatch
     ) -> None:
         _stub_validate(monkeypatch, result=True)
         await user_client.put("/api/v1/assistant/key", json={"api_key": _VALID_KEY})
@@ -160,7 +160,7 @@ class TestTestAndDelete:
 
 
 class TestPerUserScoping:
-    async def test_key_scoped_per_user(self, user_client: httpx.AsyncClient) -> None:
+    async def test_key_scoped_per_user(self, user_client: httpx2.AsyncClient) -> None:
         # `user_client` establishes the test DB env; call the storage layer with
         # two distinct users to assert credential scoping directly.
         from src.infrastructure.chat.credentials import (

@@ -53,8 +53,11 @@ jobs:
 
       - uses: astral-sh/setup-uv@v7
 
+      # --locked, not --frozen: assert uv.lock is current for pyproject.toml. --frozen
+      # installs a stale lock happily, deferring the failure to the Dockerfile's
+      # `uv sync --locked` at Fly deploy — after the release tag is already published.
       - name: Install dependencies
-        run: uv sync --frozen
+        run: uv sync --locked
 
       - name: Run migrations
         run: uv run alembic upgrade head
@@ -135,6 +138,30 @@ jobs:
 
       - name: Build
         run: pnpm build
+
+  # The Dockerfile was previously first built by `flyctl deploy` in release.yml — a
+  # job that runs *after* the GitHub Release is published, so a broken build left a
+  # public tag pointing at undeployable code. Build it here instead, on every PR.
+  # ubuntu-latest is amd64 natively, matching Fly, so this needs no `platforms:`.
+  docker:
+    name: Docker build
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+
+    steps:
+      - uses: actions/checkout@v6
+
+      - uses: docker/setup-buildx-action@v3
+
+      # Build only, never pushed — the real image is still built by Fly at deploy.
+      # VITE_NEON_AUTH_URL defaults to "" in the Dockerfile, so no secret is needed.
+      - uses: docker/build-push-action@v6
+        with:
+          context: .
+          target: runtime
+          push: false
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
 
   web-e2e:
     name: Web E2E (visual regression)

@@ -28,6 +28,7 @@ from src.domain.repositories.resolution import (
     RejectionCandidate,
     ResolutionDecision,
     ResolutionRecorderProtocol,
+    rejection_candidates,
 )
 from src.domain.repositories.track import TrackIdentityServiceProtocol
 from src.domain.repositories.uow import UnitOfWorkProtocol
@@ -344,8 +345,6 @@ class MatchAndIdentifyTracksUseCase:
             RejectionCandidate(
                 connector=service_side(match.connector_id, match.service_data),
                 candidate_track=match.track,
-                confidence=match.confidence,
-                score=match.evidence.final_score if match.evidence else None,
             )
             for match in evaluation.rejected
         ]
@@ -427,7 +426,7 @@ class MatchAndIdentifyTracksUseCase:
 
         # Phase 2: Build MatchReview entities and batch-persist
         reviews: list[MatchReview] = []
-        queued: list[ResolutionDecision] = []
+        queued_by_key: dict[tuple[UUID, UUID], ResolutionDecision] = {}
         for track_id, match in review_candidates.items():
             ct_id = ct_id_map.get((connector, match.connector_id))
             if ct_id is None:
@@ -449,35 +448,50 @@ class MatchAndIdentifyTracksUseCase:
                     confidence_evidence=match.evidence_dict,
                 )
             )
-            queued.append(
-                ResolutionDecision(
-                    event_type="queued",
-                    connector_name=connector,
-                    connector_track_id=ct_id,
-                    track_id=track_id,
-                    confidence=match.confidence,
-                    score=match.evidence.final_score if match.evidence else None,
-                    zone=match.zone,
-                    # Queue admission is deterministic today — every gray-zone
-                    # match is offered, so the probability of being offered is
-                    # 1.0. The field exists for a future randomly-sampled
-                    # stratum, which calibration needs alongside the queue
-                    # (review rejects are adversarial near-misses and would
-                    # bias an estimate on their own).
-                    selection_probability=1.0,
-                )
+            queued_by_key[track_id, ct_id] = ResolutionDecision(
+                event_type="queued",
+                connector_name=connector,
+                connector_track_id=ct_id,
+                track_id=track_id,
+                confidence=match.confidence,
+                score=match.evidence.final_score if match.evidence else None,
+                zone=match.zone,
+                # Queue admission is deterministic today — every gray-zone
+                # match that is actually offered is offered with probability
+                # 1.0. The field exists for a future randomly-sampled stratum,
+                # which calibration needs alongside the queue (review rejects
+                # are adversarial near-misses and would bias an estimate on
+                # their own).
+                selection_probability=1.0,
             )
 
         review_repo = uow.get_match_review_repository()
-        count = await review_repo.create_reviews_batch(reviews)
+        written = await review_repo.create_reviews_batch(reviews)
+        # Log only the questions actually asked. A candidate whose review the
+        # user has already accepted or rejected is skipped by the pending
+        # guard, and recording it as `queued` would seed the queue-admission
+        # stratum with an offer that never happened — at a stated probability
+        # of 1.0, which is precisely the number calibration would trust.
+        queued = [
+            decision
+            for review in written
+            if (
+                decision := queued_by_key.get((
+                    review.track_id,
+                    review.connector_track_id,
+                ))
+            )
+            is not None
+        ]
         _ = await recorder.record(queued, user_id=user_id)
 
         logger.info(
             "Persisted review candidates",
-            review_count=count,
+            review_count=len(written),
+            queued_events=len(queued),
             connector=connector,
         )
-        return count
+        return len(written)
 
     @staticmethod
     async def _drop_rejected_review_pairs(
@@ -496,14 +510,7 @@ class MatchAndIdentifyTracksUseCase:
         if not review_candidates:
             return review_candidates
         suppressed = await recorder.active_rejections(
-            [
-                RejectionCandidate(
-                    connector=service_side(match.connector_id, match.service_data),
-                    candidate_track=match.track,
-                    confidence=match.confidence,
-                )
-                for match in review_candidates.values()
-            ],
+            rejection_candidates(review_candidates.values()),
             user_id=user_id,
             connector_name=connector,
         )

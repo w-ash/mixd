@@ -4,7 +4,7 @@ Tests the SSE progress streaming through the full
 request → route → registry → response cycle.
 """
 
-import httpx
+import httpx2
 import pytest
 
 import src.interface.api.services.progress as _progress_mod
@@ -32,13 +32,13 @@ def _fresh_registry():
 class TestStreamOperationProgress:
     """GET /api/v1/operations/{operation_id}/progress — SSE stream."""
 
-    async def test_returns_404_for_unknown_operation(self, client: httpx.AsyncClient):
+    async def test_returns_404_for_unknown_operation(self, client: httpx2.AsyncClient):
         response = await client.get("/api/v1/operations/unknown-id/progress")
         assert response.status_code == 404
         body = response.json()
         assert body["error"]["code"] == "NOT_FOUND"
 
-    async def test_streams_progress_events(self, client: httpx.AsyncClient):
+    async def test_streams_progress_events(self, client: httpx2.AsyncClient):
         registry = get_operation_registry()
         queue = await registry.register("op-stream")
 
@@ -67,7 +67,7 @@ class TestStreamOperationProgress:
         })
         await queue.put(SSE_SENTINEL)
 
-        # Use httpx stream to consume the SSE response
+        # Use httpx2 stream to consume the SSE response
         async with client.stream(
             "GET", "/api/v1/operations/op-stream/progress"
         ) as response:

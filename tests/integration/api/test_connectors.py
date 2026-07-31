@@ -9,7 +9,7 @@ from datetime import UTC, datetime
 import time
 from unittest.mock import AsyncMock, patch
 
-import httpx
+import httpx2
 
 from src.infrastructure.connectors._shared.token_storage import StoredToken
 from src.infrastructure.persistence.database.db_connection import get_session
@@ -22,7 +22,9 @@ _SVC = "src.infrastructure.connectors._shared.connector_status"
 class TestGetConnectors:
     """GET /api/v1/connectors returns connector status array."""
 
-    async def test_returns_all_four_connectors(self, client: httpx.AsyncClient) -> None:
+    async def test_returns_all_four_connectors(
+        self, client: httpx2.AsyncClient
+    ) -> None:
         response = await client.get("/api/v1/connectors")
 
         assert response.status_code == 200
@@ -54,7 +56,7 @@ def _mock_storage(
 class TestSpotifyStatus:
     """Spotify connector status detection from TokenStorage."""
 
-    async def test_disconnected_when_no_token(self, client: httpx.AsyncClient) -> None:
+    async def test_disconnected_when_no_token(self, client: httpx2.AsyncClient) -> None:
         storage = _mock_storage(spotify_token=None)
         with patch(f"{_SVC}.get_token_storage", return_value=storage):
             response = await client.get("/api/v1/connectors")
@@ -62,7 +64,7 @@ class TestSpotifyStatus:
         spotify = next(c for c in response.json() if c["name"] == "spotify")
         assert spotify["connected"] is False
 
-    async def test_connected_with_valid_token(self, client: httpx.AsyncClient) -> None:
+    async def test_connected_with_valid_token(self, client: httpx2.AsyncClient) -> None:
         token = StoredToken(
             access_token="test_token",
             refresh_token="test_refresh",
@@ -79,7 +81,7 @@ class TestSpotifyStatus:
         assert spotify["account_name"] == "testuser"
 
     async def test_failed_silent_refresh_reports_auth_error(
-        self, client: httpx.AsyncClient
+        self, client: httpx2.AsyncClient
     ) -> None:
         """Expired access token + refresh attempt that returns None surfaces as an
         auth error, not a false-positive 'connected' state."""
@@ -110,7 +112,7 @@ class TestSpotifyStatus:
         assert spotify["status"] == "error"
 
     async def test_disconnected_without_refresh_token(
-        self, client: httpx.AsyncClient
+        self, client: httpx2.AsyncClient
     ) -> None:
         """No refresh_token means the connection can't be sustained."""
         token = StoredToken(
@@ -129,7 +131,7 @@ class TestSpotifyDisplayName:
     """Spotify display_name fetching and caching."""
 
     async def test_display_name_from_stored_token(
-        self, client: httpx.AsyncClient
+        self, client: httpx2.AsyncClient
     ) -> None:
         """Cached account_name returned without any HTTP call."""
         token = StoredToken(
@@ -146,7 +148,7 @@ class TestSpotifyDisplayName:
         assert spotify["account_name"] == "cached_user"
 
     async def test_fetches_display_name_when_not_cached(
-        self, client: httpx.AsyncClient
+        self, client: httpx2.AsyncClient
     ) -> None:
         """First visit with valid token fetches display_name and caches it."""
         token = StoredToken(
@@ -170,7 +172,7 @@ class TestSpotifyDisplayName:
         storage.save_token.assert_called()
 
     async def test_display_name_fetch_failure_returns_none(
-        self, client: httpx.AsyncClient
+        self, client: httpx2.AsyncClient
     ) -> None:
         """Failed display_name fetch returns null — still connected."""
         token = StoredToken(
@@ -194,7 +196,7 @@ class TestSpotifyDisplayName:
 class TestMusicBrainzStatus:
     """MusicBrainz connector — always connected (public API)."""
 
-    async def test_always_connected(self, client: httpx.AsyncClient) -> None:
+    async def test_always_connected(self, client: httpx2.AsyncClient) -> None:
         response = await client.get("/api/v1/connectors")
 
         mb = next(c for c in response.json() if c["name"] == "musicbrainz")
@@ -206,7 +208,7 @@ class TestMusicBrainzStatus:
 class TestAppleMusicStatus:
     """Apple Music connector — stub, always not connected."""
 
-    async def test_not_connected(self, client: httpx.AsyncClient) -> None:
+    async def test_not_connected(self, client: httpx2.AsyncClient) -> None:
         response = await client.get("/api/v1/connectors")
 
         apple = next(c for c in response.json() if c["name"] == "apple_music")
@@ -217,7 +219,7 @@ class TestAppleMusicStatus:
 class TestLastfmStatus:
     """Last.fm connector status from TokenStorage + settings."""
 
-    async def test_status_reflects_settings(self, client: httpx.AsyncClient) -> None:
+    async def test_status_reflects_settings(self, client: httpx2.AsyncClient) -> None:
         response = await client.get("/api/v1/connectors")
 
         lastfm = next(c for c in response.json() if c["name"] == "lastfm")
@@ -230,7 +232,7 @@ class TestSpotifyPlaylistBrowse:
     """GET /api/v1/connectors/spotify/playlists — route-level behavior."""
 
     async def test_cache_hit_returns_seeded_playlists(
-        self, client: httpx.AsyncClient
+        self, client: httpx2.AsyncClient
     ) -> None:
         """Default (force_refresh=false) reads from DBConnectorPlaylist.
 
@@ -270,7 +272,7 @@ class TestSpotifyPlaylistBrowse:
 
     async def test_force_refresh_with_failing_connector_returns_error_envelope(
         self,
-        client: httpx.AsyncClient,
+        client: httpx2.AsyncClient,
         mock_connector_provider: dict[str, object],
     ) -> None:
         """force_refresh=true with a stubbed-failing connector returns the error envelope.
@@ -279,7 +281,7 @@ class TestSpotifyPlaylistBrowse:
         ``fetch_user_playlists`` raises before any HTTP request would happen.
         Uses ``ValueError`` because it has a registered exception handler that
         produces the standard ``{error: {code, message}}`` envelope; arbitrary
-        ``Exception`` subclasses don't surface cleanly through httpx's
+        ``Exception`` subclasses don't surface cleanly through httpx2's
         ASGITransport in test mode.
         """
         spotify = AsyncMock()
@@ -302,7 +304,7 @@ class TestSpotifyPlaylistImport:
     """POST /api/v1/connectors/spotify/playlists/import — route-level behavior."""
 
     async def test_single_playlist_returns_202_with_operation_id(
-        self, client: httpx.AsyncClient
+        self, client: httpx2.AsyncClient
     ) -> None:
         """One-element ids list returns the 202 OperationStartedResponse shape.
 
@@ -324,7 +326,7 @@ class TestSpotifyPlaylistImport:
         assert body["operation_id"]  # non-empty
 
     async def test_empty_ids_returns_422_before_use_case(
-        self, client: httpx.AsyncClient
+        self, client: httpx2.AsyncClient
     ) -> None:
         """Empty connector_playlist_identifiers fails Pydantic validation (min_length=1)."""
         response = await client.post(
@@ -338,7 +340,7 @@ class TestSpotifyPlaylistImport:
         assert response.status_code == 422
 
     async def test_invalid_sync_direction_returns_422(
-        self, client: httpx.AsyncClient
+        self, client: httpx2.AsyncClient
     ) -> None:
         """sync_direction must be 'pull' or 'push' — anything else fails validation."""
         response = await client.post(
@@ -352,7 +354,7 @@ class TestSpotifyPlaylistImport:
         assert response.status_code == 422
 
     async def test_force_flag_accepted_in_request_body(
-        self, client: httpx.AsyncClient
+        self, client: httpx2.AsyncClient
     ) -> None:
         """``force: true`` is accepted alongside the other fields and returns 202.
 
@@ -383,7 +385,7 @@ class TestPlayPolling:
     """
 
     async def test_defaults_to_off_when_never_enabled(
-        self, client: httpx.AsyncClient
+        self, client: httpx2.AsyncClient
     ) -> None:
         response = await client.get("/api/v1/connectors/spotify/play-polling")
 
@@ -391,7 +393,7 @@ class TestPlayPolling:
         assert response.json()["enabled"] is False
 
     async def test_enabling_creates_the_schedule_at_the_base_cadence(
-        self, client: httpx.AsyncClient
+        self, client: httpx2.AsyncClient
     ) -> None:
         response = await client.put(
             "/api/v1/connectors/spotify/play-polling", json={"enabled": True}
@@ -406,7 +408,9 @@ class TestPlayPolling:
         after = await client.get("/api/v1/connectors/spotify/play-polling")
         assert after.json()["enabled"] is True
 
-    async def test_disabling_preserves_the_row(self, client: httpx.AsyncClient) -> None:
+    async def test_disabling_preserves_the_row(
+        self, client: httpx2.AsyncClient
+    ) -> None:
         await client.put(
             "/api/v1/connectors/spotify/play-polling", json={"enabled": True}
         )
@@ -420,7 +424,7 @@ class TestPlayPolling:
         # later re-enable to resume from.
         assert response.json()["interval_minutes"] == 30
 
-    async def test_re_enabling_is_idempotent(self, client: httpx.AsyncClient) -> None:
+    async def test_re_enabling_is_idempotent(self, client: httpx2.AsyncClient) -> None:
         for _ in range(2):
             response = await client.put(
                 "/api/v1/connectors/spotify/play-polling", json={"enabled": True}
@@ -429,7 +433,7 @@ class TestPlayPolling:
             assert response.json()["enabled"] is True
 
     async def test_other_connectors_are_rejected(
-        self, client: httpx.AsyncClient
+        self, client: httpx2.AsyncClient
     ) -> None:
         # Only Spotify has a polled play channel; a silent no-op would imply the
         # switch did something.

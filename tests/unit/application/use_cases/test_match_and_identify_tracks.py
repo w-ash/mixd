@@ -484,7 +484,6 @@ class TestPersistReviewCandidates:
         connector_repo.ensure_connector_tracks.return_value = review_setup["ct_id_map"]
 
         review_repo = uow.get_match_review_repository()
-        review_repo.create_reviews_batch.return_value = 2
 
         evaluation = EvaluationResult(
             accepted={},
@@ -555,7 +554,6 @@ class TestPersistReviewCandidates:
         }
 
         review_repo = uow.get_match_review_repository()
-        review_repo.create_reviews_batch.return_value = 1
 
         evaluation = EvaluationResult(accepted={}, review_candidates=candidates)
 
@@ -630,7 +628,6 @@ class TestReviewQueueConsultsTheCannotLinkStore:
         connector_repo = uow.get_connector_repository()
         connector_repo.ensure_connector_tracks.return_value = review_setup["ct_id_map"]
         review_repo = uow.get_match_review_repository()
-        review_repo.create_reviews_batch.return_value = 1
 
         recorder = uow.get_resolution_recorder()
         rejected_track = review_setup["tracks"][0]
@@ -700,3 +697,59 @@ class TestReviewQueueConsultsTheCannotLinkStore:
         assert not result.errors
         review_repo.create_reviews_batch.assert_not_called()
         uow.get_connector_repository().ensure_connector_tracks.assert_not_called()
+
+
+class TestQueuedEventsMatchWhatWasActuallyAsked:
+    """`queued` is calibration's queue-admission stratum, recorded at p=1.0.
+
+    A candidate whose review the user has already answered is skipped by the
+    pending guard and never written. Logging it as offered puts a question
+    nobody was asked into the one stratum that has to be a faithful record of
+    the questions that were — and at the probability calibration trusts most.
+    """
+
+    async def test_a_candidate_the_pending_guard_skipped_is_not_logged(
+        self, mock_uow, mock_connector, review_setup
+    ):
+        uow = mock_uow
+        connector_repo = uow.get_connector_repository()
+        connector_repo.ensure_connector_tracks.return_value = review_setup["ct_id_map"]
+        recorder = uow.get_resolution_recorder()
+
+        # The second candidate already has a resolved review, so the guard
+        # refuses to reopen it and it is absent from the rows written.
+        offered = review_setup["tracks"][0].id
+        review_repo = uow.get_match_review_repository()
+        review_repo.create_reviews_batch.side_effect = lambda reviews: [
+            review for review in reviews if review.track_id == offered
+        ]
+
+        evaluation = EvaluationResult(
+            accepted={}, review_candidates=review_setup["review_candidates"]
+        )
+        command = MatchAndIdentifyTracksCommand(
+            user_id="test-user",
+            tracklist=review_setup["tracklist"],
+            connector="spotify",
+            connector_instance=mock_connector,
+        )
+        use_case = MatchAndIdentifyTracksUseCase()
+
+        with patch.object(
+            MatchAndIdentifyTracksUseCase, "_evaluation_service", create=True
+        ) as mock_eval:
+            mock_eval.evaluate_raw_matches.return_value = evaluation
+            result = await use_case.execute(command, uow)
+
+        assert not result.errors
+        submitted = review_repo.create_reviews_batch.call_args[0][0]
+        assert len(submitted) == 2, "both candidates are still offered to the repo"
+        queued = [
+            decision
+            for call in recorder.record.await_args_list
+            for decision in call.args[0]
+            if decision.event_type == "queued"
+        ]
+        assert [decision.track_id for decision in queued] == [offered], (
+            "only the review actually written counts as a question asked"
+        )

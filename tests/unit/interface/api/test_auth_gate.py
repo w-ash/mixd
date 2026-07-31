@@ -11,7 +11,7 @@ import json
 from typing import Any
 from unittest.mock import AsyncMock, patch
 
-import httpx
+import httpx2
 import jwt
 
 import src.interface.api.auth_gate as auth_gate_mod
@@ -239,7 +239,7 @@ class TestBearerTokenAuth:
 
     @patch.object(auth_gate_mod, "get_jwk_set", new_callable=AsyncMock)
     async def test_jwks_fetch_failure_returns_401(self, mock_jwks: AsyncMock):
-        mock_jwks.side_effect = httpx.ConnectError("connection refused")
+        mock_jwks.side_effect = httpx2.ConnectError("connection refused")
         token = sign_test_jwt()
         mw, inner = _make_middleware()
         scope = _make_scope(headers=[_bearer_header(token)])

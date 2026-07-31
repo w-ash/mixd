@@ -9,7 +9,6 @@ from src.domain.services.resolution_retry import (
     DEATH_DEBOUNCE_FAILURES,
     DEATH_DEBOUNCE_MIN_SPAN_SECONDS,
     NO_MATCH_BACKOFF,
-    SUSPECT_RECHECK_SECONDS,
     next_no_match_check,
 )
 
@@ -45,10 +44,11 @@ class TestDebounceConstants:
     def test_death_debounce_spans_nine_days(self) -> None:
         assert DEATH_DEBOUNCE_MIN_SPAN_SECONDS == 9 * _ONE_DAY
 
-    def test_suspect_recheck_is_three_days(self) -> None:
-        assert SUSPECT_RECHECK_SECONDS == 3 * _ONE_DAY
+    def test_the_span_outlasts_the_backoff_base(self) -> None:
+        """An id cannot look dead before the curve has re-asked even once.
 
-    def test_suspect_recheck_is_shorter_than_the_death_debounce_span(self) -> None:
-        # Suspicion leans in (recheck soon) while the death debounce still
-        # waits out its full span before writing id_dead — module docstring.
-        assert SUSPECT_RECHECK_SECONDS < DEATH_DEBOUNCE_MIN_SPAN_SECONDS
+        The two constants are read off the same row, so they have to agree: if
+        the span were shorter than the base retry interval, an id could clear
+        the death threshold having been asked about only once.
+        """
+        assert NO_MATCH_BACKOFF.base_seconds < DEATH_DEBOUNCE_MIN_SPAN_SECONDS

@@ -14,51 +14,142 @@ forked exactly this machinery and lost its intra-batch deduplication.
 """
 
 from collections.abc import Mapping, Sequence
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 from typing import cast, override
 from uuid import UUID
 
 from attrs import define
-from sqlalchemy import ColumnElement, delete, func, select, text, update
+from sqlalchemy import (
+    ColumnElement,
+    Interval,
+    delete,
+    func,
+    literal_column,
+    select,
+    text,
+    update,
+)
 from sqlalchemy.dialects.postgresql import insert as pg_insert
 from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy.orm import aliased
 
 from src.config import get_logger
 from src.domain.entities.resolution_event import ResolutionEvent, ResolutionEventType
-from src.domain.entities.resolution_negative import NegativeKind, ResolutionNegative
-from src.domain.entities.shared import JsonDict
+from src.domain.entities.resolution_negative import (
+    NegativeKind,
+    ResolutionNegative,
+)
 from src.domain.repositories.resolution import (
     NegativeCacheSize,
+    NegativeListing,
+    NegativeListingKind,
     RejectedPairRow,
-    SuspectWindow,
 )
-from src.domain.services.resolution_retry import NO_MATCH_BACKOFF, next_no_match_check
+from src.domain.services.resolution_retry import (
+    DEATH_DEBOUNCE_FAILURES,
+    DEATH_DEBOUNCE_MIN_SPAN_SECONDS,
+    NO_MATCH_BACKOFF,
+    next_no_match_check,
+)
 from src.infrastructure.persistence.database.db_models import (
+    DBConnectorTrack,
     DBResolutionEvent,
     DBResolutionNegative,
+    DBTrack,
+    DBTrackMapping,
 )
+from src.infrastructure.persistence.database.live_rows import live_only
 from src.infrastructure.persistence.repositories.base_repo import (
     BaseRepository,
     rows_affected,
 )
-from src.infrastructure.persistence.repositories.mappers import BaseModelMapper
+from src.infrastructure.persistence.repositories.mappers import (
+    BaseModelMapper,
+    SimpleMapperFactory,
+)
 from src.infrastructure.persistence.repositories.repo_decorator import db_operation
 
 logger = get_logger(__name__)
 
-# Event types that end a suspect streak. A success is a success regardless of
-# which path produced it, so the streak resets without a counter to clear —
-# the window query simply stops looking further back (memo §10.5: recovery has
-# no hysteresis).
-_STREAK_RESETTING_EVENTS: tuple[ResolutionEventType, ...] = (
-    "accepted",
-    "verified",
-    "substituted",
-    "unrejected",
-)
-
 _NO_MATCH: NegativeKind = "no_match"
 _REJECTED_PAIR: NegativeKind = "rejected_pair"
+
+
+def _interval(seconds: int) -> ColumnElement[timedelta]:
+    """A literal PostgreSQL interval.
+
+    ``literal_column`` rather than ``text`` so the expression carries a type:
+    an untyped ``TextClause`` inside ``coalesce``/``least`` makes the whole
+    comparison ``Any``, and the point of building these from column expressions
+    is that the arithmetic stays checkable.
+    """
+    return literal_column(f"interval '{seconds} seconds'", type_=Interval())
+
+
+def active_rejected_pair() -> ColumnElement[bool]:
+    """A cannot-link constraint that has not been withdrawn."""
+    return (DBResolutionNegative.kind == _REJECTED_PAIR) & (
+        DBResolutionNegative.unrejected_at.is_(None)
+    )
+
+
+def pending_no_match() -> ColumnElement[bool]:
+    """A backoff clock that has not yet come due."""
+    return (DBResolutionNegative.kind == _NO_MATCH) & (
+        DBResolutionNegative.check_again > func.now()
+    )
+
+
+def _miss_span() -> ColumnElement[timedelta]:
+    """How long this row's run of misses has actually lasted.
+
+    ``created_at`` is stamped by the first miss and never rewritten (the
+    ON CONFLICT ``set_`` does not touch it); ``last_checked_at`` moves with
+    every subsequent one. The difference is therefore bounded at *both* ends by
+    an observation, which ``now() - created_at`` is not — that grows on its own
+    while nothing happens, so a row would eventually satisfy any span threshold
+    by sitting still.
+    """
+    return DBResolutionNegative.last_checked_at - DBResolutionNegative.created_at
+
+
+def looks_dead() -> ColumnElement[bool]:
+    """A backoff row that has missed enough times, over a long enough span.
+
+    Both halves are required, and this is the whole death debounce: a count
+    alone would condemn an id that flickered three times in one import run, and
+    a span alone would condemn a single failure that happened to be old.
+
+    The span is measured between the first miss and the most recent one, not
+    from the first miss to *now*. Three failures in one afternoon must not
+    become a death nine days later purely because nobody asked again — the row
+    would be unchanged, and an id nothing has re-checked has produced no new
+    evidence to condemn it with.
+
+    Derived from the backoff row rather than from a streak scanned out of the
+    event log. The row is written by the same call that observes the miss, it
+    already resets on success (``clear_no_match`` deletes it), and it is keyed
+    by connector — so every connector gets this for free rather than only the
+    one that happened to emit ``suspect`` events.
+    """
+    return (
+        (DBResolutionNegative.kind == _NO_MATCH)
+        & (DBResolutionNegative.consecutive_misses >= DEATH_DEBOUNCE_FAILURES)
+        & (_miss_span() >= _interval(DEATH_DEBOUNCE_MIN_SPAN_SECONDS))
+    )
+
+
+def actively_suppressing() -> ColumnElement[bool]:
+    """A negative row that is *currently* withholding something.
+
+    One definition because two readers depend on it and disagreeing would make
+    both wrong in opposite directions: the cache-size metric would overstate
+    the cache by counting rows that suppress nothing, and the orphan detector
+    would accept a long-expired row as the excuse for a mapping-less connector
+    track — hiding a genuine leak for as long as the row exists.
+    """
+    return active_rejected_pair() | pending_no_match()
+
 
 # The doubling happens in SQL over the row's own previous interval — the
 # ListenBrainz ``check_again`` shape — so the counter and the clock advance in
@@ -66,18 +157,36 @@ _REJECTED_PAIR: NegativeKind = "rejected_pair"
 # between them. ``coalesce`` covers the one shape the columns admit but the
 # writers never produce (a row with NULL clocks): it falls back to the base
 # interval rather than writing NULL, which would read as "no backoff at all".
-_DOUBLED_CHECK_AGAIN = text(
-    "now() + least("
-    "coalesce("
-    "(resolution_negatives.check_again - resolution_negatives.last_checked_at) * 2, "
-    f"interval '{NO_MATCH_BACKOFF.base_seconds} seconds'), "
-    f"interval '{NO_MATCH_BACKOFF.cap_seconds} seconds')"
+#
+# Built from column expressions rather than one raw SQL string. Inside an
+# ON CONFLICT ``set_`` these render to the *existing* row's columns, which is
+# what the doubling has to measure — identical SQL to the hand-written version,
+# but the table and column names are now the model's rather than spelled out in
+# a string that no rename would ever reach. It also puts ``last_checked_at`` on
+# the same footing as the three predicate helpers above, each of which
+# references its column symbolically.
+_DOUBLED_CHECK_AGAIN = func.now() + func.least(
+    func.coalesce(
+        (DBResolutionNegative.check_again - DBResolutionNegative.last_checked_at) * 2,
+        _interval(NO_MATCH_BACKOFF.base_seconds),
+    ),
+    _interval(NO_MATCH_BACKOFF.cap_seconds),
 )
 
 
 @define(frozen=True, slots=True)
 class ResolutionEventMapper(BaseModelMapper[DBResolutionEvent, ResolutionEvent]):
-    """Row ↔ entity for the append-only event log."""
+    """Row ↔ entity for the append-only event log.
+
+    ``to_db`` is deliberately absent (the base class's ``NotImplementedError``
+    stub is what a caller would hit). It has exactly one call site in the
+    codebase — ``BaseRepository.update`` — reached only when ``update()`` is
+    given a domain model instead of a ``Mapping``, and ``ResolutionEventRepository``
+    never calls ``update()``: this is an append-only log, so the only writer is
+    ``append_events``, which builds column dicts via ``_to_row`` and never
+    round-trips through the mapper. ``get_default_relationships`` is likewise
+    absent — the base class's ``[]`` already says what it would.
+    """
 
     @override
     @staticmethod
@@ -102,88 +211,18 @@ class ResolutionEventMapper(BaseModelMapper[DBResolutionEvent, ResolutionEvent])
             payload=dict(db_model.payload or {}),
         )
 
-    @override
-    @staticmethod
-    def to_db(domain_model: ResolutionEvent) -> DBResolutionEvent:
-        """Build a row from an entity.
 
-        ``recorded_at`` is deliberately absent: leaving the attribute unset is
-        what lets the column's ``now()`` default win. Setting it from Python —
-        even to "now" — would hand the log's ordering to whichever process
-        happened to write, across machines whose clocks disagree.
-        """
-        return DBResolutionEvent(
-            id=domain_model.id,
-            user_id=domain_model.user_id,
-            event_type=domain_model.event_type,
-            matcher_version=domain_model.matcher_version,
-            decided_at=domain_model.decided_at,
-            evidence_as_of=domain_model.evidence_as_of,
-            run_id=domain_model.run_id,
-            connector_name=domain_model.connector_name,
-            connector_track_id=domain_model.connector_track_id,
-            track_id=domain_model.track_id,
-            resulting_mapping_id=domain_model.resulting_mapping_id,
-            confidence=domain_model.confidence,
-            score=domain_model.score,
-            zone=domain_model.zone,
-            selection_probability=domain_model.selection_probability,
-            payload=cast("JsonDict", dict(domain_model.payload)),
-        )
-
-    @override
-    @staticmethod
-    def get_default_relationships() -> list[str]:
-        """No relationships: the log carries no foreign keys by design."""
-        return []
-
-
-@define(frozen=True, slots=True)
-class ResolutionNegativeMapper(
-    BaseModelMapper[DBResolutionNegative, ResolutionNegative]
-):
-    """Row ↔ entity for the negative cache."""
-
-    @override
-    @staticmethod
-    async def to_domain(db_model: DBResolutionNegative) -> ResolutionNegative:
-        return ResolutionNegative(
-            id=db_model.id,
-            user_id=db_model.user_id,
-            kind=cast("NegativeKind", db_model.kind),
-            connector_name=db_model.connector_name,
-            connector_track_id=db_model.connector_track_id,
-            candidate_track_id=db_model.candidate_track_id,
-            matcher_version=db_model.matcher_version,
-            content_digest=db_model.content_digest,
-            consecutive_misses=db_model.consecutive_misses,
-            check_again=db_model.check_again,
-            last_checked_at=db_model.last_checked_at,
-            unrejected_at=db_model.unrejected_at,
-        )
-
-    @override
-    @staticmethod
-    def to_db(domain_model: ResolutionNegative) -> DBResolutionNegative:
-        return DBResolutionNegative(
-            id=domain_model.id,
-            user_id=domain_model.user_id,
-            kind=domain_model.kind,
-            connector_name=domain_model.connector_name,
-            connector_track_id=domain_model.connector_track_id,
-            candidate_track_id=domain_model.candidate_track_id,
-            matcher_version=domain_model.matcher_version,
-            content_digest=domain_model.content_digest,
-            consecutive_misses=domain_model.consecutive_misses,
-            check_again=domain_model.check_again,
-            last_checked_at=domain_model.last_checked_at,
-            unrejected_at=domain_model.unrejected_at,
-        )
-
-    @override
-    @staticmethod
-    def get_default_relationships() -> list[str]:
-        return []
+# Row ↔ entity for the negative cache. Every field on ResolutionNegative copies
+# straight onto the same-named column on DBResolutionNegative; the only non-copy
+# in the hand-written mapper this replaced was `cast("NegativeKind", ...)` on
+# `kind`, and typing.cast is a no-op at runtime, so it added nothing
+# SimpleMapperFactory doesn't already do (it copies the raw DB string straight
+# through; the Literal is a compile-time-only annotation on the domain side
+# either way). The generated mapper also needs no edit when a column is added
+# or dropped, which the hand-written pair needed twice over.
+ResolutionNegativeMapper = SimpleMapperFactory.create(
+    DBResolutionNegative, ResolutionNegative
+)
 
 
 class ResolutionEventRepository(BaseRepository[DBResolutionEvent, ResolutionEvent]):
@@ -234,54 +273,6 @@ class ResolutionEventRepository(BaseRepository[DBResolutionEvent, ResolutionEven
             "payload": dict(event.payload),
         }
 
-    @db_operation("recent_suspect_window")
-    async def recent_suspect_window(
-        self, *, user_id: str, connector_name: str, connector_track_id: UUID
-    ) -> SuspectWindow:
-        """Length and span of the current ``suspect`` streak.
-
-        Two queries rather than a window function, because the second one's
-        predicate depends on the first's answer: find when this connector track
-        last succeeded, then measure only the suspects after it. That is what
-        makes "one success resets" free — no counter is stored, so none can
-        drift out of step with the events.
-        """
-        scope = (
-            DBResolutionEvent.user_id == user_id,
-            DBResolutionEvent.connector_name == connector_name,
-            DBResolutionEvent.connector_track_id == connector_track_id,
-        )
-        last_success = await self.session.scalar(
-            select(func.max(DBResolutionEvent.recorded_at)).where(
-                *scope, DBResolutionEvent.event_type.in_(_STREAK_RESETTING_EVENTS)
-            )
-        )
-
-        conditions: list[ColumnElement[bool]] = [
-            *scope,
-            DBResolutionEvent.event_type == "suspect",
-        ]
-        if last_success is not None:
-            conditions.append(DBResolutionEvent.recorded_at > last_success)
-
-        # Explicit column types: the aggregate expressions are ``Any`` in the
-        # SQLAlchemy stubs, and the annotation caps that to this one line
-        # instead of letting it spread into SuspectWindow's constructor.
-        counted: ColumnElement[int] = func.count()
-        # ``min``/``max`` over an empty set are SQL NULL, so the declared type
-        # has to admit None even though the column itself never does.
-        earliest: ColumnElement[datetime | None] = func.min(
-            DBResolutionEvent.recorded_at
-        )
-        latest: ColumnElement[datetime | None] = func.max(DBResolutionEvent.recorded_at)
-        result = await self.session.execute(
-            select(counted, earliest, latest).where(*conditions)
-        )
-        count, first, last = result.tuples().one()
-        if not count or first is None or last is None:
-            return SuspectWindow()
-        return SuspectWindow(count=count, span_seconds=(last - first).total_seconds())
-
     @db_operation("events_for_mapping")
     async def events_for_mapping(
         self, mapping_id: UUID, *, user_id: str, limit: int = 100
@@ -319,10 +310,10 @@ class ResolutionNegativeRepository(
         *,
         user_id: str,
         connector_name: str,
-        connector_track_id: UUID,
+        connector_track_ids: Sequence[UUID],
         matcher_version: str,
-    ) -> ResolutionNegative:
-        """Start or extend one connector track's no-match backoff.
+    ) -> int:
+        """Start or extend the no-match backoff for a batch of connector tracks.
 
         One atomic upsert, not a read-modify-write: two importers that miss the
         same id concurrently would otherwise both read ``consecutive_misses =
@@ -330,56 +321,67 @@ class ResolutionNegativeRepository(
         in. The counter increments and ``check_again`` doubles in the same
         statement, on the 1d→32d curve.
 
+        One statement for the whole batch, not one per id: an import that finds
+        300 absent ids was issuing 300 round-trips inside a single transaction
+        to write 300 rows that differ only in an id and an interval.
+
         The jitter key is the connector track id, so a batch of ids that all
         missed together do not all come due in the same second — the same
-        reason the play poller jitters. It applies to the *first* interval; the
-        doublings inherit it, because they are computed from the row's own
-        previous span.
+        reason the play poller jitters. That is why each row carries its own
+        interval expression rather than the batch sharing one. It applies to
+        the *first* interval; the doublings inherit it, because they are
+        computed from the row's own previous span.
         """
+        if not connector_track_ids:
+            return 0
         now = datetime.now(UTC)
-        # `next_no_match_check(0)` is the base interval: the first miss must
-        # schedule 1 day, not the doubled one.
-        first_seconds = next_no_match_check(0, key=str(connector_track_id))
         model = DBResolutionNegative
-        insert_stmt = pg_insert(model).values(
-            user_id=user_id,
-            kind=_NO_MATCH,
-            connector_name=connector_name,
-            connector_track_id=connector_track_id,
-            candidate_track_id=None,
-            matcher_version=matcher_version,
-            consecutive_misses=1,
-            # Both clocks read the *database's* now so the span the doubling
-            # measures next time is exactly the interval written here.
-            check_again=text(f"now() + interval '{first_seconds} seconds'"),
-            last_checked_at=func.now(),
-            created_at=now,
-            updated_at=now,
-        )
-        upsert = (
-            insert_stmt
-            .on_conflict_do_update(
-                index_elements=[
-                    model.user_id,
-                    model.connector_track_id,
-                    model.connector_name,
-                ],
-                # `uq_resolution_negatives_no_match` is partial; the predicate
-                # is what lets PostgreSQL infer it as the arbiter.
-                index_where=model.kind == _NO_MATCH,
-                set_={
-                    "matcher_version": insert_stmt.excluded.matcher_version,
-                    "consecutive_misses": model.consecutive_misses + 1,
-                    "last_checked_at": func.now(),
-                    "check_again": _DOUBLED_CHECK_AGAIN,
-                    "updated_at": insert_stmt.excluded.updated_at,
-                },
-            )
-            .returning(model)
-            .execution_options(populate_existing=True)
-        )
+        rows = [
+            {
+                "user_id": user_id,
+                "kind": _NO_MATCH,
+                "connector_name": connector_name,
+                "connector_track_id": connector_track_id,
+                "candidate_track_id": None,
+                "matcher_version": matcher_version,
+                "consecutive_misses": 1,
+                # Both clocks read the *database's* now so the span the doubling
+                # measures next time is exactly the interval written here.
+                # `next_no_match_check(0)` is the base interval: the first miss
+                # must schedule 1 day, not the doubled one.
+                "check_again": text(
+                    f"now() + interval "
+                    f"'{next_no_match_check(0, key=str(connector_track_id))} seconds'"
+                ),
+                "last_checked_at": func.now(),
+                "created_at": now,
+                "updated_at": now,
+            }
+            # dict.fromkeys rather than set(): duplicates inside one statement
+            # would be a cardinality violation, and preserving order keeps the
+            # emitted SQL stable across runs.
+            for connector_track_id in dict.fromkeys(connector_track_ids)
+        ]
+        insert_stmt = pg_insert(model).values(rows)
+        upsert = insert_stmt.on_conflict_do_update(
+            index_elements=[
+                model.user_id,
+                model.connector_track_id,
+                model.connector_name,
+            ],
+            # `uq_resolution_negatives_no_match` is partial; the predicate
+            # is what lets PostgreSQL infer it as the arbiter.
+            index_where=model.kind == _NO_MATCH,
+            set_={
+                "matcher_version": insert_stmt.excluded.matcher_version,
+                "consecutive_misses": model.consecutive_misses + 1,
+                "last_checked_at": func.now(),
+                "check_again": _DOUBLED_CHECK_AGAIN,
+                "updated_at": insert_stmt.excluded.updated_at,
+            },
+        ).returning(model.id)
         result = await self.session.execute(upsert)
-        return await ResolutionNegativeMapper.to_domain(result.scalars().one())
+        return len(result.scalars().all())
 
     @db_operation("clear_no_match")
     async def clear_no_match(
@@ -544,6 +546,101 @@ class ResolutionNegativeRepository(
         )
         return rows_affected(result) > 0
 
+    @db_operation("list_negatives")
+    async def list_negatives(
+        self,
+        *,
+        user_id: str,
+        kind: NegativeListingKind,
+        connector_track_ids: Sequence[UUID] | None = None,
+    ) -> list[NegativeListing]:
+        """What the cache is holding against this user, identity joined in.
+
+        One query, not one per row: connector-track and track identity are
+        joined directly, because a listing has no business issuing a lookup per
+        row.
+
+        Two LEFT JOINs to tracks, because "the track this row is about" is
+        reached differently per kind — a rejection *names* its candidate, while
+        a dead id is only reachable through the live mapping that still points
+        at it. Coalescing them is what lets both kinds share this query and the
+        renderer above it, rather than growing a second near-identical listing
+        the moment the second kind needed one. The mapping join cannot multiply
+        rows: ``uq_track_mappings_live_connector`` admits one live mapping per
+        (user, connector track, connector).
+
+        Scoped by ``user_id`` in the WHERE clause rather than relying on RLS —
+        PDR-002 records the Neon owner role as BYPASSRLS in production, so RLS
+        is inert there and this predicate is the actual isolation.
+        """
+        if connector_track_ids is not None and not connector_track_ids:
+            return []
+        conditions = [
+            DBResolutionNegative.user_id == user_id,
+            active_rejected_pair() if kind == "rejected" else looks_dead(),
+        ]
+        if connector_track_ids is not None:
+            conditions.append(
+                DBResolutionNegative.connector_track_id.in_(connector_track_ids)
+            )
+
+        mapped_track = aliased(DBTrack)
+        track_id: ColumnElement[UUID | None] = func.coalesce(
+            DBResolutionNegative.candidate_track_id, mapped_track.id
+        )
+        track_title: ColumnElement[str | None] = func.coalesce(
+            DBTrack.title, mapped_track.title
+        )
+        result = await self.session.execute(
+            select(
+                DBResolutionNegative.connector_track_id,
+                DBConnectorTrack.connector_name,
+                DBConnectorTrack.connector_track_identifier,
+                track_id,
+                track_title,
+                DBResolutionNegative.consecutive_misses,
+            )
+            .join(
+                DBConnectorTrack,
+                DBConnectorTrack.id == DBResolutionNegative.connector_track_id,
+            )
+            .outerjoin(DBTrack, DBTrack.id == DBResolutionNegative.candidate_track_id)
+            .outerjoin(
+                DBTrackMapping,
+                (
+                    DBTrackMapping.connector_track_id
+                    == DBResolutionNegative.connector_track_id
+                )
+                & (DBTrackMapping.user_id == DBResolutionNegative.user_id)
+                & live_only(DBTrackMapping),
+            )
+            .outerjoin(mapped_track, mapped_track.id == DBTrackMapping.track_id)
+            .where(*conditions)
+            .order_by(
+                DBResolutionNegative.consecutive_misses.desc(),
+                DBResolutionNegative.connector_track_id,
+                DBResolutionNegative.candidate_track_id,
+            )
+        )
+        return [
+            NegativeListing(
+                connector_track_id=connector_track_id,
+                connector_name=connector_name,
+                connector_track_identifier=connector_track_identifier,
+                track_id=listed_track_id,
+                track_title=listed_title,
+                consecutive_misses=misses,
+            )
+            for (
+                connector_track_id,
+                connector_name,
+                connector_track_identifier,
+                listed_track_id,
+                listed_title,
+                misses,
+            ) in result.tuples()
+        ]
+
     @db_operation("count_active_negatives")
     async def count_active_negatives(self, *, user_id: str) -> NegativeCacheSize:
         """Size of each half of the cache for one tenant.
@@ -554,22 +651,19 @@ class ResolutionNegativeRepository(
         pass will re-ask — so counting it would overstate the cache and hide
         the growth signal the metric exists to expose.
         """
-        active_rejected: ColumnElement[int] = func.count().filter(
-            DBResolutionNegative.kind == _REJECTED_PAIR,
-            DBResolutionNegative.unrejected_at.is_(None),
-        )
-        pending_no_match: ColumnElement[int] = func.count().filter(
-            DBResolutionNegative.kind == _NO_MATCH,
-            DBResolutionNegative.check_again > func.now(),
-        )
+        rejected_count: ColumnElement[int] = func.count().filter(active_rejected_pair())
+        no_match_count: ColumnElement[int] = func.count().filter(pending_no_match())
+        dead_count: ColumnElement[int] = func.count().filter(looks_dead())
         result = await self.session.execute(
-            select(active_rejected, pending_no_match).where(
+            select(rejected_count, no_match_count, dead_count).where(
                 DBResolutionNegative.user_id == user_id
             )
         )
-        rejected, pending = result.tuples().one()
+        rejected, pending, dead = result.tuples().one()
         return NegativeCacheSize(
-            rejected_pairs_active=rejected, no_match_pending=pending
+            rejected_pairs_active=rejected,
+            no_match_pending=pending,
+            dead_id_candidates=dead,
         )
 
 

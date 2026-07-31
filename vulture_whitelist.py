@@ -110,11 +110,12 @@ reset_run_activity  # src/application/services/run_activity.py — used by 3 tes
 reset_schedule_signal  # src/application/services/schedule_signal.py — used by test_schedules.py
 reset_play_refresh_flight  # src/application/services/play_freshness.py — test isolation
 
-# --- v0.10.2 identity ledger: read surfaces and constants without an in-src caller yet ---
-# All four are consumed outside vulture's paths (tests/, scripts/) or are declared
-# substrate the milestone deliberately shipped without a writer. Deleting them would
-# break real callers or force a migration when the deferred consumer lands.
+# --- v0.10.2 identity ledger: read surfaces without an in-src caller yet ---
+# Both are consumed only from outside vulture's paths (tests/) — declared substrate
+# the milestone deliberately shipped without a writer. Deleting them would force a
+# migration when the deferred v0.14.0 Manual Mapping UI consumer lands.
+# (`unreject` left this list at v0.10.3: `mixd tracks unreject` is now a real in-src
+# caller, so the script that was its only consumer — scripts/unreject_mapping_candidate.py
+# — was deleted rather than kept as a second, redundant caller.)
 get_supersession_chain  # mapping history walk — tests + the v0.14.0 Manual Mapping UI
 events_for_mapping  # "why does my library believe this" reader — tests + v0.14.0 UI
-unreject  # withdraw a cannot-link — scripts/unreject_mapping_candidate.py (scripts/ unscanned)
-SUSPECT_RECHECK_SECONDS  # shortened recheck for suspect ids; read by the deferred FM4a worker
