@@ -174,6 +174,12 @@ If it reports drift, check Dependabot's jobs first. GitHub also offers a one-sho
 
 `.github/dependabot.yml` covers version-update PRs. Those parse manifests directly rather than reading the graph, but they run in the same updater, so a clone failure kills them too.
 
+**Undeclared imports** are a separate failure mode from stale alerts: code that imports a package we only receive transitively gets no resolver signal when the parent drops it. CI's Python job runs `uvx deptry .` (config in `pyproject.toml` `[tool.deptry]`) to fail on that. Two knobs there are load-bearing — `package_module_name_map` for distributions whose import name differs from their PyPI name (`python-dotenv` → `dotenv`, `pyjwt` → `jwt`, `python-multipart` → `multipart`), mandatory because `uvx` runs deptry isolated from our venv and it cannot infer them; and a single `DEP002` ignore for `python-multipart`, which base `fastapi` needs at request time for `UploadFile` parsing but which no import graph can see.
+
+```bash
+uvx deptry .
+```
+
 **Transitive vulnerabilities** are pinned as security floors in `web/pnpm-workspace.yaml` `overrides`, each with a comment saying what pulls the package and why the floor is safe against the parent's declared range. Alerts that cannot be fixed are documented there too rather than dismissed — `better-auth` is the standing example (see W8 in [dependency-audit-findings](backlog/dependency-audit-findings.md)).
 
 ## Subagents and Skills

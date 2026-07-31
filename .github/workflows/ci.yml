@@ -74,6 +74,12 @@ jobs:
       - name: Dead code (Python)
         run: uv run vulture
 
+      # Undeclared imports: catches code importing a package we only receive
+      # transitively (a fastapi bump could otherwise move starlette out from
+      # under src/interface/api's middleware). Config in pyproject.toml.
+      - name: Dependency check
+        run: uvx deptry .
+
       - name: Test with coverage
         run: uv run pytest -m "" --cov --cov-report=term-missing --cov-fail-under=80
 

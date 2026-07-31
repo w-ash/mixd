@@ -26,6 +26,13 @@ dependencies = [
     "pydantic-settings>=2.14.2",
     "cryptography>=49.0.0",
     "fastapi>=0.139.0",
+    # Imported directly by the ASGI middleware in src/interface/api/ and
+    # src/interface/mcp/ (starlette.datastructures, .types, .routing — FastAPI does
+    # not re-export these), so it is a real first-party dependency, not just a
+    # fastapi transitive. Floor mirrors fastapi's own `starlette>=0.46.0` rather
+    # than inventing a tighter one; mcp (>=0.48.0 on 3.14) and sse-starlette
+    # (>=0.49.1) already pull resolution higher.
+    "starlette>=0.46.0",
     "uvicorn[standard]>=0.49.0",
     "python-multipart>=0.0.32",
     "jellyfish>=1.2.1",
@@ -61,6 +68,7 @@ dev = [
     "pre-commit>=4.6.0",
     "basedpyright>=1.39.9",
     "vulture>=2.16",
+    "import-linter>=2.13",
     "testcontainers[postgres]>=4.14.2",
     "hypothesis>=6.156.6",
 ]
@@ -70,6 +78,31 @@ dev = [
 # from pyproject.toml and installs the match, so CI tracks this automatically; the
 # ghcr.io/astral-sh/uv tag in Dockerfile must be bumped by hand to stay in step.
 required-version = ">=0.12,<0.13"
+
+# Undeclared-import detection (`uvx deptry .`, run in CI's Python job). Catches the
+# class of drift W1 fixed: code importing a package we only get transitively.
+[tool.deptry]
+# extend_exclude, not exclude — overwriting `exclude` would drop deptry's own
+# defaults (notably `tests`, whose dev-only imports would then all trip DEP004).
+# docs/dev-setup-guide is a vendored submodule, not our dependency contract.
+extend_exclude = ["docs/dev-setup-guide"]
+
+# Distributions whose import name differs from their PyPI name. Required, not
+# belt-and-braces: `uvx` runs deptry in its own isolated environment, so it can
+# never read our installed package metadata to infer these — without the map it
+# guesses the PyPI name and reports a bogus DEP002/DEP001 pair for each.
+[tool.deptry.package_module_name_map]
+python-dotenv = ["dotenv"]
+pyjwt = ["jwt"]
+python-multipart = ["multipart", "python_multipart"]
+
+[tool.deptry.per_rule_ignores]
+# DEP002 = declared but never imported. python-multipart is a runtime *plugin* of
+# FastAPI, not a library we call: FastAPI's `UploadFile` form parsing
+# (src/interface/api/routes/imports.py) imports it internally and raises at request
+# time if it is absent. Base `fastapi` does not depend on it (only the `standard`
+# extra does), so we must declare it — and no import graph will ever see it.
+DEP002 = ["python-multipart"]
 
 [build-system]
 requires = ["hatchling"]
@@ -400,6 +433,139 @@ ignore_names = [
     "downgrade",
     "do_GET",              # HTTP handler protocol
     "log_message",         # HTTP handler protocol
+]
+
+# Layer-boundary enforcement (import-linter 2.13+).
+#
+# Lives here rather than in a standalone `.importlinter` because every other tool in
+# this repo (ruff, pytest, coverage, basedpyright, vulture, typer) is configured in
+# pyproject.toml — there are no standalone tool config files to be consistent with.
+#
+# The contract is CLAUDE.md's "Interface → Application → Domain ← Infrastructure",
+# split across five contracts because a single `layers` contract cannot express it:
+# interface and infrastructure are siblings that must not see each other, yet only
+# one of them (interface) may import application.
+#
+# Every `ignore_imports` entry below is an exception documented in `.claude/rules/`.
+# Nothing gets added here to make the check pass — an undocumented violation is a
+# finding to escalate, not a line to add.
+[tool.importlinter]
+root_packages = ["src"]
+include_external_packages = false
+
+[[tool.importlinter.contracts]]
+name = "Layered architecture: interface → application → domain"
+type = "layers"
+layers = [
+    "src.interface",
+    "src.application",
+    "src.domain",
+]
+
+[[tool.importlinter.contracts]]
+name = "Domain is a self-contained kernel"
+type = "forbidden"
+source_modules = ["src.domain"]
+allow_indirect_imports = true
+forbidden_modules = [
+    "src.application",
+    "src.infrastructure",
+    "src.interface",
+    "src.config",
+]
+ignore_imports = [
+    # domain-purity.md: TYPE_CHECKING-only import breaking a genuine circular
+    # import (`operations.py` → `spotify/personal_data`).
+    "src.domain.entities.operations -> src.infrastructure.connectors.spotify.personal_data",
+]
+
+[[tool.importlinter.contracts]]
+name = "Infrastructure depends inward only"
+type = "forbidden"
+source_modules = ["src.infrastructure"]
+forbidden_modules = ["src.application", "src.interface"]
+# Direct imports only: a chain that passes *through* an approved bridge is the
+# architecture working as designed, not a second violation of the same edge.
+allow_indirect_imports = true
+ignore_imports = [
+    # infrastructure-patterns.md named exception: an adapter may import the
+    # application-owned *port/type* modules it implements — never use cases,
+    # never the runner. Importing them realises a contract, not orchestration.
+    "src.infrastructure.chat.anthropic_adapter -> src.application.chat.events",
+    "src.infrastructure.chat.anthropic_adapter -> src.application.chat.protocols",
+    "src.infrastructure.persistence.unit_of_work -> src.application.connector_protocols",
+]
+
+[[tool.importlinter.contracts]]
+name = "Application reaches infrastructure only through the approved bridges"
+type = "forbidden"
+source_modules = ["src.application"]
+forbidden_modules = ["src.infrastructure"]
+allow_indirect_imports = true
+ignore_imports = [
+    # application-patterns.md "Approved infrastructure bridges": DI wiring entry
+    # points that intentionally import infrastructure for session/UoW creation.
+    "src.application.runner -> src.infrastructure.persistence.database.db_connection",
+    "src.application.runner -> src.infrastructure.persistence.database.user_context",
+    "src.application.runner -> src.infrastructure.persistence.repositories.factories",
+    "src.application.workflows.context -> src.infrastructure.connectors",
+    "src.application.workflows.context -> src.infrastructure.connectors.protocols",
+    "src.application.workflows.context -> src.infrastructure.persistence.database.db_connection",
+    "src.application.workflows.context -> src.infrastructure.persistence.database.user_context",
+    "src.application.workflows.context -> src.infrastructure.persistence.repositories.factories",
+    # application-patterns.md: the function-scoped `MetricConfigProviderImpl`
+    # import (the `metric_config` protocol's concrete provider; precedent
+    # `sync_playlist_link.py`), imported inside the function that needs it.
+    "src.application.workflows.context -> src.infrastructure.connectors._shared.metric_registry",
+    "src.application.use_cases.sync_playlist_link -> src.infrastructure.connectors._shared.metric_registry",
+    "src.application.use_cases.preview_playlist_sync -> src.infrastructure.connectors._shared.metric_registry",
+    "src.application.use_cases.import_connector_playlist_as_canonical -> src.infrastructure.connectors._shared.metric_registry",
+    "src.application.chat.dispatchers.playlists_write -> src.infrastructure.connectors._shared.metric_registry",
+]
+
+[[tool.importlinter.contracts]]
+name = "Interface reaches infrastructure only through the credential/OAuth carve-out"
+type = "forbidden"
+source_modules = ["src.interface"]
+forbidden_modules = ["src.infrastructure"]
+allow_indirect_imports = true
+ignore_imports = [
+    # interface-patterns.md, v0.6.5 credential/secret carve-out — connector
+    # OAuth/token management shared by CLI + web so one `exchange_code` serves both.
+    "src.interface.api.routes.auth -> src.infrastructure.connectors._shared.connector_status",
+    "src.interface.api.routes.auth -> src.infrastructure.connectors._shared.token_storage",
+    "src.interface.api.routes.auth -> src.infrastructure.connectors.discovery",
+    "src.interface.api.routes.auth -> src.infrastructure.connectors.lastfm.client",
+    "src.interface.api.routes.auth -> src.infrastructure.connectors.spotify.auth",
+    "src.interface.api.routes.auth -> src.infrastructure.persistence.database.db_connection",
+    "src.interface.api.routes.auth -> src.infrastructure.persistence.database.db_models",
+    "src.interface.api.routes.connectors -> src.infrastructure.connectors._shared.connector_status",
+    "src.interface.api.routes.connectors -> src.infrastructure.connectors._shared.token_storage",
+    "src.interface.api.routes.connectors -> src.infrastructure.connectors.discovery",
+    "src.interface.api.routes.connectors -> src.infrastructure.connectors.protocols",
+    "src.interface.cli.connector_commands -> src.infrastructure.connectors._shared.connector_status",
+    "src.interface.cli.connector_commands -> src.infrastructure.connectors._shared.token_storage",
+    "src.interface.cli.connector_commands -> src.infrastructure.connectors.discovery",
+    "src.interface.cli.connector_commands -> src.infrastructure.connectors.lastfm.client",
+    "src.interface.cli.connector_commands -> src.infrastructure.connectors.spotify.auth",
+    "src.interface.api.routes.imports -> src.infrastructure.connectors.spotify.auth",
+    # Same carve-out, factored into the FastAPI dependency module that the
+    # OAuth/assistant-key routes above depend on.
+    "src.interface.api.deps -> src.infrastructure.connectors._shared.oauth_scopes",
+    "src.interface.api.deps -> src.infrastructure.connectors._shared.token_storage",
+    "src.interface.api.deps -> src.infrastructure.chat.credentials",
+    "src.interface.api.deps -> src.infrastructure.chat.anthropic_adapter",
+    # interface-patterns.md, v0.9.0 assistant API-key carve-out — the acting
+    # user's Anthropic key is a write-only per-user secret, not domain data.
+    "src.interface.api.routes.assistant -> src.infrastructure.chat.credentials",
+    "src.interface.api.routes.assistant -> src.infrastructure.chat.anthropic_adapter",
+    "src.interface.cli.assistant_commands -> src.infrastructure.chat.credentials",
+    "src.interface.cli.assistant_commands -> src.infrastructure.chat.anthropic_adapter",
+    # interface-patterns.md, v0.9.5 in-app OAuth authorization server — the AS
+    # owns its own token machinery and runs with no session user, so the
+    # RLS/`user_context` path a use case assumes does not apply.
+    "src.interface.api.oauth.cimd -> src.infrastructure.persistence.repositories.oauth_as",
+    "src.interface.api.oauth.provider -> src.infrastructure.persistence.repositories.oauth_as",
 ]
 
 [tool.typer.app]

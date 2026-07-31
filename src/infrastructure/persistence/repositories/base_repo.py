@@ -28,6 +28,9 @@ from src.domain.exceptions import NotFoundError
 
 # Import needed for relationship chains in eager loading
 from src.infrastructure.persistence.database.db_models import DatabaseModel
+from src.infrastructure.persistence.repositories._shared.retry_policies import (
+    concurrent_session_retry,
+)
 from src.infrastructure.persistence.repositories.mappers import (
     ModelMapper,
     has_session_support,
@@ -274,16 +277,13 @@ class BaseRepository[TDBModel: DatabaseModel, TDomainModel]:
         self,
         stmt: Select[tuple[TDBModel]],
     ) -> TDBModel | None:
-        """Execute select and return first result."""
-        try:
-            return await self._execute_query_one(stmt)
-        except Exception as e:
-            if "concurrent operations are not permitted" in str(e):
-                # Handle concurrent session access
-                logger.warning("Detected concurrent session access, retrying operation")
-                await asyncio.sleep(0.1)
-                return await self._execute_query_one(stmt)
-            raise
+        """Execute select and return first result.
+
+        Wrapped in the shared ``concurrent_session_retry`` policy: if another
+        coroutine had this ``AsyncSession`` mid-flight, the query is retried once
+        after a short pause. Anything else fails fast on the first attempt.
+        """
+        return await concurrent_session_retry()(self._execute_query_one, stmt)
 
     # -------------------------------------------------------------------------
     # CORE CRUD OPERATIONS
