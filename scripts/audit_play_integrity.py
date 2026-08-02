@@ -121,6 +121,65 @@ WHERE lf.import_source = 'lastfm_api'
 """
 
 
+_CENSUS_COUNTS_QUERY = """
+SELECT 'tracks' AS table_name, count(*) AS row_count FROM tracks
+UNION ALL SELECT 'connector_tracks', count(*) FROM connector_tracks
+UNION ALL SELECT 'track_mappings', count(*) FROM track_mappings
+UNION ALL SELECT 'match_reviews', count(*) FROM match_reviews
+UNION ALL SELECT 'resolution_events', count(*) FROM resolution_events
+UNION ALL SELECT 'resolution_negatives', count(*) FROM resolution_negatives
+UNION ALL SELECT 'track_likes', count(*) FROM track_likes
+UNION ALL SELECT 'track_plays', count(*) FROM track_plays
+UNION ALL SELECT 'connector_plays', count(*) FROM connector_plays
+UNION ALL SELECT 'play_sources', count(*) FROM play_sources
+UNION ALL SELECT 'playlists', count(*) FROM playlists
+UNION ALL SELECT 'connector_playlists', count(*) FROM connector_playlists
+UNION ALL SELECT 'playlist_mappings', count(*) FROM playlist_mappings
+UNION ALL SELECT 'playlist_tracks', count(*) FROM playlist_tracks
+UNION ALL SELECT 'sync_checkpoints', count(*) FROM sync_checkpoints
+UNION ALL SELECT 'track_preferences', count(*) FROM track_preferences
+ORDER BY table_name
+"""
+
+# The tables the audit's tenancy checks (group D) compare against; a census
+# row with user_id 'default' on a remote database is the mistenancy class.
+_CENSUS_TENANCY_QUERY = """
+SELECT 'tracks' AS table_name, user_id, count(*) AS row_count
+FROM tracks GROUP BY user_id
+UNION ALL SELECT 'track_mappings', user_id, count(*)
+FROM track_mappings GROUP BY user_id
+UNION ALL SELECT 'track_likes', user_id, count(*)
+FROM track_likes GROUP BY user_id
+UNION ALL SELECT 'track_plays', user_id, count(*)
+FROM track_plays GROUP BY user_id
+UNION ALL SELECT 'connector_plays', user_id, count(*)
+FROM connector_plays GROUP BY user_id
+ORDER BY table_name, user_id
+"""
+
+_CENSUS_CONNECTOR_PLAYS_QUERY = """
+SELECT import_source, count(*) AS row_count,
+       min(played_at) AS first_played_at, max(played_at) AS last_played_at
+FROM connector_plays
+GROUP BY import_source
+ORDER BY import_source
+"""
+
+_CENSUS_TRACK_PLAYS_QUERY = """
+SELECT count(*) AS row_count,
+       min(played_at) AS first_played_at, max(played_at) AS last_played_at
+FROM track_plays
+"""
+
+_CENSUS_MAPPING_LIFECYCLE_QUERY = """
+SELECT count(*) FILTER (WHERE superseded_at IS NULL) AS live,
+       count(*) FILTER (WHERE superseded_at IS NOT NULL) AS superseded
+FROM track_mappings
+"""
+
+_CENSUS_MIGRATION_QUERY = "SELECT version_num FROM alembic_version"
+
+
 @dataclass(frozen=True)
 class _DeltaRow:
     """One api↔scrobble pairing, narrowed out of the driver's untyped mapping."""
@@ -265,7 +324,77 @@ async def check_spotify_api_lastfm_delta(session: AsyncSession) -> CheckResult:
     )
 
 
+def _as_int(value: object) -> int:
+    narrowed = _as_float(value)
+    return 0 if narrowed is None else int(narrowed)
+
+
+async def _census_rows(session: AsyncSession, query: str) -> list[dict[str, object]]:
+    """One census query → plain dicts (RowMapping values are untyped)."""
+    return [dict(m) for m in (await session.execute(text(query))).mappings().all()]
+
+
+async def check_census(session: AsyncSession) -> CheckResult:
+    """Row census across the audit's core tables.
+
+    The before/after substrate for at-scale imports: run once against the
+    frozen pre-import Neon branch, again after the import, and diff. Counts
+    are cross-tenant whenever the connection role holds BYPASSRLS (Neon's
+    ``neondb_owner`` does) — which is what a census wants; the per-user
+    breakdown makes tenancy explicit instead of trusting RLS to scope it.
+    """
+    counts = await _census_rows(session, _CENSUS_COUNTS_QUERY)
+    tenancy = await _census_rows(session, _CENSUS_TENANCY_QUERY)
+    by_source = await _census_rows(session, _CENSUS_CONNECTOR_PLAYS_QUERY)
+    play_range = await _census_rows(session, _CENSUS_TRACK_PLAYS_QUERY)
+    lifecycle = await _census_rows(session, _CENSUS_MAPPING_LIFECYCLE_QUERY)
+    migration = await _census_rows(session, _CENSUS_MIGRATION_QUERY)
+
+    notes = ["table row counts:"]
+    notes += [f"  {row['table_name']}: {_as_int(row['row_count'])}" for row in counts]
+
+    if lifecycle:
+        notes.append(
+            f"track_mappings lifecycle: {_as_int(lifecycle[0]['live'])} live / "
+            f"{_as_int(lifecycle[0]['superseded'])} superseded"
+        )
+
+    if by_source:
+        notes.append("connector_plays by import_source:")
+        notes += [
+            f"  {row['import_source']}: {_as_int(row['row_count'])} "
+            f"({row['first_played_at']} .. {row['last_played_at']})"
+            for row in by_source
+        ]
+    else:
+        notes.append("connector_plays by import_source: (none)")
+
+    if play_range and _as_int(play_range[0]["row_count"]):
+        notes.append(
+            f"track_plays range: {play_range[0]['first_played_at']} .. "
+            f"{play_range[0]['last_played_at']}"
+        )
+
+    notes.append("rows per user (tenanted tables):")
+    notes += [
+        f"  {row['table_name']} / {row['user_id']}: {_as_int(row['row_count'])}"
+        for row in tenancy
+    ]
+
+    if migration:
+        notes.append(f"alembic version: {migration[0]['version_num']}")
+
+    return CheckResult(
+        name="census",
+        verdict="INFO",
+        count=sum(_as_int(row["row_count"]) for row in counts),
+        query=_CENSUS_COUNTS_QUERY,
+        notes=notes,
+    )
+
+
 CHECKS: dict[str, Callable[[AsyncSession], Awaitable[CheckResult]]] = {
+    "census": check_census,
     "spotify_api_lastfm_delta": check_spotify_api_lastfm_delta,
 }
 

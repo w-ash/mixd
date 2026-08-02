@@ -1,6 +1,6 @@
 # Play-Import Convergence Findings
 
-**Status**: Active as reference (reviewed 2026-07-31) — the milestones it fed have shipped ([v0.10.0](v0.10.x.md#v0100-convergent-play-history) convergent play history, [v0.10.1](v0.10.x.md#v0101-continuous-play-polling) continuous polling). Retained in root because live readers still cite it: the [v0.10.3 audit](v0.10.x.md#v0103-post-import-data-integrity-audit) uses it as source material for extending its checklist, [PDR-001](../decisions/PDR-001-data-ownership-model.md) carries its §1 prod probe as an evidence row, and `alembic/versions/040_plays_nulls_not_distinct.py` + `src/domain/matching/play_projection.py` cite it by path. **§1's environment survey is a 2026-07-16 snapshot, not current state** — it recorded zero prod play rows, which v0.10.3 re-measures once the at-scale imports land
+**Status**: Active as reference (reviewed 2026-07-31) — the milestones it fed have shipped ([v0.10.0](v0.10.x.md#v0100-convergent-play-history) convergent play history, [v0.10.1](v0.10.x.md#v0101-continuous-play-polling) continuous polling). Retained in root because live readers still cite it: the [v0.10.3 audit](v0.10.x.md#v0103-post-import-data-integrity-audit) uses it as source material for extending its checklist, [PDR-001](../decisions/PDR-001-data-ownership-model.md) carries its §1 prod probe as an evidence row, and `alembic/versions/040_plays_nulls_not_distinct.py` + `src/domain/matching/play_projection.py` cite it by path. **§1's environment survey is a 2026-07-16 snapshot, not current state** — it recorded zero prod play rows, which v0.10.3 re-measures once the at-scale imports land. **§9 (2026-08-01) is the audit's pre-import baseline**, frozen as Neon branch `baseline/pre-import-2026-08-01` (kept until the v0.10.3 audit closes)
 **Run**: 2026-07-16, git `c3773737`
 **Environments probed** (all read-only):
 - Production Neon (`neondb_owner`, `rolbypassrls = t` re-verified) — **zero play rows** (see §1)
@@ -133,3 +133,42 @@ Export ends 2025-02-28: everything since exists only in Last.fm (and future poll
 7. **Readers of the flat context / merged_from_* shape**: the shape is preserved by the projection's context rule (winner flat + `merged_from_<channel>`), so no reader migration; verify with a grep at implementation time (only consumer found in this pass: none outside the dedup module itself).
 
 **Net story-shaping conclusions**: (a) harden constraints and build the projection **before** the first at-scale import — that import is the real migration; (b) bridging on exact normalized identity is enough; (c) the poller (v0.10.1) closes the post-2025-02 gap that the export cannot cover, and PDR-001's ~50-play window makes cadence the safety variable, not matching.
+
+## 9. Pre-import prod baseline (2026-08-01)
+
+**Run**: 2026-08-01, against frozen Neon branch `baseline/pre-import-2026-08-01` (`br-dark-resonance-akzi04lz`, copy-on-write off production `br-dry-water-ak9zsove`; keep until the v0.10.3 audit closes). The same census against prod primary minutes earlier returned identical numbers — branch ≡ prod at freeze. Prod is at v0.10.2.1, alembic `046_resolution_events_mapping`.
+
+**Re-run**: `DATABASE_URL=<branch-or-prod-url> uv run python scripts/audit_play_integrity.py --check census` (cross-tenant: `neondb_owner` holds `BYPASSRLS`), plus `MIXD_USER_ID=cfe9d062-577f-4f51-8813-47db89650793 mixd stats [--health|--matching]` / `mixd history checkpoints` for the user-scoped views.
+
+**Census** (all users):
+
+| table | rows | | table | rows |
+|---|---|---|---|---|
+| tracks | 12,990 | | track_plays | **52** |
+| connector_tracks | 13,712 | | connector_plays | **54** |
+| track_mappings | 14,539 (all live, 0 superseded) | | play_sources | 54 |
+| track_likes | 23,176 | | match_reviews | 0 |
+| playlists | 13 | | resolution_events | 0 |
+| connector_playlists | 494 | | resolution_negatives | 0 |
+| playlist_mappings | 13 | | sync_checkpoints | 2 |
+| playlist_tracks | 2,542 | | track_preferences | 0 |
+
+`connector_plays` by `import_source`: `spotify_api` 50 (2026-07-21 → 2026-07-27), `lastfm_api` 2 + `spotify_export` 2 (both 2024-11-05, `repro_*` test rows).
+
+**Tenancy — the real user has zero plays; every play row on prod is mistenanted or test residue:**
+
+| user_id | tracks | track_mappings | track_likes | track_plays | connector_plays |
+|---|---|---|---|---|---|
+| `cfe9d062-577f-4f51-8813-47db89650793` (real) | 12,531 | 13,656 | 23,176 | **0** | **0** |
+| `default` | 457 | 883 | 0 | 50 | 50 |
+| `repro_7d81986c`, `repro_d46f7460` | 1 each | 0 | 0 | 1 each | 2 each |
+
+All 50 `spotify_api` poller plays landed under `default` — the v0.10.1 poller ran without `MIXD_USER_ID` (the group-D mistenancy class, pre-existing before any at-scale import). The audit must not attribute these to the imports.
+
+**User-scoped stats** (`cfe9d062…`): 12,531 tracks / 11 playlists / 11,588 liked / 0 plays. The 23,176 `track_likes` rows are 11,588 × 2 services (mixd + spotify). Tracks by connector: spotify 12,486, lastfm 897.
+
+**Integrity health**: overall **WARN pre-import** — 50 orphaned connector tracks (the poller's, matching the mistenanted plays), 1 duplicate track by fingerprint; all other checks pass with 0.
+
+**Matching**: 13,656 mappings for the real user — spotify direct 12,759, lastfm artist-title 704, lastfm mbid 193; every mapping at confidence 100, all drift signals zero (queue empty, no negatives, no dead ids).
+
+**Checkpoints**: spotify/likes last synced 2026-04-21; lastfm likes, lastfm plays, spotify plays all `Never` — confirming no play import has ever run for the real user.
