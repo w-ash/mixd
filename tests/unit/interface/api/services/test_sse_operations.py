@@ -37,9 +37,21 @@ def captured_finalize():
     """Patch the audit-write + SSE cleanup so we can read what the seam recorded."""
     with (
         patch.object(sse_operations, "finalize_run", new=AsyncMock()) as finalize,
+        patch.object(sse_operations, "append_run_issue", new=AsyncMock()),
         patch.object(sse_operations, "finalize_sse_operation", new=AsyncMock()),
     ):
         yield finalize
+
+
+@pytest.fixture
+def captured_issue():
+    """Patch the audit-write + SSE cleanup so we can read the recorded issue."""
+    with (
+        patch.object(sse_operations, "finalize_run", new=AsyncMock()),
+        patch.object(sse_operations, "append_run_issue", new=AsyncMock()) as issue,
+        patch.object(sse_operations, "finalize_sse_operation", new=AsyncMock()),
+    ):
+        yield issue
 
 
 def _op_id() -> str:
@@ -121,6 +133,86 @@ class TestRunSseOperationAuditOutcome:
         await sse_operations.run_sse_operation(_op_id(), coro())
 
         captured_finalize.assert_not_awaited()
+
+
+class TestRunSseOperationErrorMessagePersistence:
+    """A failed run's reason must land in the run's ``issues``.
+
+    ``to_counts()`` flattens summary metrics only, so a soft failure's message
+    (stashed in ``OperationResult.metadata``) used to exist nowhere queryable —
+    the v0.10.2.2 "errors: 1 with no message" gap. The seam now appends it as
+    a run issue for both failure paths.
+    """
+
+    async def test_soft_failure_message_recorded_as_issue(self, captured_issue):
+        result = OperationResult(operation_name="Import")
+        result.summary_metrics.add("errors", 1, "Errors", significance=1)
+        result.metadata["error"] = "Spotify file import failed: 429"
+
+        async def coro() -> OperationResult:
+            return result
+
+        await sse_operations.run_sse_operation(
+            _op_id(), coro(), run_id=uuid4(), user_id="u1"
+        )
+
+        captured_issue.assert_awaited_once()
+        kwargs = captured_issue.await_args.kwargs
+        assert kwargs["issue"] == {"message": "Spotify file import failed: 429"}
+
+    async def test_importer_errors_list_recorded_as_issue(self, captured_issue):
+        # create_error_result stashes the message under metadata["errors"].
+        result = OperationResult(operation_name="Import")
+        result.summary_metrics.add("errors", 1, "Errors", significance=0)
+        result.metadata["errors"] = ["boom one", "boom two"]
+
+        async def coro() -> OperationResult:
+            return result
+
+        await sse_operations.run_sse_operation(
+            _op_id(), coro(), run_id=uuid4(), user_id="u1"
+        )
+
+        kwargs = captured_issue.await_args.kwargs
+        assert kwargs["issue"] == {"message": "boom one; boom two"}
+
+    async def test_uncaught_exception_recorded_as_issue(self, captured_issue):
+        async def coro() -> None:
+            raise RuntimeError("boom")
+
+        await sse_operations.run_sse_operation(
+            _op_id(), coro(), run_id=uuid4(), user_id="u1"
+        )
+
+        kwargs = captured_issue.await_args.kwargs
+        assert kwargs["issue"] == {"message": "boom"}
+
+    async def test_clean_result_records_no_issue(self, captured_issue):
+        result = OperationResult(operation_name="Import")
+        result.summary_metrics.add("track_plays", 42, "Plays Imported")
+
+        async def coro() -> OperationResult:
+            return result
+
+        await sse_operations.run_sse_operation(
+            _op_id(), coro(), run_id=uuid4(), user_id="u1"
+        )
+
+        captured_issue.assert_not_awaited()
+
+    async def test_soft_failure_without_message_records_no_issue(self, captured_issue):
+        # errors metric with nothing in metadata: nothing useful to persist.
+        result = OperationResult(operation_name="Import")
+        result.summary_metrics.add("errors", 1, "Errors", significance=1)
+
+        async def coro() -> OperationResult:
+            return result
+
+        await sse_operations.run_sse_operation(
+            _op_id(), coro(), run_id=uuid4(), user_id="u1"
+        )
+
+        captured_issue.assert_not_awaited()
 
 
 class TestRunSseOperationTerminalEvent:

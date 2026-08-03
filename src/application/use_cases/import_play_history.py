@@ -188,13 +188,7 @@ class ImportTracksUseCase:
                     command, uow, progress_emitter
                 )
 
-                # Extract imported count from summary metrics
-                imported_count = operation_result.summary_metrics.get("track_plays")
-
-                logger.info(
-                    f"Successfully completed {command.service} {command.mode} import: "
-                    f"{imported_count} tracks imported"
-                )
+                self._log_outcome(command, operation_result)
 
                 return ImportTracksResult(
                     operation_result=operation_result,
@@ -232,6 +226,29 @@ class ImportTracksUseCase:
                     execution_time_ms=execution_time_ms,
                     total_batches=1,
                 )
+
+    @staticmethod
+    def _log_outcome(
+        command: ImportTracksCommand, operation_result: OperationResult
+    ) -> None:
+        """Log the import outcome honestly.
+
+        The base importer converts pipeline exceptions into a soft-failure
+        result without raising, so reaching this point is NOT proof of
+        success — logging it as such sent log readers chasing a phantom
+        (the v0.10.2.2 diagnosis).
+        """
+        if operation_result.is_failure:
+            logger.error(
+                f"{command.service} {command.mode} import failed: "
+                f"{operation_result.failure_message}"
+            )
+        else:
+            imported_count = operation_result.summary_metrics.get("track_plays")
+            logger.info(
+                f"Successfully completed {command.service} {command.mode} "
+                f"import: {imported_count} tracks imported"
+            )
 
     async def _execute_import(
         self,

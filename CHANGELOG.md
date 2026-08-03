@@ -6,6 +6,17 @@ linked backlog version file. Versioning follows mixd's four-segment
 `major.minor.feature.revision` scheme (`.claude/rules/version-management.md`), not strict
 SemVer. Format inspired by [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [0.10.2.2] — 2026-08-02
+
+**When an import fails, mixd now tells you why — and a rate-limited connector no longer kills it.** The first GDPR history upload on prod died in 32 seconds showing only "errors: 1" and "No issues recorded": the importer converts pipeline exceptions into a soft-failure result whose message lives in a field the audit row never persisted, so the reason existed nowhere queryable. Run timing matched the retry policy's exhaustion profile exactly — six attempts burned inside a rate-limit window whose `Retry-After` the policy ignored.
+
+- **Failure reasons are durable.** The SSE seam appends the failure message to the run's `issues` on both failure paths (soft-failure results and uncaught exceptions), so the Import History row now shows the reason — the UI already renders issues, no frontend change.
+- **`Retry-After` is honored.** All connector retry policies wait out a 429's server-stated window (+1s margin, capped at the policy's max wait) instead of hammering exponential backoff inside it (`RetryAfterWait` in `_shared/retry_policies.py`).
+- **Logs stop lying.** The import use case no longer logs "Successfully completed" while holding a soft-failure result.
+- `OperationResult.failure_message` is the single accessor for the soft-failure reason (`metadata["error"]` / `metadata["errors"]`).
+
+→ [details](docs/backlog/v0.10.x.md#post-deploy-revisions)
+
 ## [0.10.2.1] — 2026-07-31
 
 **Your pinned matches stay pinned, and the audit trail tells the whole truth.** A same-day adversarial code review of v0.10.2 found the one path where an automated re-match could silently overrule a primary mapping you chose, plus several places the new event log could disagree with the rows it explains. All confirmed findings are fixed, and the 2026-07-02 dependency audit closes with the layer contract now enforced in CI.

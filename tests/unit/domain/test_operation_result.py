@@ -109,6 +109,41 @@ class TestOperationResultFailureSignal:
         assert result.is_failure is True
 
 
+class TestFailureMessage:
+    """failure_message surfaces the soft-failure reason to_counts() drops."""
+
+    def test_error_string_returned(self):
+        result = OperationResult(operation_name="Import")
+        result.metadata["error"] = "Last.fm timed out"
+
+        assert result.failure_message == "Last.fm timed out"
+
+    def test_errors_list_joined(self):
+        result = OperationResult(operation_name="Import")
+        result.metadata["errors"] = ["boom one", "boom two"]
+
+        assert result.failure_message == "boom one; boom two"
+
+    def test_error_string_wins_over_errors_list(self):
+        result = OperationResult(operation_name="Import")
+        result.metadata["error"] = "primary"
+        result.metadata["errors"] = ["secondary"]
+
+        assert result.failure_message == "primary"
+
+    def test_non_string_entries_filtered(self):
+        result = OperationResult(operation_name="Import")
+        result.metadata["errors"] = [1, "real message", None]
+
+        assert result.failure_message == "real message"
+
+    def test_no_message_returns_none(self):
+        result = OperationResult(operation_name="Import")
+        result.summary_metrics.add("errors", 1, "Errors", significance=1)
+
+        assert result.failure_message is None
+
+
 class TestOperationResultToCounts:
     """to_counts() flattens summary metrics for the audit row and SSE terminal event."""
 

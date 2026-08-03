@@ -16,6 +16,8 @@ The retry system preserves all current behavior while enabling:
 """
 
 from collections.abc import Callable
+from http import HTTPStatus
+from typing import override
 
 from attrs import define
 from tenacity import (
@@ -27,6 +29,7 @@ from tenacity import (
     wait_exponential,
     wait_random,
 )
+from tenacity.wait import wait_base
 
 from src.config import get_logger
 from src.infrastructure.connectors._shared.error_classifier import (
@@ -263,6 +266,55 @@ def create_tenacity_giveup_handler(
 # -------------------------------------------------------------------------
 
 
+def _retry_after_seconds(retry_state: RetryCallState) -> float | None:
+    """Seconds a 429 response asked us to wait, if the failure carries one.
+
+    Only the numeric ``Retry-After`` form is handled; the HTTP-date form (rare,
+    and unused by our connectors' APIs) falls back to exponential waits.
+    """
+    import httpx2
+
+    if not retry_state.outcome or not retry_state.outcome.failed:
+        return None
+    exception = retry_state.outcome.exception()
+    if not isinstance(exception, httpx2.HTTPStatusError):
+        return None
+    if exception.response.status_code != HTTPStatus.TOO_MANY_REQUESTS:
+        return None
+    # Headers.get returns Any (untyped default); __getitem__ is typed -> str.
+    headers = exception.response.headers
+    if "Retry-After" not in headers:
+        return None
+    try:
+        seconds = float(headers["Retry-After"])
+    except ValueError:
+        return None
+    return max(seconds, 0.0)
+
+
+@define
+class RetryAfterWait(wait_base):
+    """Honor a 429's ``Retry-After`` when the server sent one, else fall back.
+
+    The exponential fallback is blind to the server's stated rate-limit
+    window: attempts spread over ~31s inside a longer window all burn and the
+    operation dies with retries exhausted (the v0.10.2.2 GDPR-import failure).
+    Waiting the stated window plus a 1s margin lands the next attempt after
+    it; ``cap`` bounds the sleep so a hostile or broken header can't stall an
+    operation indefinitely.
+    """
+
+    fallback: wait_base
+    cap: float
+
+    @override
+    def __call__(self, retry_state: RetryCallState) -> float:
+        retry_after = _retry_after_seconds(retry_state)
+        if retry_after is None:
+            return self.fallback(retry_state)
+        return min(retry_after + 1.0, self.cap)
+
+
 @define(frozen=True)
 class RetryConfig:
     """Configuration for a service retry policy.
@@ -358,10 +410,13 @@ class RetryPolicyFactory:
 
         return AsyncRetrying(
             stop=stop,
-            wait=wait_exponential(
-                multiplier=config.wait_multiplier, max=config.wait_max
-            )
-            + wait_random(0, 1),
+            wait=RetryAfterWait(
+                fallback=wait_exponential(
+                    multiplier=config.wait_multiplier, max=config.wait_max
+                )
+                + wait_random(0, 1),
+                cap=config.wait_max,
+            ),
             retry=retry_predicate,
             before_sleep=create_tenacity_backoff_handler(
                 config.classifier, config.service_name

@@ -441,6 +441,25 @@ class OperationResult:
         """
         return self.summary_metrics.get("errors", 0) > 0 or "error" in self.metadata
 
+    @property
+    def failure_message(self) -> str | None:
+        """Human-readable reason for a soft failure, if one was recorded.
+
+        Soft-failure handlers stash the exception text in ``metadata`` under
+        ``error`` (str) or ``errors`` (list of str) while ``to_counts`` flattens
+        only ``summary_metrics`` — so without this accessor the reason never
+        leaves the process. The SSE seam persists it to the run's ``issues``.
+        """
+        error = self.metadata.get("error")
+        if isinstance(error, str) and error:
+            return error
+        errors = self.metadata.get("errors")
+        if isinstance(errors, list):
+            parts = [e for e in errors if isinstance(e, str) and e]
+            if parts:
+                return "; ".join(parts)
+        return None
+
     def to_counts(self) -> dict[str, JsonValue]:
         """Flatten summary metrics into a ``name -> value`` mapping.
 

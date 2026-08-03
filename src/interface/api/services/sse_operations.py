@@ -25,6 +25,7 @@ from uuid import UUID, uuid4
 from fastapi import HTTPException
 
 from src.application.services.operation_run_recorder import (
+    append_run_issue,
     finalize_run,
     start_run,
 )
@@ -173,19 +174,32 @@ async def run_sse_operation(
     await _safe_start_parent(operation_id, description)
     status: OperationStatus = "complete"
     counts: JsonDict | None = None
+    error_message: str | None = None
     try:
         result = await coro
     except Exception as exc:
         logger.error("SSE operation failed", operation_id=operation_id, exc_info=True)
-        status, counts = "error", {"error_message": str(exc)[:500]}
+        error_message = str(exc)[:500]
+        status, counts = "error", {"error_message": error_message}
     else:
         status, counts = _audit_outcome(result)
+        # A soft failure's reason lives only in OperationResult.metadata, which
+        # to_counts() drops — persist it as a run issue or it exists nowhere
+        # queryable (the v0.10.2.2 "errors: 1 with no message" fix).
+        if status == "error" and isinstance(result, OperationResult):
+            error_message = (
+                result.failure_message[:500] if result.failure_message else None
+            )
     finally:
         if run_id is not None and user_id is not None:
             try:
                 await finalize_run(
                     run_id, user_id=user_id, status=status, counts=counts
                 )
+                if error_message is not None:
+                    await append_run_issue(
+                        run_id, user_id=user_id, issue={"message": error_message}
+                    )
             except Exception:
                 logger.error(
                     "Failed to finalize OperationRun row",
