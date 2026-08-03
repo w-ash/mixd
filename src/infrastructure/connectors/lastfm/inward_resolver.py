@@ -113,12 +113,22 @@ class LastfmInwardResolver(InwardTrackResolver):
         result: dict[str, Track] = {}
 
         for identifier in missing_ids:
+            # Savepoint so one failed track creation rolls back alone instead
+            # of aborting the transaction for every remaining identifier (the
+            # v0.10.2.2 InFailedSqlTransaction cascade).
             try:
-                await self._resolve_one_identifier(
-                    identifier, result, uow, user_id=user_id
-                )
+                async with uow.savepoint():
+                    await self._resolve_one_identifier(
+                        identifier, result, uow, user_id=user_id
+                    )
             except Exception as e:
-                logger.error(f"Failed to create canonical track for {identifier}: {e}")
+                # The helper mutates ``result`` before its later writes can
+                # fail; drop any entry whose row the savepoint just discarded.
+                _ = result.pop(identifier, None)
+                logger.error(
+                    f"Failed to create canonical track for {identifier}: {e}",
+                    exc_info=True,
+                )
 
         return result
 

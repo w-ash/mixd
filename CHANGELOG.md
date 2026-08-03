@@ -8,11 +8,12 @@ SemVer. Format inspired by [Keep a Changelog](https://keepachangelog.com/en/1.1.
 
 ## [0.10.2.2] — 2026-08-02
 
-**When an import fails, mixd now tells you why — and a rate-limited connector no longer kills it.** The first GDPR history upload on prod died in 32 seconds showing only "errors: 1" and "No issues recorded": the importer converts pipeline exceptions into a soft-failure result whose message lives in a field the audit row never persisted, so the reason existed nowhere queryable. Run timing matched the retry policy's exhaustion profile exactly — six attempts burned inside a rate-limit window whose `Retry-After` the policy ignored.
+**When an import fails, mixd now tells you why — and one bad track no longer kills the whole batch.** The first GDPR history upload on prod died in 32 seconds showing only "errors: 1" and "No issues recorded". Two defects compounded: the importer converts pipeline exceptions into a soft-failure result whose message lives in a field the audit row never persisted (so the reason existed nowhere queryable), and prod logs revealed the failure itself was a poisoned-transaction cascade — the track resolvers' continue-on-error loops swallow a per-item SQL failure and keep issuing statements on the now-aborted transaction, so every later item dies with `InFailedSqlTransaction` and the run's recorded error is a misleading secondary symptom.
 
+- **One bad item rolls back alone.** `UnitOfWorkProtocol.savepoint()` wraps each tolerated per-item write in the three resolver loops (canonical reuse, Spotify track creation, Last.fm track creation), so a failure rolls back to the savepoint and the batch genuinely continues — verified against real Postgres.
 - **Failure reasons are durable.** The SSE seam appends the failure message to the run's `issues` on both failure paths (soft-failure results and uncaught exceptions), so the Import History row now shows the reason — the UI already renders issues, no frontend change.
-- **`Retry-After` is honored.** All connector retry policies wait out a 429's server-stated window (+1s margin, capped at the policy's max wait) instead of hammering exponential backoff inside it (`RetryAfterWait` in `_shared/retry_policies.py`).
-- **Logs stop lying.** The import use case no longer logs "Successfully completed" while holding a soft-failure result.
+- **`Retry-After` is honored.** All connector retry policies wait out a 429's server-stated window (+1s margin, capped at the policy's max wait) instead of hammering exponential backoff inside it (`RetryAfterWait` in `_shared/retry_policies.py`) — the resolver loops call the Spotify API mid-transaction, so an unhonored rate-limit window was burning retry budget exactly where it hurt.
+- **Logs stop lying.** The import use case no longer logs "Successfully completed" while holding a soft-failure result, and the per-item handlers log with full tracebacks.
 - `OperationResult.failure_message` is the single accessor for the soft-failure reason (`metadata["error"]` / `metadata["errors"]`).
 
 → [details](docs/backlog/v0.10.x.md#post-deploy-revisions)

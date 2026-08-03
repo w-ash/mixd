@@ -3,6 +3,7 @@
 Split from the former monolithic ``interfaces.py``.
 """
 
+from contextlib import AbstractAsyncContextManager
 from typing import Protocol, Self
 
 from src.domain.repositories.admin import AdminRepositoryProtocol
@@ -80,6 +81,18 @@ class UnitOfWorkProtocol(Protocol):
 
     async def rollback(self) -> None:
         """Explicitly rollback the current transaction."""
+        ...
+
+    def savepoint(self) -> AbstractAsyncContextManager[None]:
+        """Nested-transaction (SAVEPOINT) scope within the current transaction.
+
+        A failure inside the scope rolls back to the savepoint and re-raises,
+        leaving the enclosing transaction usable. Required around any per-item
+        write whose failure is tolerated by a continue-on-error loop: without
+        it, one failed statement aborts the whole transaction and every
+        subsequent statement dies with ``InFailedSqlTransaction`` (the
+        v0.10.2.2 import-cascade failure).
+        """
         ...
 
     def get_track_repository(self) -> TrackRepositoryProtocol:

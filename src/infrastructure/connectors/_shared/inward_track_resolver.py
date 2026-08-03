@@ -227,23 +227,26 @@ class InwardTrackResolver(ABC):
                 )
                 continue
 
+            # Savepoint so a failed mapping write rolls back alone instead of
+            # aborting the transaction for every remaining item in the loop.
             try:
-                await uow.get_connector_repository().map_track_to_connector(
-                    candidate,
-                    self.connector_name,
-                    meta.connector_id,
-                    MatchMethod.CANONICAL_REUSE,
-                    confidence=match_result.confidence,
-                    metadata={"artist_name": meta.artist, "track_name": meta.title},
-                    confidence_evidence=match_result.evidence_dict,
-                )
+                async with uow.savepoint():
+                    await uow.get_connector_repository().map_track_to_connector(
+                        candidate,
+                        self.connector_name,
+                        meta.connector_id,
+                        MatchMethod.CANONICAL_REUSE,
+                        confidence=match_result.confidence,
+                        metadata={"artist_name": meta.artist, "track_name": meta.title},
+                        confidence_evidence=match_result.evidence_dict,
+                    )
                 result[identifier] = candidate
                 logger.info(
                     f"Reused canonical track {candidate.id} for {self.connector_name}:{meta.connector_id} "
                     f"(confidence: {match_result.confidence})"
                 )
             except Exception as e:
-                logger.debug(f"Failed to create reuse mapping for {identifier}: {e}")
+                logger.warning(f"Failed to create reuse mapping for {identifier}: {e}")
 
         # Events only — this gate does not write to the negative cache.
         #

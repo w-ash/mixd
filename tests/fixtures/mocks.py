@@ -14,6 +14,7 @@ Usage::
 from __future__ import annotations
 
 from collections.abc import Callable, Coroutine
+from contextlib import asynccontextmanager
 from typing import Any
 from unittest.mock import AsyncMock, MagicMock
 
@@ -545,6 +546,15 @@ def make_mock_uow(**repo_overrides) -> MagicMock:
     uow.commit = AsyncMock()
     uow.commit_batch = AsyncMock()
     uow.rollback = AsyncMock()
+
+    # No-op savepoint scope mirroring UnitOfWorkProtocol.savepoint(): item
+    # loops enter it around tolerated per-item writes; in unit tests there is
+    # no transaction to protect, so it only needs to be enterable.
+    @asynccontextmanager
+    async def _savepoint():
+        yield
+
+    uow.savepoint = MagicMock(side_effect=_savepoint)
     uow.__aenter__ = AsyncMock(return_value=uow)
 
     async def _aexit(exc_type, _exc_val, _exc_tb):

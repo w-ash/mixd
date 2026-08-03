@@ -640,3 +640,41 @@ class TestCanonicalDisplayCasing:
         saved_probe = uow.get_track_repository().save_track.call_args.args[0]
         assert saved_probe.title == "striptease"
         assert [a.name for a in saved_probe.artists] == ["carwash"]
+
+
+class TestCreationFailureIsolation:
+    """One failed identifier must not poison the rest of the batch.
+
+    Pins the v0.10.2.2 fix: each per-identifier creation runs inside a
+    ``uow.savepoint()`` scope, so a SQL failure rolls back alone instead of
+    aborting the transaction for every remaining identifier
+    (``InFailedSqlTransaction`` cascade).
+    """
+
+    async def test_failed_identifier_does_not_stop_the_batch(self):
+        from unittest.mock import patch
+
+        good_track = make_track(id=7)
+
+        async def fake_resolve(identifier, result, uow, *, user_id):
+            if identifier == "bad::track":
+                raise RuntimeError("boom")
+            result[identifier] = good_track
+
+        resolver = LastfmInwardResolver(lastfm_client=AsyncMock())
+        uow = _make_uow()
+
+        with patch.object(
+            LastfmInwardResolver,
+            "_resolve_one_identifier",
+            new=AsyncMock(side_effect=fake_resolve),
+        ):
+            result, metrics = await resolver.resolve_to_canonical_tracks(
+                ["bad::track", "good::track"], uow, user_id="test-user"
+            )
+
+        assert "good::track" in result
+        assert "bad::track" not in result
+        assert metrics.failed == 1
+        # Every creation attempt is savepoint-wrapped — the isolation itself.
+        assert uow.savepoint.call_count == 2

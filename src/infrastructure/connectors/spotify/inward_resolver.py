@@ -272,16 +272,22 @@ class SpotifyInwardResolver(InwardTrackResolver):
             if spotify_id not in spotify_metadata:
                 continue
 
+            # Savepoint so one failed track creation rolls back alone instead
+            # of aborting the transaction for every remaining id (the
+            # v0.10.2.2 InFailedSqlTransaction cascade).
             try:
-                result[spotify_id] = await self._resolve_one_missing_track(
-                    spotify_id,
-                    spotify_metadata[spotify_id],
-                    existing_by_isrc,
-                    uow,
-                    user_id=user_id,
-                )
+                async with uow.savepoint():
+                    result[spotify_id] = await self._resolve_one_missing_track(
+                        spotify_id,
+                        spotify_metadata[spotify_id],
+                        existing_by_isrc,
+                        uow,
+                        user_id=user_id,
+                    )
             except Exception as e:
-                logger.error(f"Failed to create track for {spotify_id}: {e}")
+                logger.error(
+                    f"Failed to create track for {spotify_id}: {e}", exc_info=True
+                )
 
         absent_ids = self._absent_from(missing_ids, spotify_metadata)
         if absent_ids:

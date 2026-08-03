@@ -6,6 +6,8 @@ handling transaction management and repository creation using a shared database 
 
 # Legitimate Any: SQLAlchemy column types, JSON fields
 
+from collections.abc import AsyncGenerator
+from contextlib import asynccontextmanager
 from typing import Self
 
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -166,6 +168,18 @@ class DatabaseUnitOfWork:
     async def rollback(self) -> None:
         """Explicitly rollback the current transaction."""
         await self._session.rollback()
+
+    @asynccontextmanager
+    async def savepoint(self) -> AsyncGenerator[None]:
+        """SAVEPOINT scope: a failure inside rolls back to it and re-raises.
+
+        The enclosing transaction stays usable, which is what makes
+        continue-on-error item loops safe. The RLS ``after_begin`` hook skips
+        savepoints (``transaction.parent is not None``), so ``app.user_id``
+        set on the top-level transaction is unaffected.
+        """
+        async with self._session.begin_nested():
+            yield
 
     def get_track_repository(self) -> TrackRepositoryProtocol:
         """Get track repository using this unit of work's transaction."""
