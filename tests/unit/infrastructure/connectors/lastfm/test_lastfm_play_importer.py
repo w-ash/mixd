@@ -6,13 +6,15 @@ accumulating a span-wide raw-record list: each day's scrobbles become
 """
 
 from datetime import UTC, datetime
+from typing import ClassVar
 from unittest.mock import AsyncMock, Mock, patch
 
 import pytest
 
 from src.config.constants import BusinessLimits
-from src.domain.entities import ConnectorTrackPlay
+from src.domain.entities import ConnectorTrackPlay, SyncCheckpoint
 from src.domain.exceptions import LastfmAuthRequiredError
+from src.domain.repositories.play import LastfmImportParams
 from src.infrastructure.connectors.lastfm.play_importer import LastfmPlayImporter
 
 _BATCH_ID = "test-batch"
@@ -64,6 +66,32 @@ def _fake_fetch_day(
     return _inner
 
 
+def _crashing_fetch_day(crash_on_day: int, records_per_day: int = 2):
+    """Like ``_fake_fetch_day`` but blows up when it reaches ``crash_on_day``.
+
+    Stands in for the machine restart / API outage the checkpoint exists for.
+    """
+    healthy = _fake_fetch_day(records_per_day)
+
+    async def _inner(*, username, day_start, day_end, current_date):
+        if current_date.day == crash_on_day:
+            raise RuntimeError(f"Last.fm went away on day {crash_on_day}")
+        return await healthy(
+            username=username,
+            day_start=day_start,
+            day_end=day_end,
+            current_date=current_date,
+        )
+
+    return _inner
+
+
+def _persisted_plays(uow):
+    """Every ledger row handed to the repository, across all per-day calls."""
+    insert = uow.get_connector_play_repository().bulk_insert_connector_plays
+    return [play for call in insert.await_args_list for play in call.args[0]]
+
+
 @pytest.fixture
 def mock_uow():
     """Mock UoW whose checkpoint saves echo the entity back."""
@@ -73,6 +101,40 @@ def mock_uow():
     checkpoint_repo = uow.get_checkpoint_repository()
     checkpoint_repo.save_sync_checkpoint = AsyncMock(side_effect=lambda cp: cp)
     return uow
+
+
+@pytest.fixture
+def journalling_uow():
+    """Mock UoW recording the interleaving of ledger writes and cursor saves.
+
+    Returns ``(uow, journal)`` where journal entries are
+    ``("persist" | "checkpoint", "YYYY-MM-DD")`` in the order they happened —
+    the only view that can prove the checkpoint never leads the data.
+    """
+    from tests.fixtures.mocks import make_mock_uow
+
+    uow = make_mock_uow()
+    journal: list[tuple[str, str]] = []
+
+    async def _insert(plays):
+        materialized = list(plays)
+        journal.extend(
+            ("persist", day)
+            for day in sorted({
+                play.played_at.date().isoformat() for play in materialized
+            })
+        )
+        return (len(materialized), 0)
+
+    async def _save(checkpoint):
+        journal.append(("checkpoint", checkpoint.cursor.split("@")[0]))
+        return checkpoint
+
+    uow.get_connector_play_repository().bulk_insert_connector_plays = AsyncMock(
+        side_effect=_insert
+    )
+    uow.get_checkpoint_repository().save_sync_checkpoint = AsyncMock(side_effect=_save)
+    return uow, journal
 
 
 class TestDateRangeCalculation:
@@ -283,9 +345,9 @@ class TestImportPlaysTotals:
         assert {play.user_id for play in plays} == {"mixd-user-1"}
 
         # The rows actually handed to the repository carry the tenancy too —
-        # connector_plays is RLS-scoped on user_id.
-        insert = mock_uow.get_connector_play_repository().bulk_insert_connector_plays
-        assert [play.user_id for play in insert.await_args.args[0]] == (
+        # connector_plays is RLS-scoped on user_id. Persistence is per day now
+        # (the checkpoint invariant), so the span is the union of those calls.
+        assert [play.user_id for play in _persisted_plays(mock_uow)] == (
             ["mixd-user-1"] * 6
         )
 
@@ -302,6 +364,104 @@ class TestImportPlaysTotals:
         assert result.summary_metrics.get("imported") == 0
         insert = mock_uow.get_connector_play_repository().bulk_insert_connector_plays
         insert.assert_not_awaited()
+
+
+class TestCheckpointDurabilityInvariant:
+    """The resume cursor may never point past rows that were never written.
+
+    The day loop used to commit a cursor per day while the plays were persisted
+    once, after the whole span: a crash at day 300 of a 5,100-day full-history
+    import left a day-300 cursor with ZERO rows in the ledger, and the resumed
+    run started at day 300 — days 1-299 were lost silently and forever.
+    """
+
+    _SPAN: ClassVar[dict[str, object]] = {
+        "from_date": datetime(2024, 1, 1, tzinfo=UTC),
+        "to_date": datetime(2024, 1, 5, 23, 59, 59, tzinfo=UTC),
+        "user_id": "mixd-user-1",
+        "username": "test_user",
+        "batch_id": _BATCH_ID,
+        "import_timestamp": _IMPORT_TS,
+    }
+
+    async def test_checkpoint_never_leads_persisted_plays(
+        self, importer, journalling_uow
+    ):
+        """Crash on day 4: cursor and rows advanced in lockstep, rows first."""
+        uow, journal = journalling_uow
+        importer._fetch_day_records = AsyncMock(side_effect=_crashing_fetch_day(4))
+
+        with pytest.raises(RuntimeError):
+            _ = await importer._fetch_date_range_strategy(uow=uow, **self._SPAN)
+
+        assert journal == [
+            ("persist", "2024-01-01"),
+            ("checkpoint", "2024-01-01"),
+            ("persist", "2024-01-02"),
+            ("checkpoint", "2024-01-02"),
+            ("persist", "2024-01-03"),
+            ("checkpoint", "2024-01-03"),
+        ]
+
+    async def test_resume_after_crash_loses_no_day_and_re_fetches_only_the_cursor_day(
+        self, importer, journalling_uow
+    ):
+        """The two runs together cover the span, overlapping only on the cursor day."""
+        uow, journal = journalling_uow
+        importer._fetch_day_records = AsyncMock(side_effect=_crashing_fetch_day(4))
+
+        with pytest.raises(RuntimeError):
+            _ = await importer._fetch_date_range_strategy(uow=uow, **self._SPAN)
+
+        before = {day for kind, day in journal if kind == "persist"}
+        cursor = [day for kind, day in journal if kind == "checkpoint"][-1]
+
+        journal.clear()
+        importer._fetch_day_records = AsyncMock(side_effect=_fake_fetch_day(2))
+        _ = await importer._fetch_date_range_strategy(
+            checkpoint=SyncCheckpoint(
+                user_id="mixd-user-1",
+                service="lastfm",
+                entity_type="plays",
+                last_timestamp=datetime.fromisoformat(cursor).replace(tzinfo=UTC),
+                cursor=f"{cursor}@test_user",
+            ),
+            uow=uow,
+            **self._SPAN,
+        )
+
+        after = {day for kind, day in journal if kind == "persist"}
+        assert before | after == {f"2024-01-0{d}" for d in range(1, 6)}
+        # The cursor day is always re-processed to catch late scrobbles; the
+        # ledger's ON CONFLICT dedupe is what makes that free.
+        assert before & after == {"2024-01-03"}
+
+    async def test_clean_run_persists_every_row_exactly_once(self, mock_uow):
+        """Per-day persistence writes what the run-end save used to, no more.
+
+        With the rows already durable the base pipeline must skip its own save
+        — otherwise a full-history import re-streams the entire span for zero
+        rows gained.
+        """
+        connector = Mock()
+        connector.lastfm_username = "test_user"
+        storage = AsyncMock()
+        storage.load_token.return_value = None
+        importer = LastfmPlayImporter(lastfm_connector=connector, token_storage=storage)
+        importer._fetch_day_records = AsyncMock(side_effect=_fake_fetch_day(2))
+
+        result, plays = await importer.import_plays(
+            mock_uow,
+            LastfmImportParams(
+                from_date=datetime(2024, 1, 1, tzinfo=UTC),
+                to_date=datetime(2024, 1, 3, 23, 59, 59, tzinfo=UTC),
+            ),
+            user_id="mixd-user-1",
+        )
+
+        persisted = _persisted_plays(mock_uow)
+        assert [play.id for play in persisted] == [play.id for play in plays]
+        assert result.summary_metrics.get("imported") == len(plays)
 
 
 class TestCheckpointAccountTag:

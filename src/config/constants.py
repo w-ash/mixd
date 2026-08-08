@@ -39,6 +39,7 @@ class SpotifyConstants:
     LIBRARY_CONTAINS_BATCH_SIZE: Final = (
         40  # /me/library/contains max per request (Feb 2026 API)
     )
+    TRACKS_BATCH_SIZE: Final = 50  # GET /tracks?ids= max ids per request
     FALLBACK_SIMILARITY_THRESHOLD: Final[float] = 0.7
     # The full evaluation is not artist-proof: with the shipped MatchingConfig,
     # artist disagreement costs only ~7 of 100 confidence points, so a

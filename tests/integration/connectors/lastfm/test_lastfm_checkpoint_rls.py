@@ -45,6 +45,10 @@ from src.infrastructure.persistence.repositories.sync import SyncCheckpointRepos
 _RLS_ROLE = "rls_probe"
 _RLS_PASSWORD = "rls_probe_pw"
 _TABLE = "sync_checkpoints"
+# The day loop persists each day's plays before committing its cursor, so the
+# probe role needs the ledger too — the write under test is the checkpoint, but
+# it no longer happens alone.
+_LEDGER_TABLE = "connector_plays"
 _MIXD_USER = "mixd-user-rls-probe"
 _LASTFM_ACCOUNT = "lastfm_account_rls_probe"
 _DEFAULT_WINDOW_DAYS = 30
@@ -67,6 +71,7 @@ _DISABLE_RLS = (
 _GRANT_ROLE = (
     f"GRANT USAGE ON SCHEMA public TO {_RLS_ROLE}",
     f"GRANT SELECT, INSERT, UPDATE, DELETE ON {_TABLE} TO {_RLS_ROLE}",
+    f"GRANT SELECT, INSERT, UPDATE, DELETE ON {_LEDGER_TABLE} TO {_RLS_ROLE}",
 )
 # The role outlives the fixture (dropping it would mean revoking every grant),
 # so creating it is idempotent.
@@ -80,7 +85,10 @@ EXCEPTION WHEN duplicate_object THEN
 END
 $$
 """
-_DELETE_TEST_ROWS = "DELETE FROM sync_checkpoints WHERE user_id = :uid"
+_DELETE_TEST_ROWS = (
+    "DELETE FROM sync_checkpoints WHERE user_id = :uid",
+    "DELETE FROM connector_plays WHERE user_id = :uid",
+)
 
 
 @async_fixture
@@ -119,10 +127,8 @@ async def rls_sessions(
         # These tests COMMIT, so savepoint rollback cannot undo them: clean up as
         # the superuser and restore the table for the rest of the worker's tests.
         async with admin.begin() as conn:
-            _ = await conn.execute(
-                sa.text(_DELETE_TEST_ROWS),
-                {"uid": _MIXD_USER},
-            )
+            for delete in _DELETE_TEST_ROWS:
+                _ = await conn.execute(sa.text(delete), {"uid": _MIXD_USER})
             for statement in _DISABLE_RLS:
                 _ = await conn.execute(sa.text(statement))
         await admin.dispose()

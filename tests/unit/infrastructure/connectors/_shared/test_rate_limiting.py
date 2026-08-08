@@ -167,6 +167,72 @@ class TestConcurrentAcquirers:
         )
 
 
+class TestPauseFor:
+    """A server-declared 429 window brakes every acquirer, not just the caller."""
+
+    async def test_pause_shifts_the_next_acquire_by_the_pause(self):
+        clock = FakeTime()
+        limiter = _make_limiter(5.0, clock)
+
+        limiter.pause_for(5.0)
+        await limiter.acquire()
+
+        # Bucket was full — without the pause this acquire would not have slept.
+        assert clock.sleeps == pytest.approx([5.0])
+        assert clock.now == pytest.approx(5.0)
+
+    async def test_expired_pause_does_not_delay(self):
+        clock = FakeTime()
+        limiter = _make_limiter(5.0, clock)
+
+        limiter.pause_for(2.0)
+        clock.now = 5.0
+        await limiter.acquire()
+
+        assert clock.sleeps == []
+
+    async def test_pause_only_extends_never_shortens(self):
+        clock = FakeTime()
+        limiter = _make_limiter(5.0, clock)
+
+        limiter.pause_for(5.0)
+        limiter.pause_for(1.0)
+        await limiter.acquire()
+
+        assert clock.sleeps == pytest.approx([5.0])
+
+    def test_non_positive_pause_is_a_no_op(self):
+        clock = FakeTime()
+        limiter = _make_limiter(5.0, clock)
+
+        limiter.pause_for(0.0)
+        limiter.pause_for(-3.0)
+
+        assert limiter._paused_until == 0.0
+
+    async def test_every_concurrent_acquirer_waits_out_the_window(self):
+        """The point of the brake: the other 49 in-flight calls stop spending too."""
+        clock = FakeTime()
+        limiter = ConnectorRateLimiter(
+            rate_per_second=10.0, clock=clock.monotonic, sleep=clock.yielding_sleep
+        )
+        issued_at: list[float] = []
+
+        async def acquire_one() -> None:
+            await limiter.acquire()
+            issued_at.append(clock.now)
+
+        limiter.pause_for(3.0)
+        async with asyncio.TaskGroup() as tg:
+            for _ in range(4):
+                _ = tg.create_task(acquire_one())
+
+        # One acquirer sleeps the remainder; the rest re-read the deadline and
+        # fall through, so none is issued inside the window.
+        assert clock.sleeps == pytest.approx([3.0])
+        assert all(at >= 3.0 for at in issued_at)
+
+
 @pytest.fixture
 def clean_registry() -> Iterator[None]:
     """Isolate the process-wide limiter cache from other tests."""

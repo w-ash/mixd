@@ -18,7 +18,7 @@ The retry system preserves all current behavior while enabling:
 from collections.abc import Callable
 from http import HTTPStatus
 import math
-from typing import override
+from typing import Final, override
 
 from attrs import define
 import httpx2
@@ -36,6 +36,9 @@ from tenacity.wait import wait_base
 from src.config import get_logger
 from src.infrastructure.connectors._shared.error_classifier import (
     ErrorClassifier,
+)
+from src.infrastructure.connectors._shared.rate_limiting import (
+    get_connector_rate_limiter,
 )
 
 logger = get_logger(__name__).bind(service="retry_policies")
@@ -55,6 +58,38 @@ def _format_duration(seconds: float | None) -> str:
         Formatted string like "2.5s" or "N/A" if None
     """
     return f"{seconds:.1f}s" if seconds else "N/A"
+
+
+def _retry_after_seconds(retry_state: RetryCallState) -> float | None:
+    """Seconds a 429 response asked us to wait, if the failure carries one.
+
+    Only the numeric ``Retry-After`` form is handled; the HTTP-date form (rare,
+    and unused by our connectors' APIs) falls back to exponential waits.
+
+    Single source for the header parse — both the wait strategy
+    (:class:`RetryAfterWait`) and the shared limiter brake read it from here.
+    """
+    if not retry_state.outcome or not retry_state.outcome.failed:
+        return None
+    exception = retry_state.outcome.exception()
+    if not isinstance(exception, httpx2.HTTPStatusError):
+        return None
+    if exception.response.status_code != HTTPStatus.TOO_MANY_REQUESTS:
+        return None
+    # Headers.get returns Any (untyped default); __getitem__ is typed -> str.
+    headers = exception.response.headers
+    if "Retry-After" not in headers:
+        return None
+    try:
+        seconds = float(headers["Retry-After"])
+    except ValueError:
+        return None
+    # float() accepts "nan"/"inf": NaN defeats both the floor below and the cap
+    # in RetryAfterWait, handing tenacity an undefined sleep. Non-finite values
+    # fall back to the exponential wait.
+    if not math.isfinite(seconds):
+        return None
+    return max(seconds, 0.0)
 
 
 def _extract_classified_error(
@@ -141,6 +176,18 @@ def create_error_classifier_retry(classifier: ErrorClassifier):
 # CALLBACK HANDLERS
 # -------------------------------------------------------------------------
 
+# Applied when a rate limit is classified without a usable ``Retry-After``
+# (no header, HTTP-date form, or a non-HTTP service code such as Last.fm's).
+# Short on purpose: it is a guess at an unpublished window, and pacing plus
+# exponential backoff still carry the rest of the correction.
+DEFAULT_RATE_LIMIT_PAUSE_SECONDS: Final = 2.0
+
+
+def _rate_limit_pause_seconds(retry_state: RetryCallState) -> float:
+    """How long the whole service should stand down after a rate-limit error."""
+    retry_after = _retry_after_seconds(retry_state)
+    return DEFAULT_RATE_LIMIT_PAUSE_SECONDS if retry_after is None else retry_after
+
 
 def create_tenacity_backoff_handler(
     classifier: ErrorClassifier, service_name: str
@@ -179,11 +226,16 @@ def create_tenacity_backoff_handler(
 
         # Special handling for rate limit errors
         if error_type == "rate_limit":
+            pause_seconds = _rate_limit_pause_seconds(retry_state)
+            limiter = get_connector_rate_limiter(service_name)
+            if limiter is not None:
+                limiter.pause_for(pause_seconds)
             logger.warning(
                 f"{service_name} rate limit detected - pausing requests",
                 attempt=retry_state.attempt_number,
                 wait_time=_format_duration(retry_state.idle_for),
                 elapsed=_format_duration(retry_state.seconds_since_start),
+                pause=_format_duration(pause_seconds),
                 error_code=error_code,
                 service=service_name,
             )
@@ -266,35 +318,6 @@ def create_tenacity_giveup_handler(
 # -------------------------------------------------------------------------
 # RETRY CONFIGURATION + FACTORY
 # -------------------------------------------------------------------------
-
-
-def _retry_after_seconds(retry_state: RetryCallState) -> float | None:
-    """Seconds a 429 response asked us to wait, if the failure carries one.
-
-    Only the numeric ``Retry-After`` form is handled; the HTTP-date form (rare,
-    and unused by our connectors' APIs) falls back to exponential waits.
-    """
-    if not retry_state.outcome or not retry_state.outcome.failed:
-        return None
-    exception = retry_state.outcome.exception()
-    if not isinstance(exception, httpx2.HTTPStatusError):
-        return None
-    if exception.response.status_code != HTTPStatus.TOO_MANY_REQUESTS:
-        return None
-    # Headers.get returns Any (untyped default); __getitem__ is typed -> str.
-    headers = exception.response.headers
-    if "Retry-After" not in headers:
-        return None
-    try:
-        seconds = float(headers["Retry-After"])
-    except ValueError:
-        return None
-    # float() accepts "nan"/"inf": NaN defeats both the floor below and the cap
-    # in RetryAfterWait, handing tenacity an undefined sleep. Non-finite values
-    # fall back to the exponential wait.
-    if not math.isfinite(seconds):
-        return None
-    return max(seconds, 0.0)
 
 
 @define

@@ -111,22 +111,23 @@ class SpotifyOperations:
         track_ids: list[str],
         progress_callback: Callable[[int, int, str], Awaitable[None]] | None = None,
     ) -> dict[str, SpotifyTrack]:
-        """Fetch multiple tracks from Spotify using concurrent individual fetches.
+        """Fetch multiple tracks from Spotify using the batch /tracks endpoint.
 
         Returns dict keyed by REQUESTED ID. When Spotify redirects an old ID
         to a new one (track.id != requested_id), the result is still keyed by
-        the requested ID so callers can find their results.
+        the requested ID so callers can find their results. IDs missing from
+        the dict are dead.
 
-        progress_callback is forwarded to ``client.get_tracks_concurrent``
-        and invoked once per completed request.
+        progress_callback is forwarded to ``client.get_tracks_batched`` and
+        invoked once per completed batch, counted in tracks.
         """
         empty_result: dict[str, SpotifyTrack] = {}
         if early_return := validate_non_empty(track_ids, empty_result):
             return early_return
 
-        logger.info(f"Fetching {len(track_ids)} tracks concurrently")
+        logger.info(f"Fetching {len(track_ids)} tracks in batches")
 
-        results = await self.client.get_tracks_concurrent(
+        results = await self.client.get_tracks_batched(
             track_ids, progress_callback=progress_callback
         )
 

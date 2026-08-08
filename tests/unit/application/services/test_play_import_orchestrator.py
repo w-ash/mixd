@@ -7,6 +7,7 @@ short-circuit on empty ingestion, and error handling.
 from datetime import UTC, datetime
 from pathlib import Path
 from unittest.mock import AsyncMock
+from uuid import UUID
 
 import pytest
 
@@ -14,14 +15,22 @@ from src.application.services.play_import_orchestrator import (
     _MAX_RECORDED_RESOLUTION_FAILURES,
     PlayImportOrchestrator,
 )
+from src.application.services.progress_broker import ProgressBroker
 from src.domain.entities import ConnectorTrackPlay, OperationResult, TrackPlay
-from src.domain.entities.progress import NullProgressEmitter
+from src.domain.entities.progress import (
+    NullProgressEmitter,
+    OperationStatus,
+    ProgressEvent,
+    ProgressOperation,
+)
 from src.domain.repositories.play import (
     LastfmImportParams,
     PlayResolutionOutcome,
     SpotifyImportParams,
 )
 from tests.fixtures.mocks import make_mock_uow
+
+_RESOLVED_TRACK_ID = UUID("00000000-0000-7000-8000-00000000000a")
 
 
 def _make_ingestion_result(
@@ -59,14 +68,17 @@ def _make_resolved_track_play(track_id: int = 1) -> TrackPlay:
     )
 
 
-def _make_connector_play(track_name: str = "Test Song") -> ConnectorTrackPlay:
+def _make_connector_play(
+    track_name: str = "Test Song",
+    played_at: datetime = datetime(2024, 6, 15, 14, 30, tzinfo=UTC),
+) -> ConnectorTrackPlay:
     """Create a ConnectorTrackPlay for testing."""
     return ConnectorTrackPlay(
         service="spotify",
         track_name=track_name,
         artist_name="Test Artist",
         album_name="Test Album",
-        played_at=datetime(2024, 6, 15, 14, 30, tzinfo=UTC),
+        played_at=played_at,
         ms_played=240000,
         service_metadata={"track_uri": "spotify:track:abc123def456ghi789jk"},
         import_timestamp=datetime(2024, 7, 1, tzinfo=UTC),
@@ -847,3 +859,137 @@ class TestResolutionWriteBack:
 
         repo = mock_uow.get_connector_play_repository.return_value
         repo.bulk_update_resolution.assert_not_awaited()
+
+
+class _RecordingSubscriber:
+    """Captures everything the broker actually publishes.
+
+    Events the progress ledger rejects never reach a subscriber, so "was it
+    delivered" is the only honest test of the monotonicity contract.
+    """
+
+    def __init__(self) -> None:
+        self.operations: list[ProgressOperation] = []
+        self.events: list[ProgressEvent] = []
+
+    async def on_operation_started(self, operation: ProgressOperation) -> None:
+        self.operations.append(operation)
+
+    async def on_progress_event(self, event: ProgressEvent) -> None:
+        self.events.append(event)
+
+    async def on_operation_completed(
+        self, operation_id: str, final_status: OperationStatus
+    ) -> None:
+        return None
+
+
+_PROJECTION_DAYS = (
+    datetime(2024, 6, 15, 14, 30, tzinfo=UTC),
+    datetime(2024, 6, 16, 14, 30, tzinfo=UTC),
+    datetime(2024, 6, 17, 14, 30, tzinfo=UTC),
+)
+
+
+class TestProjectionProgressOperation:
+    """Phase 3 emits under its OWN operation, not the resolution phase's.
+
+    The progress ledger enforces monotonic ``current`` per operation id and
+    drops anything that goes backwards. The projection's chunk counter restarts
+    at 1, so sharing the resolution operation (already at one event per resolved
+    play) silently discarded every projection event and logged a warning for
+    each — thousands of log lines and a frozen bar for the whole tail.
+    """
+
+    @staticmethod
+    def _plays_across_days(count: int = 60) -> list[ConnectorTrackPlay]:
+        return [
+            _make_connector_play(f"Song {i}", _PROJECTION_DAYS[i % 3])
+            for i in range(count)
+        ]
+
+    @staticmethod
+    async def _run(orchestrator, mock_resolver, mock_uow, connector_plays):
+        mock_resolver.resolve_connector_plays.side_effect = (
+            lambda plays, _uow, **_kwargs: PlayResolutionOutcome(
+                track_plays=[
+                    _make_resolved_track_play(track_id=_play_index(p) + 1)
+                    for p in plays
+                ],
+                metrics={"error_count": 0},
+                resolutions=tuple((p, _RESOLVED_TRACK_ID) for p in plays),
+            )
+        )
+        broker = ProgressBroker()
+        subscriber = _RecordingSubscriber()
+        _ = await broker.subscribe(subscriber)
+
+        await orchestrator.execute_resolution_phase(
+            connector_plays, mock_uow, user_id="test-user", progress_emitter=broker
+        )
+        return subscriber
+
+    async def test_projection_events_are_delivered_and_start_from_one(
+        self, orchestrator, mock_resolver, mock_uow
+    ):
+        subscriber = await self._run(
+            orchestrator, mock_resolver, mock_uow, self._plays_across_days()
+        )
+
+        projection_op = next(
+            operation
+            for operation in subscriber.operations
+            if "Projecting" in operation.description
+        )
+        projection_events = [
+            event
+            for event in subscriber.events
+            if event.operation_id == projection_op.operation_id
+        ]
+
+        # One event per touched day, monotonic from 1, none dropped.
+        assert [event.current for event in projection_events] == [1, 2, 3]
+        assert {event.total for event in projection_events} == {3}
+
+    async def test_projection_operation_is_distinct_from_the_resolution_one(
+        self, orchestrator, mock_resolver, mock_uow
+    ):
+        subscriber = await self._run(
+            orchestrator, mock_resolver, mock_uow, self._plays_across_days()
+        )
+
+        descriptions = [operation.description for operation in subscriber.operations]
+        assert len(set(descriptions)) == 2
+        resolution_events = [
+            event
+            for event in subscriber.events
+            if event.operation_id == subscriber.operations[0].operation_id
+        ]
+        # The resolution meter is far past the projection's counter — sharing
+        # its id is exactly what dropped every projection event.
+        assert max(event.current for event in resolution_events) == 60
+
+    async def test_projection_chunks_only_the_days_the_batch_touched(
+        self, orchestrator, mock_resolver, mock_uow
+    ):
+        """A stray old play must not drag the batch through the empty span."""
+        connector_plays = [
+            *self._plays_across_days(3),
+            _make_connector_play("Song 99", datetime(2011, 3, 5, 14, 30, tzinfo=UTC)),
+        ]
+
+        subscriber = await self._run(
+            orchestrator, mock_resolver, mock_uow, connector_plays
+        )
+
+        projection_op = next(
+            operation
+            for operation in subscriber.operations
+            if "Projecting" in operation.description
+        )
+        totals = {
+            event.total
+            for event in subscriber.events
+            if event.operation_id == projection_op.operation_id
+        }
+        assert totals == {4}  # four touched days, not 5,000 calendar days

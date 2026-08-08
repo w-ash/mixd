@@ -9,6 +9,7 @@ from unittest.mock import AsyncMock, MagicMock, call, patch
 
 from src.config import settings
 from src.config.constants import MatchMethod, SpotifyConstants
+from src.domain.repositories.connector import ConnectorMappingSpec
 from src.infrastructure.connectors.spotify.client import (
     field_filtered_search_query,
     free_text_search_query,
@@ -30,6 +31,51 @@ from tests.fixtures import (
 )
 
 
+def _make_uow_with_repos():
+    """Create a UoW mock with track and connector repos wired."""
+    uow = MagicMock()
+    attach_resolution_recorder(uow)
+    track_repo = AsyncMock()
+    track_repo.save_track.return_value = make_track(1)
+    track_repo.find_tracks_by_title_artist.return_value = {}
+
+    # The chunk-bulk persist saves a whole chunk of canonicals in one call.
+    # Route it through whatever ``save_track`` is configured with, so a test
+    # that cares about saved payloads still only has to configure one seam —
+    # and so the per-item fallback and the bulk path agree by construction.
+    async def _save_tracks(tracks):
+        return [await track_repo.save_track(track) for track in tracks]
+
+    track_repo.save_tracks.side_effect = _save_tracks
+    uow.get_track_repository.return_value = track_repo
+
+    connector_repo = AsyncMock()
+    connector_repo.find_tracks_by_connectors.return_value = {}
+    connector_repo.map_track_to_connector.return_value = make_track(1)
+    uow.get_connector_repository.return_value = connector_repo
+    return uow, track_repo, connector_repo
+
+
+def _mapping_specs(connector_repo) -> list[ConnectorMappingSpec]:
+    """Every mapping the chunk-bulk persist asked for, in order."""
+    return [
+        spec
+        for c in connector_repo.map_tracks_to_connectors.call_args_list
+        for spec in c.args[0]
+    ]
+
+
+def _promoted_ids(connector_repo) -> list[str]:
+    """The connector ids the chunk-bulk persist asked to hold primacy."""
+    return [
+        connector_id
+        for c in connector_repo.map_tracks_to_connectors.call_args_list
+        for _track_id, _connector, connector_id in c.kwargs.get(
+            "promote_to_primary", ()
+        )
+    ]
+
+
 class TestBatchFetch:
     """SpotifyInwardResolver should batch its API call."""
 
@@ -42,17 +88,8 @@ class TestBatchFetch:
 
         resolver = SpotifyInwardResolver(spotify_connector=connector)
 
-        uow = MagicMock()
-
-        attach_resolution_recorder(uow)
-        track_repo = AsyncMock()
+        uow, track_repo, _ = _make_uow_with_repos()
         track_repo.save_track.side_effect = [make_track(1), make_track(2)]
-        uow.get_track_repository.return_value = track_repo
-
-        connector_repo = AsyncMock()
-        connector_repo.find_tracks_by_connectors.return_value = {}
-        connector_repo.map_track_to_connector.return_value = make_track(1)
-        uow.get_connector_repository.return_value = connector_repo
 
         result, metrics = await resolver.resolve_to_canonical_tracks(
             ["id1", "id2"], uow, user_id="test-user"
@@ -100,17 +137,7 @@ class TestMissingMetadata:
 
         resolver = SpotifyInwardResolver(spotify_connector=connector)
 
-        uow = MagicMock()
-
-        attach_resolution_recorder(uow)
-        track_repo = AsyncMock()
-        track_repo.save_track.return_value = make_track(1)
-        uow.get_track_repository.return_value = track_repo
-
-        connector_repo = AsyncMock()
-        connector_repo.find_tracks_by_connectors.return_value = {}
-        connector_repo.map_track_to_connector.return_value = make_track(1)
-        uow.get_connector_repository.return_value = connector_repo
+        uow, _, _ = _make_uow_with_repos()
 
         result, metrics = await resolver.resolve_to_canonical_tracks(
             ["id1", "id2"], uow, user_id="test-user"
@@ -151,18 +178,9 @@ class TestRedirectDetection:
 
         resolver = SpotifyInwardResolver(spotify_connector=connector)
 
-        uow = MagicMock()
-
-        attach_resolution_recorder(uow)
-        track_repo = AsyncMock()
+        uow, track_repo, connector_repo = _make_uow_with_repos()
         saved_track = make_track(1)
         track_repo.save_track.return_value = saved_track
-        uow.get_track_repository.return_value = track_repo
-
-        connector_repo = AsyncMock()
-        connector_repo.find_tracks_by_connectors.return_value = {}
-        connector_repo.map_track_to_connector.return_value = saved_track
-        uow.get_connector_repository.return_value = connector_repo
 
         result, metrics = await resolver.resolve_to_canonical_tracks(
             [old_id], uow, user_id="test-user"
@@ -171,25 +189,21 @@ class TestRedirectDetection:
         assert old_id in result
         assert metrics.created == 1
 
-        # Should have been called twice: primary (new_id) + secondary (old_id)
-        map_calls = connector_repo.map_track_to_connector.call_args_list
-        assert len(map_calls) == 2
+        # Two mappings in the one batch: primary (new_id) + secondary (old_id)
+        specs = _mapping_specs(connector_repo)
+        assert len(specs) == 2
 
-        # Primary mapping: new canonical ID
-        primary = map_calls[0]
-        assert primary.args[2] == new_id  # connector_id
-        assert primary.args[3] == MatchMethod.DIRECT_IMPORT  # match_method
-        assert primary.kwargs["confidence"] == 100
-        assert primary.kwargs["auto_set_primary"] is True
+        # Primary mapping: new canonical ID — the only one promoted
+        assert specs[0].connector_id == new_id
+        assert specs[0].match_method == MatchMethod.DIRECT_IMPORT
+        assert specs[0].confidence == 100
 
-        # Secondary mapping: old stale ID
-        secondary = map_calls[1]
-        assert secondary.args[2] == old_id  # connector_id
-        assert (
-            secondary.args[3] == f"{MatchMethod.DIRECT_IMPORT}_stale_id"
-        )  # match_method
-        assert secondary.kwargs["confidence"] == 100
-        assert secondary.kwargs["auto_set_primary"] is False
+        # Secondary mapping: old stale ID, cached but never primary
+        assert specs[1].connector_id == old_id
+        assert specs[1].match_method == f"{MatchMethod.DIRECT_IMPORT}_stale_id"
+        assert specs[1].confidence == 100
+
+        assert _promoted_ids(connector_repo) == [new_id]
 
     async def test_redirect_resolved_ids_tracked(self):
         """Redirected IDs should appear in redirect_resolved_ids set."""
@@ -203,17 +217,7 @@ class TestRedirectDetection:
 
         resolver = SpotifyInwardResolver(spotify_connector=connector)
 
-        uow = MagicMock()
-
-        attach_resolution_recorder(uow)
-        track_repo = AsyncMock()
-        track_repo.save_track.return_value = make_track(1)
-        uow.get_track_repository.return_value = track_repo
-
-        connector_repo = AsyncMock()
-        connector_repo.find_tracks_by_connectors.return_value = {}
-        connector_repo.map_track_to_connector.return_value = make_track(1)
-        uow.get_connector_repository.return_value = connector_repo
+        uow, _, _ = _make_uow_with_repos()
 
         await resolver.resolve_to_canonical_tracks([old_id], uow, user_id="test-user")
 
@@ -230,39 +234,15 @@ class TestRedirectDetection:
 
         resolver = SpotifyInwardResolver(spotify_connector=connector)
 
-        uow = MagicMock()
-
-        attach_resolution_recorder(uow)
-        track_repo = AsyncMock()
-        track_repo.save_track.return_value = make_track(1)
-        uow.get_track_repository.return_value = track_repo
-
-        connector_repo = AsyncMock()
-        connector_repo.find_tracks_by_connectors.return_value = {}
-        connector_repo.map_track_to_connector.return_value = make_track(1)
-        uow.get_connector_repository.return_value = connector_repo
+        uow, _, connector_repo = _make_uow_with_repos()
 
         await resolver.resolve_to_canonical_tracks([track_id], uow, user_id="test-user")
 
-        # Only one mapping call (no secondary stale ID mapping)
-        assert connector_repo.map_track_to_connector.call_count == 1
+        # Only one mapping (no secondary stale ID mapping)
+        assert [spec.connector_id for spec in _mapping_specs(connector_repo)] == [
+            track_id
+        ]
         assert track_id not in resolver.redirect_resolved_ids
-
-
-def _make_uow_with_repos():
-    """Create a UoW mock with track and connector repos wired."""
-    uow = MagicMock()
-    attach_resolution_recorder(uow)
-    track_repo = AsyncMock()
-    track_repo.save_track.return_value = make_track(1)
-    track_repo.find_tracks_by_title_artist.return_value = {}
-    uow.get_track_repository.return_value = track_repo
-
-    connector_repo = AsyncMock()
-    connector_repo.find_tracks_by_connectors.return_value = {}
-    connector_repo.map_track_to_connector.return_value = make_track(1)
-    uow.get_connector_repository.return_value = connector_repo
-    return uow, track_repo, connector_repo
 
 
 class TestFallbackSearch:
@@ -301,12 +281,9 @@ class TestFallbackSearch:
         )
 
         # Primary mapping (found_id) + secondary mapping (dead_id stale)
-        map_calls = connector_repo.map_track_to_connector.call_args_list
-        assert len(map_calls) == 2
-        assert map_calls[0].args[2] == found_id
-        assert map_calls[0].kwargs["auto_set_primary"] is True
-        assert map_calls[1].args[2] == dead_id
-        assert map_calls[1].kwargs["auto_set_primary"] is False
+        specs = _mapping_specs(connector_repo)
+        assert [spec.connector_id for spec in specs] == [found_id, dead_id]
+        assert _promoted_ids(connector_repo) == [found_id]
 
     async def test_no_search_results_returns_none(self):
         """When search returns no candidates, the dead ID remains unresolved."""
@@ -687,8 +664,10 @@ class TestISRCDedup:
         assert result[spotify_id].id == 42
 
         # Should have created a mapping with ISRC_MATCH method, not saved a new track
-        map_calls = connector_repo.map_track_to_connector.call_args_list
-        assert any(call.args[3] == MatchMethod.ISRC_MATCH for call in map_calls)
+        specs = _mapping_specs(connector_repo)
+        assert any(spec.match_method == MatchMethod.ISRC_MATCH for spec in specs)
+        # The reused canonical still claims primacy for the incoming id
+        assert _promoted_ids(connector_repo) == [spotify_id]
         # save_track should NOT have been called (reused existing)
         track_repo.save_track.assert_not_called()
 
@@ -806,9 +785,9 @@ class TestISRCSuspectGuard:
         assert saved_track_data.isrc is None
 
         # No ISRC_MATCH mapping created (that would be a silent merge)
-        map_calls = connector_repo.map_track_to_connector.call_args_list
-        assert not any(call.args[3] == MatchMethod.ISRC_MATCH for call in map_calls)
-        assert any(call.args[3] == MatchMethod.DIRECT_IMPORT for call in map_calls)
+        specs = _mapping_specs(connector_repo)
+        assert not any(spec.match_method == MatchMethod.ISRC_MATCH for spec in specs)
+        assert any(spec.match_method == MatchMethod.DIRECT_IMPORT for spec in specs)
 
     async def test_non_suspect_duration_diff_still_reuses_existing_canonical(self):
         """A small duration difference under the suspect threshold behaves exactly
@@ -845,8 +824,8 @@ class TestISRCSuspectGuard:
         assert result[spotify_id].id == 42
 
         connector_repo.queue_isrc_collision_review.assert_not_called()
-        map_calls = connector_repo.map_track_to_connector.call_args_list
-        assert any(call.args[3] == MatchMethod.ISRC_MATCH for call in map_calls)
+        specs = _mapping_specs(connector_repo)
+        assert any(spec.match_method == MatchMethod.ISRC_MATCH for spec in specs)
         track_repo.save_track.assert_not_called()
 
 
@@ -905,6 +884,63 @@ class TestFallbackDoesNotClearItsOwnBackoff:
         recorder.clear_negatives.assert_not_awaited()
 
 
+def _written_mappings(connector_repo) -> set[tuple[str, str, int, bool]]:
+    """Every mapping written, however it was written.
+
+    Normalises the chunk-bulk shape (one ``map_tracks_to_connectors`` call
+    carrying specs plus a ``promote_to_primary`` list) and the per-item shape
+    (one ``map_track_to_connector`` call each, carrying ``auto_set_primary``)
+    to the same tuples, so the two paths can be compared directly.
+    """
+    written: set[tuple[str, str, int, bool]] = set()
+    for c in connector_repo.map_tracks_to_connectors.call_args_list:
+        promoted = {
+            connector_id
+            for _track_id, _connector, connector_id in c.kwargs.get(
+                "promote_to_primary", ()
+            )
+        }
+        written.update(
+            (
+                spec.connector_id,
+                spec.match_method,
+                spec.confidence,
+                spec.connector_id in promoted,
+            )
+            for spec in c.args[0]
+        )
+    written.update(
+        (
+            c.args[2],
+            c.args[3],
+            c.kwargs["confidence"],
+            c.kwargs.get("auto_set_primary", True),
+        )
+        for c in connector_repo.map_track_to_connector.call_args_list
+    )
+    return written
+
+
+def _poison_one_id(connector_repo, bad_id: str) -> None:
+    """Make the chunk-bulk persist fail, and the per-item retry fail for one id.
+
+    The shape a real poisoned row produces: the bulk statements are
+    all-or-nothing, so a row the database refuses takes the whole batch with
+    it and the chunk is rewritten one savepoint at a time — where only the bad
+    id is lost and every other write lands.
+    """
+    connector_repo.map_tracks_to_connectors.side_effect = RuntimeError(
+        "deadlock detected"
+    )
+
+    async def _map_one(track, _connector, connector_id, *_args, **_kwargs):
+        if connector_id == bad_id:
+            raise RuntimeError("deadlock detected")
+        return track
+
+    connector_repo.map_track_to_connector.side_effect = _map_one
+
+
 class TestWriteFailureIsolation:
     """A write the savepoint rolled back is a retry, never a death sentence.
 
@@ -915,15 +951,6 @@ class TestWriteFailureIsolation:
     rollback discarded.
     """
 
-    @staticmethod
-    def _raise_for(bad_id: str) -> AsyncMock:
-        async def _resolve(spotify_id, _spotify_track, _existing_by_isrc, _uow, **_kw):
-            if spotify_id == bad_id:
-                raise RuntimeError("deadlock detected")
-            return make_track(1)
-
-        return AsyncMock(side_effect=_resolve)
-
     async def test_one_failed_id_does_not_stop_the_batch(self):
         connector = AsyncMock()
         connector.get_tracks_by_ids.return_value = {
@@ -932,23 +959,20 @@ class TestWriteFailureIsolation:
         }
 
         resolver = SpotifyInwardResolver(spotify_connector=connector)
-        uow, _, _ = _make_uow_with_repos()
+        uow, _, connector_repo = _make_uow_with_repos()
+        _poison_one_id(connector_repo, "bad_id")
 
-        with patch.object(
-            SpotifyInwardResolver,
-            "_resolve_one_missing_track",
-            new=self._raise_for("bad_id"),
-        ):
-            result, metrics = await resolver.resolve_to_canonical_tracks(
-                ["bad_id", "good_id"], uow, user_id="test-user"
-            )
+        result, metrics = await resolver.resolve_to_canonical_tracks(
+            ["bad_id", "good_id"], uow, user_id="test-user"
+        )
 
         assert "good_id" in result
         assert "bad_id" not in result
         assert metrics.created == 1
         assert metrics.failed == 1
-        # Every creation attempt is savepoint-wrapped — the isolation itself.
-        assert uow.savepoint.call_count == 2
+        # One savepoint for the failed bulk attempt, then one per id for the
+        # retry — the isolation itself.
+        assert uow.savepoint.call_count == 3
 
     async def test_a_failed_write_is_never_substituted_by_search(self):
         """A live id whose write failed must not be answered with another track."""
@@ -961,17 +985,13 @@ class TestWriteFailureIsolation:
         ]
 
         resolver = SpotifyInwardResolver(spotify_connector=connector)
-        uow, _, _ = _make_uow_with_repos()
+        uow, _, connector_repo = _make_uow_with_repos()
+        _poison_one_id(connector_repo, "bad_id")
 
         hints = {"bad_id": FallbackHint(artist_name="Artist", track_name="My Song")}
-        with patch.object(
-            SpotifyInwardResolver,
-            "_resolve_one_missing_track",
-            new=self._raise_for("bad_id"),
-        ):
-            result, metrics = await resolver.resolve_to_canonical_tracks(
-                ["bad_id"], uow, fallback_hints=hints, user_id="test-user"
-            )
+        result, metrics = await resolver.resolve_to_canonical_tracks(
+            ["bad_id"], uow, fallback_hints=hints, user_id="test-user"
+        )
 
         connector.search_track.assert_not_called()
         assert "bad_id" not in result
@@ -986,23 +1006,24 @@ class TestWriteFailureIsolation:
         }
 
         resolver = SpotifyInwardResolver(spotify_connector=connector)
-        uow, _, _ = _make_uow_with_repos()
+        uow, _, connector_repo = _make_uow_with_repos()
         recorder = attach_resolution_recorder(uow)
+        _poison_one_id(connector_repo, "bad_id")
 
-        with patch.object(
-            SpotifyInwardResolver,
-            "_resolve_one_missing_track",
-            new=self._raise_for("bad_id"),
-        ):
-            _ = await resolver.resolve_to_canonical_tracks(
-                ["bad_id"], uow, user_id="test-user"
-            )
+        _ = await resolver.resolve_to_canonical_tracks(
+            ["bad_id"], uow, user_id="test-user"
+        )
 
         recorder.remember_no_match.assert_not_awaited()
         recorder.clear_negatives.assert_not_awaited()
 
     async def test_tracker_sets_are_cleaned_when_the_savepoint_rolls_back(self):
-        """The DB rows vanish on rollback; the in-memory entries must too."""
+        """The DB rows vanish on rollback; the in-memory entries must too.
+
+        A relinked id whose write is refused: the per-item path has already
+        recorded the redirect by the time the substitution event fails, and
+        the entry has to go with the rows.
+        """
         connector = AsyncMock()
         connector.get_tracks_by_ids.return_value = {
             "bad_id": make_spotify_track("new_id", "Redirected Song"),
@@ -1010,26 +1031,42 @@ class TestWriteFailureIsolation:
 
         resolver = SpotifyInwardResolver(spotify_connector=connector)
         uow, _, _ = _make_uow_with_repos()
+        recorder = attach_resolution_recorder(uow)
+        # Fails both paths: the bulk attempt records substitutions too.
+        recorder.record.side_effect = RuntimeError("deadlock detected")
 
-        async def _resolve(spotify_id, _spotify_track, _existing_by_isrc, _uow, **_kw):
-            # Mirror the real helper: track first, then fail a later write.
-            resolver._redirect_resolved_ids.add(spotify_id)
-            resolver._isrc_suspect_deferred_ids.add(spotify_id)
-            raise RuntimeError("deadlock detected")
-
-        with patch.object(
-            SpotifyInwardResolver,
-            "_resolve_one_missing_track",
-            new=AsyncMock(side_effect=_resolve),
-        ):
-            _, metrics = await resolver.resolve_to_canonical_tracks(
-                ["bad_id"], uow, user_id="test-user"
-            )
+        _, metrics = await resolver.resolve_to_canonical_tracks(
+            ["bad_id"], uow, user_id="test-user"
+        )
 
         assert resolver.redirect_resolved_ids == set()
-        assert resolver.isrc_suspect_deferred_ids == set()
         assert metrics.redirects == 0
         assert resolver.get_resolution_method("bad_id") == MatchMethod.PLAY_RESOLVER
+
+    async def test_a_deferred_isrc_suspect_is_forgotten_when_its_write_fails(self):
+        """The deferral set is written before the canonical — and rolled back with it."""
+        owner = make_track(42, isrc="USRC17000001", duration_ms=200_000)
+        connector = AsyncMock()
+        connector.get_tracks_by_ids.return_value = {
+            "bad_id": make_spotify_track(
+                "bad_id",
+                "Same Song",
+                duration_ms=260_000,
+                external_ids=SpotifyExternalIds(isrc="USRC17000001"),
+            ),
+        }
+
+        resolver = SpotifyInwardResolver(spotify_connector=connector)
+        uow, track_repo, connector_repo = _make_uow_with_repos()
+        track_repo.find_tracks_by_isrcs.return_value = {"USRC17000001": owner}
+        _poison_one_id(connector_repo, "bad_id")
+
+        result, _ = await resolver.resolve_to_canonical_tracks(
+            ["bad_id"], uow, user_id="test-user"
+        )
+
+        assert "bad_id" not in result
+        assert resolver.isrc_suspect_deferred_ids == set()
 
     def test_a_write_failed_id_is_not_a_substitution_candidate(self):
         returned = {"sp_failed": make_spotify_track("sp_failed", "Song")}
@@ -1042,11 +1079,11 @@ class TestWriteFailureIsolation:
 
 
 class TestFallbackSaveFailureIsolation:
-    """The fallback loop writes per item too — inside its own savepoint.
+    """The fallback stage degrades the same way the direct one does.
 
-    Without one, a single failed save aborts the transaction and takes every
-    later fallback save (and the caller's backoff clearing on the same uow)
-    down with it.
+    Without the per-item retry, a single failed save aborts the transaction
+    and takes every later fallback save (and the caller's backoff clearing on
+    the same uow) down with it.
     """
 
     async def test_one_failed_save_does_not_stop_the_remaining_fallbacks(self):
@@ -1061,31 +1098,24 @@ class TestFallbackSaveFailureIsolation:
         ]
 
         resolver = SpotifyInwardResolver(spotify_connector=connector)
-        uow, _, _ = _make_uow_with_repos()
-
-        async def _save(requested_id, _spotify_track, _uow, **_kw):
-            if requested_id == bad_id:
-                raise RuntimeError("duplicate key value violates unique constraint")
-            return found
+        uow, track_repo, connector_repo = _make_uow_with_repos()
+        track_repo.save_track.return_value = found
+        # The bad id's own stale-id mapping is what the database refuses.
+        _poison_one_id(connector_repo, bad_id)
 
         hints = {
             bad_id: FallbackHint(artist_name="Artist", track_name="My Song"),
             good_id: FallbackHint(artist_name="Artist", track_name="My Song"),
         }
-        with patch.object(
-            SpotifyInwardResolver,
-            "_save_with_connector_mappings",
-            new=AsyncMock(side_effect=_save),
-        ):
-            result, metrics = await resolver.resolve_to_canonical_tracks(
-                [bad_id, good_id], uow, fallback_hints=hints, user_id="test-user"
-            )
+        result, metrics = await resolver.resolve_to_canonical_tracks(
+            [bad_id, good_id], uow, fallback_hints=hints, user_id="test-user"
+        )
 
         assert result == {good_id: found}
         assert resolver.fallback_resolved_ids == {good_id}
         assert metrics.failed == 1
-        # One savepoint per fallback save — nothing else writes in this pass.
-        assert uow.savepoint.call_count == 2
+        # One savepoint for the failed bulk attempt, then one per id.
+        assert uow.savepoint.call_count == 3
 
 
 class TestRestrictionIsNotDeath:
@@ -1327,16 +1357,14 @@ class TestDeadIdSearchWidening:
         assert metrics.fallbacks == 1
 
         # Substitution recorded: living id primary, dead id cached as stale.
-        map_calls = connector_repo.map_track_to_connector.call_args_list
-        assert [c.args[2] for c in map_calls] == [self.LIVING_ID, self.DEAD_ID]
-        assert map_calls[0].args[3] == MatchMethod.SEARCH_FALLBACK
-        assert map_calls[0].kwargs["auto_set_primary"] is True
+        specs = _mapping_specs(connector_repo)
+        assert [spec.connector_id for spec in specs] == [self.LIVING_ID, self.DEAD_ID]
+        assert specs[0].match_method == MatchMethod.SEARCH_FALLBACK
         assert (
-            map_calls[0].kwargs["confidence"]
-            >= SpotifyConstants.FALLBACK_SIMILARITY_THRESHOLD * 100
+            specs[0].confidence >= SpotifyConstants.FALLBACK_SIMILARITY_THRESHOLD * 100
         )
-        assert map_calls[1].args[3] == MatchMethod.SEARCH_FALLBACK_STALE_ID
-        assert map_calls[1].kwargs["auto_set_primary"] is False
+        assert specs[1].match_method == MatchMethod.SEARCH_FALLBACK_STALE_ID
+        assert _promoted_ids(connector_repo) == [self.LIVING_ID]
 
     async def test_both_queries_are_issued_in_their_documented_forms(self):
         connector = AsyncMock()
@@ -1430,7 +1458,7 @@ class TestFallbackRejectsTheWrongRecording:
         assert self.DEAD_ID not in result
         assert resolver.fallback_resolved_ids == set()
         assert metrics.fallbacks == 0
-        connector_repo.map_track_to_connector.assert_not_called()
+        connector_repo.map_tracks_to_connectors.assert_not_called()
         mock_logger.warning.assert_called_once()
 
     async def test_a_widened_right_artist_hit_is_still_accepted(self):
@@ -1455,9 +1483,10 @@ class TestFallbackRejectsTheWrongRecording:
         assert self.DEAD_ID in result
         assert resolver.fallback_resolved_ids == {self.DEAD_ID}
         assert metrics.fallbacks == 1
-        assert [
-            c.args[2] for c in connector_repo.map_track_to_connector.call_args_list
-        ] == [living_id, self.DEAD_ID]
+        assert [spec.connector_id for spec in _mapping_specs(connector_repo)] == [
+            living_id,
+            self.DEAD_ID,
+        ]
 
 
 class TestFallbackDurationVeto:
@@ -1618,3 +1647,120 @@ class TestSubstitutionRecordsTheMarketSent:
         assert payload["market"] == settings.api.spotify_market
         assert payload["requested_id"] == old_id
         assert payload["returned_id"] == new_id
+
+
+class TestBulkAndPerItemPathsAgree:
+    """Two implementations of one contract must write the same rows.
+
+    The chunk-bulk persist is the fast path; the per-item retry is what a
+    chunk degrades to when a poisoned row takes the batch down. A scenario
+    carrying every branch — a plain creation, a relink's dual mapping, an ISRC
+    reuse — is run through both and the outcomes compared.
+    """
+
+    PLAIN_ID = "plain_id_00000000000000"
+    OLD_ID = "old_stale_id_0000000000"
+    NEW_ID = "new_canonical_id_000000"
+    ISRC_ID = "isrc_reuse_id_00000000"
+    ISRC = "USRC17000009"
+
+    async def _run(self, *, force_per_item: bool):
+        connector = AsyncMock()
+        connector.get_tracks_by_ids.return_value = {
+            self.PLAIN_ID: make_spotify_track(self.PLAIN_ID, "Plain Song"),
+            self.OLD_ID: make_spotify_track(self.NEW_ID, "Redirected Song"),
+            self.ISRC_ID: make_spotify_track(
+                self.ISRC_ID,
+                "Owned Song",
+                external_ids=SpotifyExternalIds(isrc=self.ISRC),
+            ),
+        }
+
+        resolver = SpotifyInwardResolver(spotify_connector=connector)
+        uow, track_repo, connector_repo = _make_uow_with_repos()
+
+        owner = make_track(42, title="Owned Song", isrc=self.ISRC)
+        track_repo.find_tracks_by_isrcs.return_value = {self.ISRC: owner}
+        # Keyed on the payload, not on call order: the resolver deduplicates
+        # its ids through a set, so the order it persists them in is not fixed.
+        saved = {"Plain Song": make_track(1), "Redirected Song": make_track(2)}
+        track_repo.save_track.side_effect = lambda track: saved[track.title]
+
+        if force_per_item:
+            connector_repo.map_tracks_to_connectors.side_effect = RuntimeError(
+                "bulk statement refused"
+            )
+            connector_repo.map_track_to_connector.side_effect = (
+                lambda track, *_args, **_kwargs: track
+            )
+
+        result, metrics = await resolver.resolve_to_canonical_tracks(
+            [self.PLAIN_ID, self.OLD_ID, self.ISRC_ID], uow, user_id="test-user"
+        )
+        return result, metrics, _written_mappings(connector_repo), resolver
+
+    async def test_the_two_paths_resolve_the_same_tracks(self):
+        bulk_result, _, _, _ = await self._run(force_per_item=False)
+        item_result, _, _, _ = await self._run(force_per_item=True)
+
+        assert bulk_result == item_result
+        assert set(bulk_result) == {self.PLAIN_ID, self.OLD_ID, self.ISRC_ID}
+        assert bulk_result[self.ISRC_ID].id == 42
+
+    async def test_the_two_paths_write_the_same_mappings(self):
+        _, _, bulk_mappings, _ = await self._run(force_per_item=False)
+        _, _, item_mappings, _ = await self._run(force_per_item=True)
+
+        assert bulk_mappings == item_mappings
+        assert bulk_mappings == {
+            (self.PLAIN_ID, MatchMethod.DIRECT_IMPORT, 100, True),
+            (self.NEW_ID, MatchMethod.DIRECT_IMPORT, 100, True),
+            (self.OLD_ID, MatchMethod.DIRECT_IMPORT_STALE_ID, 100, False),
+            (
+                self.ISRC_ID,
+                MatchMethod.ISRC_MATCH,
+                MatchMethod.ISRC_MATCH_CONFIDENCE,
+                True,
+            ),
+        }
+
+    async def test_the_two_paths_report_the_same_metrics_and_provenance(self):
+        _, bulk_metrics, _, bulk_resolver = await self._run(force_per_item=False)
+        _, item_metrics, _, item_resolver = await self._run(force_per_item=True)
+
+        assert bulk_metrics == item_metrics
+        assert bulk_metrics.created == 3
+        assert bulk_metrics.redirects == 1
+        assert (
+            bulk_resolver.redirect_resolved_ids == item_resolver.redirect_resolved_ids
+        )
+        assert bulk_resolver.redirect_resolved_ids == {self.OLD_ID}
+
+
+class TestChunkBulkPersistIsOneRoundTripGroup:
+    """The whole point: a chunk's writes are batch calls, not per-id calls."""
+
+    async def test_a_ten_id_chunk_makes_one_save_and_one_mapping_call(self):
+        ids = [f"chunk_id_{n:016d}" for n in range(10)]
+        connector = AsyncMock()
+        connector.get_tracks_by_ids.return_value = {
+            spotify_id: make_spotify_track(spotify_id, f"Song {spotify_id}")
+            for spotify_id in ids
+        }
+
+        resolver = SpotifyInwardResolver(spotify_connector=connector)
+        uow, track_repo, connector_repo = _make_uow_with_repos()
+
+        result, metrics = await resolver.resolve_to_canonical_tracks(
+            ids, uow, user_id="test-user"
+        )
+
+        assert metrics.created == 10
+        assert len(result) == 10
+        track_repo.save_tracks.assert_awaited_once()
+        assert len(track_repo.save_tracks.await_args.args[0]) == 10
+        connector_repo.map_tracks_to_connectors.assert_awaited_once()
+        assert len(connector_repo.map_tracks_to_connectors.await_args.args[0]) == 10
+        connector_repo.map_track_to_connector.assert_not_called()
+        # One savepoint for the chunk, not one per id.
+        assert uow.savepoint.call_count == 1

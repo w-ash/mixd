@@ -448,6 +448,59 @@ class TestFallbackHintDurationEstimate:
         assert hints["5rHtvcQXTiZbjPGYAOMQMP"].completed_play_ms_estimate == 400_000
 
 
+class TestDurationEstimateAccumulatesAcrossChunks:
+    """The estimate is run-scoped, because the plays that prove it are.
+
+    The orchestrator hands the resolver 50 plays at a time, so a track played
+    to completion a handful of times across a decade of history has its plays
+    scattered over many chunks. Derived from one chunk, the estimate was
+    routinely absent for exactly the ids that needed it — and absent means the
+    wrong-version veto asserts nothing at all.
+    """
+
+    def test_the_median_spans_every_chunk_seen_so_far(self):
+        resolver = SpotifyConnectorPlayResolver(spotify_connector=AsyncMock())
+
+        _ids, first = resolver._extract_ids_and_hints([
+            _make_connector_play(ms_played=210_000),
+        ])
+        _ids, second = resolver._extract_ids_and_hints([
+            _make_connector_play(ms_played=214_000),
+            _make_connector_play(ms_played=218_000),
+        ])
+
+        assert first["4iV5W9uYEdYUVa79Axb7Rh"].completed_play_ms_estimate == 210_000
+        # 210k/214k/218k — the earlier chunk's play is still evidence.
+        assert second["4iV5W9uYEdYUVa79Axb7Rh"].completed_play_ms_estimate == 214_000
+
+    def test_a_chunk_with_no_completed_play_inherits_the_earlier_estimate(self):
+        """The chunk holding a dead id often holds none of its finished plays."""
+        resolver = SpotifyConnectorPlayResolver(spotify_connector=AsyncMock())
+
+        _ids, _first = resolver._extract_ids_and_hints([
+            _make_connector_play(ms_played=216_000),
+        ])
+        _ids, second = resolver._extract_ids_and_hints([
+            _make_connector_play(ms_played=30_000, reason_end="fwdbtn"),
+        ])
+
+        assert second["4iV5W9uYEdYUVa79Axb7Rh"].completed_play_ms_estimate == 216_000
+
+    def test_the_accumulator_belongs_to_one_run_only(self):
+        """A second import gets a fresh resolver, and a fresh accumulator."""
+        first = SpotifyConnectorPlayResolver(spotify_connector=AsyncMock())
+        _ids, _hints = first._extract_ids_and_hints([
+            _make_connector_play(ms_played=216_000),
+        ])
+
+        second = SpotifyConnectorPlayResolver(spotify_connector=AsyncMock())
+        _ids, hints = second._extract_ids_and_hints([
+            _make_connector_play(ms_played=30_000, reason_end="fwdbtn"),
+        ])
+
+        assert hints["4iV5W9uYEdYUVa79Axb7Rh"].completed_play_ms_estimate is None
+
+
 class TestFallbackHintsIntegration:
     """Test that play resolver builds and passes fallback hints correctly."""
 

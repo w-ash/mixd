@@ -36,6 +36,7 @@ from src.infrastructure.connectors.spotify.models import (
     SpotifyRecentlyPlayedResponse,
     SpotifySnapshotResponse,
     SpotifyTrack,
+    SpotifyTracksResponse,
     SpotifyUserPlaylistsResponse,
 )
 
@@ -170,45 +171,51 @@ class SpotifyAPIClient(BaseAPIClient):
         _ = response.raise_for_status()
         return parse_json_response(response)
 
-    async def get_tracks_concurrent(
+    async def get_tracks_batched(
         self,
         track_ids: list[str],
         progress_callback: Callable[[int, int, str], Awaitable[None]] | None = None,
     ) -> dict[str, SpotifyTrack]:
-        """Fetch multiple tracks concurrently with structured concurrency.
+        """Fetch many tracks via GET /tracks?ids=, up to 50 ids per request.
 
-        Uses asyncio.TaskGroup + Semaphore to limit concurrent requests.
-        Tracks that fail to fetch are silently skipped (logged as warnings).
+        One request per chunk instead of one per id: a 46k-id import drops from
+        46k requests to ~920. Chunks are issued concurrently (bounded by
+        ``settings.api.spotify.concurrency``) and each chunk spends exactly one
+        rate-limiter token, since ``_api_call`` paces per invocation.
 
-        Returns a dict keyed by REQUESTED ID, not the returned track's .id field.
-        This distinction matters when Spotify redirects old IDs to new ones —
-        the caller needs to find the result using the ID they asked about.
+        Returns a dict keyed by REQUESTED ID, not the returned track's ``.id``.
+        The distinction is the whole point when Spotify relinks an old id to a
+        new one — the caller looks up the id it asked about, and compares it
+        against the returned track's id to detect the redirect. Ids absent from
+        the dict are dead (or belonged to a chunk whose request failed after
+        retries).
 
-        If progress_callback is provided, it is awaited after each track
-        request completes (success or failure) with (completed, total,
-        message). Single-event-loop concurrency means the callback's
-        closure state is safe under concurrent invocations.
+        If progress_callback is provided, it is awaited once per completed
+        chunk with (completed_tracks, total_tracks, message) — counted in
+        tracks, not chunks, so callers keep a track-scale progress bar.
+        Single-event-loop concurrency means the callback's closure state is
+        safe under concurrent invocations.
         """
         if not track_ids:
             return {}
 
+        chunks = [
+            track_ids[i : i + SpotifyConstants.TRACKS_BATCH_SIZE]
+            for i in range(0, len(track_ids), SpotifyConstants.TRACKS_BATCH_SIZE)
+        ]
         semaphore = asyncio.Semaphore(settings.api.spotify.concurrency)
         results: dict[str, SpotifyTrack] = {}
         total = len(track_ids)
         completed = 0
 
-        async def _fetch_one(tid: str) -> None:
+        async def _fetch_chunk(chunk: list[str]) -> None:
             nonlocal completed
             async with semaphore:
                 try:
-                    track = await self.get_track(tid)
-                    if track is not None:
-                        results[tid] = track
-                    else:
-                        logger.warning(f"Failed to fetch track {tid}")
+                    results.update(await self._get_tracks_chunk(chunk))
                 except Exception as e:
-                    logger.warning(f"Failed to fetch track {tid}: {e}")
-            completed += 1
+                    logger.warning(f"Failed to fetch batch of {len(chunk)} tracks: {e}")
+            completed += len(chunk)
             if progress_callback is not None:
                 await progress_callback(
                     completed,
@@ -217,10 +224,44 @@ class SpotifyAPIClient(BaseAPIClient):
                 )
 
         async with asyncio.TaskGroup() as tg:
-            for tid in track_ids:
-                _ = tg.create_task(_fetch_one(tid))
+            for chunk in chunks:
+                _ = tg.create_task(_fetch_chunk(chunk))
 
         return results
+
+    async def _get_tracks_chunk(self, track_ids: list[str]) -> dict[str, SpotifyTrack]:
+        """One GET /tracks?ids= call, correlated back to the requested ids."""
+        data = await self._api_call(
+            "get_spotify_tracks_batch", self._get_tracks_batch_impl, track_ids
+        )
+        if data is None:
+            logger.warning(f"Failed to fetch batch of {len(track_ids)} tracks")
+            return {}
+
+        returned = SpotifyTracksResponse.model_validate(data).tracks
+        if len(returned) != len(track_ids):
+            # Positional alignment is the only correlation this endpoint offers;
+            # a length mismatch means it no longer holds. Correlate the common
+            # prefix (best effort) and let the remainder read as dead ids.
+            logger.warning(
+                "Spotify /tracks returned a differently-sized array than requested",
+                requested=len(track_ids),
+                returned=len(returned),
+            )
+        return {
+            requested_id: track
+            for requested_id, track in zip(track_ids, returned, strict=False)
+            if track is not None
+        }
+
+    async def _get_tracks_batch_impl(self, track_ids: list[str]) -> JsonDict | None:
+        """Pure implementation without retry logic."""
+        response = await self._client.get(
+            "/tracks",
+            params={"ids": ",".join(track_ids), "market": self.market},
+        )
+        _ = response.raise_for_status()
+        return parse_json_response(response)
 
     # -------------------------------------------------------------------------
     # Search API Methods

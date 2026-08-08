@@ -141,6 +141,8 @@ class ConnectorRepositoryProtocol(Protocol):
     def map_tracks_to_connectors(
         self,
         mappings: list[ConnectorMappingSpec],
+        *,
+        promote_to_primary: Sequence[tuple[UUID, str, str]] = (),
     ) -> Awaitable[list[Track]]:
         """Batch-map multiple tracks to connectors in a single operation.
 
@@ -148,6 +150,11 @@ class ConnectorRepositoryProtocol(Protocol):
             mappings: Mapping specs, each pairing a track with its connector,
                 external id, match method, confidence, and optional
                 metadata/confidence evidence.
+            promote_to_primary: ``(track_id, connector_name, connector_id)``
+                triples whose mapping should own primacy — the batch form of
+                ``map_track_to_connector``'s ``auto_set_primary``. Mappings
+                absent from it are asserted without touching primacy, which
+                is what a relinked track's stale-id mapping needs.
 
         Returns:
             List of Track objects updated with external service connections.

@@ -1,19 +1,28 @@
-"""Unit tests for PlayProjectionService diff-apply claim tracking.
+"""Unit tests for PlayProjectionService diff-apply claim tracking and chunking.
 
 Pins the chunk-scoped claim registry: two groups may never materialize the
 same dedup tuple (a conflict-skipped insert would leave membership edges
 referencing a phantom id — an FK violation), a canonical play claimed by one
 group is not reusable by a later group (the 1→N split arm), and legacy
 end-time rows are healed in place by the shifted adoption probe.
+
+Also pins which days a batch chunks: only the ones its plays fall in (or near),
+never the whole span between its oldest and newest play.
 """
 
-from datetime import UTC, datetime, timedelta
+from datetime import UTC, date, datetime, timedelta
+from itertools import pairwise
 from unittest.mock import AsyncMock
 from uuid import UUID
 
 import pytest
 
-from src.application.services.play_projection_service import PlayProjectionService
+from src.application.services.play_projection_service import (
+    PROJECTION_FETCH_MARGIN,
+    PlayProjectionService,
+    _contiguous_chunk_cores,
+    observed_day_cores,
+)
 from src.domain.entities import ConnectorTrackPlay, PlaySource, TrackPlay
 from tests.fixtures.mocks import make_mock_uow
 
@@ -182,3 +191,112 @@ class TestLegacyEndTimeAdoption:
         assert updates[0][1]["played_at"] == _BASE - timedelta(milliseconds=201_000)
         assert stats["groups_updated"] == 1
         assert stats["groups_created"] == 0
+
+
+class TestObservedDayCores:
+    """Which calendar days a batch's plays put in scope.
+
+    A day-chunk costs several round trips whether or not it holds anything, so
+    the cores must follow the observations, not the span they straddle.
+    """
+
+    def test_sparse_dates_chunk_only_their_own_days(self):
+        # One stray 2011 scrobble in an otherwise recent import: the 14 years
+        # in between hold nothing this batch touched.
+        cores = observed_day_cores([
+            datetime(2011, 3, 5, 14, 0, tzinfo=UTC),
+            datetime(2026, 7, 20, 9, 0, tzinfo=UTC),
+        ])
+
+        assert [start.date() for start, _ in cores] == [
+            date(2011, 3, 5),
+            date(2026, 7, 20),
+        ]
+
+    def test_the_span_between_sparse_dates_is_thousands_of_chunks(self):
+        """What tiling the span (the pre-fix orchestrator) actually asked for."""
+        span = _contiguous_chunk_cores(
+            datetime(2011, 3, 5, 14, 0, tzinfo=UTC) - PROJECTION_FETCH_MARGIN,
+            datetime(2026, 7, 20, 9, 0, tzinfo=UTC) + PROJECTION_FETCH_MARGIN,
+        )
+
+        assert len(span) > 5_000
+
+    def test_contiguous_dates_still_tile_every_day(self):
+        cores = observed_day_cores([
+            datetime(2024, 1, day, 12, 0, tzinfo=UTC) for day in range(1, 6)
+        ])
+
+        assert [start.date() for start, _ in cores] == [
+            date(2024, 1, day) for day in range(1, 6)
+        ]
+        assert all(end - start == timedelta(days=1) for start, end in cores)
+
+    def test_repeated_plays_in_a_day_share_one_chunk(self):
+        cores = observed_day_cores([
+            datetime(2024, 1, 9, hour, 0, tzinfo=UTC) for hour in (7, 12, 23)
+        ])
+
+        assert [start.date() for start, _ in cores] == [date(2024, 1, 9)]
+
+    def test_play_inside_the_margin_of_midnight_also_claims_the_day_before(self):
+        """A 00:30 play's group can be anchored the previous evening: its
+        normalized start shifts back by up to the fetch margin."""
+        cores = observed_day_cores([datetime(2024, 3, 10, 0, 30, tzinfo=UTC)])
+
+        assert [start.date() for start, _ in cores] == [
+            date(2024, 3, 9),
+            date(2024, 3, 10),
+        ]
+
+    def test_play_exactly_a_margin_past_midnight_stays_one_day(self):
+        cores = observed_day_cores([datetime(2024, 3, 10, 6, 0, tzinfo=UTC)])
+
+        assert [start.date() for start, _ in cores] == [date(2024, 3, 10)]
+
+    def test_cores_are_ordered_and_never_overlap(self):
+        """Overlapping cores would let two chunks own — and apply — one group."""
+        cores = observed_day_cores([
+            datetime(2024, 3, 10, 0, 30, tzinfo=UTC),
+            datetime(2024, 3, 9, 22, 0, tzinfo=UTC),
+            datetime(2024, 3, 12, 5, 0, tzinfo=UTC),
+        ])
+
+        assert all(earlier[1] <= later[0] for earlier, later in pairwise(cores))
+
+    def test_no_observations_means_no_chunks(self):
+        assert observed_day_cores([]) == []
+
+
+class TestProjectObservedDays:
+    """The batch entry point visits exactly those days, applying them as usual."""
+
+    @pytest.mark.asyncio
+    async def test_only_the_observed_days_are_fetched(self):
+        uow, _ = _wire_uow(entries=[])
+
+        _ = await PlayProjectionService().project_observed_days(
+            uow,
+            user_id=_USER,
+            played_at=[
+                datetime(2011, 3, 5, 14, 0, tzinfo=UTC),
+                datetime(2026, 7, 20, 9, 0, tzinfo=UTC),
+            ],
+        )
+
+        connector_repo = uow.get_connector_play_repository()
+        assert connector_repo.find_resolved_in_window.await_count == 2
+
+    @pytest.mark.asyncio
+    async def test_diff_apply_matches_the_equivalent_range_projection(self):
+        """Same day, same observation, same outcome — only the chunking differs."""
+        scrobble = _scrobble(played_at=_BASE)
+        uow, plays_repo = _wire_uow(entries=[scrobble])
+
+        stats = await PlayProjectionService().project_observed_days(
+            uow, user_id=_USER, played_at=[scrobble.played_at]
+        )
+
+        assert stats["groups_created"] == 1
+        inserted = plays_repo.bulk_insert_plays.await_args.args[0]
+        assert [play.played_at for play in inserted] == [_BASE]

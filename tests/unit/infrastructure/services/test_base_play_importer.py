@@ -1,11 +1,19 @@
-"""Unit tests for the play-import pipeline's tenancy guard."""
+"""Unit tests for the play-import pipeline's tenancy guard and persist contract."""
 
 from datetime import UTC, datetime
+from typing import override
 
 import pytest
 
 from src.domain.entities import ConnectorTrackPlay
-from src.infrastructure.services.base_play_importer import _require_uniform_tenancy
+from src.domain.entities.progress import ProgressEmitter
+from src.domain.repositories.play import LastfmImportParams
+from src.domain.repositories.uow import UnitOfWorkProtocol
+from src.infrastructure.services.base_play_importer import (
+    BasePlayImporter,
+    _require_uniform_tenancy,
+)
+from tests.fixtures.mocks import make_mock_uow
 
 
 def _make_play(track_name: str, **overrides: str) -> ConnectorTrackPlay:
@@ -56,3 +64,100 @@ class TestRequireUniformTenancy:
         assert "play 1" in message
         assert "'default'" in message
         assert "LastfmPlayImporter" in message
+
+
+class _StubImporter(BasePlayImporter[ConnectorTrackPlay, LastfmImportParams]):
+    """Minimal importer whose fetch optionally persists its own chunk."""
+
+    operation_name = "Stub Import"
+
+    def __init__(self, *, persists_during_fetch: bool, user_id: str = "u1") -> None:
+        self.persists_plays_during_fetch = persists_during_fetch
+        self._plays = [_make_play("First", user_id=user_id)]
+
+    @override
+    async def _fetch_data(
+        self,
+        params: LastfmImportParams,
+        *,
+        uow: UnitOfWorkProtocol,
+        user_id: str,
+        batch_id: str,
+        import_timestamp: datetime,
+        progress_emitter: ProgressEmitter | None = None,
+        operation_id: str | None = None,
+    ) -> list[ConnectorTrackPlay]:
+        if self.persists_plays_during_fetch:
+            await self._persist_fetched_chunk(self._plays, uow, user_id=user_id)
+        return self._plays
+
+    @override
+    async def _process_data(
+        self,
+        raw_data: list[ConnectorTrackPlay],
+        *,
+        user_id: str,
+        batch_id: str,
+        import_timestamp: datetime,
+    ) -> list[ConnectorTrackPlay]:
+        return raw_data
+
+    @override
+    async def _handle_checkpoints(
+        self,
+        raw_data: list[ConnectorTrackPlay],
+        params: LastfmImportParams,
+        uow: UnitOfWorkProtocol,
+        *,
+        user_id: str,
+    ) -> None:
+        return None
+
+
+def _insert_calls(uow) -> int:
+    repo = uow.get_connector_play_repository()
+    return repo.bulk_insert_connector_plays.await_count
+
+
+class TestPersistsPlaysDuringFetch:
+    """The run-end save belongs to whoever did not already write the rows.
+
+    A source that commits a resume cursor mid-fetch has to persist each chunk
+    itself (the checkpoint may never lead the data); the pipeline must then not
+    re-stream the whole span behind it, for zero rows gained.
+    """
+
+    async def test_fetch_persisted_span_is_not_saved_again(self) -> None:
+        uow = make_mock_uow()
+        importer = _StubImporter(persists_during_fetch=True)
+
+        result, plays = await importer.import_data(
+            LastfmImportParams(), uow=uow, user_id="u1"
+        )
+
+        assert _insert_calls(uow) == 1
+        assert result.summary_metrics.get("imported") == len(plays)
+
+    async def test_ordinary_importer_still_saved_by_the_pipeline(self) -> None:
+        uow = make_mock_uow()
+        importer = _StubImporter(persists_during_fetch=False)
+
+        result, plays = await importer.import_data(
+            LastfmImportParams(), uow=uow, user_id="u1"
+        )
+
+        assert _insert_calls(uow) == 1
+        assert result.summary_metrics.get("imported") == len(plays)
+
+    async def test_chunk_tenancy_is_verified_before_the_write(self) -> None:
+        """The guard runs on the chunk, not only on the assembled span —
+        otherwise a mis-stamped row is already in the ledger when it fires."""
+        uow = make_mock_uow()
+        importer = _StubImporter(persists_during_fetch=True, user_id="someone-else")
+
+        result, _plays = await importer.import_data(
+            LastfmImportParams(), uow=uow, user_id="u1"
+        )
+
+        assert result.is_failure
+        assert _insert_calls(uow) == 0

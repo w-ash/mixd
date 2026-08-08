@@ -65,7 +65,15 @@ class LastfmPlayImporter(
     the day loop converts each day's scrobbles the moment they land and drops
     the raw records, so a multi-year import never accumulates the whole span
     twice. :meth:`_process_data` is therefore a pass-through.
+
+    The day loop also persists each day before checkpointing it, so the
+    run-end save has nothing left to write — see
+    ``persists_plays_during_fetch``.
     """
+
+    # The day loop owns both the writes and the resume cursor, and keeps the
+    # cursor behind the writes; the base class must not re-save the span.
+    persists_plays_during_fetch = True
 
     operation_name: str
     lastfm_connector: LastFMConnector
@@ -359,7 +367,9 @@ class LastfmPlayImporter(
         Each day is converted to ledger rows before the next one is fetched, so
         only the accumulated ``ConnectorTrackPlay`` list survives the loop — a
         full-history import (up to 50,000 plays) never holds the raw scrobbles
-        for the whole span on top of it.
+        for the whole span on top of it. Each day is also persisted and its
+        resume cursor committed together, in that order, so the cursor can
+        never point past rows that were never written.
 
         Args:
             user_id: The mixd user the per-day checkpoints are keyed on, and the
@@ -426,14 +436,13 @@ class LastfmPlayImporter(
             # Convert now and let the day's raw records go: this is the only
             # place the two representations of a day coexist, and the loop is
             # already committing per day, so nothing downstream needs them.
-            all_connector_plays.extend(
-                self._to_connector_plays(
-                    day_records,
-                    user_id=user_id,
-                    batch_id=batch_id,
-                    import_timestamp=import_timestamp,
-                )
+            day_plays = self._to_connector_plays(
+                day_records,
+                user_id=user_id,
+                batch_id=batch_id,
+                import_timestamp=import_timestamp,
             )
+            all_connector_plays.extend(day_plays)
 
             if progress_emitter and operation_id:
                 await progress_emitter.emit_progress(
@@ -445,9 +454,18 @@ class LastfmPlayImporter(
                     )
                 )
 
-            # Save checkpoint and commit batch after each day so data
-            # survives machine restarts (at most one day lost on crash)
+            # Invariant: the checkpoint never leads the persisted plays.
+            #
+            # The day's rows are written first and its cursor second, inside
+            # one transaction that the commit below makes durable as a unit —
+            # so a crash anywhere leaves the cursor at or behind the last
+            # written day, and the resumed run re-fetches from there. That is
+            # what "at most one day lost on crash" costs. Persisting the whole
+            # span only at the end of the run (as this loop used to) meant a
+            # crash at day 300 of 5,100 left a day-300 cursor with ZERO rows
+            # written, and days 1-299 were silently skipped forever.
             if uow:
+                await self._persist_fetched_chunk(day_plays, uow, user_id=user_id)
                 await self._save_day_checkpoint(
                     user_id=user_id,
                     account=username,

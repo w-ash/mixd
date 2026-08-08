@@ -57,6 +57,16 @@ class TrackRepositoryProtocol(Protocol):
         """Save track."""
         ...
 
+    def save_tracks(self, tracks: Sequence[Track]) -> Awaitable[list[Track]]:
+        """Insert a batch of new canonical tracks, returning them in input order.
+
+        The batch form of ``save_track``'s insert arm, for callers that create
+        a whole chunk of canonicals at once. A track whose identity key (ISRC,
+        MBID or Spotify id) is already claimed falls back to ``save_track``,
+        so the upsert-or-defer decision keeps living in exactly one place.
+        """
+        ...
+
     def get_by_id(
         self, id_: UUID, load_relationships: list[str] | None = None
     ) -> Awaitable[Track]:

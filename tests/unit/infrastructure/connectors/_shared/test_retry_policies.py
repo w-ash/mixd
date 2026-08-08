@@ -1,21 +1,25 @@
-"""Tests for the Retry-After-aware wait strategy in the shared retry policies.
+"""Tests for the shared retry policies' 429 handling.
 
 Pins the v0.10.2.2 fix: a 429's ``Retry-After`` header is honored (capped)
 instead of blindly hammering exponential backoff inside the server's stated
 rate-limit window — the failure mode that killed a prod GDPR history import
-after six burned attempts.
+after six burned attempts. Also pins the shared brake: the same header pauses
+the service's rate limiter, so concurrent callers stop spending into the window
+the server just closed.
 """
 
-from unittest.mock import MagicMock
+from unittest.mock import MagicMock, patch
 
 import httpx2
 import pytest
 from tenacity import wait_fixed
 
 from src.infrastructure.connectors._shared.retry_policies import (
+    DEFAULT_RATE_LIMIT_PAUSE_SECONDS,
     RetryAfterWait,
     RetryConfig,
     RetryPolicyFactory,
+    create_tenacity_backoff_handler,
 )
 from src.infrastructure.connectors.spotify.error_classifier import (
     SpotifyErrorClassifier,
@@ -91,6 +95,52 @@ class TestRetryAfterWait:
         exc = _http_status_error(429, {"Retry-After": "-5"})
 
         assert _wait()(_retry_state_with(exc)) == 1.0
+
+
+def _backoff_state(exception: BaseException) -> MagicMock:
+    """A retry state the backoff handler can also format for logging."""
+    state = _retry_state_with(exception)
+    state.attempt_number = 2
+    state.idle_for = 1.0
+    state.seconds_since_start = 1.0
+    return state
+
+
+class TestBackoffHandlerBrakesTheLimiter:
+    """A 429 pauses the whole service's limiter, not just the failing call."""
+
+    def _run(self, exception: BaseException) -> MagicMock:
+        limiter = MagicMock()
+        handler = create_tenacity_backoff_handler(SpotifyErrorClassifier(), "spotify")
+        with patch(
+            "src.infrastructure.connectors._shared.retry_policies.get_connector_rate_limiter",
+            return_value=limiter,
+        ):
+            handler(_backoff_state(exception))
+        return limiter
+
+    def test_rate_limit_pauses_for_the_retry_after_value(self):
+        limiter = self._run(_http_status_error(429, {"Retry-After": "7"}))
+
+        limiter.pause_for.assert_called_once_with(7.0)
+
+    def test_rate_limit_without_a_usable_header_pauses_for_the_default(self):
+        limiter = self._run(_http_status_error(429, {}))
+
+        limiter.pause_for.assert_called_once_with(DEFAULT_RATE_LIMIT_PAUSE_SECONDS)
+
+    def test_non_rate_limit_error_does_not_pause(self):
+        limiter = self._run(_http_status_error(503, {"Retry-After": "7"}))
+
+        limiter.pause_for.assert_not_called()
+
+    def test_unpaced_service_is_handled_without_a_limiter(self):
+        handler = create_tenacity_backoff_handler(SpotifyErrorClassifier(), "spotify")
+        with patch(
+            "src.infrastructure.connectors._shared.retry_policies.get_connector_rate_limiter",
+            return_value=None,
+        ):
+            handler(_backoff_state(_http_status_error(429, {"Retry-After": "7"})))
 
 
 class TestCreatePolicyWiring:

@@ -805,16 +805,28 @@ class TrackConnectorRepository:
     async def map_tracks_to_connectors(
         self,
         mappings: list[ConnectorMappingSpec],
+        *,
+        promote_to_primary: Sequence[tuple[UUID, str, str]] = (),
     ) -> list[Track]:
         """Link existing internal tracks to external service IDs with confidence scores.
 
         Pipeline: build connector-track rows → bulk upsert → build mapping rows →
         drop rows that would overwrite manual overrides → assert mappings
-        (append-only: a changed decision supersedes rather than overwrites).
+        (append-only: a changed decision supersedes rather than overwrites) →
+        elect the primaries the caller named.
 
         Args:
             mappings: Mapping specs pairing each track with its connector, external
                 id, match method, confidence, and optional metadata/evidence.
+            promote_to_primary: ``(track_id, connector_name, connector_id)``
+                triples whose mapping should own primacy — the batch
+                equivalent of ``map_track_to_connector``'s
+                ``auto_set_primary``, re-electing and syncing the
+                denormalized fast-path column in a fixed handful of
+                statements for the whole batch instead of four per row. Not
+                every asserted mapping belongs here: a relinked Spotify
+                track's stale-id mapping is written precisely so it will
+                *not* hold primacy.
 
         Returns:
             List of Track objects updated with external service connections.
@@ -834,6 +846,11 @@ class TrackConnectorRepository:
             assertion = await self.mapping_repo.assert_mappings(mapping_rows)
             await self._record_assertion(assertion)
             await self._restore_superseded_primaries(assertion)
+
+        if promote_to_primary:
+            _ = await self._batch_ensure_primary_mappings_by_external_id(
+                list(promote_to_primary)
+            )
 
         # Note: metrics extraction lives in the application layer
         # (MetricsApplicationService); this repository maps track identity only.
@@ -1012,11 +1029,16 @@ class TrackConnectorRepository:
         auto_set_primary: bool = True,
         origin: str = "automatic",
     ) -> Track:
-        """Link an existing internal track to an external service ID."""
+        """Link an existing internal track to an external service ID.
 
-        # Ensure the track exists (raises NotFoundError if missing)
-        await self.track_repo.get_by_id(track.id)
-
+        No existence probe on ``track``: every caller holds a canonical it
+        either just persisted or just read back inside this same transaction,
+        so the SELECT could only ever confirm what the caller already knows —
+        and it did so once per mapping, which is twice per relinked Spotify
+        track. The mapping insert carries ``track_id`` under a foreign key, so
+        a genuinely absent track still fails, at the write rather than a
+        round trip earlier.
+        """
         results = await self.map_tracks_to_connectors([
             ConnectorMappingSpec(
                 track=track,

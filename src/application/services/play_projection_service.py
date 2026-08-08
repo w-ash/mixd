@@ -13,10 +13,15 @@ is fully visible (members can sit up to the fetch margin away in raw
 to its ``ms_played``). A group is applied by exactly one chunk: the one whose
 core contains its earliest member's normalized start. That ownership rule is
 batch-boundary invariance operationalized.
+
+Two entry points, same diff-apply body: ``project_range`` tiles a contiguous
+span (the rebuild), ``project_observed_days`` chunks only the days a batch's
+plays fall in (or near) — a sparse batch must not pay for the empty years
+between its oldest and newest play.
 """
 
-from collections.abc import Mapping
-from datetime import datetime, timedelta
+from collections.abc import Iterable, Mapping, Sequence
+from datetime import UTC, datetime, time, timedelta
 from uuid import UUID
 
 from attrs import define
@@ -47,6 +52,9 @@ _CHUNK = timedelta(days=1)
 # normalized start; the cost is only a few extra fetched rows per chunk.
 PROJECTION_FETCH_MARGIN = MAX_NORMALIZED_START_SHIFT
 
+# One chunk's core: the ``[start, end)`` window whose owned groups it applies.
+type _ChunkCore = tuple[datetime, datetime]
+
 _STAT_KEYS = (
     "groups_created",
     "groups_updated",
@@ -69,6 +77,43 @@ PROJECTION_STAT_LABELS: Mapping[str, str] = {
     "resolution_divergence": "Resolution Divergence",
     "same_channel_collapsed": "Same-Channel Collapsed",
 }
+
+
+def _contiguous_chunk_cores(start: datetime, end: datetime) -> list[_ChunkCore]:
+    """Tile ``[start, end)`` with ``_CHUNK``-long cores — the rebuild's span."""
+    cores: list[_ChunkCore] = []
+    cursor = start
+    while cursor < end:
+        cores.append((cursor, min(cursor + _CHUNK, end)))
+        cursor += _CHUNK
+    return cores
+
+
+def observed_day_cores(played_at: Iterable[datetime]) -> list[_ChunkCore]:
+    """Calendar-day cores covering every group these observations can anchor.
+
+    A batch's affected window is the days it actually touched, not the span
+    between its oldest and newest play: one stray 2011 scrobble in an otherwise
+    recent incremental import spans 14 years, and tiling that span contiguously
+    materializes ~5,000 day-chunks — each costing round trips to find nothing.
+
+    A group is applied by the chunk whose core contains its earliest member's
+    NORMALIZED start, which sits up to ``PROJECTION_FETCH_MARGIN`` before the
+    raw ``played_at`` (an end-time observation shifts back by its ``ms_played``,
+    clamped to that margin). So each play contributes its own UTC date plus the
+    date the margin reaches back into — the previous day for anything in the
+    first six hours. Cores are whole calendar days and so never overlap: the
+    "exactly one chunk applies a group" ownership rule is preserved.
+    """
+    days = {
+        day
+        for moment in played_at
+        for day in (moment.date(), (moment - PROJECTION_FETCH_MARGIN).date())
+    }
+    return [
+        (midnight, midnight + _CHUNK)
+        for midnight in (datetime.combine(day, time.min, UTC) for day in sorted(days))
+    ]
 
 
 def _group_earliest_start(group: PlayGroup) -> datetime:
@@ -125,19 +170,76 @@ class PlayProjectionService:
         ``claimed_play_ids``, when provided, accumulates every canonical play
         id the projection targets (adopted, linked, or merged) so a dry-run
         caller can simulate reconciliation against the would-be state.
+
+        Use this only when every day in the span is genuinely of interest (the
+        full-history rebuild). A batch writer wants
+        :meth:`project_observed_days`, which skips the days it never touched.
+        """
+        if start >= end:
+            return dict.fromkeys(_STAT_KEYS, 0)
+
+        return await self._apply_chunks(
+            uow,
+            _contiguous_chunk_cores(start, end),
+            user_id=user_id,
+            dry_run=dry_run,
+            progress_emitter=progress_emitter,
+            operation_id=operation_id,
+            claimed_play_ids=claimed_play_ids,
+        )
+
+    async def project_observed_days(
+        self,
+        uow: UnitOfWorkProtocol,
+        *,
+        user_id: str,
+        played_at: Iterable[datetime],
+        dry_run: bool = False,
+        progress_emitter: ProgressEmitter | None = None,
+        operation_id: str | None = None,
+        claimed_play_ids: set[UUID] | None = None,
+    ) -> dict[str, int]:
+        """Project only the calendar days these observations fall in (or near).
+
+        The batch writer's entry point: identical diff-apply semantics to
+        :meth:`project_range`, but the chunks come from the plays themselves, so
+        a sparse batch costs chunks proportional to the days it touched rather
+        than to the span it happens to straddle. See :func:`observed_day_cores`
+        for why the margin makes each play contribute two candidate days.
+        """
+        return await self._apply_chunks(
+            uow,
+            observed_day_cores(played_at),
+            user_id=user_id,
+            dry_run=dry_run,
+            progress_emitter=progress_emitter,
+            operation_id=operation_id,
+            claimed_play_ids=claimed_play_ids,
+        )
+
+    async def _apply_chunks(
+        self,
+        uow: UnitOfWorkProtocol,
+        cores: Sequence[_ChunkCore],
+        *,
+        user_id: str,
+        dry_run: bool,
+        progress_emitter: ProgressEmitter | None,
+        operation_id: str | None,
+        claimed_play_ids: set[UUID] | None,
+    ) -> dict[str, int]:
+        """Diff-apply each core in turn, one transaction and one event apiece.
+
+        ``operation_id`` must name an operation whose progress counter has not
+        advanced past 0: the counter restarts at 1 here, and the progress ledger
+        drops every event that goes backwards (see
+        ``OperationLedger.validate_progress_event``). Callers give the
+        projection its own (sub)operation rather than reusing a preceding
+        phase's.
         """
         stats: dict[str, int] = dict.fromkeys(_STAT_KEYS, 0)
-        if start >= end:
-            return stats
 
-        chunk_starts: list[datetime] = []
-        cursor = start
-        while cursor < end:
-            chunk_starts.append(cursor)
-            cursor += _CHUNK
-
-        for index, chunk_start in enumerate(chunk_starts):
-            chunk_end = min(chunk_start + _CHUNK, end)
+        for index, (chunk_start, chunk_end) in enumerate(cores):
             chunk_stats = await self._project_chunk(
                 uow,
                 user_id=user_id,
@@ -156,14 +258,16 @@ class PlayProjectionService:
                     create_progress_event(
                         operation_id=operation_id,
                         current=index + 1,
-                        total=len(chunk_starts),
+                        total=len(cores),
                         message=(
                             f"Projected plays through {chunk_end.date().isoformat()}"
                         ),
                     )
                 )
 
-        logger.info("Play projection complete", user_id=user_id, **stats)
+        logger.info(
+            "Play projection complete", user_id=user_id, chunks=len(cores), **stats
+        )
         return stats
 
     async def _project_chunk(

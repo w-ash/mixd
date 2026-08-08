@@ -14,6 +14,7 @@ Key design decisions:
 
 Endpoint coverage:
 - GET /tracks/{id}  → SpotifyTrack
+- GET /tracks?ids=  → SpotifyTracksResponse (positionally aligned with the ids)
 - GET /playlists/{id}  → SpotifyPlaylist (items node: SpotifyPaginatedPlaylistItems)
 - GET /playlists/{id}/items  → SpotifyPaginatedPlaylistItems (items: SpotifyPlaylistItem)
 - POST|DELETE|PUT /playlists/{id}/items  → SpotifySnapshotResponse
@@ -106,6 +107,22 @@ class SpotifyTrack(SpotifyBaseModel):
     def is_market_restricted(self) -> bool:
         """Returned by the API but unplayable here — available, not dead."""
         return self.is_playable is False or self.restrictions is not None
+
+
+class SpotifyTracksResponse(SpotifyBaseModel):
+    """Response body for GET /tracks?ids= — the batch form of GET /tracks/{id}.
+
+    ``tracks`` is POSITIONALLY ALIGNED with the requested ``ids``: entry *i*
+    answers id *i*. Two answers are only distinguishable through that
+    alignment, so callers must correlate by index and never by the returned
+    ``id``:
+
+    - ``null`` at position *i* — that id is dead (unknown to Spotify).
+    - an entry whose ``id`` differs from the requested one — Spotify relinked
+      the old id to a new track.
+    """
+
+    tracks: NullSafeList[SpotifyTrack | None] = Field(default_factory=list)
 
 
 class SpotifyOwner(SpotifyBaseModel):

@@ -1,11 +1,14 @@
 """Tests for Spotify Feb 2026 API migration changes.
 
-Validates: single track fetch, concurrent fetch with semaphore,
+Validates: single track fetch, batched track fetch (GET /tracks?ids=),
 search limit clamping, playlist items field rename, and non-owned playlist warning.
 """
 
+from collections.abc import Awaitable, Callable, Iterator
+from contextlib import ExitStack, contextmanager
 from unittest.mock import AsyncMock, MagicMock, patch
 
+from src.infrastructure.connectors.spotify.client import SpotifyAPIClient
 from src.infrastructure.connectors.spotify.models import (
     SpotifyOwner,
     SpotifyPaginatedPlaylistItems,
@@ -13,7 +16,57 @@ from src.infrastructure.connectors.spotify.models import (
     SpotifyPlaylistItem,
     SpotifyTrack,
 )
-from tests.fixtures import make_spotify_track
+
+
+class _CountingLimiter:
+    """Stands in for ConnectorRateLimiter to count tokens spent, not pace."""
+
+    def __init__(self) -> None:
+        self.acquires = 0
+
+    async def acquire(self) -> None:
+        self.acquires += 1
+
+
+def _impl_returning_requested_ids() -> AsyncMock:
+    """Batch impl that echoes each requested id back in the same position."""
+
+    async def echo(track_ids: list[str]) -> dict[str, object]:
+        return {"tracks": [{"id": tid, "name": f"Song {tid}"} for tid in track_ids]}
+
+    return AsyncMock(side_effect=echo)
+
+
+@contextmanager
+def _batch_client(
+    impl: AsyncMock | None = None, limiter: _CountingLimiter | None = None
+) -> Iterator[SpotifyAPIClient]:
+    """Client with the batch impl stubbed, retries bypassed, pacing controlled.
+
+    ``limiter=None`` makes ``_api_call`` take the unpaced path, so tests never
+    wait on the process-wide Spotify limiter.
+    """
+
+    async def passthrough_retry(
+        fn: Callable[..., Awaitable[object]], *args: object
+    ) -> object:
+        return await fn(*args)
+
+    with ExitStack() as stack:
+        _ = stack.enter_context(patch.object(SpotifyAPIClient, "__attrs_post_init__"))
+        _ = stack.enter_context(
+            patch(
+                "src.infrastructure.connectors.base.get_connector_rate_limiter",
+                return_value=limiter,
+            )
+        )
+        if impl is not None:
+            _ = stack.enter_context(
+                patch.object(SpotifyAPIClient, "_get_tracks_batch_impl", impl)
+            )
+        client = SpotifyAPIClient()
+        client._retry_policy = passthrough_retry
+        yield client
 
 
 class TestGetTrackSingle:
@@ -55,135 +108,110 @@ class TestGetTrackSingle:
         assert result is None
 
 
-class TestGetTracksConcurrent:
-    """Concurrent fetch returns dict keyed by requested ID."""
+class TestGetTracksBatched:
+    """GET /tracks?ids= — chunking, positional correlation, pacing, progress."""
 
     async def test_empty_input_returns_empty_dict(self):
-        from src.infrastructure.connectors.spotify.client import SpotifyAPIClient
+        with _batch_client() as client:
+            assert await client.get_tracks_batched([]) == {}
 
-        with patch.object(SpotifyAPIClient, "__attrs_post_init__"):
-            client = SpotifyAPIClient()
-            result = await client.get_tracks_concurrent([])
+    async def test_chunks_at_the_endpoint_maximum_of_fifty(self):
+        ids = [f"id{i}" for i in range(120)]
+        impl = _impl_returning_requested_ids()
+
+        with _batch_client(impl) as client:
+            result = await client.get_tracks_batched(ids)
+
+        requested_chunks = [call.args[0] for call in impl.await_args_list]
+        assert sorted(len(chunk) for chunk in requested_chunks) == [20, 50, 50]
+        assert sorted(id_ for chunk in requested_chunks for id_ in chunk) == sorted(ids)
+        assert len(result) == 120
+
+    async def test_keys_by_requested_id_when_spotify_relinks(self):
+        """Position, not the returned .id, is what correlates a relinked track."""
+        impl = AsyncMock(
+            return_value={
+                "tracks": [
+                    {"id": "aaa", "name": "Song A"},
+                    {"id": "new_id", "name": "Redirected Song"},
+                ]
+            }
+        )
+
+        with _batch_client(impl) as client:
+            result = await client.get_tracks_batched(["aaa", "old_id"])
+
+        assert set(result) == {"aaa", "old_id"}
+        assert result["old_id"].id == "new_id"
+
+    async def test_null_entry_marks_that_id_dead(self):
+        impl = AsyncMock(
+            return_value={"tracks": [None, {"id": "bbb", "name": "Song B"}]}
+        )
+
+        with _batch_client(impl) as client:
+            result = await client.get_tracks_batched(["dead_id", "bbb"])
+
+        assert set(result) == {"bbb"}
+
+    async def test_short_array_correlates_the_common_prefix(self):
+        """A broken-length response must not shift ids onto the wrong tracks."""
+        impl = AsyncMock(return_value={"tracks": [{"id": "aaa", "name": "Song A"}]})
+
+        with _batch_client(impl) as client:
+            result = await client.get_tracks_batched(["aaa", "bbb"])
+
+        assert set(result) == {"aaa"}
+        assert result["aaa"].id == "aaa"
+
+    async def test_failed_batch_leaves_its_ids_absent(self):
+        """Suppressed request failure reads as 'no answer', never as wrong answers."""
+        with _batch_client(AsyncMock(return_value=None)) as client:
+            result = await client.get_tracks_batched(["aaa", "bbb"])
 
         assert result == {}
 
-    async def test_concurrent_fetch_returns_dict_keyed_by_requested_id(self):
-        from src.infrastructure.connectors.spotify.client import SpotifyAPIClient
+    async def test_one_rate_limiter_token_per_batch_call(self):
+        ids = [f"id{i}" for i in range(120)]
+        limiter = _CountingLimiter()
 
-        track_a = make_spotify_track("aaa", "Song A")
-        track_b = make_spotify_track("bbb", "Song B")
+        with _batch_client(_impl_returning_requested_ids(), limiter) as client:
+            _ = await client.get_tracks_batched(ids)
 
-        mock_get_track = AsyncMock(side_effect=[track_a, track_b])
+        # 3 chunks — not 120 tokens, which is the whole point of batching.
+        assert limiter.acquires == 3
 
-        with patch.object(SpotifyAPIClient, "__attrs_post_init__"):
-            with patch.object(SpotifyAPIClient, "get_track", mock_get_track):
-                client = SpotifyAPIClient()
-                with patch(
-                    "src.infrastructure.connectors.spotify.client.settings"
-                ) as mock_settings:
-                    mock_settings.api.spotify.concurrency = 5
-                    result = await client.get_tracks_concurrent(["aaa", "bbb"])
-
-        assert isinstance(result, dict)
-        assert "aaa" in result
-        assert "bbb" in result
-        assert result["aaa"].id == "aaa"
-        assert result["bbb"].id == "bbb"
-
-    async def test_partial_failures_skipped(self):
-        from src.infrastructure.connectors.spotify.client import SpotifyAPIClient
-
-        track_a = make_spotify_track("aaa", "Song A")
-        mock_get_track = AsyncMock(side_effect=[track_a, None])
-
-        with patch.object(SpotifyAPIClient, "__attrs_post_init__"):
-            with patch.object(SpotifyAPIClient, "get_track", mock_get_track):
-                client = SpotifyAPIClient()
-                with patch(
-                    "src.infrastructure.connectors.spotify.client.settings"
-                ) as mock_settings:
-                    mock_settings.api.spotify.concurrency = 5
-                    result = await client.get_tracks_concurrent(["aaa", "bbb"])
-
-        assert len(result) == 1
-        assert "aaa" in result
-
-    async def test_progress_callback_fires_per_request(self):
-        """progress_callback is awaited once per completed request with rising counts."""
-        from src.infrastructure.connectors.spotify.client import SpotifyAPIClient
-
-        track_a = make_spotify_track("aaa", "Song A")
-        track_b = make_spotify_track("bbb", "Song B")
-        mock_get_track = AsyncMock(side_effect=[track_a, track_b])
-
+    async def test_progress_callback_counts_tracks_not_batches(self):
+        ids = [f"id{i}" for i in range(120)]
         progress_calls: list[tuple[int, int, str]] = []
 
         async def cb(current: int, total: int, message: str) -> None:
             progress_calls.append((current, total, message))
 
-        with patch.object(SpotifyAPIClient, "__attrs_post_init__"):
-            with patch.object(SpotifyAPIClient, "get_track", mock_get_track):
-                client = SpotifyAPIClient()
-                with patch(
-                    "src.infrastructure.connectors.spotify.client.settings"
-                ) as mock_settings:
-                    mock_settings.api.spotify.concurrency = 5
-                    await client.get_tracks_concurrent(
-                        ["aaa", "bbb"], progress_callback=cb
-                    )
+        with _batch_client(_impl_returning_requested_ids()) as client:
+            await client.get_tracks_batched(ids, progress_callback=cb)
 
-        # One callback invocation per requested track (success or failure).
-        # Order is non-deterministic under TaskGroup; counts must be 1, 2.
-        assert len(progress_calls) == 2
-        currents = sorted(c for c, _, _ in progress_calls)
-        assert currents == [1, 2]
-        assert all(t == 2 for _, t, _ in progress_calls)
+        # Once per chunk, but counted in tracks so the bar stays track-scale.
+        assert len(progress_calls) == 3
+        assert sorted(c for c, _, _ in progress_calls) == [50, 100, 120]
+        assert all(t == 120 for _, t, _ in progress_calls)
         assert all("Spotify" in msg for _, _, msg in progress_calls)
 
-    async def test_progress_callback_fires_for_failures_too(self):
-        """A failed fetch still increments the completed counter."""
-        from src.infrastructure.connectors.spotify.client import SpotifyAPIClient
-
-        mock_get_track = AsyncMock(side_effect=[None, None])
-        progress_calls: list[tuple[int, int, str]] = []
-
-        async def cb(current: int, total: int, message: str) -> None:
-            progress_calls.append((current, total, message))
-
+    async def test_request_sends_comma_joined_ids_and_market(self):
         with patch.object(SpotifyAPIClient, "__attrs_post_init__"):
-            with patch.object(SpotifyAPIClient, "get_track", mock_get_track):
-                client = SpotifyAPIClient()
-                with patch(
-                    "src.infrastructure.connectors.spotify.client.settings"
-                ) as mock_settings:
-                    mock_settings.api.spotify.concurrency = 5
-                    await client.get_tracks_concurrent(
-                        ["aaa", "bbb"], progress_callback=cb
-                    )
+            client = SpotifyAPIClient()
+            client._client = AsyncMock()
+            response = MagicMock()
+            response.json.return_value = {"tracks": []}
+            response.raise_for_status.return_value = None
+            client._client.get = AsyncMock(return_value=response)
 
-        assert len(progress_calls) == 2
+            _ = await client._get_tracks_batch_impl(["aaa", "bbb"])
 
-    async def test_get_tracks_concurrent_keys_by_requested_id(self):
-        """When Spotify returns a track with different .id, dict keys by REQUESTED id."""
-        from src.infrastructure.connectors.spotify.client import SpotifyAPIClient
-
-        # Simulate redirect: asked for "old_id", Spotify returns track with id="new_id"
-        redirected_track = make_spotify_track("new_id", "Redirected Song")
-        mock_get_track = AsyncMock(return_value=redirected_track)
-
-        with patch.object(SpotifyAPIClient, "__attrs_post_init__"):
-            with patch.object(SpotifyAPIClient, "get_track", mock_get_track):
-                client = SpotifyAPIClient()
-                with patch(
-                    "src.infrastructure.connectors.spotify.client.settings"
-                ) as mock_settings:
-                    mock_settings.api.spotify.concurrency = 5
-                    result = await client.get_tracks_concurrent(["old_id"])
-
-        # Keyed by requested ID, not the returned track's .id
-        assert "old_id" in result
-        assert "new_id" not in result
-        assert result["old_id"].id == "new_id"
+        params = client._client.get.call_args.kwargs["params"]
+        assert client._client.get.call_args.args[0] == "/tracks"
+        assert params["ids"] == "aaa,bbb"
+        assert params["market"] == client.market
 
 
 class TestSearchLimitClamped:

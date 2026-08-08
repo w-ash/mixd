@@ -678,3 +678,98 @@ class TestTrackNormalizedColumns:
             strip_parentheticals(title)
         )
         assert db_row.artists_text == artist
+
+
+class TestSaveTracksBulk:
+    """``save_tracks`` is the batch form of ``save_track``'s insert arm."""
+
+    async def test_a_batch_of_new_canonicals_is_inserted_in_input_order(
+        self, db_session
+    ):
+        track_repo = get_unit_of_work(db_session).get_track_repository()
+        tracks = [
+            make_track(
+                title=f"TEST_Bulk_{n}_{uuid4()}",
+                artist=f"TEST_Artist_{uuid4()}",
+                duration_ms=180_000 + n,
+                connector_track_identifiers={"spotify": f"spotify_{uuid4()}"},
+            )
+            for n in range(3)
+        ]
+
+        saved = await track_repo.save_tracks(tracks)
+
+        assert [t.title for t in saved] == [t.title for t in tracks]
+        assert len({t.id for t in saved}) == 3
+        for track in saved:
+            assert track.id is not None
+            retrieved = await track_repo.get_by_id(track.id)
+            assert retrieved.title == track.title
+
+    async def test_the_denormalized_spotify_id_survives_the_batch_insert(
+        self, db_session
+    ):
+        """The resolver's whole fast path depends on that column being written."""
+        track_repo = get_unit_of_work(db_session).get_track_repository()
+        spotify_id = f"spotify_{uuid4()}"
+
+        (saved,) = await track_repo.save_tracks([
+            make_track(
+                title=f"TEST_Denorm_{uuid4()}",
+                connector_track_identifiers={"spotify": spotify_id},
+            )
+        ])
+
+        assert saved.connector_track_identifiers["spotify"] == spotify_id
+
+    async def test_a_claimed_isrc_falls_back_to_the_row_at_a_time_path(
+        self, db_session
+    ):
+        """A key the table already holds is not new — ``save_track`` decides it."""
+        track_repo = get_unit_of_work(db_session).get_track_repository()
+        isrc = f"TEST{uuid4().hex[:8].upper()}"
+        title = f"TEST_Owner_{uuid4()}"
+        owner = await track_repo.save_track(
+            make_track(title=title, isrc=isrc, duration_ms=200_000)
+        )
+
+        # Same duration, so the ISRC guard upserts into the owner rather than
+        # deferring — the batch must reach that decision, not raise on the
+        # unique constraint or duplicate the recording.
+        saved = await track_repo.save_tracks([
+            make_track(
+                title=f"TEST_Incoming_{uuid4()}", isrc=isrc, duration_ms=200_500
+            ),
+            make_track(
+                title=f"TEST_Fresh_{uuid4()}",
+                connector_track_identifiers={"spotify": f"spotify_{uuid4()}"},
+            ),
+        ])
+
+        assert saved[0].id == owner.id
+        assert saved[1].id != owner.id
+
+    async def test_two_rows_claiming_one_key_collapse_onto_the_same_canonical(
+        self, db_session
+    ):
+        """Two relinks pointing at one current id must not race the constraint."""
+        track_repo = get_unit_of_work(db_session).get_track_repository()
+        spotify_id = f"spotify_{uuid4()}"
+
+        saved = await track_repo.save_tracks([
+            make_track(
+                title=f"TEST_First_{uuid4()}",
+                connector_track_identifiers={"spotify": spotify_id},
+            ),
+            make_track(
+                title=f"TEST_Second_{uuid4()}",
+                connector_track_identifiers={"spotify": spotify_id},
+            ),
+        ])
+
+        assert saved[0].id == saved[1].id
+
+    async def test_an_empty_batch_touches_nothing(self, db_session):
+        track_repo = get_unit_of_work(db_session).get_track_repository()
+
+        assert await track_repo.save_tracks([]) == []

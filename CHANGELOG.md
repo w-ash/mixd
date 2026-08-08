@@ -6,6 +6,19 @@ linked backlog version file. Versioning follows mixd's four-segment
 `major.minor.feature.revision` scheme (`.claude/rules/version-management.md`), not strict
 SemVer. Format inspired by [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [0.10.2.4] — 2026-08-08
+
+**The remaining imports run in a fraction of the time — and the Last.fm import can no longer lose data.** The first sizable GDPR file took ~21 minutes; live measurement on prod showed 80% was database round-trips creating new tracks (~45 sequential statements × 26ms each) and most of the rest was one-at-a-time Spotify probes. Extrapolated to the full 200k-record set, that was many hours. This release attacks both, plus three correctness finds from the same audit.
+
+- **Batch track lookups**: `GET /v1/tracks?ids=` (verified live against this app — the Feb-2026 dev-mode restriction doesn't bind) replaces per-id probes: ~46k requests become ~920, preserving redirect detection via requested-vs-returned id correlation.
+- **Bulk track creation**: new tracks persist per-chunk through the batched write path the likes import already uses, with automatic fallback to the per-item savepoint loop if a chunk's bulk write fails — the isolation guarantees stay, the ~50s-per-chunk DB tail goes.
+- **Rate limit raised to 12 req/s with a shared 429 brake**: a rate-limited response now pauses the whole bucket for the server's stated window instead of only the one call that saw it.
+- **Last.fm checkpoint integrity (fixed before the full-history import)**: the day loop checkpointed ahead of persistence — a crash mid-history would silently lose everything fetched before it while resuming past it. Plays now persist before their checkpoint advances ("checkpoint never leads persisted data").
+- **Projection fixes**: progress events during the projection tail were all silently dropped (non-monotonic against the resolution phase's counter — frozen bar + warning storm); projection now scopes to days that actually contain resolutions, so one stray decade-old play can no longer trigger a 14-year empty-day sweep.
+- Also: the redundant per-mapping existence check is gone (~one round trip per created track), and dead-ID duration evidence accumulates across chunks so the wrong-version veto keeps its strength on large files.
+
+→ [details](docs/backlog/v0.10.x.md#post-deploy-revisions)
+
 ## [0.10.2.3] — 2026-08-08
 
 **Dead Spotify IDs now actually get rescued.** The first prod retry under v0.10.2.2 did its job — the failed play showed its reason: "Robert Johnson – Come On in My Kitchen (track_resolution_failed)", classified dead. But the track is alive on Spotify under a new ID; the search fallback that should have found it was asking a malformed question. Spotify binds a field filter to a single term unless quoted, so `artist:Robert Johnson track:Come On in My Kitchen` searched for artist "Robert" and title "Come" — every multi-word artist or title got a garbage query, and at full-import scale that would have falsely condemned a large share of rescuable old IDs to a month-long retry snooze.

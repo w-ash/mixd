@@ -3,8 +3,8 @@
 from collections import Counter
 from collections.abc import Mapping, Sequence
 from datetime import UTC, datetime
-from typing import Any, ClassVar, Literal, NamedTuple, cast
-from uuid import UUID
+from typing import Any, ClassVar, Final, Literal, NamedTuple, cast
+from uuid import UUID, uuid7
 
 from sqlalchemy import (
     ColumnElement,
@@ -21,6 +21,7 @@ from sqlalchemy import (
     tuple_,
     update,
 )
+from sqlalchemy.dialects.postgresql import insert as pg_insert
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import InstrumentedAttribute
 
@@ -61,6 +62,24 @@ logger = get_logger(__name__)
 # The supersession reason a merge writes: the retired mapping pointed at a
 # duplicate canonical, not at a wrong connector track.
 _CONFLATION: SupersessionReason = "conflation"
+
+
+# The user-scoped unique keys a canonical is deduplicated on, in the
+# precedence ``save_track`` applies them: the ISRC first, then the MusicBrainz
+# id, then the denormalized Spotify id. Each is backed by a unique constraint
+# (``uq_tracks_user_isrc`` and siblings), so a batch insert has to know which
+# of them are already claimed before it can call its rows new.
+_IDENTITY_COLUMNS: Final[tuple[str, ...]] = ("isrc", "mbid", "spotify_id")
+
+
+def _identity_keys(values: Mapping[str, object]) -> set[tuple[str, str, str]]:
+    """The (column, user, value) identity keys one track row would claim."""
+    user_id = cast("str", values["user_id"])
+    return {
+        (name, user_id, value)
+        for name in _IDENTITY_COLUMNS
+        if isinstance(value := values.get(name), str) and value
+    }
 
 
 def _empty_facets() -> TrackFacets:
@@ -366,24 +385,7 @@ class TrackRepository(BaseRepository[DBTrack, Track]):
         Update path (version > 0) uses WHERE version = :expected to detect
         concurrent modifications. Insert/upsert path (version == 0) is unaffected.
         """
-        if not track.title or not track.artists:
-            raise ValueError("Track must have title and artists")
-
-        values: dict[str, object] = {
-            "title": track.title,
-            "artists": {"names": [artist.name for artist in track.artists]},
-            "album": track.album,
-            "duration_ms": track.duration_ms,
-            "release_date": track.release_date,
-            "isrc": track.isrc,
-            "user_id": track.user_id,
-            **TrackMapper.normalized_columns(track),
-        }
-
-        # Add denormalized connector IDs (fast-path lookup columns)
-        for connector, column in DenormalizedTrackColumns.COLUMN_MAP.items():
-            if connector in track.connector_track_identifiers:
-                values[column] = track.connector_track_identifiers[connector]
+        values = self._track_column_values(track)
 
         # --- Update path: optimistic locking via version check ---
         if track.version > 0:
@@ -454,6 +456,160 @@ class TrackRepository(BaseRepository[DBTrack, Track]):
         self.session.add(db_track)
         await self.session.flush()
         return await self._refresh_and_map(db_track)
+
+    @staticmethod
+    def _track_column_values(track: Track) -> dict[str, object]:
+        """The ``tracks`` columns one domain Track writes.
+
+        The single payload builder behind ``save_track`` and ``save_tracks`` —
+        a second copy is how the batch path and the per-row path start
+        disagreeing about what a saved canonical contains.
+        """
+        if not track.title or not track.artists:
+            raise ValueError("Track must have title and artists")
+
+        values: dict[str, object] = {
+            "title": track.title,
+            "artists": {"names": [artist.name for artist in track.artists]},
+            "album": track.album,
+            "duration_ms": track.duration_ms,
+            "release_date": track.release_date,
+            "isrc": track.isrc,
+            "user_id": track.user_id,
+            **TrackMapper.normalized_columns(track),
+        }
+
+        # Add denormalized connector IDs (fast-path lookup columns)
+        for connector, column in DenormalizedTrackColumns.COLUMN_MAP.items():
+            if connector in track.connector_track_identifiers:
+                values[column] = track.connector_track_identifiers[connector]
+        return values
+
+    @db_operation("save_tracks")
+    async def save_tracks(self, tracks: Sequence[Track]) -> list[Track]:
+        """Insert a batch of new canonical tracks in one statement.
+
+        The batch form of ``save_track``'s insert arm: one probe for every
+        identity key the batch carries, then one multi-row INSERT, in place of
+        the four statements ``save_track`` spends per row. It exists because
+        the Spotify inward resolver creates a whole 50-id chunk of canonicals
+        at once, and at a 26ms round trip the per-row form was the bulk of
+        import wall time.
+
+        A row whose identity key is **already claimed** — by an existing
+        canonical, or by an earlier row of this same batch — is not new, so it
+        is handed to ``save_track``, which owns the upsert-or-defer decision
+        (including the suspect-ISRC guard). That set is empty on the path this
+        exists for: the resolver only reaches creation for ids the mapping
+        lookup and the canonical-reuse pass have both already missed. It is
+        the drift case, not the hot one, so it stays a delegation rather than
+        a second implementation of the guard.
+
+        Returns one Track per input, in input order.
+        """
+        if not tracks:
+            return []
+
+        values_by_index = {
+            index: self._track_column_values(track)
+            for index, track in enumerate(tracks)
+        }
+        # The optimistic-locking arm is a different statement shape entirely
+        # (UPDATE … WHERE version = :expected); it has no batch form and no
+        # caller here, so it goes back to the row-at-a-time path.
+        claimed = await self._claimed_identity_keys([
+            values
+            for index, values in values_by_index.items()
+            if tracks[index].version == 0
+        ])
+
+        rows: list[dict[str, object]] = []
+        row_indexes: list[int] = []
+        deferred: list[int] = []
+        now = datetime.now(UTC)
+        for index, values in values_by_index.items():
+            keys = _identity_keys(values)
+            if tracks[index].version > 0 or keys & claimed:
+                deferred.append(index)
+                continue
+            # An earlier row of this batch now owns these keys — a later row
+            # naming any of them would violate the unique constraint and take
+            # the whole INSERT down with it.
+            claimed |= keys
+            rows.append({
+                **values,
+                # Explicit rather than left to the column defaults: a
+                # multi-VALUES insert is compiled once for every row, and the
+                # id is needed here anyway to put RETURNING back in input order.
+                "id": uuid7(),
+                "version": 1,
+                "created_at": now,
+                "updated_at": now,
+            })
+            row_indexes.append(index)
+
+        saved: dict[int, Track] = {}
+        if rows:
+            result = await self.session.execute(
+                pg_insert(DBTrack).values(rows).returning(DBTrack)
+            )
+            inserted = {db_track.id: db_track for db_track in result.scalars().all()}
+            for index, row in zip(row_indexes, rows, strict=True):
+                # Freshly inserted rows have no mappings, likes or metrics yet,
+                # so the mapper's eager-load-or-empty reads are exact — no
+                # relationship round trip is needed to map them faithfully.
+                saved[index] = await self.mapper.to_domain(
+                    inserted[cast("UUID", row["id"])]
+                )
+
+        for index in deferred:
+            saved[index] = await self.save_track(tracks[index])
+
+        return [saved[index] for index in range(len(tracks))]
+
+    async def _claimed_identity_keys(
+        self, rows: Sequence[Mapping[str, object]]
+    ) -> set[tuple[str, str, str]]:
+        """Which (column, user, value) identity keys the table already holds.
+
+        One statement for a whole batch, replacing ``save_track``'s per-row
+        lookup: an OR across the three user-scoped unique keys. Existence is
+        the only question asked — a claimed key sends its row to
+        ``save_track``, which re-reads what it needs to decide between
+        upserting into the owner and deferring a suspect ISRC collision.
+        """
+        wanted: dict[str, set[str]] = {name: set() for name in _IDENTITY_COLUMNS}
+        users: set[str] = set()
+        for row in rows:
+            users.add(cast("str", row["user_id"]))
+            for name, _user, value in _identity_keys(row):
+                wanted[name].add(value)
+
+        predicates: list[ColumnElement[bool]] = []
+        if wanted["isrc"]:
+            predicates.append(DBTrack.isrc.in_(sorted(wanted["isrc"])))
+        if wanted["mbid"]:
+            predicates.append(DBTrack.mbid.in_(sorted(wanted["mbid"])))
+        if wanted["spotify_id"]:
+            predicates.append(DBTrack.spotify_id.in_(sorted(wanted["spotify_id"])))
+        if not predicates:
+            return set()
+
+        result = await self.session.execute(
+            select(
+                DBTrack.user_id, DBTrack.isrc, DBTrack.mbid, DBTrack.spotify_id
+            ).where(DBTrack.user_id.in_(sorted(users)), or_(*predicates))
+        )
+        return {
+            (name, user_id, value)
+            for user_id, isrc, mbid, spotify_id in result.tuples()
+            for name, value in (
+                ("isrc", isrc),
+                ("mbid", mbid),
+                ("spotify_id", spotify_id),
+            )
+            if value is not None and value in wanted[name]
+        }
 
     async def _isrc_collision_is_suspect(self, user_id: str, track: Track) -> bool:
         """Check whether merging into the ISRC owner would be a suspect merge.

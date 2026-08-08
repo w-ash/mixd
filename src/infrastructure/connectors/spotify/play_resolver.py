@@ -115,6 +115,7 @@ class SpotifyConnectorPlayResolver:
 
     spotify_connector: SpotifyConnector
     _inward_resolver: SpotifyInwardResolver
+    _completed_play_ms_by_id: dict[str, list[int]]
 
     def __init__(self, spotify_connector: SpotifyConnector | None = None):
         """Initialize with Spotify connector for track resolution."""
@@ -122,6 +123,11 @@ class SpotifyConnectorPlayResolver:
         self._inward_resolver = SpotifyInwardResolver(
             spotify_connector=self.spotify_connector
         )
+        # Run-scoped, not call-scoped: the orchestrator builds one resolver per
+        # service per import and then calls it once per 50-play chunk, so this
+        # accumulates across the chunks of a single import and is discarded
+        # with the resolver when that import ends. See ``_accumulate_completed_ms``.
+        self._completed_play_ms_by_id = {}
 
     async def resolve_connector_plays(
         self,
@@ -250,13 +256,12 @@ class SpotifyConnectorPlayResolver:
     ) -> tuple[list[str], dict[str, FallbackHint]]:
         """Extract unique Spotify track IDs + fallback hints in a single pass.
 
-        Names come from the first play carrying the id; the length estimate
-        needs every play, so completed durations are gathered here and reduced
-        once the batch has been walked.
+        Names come from the first play in this chunk carrying the id; the
+        length estimate is derived from the run's accumulator rather than from
+        this chunk alone (see ``_accumulate_completed_ms``).
         """
         unique_ids_set: set[str] = set()
         fallback_hints: dict[str, FallbackHint] = {}
-        completed_ms: dict[str, list[int]] = {}
         for cp in connector_plays:
             sid = self._extract_spotify_id_from_connector_play(cp)
             if not sid:
@@ -266,15 +271,37 @@ class SpotifyConnectorPlayResolver:
                 fallback_hints[sid] = FallbackHint(
                     artist_name=cp.artist_name, track_name=cp.track_name
                 )
-            if _ran_to_completion(cp) and cp.ms_played:
-                completed_ms.setdefault(sid, []).append(cp.ms_played)
+            self._accumulate_completed_ms(sid, cp)
 
         return list(unique_ids_set), {
             sid: evolve(
-                hint, completed_play_ms_estimate=_median_ms(completed_ms.get(sid))
+                hint,
+                completed_play_ms_estimate=_median_ms(
+                    self._completed_play_ms_by_id.get(sid)
+                ),
             )
             for sid, hint in fallback_hints.items()
         }
+
+    def _accumulate_completed_ms(self, sid: str, cp: ConnectorTrackPlay) -> None:
+        """Add a completed play's duration to the run's evidence for ``sid``.
+
+        The estimate stands in for a track-length field the GDPR export does
+        not have, and it is the only thing that can veto a search fallback for
+        picking a radio edit over the album cut. Derived from one 50-play chunk
+        it was routinely absent or wrong: a track played to completion five
+        times across a decade of history has its plays scattered over many
+        chunks, so the chunk holding its *dead* id often held none of them and
+        asserted no length at all.
+
+        Accumulating per run fixes the common case without pretending to fix
+        all of it — plays that arrive in a *later* chunk than the one that
+        resolves the id still cannot contribute, because the hint has to be
+        built before the resolution it feeds. Only prior and current chunks
+        count, which for a chronologically ordered export is most of them.
+        """
+        if _ran_to_completion(cp) and cp.ms_played:
+            self._completed_play_ms_by_id.setdefault(sid, []).append(cp.ms_played)
 
     def _should_skip(
         self, connector_play: ConnectorTrackPlay, canonical_track: Track

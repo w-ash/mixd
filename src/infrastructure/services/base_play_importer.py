@@ -72,6 +72,18 @@ class BasePlayImporter[TRawData, TParams: PlayImportParams](ABC):
 
     operation_name: str = "Base Import"  # Override in subclasses
 
+    # Whether :meth:`_fetch_data` already wrote its rows to the ledger.
+    #
+    # A source that commits a resume cursor mid-fetch MUST set this and persist
+    # each chunk through :meth:`_persist_fetched_chunk` BEFORE checkpointing it
+    # — the invariant is "the checkpoint never leads the persisted plays".
+    # Otherwise a crash mid-span leaves a cursor pointing past rows that were
+    # never written, and the resumed run skips them forever (the Last.fm
+    # full-history data-loss bug). The run-end save is then a no-op: the rows
+    # are already durable, and re-streaming the whole span would only make
+    # ON CONFLICT discard every one of them.
+    persists_plays_during_fetch: bool = False
+
     async def import_data(
         self,
         params: TParams,
@@ -258,9 +270,13 @@ class BasePlayImporter[TRawData, TParams: PlayImportParams](ABC):
             )
         )
 
-        imported_count, duplicate_count = await self._save_connector_plays_via_uow(
-            track_plays, uow
-        )
+        if self.persists_plays_during_fetch:
+            # Already in the ledger, chunk by chunk, ahead of each checkpoint.
+            imported_count, duplicate_count = len(track_plays), 0
+        else:
+            imported_count, duplicate_count = await self._save_connector_plays_via_uow(
+                track_plays, uow
+            )
 
         # Step 5: Handle checkpoints (delegated to subclasses)
         await progress_emitter.emit_progress(
@@ -393,6 +409,27 @@ class BasePlayImporter[TRawData, TParams: PlayImportParams](ABC):
                 checkpoint written under any other key is silently rejected by
                 the ``user_isolation`` policy (migration 007).
         """
+
+    async def _persist_fetched_chunk(
+        self,
+        connector_plays: list[ConnectorTrackPlay],
+        uow: UnitOfWorkProtocol,
+        *,
+        user_id: str,
+    ) -> None:
+        """Persist one fetch chunk through the same path the run-end save uses.
+
+        For sources that checkpoint mid-fetch (see
+        :attr:`persists_plays_during_fetch`). Tenancy is verified for the chunk
+        exactly as the whole-span guard verifies the assembled list — the guard
+        must run BEFORE the write, and for these sources the write happens here.
+
+        Writes are ON CONFLICT DO NOTHING against the ledger's deduplication
+        constraint, so re-persisting a chunk after a crash-and-resume is a
+        no-op rather than a duplicate.
+        """
+        _require_uniform_tenancy(connector_plays, user_id, type(self).__name__)
+        _ = await self._save_connector_plays_via_uow(connector_plays, uow)
 
     async def _save_connector_plays_via_uow(
         self, connector_plays: list[ConnectorTrackPlay], uow: UnitOfWorkProtocol

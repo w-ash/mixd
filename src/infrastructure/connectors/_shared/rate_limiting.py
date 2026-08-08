@@ -9,7 +9,9 @@ span processes (multiple workers sharing one upstream quota).
 Every attempt takes a token, retries included. Reactive 429 handling
 (``_shared/retry_policies.py``) is the exception path, not the pacing
 mechanism: an unpaced retry storm is what walks a client from one rate-limit
-window into the next.
+window into the next. The two meet at :meth:`ConnectorRateLimiter.pause_for`,
+which retry_policies calls on a 429 so the server's stated window brakes every
+concurrent caller, not just the one that was told about it.
 """
 
 import asyncio
@@ -41,6 +43,7 @@ class ConnectorRateLimiter:
     _capacity: float = field(init=False)
     _tokens: float = field(init=False)
     _updated_at: float = field(init=False)
+    _paused_until: float = field(init=False, default=0.0)
     _lock: asyncio.Lock = field(init=False, factory=asyncio.Lock, repr=False)
 
     def __attrs_post_init__(self) -> None:
@@ -62,6 +65,13 @@ class ConnectorRateLimiter:
         """
         async with self._lock:
             now = self._clock()
+            # Serve out any server-declared rate-limit window before touching the
+            # bucket. Each queued acquirer re-reads the deadline, so the first
+            # sleeps the remainder and the rest fall straight through.
+            remaining_pause = self._paused_until - now
+            if remaining_pause > 0.0:
+                await self._sleep(remaining_pause)
+                now = self._clock()
             # Clamp: a reading behind the bookkeeping cursor must not mint tokens
             # or destroy them (the cursor runs ahead by a pending sleep, below).
             elapsed = max(0.0, now - self._updated_at)
@@ -77,6 +87,26 @@ class ConnectorRateLimiter:
                 self._updated_at = now + delay
                 await self._sleep(delay)
             self._tokens -= 1.0
+
+    def pause_for(self, seconds: float) -> None:
+        """Hold every acquirer off for ``seconds`` — the shared 429 brake.
+
+        A 429's backoff only sleeps the one call that hit it, while every other
+        in-flight caller keeps spending tokens into the same server window and
+        earns 429s of its own. Pushing a shared deadline forward stops the whole
+        service instead, which is what the server actually asked for.
+
+        Deliberately sync and lock-free: the caller is tenacity's
+        ``before_sleep`` callback, a plain function with no event loop to await
+        on. The state is a single float, so a write cannot interleave with
+        ``acquire``'s read under asyncio's single-threaded scheduling — no lock
+        is needed and taking one here would be a deadlock waiting to happen.
+        The deadline only ever extends: a shorter concurrent pause must not
+        shorten a longer one already in force.
+        """
+        if seconds <= 0.0:
+            return
+        self._paused_until = max(self._paused_until, self._clock() + seconds)
 
     async def __aenter__(self) -> Self:
         await self.acquire()

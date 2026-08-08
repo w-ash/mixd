@@ -16,7 +16,6 @@ from uuid import UUID
 from attrs import define, field
 
 from src.application.services.play_projection_service import (
-    PROJECTION_FETCH_MARGIN,
     PROJECTION_STAT_LABELS,
     PlayProjectionService,
 )
@@ -301,20 +300,34 @@ class PlayImportOrchestrator:
 
                 played = [cp.played_at for cp, _ in all_resolutions]
                 projection = PlayProjectionService()
-                # Re-enter the UoW context so an exception mid-chunk rolls
+                # The projection gets its OWN operation, as the rebuild use
+                # case does. The progress ledger enforces monotonic ``current``
+                # per operation id, and the projection's chunk counter restarts
+                # at 1 — emitted under the resolution operation (already at
+                # ~15k after a large batch) every single event is rejected and
+                # logged, freezing the bar for the whole projection tail.
+                #
+                # Re-entering the UoW context makes an exception mid-chunk roll
                 # back the pending writes — ImportTracksUseCase converts
-                # exceptions into a failed result, and without this bracket
-                # the runner's session teardown would COMMIT the half-applied
-                # chunk instead (per-chunk commit_batch durability is
-                # unaffected; only the failure path changes).
-                async with uow:
-                    projection_stats = await projection.project_range(
+                # exceptions into a failed result, and without this bracket the
+                # runner's session teardown would COMMIT the half-applied chunk
+                # instead (per-chunk commit_batch durability is unaffected;
+                # only the failure path changes).
+                async with (
+                    tracked_operation(
+                        progress_emitter, "Projecting plays onto canonical history"
+                    ) as projection_operation_id,
+                    uow,
+                ):
+                    # Only the days these plays land in, not the span they
+                    # straddle: one stray old play must not drag the batch
+                    # through years of empty day-chunks.
+                    projection_stats = await projection.project_observed_days(
                         uow,
                         user_id=user_id,
-                        start=min(played) - PROJECTION_FETCH_MARGIN,
-                        end=max(played) + PROJECTION_FETCH_MARGIN,
+                        played_at=played,
                         progress_emitter=progress_emitter,
-                        operation_id=operation_id,
+                        operation_id=projection_operation_id,
                     )
                 logger.info(
                     "Projected batch window onto canonical plays",
