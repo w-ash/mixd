@@ -204,12 +204,13 @@ class APIConfig(BaseModel):
         default_factory=lambda: ConnectorAPIConfig(
             batch_size=50,
             concurrency=50,
+            rate_limit=5.0,
             request_delay=0.1,
             retry_count=6,
             retry_base_delay=1.0,
             retry_max_delay=60.0,
         ),
-        description="Spotify API tuning. Higher retry count + delay to survive rate limit windows during large library imports.",
+        description="Spotify API tuning. Higher retry count + delay to survive rate limit windows during large library imports. Rate limit is a conservative starting point — Spotify meters over a rolling 30s window it doesn't publish, so revisit against observed 429 rates.",
     )
     musicbrainz: ConnectorAPIConfig = Field(
         default_factory=lambda: ConnectorAPIConfig(

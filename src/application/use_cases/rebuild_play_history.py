@@ -21,6 +21,7 @@ from src.application.services.play_projection_service import (
 )
 from src.application.use_cases._shared.batch_commit import commit_batch
 from src.config import get_logger
+from src.config.constants import BusinessLimits
 from src.domain.entities import OperationResult
 from src.domain.entities.progress import (
     NullProgressEmitter,
@@ -168,4 +169,5 @@ async def run_rebuild(
             command, uow, progress_emitter=progress_emitter
         ),
         user_id=user_id,
+        statement_timeout=BusinessLimits.BULK_IMPORT_STATEMENT_TIMEOUT,
     )

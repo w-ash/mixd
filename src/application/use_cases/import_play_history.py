@@ -15,6 +15,7 @@ from attrs import define, field
 from src.application.utilities.batch_results import BatchResult
 from src.application.utilities.timing import ExecutionTimer
 from src.config import get_logger
+from src.config.constants import BusinessLimits
 from src.config.logging import logging_context
 from src.domain.entities import OperationResult
 from src.domain.entities.progress import (
@@ -674,5 +675,6 @@ async def run_import(
     result = await execute_use_case(
         lambda uow: ImportTracksUseCase().execute(command, uow, progress_emitter),
         user_id=user_id,
+        statement_timeout=BusinessLimits.BULK_IMPORT_STATEMENT_TIMEOUT,
     )
     return result.operation_result

@@ -6,6 +6,7 @@ session and unit-of-work wiring. Both CLI (via run_async) and FastAPI
 """
 
 from collections.abc import Awaitable, Callable
+from contextlib import ExitStack
 
 from src.domain.repositories.uow import UnitOfWorkProtocol
 
@@ -15,6 +16,7 @@ async def execute_use_case[TResult](
     user_id: str | None = None,
     *,
     rollback: bool = True,
+    statement_timeout: str | None = None,
 ) -> TResult:
     """Run a use case with proper session/UoW lifecycle.
 
@@ -39,6 +41,10 @@ async def execute_use_case[TResult](
             rollback round-trip can raise or hang on top of the original
             error. ``close()`` discards the uncommitted work either way, so
             the committed/not-committed outcome is identical.
+        statement_timeout: PostgreSQL interval literal (e.g.
+            ``BusinessLimits.BULK_IMPORT_STATEMENT_TIMEOUT``) applied to every
+            transaction the use case opens, for bulk work whose statements
+            outlive the 30s connection default. ``None`` keeps that default.
 
     Returns:
         The result of the use case execution.
@@ -51,12 +57,17 @@ async def execute_use_case[TResult](
         )
     """
     from src.infrastructure.persistence.database.db_connection import get_session
-    from src.infrastructure.persistence.database.user_context import user_context
+    from src.infrastructure.persistence.database.user_context import (
+        statement_timeout_context,
+        user_context,
+    )
     from src.infrastructure.persistence.repositories.factories import get_unit_of_work
 
     async with get_session(rollback=rollback) as session:
         uow = get_unit_of_work(session)
-        if user_id is not None:
-            with user_context(user_id):
-                return await use_case_factory(uow)
-        return await use_case_factory(uow)
+        with ExitStack() as stack:
+            if user_id is not None:
+                _ = stack.enter_context(user_context(user_id))
+            if statement_timeout is not None:
+                _ = stack.enter_context(statement_timeout_context(statement_timeout))
+            return await use_case_factory(uow)

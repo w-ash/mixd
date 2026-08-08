@@ -54,6 +54,9 @@ class BusinessLimits:
     # Import processing
     MAX_UPLOAD_BYTES: Final = 100 * 1024 * 1024  # 100 MB
     DUPLICATE_RATE_EARLY_STOP: Final = 0.8
+    # Statement budget for bulk import/rebuild statements; OLTP keeps the 30s
+    # connection default set in ``db_connection._set_connection_timeouts``.
+    BULK_IMPORT_STATEMENT_TIMEOUT: Final = "300s"
 
     # User-facing library limits
     DEFAULT_LIBRARY_QUERY_LIMIT: Final = 50_000  # default for liked/played source nodes

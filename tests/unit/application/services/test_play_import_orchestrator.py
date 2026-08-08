@@ -447,7 +447,9 @@ class TestIncrementalCommit:
             mock_importer, mock_uow, user_id="test-user", params=LastfmImportParams()
         )
 
-        mock_uow.commit_batch.assert_awaited_once()
+        # Two boundaries for a one-play import: the Phase 1 ingestion commit,
+        # then the single resolution chunk.
+        assert mock_uow.commit_batch.await_count == 2
 
     async def test_no_commit_batch_on_empty_ingestion(
         self, orchestrator, mock_uow, mock_importer
@@ -523,6 +525,154 @@ class TestPhase2Progress:
         # Phase 1 may call start_operation via the importer, but Phase 2 should not
         # since we short-circuit on empty ingestion
         emitter.emit_progress.assert_not_awaited()
+
+
+def _play_index(play: ConnectorTrackPlay) -> int:
+    """Recover the ordinal a play was built with from its track name."""
+    return int(play.track_name.rsplit(" ", 1)[1])
+
+
+def _deterministic_outcome(
+    plays: list[ConnectorTrackPlay],
+) -> PlayResolutionOutcome:
+    """Resolve as a pure function of the plays handed in.
+
+    Every fourth play "fails" and every third resolves via fallback, so the
+    totals are fixed by the play set alone — chunking may not change them.
+    """
+    resolved = [p for p in plays if _play_index(p) % 4 != 0]
+    return PlayResolutionOutcome(
+        track_plays=[
+            _make_resolved_track_play(track_id=_play_index(p) + 1) for p in resolved
+        ],
+        metrics={
+            "error_count": len(plays) - len(resolved),
+            "fallback_resolved": len([p for p in plays if _play_index(p) % 3 == 0]),
+        },
+        resolutions=(),
+    )
+
+
+class TestResolutionChunking:
+    """Phase 2 commits per chunk so a large import cannot exhaust PostgreSQL's
+    64-subtransaction cache, and so a crash costs at most one chunk of rework."""
+
+    async def test_plays_resolved_in_chunks_of_fifty_each_committed(
+        self, orchestrator, mock_resolver, mock_uow
+    ):
+        connector_plays = [_make_connector_play(f"Song {i}") for i in range(120)]
+        mock_resolver.resolve_connector_plays.side_effect = (
+            lambda plays, _uow, **_kwargs: _deterministic_outcome(plays)
+        )
+
+        await orchestrator.execute_resolution_phase(
+            connector_plays,
+            mock_uow,
+            user_id="test-user",
+            progress_emitter=NullProgressEmitter(),
+        )
+
+        chunk_sizes = [
+            len(call.args[0])
+            for call in mock_resolver.resolve_connector_plays.await_args_list
+        ]
+        assert chunk_sizes == [50, 50, 20]
+        assert mock_uow.commit_batch.await_count == 3
+
+    async def test_chunked_totals_match_single_call_resolution(
+        self, orchestrator, mock_resolver, mock_uow
+    ):
+        """Chunking is a transaction boundary, not a semantic one: the resolved
+        count and the summed error/fallback counts must be identical to what one
+        resolver call over the whole batch would have produced."""
+        connector_plays = [_make_connector_play(f"Song {i}") for i in range(120)]
+        mock_resolver.resolve_connector_plays.side_effect = (
+            lambda plays, _uow, **_kwargs: _deterministic_outcome(plays)
+        )
+        single_call = _deterministic_outcome(connector_plays)
+
+        result = await orchestrator.execute_resolution_phase(
+            connector_plays,
+            mock_uow,
+            user_id="test-user",
+            progress_emitter=NullProgressEmitter(),
+        )
+
+        counts = result.to_counts()
+        assert counts["total"] == 120
+        assert counts["resolved"] == len(single_call.track_plays)
+        assert counts["errors"] == single_call.metrics["error_count"]
+        assert counts["fallback_resolved"] == single_call.metrics["fallback_resolved"]
+        assert result.metadata["resolved_plays"] == len(single_call.track_plays)
+
+    async def test_exact_chunk_size_stays_one_chunk(
+        self, orchestrator, mock_resolver, mock_uow
+    ):
+        """50 plays is the boundary — one resolver call, one commit, no empty tail."""
+        connector_plays = [_make_connector_play(f"Song {i}") for i in range(50)]
+        mock_resolver.resolve_connector_plays.side_effect = (
+            lambda plays, _uow, **_kwargs: _deterministic_outcome(plays)
+        )
+
+        await orchestrator.execute_resolution_phase(
+            connector_plays,
+            mock_uow,
+            user_id="test-user",
+            progress_emitter=NullProgressEmitter(),
+        )
+
+        mock_resolver.resolve_connector_plays.assert_awaited_once()
+        assert (
+            len(mock_resolver.resolve_connector_plays.await_args_list[0].args[0]) == 50
+        )
+        mock_uow.commit_batch.assert_awaited_once()
+
+    async def test_chunk_failure_preserves_prior_chunk_commits(
+        self, orchestrator, mock_resolver, mock_uow
+    ):
+        """Chunk 1's commit has already made its writes durable when chunk 2
+        blows up, and the exception still reaches the caller's failure handling."""
+        connector_plays = [_make_connector_play(f"Song {i}") for i in range(120)]
+        boom = RuntimeError("resolver exploded on chunk 2")
+
+        async def resolve(plays, _uow, **_kwargs):
+            if _play_index(plays[0]) == 50:
+                raise boom
+            return _deterministic_outcome(plays)
+
+        mock_resolver.resolve_connector_plays.side_effect = resolve
+
+        with pytest.raises(RuntimeError) as exc_info:
+            await orchestrator.execute_resolution_phase(
+                connector_plays,
+                mock_uow,
+                user_id="test-user",
+                progress_emitter=NullProgressEmitter(),
+            )
+
+        assert exc_info.value is boom
+        mock_uow.commit_batch.assert_awaited_once()
+        assert mock_resolver.resolve_connector_plays.await_count == 2
+
+    async def test_progress_emitted_per_chunk(
+        self, orchestrator, mock_resolver, mock_uow
+    ):
+        """A long import must show movement between chunks, not only per service."""
+        connector_plays = [_make_connector_play(f"Song {i}") for i in range(120)]
+        mock_resolver.resolve_connector_plays.side_effect = (
+            lambda plays, _uow, **_kwargs: _deterministic_outcome(plays)
+        )
+        emitter = AsyncMock()
+        emitter.start_operation = AsyncMock(return_value="phase2-op-id")
+
+        await orchestrator.execute_resolution_phase(
+            connector_plays,
+            mock_uow,
+            user_id="test-user",
+            progress_emitter=emitter,
+        )
+
+        assert emitter.emit_progress.await_count == 3
 
 
 class TestResolutionWriteBack:

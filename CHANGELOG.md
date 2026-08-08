@@ -16,6 +16,12 @@ SemVer. Format inspired by [Keep a Changelog](https://keepachangelog.com/en/1.1.
 - **Logs stop lying.** The import use case no longer logs "Successfully completed" while holding a soft-failure result, and the per-item handlers log with full tracebacks.
 - `OperationResult.failure_message` is the single accessor for the soft-failure reason (`metadata["error"]` / `metadata["errors"]`).
 
+Hardening for the first at-scale imports (research-driven, same release):
+
+- **Resolution commits in chunks of 50.** Phase-2 resolution previously ran as one transaction for the whole batch — with per-item savepoints, a 200k-row import would blow past Postgres's 64-cached-subtransaction limit and degrade badly. The orchestrator now commits every 50 plays (`commit_batch`, idempotent upserts), which also bounds crash rework to one chunk.
+- **Connectors are rate-limited client-side.** A hand-rolled monotonic-clock token bucket (`ConnectorRateLimiter`) paces every API call — including retry attempts — at the single `_api_call` choke point, seeded from the existing `rate_limit` settings; Spotify gets a conservative 5 req/s default. Prevents entering 429 windows instead of surviving them. (aiolimiter rejected as stale/pre-3.14; pyrate-limiter noted as the cross-process upgrade path.)
+- **Bulk statements get a real time budget.** Import and rebuild operations run with `statement_timeout=300s` via transaction-local `set_config` riding the existing RLS hook — pooler-safe, auto-reverting to the 30s OLTP default at each commit.
+
 → [details](docs/backlog/v0.10.x.md#post-deploy-revisions)
 
 ## [0.10.2.1] — 2026-07-31

@@ -78,6 +78,14 @@ The larger question — what "ownership of listening data" means architecturally
 
 ## Import Flow Polish
 
+### Import-pipeline hardening, phase 2 (deferred from v0.10.2.2, 2026-08-07)
+
+Gate: all three wait for the first clean at-scale prod import to land (the v0.10.2.2 trio — chunked resolution commits, connector rate limiting, bulk statement-timeout budget — is expected to be sufficient for it; these are the structural follow-ups the 2026-08 hardening research recommended).
+
+- **Three-pass chunked resolution** (L) — The user wants imports that can't be corrupted or stalled by a flaky external API: restructure Phase-2 resolution per chunk into read (load + local matches, short transaction) → gather (batch connector API calls, NO open transaction) → write (apply results, short transaction). Eliminates the API-call-inside-transaction anti-pattern wholesale and makes in-memory tracker state trivially consistent (built only from committed reads). Research: universal guidance; our own `ChatUseCase` exemption already states the principle.
+- **Ledger resolution-status columns + re-drive** (M) — The user wants "retry failed items" as a first-class operation instead of re-running whole imports: add `resolution_status ∈ (pending, resolved, failed, quarantined)`, `resolution_attempts`, `last_resolution_error` to `connector_plays`; failed rows re-driven via `SELECT … WHERE status='failed' FOR UPDATE SKIP LOCKED` (the standard Postgres-as-DLQ shape). Replaces JSONB-issue-only error capture with queryable per-item state; migration + repo methods + a `mixd history retry-failed` surface.
+- **Direct Neon endpoint for bulk imports** (S) — Route import/rebuild operations through a second engine bound to Neon's direct (non-pooler) host, per Neon's own bulk-work guidance; OLTP stays on the pooler. Low urgency; mostly config + engine plumbing.
+
 - **Pre-Import Library Overlap Preview** (M) - Before confirming a playlist import, show per-playlist "N already in library, M new" counts so the curator knows how much an import grows their library. Cache-only read via `connector_repo.find_tracks_by_connectors` against the cached `DBConnectorPlaylist.items` — no Spotify API call. Uncached playlists fall back to "Counts on import." Perf mitigation: use `connector_track_id = ANY(:ids::text[])` (single-connector shape) instead of tuple-IN to stay fast even at 10k-track playlists. Deferred from v0.7.6 because v0.7.7's Operation Run Log makes the post-import "what actually happened" signal more useful to the curator than the pre-import library-growth forecast. Revisit if users ask for library-growth forecasting, or if a batch-import workflow needs per-playlist triage before committing.
 
 ## Bulk Playlist Operations

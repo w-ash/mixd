@@ -10,6 +10,7 @@ pluggable importer instances from the infrastructure layer.
 
 from collections.abc import Awaitable, Callable
 from datetime import UTC, datetime
+from typing import Final
 from uuid import UUID
 
 from attrs import define
@@ -37,6 +38,15 @@ from src.domain.repositories.play import (
 from src.domain.repositories.uow import UnitOfWorkProtocol
 
 logger = get_logger(__name__)
+
+# Resolvers wrap every per-item write in a savepoint, and PostgreSQL caches only
+# 64 subtransaction ids per top-level transaction — they are never released
+# before COMMIT, and past that cap every visibility check falls back to an
+# on-disk SLRU lookup, so throughput collapses partway through a large import.
+# Committing every 50 plays keeps worst-case savepoints-per-transaction under
+# that cliff and bounds crash rework to a single chunk. Chunk size is a
+# transaction-boundary policy, so it is owned here and never by a resolver.
+_RESOLUTION_COMMIT_CHUNK_SIZE: Final = 50
 
 
 def _first_resolution_failure(metrics: ResolutionMetrics) -> str | None:
@@ -183,37 +193,48 @@ class PlayImportOrchestrator:
             ]:
                 if plays:
                     resolver = await self.resolver_factory(service)
-                    outcome = await resolver.resolve_connector_plays(
-                        plays, uow, user_id=user_id
-                    )
-                    track_plays, metrics = outcome.track_plays, outcome.metrics
-                    all_track_plays.extend(track_plays)
-                    all_resolutions.extend(outcome.resolutions)
-                    combined_metrics["resolved_plays"] += len(track_plays)
-                    combined_metrics["error_count"] += metrics.get("error_count", 0)
-                    combined_metrics["fallback_resolved"] += metrics.get(
-                        "fallback_resolved", 0
-                    )
-                    combined_metrics["redirect_resolved"] += metrics.get(
-                        "redirect_resolved", 0
-                    )
-                    combined_metrics["dead_ids_unresolved"] += metrics.get(
-                        "dead_ids_unresolved", 0
-                    )
-                    combined_metrics["isrc_suspect_deferred"] += metrics.get(
-                        "isrc_suspect_deferred", 0
-                    )
-                    if first_failure is None:
-                        first_failure = _first_resolution_failure(metrics)
-
-                    await progress_emitter.emit_progress(
-                        create_progress_event(
-                            operation_id=operation_id,
-                            current=len(all_track_plays),
-                            total=len(connector_plays),
-                            message=f"Resolved {len(all_track_plays)}/{len(connector_plays)} plays ({service})",
+                    for offset in range(0, len(plays), _RESOLUTION_COMMIT_CHUNK_SIZE):
+                        chunk = plays[offset : offset + _RESOLUTION_COMMIT_CHUNK_SIZE]
+                        outcome = await resolver.resolve_connector_plays(
+                            chunk, uow, user_id=user_id
                         )
-                    )
+                        track_plays, metrics = outcome.track_plays, outcome.metrics
+                        all_track_plays.extend(track_plays)
+                        all_resolutions.extend(outcome.resolutions)
+                        combined_metrics["resolved_plays"] += len(track_plays)
+                        combined_metrics["error_count"] += metrics.get("error_count", 0)
+                        combined_metrics["fallback_resolved"] += metrics.get(
+                            "fallback_resolved", 0
+                        )
+                        combined_metrics["redirect_resolved"] += metrics.get(
+                            "redirect_resolved", 0
+                        )
+                        combined_metrics["dead_ids_unresolved"] += metrics.get(
+                            "dead_ids_unresolved", 0
+                        )
+                        combined_metrics["isrc_suspect_deferred"] += metrics.get(
+                            "isrc_suspect_deferred", 0
+                        )
+                        if first_failure is None:
+                            first_failure = _first_resolution_failure(metrics)
+
+                        # Strictly between resolver calls: the resolver's
+                        # per-item savepoints are all closed by the time it
+                        # returns, and COMMIT inside a savepoint scope would
+                        # discard the enclosing transaction state. Resolver
+                        # writes are ON CONFLICT upserts, which is what makes
+                        # a re-run over an already-committed chunk safe (the
+                        # commit_batch contract).
+                        await commit_batch(uow)
+
+                        await progress_emitter.emit_progress(
+                            create_progress_event(
+                                operation_id=operation_id,
+                                current=len(all_track_plays),
+                                total=len(connector_plays),
+                                message=f"Resolved {len(all_track_plays)}/{len(connector_plays)} plays ({service})",
+                            )
+                        )
 
             # Phase 3: ledger write-back, then project the affected window.
             # Canonical plays are derived from the observation ledger — the

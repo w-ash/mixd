@@ -42,6 +42,10 @@ from src.infrastructure.connectors._shared.metric_registry import (
     register_metric_config,
     register_metric_resolver,
 )
+from src.infrastructure.connectors._shared.rate_limiting import (
+    ConnectorRateLimiter,
+    get_connector_rate_limiter,
+)
 
 # Get contextual logger
 logger = get_logger(__name__).bind(service="connectors")
@@ -58,20 +62,31 @@ class BaseAPIClient:
     _SUPPRESS_ERRORS: ClassVar[tuple[type[BaseException], ...]] = ()
     _retry_policy: AsyncRetrying = field(init=False, repr=False)
 
+    @property
+    def service_name(self) -> str:
+        """Settings key for this client's service, e.g. ``"spotify"``."""
+        return service_name_for_client(type(self))
+
     async def _api_call[T](
         self,
         operation: str,
         impl: Callable[..., Awaitable[T]],
         *args: object,
     ) -> T | None:
-        """Execute API call with retry policy, context propagation, and error suppression.
+        """Execute API call with rate limiting, retry policy, context, and suppression.
 
         Operation name propagates via structlog contextvars into ALL nested log calls
         (httpx2 hooks, tenacity callbacks, _impl methods).
+
+        Pacing wraps ``impl`` rather than the whole retry loop, so tenacity takes a
+        token per attempt — retries are paced, not exempt from pacing. Services
+        without a configured ``rate_limit`` get the unwrapped ``impl``.
         """
+        limiter = get_connector_rate_limiter(self.service_name)
+        attempt = impl if limiter is None else _paced(limiter, impl)
         with logging_context(operation=operation):
             try:
-                return await self._retry_policy(impl, *args)
+                return await self._retry_policy(attempt, *args)
             except Exception as exc:
                 if isinstance(exc, self._SUPPRESS_ERRORS):
                     return None
@@ -85,6 +100,33 @@ class BaseAPIClient:
 
     async def __aexit__(self, *_: object) -> None:
         await self.aclose()
+
+
+def service_name_for_client(client_class: type[BaseAPIClient]) -> str:
+    """Derive a client's service key from its connector package.
+
+    ``src.infrastructure.connectors.spotify.client`` → ``"spotify"``. The
+    connector package name is already the service identity everywhere else
+    (``settings.api.spotify``, ``RetryConfig.service_name``), so no per-client
+    declaration is needed. A package renamed out of step with the settings
+    field silently drops that service's pacing — the mapping for every live
+    client is pinned in
+    ``tests/unit/infrastructure/connectors/test_base_api_call_rate_limit.py``.
+    """
+    package, _, _module = client_class.__module__.rpartition(".")
+    return package.rpartition(".")[2]
+
+
+def _paced[T](
+    limiter: ConnectorRateLimiter, impl: Callable[..., Awaitable[T]]
+) -> Callable[..., Awaitable[T]]:
+    """Wrap an API implementation so every invocation first takes a token."""
+
+    async def paced_impl(*args: object) -> T:
+        await limiter.acquire()
+        return await impl(*args)
+
+    return paced_impl
 
 
 @define(frozen=True, slots=True)
