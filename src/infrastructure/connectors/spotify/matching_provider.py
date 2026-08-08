@@ -4,10 +4,12 @@ This provider handles communication with the Spotify API and transforms
 Spotify track data into our domain MatchResult objects.
 """
 
+from contextlib import aclosing
 from typing import override
 from uuid import UUID
 
 from src.config import create_matching_config, get_logger
+from src.config.constants import SpotifyConstants
 from src.domain.entities import Track
 from src.domain.entities.shared import JsonValue
 from src.domain.matching.algorithms import select_best_by_title_similarity
@@ -25,6 +27,7 @@ from src.infrastructure.connectors._shared.matching_provider import (
 )
 from src.infrastructure.connectors.spotify.client import SpotifyAPIClient
 from src.infrastructure.connectors.spotify.models import SpotifyTrack
+from src.infrastructure.connectors.spotify.utilities import widening_search_passes
 
 logger = get_logger(__name__)
 
@@ -114,9 +117,7 @@ class SpotifyProvider(BaseMatchingProvider):
         Fetches multiple candidates and picks the best by title similarity.
         """
         artist_name = track.artists[0].name if track.artists else ""
-        candidates = await self.connector_instance.search_track(
-            artist_name, track.title
-        )
+        candidates = await self._candidates_with_widening(artist_name, track.title)
         if not candidates:
             return None, create_and_log_failure(
                 track.id,
@@ -163,6 +164,33 @@ class SpotifyProvider(BaseMatchingProvider):
             "artist_title",
             "Best Spotify candidate missing track ID",
         )
+
+    async def _candidates_with_widening(
+        self, artist_name: str, title: str
+    ) -> list[SpotifyTrack]:
+        """Candidates for one track: the filtered query, widened once if it misses.
+
+        The quoted field filter binds artist and title whole, which costs recall
+        wherever Spotify's stored spelling differs from ours — 'Creep (Acoustic
+        Version)' against Spotify's 'Creep - Acoustic' filters out the very
+        track being matched. The free-text retry buys that recall back and is
+        bounded to zero-candidate misses, so a matching run adds at most one
+        ``/search`` per track that found nothing at all.
+
+        Ranking and evaluation stay with the caller: this shares only the fetch
+        with the dead-id fallback, which has its own acceptance policy.
+        """
+        passes = widening_search_passes(
+            self.connector_instance,
+            artist_name,
+            title,
+            SpotifyConstants.SEARCH_DEFAULT_LIMIT,
+        )
+        async with aclosing(passes):
+            async for search_pass in passes:
+                if search_pass.candidates:
+                    return search_pass.candidates
+        return []
 
     def _create_raw_match(
         self, spotify_track: SpotifyTrack, match_method: str

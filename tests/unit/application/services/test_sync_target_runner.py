@@ -9,6 +9,10 @@ The ordering assertions are the load-bearing ones: a veto must open no audit row
 (or a 30-minute heartbeat writes dozens of no-op runs a day), and the lease must
 be released even when the run explodes (or one crash wedges polling until the
 TTL expires).
+
+``TestAuditRowContent`` pins the other half: an unattended run's row records what
+a manual one's would. The mapping's own truth table is tested once, at the
+mapping — ``test_operation_outcome.py``.
 """
 
 import contextlib
@@ -92,6 +96,81 @@ class TestFailureSignals:
         with _env(_spec(run), finalize=flaky):
             outcome = await run_sync_target("u1", _TARGET, initiated_by="schedule")
         assert outcome.status == "completed"
+
+
+class TestAuditRowContent:
+    """An unattended run's row must say exactly what a manual one's would.
+
+    Nobody was watching when a scheduled or demand-triggered sync ran, so the row
+    IS the report. It used to collapse to complete/error with no counts and no
+    issues, while the byte-identical run started from the web recorded ``partial``
+    with the unresolved tracks named — the same import, two stories.
+    """
+
+    async def test_partial_result_records_partial_with_counts_and_item_issues(
+        self,
+    ) -> None:
+        result = OperationResult(operation_name="import")
+        result.summary_metrics.add("track_plays", 480, "Track Plays Created")
+        result.summary_metrics.add("errors", 20, "Errors", significance=1)
+        result.metadata["error"] = "20 of 500 plays failed import"
+        result.metadata["resolution_failures"] = [
+            {"track": "Aphex Twin - Xtal", "reason": "track_resolution_failed"}
+        ]
+        run = AsyncMock(return_value=result)
+
+        with _env(_spec(run)) as (_run_id, _m_start, m_finalize):
+            outcome = await run_sync_target("u1", _TARGET, initiated_by="schedule")
+
+        kwargs = m_finalize.await_args.kwargs
+        assert kwargs["status"] == "partial"
+        assert kwargs["counts"] == {"track_plays": 480, "errors": 20}
+        assert kwargs["issues"][0] == {"message": "20 of 500 plays failed import"}
+        assert kwargs["issues"][1]["track"] == "Aphex Twin - Xtal"
+        # The health signal is unchanged by the presentation split: a partial run
+        # still fails the schedule, still backs the poller off.
+        assert outcome.status == "failed"
+
+    async def test_total_failure_records_error_with_the_headline_reason(self) -> None:
+        run = AsyncMock(return_value=_failed_result())
+        with _env(_spec(run)) as (_run_id, _m_start, m_finalize):
+            await run_sync_target("u1", _TARGET, initiated_by="schedule")
+
+        kwargs = m_finalize.await_args.kwargs
+        assert kwargs["status"] == "error"
+        assert kwargs["counts"] == {"errors": 1}
+        assert kwargs["issues"] == [{"message": "lastfm session expired"}]
+
+    async def test_clean_result_records_counts_and_no_issues(self) -> None:
+        result = OperationResult(operation_name="import")
+        result.summary_metrics.add("track_plays", 12, "Track Plays Created")
+        run = AsyncMock(return_value=result)
+
+        with _env(_spec(run)) as (_run_id, _m_start, m_finalize):
+            await run_sync_target("u1", _TARGET, initiated_by="schedule")
+
+        kwargs = m_finalize.await_args.kwargs
+        assert kwargs["status"] == "complete"
+        assert kwargs["counts"] == {"track_plays": 12}
+        assert not kwargs["issues"]
+
+    async def test_raised_exception_records_its_message_as_an_issue(self) -> None:
+        # The row is where `safe_failure_message` sends the reader for detail, so
+        # it carries the full message the redacted `error_label` withholds.
+        run = AsyncMock(side_effect=RuntimeError("connector 503"))
+        with _env(_spec(run)) as (_run_id, _m_start, m_finalize):
+            outcome = await run_sync_target("u1", _TARGET, initiated_by="schedule")
+
+        assert outcome.error_label == "RuntimeError"
+        assert m_finalize.await_args.kwargs["issues"] == [{"message": "connector 503"}]
+
+    async def test_message_less_exception_records_its_type(self) -> None:
+        # `raise KeyError()` has an empty str() — a blank issue is worse than none.
+        run = AsyncMock(side_effect=KeyError)
+        with _env(_spec(run)) as (_run_id, _m_start, m_finalize):
+            await run_sync_target("u1", _TARGET, initiated_by="schedule")
+
+        assert m_finalize.await_args.kwargs["issues"] == [{"message": "KeyError"}]
 
 
 class TestProvenance:

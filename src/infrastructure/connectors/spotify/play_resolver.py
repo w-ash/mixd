@@ -6,7 +6,11 @@ and sophisticated duration-based filtering.
 
 from collections.abc import Callable
 from enum import StrEnum
+from statistics import median
+from typing import Final
 from uuid import UUID
+
+from attrs import evolve
 
 from src.config import get_logger, settings
 from src.domain.entities import ConnectorTrackPlay, Track, TrackPlay
@@ -24,6 +28,32 @@ from src.infrastructure.connectors.spotify.inward_resolver import (
 )
 
 logger = get_logger(__name__)
+
+
+# The export's ``reason_end`` for a play that reached the end of the track,
+# as opposed to being skipped, cut off, or ended by the app closing. Only
+# these plays say anything about how long the track runs.
+TRACKDONE: Final[str] = "trackdone"
+
+
+def _ran_to_completion(connector_play: ConnectorTrackPlay) -> bool:
+    """Did this play reach the end of the track, per the export's own verdict?"""
+    return connector_play.service_metadata.get("reason_end") == TRACKDONE
+
+
+def _median_ms(completed_play_ms: list[int] | None) -> int | None:
+    """The batch's estimate of a track's length, or None if it observed none.
+
+    Median rather than max or mean: ``ms_played`` is time spent in the player,
+    not distance through the track, so a listener who seeks backwards inflates
+    a single play (the import's convergence findings record a >6h outlier) and
+    one who seeks forwards deflates it, both while still ending ``trackdone``.
+    The median ignores either outlier as long as it is the minority, and a
+    single completed play is trivially its own median.
+    """
+    if not completed_play_ms:
+        return None
+    return round(median(completed_play_ms))
 
 
 class SkipReason(StrEnum):
@@ -218,18 +248,33 @@ class SpotifyConnectorPlayResolver:
     def _extract_ids_and_hints(
         self, connector_plays: list[ConnectorTrackPlay]
     ) -> tuple[list[str], dict[str, FallbackHint]]:
-        """Extract unique Spotify track IDs + fallback hints in a single pass."""
+        """Extract unique Spotify track IDs + fallback hints in a single pass.
+
+        Names come from the first play carrying the id; the length estimate
+        needs every play, so completed durations are gathered here and reduced
+        once the batch has been walked.
+        """
         unique_ids_set: set[str] = set()
         fallback_hints: dict[str, FallbackHint] = {}
+        completed_ms: dict[str, list[int]] = {}
         for cp in connector_plays:
             sid = self._extract_spotify_id_from_connector_play(cp)
-            if sid:
-                unique_ids_set.add(sid)
-                if sid not in fallback_hints and cp.artist_name and cp.track_name:
-                    fallback_hints[sid] = FallbackHint(
-                        artist_name=cp.artist_name, track_name=cp.track_name
-                    )
-        return list(unique_ids_set), fallback_hints
+            if not sid:
+                continue
+            unique_ids_set.add(sid)
+            if sid not in fallback_hints and cp.artist_name and cp.track_name:
+                fallback_hints[sid] = FallbackHint(
+                    artist_name=cp.artist_name, track_name=cp.track_name
+                )
+            if _ran_to_completion(cp) and cp.ms_played:
+                completed_ms.setdefault(sid, []).append(cp.ms_played)
+
+        return list(unique_ids_set), {
+            sid: evolve(
+                hint, completed_play_ms_estimate=_median_ms(completed_ms.get(sid))
+            )
+            for sid, hint in fallback_hints.items()
+        }
 
     def _should_skip(
         self, connector_play: ConnectorTrackPlay, canonical_track: Track

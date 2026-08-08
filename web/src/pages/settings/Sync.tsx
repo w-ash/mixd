@@ -39,9 +39,14 @@ import { Switch } from "#/components/ui/switch";
 import { useOperationProgress } from "#/hooks/useOperationProgress";
 import { useSyncScheduleController } from "#/hooks/useScheduleController";
 import { formatDateTime } from "#/lib/format";
+import { claimRunToast } from "#/lib/operation-toast-ledger";
 import { pluralSuffix } from "#/lib/pluralize";
 import { describeMinutes, type SyncTarget } from "#/lib/schedule";
-import { type RunOperationType, toasts } from "#/lib/toasts";
+import {
+  issueCountFromCounts,
+  type RunOperationType,
+  toasts,
+} from "#/lib/toasts";
 import { cn } from "#/lib/utils";
 
 /** Query keys to invalidate when an import operation completes. */
@@ -147,11 +152,18 @@ function OperationCard({
     if (!isTerminal) return;
     if (toastedForOpIdRef.current === operationId) return;
     toastedForOpIdRef.current = operationId;
+    // Claim the shared ledger so the global operations watcher (which polls the
+    // same run's audit row) backs off — otherwise one run gets announced twice,
+    // once here off the stream and once there off the poll.
+    if (runId !== null && !claimRunToast(runId)) return;
 
     toasts.runCompleted({
       operationType,
       counts: progress.counts ?? {},
-      issueCount: 0,
+      // A partial run arrives on the stream as `completed` carrying an `errors`
+      // count — the only live signal that items were lost, and what earns this
+      // toast its warning styling and "View log" action.
+      issueCount: issueCountFromCounts(progress.counts),
       runId,
       failed: progress.status !== "completed",
       onNavigate: navigate,

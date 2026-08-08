@@ -19,7 +19,7 @@ instantly via the bulk lookup fast path (no API call needed).
 
 import asyncio
 from collections.abc import Mapping, Set as AbstractSet
-from typing import ClassVar, override
+from typing import ClassVar, Final, override
 
 from attrs import define, evolve
 
@@ -49,12 +49,46 @@ from .utilities import create_track_from_spotify_data, search_and_evaluate_attem
 logger = get_logger(__name__)
 
 
+# How far under the estimate a candidate may sit before it reads as a different
+# version. Generous on purpose: the estimate is assembled from listening
+# behaviour, not from a length field, so it absorbs crossfade trim at the tail
+# of a completed play and the minor seek noise the median does not remove. The
+# gap it still catches is the one that matters — a radio edit or a cover
+# standing in for an album cut differs by far more than fifteen seconds.
+VERSION_MISMATCH_TOLERANCE_MS: Final[int] = 15_000
+
+
 @define(frozen=True, slots=True)
 class FallbackHint:
-    """Artist+title metadata for resolving dead Spotify track IDs via search."""
+    """What is known about a dead Spotify ID from the play rows that carry it.
+
+    The GDPR export has no track-length field, so ``completed_play_ms_estimate``
+    stands in for one: the median ``ms_played`` across the id's plays that ended
+    ``trackdone``, i.e. ran to the end of the track. It is ``None`` when the
+    batch holds no completed play for the id, and no length is then asserted.
+    """
 
     artist_name: str
     track_name: str
+    completed_play_ms_estimate: int | None = None
+
+
+def _shortest_plausible_ms(completed_play_ms_estimate: int | None) -> int | None:
+    """The shortest a candidate may be and still be the recording that played.
+
+    One-directional, and applied before any candidate is ranked. A candidate
+    LONGER than the estimate is unremarkable — the listener skipped, or the
+    album cut runs past the single. A candidate materially SHORTER than a play
+    that ran to completion is strong evidence of a different version, and no
+    title or artist score can outweigh it: a 3:38 cover cannot be the track
+    somebody once played to the end for 4:30.
+
+    ``None`` when the batch held no completed play — nothing is asserted about
+    a length that was never observed.
+    """
+    if completed_play_ms_estimate is None:
+        return None
+    return max(completed_play_ms_estimate - VERSION_MISMATCH_TOLERANCE_MS, 0)
 
 
 @define(frozen=True, slots=True)
@@ -646,9 +680,14 @@ class SpotifyInwardResolver(InwardTrackResolver):
         """Search Spotify for a dead ID. Pure API + domain evaluation, no DB writes."""
         hint = self._fallback_hints[dead_id]
         try:
+            # The estimate is the only length evidence a dead id has, and it
+            # enters the match twice: as the probe's duration, which the
+            # evaluation service already knows how to score against a
+            # candidate's, and as the floor below.
             hint_track = Track(
                 title=hint.track_name,
                 artists=[Artist(name=hint.artist_name)],
+                duration_ms=hint.completed_play_ms_estimate,
             )
             attempt = await search_and_evaluate_attempt(
                 self._spotify_connector,
@@ -656,7 +695,28 @@ class SpotifyInwardResolver(InwardTrackResolver):
                 hint_track,
                 hint.artist_name,
                 hint.track_name,
+                # A durable rescue of one dead id, not a per-play search, so
+                # one extra /search buys back the recall the quoted filters
+                # cost wherever Spotify's spelling differs from the export's.
+                widen=True,
+                # Title similarity says nothing about who performed the track,
+                # and the widened query does not constrain the artist at all —
+                # "Johnny Cash - Hurt" ranks Nine Inch Nails' "Hurt" at
+                # similarity 1.0. Accepting on similarity alone writes that as
+                # this dead id's durable primary SEARCH_FALLBACK mapping and
+                # counts it a rescue. The full evaluation rules on both passes.
+                require_success=True,
+                min_candidate_duration_ms=_shortest_plausible_ms(
+                    hint.completed_play_ms_estimate
+                ),
                 min_similarity=SpotifyConstants.FALLBACK_SIMILARITY_THRESHOLD,
+                # require_success is not artist-proof (see the constant's
+                # rationale) — ~7% of dead ids carry no duration evidence, and
+                # for them this floor is the only thing standing between a
+                # same-title wrong-artist recording and a durable mapping.
+                min_artist_similarity=(
+                    SpotifyConstants.FALLBACK_ARTIST_SIMILARITY_THRESHOLD
+                ),
                 fallback_connector_id=dead_id,
                 limit=SpotifyConstants.SEARCH_MAX_LIMIT,
             )

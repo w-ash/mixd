@@ -27,7 +27,7 @@ from src.infrastructure.connectors._shared.isrc import normalize_isrc
 from src.infrastructure.connectors.listenbrainz.lookup import ListenBrainzLookup
 from src.infrastructure.connectors.spotify import SpotifyConnector
 from src.infrastructure.connectors.spotify.models import SpotifyTrack
-from src.infrastructure.connectors.spotify.utilities import search_and_evaluate_match
+from src.infrastructure.connectors.spotify.utilities import search_and_evaluate_attempt
 
 logger = get_logger(__name__)
 
@@ -105,13 +105,21 @@ class SpotifyCrossDiscoveryProvider:
         if lb_outcome is not None:
             return lb_outcome
 
-        search_match = await search_and_evaluate_match(
+        # Single pass: discovery searches once per unmatched play, so a
+        # widening retry would double /search volume against the shared 5 rps
+        # limiter across a run whose misses are overwhelmingly genuine misses.
+        # Success is judged below rather than inside the pipeline, so the
+        # rejected match survives long enough to be logged with its confidence.
+        attempt = await search_and_evaluate_attempt(
             self._spotify_connector,
             self._match_evaluation_service,
             probe_track,
             artist_name,
             track_name,
+            widen=False,
+            require_success=False,
         )
+        search_match = attempt.match
         if search_match is None:
             return Nothing()
 

@@ -17,7 +17,10 @@ from pathlib import Path
 
 import pytest
 
-from src.infrastructure.connectors.spotify.client import SpotifyAPIClient
+from src.infrastructure.connectors.spotify.client import (
+    SpotifyAPIClient,
+    field_filtered_search_query,
+)
 
 
 @pytest.mark.diagnostic
@@ -105,7 +108,9 @@ class TestStaleIdDiscovery:
             resolved = 0
             for dead_id in dead_ids[:5]:  # Limit to 5 to avoid rate limits
                 artist, title = id_map[dead_id]
-                candidates = await client.search_track(artist, title)
+                candidates = await client.search_track(
+                    field_filtered_search_query(artist, title)
+                )
                 if candidates:
                     resolved += 1
                     # Verify top result has ISRC

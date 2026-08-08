@@ -153,6 +153,25 @@ const RUN_TYPES: Record<
   },
 };
 
+/**
+ * Per-item failure count carried on a *live* terminal SSE event.
+ *
+ * The stream has no `partial` terminal type: the backend maps a partial run onto
+ * the `complete` event and rides the failure count in `counts.errors`
+ * (`_push_terminal_event`, deliberate — the SSE vocabulary is shared with the
+ * workflow streams). So this number is a foreground watcher's ONLY signal that a
+ * finished run lost items; ignoring it toasts a lossy run as a clean success.
+ *
+ * Polled surfaces read `run.issues.length` off the audit row instead — that one
+ * knows the real `partial` status and carries the per-item detail.
+ */
+export function issueCountFromCounts(
+  counts: Record<string, unknown> | null | undefined,
+): number {
+  const errors = counts?.errors;
+  return typeof errors === "number" && errors > 0 ? errors : 0;
+}
+
 /** Run-terminal toast title from its counts, with a generic fallback for
  *  operation types that have no dedicated spec (so announce-all never crashes
  *  on an unknown type). */

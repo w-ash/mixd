@@ -40,6 +40,14 @@ class SpotifyConstants:
         40  # /me/library/contains max per request (Feb 2026 API)
     )
     FALLBACK_SIMILARITY_THRESHOLD: Final[float] = 0.7
+    # The full evaluation is not artist-proof: with the shipped MatchingConfig,
+    # artist disagreement costs only ~7 of 100 confidence points, so a
+    # same-title recording by an unrelated artist can clear the auto-accept bar
+    # (measured: "Johnny Cash - Hurt" vs Nine Inch Nails' "Hurt" scored 93).
+    # A durable SEARCH_FALLBACK substitution therefore also requires the
+    # candidate's artist to resemble the hint's. 0.6 absorbs "feat."/"The"/
+    # collaboration formatting; unrelated artists score near zero.
+    FALLBACK_ARTIST_SIMILARITY_THRESHOLD: Final[float] = 0.6
 
 
 class BusinessLimits:

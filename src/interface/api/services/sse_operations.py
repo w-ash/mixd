@@ -24,6 +24,7 @@ from uuid import UUID, uuid4
 
 from fastapi import HTTPException
 
+from src.application.services.operation_outcome import audit_outcome, failure_issues
 from src.application.services.operation_run_recorder import (
     finalize_run,
     start_run,
@@ -113,60 +114,6 @@ async def prepare_sse_operation_with_emitter(
     return operation_id, run_id, emitter
 
 
-def _audit_outcome(result: object) -> tuple[OperationStatus, JsonDict | None]:
-    """Map a use case's return value to the audit row's terminal status + counts.
-
-    A use case that handled a failure internally returns an ``OperationResult``
-    with ``is_failure`` set — the same soft-failure signal the scheduler reads
-    (``sync_targets.sync_result_failed``) and the CLI renders. The audit row must
-    record that as a failure with the run's counts, not a blanket ``complete``.
-
-    A failure that still landed work (``is_partial_failure``) records as
-    ``partial`` instead of ``error``: "the import finished but some tracks
-    couldn't be resolved" is a different thing for the user to act on than "the
-    import failed". This split is presentation only — ``is_failure`` is untouched,
-    so the scheduler's health signal sees a partial run exactly as it did before.
-
-    This is what makes the cycle's headline acceptance — *"if an overnight run
-    fails, the user sees it the next time they open mixd"* — true on the web: the
-    ``OperationRun`` is the durable, re-attachable record (the live SSE toast is
-    gone once the page unmounts). A non-``OperationResult`` return carries no
-    failure signal and no counts, so it stays ``complete``.
-    """
-    if isinstance(result, OperationResult):
-        status: OperationStatus = "complete"
-        if result.is_partial_failure:
-            status = "partial"
-        elif result.is_failure:
-            status = "error"
-        return status, result.to_counts()
-    return "complete", None
-
-
-def _failure_issues(result: OperationResult) -> list[JsonDict]:
-    """Build the run's ``issues`` array from a failed use-case result.
-
-    Ordered: the headline reason (why the run is marked failed), then one issue
-    per per-item failure the use case recorded, then a truncation notice when the
-    producer's cap dropped some. The per-item dicts pass through as-is — they are
-    already the user-legible ``{track, spotify_id, reason}`` shape, and this is
-    what puts the exact unresolved tracks in the Import History row.
-
-    A soft failure's detail lives only in ``OperationResult.metadata``, which
-    ``to_counts()`` drops — without this it exists nowhere queryable (the
-    v0.10.2.2 "errors: 1 with no message" fix, now extended to per-item detail).
-    """
-    issues: list[JsonDict] = []
-    failure_message = result.failure_message
-    if failure_message:
-        issues.append({"message": failure_message[:500]})
-    issues.extend(result.resolution_failures)
-    truncated = result.resolution_failures_truncated
-    if truncated > 0:
-        issues.append({"message": f"…and {truncated} more failures — see server logs"})
-    return issues
-
-
 async def run_sse_operation(
     operation_id: str,
     coro: Awaitable[object],
@@ -186,7 +133,7 @@ async def run_sse_operation(
     When ``run_id`` and ``user_id`` are provided (paired — both or
     neither), finalizes the matching ``OperationRun`` row AND emits the live
     terminal SSE event. Both are read from the use case's returned
-    ``OperationResult`` via ``_audit_outcome``: a handled soft failure
+    ``OperationResult`` via ``audit_outcome``: a handled soft failure
     (``is_failure``) is reported as ``error`` with the run's counts, a clean run
     as ``complete`` with counts, and an uncaught exception as ``error``.
 
@@ -218,9 +165,9 @@ async def run_sse_operation(
         status, counts = "error", {"error_message": error_message}
         issues = [{"message": error_message}]
     else:
-        status, counts = _audit_outcome(result)
+        status, counts = audit_outcome(result)
         if status in FAILED_STATUSES and isinstance(result, OperationResult):
-            issues = _failure_issues(result)
+            issues = failure_issues(result)
     finally:
         if run_id is not None and user_id is not None:
             try:
@@ -339,7 +286,7 @@ async def launch_sse_operation(
     The factory MUST ``return`` its use case's result (an ``OperationResult``)
     so a handled soft failure (``is_failure``) is finalized as ``error`` with
     real counts. A factory that awaits without returning yields ``None``, which
-    ``_audit_outcome`` can only record as ``complete`` — the dropped-result bug
+    ``audit_outcome`` can only record as ``complete`` — the dropped-result bug
     this contract exists to prevent.
 
     ``request_params`` is persisted on the audit row so a retryable operation can

@@ -200,7 +200,7 @@ class TestSearchLimitClamped:
             mock_response.raise_for_status.return_value = None
             client._client.get = AsyncMock(return_value=mock_response)
 
-            await client._search_track_impl("Artist", "Title", limit=50)
+            await client._search_track_impl('artist:"Artist" track:"Title"', limit=50)
 
             # Verify the limit param was clamped to 10
             call_kwargs = client._client.get.call_args

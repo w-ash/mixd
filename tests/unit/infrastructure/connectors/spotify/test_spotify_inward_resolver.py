@@ -14,6 +14,7 @@ from src.infrastructure.connectors.spotify.client import (
     free_text_search_query,
 )
 from src.infrastructure.connectors.spotify.inward_resolver import (
+    VERSION_MISMATCH_TOLERANCE_MS,
     FallbackHint,
     SpotifyInwardResolver,
 )
@@ -295,7 +296,8 @@ class TestFallbackSearch:
         assert dead_id in resolver.fallback_resolved_ids
         # The dead-ID fallback asks for the full dev-mode page, not the default 5.
         connector.search_track.assert_called_once_with(
-            "Artist", "My Song", SpotifyConstants.SEARCH_MAX_LIMIT
+            field_filtered_search_query("Artist", "My Song"),
+            SpotifyConstants.SEARCH_MAX_LIMIT,
         )
 
         # Primary mapping (found_id) + secondary mapping (dead_id stale)
@@ -1284,8 +1286,8 @@ class TestSearchIsStrictlyAFallback:
             user_id="test-user",
         )
 
-        searched_titles = {c.args[1] for c in connector.search_track.await_args_list}
-        assert searched_titles == {"Song C"}
+        searched = {c.args[0] for c in connector.search_track.await_args_list}
+        assert searched == {field_filtered_search_query("Artist", "Song C")}
 
 
 class TestDeadIdSearchWidening:
@@ -1355,12 +1357,13 @@ class TestDeadIdSearchWidening:
         )
 
         assert connector.search_track.await_args_list == [
-            call(self.ARTIST, self.TITLE, SpotifyConstants.SEARCH_MAX_LIMIT),
             call(
-                self.ARTIST,
-                self.TITLE,
+                field_filtered_search_query(self.ARTIST, self.TITLE),
                 SpotifyConstants.SEARCH_MAX_LIMIT,
-                field_filtered=False,
+            ),
+            call(
+                free_text_search_query(self.ARTIST, self.TITLE),
+                SpotifyConstants.SEARCH_MAX_LIMIT,
             ),
         ]
         assert (
@@ -1371,6 +1374,165 @@ class TestDeadIdSearchWidening:
             free_text_search_query(self.ARTIST, self.TITLE)
             == "Robert Johnson Come On in My Kitchen"
         )
+
+
+class TestFallbackRejectsTheWrongRecording:
+    """A dead id's fallback writes a durable primary mapping, so it must be right.
+
+    Title similarity ranks candidates; it does not say who performed them, and
+    the widened free-text query does not constrain the artist at all. "Johnny
+    Cash - Hurt" ranks Nine Inch Nails' "Hurt" at similarity 1.0 — accepting on
+    that alone maps the dead id onto the wrong recording and counts it a rescue.
+    """
+
+    DEAD_ID = "dead_hurt_id_0000000000"
+    ARTIST = "Johnny Cash"
+    TITLE = "Hurt"
+    # Median ms_played of the export's completed plays: Cash's 3:36 recording.
+    ESTIMATE_MS = 216_000
+
+    def _hint(self) -> FallbackHint:
+        return FallbackHint(
+            artist_name=self.ARTIST,
+            track_name=self.TITLE,
+            completed_play_ms_estimate=self.ESTIMATE_MS,
+        )
+
+    async def test_a_widened_wrong_artist_hit_is_not_accepted(self):
+        connector = AsyncMock()
+        connector.get_tracks_by_ids.return_value = {}
+        connector.search_track.side_effect = [
+            [],
+            # Nine Inch Nails' 6:13 original — same title, different act.
+            [
+                make_spotify_track(
+                    "nin_hurt_00000000000000",
+                    "Hurt",
+                    "Nine Inch Nails",
+                    duration_ms=373_000,
+                )
+            ],
+        ]
+
+        resolver = SpotifyInwardResolver(spotify_connector=connector)
+        uow, _, connector_repo = _make_uow_with_repos()
+
+        with patch(
+            "src.infrastructure.connectors.spotify.inward_resolver.logger"
+        ) as mock_logger:
+            result, metrics = await resolver.resolve_to_canonical_tracks(
+                [self.DEAD_ID],
+                uow,
+                fallback_hints={self.DEAD_ID: self._hint()},
+                user_id="test-user",
+            )
+
+        assert self.DEAD_ID not in result
+        assert resolver.fallback_resolved_ids == set()
+        assert metrics.fallbacks == 0
+        connector_repo.map_track_to_connector.assert_not_called()
+        mock_logger.warning.assert_called_once()
+
+    async def test_a_widened_right_artist_hit_is_still_accepted(self):
+        living_id = "living_hurt_id_00000000"
+        connector = AsyncMock()
+        connector.get_tracks_by_ids.return_value = {}
+        connector.search_track.side_effect = [
+            [],
+            [make_spotify_track(living_id, "Hurt", self.ARTIST, duration_ms=216_000)],
+        ]
+
+        resolver = SpotifyInwardResolver(spotify_connector=connector)
+        uow, _, connector_repo = _make_uow_with_repos()
+
+        result, metrics = await resolver.resolve_to_canonical_tracks(
+            [self.DEAD_ID],
+            uow,
+            fallback_hints={self.DEAD_ID: self._hint()},
+            user_id="test-user",
+        )
+
+        assert self.DEAD_ID in result
+        assert resolver.fallback_resolved_ids == {self.DEAD_ID}
+        assert metrics.fallbacks == 1
+        assert [
+            c.args[2] for c in connector_repo.map_track_to_connector.call_args_list
+        ] == [living_id, self.DEAD_ID]
+
+
+class TestFallbackDurationVeto:
+    """A candidate far shorter than the id's completed plays is another version."""
+
+    DEAD_ID = "dead_id_000000000000000"
+    ARTIST = "Artist"
+    TITLE = "My Song"
+    # 4:30 of completed listening, so the recording runs at least about that.
+    ESTIMATE_MS = 270_000
+
+    def _hint(self, estimate: int | None) -> FallbackHint:
+        return FallbackHint(
+            artist_name=self.ARTIST,
+            track_name=self.TITLE,
+            completed_play_ms_estimate=estimate,
+        )
+
+    async def _resolve(self, candidate_ms: int, estimate: int | None):
+        connector = AsyncMock()
+        connector.get_tracks_by_ids.return_value = {}
+        connector.search_track.return_value = [
+            make_spotify_track(
+                "found_id_00000000000000",
+                self.TITLE,
+                self.ARTIST,
+                duration_ms=candidate_ms,
+            )
+        ]
+
+        resolver = SpotifyInwardResolver(spotify_connector=connector)
+        uow, _, _ = _make_uow_with_repos()
+
+        result, _metrics = await resolver.resolve_to_canonical_tracks(
+            [self.DEAD_ID],
+            uow,
+            fallback_hints={self.DEAD_ID: self._hint(estimate)},
+            user_id="test-user",
+        )
+        return result
+
+    async def test_a_much_shorter_candidate_is_rejected_on_a_perfect_title_and_artist(
+        self,
+    ):
+        """The wrong-version killer: a 3:38 cut cannot be a 4:30 listen."""
+        result = await self._resolve(218_000, self.ESTIMATE_MS)
+
+        assert self.DEAD_ID not in result
+
+    async def test_a_candidate_inside_the_tolerance_survives(self):
+        """Crossfade trim and seek noise sit well inside the allowance."""
+        result = await self._resolve(
+            self.ESTIMATE_MS - VERSION_MISMATCH_TOLERANCE_MS, self.ESTIMATE_MS
+        )
+
+        assert self.DEAD_ID in result
+
+    async def test_one_millisecond_past_the_tolerance_is_rejected(self):
+        result = await self._resolve(
+            self.ESTIMATE_MS - VERSION_MISMATCH_TOLERANCE_MS - 1, self.ESTIMATE_MS
+        )
+
+        assert self.DEAD_ID not in result
+
+    async def test_a_longer_candidate_is_never_vetoed(self):
+        """One-directional: the album cut running past the single is ordinary."""
+        result = await self._resolve(400_000, self.ESTIMATE_MS)
+
+        assert self.DEAD_ID in result
+
+    async def test_without_an_estimate_nothing_is_vetoed(self):
+        """An id with no completed play in the batch asserts no length at all."""
+        result = await self._resolve(60_000, None)
+
+        assert self.DEAD_ID in result
 
 
 class TestUnresolvableFallbackTelemetry:

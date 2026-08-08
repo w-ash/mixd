@@ -4,9 +4,14 @@ Tests ISRC matching, artist/title matching, raw match creation,
 and ISRC-to-artist/title fallback behavior.
 """
 
-from unittest.mock import AsyncMock, MagicMock
+from unittest.mock import AsyncMock, MagicMock, call
 
+from src.config.constants import SpotifyConstants
 from src.domain.matching.types import MatchFailureReason
+from src.infrastructure.connectors.spotify.client import (
+    field_filtered_search_query,
+    free_text_search_query,
+)
 from src.infrastructure.connectors.spotify.matching_provider import SpotifyProvider
 from src.infrastructure.connectors.spotify.models import (
     SpotifyAlbum,
@@ -167,6 +172,66 @@ class TestSpotifyProviderMatchByArtistTitle:
         connector.search_track.assert_not_called()
 
 
+class TestSpotifyProviderSearchWidening:
+    """The quoted filter is precise; one free-text retry buys back its recall.
+
+    'Creep (Acoustic Version)' against Spotify's stored 'Creep - Acoustic'
+    filters the track out entirely, which the loose pre-quoting query used to
+    match. The retry is bounded to the zero-candidate case.
+    """
+
+    TITLE = "Creep (Acoustic Version)"
+
+    async def test_zero_filtered_candidates_trigger_one_free_text_retry(self):
+        provider, connector = _make_provider()
+        track = make_track(title=self.TITLE, artist="Radiohead")
+        widened_hit = _make_spotify_track_model(
+            track_id="sp_acoustic", name="Creep - Acoustic"
+        )
+        connector.search_track.side_effect = [[], [widened_hit]]
+
+        matches, failures = await provider._match_by_artist_title([track])
+
+        assert connector.search_track.await_args_list == [
+            call(
+                field_filtered_search_query("Radiohead", self.TITLE),
+                SpotifyConstants.SEARCH_DEFAULT_LIMIT,
+            ),
+            call(
+                free_text_search_query("Radiohead", self.TITLE),
+                SpotifyConstants.SEARCH_DEFAULT_LIMIT,
+            ),
+        ]
+        # The widened candidates flow into the provider's normal evaluation.
+        assert len(failures) == 0
+        assert matches[track.id]["connector_id"] == "sp_acoustic"
+
+    async def test_a_filtered_hit_never_widens(self):
+        provider, connector = _make_provider()
+        track = make_track(title="Creep", artist="Radiohead")
+        connector.search_track.return_value = [
+            _make_spotify_track_model(track_id="sp_exact", name="Creep")
+        ]
+
+        _ = await provider._match_by_artist_title([track])
+
+        connector.search_track.assert_called_once_with(
+            field_filtered_search_query("Radiohead", "Creep"),
+            SpotifyConstants.SEARCH_DEFAULT_LIMIT,
+        )
+
+    async def test_both_passes_empty_is_still_one_failure(self):
+        provider, connector = _make_provider()
+        track = make_track(title="Obscure Song", artist="Unknown Artist")
+        connector.search_track.return_value = []
+
+        matches, failures = await provider._match_by_artist_title([track])
+
+        assert len(matches) == 0
+        assert failures[0].reason == MatchFailureReason.NO_RESULTS
+        assert connector.search_track.await_count == 2
+
+
 class TestSpotifyProviderCreateRawMatch:
     """Test raw match creation from Spotify API response data."""
 
@@ -288,7 +353,8 @@ class TestSpotifyProviderISRCFallback:
         connector.search_by_isrc.side_effect = isrc_side_effect
 
         # Artist/title: tracks 2 and 3 succeed
-        async def search_side_effect(artist: str, title: str):
+        async def search_side_effect(query: str, limit: int):
+            title = query.split('track:"')[1].rstrip('"')
             return [_make_spotify_track_model(track_id=f"sp_{title}", name=title)]
 
         connector.search_track.side_effect = search_side_effect

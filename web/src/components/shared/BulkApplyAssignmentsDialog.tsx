@@ -4,7 +4,8 @@ import { useNavigate } from "react-router";
 import { useApplyBulkAssignmentsApiV1PlaylistAssignmentsApplyBulkPost } from "#/api/generated/playlist-assignments/playlist-assignments";
 import { getListTagsApiV1TagsGetQueryKey } from "#/api/generated/tags/tags";
 import { useOperationProgress } from "#/hooks/useOperationProgress";
-import { toasts } from "#/lib/toasts";
+import { claimRunToast } from "#/lib/operation-toast-ledger";
+import { issueCountFromCounts, toasts } from "#/lib/toasts";
 
 import { ConfirmationDialog } from "./ConfirmationDialog";
 import { OperationProgress } from "./OperationProgress";
@@ -62,11 +63,16 @@ export function BulkApplyAssignmentsDialog({
     if (!isTerminal || !operationId || progress === null) return;
     if (toastedForOpIdRef.current === operationId) return;
     toastedForOpIdRef.current = operationId;
+    // Claim the shared ledger so the global operations watcher's poll doesn't
+    // announce the same run a second time.
+    if (runId !== null && !claimRunToast(runId)) return;
 
     toasts.runCompleted({
       operationType: "apply_assignments_bulk",
       counts: progress.counts ?? {},
-      issueCount: 0,
+      // A partial run streams as `completed` with an `errors` count — see
+      // `issueCountFromCounts`. Hardcoding 0 mislabels it as a clean success.
+      issueCount: issueCountFromCounts(progress.counts),
       runId,
       failed: progress.status !== "completed",
       onNavigate: navigate,

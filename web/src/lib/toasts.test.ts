@@ -1,6 +1,6 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
-import { toasts } from "./toasts";
+import { issueCountFromCounts, toasts } from "./toasts";
 
 // Mock sonner so we can assert the rendered title (which encodes primaryCount).
 vi.mock("sonner", () => ({
@@ -104,6 +104,26 @@ describe("toasts.runCompleted — primaryCount key reconciliation", () => {
     );
   });
 
+  it("a completed run carrying errors toasts as a warning with View log", () => {
+    // The live stream has no `partial` event — `counts.errors` is the whole
+    // signal, so this path must not resolve to `toast.success`.
+    toasts.runCompleted({
+      operationType: "import_lastfm_history",
+      counts: { track_plays: 98, errors: 2 },
+      issueCount: issueCountFromCounts({ track_plays: 98, errors: 2 }),
+      runId: "run-1",
+      onNavigate: noop,
+    });
+    expect(toast.success).not.toHaveBeenCalled();
+    expect(toast.warning).toHaveBeenCalledWith(
+      "Imported 98 scrobbles",
+      expect.objectContaining({
+        description: "2 items had issues",
+        action: expect.objectContaining({ label: "View log" }),
+      }),
+    );
+  });
+
   it("uses the supplied action override instead of the default View log", () => {
     const onRetry = vi.fn();
     toasts.runCompleted({
@@ -121,5 +141,17 @@ describe("toasts.runCompleted — primaryCount key reconciliation", () => {
         action: expect.objectContaining({ label: "Retry failed only" }),
       }),
     );
+  });
+});
+
+describe("issueCountFromCounts", () => {
+  it.each([
+    [{ errors: 3 }, 3],
+    [{ errors: 0 }, 0],
+    [{ track_plays: 10 }, 0],
+    [{ errors: "2" }, 0], // non-numeric payload is not a count
+    [null, 0],
+  ] as const)("%o → %i", (counts, expected) => {
+    expect(issueCountFromCounts(counts)).toBe(expected);
   });
 });

@@ -62,7 +62,7 @@ class TestSuccessfulDiscovery:
         # ISRC carried for backfill (normalized).
         assert outcome.isrc == "GBAYE9300106"
         connector.search_track.assert_called_once_with(
-            "Radiohead", "Creep", SpotifyConstants.SEARCH_DEFAULT_LIMIT
+            'artist:"Radiohead" track:"Creep"', SpotifyConstants.SEARCH_DEFAULT_LIMIT
         )
 
 
@@ -82,6 +82,23 @@ class TestNoResults:
         )
 
         assert isinstance(outcome, Nothing)
+
+    async def test_a_miss_costs_exactly_one_search(self):
+        """Discovery searches once per unmatched play; widening would double a
+        30k-miss run's /search volume against the shared limiter for calls that
+        still return nothing."""
+        connector = AsyncMock()
+        connector.search_track.return_value = []
+
+        provider = SpotifyCrossDiscoveryProvider(spotify_connector=connector)
+        uow = _make_uow()
+
+        outcome = await provider.discover(
+            make_track(id=42), "Unknown", "Song", uow, user_id="test-user"
+        )
+
+        assert isinstance(outcome, Nothing)
+        assert connector.search_track.await_count == 1
 
 
 class TestLowConfidence:

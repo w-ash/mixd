@@ -1,12 +1,51 @@
 import { HttpResponse, http } from "msw";
-import { describe, expect, it } from "vitest";
+import { beforeEach, describe, expect, it, vi } from "vitest";
 
 import type { CheckpointStatusSchema } from "#/api/generated/model";
+import type { OperationProgress } from "#/hooks/useOperationProgress";
+import { __resetRunToastLedger } from "#/lib/operation-toast-ledger";
 import { makeConnectorMetadata } from "#/test/factories";
 import { server } from "#/test/setup";
-import { renderWithProviders, screen, within } from "#/test/test-utils";
+import {
+  renderWithProviders,
+  screen,
+  userEvent,
+  waitFor,
+  within,
+} from "#/test/test-utils";
 
 import { Sync } from "./Sync";
+
+// Drive the SSE stream deterministically: the terminal event is what fires the
+// completion toast, and there is no live stream in jsdom.
+let mockProgress: OperationProgress | null = null;
+vi.mock("#/hooks/useOperationProgress", () => ({
+  useOperationProgress: () => ({
+    progress: mockProgress,
+    isActive: false,
+    isConnected: false,
+    error: null,
+  }),
+}));
+
+const mockRunCompleted = vi.fn();
+vi.mock("#/lib/toasts", async () => {
+  const actual =
+    await vi.importActual<typeof import("#/lib/toasts")>("#/lib/toasts");
+  return {
+    ...actual,
+    toasts: {
+      ...actual.toasts,
+      runCompleted: (...a: unknown[]) => mockRunCompleted(...a),
+    },
+  };
+});
+
+beforeEach(() => {
+  mockProgress = null;
+  mockRunCompleted.mockReset();
+  __resetRunToastLedger();
+});
 
 const checkpoints: CheckpointStatusSchema[] = [
   {
@@ -156,5 +195,87 @@ describe("Sync page", () => {
     expect(
       within(likesCard).getByRole("button", { name: "Import" }),
     ).toBeEnabled();
+  });
+
+  it("toasts a foreground partial run as completed-with-issues, not success", async () => {
+    // The live stream reports a partial run as `completed` (the backend maps it
+    // onto the complete event) with the failure count in `counts.errors`. If the
+    // card ignores that count, a run that lost tracks gets a bare green toast —
+    // strictly less informative than the red one it replaced.
+    setupCheckpointsMock();
+    server.use(
+      http.post("*/api/v1/imports/lastfm/history", () =>
+        HttpResponse.json({ operation_id: "op-1", run_id: "run-1" }),
+      ),
+    );
+    mockProgress = {
+      status: "completed",
+      current: 100,
+      total: 100,
+      message: "Complete",
+      description: null,
+      completionPercentage: 100,
+      itemsPerSecond: null,
+      etaSeconds: null,
+      counts: { track_plays: 98, errors: 2 },
+      subOperation: null,
+      subOperationHistory: {},
+    };
+    renderWithProviders(<Sync />);
+
+    const historyCard = screen
+      .getByText("Scrobble History")
+      .closest("div.rounded-xl") as HTMLElement;
+    await userEvent.click(
+      within(historyCard).getByRole("button", { name: "Import" }),
+    );
+
+    await waitFor(() => {
+      expect(mockRunCompleted).toHaveBeenCalledWith(
+        expect.objectContaining({
+          operationType: "import_lastfm_history",
+          issueCount: 2,
+          failed: false,
+          runId: "run-1",
+        }),
+      );
+    });
+  });
+
+  it("does not double-announce a run the global watcher already claimed", async () => {
+    setupCheckpointsMock();
+    server.use(
+      http.post("*/api/v1/imports/lastfm/history", () =>
+        HttpResponse.json({ operation_id: "op-2", run_id: "run-2" }),
+      ),
+    );
+    __resetRunToastLedger();
+    // Simulate the watcher winning the race for this run's toast.
+    const { claimRunToast } = await import("#/lib/operation-toast-ledger");
+    claimRunToast("run-2");
+    mockProgress = {
+      status: "completed",
+      current: 1,
+      total: 1,
+      message: "Complete",
+      description: null,
+      completionPercentage: 100,
+      itemsPerSecond: null,
+      etaSeconds: null,
+      counts: { track_plays: 1 },
+      subOperation: null,
+      subOperationHistory: {},
+    };
+    renderWithProviders(<Sync />);
+
+    const historyCard = screen
+      .getByText("Scrobble History")
+      .closest("div.rounded-xl") as HTMLElement;
+    await userEvent.click(
+      within(historyCard).getByRole("button", { name: "Import" }),
+    );
+
+    await new Promise((r) => setTimeout(r, 20));
+    expect(mockRunCompleted).not.toHaveBeenCalled();
   });
 });

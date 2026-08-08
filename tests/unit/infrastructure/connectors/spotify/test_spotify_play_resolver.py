@@ -11,6 +11,10 @@ import pytest
 
 from src.config.constants import MatchMethod, SpotifyConstants
 from src.domain.entities import ConnectorTrackPlay, TrackPlay
+from src.infrastructure.connectors.spotify.client import (
+    field_filtered_search_query,
+    free_text_search_query,
+)
 from src.infrastructure.connectors.spotify.play_resolver import (
     SpotifyConnectorPlayResolver,
     should_include_spotify_play,
@@ -359,6 +363,91 @@ class TestResolverTrackResolution:
         assert plays == []
 
 
+class TestFallbackHintDurationEstimate:
+    """The export has no track length; completed plays are the stand-in.
+
+    ``ms_played`` is time in the player, not distance through the track, so a
+    listener who seeks backwards inflates one play and one who seeks forwards
+    deflates it — both while still ending ``trackdone``. The median absorbs
+    either; a max would enshrine the inflated one.
+    """
+
+    URI = "spotify:track:4iV5W9uYEdYUVa79Axb7Rh"
+
+    def _hint(self, plays: list[ConnectorTrackPlay]):
+        resolver = SpotifyConnectorPlayResolver(spotify_connector=AsyncMock())
+        _ids, hints = resolver._extract_ids_and_hints(plays)
+        return hints["4iV5W9uYEdYUVa79Axb7Rh"]
+
+    def test_a_single_completed_play_is_its_own_median(self):
+        hint = self._hint([_make_connector_play(ms_played=216_000)])
+
+        assert hint.completed_play_ms_estimate == 216_000
+
+    def test_the_median_ignores_a_seek_inflated_outlier(self):
+        """One replayed-through play must not move the estimate."""
+        hint = self._hint([
+            _make_connector_play(ms_played=214_000),
+            _make_connector_play(ms_played=216_000),
+            _make_connector_play(ms_played=21_600_000),
+        ])
+
+        assert hint.completed_play_ms_estimate == 216_000
+
+    def test_an_even_count_averages_the_two_middle_plays(self):
+        hint = self._hint([
+            _make_connector_play(ms_played=210_000),
+            _make_connector_play(ms_played=214_000),
+            _make_connector_play(ms_played=218_000),
+            _make_connector_play(ms_played=600_000),
+        ])
+
+        assert hint.completed_play_ms_estimate == 216_000
+
+    def test_skipped_plays_yield_no_estimate_at_all(self):
+        """A play that was cut short says nothing about how long the track is."""
+        hint = self._hint([
+            _make_connector_play(ms_played=30_000, reason_end="fwdbtn"),
+            _make_connector_play(ms_played=12_000, reason_end="endplay"),
+        ])
+
+        assert hint.completed_play_ms_estimate is None
+
+    def test_only_completed_plays_contribute(self):
+        hint = self._hint([
+            _make_connector_play(ms_played=30_000, reason_end="fwdbtn"),
+            _make_connector_play(ms_played=216_000),
+        ])
+
+        assert hint.completed_play_ms_estimate == 216_000
+
+    def test_names_still_come_from_the_first_play_carrying_the_id(self):
+        hint = self._hint([
+            _make_connector_play(
+                artist_name="Johnny Cash", track_name="Hurt", ms_played=216_000
+            ),
+            _make_connector_play(
+                artist_name="Johnny Cash (Remastered)",
+                track_name="Hurt - 2002",
+                ms_played=218_000,
+            ),
+        ])
+
+        assert (hint.artist_name, hint.track_name) == ("Johnny Cash", "Hurt")
+
+    def test_estimates_are_kept_per_track_id(self):
+        other_uri = "spotify:track:5rHtvcQXTiZbjPGYAOMQMP"
+        resolver = SpotifyConnectorPlayResolver(spotify_connector=AsyncMock())
+
+        _ids, hints = resolver._extract_ids_and_hints([
+            _make_connector_play(ms_played=216_000),
+            _make_connector_play(ms_played=400_000, track_uri=other_uri),
+        ])
+
+        assert hints["4iV5W9uYEdYUVa79Axb7Rh"].completed_play_ms_estimate == 216_000
+        assert hints["5rHtvcQXTiZbjPGYAOMQMP"].completed_play_ms_estimate == 400_000
+
+
 class TestFallbackHintsIntegration:
     """Test that play resolver builds and passes fallback hints correctly."""
 
@@ -389,12 +478,13 @@ class TestFallbackHintsIntegration:
         # (since get_tracks_by_ids returned empty, ID is dead, hint should trigger search)
         # Two calls: the field-filtered query, then the single widening pass.
         assert connector.search_track.await_args_list == [
-            call("My Artist", "My Song", SpotifyConstants.SEARCH_MAX_LIMIT),
             call(
-                "My Artist",
-                "My Song",
+                field_filtered_search_query("My Artist", "My Song"),
                 SpotifyConstants.SEARCH_MAX_LIMIT,
-                field_filtered=False,
+            ),
+            call(
+                free_text_search_query("My Artist", "My Song"),
+                SpotifyConstants.SEARCH_MAX_LIMIT,
             ),
         ]
 
@@ -421,7 +511,10 @@ class TestFallbackHintsIntegration:
         track_repo.find_tracks_by_title_artist.return_value = {}
         uow.get_track_repository.return_value = track_repo
 
-        play = _make_connector_play(ms_played=300000)
+        # ms_played matches the candidate's length: a completed play is the
+        # only duration evidence a dead id has, and a candidate materially
+        # shorter than it is vetoed as a different version.
+        play = _make_connector_play(ms_played=240000)
         outcome = await resolver.resolve_connector_plays(
             [play], uow, user_id="test-user"
         )

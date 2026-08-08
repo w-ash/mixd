@@ -108,7 +108,8 @@ def to_operation_result(
     """Map the native import result onto an ``OperationResult`` for the SSE seam.
 
     ``launch_sse_operation`` finalizes the ``OperationRun`` audit row + terminal
-    event from the use case's returned ``OperationResult`` (``_audit_outcome``).
+    event from the use case's returned ``OperationResult``
+    (``operation_outcome.audit_outcome``).
     Adding an ``errors`` metric on any failure makes ``is_failure`` true — the
     same convention the likes/history imports already use — so a failed import is
     durably recorded as ``error`` with the run's counts.

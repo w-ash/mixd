@@ -93,6 +93,66 @@ function CountsLine({
   );
 }
 
+type Issue = OperationRunDetailSchema["issues"][number];
+
+/**
+ * A headline or truncation notice: the reason the run is marked failed, or
+ * "…and N more failures". Emitted by `failure_issues`
+ * (`application/services/operation_outcome.py`), alongside the item failures.
+ */
+function isMessageIssue(issue: Issue): issue is Issue & { message: string } {
+  return typeof issue.message === "string";
+}
+
+/**
+ * One item the run couldn't process — the payload the whole feature exists for.
+ * `spotify_id` is optional; `track` and `reason` are what make the row legible.
+ */
+function isItemFailure(
+  issue: Issue,
+): issue is Issue & { track: string; reason: string } {
+  return typeof issue.track === "string" && typeof issue.reason === "string";
+}
+
+/**
+ * One issue, rendered by shape.
+ *
+ * The two shapes the backend emits read as prose; anything else keeps the raw
+ * JSON so a new shape stays visible instead of being silently dropped. A partial
+ * run can carry ~50 item failures, so that row stays single-line: track name
+ * reads first, the reason code trails it muted, and `spotify_id` is demoted to a
+ * tooltip — it's the "look this up" detail, not the finding.
+ */
+function IssueRow({ issue }: { issue: Issue }) {
+  if (isItemFailure(issue)) {
+    return (
+      <div className="flex flex-wrap items-baseline gap-x-2 gap-y-1">
+        <span
+          className="min-w-0 flex-1 truncate font-body text-sm text-text"
+          title={
+            typeof issue.spotify_id === "string"
+              ? `Spotify ID: ${issue.spotify_id}`
+              : undefined
+          }
+        >
+          {issue.track}
+        </span>
+        <span className="shrink-0 font-mono text-xs text-text-muted">
+          {issue.reason}
+        </span>
+      </div>
+    );
+  }
+  if (isMessageIssue(issue)) {
+    return <p className="font-body text-sm text-text">{issue.message}</p>;
+  }
+  return (
+    <pre className="whitespace-pre-wrap break-words font-mono text-xs text-text">
+      {JSON.stringify(issue, null, 2)}
+    </pre>
+  );
+}
+
 function IssuesList({
   issues,
 }: {
@@ -106,16 +166,14 @@ function IssuesList({
     );
   }
   return (
-    <ul className="space-y-2">
+    <ul className="divide-y divide-border rounded border border-border bg-surface-sunken">
       {issues.map((issue, i) => (
         <li
           // biome-ignore lint/suspicious/noArrayIndexKey: issue list is append-only and stable per render
           key={i}
-          className="rounded border border-border bg-surface-sunken px-3 py-2 font-mono text-xs text-text"
+          className="px-3 py-2"
         >
-          <pre className="whitespace-pre-wrap break-words">
-            {JSON.stringify(issue, null, 2)}
-          </pre>
+          <IssueRow issue={issue} />
         </li>
       ))}
     </ul>

@@ -2,9 +2,11 @@
 
 Validates create_track_from_spotify_data correctly converts SpotifyTrack Pydantic
 models into domain Track entities with proper field mapping and validation.
-Also tests the shared search_and_evaluate_match pipeline.
+Also tests the shared widening search ladder and the
+search -> rank -> evaluate pipeline built on it.
 """
 
+from contextlib import aclosing
 from unittest.mock import AsyncMock, MagicMock, call
 
 import pytest
@@ -13,6 +15,10 @@ from src.config import create_matching_config
 from src.config.constants import SpotifyConstants
 from src.domain.entities import Artist
 from src.domain.matching.evaluation_service import TrackMatchEvaluationService
+from src.infrastructure.connectors.spotify.client import (
+    field_filtered_search_query,
+    free_text_search_query,
+)
 from src.infrastructure.connectors.spotify.models import (
     SpotifyAlbum,
     SpotifyArtist,
@@ -23,7 +29,7 @@ from src.infrastructure.connectors.spotify.utilities import (
     SpotifySearchMatch,
     create_track_from_spotify_data,
     search_and_evaluate_attempt,
-    search_and_evaluate_match,
+    widening_search_passes,
 )
 from tests.fixtures import make_track
 
@@ -148,7 +154,7 @@ class TestCreateTrackFromSpotifyDataValidation:
         assert track.artists[0].name == "Valid"
 
 
-# --- search_and_evaluate_match tests ---
+# --- widening ladder + search_and_evaluate_attempt tests ---
 
 
 def _make_candidate(
@@ -181,6 +187,69 @@ def evaluation_service() -> TrackMatchEvaluationService:
     return TrackMatchEvaluationService(config=create_matching_config())
 
 
+class TestWideningSearchPasses:
+    """The ladder both search callers share: filtered first, free text second."""
+
+    async def test_the_first_pass_is_the_field_filtered_query(self):
+        connector = _make_connector([_make_candidate()])
+
+        passes = widening_search_passes(connector, "Radiohead", "Creep", 5)
+        async with aclosing(passes):
+            first = await anext(passes)
+
+        assert first.query == field_filtered_search_query("Radiohead", "Creep")
+        assert connector.search_track.await_args_list == [call(first.query, 5)]
+
+    async def test_the_second_pass_is_the_free_text_widening(self):
+        connector = _make_connector([_make_candidate()])
+
+        passes = widening_search_passes(connector, "Radiohead", "Creep", 5)
+        async with aclosing(passes):
+            _ = await anext(passes)
+            second = await anext(passes)
+
+        assert second.query == free_text_search_query("Radiohead", "Creep")
+        assert connector.search_track.await_args_list[1] == call(second.query, 5)
+
+    async def test_the_second_search_waits_for_the_consumer_to_ask(self):
+        """The whole cost bound: a consumer that stops pays one /search, not two."""
+        connector = _make_connector([_make_candidate()])
+
+        passes = widening_search_passes(connector, "Radiohead", "Creep", 5)
+        async with aclosing(passes):
+            _ = await anext(passes)
+            assert connector.search_track.await_count == 1
+
+        assert connector.search_track.await_count == 1
+
+    async def test_the_ladder_stops_after_two_rungs(self):
+        connector = _make_connector([])
+
+        collected = [
+            search_pass
+            async for search_pass in widening_search_passes(
+                connector, "Radiohead", "Creep", 5
+            )
+        ]
+
+        assert len(collected) == 2
+        assert connector.search_track.await_count == 2
+
+    async def test_every_pass_carries_the_query_that_went_on_the_wire(self):
+        """Telemetry and the request read one string, not two built in parallel."""
+        connector = _make_connector([])
+
+        collected = [
+            search_pass
+            async for search_pass in widening_search_passes(
+                connector, 'The "Real" Band', 'Move Your Body (12" Mix)', 5
+            )
+        ]
+
+        sent = [c.args[0] for c in connector.search_track.await_args_list]
+        assert [p.query for p in collected] == sent
+
+
 class TestSearchAndEvaluateHappyPath:
     """Successful search should return SpotifySearchMatch with correct fields."""
 
@@ -191,22 +260,29 @@ class TestSearchAndEvaluateHappyPath:
         connector = _make_connector([candidate])
         track = make_track(id=1, title="Creep", artist="Radiohead")
 
-        result = await search_and_evaluate_match(
-            connector, evaluation_service, track, "Radiohead", "Creep"
+        attempt = await search_and_evaluate_attempt(
+            connector,
+            evaluation_service,
+            track,
+            "Radiohead",
+            "Creep",
+            widen=True,
+            require_success=True,
         )
 
-        assert isinstance(result, SpotifySearchMatch)
-        assert result.candidate is candidate
-        assert result.similarity > 0.0
-        assert result.match_result.confidence > 0
+        assert isinstance(attempt.match, SpotifySearchMatch)
+        assert attempt.match.candidate is candidate
+        assert attempt.match.similarity > 0.0
+        assert attempt.match.match_result.confidence > 0
         # An accepted first pass never widens.
         connector.search_track.assert_called_once_with(
-            "Radiohead", "Creep", SpotifyConstants.SEARCH_DEFAULT_LIMIT
+            field_filtered_search_query("Radiohead", "Creep"),
+            SpotifyConstants.SEARCH_DEFAULT_LIMIT,
         )
 
 
 class TestSearchAndEvaluateNoCandidates:
-    """Empty search results should return None."""
+    """Empty search results should produce no match."""
 
     async def test_returns_none_when_no_candidates(
         self, evaluation_service: TrackMatchEvaluationService
@@ -214,11 +290,17 @@ class TestSearchAndEvaluateNoCandidates:
         connector = _make_connector([])
         track = make_track(id=1)
 
-        result = await search_and_evaluate_match(
-            connector, evaluation_service, track, "Unknown", "Song"
+        attempt = await search_and_evaluate_attempt(
+            connector,
+            evaluation_service,
+            track,
+            "Unknown",
+            "Song",
+            widen=False,
+            require_success=False,
         )
 
-        assert result is None
+        assert attempt.match is None
 
 
 class TestSearchAndEvaluateBelowThreshold:
@@ -231,37 +313,40 @@ class TestSearchAndEvaluateBelowThreshold:
         connector = _make_connector([candidate])
         track = make_track(id=1, title="Creep", artist="Radiohead")
 
-        result = await search_and_evaluate_match(
+        attempt = await search_and_evaluate_attempt(
             connector,
             evaluation_service,
             track,
             "Radiohead",
             "Creep",
+            widen=False,
+            require_success=False,
             min_similarity=0.99,
         )
 
-        assert result is None
+        assert attempt.match is None
 
 
-class TestSearchAndEvaluateNoIdWithoutFallback:
-    """Candidate with no .id and no fallback_connector_id should return None."""
+class TestSearchAndEvaluateConnectorId:
+    """A candidate without .id is usable only when the caller supplies a fallback."""
 
     async def test_returns_none_when_no_id(
         self, evaluation_service: TrackMatchEvaluationService
     ):
-        candidate = _make_candidate(track_id=None)
-        connector = _make_connector([candidate])
+        connector = _make_connector([_make_candidate(track_id=None)])
         track = make_track(id=1, title="Creep", artist="Radiohead")
 
-        result = await search_and_evaluate_match(
-            connector, evaluation_service, track, "Radiohead", "Creep"
+        attempt = await search_and_evaluate_attempt(
+            connector,
+            evaluation_service,
+            track,
+            "Radiohead",
+            "Creep",
+            widen=False,
+            require_success=False,
         )
 
-        assert result is None
-
-
-class TestSearchAndEvaluateNoIdWithFallback:
-    """Candidate with no .id but a fallback_connector_id should use the fallback."""
+        assert attempt.match is None
 
     async def test_uses_fallback_connector_id(
         self, evaluation_service: TrackMatchEvaluationService
@@ -270,52 +355,97 @@ class TestSearchAndEvaluateNoIdWithFallback:
         connector = _make_connector([candidate])
         track = make_track(id=1, title="Creep", artist="Radiohead")
 
-        result = await search_and_evaluate_match(
+        attempt = await search_and_evaluate_attempt(
             connector,
             evaluation_service,
             track,
             "Radiohead",
             "Creep",
+            widen=False,
+            require_success=False,
             fallback_connector_id="dead_id_123",
-        )
-
-        assert result is not None
-        assert result.candidate is candidate
-        assert result.match_result.connector_id == "dead_id_123"
-
-
-class TestSearchWidening:
-    """One free-text pass follows a field-filtered pass that found nothing usable.
-
-    Field filters are precise and therefore brittle: a stored artist or title
-    that differs from Spotify's spelling filters the living track out entirely.
-    """
-
-    async def test_widens_once_and_accepts_the_free_text_match(
-        self, evaluation_service: TrackMatchEvaluationService
-    ):
-        candidate = _make_candidate()
-        connector = _make_connector()
-        connector.search_track.side_effect = [[], [candidate]]
-        track = make_track(id=1, title="Creep", artist="Radiohead")
-
-        attempt = await search_and_evaluate_attempt(
-            connector, evaluation_service, track, "Radiohead", "Creep"
         )
 
         assert attempt.match is not None
         assert attempt.match.candidate is candidate
+        assert attempt.match.match_result.connector_id == "dead_id_123"
+
+
+class TestWideningIsOptIn:
+    """``widen`` is required at every call site because the cost is per-caller."""
+
+    async def test_widen_false_issues_exactly_one_search_on_a_miss(
+        self, evaluation_service: TrackMatchEvaluationService
+    ):
+        """The cross-discovery bound: a run of misses must not double its volume."""
+        connector = _make_connector()
+        connector.search_track.side_effect = [[], [_make_candidate()]]
+        track = make_track(id=1, title="Creep", artist="Radiohead")
+
+        attempt = await search_and_evaluate_attempt(
+            connector,
+            evaluation_service,
+            track,
+            "Radiohead",
+            "Creep",
+            widen=False,
+            require_success=False,
+        )
+
+        assert attempt.match is None
+        assert connector.search_track.await_count == 1
+        assert attempt.queries == (field_filtered_search_query("Radiohead", "Creep"),)
+
+    async def test_widen_true_issues_the_second_search_on_a_miss(
+        self, evaluation_service: TrackMatchEvaluationService
+    ):
+        connector = _make_connector()
+        connector.search_track.side_effect = [[], [_make_candidate()]]
+        track = make_track(id=1, title="Creep", artist="Radiohead")
+
+        attempt = await search_and_evaluate_attempt(
+            connector,
+            evaluation_service,
+            track,
+            "Radiohead",
+            "Creep",
+            widen=True,
+            require_success=True,
+        )
+
+        assert attempt.match is not None
         assert connector.search_track.await_args_list == [
-            call("Radiohead", "Creep", SpotifyConstants.SEARCH_DEFAULT_LIMIT),
             call(
-                "Radiohead",
-                "Creep",
+                field_filtered_search_query("Radiohead", "Creep"),
                 SpotifyConstants.SEARCH_DEFAULT_LIMIT,
-                field_filtered=False,
+            ),
+            call(
+                free_text_search_query("Radiohead", "Creep"),
+                SpotifyConstants.SEARCH_DEFAULT_LIMIT,
             ),
         ]
 
-    async def test_widens_when_candidates_exist_but_miss_the_similarity_gate(
+    async def test_widening_is_bounded_to_exactly_one_extra_pass(
+        self, evaluation_service: TrackMatchEvaluationService
+    ):
+        connector = _make_connector()
+        connector.search_track.side_effect = [[], []]
+        track = make_track(id=1, title="Creep", artist="Radiohead")
+
+        attempt = await search_and_evaluate_attempt(
+            connector,
+            evaluation_service,
+            track,
+            "Radiohead",
+            "Creep",
+            widen=True,
+            require_success=True,
+        )
+
+        assert attempt.match is None
+        assert connector.search_track.await_count == 2
+
+    async def test_a_junk_first_pass_still_widens(
         self, evaluation_service: TrackMatchEvaluationService
     ):
         """Returning junk is not the same as clearing the gate."""
@@ -332,24 +462,12 @@ class TestSearchWidening:
             track,
             "Radiohead",
             "Creep",
+            widen=True,
+            require_success=True,
             min_similarity=0.7,
         )
 
         assert attempt.match is not None
-        assert connector.search_track.await_count == 2
-
-    async def test_widening_is_bounded_to_exactly_one_extra_pass(
-        self, evaluation_service: TrackMatchEvaluationService
-    ):
-        connector = _make_connector()
-        connector.search_track.side_effect = [[], []]
-        track = make_track(id=1, title="Creep", artist="Radiohead")
-
-        attempt = await search_and_evaluate_attempt(
-            connector, evaluation_service, track, "Radiohead", "Creep"
-        )
-
-        assert attempt.match is None
         assert connector.search_track.await_count == 2
 
     async def test_the_limit_is_the_same_on_both_passes(
@@ -365,11 +483,247 @@ class TestSearchWidening:
             track,
             "Radiohead",
             "Creep",
+            widen=True,
+            require_success=True,
             limit=SpotifyConstants.SEARCH_MAX_LIMIT,
         )
 
         for search_call in connector.search_track.await_args_list:
-            assert search_call.args[2] == SpotifyConstants.SEARCH_MAX_LIMIT
+            assert search_call.args[1] == SpotifyConstants.SEARCH_MAX_LIMIT
+
+
+class TestRequireSuccess:
+    """Title similarity ranks candidates; only evaluation says they are the track."""
+
+    ARTIST = "Johnny Cash"
+    TITLE = "Hurt"
+
+    def _wrong_artist_candidate(self) -> MagicMock:
+        # Same title, different performer, and a length that gives the
+        # evaluator something to disagree with.
+        return _make_candidate(
+            track_id="nin_hurt",
+            name="Hurt",
+            artist="Nine Inch Nails",
+            duration_ms=373000,
+        )
+
+    async def test_a_failing_evaluation_is_not_a_match(
+        self, evaluation_service: TrackMatchEvaluationService
+    ):
+        connector = _make_connector([self._wrong_artist_candidate()])
+        track = make_track(
+            id=1, title=self.TITLE, artist=self.ARTIST, duration_ms=216000
+        )
+
+        attempt = await search_and_evaluate_attempt(
+            connector,
+            evaluation_service,
+            track,
+            self.ARTIST,
+            self.TITLE,
+            widen=False,
+            require_success=True,
+            min_similarity=0.7,
+        )
+
+        assert attempt.match is None
+
+    async def test_the_same_candidate_survives_when_success_is_not_required(
+        self, evaluation_service: TrackMatchEvaluationService
+    ):
+        """Cross-discovery keeps the rejected match so it can log its confidence."""
+        connector = _make_connector([self._wrong_artist_candidate()])
+        track = make_track(
+            id=1, title=self.TITLE, artist=self.ARTIST, duration_ms=216000
+        )
+
+        attempt = await search_and_evaluate_attempt(
+            connector,
+            evaluation_service,
+            track,
+            self.ARTIST,
+            self.TITLE,
+            widen=False,
+            require_success=False,
+            min_similarity=0.7,
+        )
+
+        assert attempt.match is not None
+        assert attempt.match.match_result.success is False
+
+    async def test_the_gate_applies_to_the_widened_pass_too(
+        self, evaluation_service: TrackMatchEvaluationService
+    ):
+        """The free-text query does not constrain the artist at all."""
+        connector = _make_connector()
+        connector.search_track.side_effect = [[], [self._wrong_artist_candidate()]]
+        track = make_track(
+            id=1, title=self.TITLE, artist=self.ARTIST, duration_ms=216000
+        )
+
+        attempt = await search_and_evaluate_attempt(
+            connector,
+            evaluation_service,
+            track,
+            self.ARTIST,
+            self.TITLE,
+            widen=True,
+            require_success=True,
+            min_similarity=0.7,
+        )
+
+        assert attempt.match is None
+        assert connector.search_track.await_count == 2
+
+    async def test_a_first_pass_failure_does_not_stop_the_widened_rescue(
+        self, evaluation_service: TrackMatchEvaluationService
+    ):
+        connector = _make_connector()
+        connector.search_track.side_effect = [
+            [self._wrong_artist_candidate()],
+            [
+                _make_candidate(
+                    track_id="jc_hurt",
+                    name="Hurt",
+                    artist="Johnny Cash",
+                    duration_ms=216000,
+                )
+            ],
+        ]
+        track = make_track(
+            id=1, title=self.TITLE, artist=self.ARTIST, duration_ms=216000
+        )
+
+        attempt = await search_and_evaluate_attempt(
+            connector,
+            evaluation_service,
+            track,
+            self.ARTIST,
+            self.TITLE,
+            widen=True,
+            require_success=True,
+            min_similarity=0.7,
+        )
+
+        assert attempt.match is not None
+        assert attempt.match.candidate.id == "jc_hurt"
+
+
+class TestMinimumCandidateDuration:
+    """A candidate shorter than the caller's evidence cannot be the recording."""
+
+    async def test_a_too_short_candidate_is_rejected_despite_a_perfect_title(
+        self, evaluation_service: TrackMatchEvaluationService
+    ):
+        connector = _make_connector([
+            _make_candidate(name="Creep", artist="Radiohead", duration_ms=218000)
+        ])
+        track = make_track(id=1, title="Creep", artist="Radiohead")
+
+        attempt = await search_and_evaluate_attempt(
+            connector,
+            evaluation_service,
+            track,
+            "Radiohead",
+            "Creep",
+            widen=False,
+            require_success=False,
+            min_candidate_duration_ms=223000,
+        )
+
+        assert attempt.match is None
+
+    async def test_a_longer_candidate_is_untouched(
+        self, evaluation_service: TrackMatchEvaluationService
+    ):
+        """One-directional: an over-long candidate is ordinary, not suspicious."""
+        connector = _make_connector([
+            _make_candidate(name="Creep", artist="Radiohead", duration_ms=400000)
+        ])
+        track = make_track(id=1, title="Creep", artist="Radiohead")
+
+        attempt = await search_and_evaluate_attempt(
+            connector,
+            evaluation_service,
+            track,
+            "Radiohead",
+            "Creep",
+            widen=False,
+            require_success=False,
+            min_candidate_duration_ms=223000,
+        )
+
+        assert attempt.match is not None
+
+    async def test_the_veto_runs_before_ranking_so_a_longer_candidate_can_win(
+        self, evaluation_service: TrackMatchEvaluationService
+    ):
+        """Vetoing the ranked winner afterwards would discard the real match."""
+        short_exact = _make_candidate(
+            track_id="edit", name="Creep", artist="Radiohead", duration_ms=180000
+        )
+        long_variant = _make_candidate(
+            track_id="album", name="Creep", artist="Radiohead", duration_ms=238000
+        )
+        connector = _make_connector([short_exact, long_variant])
+        track = make_track(id=1, title="Creep", artist="Radiohead")
+
+        attempt = await search_and_evaluate_attempt(
+            connector,
+            evaluation_service,
+            track,
+            "Radiohead",
+            "Creep",
+            widen=False,
+            require_success=False,
+            min_candidate_duration_ms=223000,
+        )
+
+        assert attempt.match is not None
+        assert attempt.match.candidate.id == "album"
+
+    async def test_a_candidate_without_a_duration_is_not_vetoed(
+        self, evaluation_service: TrackMatchEvaluationService
+    ):
+        """Spotify reports 0 for an unknown length; absence is not evidence."""
+        connector = _make_connector([
+            _make_candidate(name="Creep", artist="Radiohead", duration_ms=0)
+        ])
+        track = make_track(id=1, title="Creep", artist="Radiohead")
+
+        attempt = await search_and_evaluate_attempt(
+            connector,
+            evaluation_service,
+            track,
+            "Radiohead",
+            "Creep",
+            widen=False,
+            require_success=False,
+            min_candidate_duration_ms=223000,
+        )
+
+        assert attempt.match is not None
+
+    async def test_no_minimum_leaves_every_candidate_in_play(
+        self, evaluation_service: TrackMatchEvaluationService
+    ):
+        connector = _make_connector([
+            _make_candidate(name="Creep", artist="Radiohead", duration_ms=1000)
+        ])
+        track = make_track(id=1, title="Creep", artist="Radiohead")
+
+        attempt = await search_and_evaluate_attempt(
+            connector,
+            evaluation_service,
+            track,
+            "Radiohead",
+            "Creep",
+            widen=False,
+            require_success=False,
+        )
+
+        assert attempt.match is not None
 
 
 class TestSearchAttemptQueries:
@@ -382,7 +736,13 @@ class TestSearchAttemptQueries:
         track = make_track(id=1, title="Creep", artist="Radiohead")
 
         attempt = await search_and_evaluate_attempt(
-            connector, evaluation_service, track, "Radiohead", "Creep"
+            connector,
+            evaluation_service,
+            track,
+            "Radiohead",
+            "Creep",
+            widen=True,
+            require_success=True,
         )
 
         assert attempt.queries == ('artist:"Radiohead" track:"Creep"',)
@@ -395,13 +755,41 @@ class TestSearchAttemptQueries:
         track = make_track(id=1, title="Creep", artist="Radiohead")
 
         attempt = await search_and_evaluate_attempt(
-            connector, evaluation_service, track, "Radiohead", "Creep"
+            connector,
+            evaluation_service,
+            track,
+            "Radiohead",
+            "Creep",
+            widen=True,
+            require_success=True,
         )
 
         assert attempt.queries == (
             'artist:"Radiohead" track:"Creep"',
             "Radiohead Creep",
         )
+
+    async def test_the_recorded_queries_are_the_ones_on_the_wire(
+        self, evaluation_service: TrackMatchEvaluationService
+    ):
+        """No parallel construction: the log and the request read one string."""
+        connector = _make_connector()
+        connector.search_track.side_effect = [[], []]
+        track = make_track(id=1, title='Move Your Body (12" Mix)', artist="Eusebe")
+
+        attempt = await search_and_evaluate_attempt(
+            connector,
+            evaluation_service,
+            track,
+            "Eusebe",
+            'Move Your Body (12" Mix)',
+            widen=True,
+            require_success=True,
+        )
+
+        sent = [c.args[0] for c in connector.search_track.await_args_list]
+        assert list(attempt.queries) == sent
+        assert all('"' not in query for query in sent[1:])
 
 
 class TestSearchAndEvaluateExceptionPropagation:
@@ -415,6 +803,133 @@ class TestSearchAndEvaluateExceptionPropagation:
         track = make_track(id=1)
 
         with pytest.raises(RuntimeError, match="API down"):
-            await search_and_evaluate_match(
-                connector, evaluation_service, track, "Radiohead", "Creep"
+            _ = await search_and_evaluate_attempt(
+                connector,
+                evaluation_service,
+                track,
+                "Radiohead",
+                "Creep",
+                widen=True,
+                require_success=True,
             )
+
+
+class TestArtistSimilarityFloor:
+    """The floor guards the ~7% of dead ids with no duration evidence.
+
+    With no duration on the hint, the full evaluation ACCEPTS a same-title
+    wrong-artist recording (artist disagreement costs ~7 of 100 confidence
+    points), so require_success alone cannot stop the substitution — only the
+    artist floor can.
+    """
+
+    ARTIST = "Johnny Cash"
+    TITLE = "Hurt"
+
+    def _wrong_artist_candidate(self) -> MagicMock:
+        return _make_candidate(
+            track_id="nin_hurt",
+            name="Hurt",
+            artist="Nine Inch Nails",
+            duration_ms=373000,
+        )
+
+    def _durationless_track(self):
+        # No duration evidence: the evaluator has only artist+title, and the
+        # measured confidence for this pair clears the auto-accept bar.
+        return make_track(id=1, title=self.TITLE, artist=self.ARTIST)
+
+    async def test_wrong_artist_rejected_by_floor_despite_success(
+        self, evaluation_service: TrackMatchEvaluationService
+    ):
+        connector = _make_connector([self._wrong_artist_candidate()])
+
+        attempt = await search_and_evaluate_attempt(
+            connector,
+            evaluation_service,
+            self._durationless_track(),
+            self.ARTIST,
+            self.TITLE,
+            widen=False,
+            require_success=True,
+            min_similarity=0.7,
+            min_artist_similarity=(
+                SpotifyConstants.FALLBACK_ARTIST_SIMILARITY_THRESHOLD
+            ),
+        )
+
+        assert attempt.match is None
+
+    async def test_without_the_floor_the_same_candidate_is_accepted(
+        self, evaluation_service: TrackMatchEvaluationService
+    ):
+        """Documents the exposure the floor closes — if this starts failing,
+        the matcher's artist weighting changed and the floor may be redundant."""
+        connector = _make_connector([self._wrong_artist_candidate()])
+
+        attempt = await search_and_evaluate_attempt(
+            connector,
+            evaluation_service,
+            self._durationless_track(),
+            self.ARTIST,
+            self.TITLE,
+            widen=False,
+            require_success=True,
+            min_similarity=0.7,
+        )
+
+        assert attempt.match is not None
+
+    async def test_right_artist_clears_the_floor(
+        self, evaluation_service: TrackMatchEvaluationService
+    ):
+        candidate = _make_candidate(
+            track_id="jc_hurt",
+            name="Hurt",
+            artist="Johnny Cash",
+            duration_ms=216000,
+        )
+        connector = _make_connector([candidate])
+
+        attempt = await search_and_evaluate_attempt(
+            connector,
+            evaluation_service,
+            self._durationless_track(),
+            self.ARTIST,
+            self.TITLE,
+            widen=False,
+            require_success=True,
+            min_similarity=0.7,
+            min_artist_similarity=(
+                SpotifyConstants.FALLBACK_ARTIST_SIMILARITY_THRESHOLD
+            ),
+        )
+
+        assert attempt.match is not None
+        assert attempt.match.candidate.id == "jc_hurt"
+
+    async def test_missing_evidence_fails_closed_when_floor_requested(
+        self, evaluation_service: TrackMatchEvaluationService
+    ):
+        connector = _make_connector([self._wrong_artist_candidate()])
+        service = MagicMock()
+        service.config = evaluation_service.config
+        service.evaluate_single_match.return_value = MagicMock(
+            success=True, evidence=None
+        )
+
+        attempt = await search_and_evaluate_attempt(
+            connector,
+            service,
+            self._durationless_track(),
+            self.ARTIST,
+            self.TITLE,
+            widen=False,
+            require_success=True,
+            min_similarity=0.7,
+            min_artist_similarity=(
+                SpotifyConstants.FALLBACK_ARTIST_SIMILARITY_THRESHOLD
+            ),
+        )
+
+        assert attempt.match is None

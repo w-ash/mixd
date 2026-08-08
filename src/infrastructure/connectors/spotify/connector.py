@@ -143,21 +143,15 @@ class SpotifyConnector(BaseAPIConnector):
         return await self._client.search_by_isrc(isrc)
 
     async def search_track(
-        self,
-        artist: str,
-        title: str,
-        limit: int = SpotifyConstants.SEARCH_DEFAULT_LIMIT,
-        *,
-        field_filtered: bool = True,
+        self, query: str, limit: int = SpotifyConstants.SEARCH_DEFAULT_LIMIT
     ) -> list[SpotifyTrack]:
-        """Search for tracks by artist and title.
+        """Send a prepared search query to Spotify and return the candidates.
 
-        Returns multiple candidates so callers can rank by similarity.
-        ``field_filtered=False`` widens to a plain free-text query.
+        Returns multiple candidates so callers can rank by similarity. The
+        query is built by the caller (see ``client.field_filtered_search_query``
+        and ``client.free_text_search_query``) and sent verbatim.
         """
-        return await self._client.search_track(
-            artist, title, limit, field_filtered=field_filtered
-        )
+        return await self._client.search_track(query, limit)
 
     # Playlist Operations - Delegate to operations
 

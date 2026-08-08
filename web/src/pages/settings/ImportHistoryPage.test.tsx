@@ -108,9 +108,10 @@ describe("ImportHistoryPage", () => {
     expect(screen.getByText("3 issues")).toBeInTheDocument();
   });
 
-  it("lists the exact unresolved tracks when a partial run is expanded", async () => {
+  it("lists the exact unresolved tracks as legible rows, not JSON blobs", async () => {
     // The point of the feature: "which tracks couldn't be imported?" is
-    // answerable from the row, not only from the server logs.
+    // answerable from the row, not only from the server logs — and answerable at
+    // a glance, which a stringified payload per track is not.
     const targetId = "00000000-0000-0000-0000-000000000077";
     setupListMock([
       makeSummary({ id: targetId, status: "partial", issue_count: 3 }),
@@ -140,14 +141,25 @@ describe("ImportHistoryPage", () => {
       initiated_by: "manual",
     });
 
-    renderWithProviders(<ImportHistoryPage />, {
+    const { container } = renderWithProviders(<ImportHistoryPage />, {
       routerProps: { initialEntries: [`/settings/imports?run=${targetId}`] },
     });
 
     await waitFor(() => {
-      expect(screen.getByText(/Aphex Twin - Xtal/)).toBeInTheDocument();
+      expect(screen.getByText("Aphex Twin - Xtal")).toBeInTheDocument();
     });
-    expect(screen.getByText(/Boards of Canada - Roygbiv/)).toBeInTheDocument();
+    expect(screen.getByText("Boards of Canada - Roygbiv")).toBeInTheDocument();
+    // The reason stays visible — it's what distinguishes "no match found" from
+    // "the API refused the call".
+    expect(screen.getAllByText("track_resolution_failed")).toHaveLength(2);
+    // The headline message is prose, not a one-key object.
+    expect(
+      screen.getByText("2 of 100 plays failed import"),
+    ).toBeInTheDocument();
+    // Legibility, not just presence: no raw JSON punctuation for known shapes.
+    expect(container.textContent).not.toContain('"track":');
+    expect(container.textContent).not.toContain('"message":');
+    expect(container.textContent).not.toContain('"spotify_id":');
   });
 
   it("shows the Assistant badge only for an assistant-initiated run", async () => {
@@ -170,7 +182,7 @@ describe("ImportHistoryPage", () => {
     expect(screen.getAllByText("Assistant")).toHaveLength(1);
   });
 
-  it("auto-expands the row matching ?run=<id> on mount and fetches detail", async () => {
+  it("auto-expands ?run=<id>, and falls back to JSON for an unknown issue shape", async () => {
     const targetId = "00000000-0000-0000-0000-000000000042";
     setupListMock([makeSummary({ id: targetId, issue_count: 1 })]);
     setupDetailMock({
@@ -186,13 +198,16 @@ describe("ImportHistoryPage", () => {
       initiated_by: "manual",
     });
 
-    renderWithProviders(<ImportHistoryPage />, {
+    const { container } = renderWithProviders(<ImportHistoryPage />, {
       routerProps: { initialEntries: [`/settings/imports?run=${targetId}`] },
     });
 
-    // Expanded row fires the detail fetch and renders the issue payload.
+    // Expanded row fires the detail fetch and renders the issue payload. This
+    // one is `{track_id, reason}` — not a shape the list knows — so the raw JSON
+    // survives rather than the payload vanishing.
     await waitFor(() => {
       expect(screen.getByText(/no_match/)).toBeInTheDocument();
     });
+    expect(container.textContent).toContain('"track_id"');
   });
 });

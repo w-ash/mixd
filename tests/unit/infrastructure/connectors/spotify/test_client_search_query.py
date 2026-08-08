@@ -12,7 +12,7 @@ from src.infrastructure.connectors.spotify.client import (
     SpotifyAPIClient,
     field_filtered_search_query,
     free_text_search_query,
-    sanitize_filter_value,
+    sanitize_search_value,
 )
 
 
@@ -48,13 +48,13 @@ class TestSanitizeFilterValue:
     """Sanitizing is quote removal plus whitespace normalization, nothing else."""
 
     def test_collapses_the_whitespace_a_removed_quote_leaves(self):
-        assert sanitize_filter_value('a "b" c') == "a b c"
+        assert sanitize_search_value('a "b" c') == "a b c"
 
     def test_leading_and_trailing_whitespace_stripped(self):
-        assert sanitize_filter_value("  Robert Johnson\n") == "Robert Johnson"
+        assert sanitize_search_value("  Robert Johnson\n") == "Robert Johnson"
 
     def test_value_without_quotes_is_unchanged(self):
-        assert sanitize_filter_value("Come On in My Kitchen") == (
+        assert sanitize_search_value("Come On in My Kitchen") == (
             "Come On in My Kitchen"
         )
 
@@ -71,6 +71,39 @@ class TestFreeTextQuery:
     def test_empty_artist_leaves_no_stray_whitespace(self):
         assert free_text_search_query("", "Creep") == "Creep"
 
+    def test_embedded_double_quotes_are_replaced_here_too(self):
+        """An unbalanced quote opens a phrase operator Spotify never sees closed."""
+        assert free_text_search_query("Eusebe", 'Move Your Body (12" Mix)') == (
+            "Eusebe Move Your Body (12 Mix)"
+        )
+
+
+class TestBothBuildersSanitizeAlike:
+    """A quote is destructive in either shape, so neither builder may pass one on.
+
+    The asymmetry this pins is the one that condemned living tracks: the
+    filtered pass stripped the quote, the widening pass sent it, so widening
+    failed on exactly the titles it exists to rescue.
+    """
+
+    ARTIST = "Eusebe"
+    TITLE = 'Move Your Body (12" Mix)'
+
+    def test_neither_query_carries_an_unbalanced_quote(self):
+        filtered = field_filtered_search_query(self.ARTIST, self.TITLE)
+        free_text = free_text_search_query(self.ARTIST, self.TITLE)
+
+        assert filtered.count('"') == 4  # the four the field filters open/close
+        assert '"' not in free_text
+
+    def test_the_title_survives_intact_apart_from_the_quote(self):
+        assert field_filtered_search_query(self.ARTIST, self.TITLE) == (
+            'artist:"Eusebe" track:"Move Your Body (12 Mix)"'
+        )
+        assert free_text_search_query(self.ARTIST, self.TITLE) == (
+            "Eusebe Move Your Body (12 Mix)"
+        )
+
 
 def _client_with_mock_transport() -> tuple[SpotifyAPIClient, AsyncMock]:
     with patch.object(SpotifyAPIClient, "__attrs_post_init__"):
@@ -85,24 +118,20 @@ def _client_with_mock_transport() -> tuple[SpotifyAPIClient, AsyncMock]:
 
 
 class TestQueryOnTheWire:
-    """_search_track_impl sends the query its mode selects."""
+    """The client sends its caller's query verbatim — it builds nothing itself."""
 
-    async def test_default_mode_sends_the_quoted_field_filtered_query(self):
+    async def test_the_field_filtered_query_reaches_the_wire_unchanged(self):
         client, transport = _client_with_mock_transport()
+        query = field_filtered_search_query("Robert Johnson", "Come On in My Kitchen")
 
-        _ = await client._search_track_impl("Robert Johnson", "Come On in My Kitchen")
+        _ = await client._search_track_impl(query)
 
-        assert transport.get.call_args.kwargs["params"]["q"] == (
-            'artist:"Robert Johnson" track:"Come On in My Kitchen"'
-        )
+        assert transport.get.call_args.kwargs["params"]["q"] == query
 
-    async def test_widened_mode_sends_the_free_text_query(self):
+    async def test_the_free_text_query_reaches_the_wire_unchanged(self):
         client, transport = _client_with_mock_transport()
+        query = free_text_search_query("Robert Johnson", "Come On in My Kitchen")
 
-        _ = await client._search_track_impl(
-            "Robert Johnson", "Come On in My Kitchen", field_filtered=False
-        )
+        _ = await client._search_track_impl(query)
 
-        assert transport.get.call_args.kwargs["params"]["q"] == (
-            "Robert Johnson Come On in My Kitchen"
-        )
+        assert transport.get.call_args.kwargs["params"]["q"] == query

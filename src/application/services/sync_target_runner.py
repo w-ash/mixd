@@ -23,6 +23,7 @@ from uuid import UUID
 
 from attrs import define
 
+from src.application.services.operation_outcome import audit_outcome, failure_issues
 from src.application.services.operation_run_recorder import finalize_run, start_run
 from src.application.use_cases._shared.sync_targets import (
     SYNC_TARGETS,
@@ -33,6 +34,8 @@ from src.application.use_cases._shared.sync_targets import (
     sync_result_failed,
 )
 from src.config import get_logger
+from src.domain.entities.operation_run import FAILED_STATUSES
+from src.domain.entities.operations import OperationResult
 
 logger = get_logger(__name__)
 
@@ -98,6 +101,13 @@ async def run_sync_target(
     handled failure by *returning* an ``OperationResult`` rather than raising —
     without the second check, a failed sync would be recorded as a clean fire.
 
+    The audit row is written through the same
+    :mod:`~src.application.services.operation_outcome` mapping the SSE seam uses,
+    so a nightly import that resolved 480 of 500 tracks records as ``partial``
+    with real counts and the failed tracks named — identical to what the user
+    would have seen had they clicked Import themselves. Unattended runs are the
+    whole point of the run log: nobody was watching when it happened.
+
     ``CancelledError`` is a ``BaseException`` and deliberately not caught around
     the run itself: a shutdown mid-sync propagates to the caller, which releases
     its own claim as a drain rather than a fault. It *is* suppressed around the
@@ -144,21 +154,55 @@ async def run_sync_target(
         try:
             result = await spec.run(user_id)
         except Exception as exc:
+            # The audit row gets the full message where `error_label` gets only
+            # the class name: `schedules.last_error` is a persistent banner on the
+            # connector card, whereas the run row is the per-run detail view
+            # `safe_failure_message` points at for triage. Without this an
+            # unattended crash finalizes as a bare "error" with no reason —
+            # exactly the "No issues recorded" gap the run log exists to close.
+            # str(exc) is empty for argument-less exceptions, where the type name
+            # is the only reason left and a blank issue is worse than none.
+            reason = str(exc)[:500] or type(exc).__name__
             # finalize is best-effort: a transient audit-write error must not
             # turn a known-failed sync into an unknown one.
             with contextlib.suppress(Exception):
-                await finalize_run(run_id, user_id=user_id, status="error")
+                await finalize_run(
+                    run_id,
+                    user_id=user_id,
+                    status="error",
+                    issues=[{"message": reason}],
+                )
             return SyncTargetRunOutcome(
                 status="failed",
                 run_id=run_id,
                 error_label=safe_failure_message(exc),
             )
 
+        # Two questions, deliberately answered separately from the same result.
+        # `sync_result_failed` is the HEALTH signal: it drives the poll backoff
+        # and `schedules.last_error`, and treats a partial run as failed because
+        # something did go wrong. `audit_outcome` is the run log's presentation
+        # split — `partial` when work still landed — and is shared verbatim with
+        # the SSE seam so a scheduled run and the manual run of the same import
+        # can never be recorded differently.
         failed = sync_result_failed(result)
         succeeded = not failed
+        status, counts = audit_outcome(result)
+        issues = (
+            failure_issues(result)
+            if status in FAILED_STATUSES and isinstance(result, OperationResult)
+            else None
+        )
         with contextlib.suppress(Exception):
+            # One call, so status + counts + issues land in a single transaction:
+            # an unattended run that finalized its status and then crashed before
+            # its issues is the "errors: N with no message" symptom made durable.
             await finalize_run(
-                run_id, user_id=user_id, status="error" if failed else "complete"
+                run_id,
+                user_id=user_id,
+                status=status,
+                counts=counts,
+                issues=issues,
             )
         return SyncTargetRunOutcome(
             status="failed" if failed else "completed",

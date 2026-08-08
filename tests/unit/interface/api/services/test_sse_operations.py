@@ -1,12 +1,15 @@
 """Characterization tests for the SSE operation seam (``run_sse_operation``).
 
-Pins the result→audit-row mapping the web relies on: the use case's
-returned ``OperationResult`` decides the ``OperationRun``'s terminal status and
-counts. A handled soft failure (``is_failure``) records as ``error`` with real
-counts — not a blanket ``complete`` — so a failed overnight run is visible the
-next time the user opens mixd. This was the dropped-result seam: ``run_sse_operation``
-used to ``await coro`` and discard the result, finalizing every clean return as
+Pins that the seam threads the use case's returned ``OperationResult`` into the
+``OperationRun`` — status, counts, and issues, in one ``finalize_run`` call —
+plus the two things the seam alone owns: the uncaught-exception path and the
+live terminal event. This was the dropped-result seam: ``run_sse_operation`` used
+to ``await coro`` and discard the result, finalizing every clean return as
 ``complete`` with no counts.
+
+The result→outcome truth table itself lives with the mapping, in
+``tests/unit/application/services/test_operation_outcome.py`` — it is shared with
+the scheduled/demand path and must not be pinned per consumer.
 """
 
 from collections.abc import Awaitable, Callable
@@ -52,7 +55,11 @@ def _op_id() -> str:
 
 
 class TestRunSseOperationAuditOutcome:
-    """run_sse_operation maps the returned OperationResult to the audit row."""
+    """run_sse_operation threads ``audit_outcome`` into the audit row.
+
+    One case per branch of the seam's own guard (clean → no issues, ``error`` and
+    ``partial`` → issues), not per branch of the mapping.
+    """
 
     async def test_clean_result_finalizes_complete_with_counts(self, captured_finalize):
         result = OperationResult(operation_name="Import")
@@ -69,8 +76,9 @@ class TestRunSseOperationAuditOutcome:
         kwargs = captured_finalize.await_args.kwargs
         assert kwargs["status"] == "complete"
         assert kwargs["counts"] == {"track_plays": 42}
+        assert kwargs["issues"] == []
 
-    async def test_soft_failure_result_finalizes_error_with_counts(
+    async def test_soft_failure_result_finalizes_error_with_counts_and_reason(
         self, captured_finalize
     ):
         # The F1/F4-class bug: the use case handled the error and returned a
@@ -89,41 +97,22 @@ class TestRunSseOperationAuditOutcome:
         kwargs = captured_finalize.await_args.kwargs
         assert kwargs["status"] == "error"
         assert kwargs["counts"]["errors"] == 1
+        # Status, counts and reason ride ONE call — a crash between two writes
+        # would durably finalize a failed run with an empty issues array.
+        assert kwargs["issues"] == [{"message": "Last.fm timed out"}]
 
-    async def test_uncaught_exception_finalizes_error(self, captured_finalize):
-        async def coro() -> None:
-            raise RuntimeError("boom")
-
-        await sse_operations.run_sse_operation(
-            _op_id(), coro(), run_id=uuid4(), user_id="u1"
-        )
-
-        kwargs = captured_finalize.await_args.kwargs
-        assert kwargs["status"] == "error"
-
-    async def test_non_operation_result_stays_complete_without_counts(
+    async def test_partial_result_finalizes_partial_with_per_item_issues(
         self, captured_finalize
     ):
-        # Some coros (e.g. fire-and-forget) return None — no failure signal,
-        # no counts, so the run stays complete.
-        async def coro() -> None:
-            return None
-
-        await sse_operations.run_sse_operation(
-            _op_id(), coro(), run_id=uuid4(), user_id="u1"
-        )
-
-        kwargs = captured_finalize.await_args.kwargs
-        assert kwargs["status"] == "complete"
-        assert kwargs["counts"] is None
-
-    async def test_failure_with_successes_finalizes_partial(self, captured_finalize):
-        # "Finished, but some tracks couldn't be resolved" — a different thing
-        # for the user to act on than a run that failed outright.
+        # `partial` is in FAILED_STATUSES, so the seam's issues guard must fire
+        # for it too — this is the row that names the unresolved tracks.
         result = OperationResult(operation_name="Import")
         result.summary_metrics.add("track_plays", 98, "Track Plays Created")
-        result.summary_metrics.add("errors", 2, "Errors", significance=1)
-        result.metadata["error"] = "2 of 100 plays failed import"
+        result.summary_metrics.add("errors", 1, "Errors", significance=1)
+        result.metadata["error"] = "1 of 99 plays failed import"
+        result.metadata["resolution_failures"] = [
+            {"track": "Aphex Twin - Xtal", "reason": "track_resolution_failed"}
+        ]
 
         async def coro() -> OperationResult:
             return result
@@ -134,41 +123,8 @@ class TestRunSseOperationAuditOutcome:
 
         kwargs = captured_finalize.await_args.kwargs
         assert kwargs["status"] == "partial"
-        assert kwargs["counts"] == {"track_plays": 98, "errors": 2}
-
-    async def test_errors_only_result_stays_error(self, captured_finalize):
-        # No success metric recorded → nothing landed → a total failure, not a
-        # partial one. This is the shape that must NOT drift into 'partial'.
-        result = OperationResult(operation_name="Import")
-        result.summary_metrics.add("errors", 1, "Errors", significance=1)
-
-        async def coro() -> OperationResult:
-            return result
-
-        await sse_operations.run_sse_operation(
-            _op_id(), coro(), run_id=uuid4(), user_id="u1"
-        )
-
-        assert captured_finalize.await_args.kwargs["status"] == "error"
-
-    async def test_denominator_metrics_do_not_make_a_failure_partial(
-        self, captured_finalize
-    ):
-        # raw_plays/candidates count what was *attempted*, so they are positive
-        # even when nothing succeeded — they are outside the success allowlist.
-        result = OperationResult(operation_name="Import")
-        result.summary_metrics.add("raw_plays", 100, "Raw Plays Found")
-        result.summary_metrics.add("candidates", 100, "Candidates")
-        result.summary_metrics.add("errors", 100, "Errors", significance=1)
-
-        async def coro() -> OperationResult:
-            return result
-
-        await sse_operations.run_sse_operation(
-            _op_id(), coro(), run_id=uuid4(), user_id="u1"
-        )
-
-        assert captured_finalize.await_args.kwargs["status"] == "error"
+        assert kwargs["counts"] == {"track_plays": 98, "errors": 1}
+        assert kwargs["issues"][1]["track"] == "Aphex Twin - Xtal"
 
     async def test_without_run_id_no_audit_write(self, captured_finalize):
         async def coro() -> OperationResult:
@@ -180,49 +136,16 @@ class TestRunSseOperationAuditOutcome:
         captured_finalize.assert_not_awaited()
 
 
-class TestRunSseOperationErrorMessagePersistence:
-    """A failed run's reason must land in the run's ``issues``.
+class TestRunSseOperationUncaughtException:
+    """The exception path is the seam's own — the result mapping never sees it.
 
-    ``to_counts()`` flattens summary metrics only, so a soft failure's message
-    (stashed in ``OperationResult.metadata``) used to exist nowhere queryable —
-    the v0.10.2.2 "errors: 1 with no message" gap. The seam now hands it to
-    ``finalize_run`` for both failure paths, so status and reason land in one
-    transaction (a crash between two writes was reproducing the same symptom).
+    A use case that raises returns no ``OperationResult``, so status, counts and
+    the reason are all constructed here.
     """
 
-    async def test_soft_failure_message_recorded_as_issue(self, captured_finalize):
-        result = OperationResult(operation_name="Import")
-        result.summary_metrics.add("errors", 1, "Errors", significance=1)
-        result.metadata["error"] = "Spotify file import failed: 429"
-
-        async def coro() -> OperationResult:
-            return result
-
-        await sse_operations.run_sse_operation(
-            _op_id(), coro(), run_id=uuid4(), user_id="u1"
-        )
-
-        captured_finalize.assert_awaited_once()
-        kwargs = captured_finalize.await_args.kwargs
-        assert kwargs["issues"] == [{"message": "Spotify file import failed: 429"}]
-
-    async def test_importer_errors_list_recorded_as_issue(self, captured_finalize):
-        # create_error_result stashes the message under metadata["errors"].
-        result = OperationResult(operation_name="Import")
-        result.summary_metrics.add("errors", 1, "Errors", significance=0)
-        result.metadata["errors"] = ["boom one", "boom two"]
-
-        async def coro() -> OperationResult:
-            return result
-
-        await sse_operations.run_sse_operation(
-            _op_id(), coro(), run_id=uuid4(), user_id="u1"
-        )
-
-        kwargs = captured_finalize.await_args.kwargs
-        assert kwargs["issues"] == [{"message": "boom one; boom two"}]
-
-    async def test_uncaught_exception_recorded_as_issue(self, captured_finalize):
+    async def test_uncaught_exception_finalizes_error_with_the_message(
+        self, captured_finalize
+    ):
         async def coro() -> None:
             raise RuntimeError("boom")
 
@@ -231,6 +154,7 @@ class TestRunSseOperationErrorMessagePersistence:
         )
 
         kwargs = captured_finalize.await_args.kwargs
+        assert kwargs["status"] == "error"
         assert kwargs["issues"] == [{"message": "boom"}]
 
     async def test_message_less_exception_records_its_type(self, captured_finalize):
@@ -245,121 +169,6 @@ class TestRunSseOperationErrorMessagePersistence:
 
         kwargs = captured_finalize.await_args.kwargs
         assert kwargs["issues"] == [{"message": "KeyError"}]
-
-    async def test_clean_result_records_no_issue(self, captured_finalize):
-        result = OperationResult(operation_name="Import")
-        result.summary_metrics.add("track_plays", 42, "Plays Imported")
-
-        async def coro() -> OperationResult:
-            return result
-
-        await sse_operations.run_sse_operation(
-            _op_id(), coro(), run_id=uuid4(), user_id="u1"
-        )
-
-        assert captured_finalize.await_args.kwargs["issues"] == []
-
-    async def test_soft_failure_without_message_records_no_issue(
-        self, captured_finalize
-    ):
-        # errors metric with nothing in metadata: nothing useful to persist.
-        result = OperationResult(operation_name="Import")
-        result.summary_metrics.add("errors", 1, "Errors", significance=1)
-
-        async def coro() -> OperationResult:
-            return result
-
-        await sse_operations.run_sse_operation(
-            _op_id(), coro(), run_id=uuid4(), user_id="u1"
-        )
-
-        assert captured_finalize.await_args.kwargs["issues"] == []
-
-
-class TestRunSseOperationPerItemIssues:
-    """Every recorded per-item failure becomes its own run issue.
-
-    This is what makes the Import History expandable row answer *which* tracks
-    couldn't be resolved, rather than only "2 of 100 failed (e.g. …)".
-    """
-
-    @staticmethod
-    def _partial_result(
-        failures: list[dict[str, str]], truncated: int | None = None
-    ) -> OperationResult:
-        result = OperationResult(operation_name="Import")
-        result.summary_metrics.add("track_plays", 98, "Track Plays Created")
-        result.summary_metrics.add("errors", len(failures), "Errors", significance=1)
-        result.metadata["error"] = "2 of 100 plays failed import"
-        result.metadata["resolution_failures"] = failures
-        if truncated is not None:
-            result.metadata["resolution_failures_truncated"] = truncated
-        return result
-
-    async def test_each_recorded_failure_becomes_an_issue(self, captured_finalize):
-        result = self._partial_result([
-            {
-                "track": "Aphex Twin - Xtal",
-                "spotify_id": "abc",
-                "reason": "track_resolution_failed",
-            },
-            {
-                "track": "Boards of Canada - Roygbiv",
-                "spotify_id": "def",
-                "reason": "track_resolution_failed",
-            },
-        ])
-
-        async def coro() -> OperationResult:
-            return result
-
-        await sse_operations.run_sse_operation(
-            _op_id(), coro(), run_id=uuid4(), user_id="u1"
-        )
-
-        issues = captured_finalize.await_args.kwargs["issues"]
-        # Headline first, then one issue per failure, passed through as-is.
-        assert issues[0] == {"message": "2 of 100 plays failed import"}
-        assert issues[1]["track"] == "Aphex Twin - Xtal"
-        assert issues[2]["spotify_id"] == "def"
-        assert len(issues) == 3
-
-    async def test_truncation_notice_appended_last(self, captured_finalize):
-        result = self._partial_result(
-            [
-                {
-                    "track": "A - B",
-                    "spotify_id": "x",
-                    "reason": "track_resolution_failed",
-                }
-            ],
-            truncated=12,
-        )
-
-        async def coro() -> OperationResult:
-            return result
-
-        await sse_operations.run_sse_operation(
-            _op_id(), coro(), run_id=uuid4(), user_id="u1"
-        )
-
-        issues = captured_finalize.await_args.kwargs["issues"]
-        assert issues[-1] == {"message": "…and 12 more failures — see server logs"}
-
-    async def test_no_truncation_notice_when_under_the_cap(self, captured_finalize):
-        result = self._partial_result([
-            {"track": "A - B", "spotify_id": "x", "reason": "track_resolution_failed"}
-        ])
-
-        async def coro() -> OperationResult:
-            return result
-
-        await sse_operations.run_sse_operation(
-            _op_id(), coro(), run_id=uuid4(), user_id="u1"
-        )
-
-        issues = captured_finalize.await_args.kwargs["issues"]
-        assert not any("more failures" in str(i.get("message", "")) for i in issues)
 
 
 class TestRunSseOperationTerminalEvent:

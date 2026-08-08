@@ -42,14 +42,17 @@ from src.infrastructure.connectors.spotify.models import (
 logger = get_logger(__name__).bind(service="spotify_client")
 
 
-def sanitize_filter_value(value: str) -> str:
-    """Make a raw artist/title safe to sit inside a quoted Spotify field filter.
+def sanitize_search_value(value: str) -> str:
+    """Make a raw artist/title safe to sit in a Spotify search query — any shape.
 
-    Spotify's query grammar has no in-quote escape syntax, so an embedded double
-    quote terminates the filter early and the remainder degrades into loose
-    words. It is replaced by a space rather than escaped. Apostrophes, ampersands
-    and non-ASCII are legal inside quotes and are left untouched — GDPR exports
-    carry them verbatim and normalising them would lose real matches.
+    Spotify's query grammar has no escape syntax for a double quote, and the
+    character is destructive in both query shapes this module builds: inside a
+    quoted field filter it terminates the filter early and the remainder
+    degrades into loose words; in a free-text query it opens a phrase operator
+    that is never closed. It is replaced by a space rather than escaped.
+    Apostrophes, ampersands and non-ASCII are legal in both and are left
+    untouched — GDPR exports carry them verbatim and normalising them would
+    lose real matches.
     """
     return " ".join(value.replace('"', " ").split())
 
@@ -63,8 +66,8 @@ def field_filtered_search_query(artist: str, title: str) -> str:
     free-text term. Quoting binds the whole value to its filter.
     """
     return (
-        f'artist:"{sanitize_filter_value(artist)}" '
-        f'track:"{sanitize_filter_value(title)}"'
+        f'artist:"{sanitize_search_value(artist)}" '
+        f'track:"{sanitize_search_value(title)}"'
     )
 
 
@@ -73,8 +76,13 @@ def free_text_search_query(artist: str, title: str) -> str:
 
     Spotify's relevance ranking gets to match across all fields, which recovers
     tracks whose stored artist/title spelling differs from the caller's.
+
+    Sanitized on exactly the same terms as the filtered query: a title like
+    ``Move Your Body (12" Mix)`` would otherwise send an unbalanced quote, and
+    the widening pass would fail on precisely the titles it exists to rescue.
     """
-    return " ".join(f"{artist} {title}".split())
+    terms = (sanitize_search_value(artist), sanitize_search_value(title))
+    return " ".join(term for term in terms if term)
 
 
 @define(slots=True)
@@ -251,46 +259,33 @@ class SpotifyAPIClient(BaseAPIClient):
         return dict(first) if isinstance(first, dict) else None
 
     async def search_track(
-        self,
-        artist: str,
-        title: str,
-        limit: int = SpotifyConstants.SEARCH_DEFAULT_LIMIT,
-        *,
-        field_filtered: bool = True,
+        self, query: str, limit: int = SpotifyConstants.SEARCH_DEFAULT_LIMIT
     ) -> list[SpotifyTrack]:
-        """Search for tracks by artist and title.
+        """Send a prepared search query to ``/search`` and return the candidates.
 
         Returns multiple candidates so callers can rank by similarity.
 
-        ``field_filtered=False`` issues the artist and title as plain terms
-        instead of ``artist:``/``track:`` filters — the widening pass callers
-        use when the filtered query found nothing they could accept.
+        The query string is built by the caller — with
+        :func:`field_filtered_search_query` or :func:`free_text_search_query` —
+        and sent verbatim. The client deliberately does not re-derive it from
+        artist/title: a caller that logs a query it built separately from the
+        one this method assembled can print a string that never went on the
+        wire, which is worse than no telemetry at all.
         """
         result = await self._api_call(
             "search_spotify_track",
             self._search_track_impl,
-            artist,
-            title,
+            query,
             limit,
-            field_filtered,
         )
         if not result:
             return []
         return [SpotifyTrack.model_validate(t) for t in result]
 
     async def _search_track_impl(
-        self,
-        artist: str,
-        title: str,
-        limit: int = SpotifyConstants.SEARCH_DEFAULT_LIMIT,
-        field_filtered: bool = True,
+        self, query: str, limit: int = SpotifyConstants.SEARCH_DEFAULT_LIMIT
     ) -> list[JsonDict]:
         """Pure implementation without retry logic."""
-        query = (
-            field_filtered_search_query(artist, title)
-            if field_filtered
-            else free_text_search_query(artist, title)
-        )
         logger.debug(f"Searching Spotify with query: {query}")
         response = await self._client.get(
             "/search",
