@@ -76,12 +76,18 @@ async def finalize_run(
     user_id: str,
     status: OperationStatus,
     counts: JsonDict | None = None,
+    issue: JsonDict | None = None,
 ) -> None:
-    """Set the terminal fields and merge ``counts`` at run end.
+    """Set the terminal fields, merge ``counts``, and append ``issue`` at run end.
 
     Called from ``run_sse_operation`` on success (``status="complete"``)
     or exception (``status="error"``). Counts merge at the JSONB level so
     partial counts emitted during the run are preserved.
+
+    ``issue`` — the failure reason for an ``error`` run — is appended inside the
+    SAME transaction as the status update. Appending it separately would let a
+    crash between the two writes durably finalize an ``error`` run with an empty
+    ``issues`` array, which is the "errors: N with no message" symptom itself.
     """
 
     async def _update(uow: UnitOfWorkProtocol) -> None:
@@ -94,6 +100,8 @@ async def finalize_run(
                 ended_at=datetime.now(UTC),
                 counts=counts,
             )
+            if issue is not None:
+                await repo.append_issue(run_id, user_id=user_id, issue=issue)
             await uow.commit()
 
     await execute_use_case(_update, user_id=user_id)

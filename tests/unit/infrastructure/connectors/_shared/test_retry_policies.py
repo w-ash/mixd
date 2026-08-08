@@ -9,6 +9,7 @@ after six burned attempts.
 from unittest.mock import MagicMock
 
 import httpx2
+import pytest
 from tenacity import wait_fixed
 
 from src.infrastructure.connectors._shared.retry_policies import (
@@ -76,6 +77,20 @@ class TestRetryAfterWait:
 
     def test_no_outcome_uses_fallback(self):
         assert _wait()(_retry_state_with(None)) == _FALLBACK_SECONDS
+
+    @pytest.mark.parametrize("header", ["nan", "inf", "-inf", "infinity"])
+    def test_non_finite_header_uses_fallback(self, header: str):
+        # float() parses these, and NaN slips past both the floor and the cap —
+        # tenacity would get an undefined or unbounded sleep.
+        exc = _http_status_error(429, {"Retry-After": header})
+
+        assert _wait()(_retry_state_with(exc)) == _FALLBACK_SECONDS
+
+    def test_negative_header_clamps_to_floor(self):
+        # Clamped to 0s, so the next attempt waits only the 1s margin.
+        exc = _http_status_error(429, {"Retry-After": "-5"})
+
+        assert _wait()(_retry_state_with(exc)) == 1.0
 
 
 class TestCreatePolicyWiring:

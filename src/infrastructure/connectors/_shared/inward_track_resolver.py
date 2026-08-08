@@ -81,6 +81,7 @@ class InwardTrackResolver(ABC):
     """
 
     _match_evaluation_service: TrackMatchEvaluationService
+    _reuse_failed_ids: set[str]
 
     def __init__(
         self, match_evaluation_service: TrackMatchEvaluationService | None = None
@@ -88,6 +89,7 @@ class InwardTrackResolver(ABC):
         if match_evaluation_service is None:
             match_evaluation_service = create_evaluation_service()
         self._match_evaluation_service = match_evaluation_service
+        self._reuse_failed_ids = set()
 
     @property
     @abstractmethod
@@ -246,7 +248,15 @@ class InwardTrackResolver(ABC):
                     f"(confidence: {match_result.confidence})"
                 )
             except Exception as e:
-                logger.warning(f"Failed to create reuse mapping for {identifier}: {e}")
+                # The matcher just said an existing canonical holds this
+                # recording, so creating one instead would duplicate it — the
+                # failure is recorded here and the identifier is kept out of
+                # step 3 (see ``resolve_to_canonical_tracks``).
+                self._reuse_failed_ids.add(identifier)
+                logger.warning(
+                    f"Failed to create reuse mapping for {identifier}: {e}",
+                    exc_info=True,
+                )
 
         # Events only — this gate does not write to the negative cache.
         #
@@ -297,6 +307,7 @@ class InwardTrackResolver(ABC):
 
         # Normalize + deduplicate
         unique_ids = list({self._normalize_id(cid) for cid in connector_ids})
+        self._reuse_failed_ids = set()
 
         # Step 1 — Mapping Lookup: bulk-fetch existing connector→track mappings
         connections = [(self.connector_name, uid) for uid in unique_ids]
@@ -336,10 +347,23 @@ class InwardTrackResolver(ABC):
                 )
 
         # Step 3 — Track Creation: batch-create remaining missing tracks.
-        # First, drop the ids whose no-match backoff has not come due: the
+        #
+        # An id whose reuse mapping failed to write never reaches creation. The
+        # matcher had already accepted an existing canonical for it, so the row
+        # the savepoint discarded was a mapping onto a track that exists —
+        # creating a second canonical instead would duplicate the recording
+        # (the losing side of two concurrent imports racing the unique
+        # constraint). It counts as failed, and the next import resolves it at
+        # step 1 against whichever writer won.
+        #
+        # Then drop the ids whose no-match backoff has not come due: the
         # provider has already been asked and answered "nothing", and asking
         # again before the clock expires spends quota to learn the same thing.
-        still_missing = [uid for uid in missing_ids if uid not in result]
+        still_missing = [
+            uid
+            for uid in missing_ids
+            if uid not in result and uid not in self._reuse_failed_ids
+        ]
         created_count = 0
         suppressed_count = 0
 

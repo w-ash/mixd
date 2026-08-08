@@ -17,9 +17,11 @@ The retry system preserves all current behavior while enabling:
 
 from collections.abc import Callable
 from http import HTTPStatus
+import math
 from typing import override
 
 from attrs import define
+import httpx2
 from tenacity import (
     AsyncRetrying,
     RetryCallState,
@@ -272,8 +274,6 @@ def _retry_after_seconds(retry_state: RetryCallState) -> float | None:
     Only the numeric ``Retry-After`` form is handled; the HTTP-date form (rare,
     and unused by our connectors' APIs) falls back to exponential waits.
     """
-    import httpx2
-
     if not retry_state.outcome or not retry_state.outcome.failed:
         return None
     exception = retry_state.outcome.exception()
@@ -288,6 +288,11 @@ def _retry_after_seconds(retry_state: RetryCallState) -> float | None:
     try:
         seconds = float(headers["Retry-After"])
     except ValueError:
+        return None
+    # float() accepts "nan"/"inf": NaN defeats both the floor below and the cap
+    # in RetryAfterWait, handing tenacity an undefined sleep. Non-finite values
+    # fall back to the exponential wait.
+    if not math.isfinite(seconds):
         return None
     return max(seconds, 0.0)
 
@@ -388,8 +393,6 @@ class RetryPolicyFactory:
             Configured AsyncRetrying instance ready for ``await policy(fn, *args)``.
         """
         if config.include_httpx_errors:
-            import httpx2
-
             retry_predicate = retry_if_exception_type(
                 httpx2.HTTPStatusError
             ) | retry_if_exception_type(httpx2.RequestError)

@@ -193,35 +193,6 @@ async def get_session(rollback: bool = True) -> AsyncGenerator[AsyncSession]:
         await session.close()
 
 
-@asynccontextmanager
-async def transaction(session: AsyncSession) -> AsyncGenerator[AsyncSession]:
-    """Create a nested transaction context for finer-grained commit/rollback control.
-
-    This context manager creates a savepoint that can be committed or rolled back
-    independently of the main transaction.
-
-    Args:
-        session: SQLAlchemy async session
-
-    Yields:
-        The same session for operation chaining
-
-    Example:
-        ```python
-        async with get_session() as session:
-            # Main transaction already started automatically
-
-            # Create a savepoint for operations that might fail
-            async with transaction(session):
-                await session.execute(stmt1)
-                await session.execute(stmt2)
-                # Auto-commits savepoint if no exceptions
-        ```
-    """
-    async with session.begin_nested():
-        yield session
-
-
 async def init_db() -> None:
     """Initialize database schema.
 
@@ -249,5 +220,4 @@ __all__ = [
     "get_session_factory",
     "init_db",
     "reset_engine_cache",
-    "transaction",
 ]

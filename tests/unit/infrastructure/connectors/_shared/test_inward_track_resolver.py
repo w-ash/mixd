@@ -11,6 +11,7 @@ import pytest
 from src.domain.entities import Track
 from src.infrastructure.connectors._shared.inward_track_resolver import (
     InwardTrackResolver,
+    ReuseMetadata,
     TrackResolutionMetrics,
 )
 from tests.fixtures import attach_resolution_recorder, make_track
@@ -64,6 +65,128 @@ class FakeInwardResolver(InwardTrackResolver):
             for mid in missing_ids
             if mid in self._batch_results
         }
+
+
+class ReuseHintResolver(InwardTrackResolver):
+    """Test double that runs the REAL canonical-reuse step via hint metadata."""
+
+    def __init__(self, hints: dict[str, tuple[str, str]]):
+        super().__init__()
+        self._hints = hints
+        self.create_calls: list[list[str]] = []
+
+    @property
+    def connector_name(self) -> str:
+        return "fake"
+
+    def _normalize_id(self, raw_id: str) -> str:
+        return raw_id.strip().lower()
+
+    def _extract_reuse_metadata(self, identifier: str) -> ReuseMetadata | None:
+        hint = self._hints.get(identifier)
+        if not hint:
+            return None
+        artist, title = hint
+        return ReuseMetadata(
+            artist=artist,
+            title=title,
+            connector_id=identifier,
+            lookup_pair=(title.lower(), artist.lower()),
+        )
+
+    async def _create_tracks_batch(
+        self,
+        missing_ids: list[str],
+        uow: object,
+        *,
+        user_id: str = "default",
+    ) -> dict[str, Track]:
+        self.create_calls.append(missing_ids)
+        return {mid: make_track(99, "Created") for mid in missing_ids}
+
+
+def _make_reuse_uow(candidates: dict[tuple[str, str], Track]) -> MagicMock:
+    """UoW mock whose title+artist search returns ``candidates``."""
+    uow = MagicMock()
+    attach_resolution_recorder(uow)
+
+    track_repo = AsyncMock()
+    track_repo.find_tracks_by_title_artist.return_value = candidates
+    uow.get_track_repository.return_value = track_repo
+
+    connector_repo = AsyncMock()
+    connector_repo.find_tracks_by_connectors.return_value = {}
+    uow.get_connector_repository.return_value = connector_repo
+    return uow
+
+
+class TestReuseWriteFailure:
+    """A reuse mapping the savepoint rolled back must not become a new canonical.
+
+    The matcher had already accepted an existing canonical for the identifier,
+    so routing it into ``_create_tracks_batch`` would mint a duplicate of a
+    recording that exists — the losing side of two concurrent imports racing
+    the unique constraint. It counts as failed instead.
+    """
+
+    async def test_failed_reuse_mapping_is_kept_out_of_creation(self):
+        candidate = make_track(42, title="My Song", artist="Artist")
+        uow = _make_reuse_uow({("my song", "artist"): candidate})
+        uow.get_connector_repository().map_track_to_connector.side_effect = (
+            RuntimeError("duplicate key value violates unique constraint")
+        )
+
+        resolver = ReuseHintResolver({"id_a": ("Artist", "My Song")})
+        result, metrics = await resolver.resolve_to_canonical_tracks(
+            ["id_a"], uow, user_id="test-user"
+        )
+
+        assert result == {}
+        assert resolver.create_calls == []
+        assert metrics.reused == 0
+        assert metrics.created == 0
+        assert metrics.failed == 1
+
+    async def test_unmatched_ids_still_reach_creation(self):
+        """Only the failed identifier is withheld — the rest of the pass runs."""
+        candidate = make_track(42, title="My Song", artist="Artist")
+        uow = _make_reuse_uow({("my song", "artist"): candidate})
+        uow.get_connector_repository().map_track_to_connector.side_effect = (
+            RuntimeError("boom")
+        )
+
+        resolver = ReuseHintResolver({"id_a": ("Artist", "My Song")})
+        result, metrics = await resolver.resolve_to_canonical_tracks(
+            ["id_a", "id_b"], uow, user_id="test-user"
+        )
+
+        assert resolver.create_calls == [["id_b"]]
+        assert "id_b" in result
+        assert "id_a" not in result
+        assert metrics.created == 1
+        assert metrics.failed == 1
+
+    async def test_failure_does_not_leak_into_the_next_run(self):
+        """The set is per-run: a later import must still be able to create."""
+        candidate = make_track(42, title="My Song", artist="Artist")
+        uow = _make_reuse_uow({("my song", "artist"): candidate})
+        connector_repo = uow.get_connector_repository()
+        connector_repo.map_track_to_connector.side_effect = RuntimeError("boom")
+
+        resolver = ReuseHintResolver({"id_a": ("Artist", "My Song")})
+        _ = await resolver.resolve_to_canonical_tracks(
+            ["id_a"], uow, user_id="test-user"
+        )
+
+        connector_repo.map_track_to_connector.side_effect = None
+        uow.get_track_repository().find_tracks_by_title_artist.return_value = {}
+        result, metrics = await resolver.resolve_to_canonical_tracks(
+            ["id_a"], uow, user_id="test-user"
+        )
+
+        assert resolver.create_calls[-1] == ["id_a"]
+        assert "id_a" in result
+        assert metrics.created == 1
 
 
 class TestAllExisting:

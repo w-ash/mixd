@@ -678,3 +678,31 @@ class TestCreationFailureIsolation:
         assert metrics.failed == 1
         # Every creation attempt is savepoint-wrapped — the isolation itself.
         assert uow.savepoint.call_count == 2
+
+    async def test_failed_reuse_mapping_does_not_create_a_duplicate_canonical(self):
+        """The matcher already accepted an existing canonical for this
+        identifier, so a rolled-back reuse mapping must not fall through to
+        creation — that would mint a second canonical for the same recording."""
+        lastfm_client = AsyncMock()
+        existing = make_track(id=42, title="Creep", artist="Radiohead")
+
+        resolver = LastfmInwardResolver(lastfm_client=lastfm_client)
+        uow = _make_uow()
+        track_repo = uow.get_track_repository()
+        track_repo.find_tracks_by_title_artist.return_value = {
+            ("creep", "radiohead"): existing
+        }
+        uow.get_connector_repository().map_track_to_connector.side_effect = (
+            RuntimeError("duplicate key value violates unique constraint")
+        )
+
+        result, metrics = await resolver.resolve_to_canonical_tracks(
+            ["radiohead::creep"], uow, user_id="test-user"
+        )
+
+        assert result == {}
+        track_repo.save_track.assert_not_called()
+        lastfm_client.get_track_info_comprehensive.assert_not_called()
+        assert metrics.reused == 0
+        assert metrics.created == 0
+        assert metrics.failed == 1

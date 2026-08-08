@@ -18,7 +18,7 @@ instantly via the bulk lookup fast path (no API call needed).
 """
 
 import asyncio
-from collections.abc import Mapping
+from collections.abc import Mapping, Set as AbstractSet
 from typing import ClassVar, override
 
 from attrs import define, evolve
@@ -268,6 +268,7 @@ class SpotifyInwardResolver(InwardTrackResolver):
             )
 
         result: dict[str, Track] = {}
+        failed_ids: set[str] = set()
         for spotify_id in missing_ids:
             if spotify_id not in spotify_metadata:
                 continue
@@ -285,6 +286,8 @@ class SpotifyInwardResolver(InwardTrackResolver):
                         user_id=user_id,
                     )
             except Exception as e:
+                failed_ids.add(spotify_id)
+                self._forget_rolled_back(spotify_id)
                 logger.error(
                     f"Failed to create track for {spotify_id}: {e}", exc_info=True
                 )
@@ -293,7 +296,9 @@ class SpotifyInwardResolver(InwardTrackResolver):
         if absent_ids:
             await self._note_absent_ids(absent_ids, uow, user_id=user_id)
 
-        dead_ids = self._substitutable_from(missing_ids, spotify_metadata, result)
+        dead_ids = self._substitutable_from(
+            missing_ids, spotify_metadata, result, failed_ids
+        )
         if dead_ids and self._fallback_hints:
             fallback_tracks = await self._fallback_resolve_by_search(dead_ids, uow)
             result.update(fallback_tracks)
@@ -369,6 +374,7 @@ class SpotifyInwardResolver(InwardTrackResolver):
         requested: list[str],
         returned: Mapping[str, SpotifyTrack],
         resolved: Mapping[str, Track],
+        write_failed: AbstractSet[str] = frozenset(),
     ) -> list[str]:
         """Unresolved ids a search may stand in for — never a restricted one.
 
@@ -377,16 +383,40 @@ class SpotifyInwardResolver(InwardTrackResolver):
         unplayable here, so searching up a stand-in would answer a question
         nobody asked: the user would find their track quietly replaced by a
         different master because they were travelling.
+
+        ``write_failed`` carries the ids Spotify answered for whose write its
+        savepoint then rolled back. They are unresolved only because the
+        database refused this once — the provider vouched for them just as
+        plainly as for a restricted one. A failed write means "retry next
+        import", never "substitute": treating it as death would commit a
+        SEARCH_FALLBACK mapping onto a search-picked recording for a track
+        whose real id is alive.
         """
         return [
             spotify_id
             for spotify_id in requested
             if spotify_id not in resolved
+            and spotify_id not in write_failed
             and not (
                 (track := returned.get(spotify_id)) is not None
                 and track.is_market_restricted
             )
         ]
+
+    def _forget_rolled_back(self, spotify_id: str) -> None:
+        """Drop in-memory tracking for a write the savepoint discarded.
+
+        ``_resolve_one_missing_track`` records redirects and suspect-ISRC
+        deferrals in sets as it goes, but it runs inside the caller's
+        savepoint: on rollback the rows are gone while the set entries would
+        survive, inflating ``metrics.redirects`` and letting
+        ``get_resolution_method`` report SPOTIFY_REDIRECT provenance for a
+        track that ended up search-fallback-resolved instead. Both sets are
+        keyed by the *requested* id and reset per run, and each id is processed
+        once, so discarding cannot drop an entry another call earned.
+        """
+        self._redirect_resolved_ids.discard(spotify_id)
+        self._isrc_suspect_deferred_ids.discard(spotify_id)
 
     def _absent_side(self, spotify_id: str) -> DigestSide:
         """The little that is known about an id the API would not return."""
@@ -574,25 +604,32 @@ class SpotifyInwardResolver(InwardTrackResolver):
         # Step 2: Sequential DB writes (session is not concurrency-safe)
         result: dict[str, Track] = {}
         for dead_id, search_result in search_results.items():
+            # Savepoint so one failed save rolls back alone instead of aborting
+            # the transaction for every remaining id — and for the backoff
+            # clearing the caller runs afterwards on the same uow (the
+            # v0.10.2.2 InFailedSqlTransaction cascade).
             try:
-                canonical_track = await self._save_with_connector_mappings(
-                    dead_id,
-                    search_result.candidate,
-                    uow,
-                    match_method=MatchMethod.SEARCH_FALLBACK,
-                    confidence=search_result.confidence,
-                )
-                result[dead_id] = canonical_track
-                logger.info(
-                    f"Fallback resolved: {search_result.hint.artist_name} - {search_result.hint.track_name} "
-                    f"→ {search_result.candidate.name} (id: {search_result.candidate.id or dead_id}, "
-                    f"similarity: {search_result.similarity:.2f}, confidence: {search_result.confidence})"
-                )
+                async with uow.savepoint():
+                    canonical_track = await self._save_with_connector_mappings(
+                        dead_id,
+                        search_result.candidate,
+                        uow,
+                        match_method=MatchMethod.SEARCH_FALLBACK,
+                        confidence=search_result.confidence,
+                    )
             except Exception as e:
                 logger.error(
                     f"Fallback save failed for {dead_id}: {e}",
                     exc_info=True,
                 )
+                continue
+
+            result[dead_id] = canonical_track
+            logger.info(
+                f"Fallback resolved: {search_result.hint.artist_name} - {search_result.hint.track_name} "
+                f"→ {search_result.candidate.name} (id: {search_result.candidate.id or dead_id}, "
+                f"similarity: {search_result.similarity:.2f}, confidence: {search_result.confidence})"
+            )
 
         resolved = len(result)
         failed = len(hinted_ids) - resolved

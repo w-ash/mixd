@@ -25,7 +25,6 @@ from uuid import UUID, uuid4
 from fastapi import HTTPException
 
 from src.application.services.operation_run_recorder import (
-    append_run_issue,
     finalize_run,
     start_run,
 )
@@ -179,7 +178,9 @@ async def run_sse_operation(
         result = await coro
     except Exception as exc:
         logger.error("SSE operation failed", operation_id=operation_id, exc_info=True)
-        error_message = str(exc)[:500]
+        # str(exc) is empty for argument-less exceptions (e.g. `raise KeyError()`);
+        # the type name is the only reason left, and a blank issue is worse than none.
+        error_message = str(exc)[:500] or type(exc).__name__
         status, counts = "error", {"error_message": error_message}
     else:
         status, counts = _audit_outcome(result)
@@ -187,19 +188,21 @@ async def run_sse_operation(
         # to_counts() drops — persist it as a run issue or it exists nowhere
         # queryable (the v0.10.2.2 "errors: 1 with no message" fix).
         if status == "error" and isinstance(result, OperationResult):
-            error_message = (
-                result.failure_message[:500] if result.failure_message else None
-            )
+            failure_message = result.failure_message
+            error_message = failure_message[:500] if failure_message else None
     finally:
         if run_id is not None and user_id is not None:
             try:
+                # One transaction for status + issue: a separate append could
+                # fail after the status write and leave a durable 'error' run
+                # with no reason attached.
                 await finalize_run(
-                    run_id, user_id=user_id, status=status, counts=counts
+                    run_id,
+                    user_id=user_id,
+                    status=status,
+                    counts=counts,
+                    issue={"message": error_message} if error_message else None,
                 )
-                if error_message is not None:
-                    await append_run_issue(
-                        run_id, user_id=user_id, issue={"message": error_message}
-                    )
             except Exception:
                 logger.error(
                     "Failed to finalize OperationRun row",

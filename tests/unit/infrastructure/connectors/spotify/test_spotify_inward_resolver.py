@@ -5,7 +5,7 @@ detects redirects (where Spotify returns a different .id), creates dual mappings
 and delegates bulk lookup to the base class.
 """
 
-from unittest.mock import AsyncMock, MagicMock
+from unittest.mock import AsyncMock, MagicMock, patch
 
 from src.config.constants import MatchMethod
 from src.infrastructure.connectors.spotify.inward_resolver import (
@@ -893,6 +893,189 @@ class TestFallbackDoesNotClearItsOwnBackoff:
         )
 
         recorder.clear_negatives.assert_not_awaited()
+
+
+class TestWriteFailureIsolation:
+    """A write the savepoint rolled back is a retry, never a death sentence.
+
+    Spotify answered for these ids; only the database refused, and only once.
+    They must stay out of the dead-id substitution path (which would commit a
+    SEARCH_FALLBACK mapping onto a search-picked recording), out of the absent
+    bookkeeping, and out of the in-memory provenance sets whose rows the
+    rollback discarded.
+    """
+
+    @staticmethod
+    def _raise_for(bad_id: str) -> AsyncMock:
+        async def _resolve(spotify_id, _spotify_track, _existing_by_isrc, _uow, **_kw):
+            if spotify_id == bad_id:
+                raise RuntimeError("deadlock detected")
+            return make_track(1)
+
+        return AsyncMock(side_effect=_resolve)
+
+    async def test_one_failed_id_does_not_stop_the_batch(self):
+        connector = AsyncMock()
+        connector.get_tracks_by_ids.return_value = {
+            "bad_id": make_spotify_track("bad_id", "Song A"),
+            "good_id": make_spotify_track("good_id", "Song B"),
+        }
+
+        resolver = SpotifyInwardResolver(spotify_connector=connector)
+        uow, _, _ = _make_uow_with_repos()
+
+        with patch.object(
+            SpotifyInwardResolver,
+            "_resolve_one_missing_track",
+            new=self._raise_for("bad_id"),
+        ):
+            result, metrics = await resolver.resolve_to_canonical_tracks(
+                ["bad_id", "good_id"], uow, user_id="test-user"
+            )
+
+        assert "good_id" in result
+        assert "bad_id" not in result
+        assert metrics.created == 1
+        assert metrics.failed == 1
+        # Every creation attempt is savepoint-wrapped — the isolation itself.
+        assert uow.savepoint.call_count == 2
+
+    async def test_a_failed_write_is_never_substituted_by_search(self):
+        """A live id whose write failed must not be answered with another track."""
+        connector = AsyncMock()
+        connector.get_tracks_by_ids.return_value = {
+            "bad_id": make_spotify_track("bad_id", "My Song"),
+        }
+        connector.search_track.return_value = [
+            make_spotify_track("other_id", "My Song"),
+        ]
+
+        resolver = SpotifyInwardResolver(spotify_connector=connector)
+        uow, _, _ = _make_uow_with_repos()
+
+        hints = {"bad_id": FallbackHint(artist_name="Artist", track_name="My Song")}
+        with patch.object(
+            SpotifyInwardResolver,
+            "_resolve_one_missing_track",
+            new=self._raise_for("bad_id"),
+        ):
+            result, metrics = await resolver.resolve_to_canonical_tracks(
+                ["bad_id"], uow, fallback_hints=hints, user_id="test-user"
+            )
+
+        connector.search_track.assert_not_called()
+        assert "bad_id" not in result
+        assert resolver.fallback_resolved_ids == set()
+        assert metrics.failed == 1
+
+    async def test_a_failed_write_is_not_counted_absent(self):
+        """The id is in the API response, so no backoff clock starts for it."""
+        connector = AsyncMock()
+        connector.get_tracks_by_ids.return_value = {
+            "bad_id": make_spotify_track("bad_id", "My Song"),
+        }
+
+        resolver = SpotifyInwardResolver(spotify_connector=connector)
+        uow, _, _ = _make_uow_with_repos()
+        recorder = attach_resolution_recorder(uow)
+
+        with patch.object(
+            SpotifyInwardResolver,
+            "_resolve_one_missing_track",
+            new=self._raise_for("bad_id"),
+        ):
+            _ = await resolver.resolve_to_canonical_tracks(
+                ["bad_id"], uow, user_id="test-user"
+            )
+
+        recorder.remember_no_match.assert_not_awaited()
+        recorder.clear_negatives.assert_not_awaited()
+
+    async def test_tracker_sets_are_cleaned_when_the_savepoint_rolls_back(self):
+        """The DB rows vanish on rollback; the in-memory entries must too."""
+        connector = AsyncMock()
+        connector.get_tracks_by_ids.return_value = {
+            "bad_id": make_spotify_track("new_id", "Redirected Song"),
+        }
+
+        resolver = SpotifyInwardResolver(spotify_connector=connector)
+        uow, _, _ = _make_uow_with_repos()
+
+        async def _resolve(spotify_id, _spotify_track, _existing_by_isrc, _uow, **_kw):
+            # Mirror the real helper: track first, then fail a later write.
+            resolver._redirect_resolved_ids.add(spotify_id)
+            resolver._isrc_suspect_deferred_ids.add(spotify_id)
+            raise RuntimeError("deadlock detected")
+
+        with patch.object(
+            SpotifyInwardResolver,
+            "_resolve_one_missing_track",
+            new=AsyncMock(side_effect=_resolve),
+        ):
+            _, metrics = await resolver.resolve_to_canonical_tracks(
+                ["bad_id"], uow, user_id="test-user"
+            )
+
+        assert resolver.redirect_resolved_ids == set()
+        assert resolver.isrc_suspect_deferred_ids == set()
+        assert metrics.redirects == 0
+        assert resolver.get_resolution_method("bad_id") == MatchMethod.PLAY_RESOLVER
+
+    def test_a_write_failed_id_is_not_a_substitution_candidate(self):
+        returned = {"sp_failed": make_spotify_track("sp_failed", "Song")}
+
+        substitutable = SpotifyInwardResolver._substitutable_from(
+            ["sp_failed", "sp_gone"], returned, {}, {"sp_failed"}
+        )
+
+        assert substitutable == ["sp_gone"]
+
+
+class TestFallbackSaveFailureIsolation:
+    """The fallback loop writes per item too — inside its own savepoint.
+
+    Without one, a single failed save aborts the transaction and takes every
+    later fallback save (and the caller's backoff clearing on the same uow)
+    down with it.
+    """
+
+    async def test_one_failed_save_does_not_stop_the_remaining_fallbacks(self):
+        bad_id = "dead_bad_id_0000000000"
+        good_id = "dead_good_id_000000000"
+        found = make_track(7)
+
+        connector = AsyncMock()
+        connector.get_tracks_by_ids.return_value = {}
+        connector.search_track.return_value = [
+            make_spotify_track("found_id_00000000000000", "My Song"),
+        ]
+
+        resolver = SpotifyInwardResolver(spotify_connector=connector)
+        uow, _, _ = _make_uow_with_repos()
+
+        async def _save(requested_id, _spotify_track, _uow, **_kw):
+            if requested_id == bad_id:
+                raise RuntimeError("duplicate key value violates unique constraint")
+            return found
+
+        hints = {
+            bad_id: FallbackHint(artist_name="Artist", track_name="My Song"),
+            good_id: FallbackHint(artist_name="Artist", track_name="My Song"),
+        }
+        with patch.object(
+            SpotifyInwardResolver,
+            "_save_with_connector_mappings",
+            new=AsyncMock(side_effect=_save),
+        ):
+            result, metrics = await resolver.resolve_to_canonical_tracks(
+                [bad_id, good_id], uow, fallback_hints=hints, user_id="test-user"
+            )
+
+        assert result == {good_id: found}
+        assert resolver.fallback_resolved_ids == {good_id}
+        assert metrics.failed == 1
+        # One savepoint per fallback save — nothing else writes in this pass.
+        assert uow.savepoint.call_count == 2
 
 
 class TestRestrictionIsNotDeath:

@@ -32,10 +32,36 @@ from src.domain.repositories.play import (
     PlayImporterProtocol,
     PlayImportParams,
     PlayResolverProtocol,
+    ResolutionMetrics,
 )
 from src.domain.repositories.uow import UnitOfWorkProtocol
 
 logger = get_logger(__name__)
+
+
+def _first_resolution_failure(metrics: ResolutionMetrics) -> str | None:
+    """One human-readable exemplar from a resolver's per-item failure list."""
+    failures = metrics.get("resolution_failures") or []
+    if not failures:
+        return None
+    failure = failures[0]
+    track = failure.get("track", "unknown track")
+    reason = failure.get("reason", "unknown reason")
+    return f"{track} ({reason})"
+
+
+def _partial_failure_message(
+    errors: int, total: int, *, phase: str, exemplar: str | None
+) -> str:
+    """Build the top-level ``metadata["error"]`` for a run with per-item failures.
+
+    ``OperationResult.is_failure`` flips on the ``errors`` summary metric alone,
+    but ``failure_message`` reads only top-level ``metadata["error"]`` — without
+    this the audit row and the log persist "errors: N" with no reason (the
+    v0.10.2.2 gap). Per-phase detail stays in the nested metadata.
+    """
+    summary = f"{errors} of {total} plays failed {phase}"
+    return f"{summary} (e.g. {exemplar})" if exemplar else summary
 
 
 @define(slots=True)
@@ -136,6 +162,7 @@ class PlayImportOrchestrator:
 
         all_track_plays: list[TrackPlay] = []
         all_resolutions: list[tuple[ConnectorTrackPlay, UUID]] = []
+        first_failure: str | None = None
         combined_metrics = {
             "total_plays": len(connector_plays),
             "resolved_plays": 0,
@@ -176,6 +203,8 @@ class PlayImportOrchestrator:
                     combined_metrics["isrc_suspect_deferred"] += metrics.get(
                         "isrc_suspect_deferred", 0
                     )
+                    if first_failure is None:
+                        first_failure = _first_resolution_failure(metrics)
 
                     await progress_emitter.emit_progress(
                         create_progress_event(
@@ -257,6 +286,11 @@ class PlayImportOrchestrator:
             result.summary_metrics.add("filtered", filtered, "Filtered", significance=3)
         if errors > 0:
             result.summary_metrics.add("errors", errors, "Errors", significance=4)
+            result.metadata["error"] = _partial_failure_message(
+                errors, total_plays, phase="resolution", exemplar=first_failure
+            )
+            if first_failure is not None:
+                result.metadata["first_failure"] = first_failure
 
         fallback_resolved = combined_metrics["fallback_resolved"]
         redirect_resolved = combined_metrics["redirect_resolved"]
@@ -388,6 +422,13 @@ class PlayImportOrchestrator:
             )
         if total_errors > 0:
             result.summary_metrics.add("errors", total_errors, "Errors", significance=5)
+            exemplar = resolution_result.metadata.get("first_failure")
+            result.metadata["error"] = _partial_failure_message(
+                total_errors,
+                int(raw_plays),
+                phase="import",
+                exemplar=exemplar if isinstance(exemplar, str) else None,
+            )
 
         # Calculate success rate
         attempted = int(resolved + resolution_filtered + resolution_errors)

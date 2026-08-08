@@ -385,3 +385,66 @@ class TestExportLastFmLikesIncrementalCommit:
 
         assert mock_uow.commit_batch.await_count == 3
         assert mock_uow.commit.await_count == 1
+
+
+class TestExportLastFmLikesPartialFailure:
+    """A per-item failure must leave a readable reason on the result.
+
+    ``is_failure`` flips on the ``errors`` summary metric, but ``failure_message``
+    reads only top-level ``metadata["error"]`` — without it the audit row records
+    "errors: N" with no message.
+    """
+
+    @pytest.fixture
+    def mock_uow(self):
+        uow = make_mock_uow()
+        checkpoint_repo = uow.get_checkpoint_repository()
+        checkpoint_repo.get_sync_checkpoint = AsyncMock(return_value=None)
+        checkpoint_repo.save_sync_checkpoint = AsyncMock(side_effect=lambda cp: cp)
+        return uow
+
+    async def _export(self, mock_uow, lastfm):
+        from src.domain.entities import TrackLike
+
+        like_repo = mock_uow.get_like_repository()
+        track_repo = mock_uow.get_track_repository()
+        unsynced = [
+            TrackLike(track_id=i, service="spotify", user_id="test-user", is_liked=True)
+            for i in range(1, 3)
+        ]
+        like_repo.get_unsynced_likes = AsyncMock(return_value=unsynced)
+        track_repo.find_tracks_by_ids = AsyncMock(
+            return_value={
+                i: Track(id=i, title=f"Track {i}", artists=[Artist(name="A")])
+                for i in range(1, 3)
+            }
+        )
+
+        with patch(
+            "src.application.use_cases.sync_likes.resolve_love_track_connector",
+            return_value=lastfm,
+        ):
+            use_case = ExportLastFmLikesUseCase()
+            command = ExportLastFmLikesCommand(user_id="test-user", batch_size=5)
+            return await use_case.execute(command, mock_uow)
+
+    async def test_item_error_produces_failure_message(self, mock_uow):
+        lastfm = AsyncMock()
+        lastfm.love_track = AsyncMock(side_effect=RuntimeError("Last.fm 429"))
+
+        result = await self._export(mock_uow, lastfm)
+
+        assert result.is_failure
+        message = result.failure_message
+        assert message is not None
+        assert "2 of 2 likes failed to export" in message
+        assert "Last.fm 429" in message
+
+    async def test_clean_export_records_no_failure_message(self, mock_uow):
+        lastfm = AsyncMock()
+        lastfm.love_track = AsyncMock(return_value=True)
+
+        result = await self._export(mock_uow, lastfm)
+
+        assert not result.is_failure
+        assert result.failure_message is None

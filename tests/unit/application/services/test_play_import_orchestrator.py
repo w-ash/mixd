@@ -203,6 +203,64 @@ class TestResolutionPhaseErrors:
         # The resolution phase error should be in combined metrics
         assert result.metadata["resolution_phase"]["error_count"] == 1
 
+    async def test_partial_failure_carries_top_level_error_message(
+        self, orchestrator, mock_resolver, mock_uow, mock_importer
+    ):
+        """is_failure flips on the errors metric, but failure_message reads only
+        top-level metadata["error"] — a partial failure used to record
+        "errors: 1" with no reason anywhere queryable."""
+        connector_plays = [_make_connector_play()]
+        mock_importer.import_plays.return_value = (
+            _make_ingestion_result(imported=1, raw_plays=1, duplicates=0),
+            connector_plays,
+        )
+        mock_resolver.resolve_connector_plays.return_value = PlayResolutionOutcome(
+            track_plays=[],
+            metrics={
+                "error_count": 1,
+                "resolution_failures": [
+                    {
+                        "track": "Test Artist - Test Song",
+                        "reason": "track_resolution_failed",
+                    }
+                ],
+            },
+            resolutions=(),
+        )
+
+        result = await orchestrator.import_plays_two_phase(
+            mock_importer, mock_uow, user_id="test-user", params=LastfmImportParams()
+        )
+
+        assert result.is_failure
+        message = result.failure_message
+        assert message is not None
+        assert "1 of 1 plays failed" in message
+        assert "Test Artist - Test Song" in message
+        # Nested per-phase detail stays where it was
+        assert result.metadata["resolution_phase"]["error_count"] == 1
+
+    async def test_clean_run_records_no_error_message(
+        self, orchestrator, mock_resolver, mock_uow, mock_importer
+    ):
+        connector_plays = [_make_connector_play()]
+        mock_importer.import_plays.return_value = (
+            _make_ingestion_result(imported=1, raw_plays=1, duplicates=0),
+            connector_plays,
+        )
+        mock_resolver.resolve_connector_plays.return_value = PlayResolutionOutcome(
+            track_plays=[_make_resolved_track_play()],
+            metrics={"error_count": 0},
+            resolutions=(),
+        )
+
+        result = await orchestrator.import_plays_two_phase(
+            mock_importer, mock_uow, user_id="test-user", params=LastfmImportParams()
+        )
+
+        assert not result.is_failure
+        assert result.failure_message is None
+
 
 class TestCombinePhaseResults:
     """Test _combine_phase_results() metric aggregation."""

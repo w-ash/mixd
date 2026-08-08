@@ -532,6 +532,7 @@ class ExportLastFmLikesUseCase:
         exported = 0
         filtered = 0
         errors = 0
+        first_error: str | None = None
         lastfm = resolve_love_track_connector(uow)
 
         for i in range(0, len(unsynced), batch_size):
@@ -556,9 +557,11 @@ class ExportLastFmLikesUseCase:
             batch_track_ids = [like.track_id for like in batch]
             try:
                 tracks_dict = await track_repo.find_tracks_by_ids(batch_track_ids)
-            except Exception:
+            except Exception as e:
                 logger.exception("Error batch-loading tracks for export")
                 errors += len(batch)
+                if first_error is None:
+                    first_error = f"batch track load failed: {e}"
                 continue
 
             # Filter to exportable tracks (must have artists)
@@ -586,6 +589,8 @@ class ExportLastFmLikesUseCase:
                         filtered += 1
                     case _:
                         errors += 1
+                        if first_error is None and result.error:
+                            first_error = result.error
 
             checkpoint = await update_checkpoint(checkpoint, uow, batch_time)
             await commit_batch(uow)
@@ -611,6 +616,13 @@ class ExportLastFmLikesUseCase:
             )
         if errors > 0:
             result.summary_metrics.add("errors", errors, "Errors", significance=4)
+            # is_failure flips on the errors metric alone, but failure_message reads
+            # only top-level metadata["error"] — without it the audit row and the log
+            # persist "errors: N" with no reason.
+            summary = f"{errors} of {total_candidates} likes failed to export"
+            result.metadata["error"] = (
+                f"{summary} (e.g. {first_error})" if first_error else summary
+            )
         result.summary_metrics.add(
             "candidates", total_candidates, "Candidates", significance=5
         )

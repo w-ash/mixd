@@ -34,24 +34,16 @@ def _drain(queue) -> list[dict]:
 
 @pytest.fixture
 def captured_finalize():
-    """Patch the audit-write + SSE cleanup so we can read what the seam recorded."""
+    """Patch the audit-write + SSE cleanup so we can read what the seam recorded.
+
+    Status, counts, and the failure issue all ride one ``finalize_run`` call —
+    they are written in a single transaction, so one mock reads all three.
+    """
     with (
         patch.object(sse_operations, "finalize_run", new=AsyncMock()) as finalize,
-        patch.object(sse_operations, "append_run_issue", new=AsyncMock()),
         patch.object(sse_operations, "finalize_sse_operation", new=AsyncMock()),
     ):
         yield finalize
-
-
-@pytest.fixture
-def captured_issue():
-    """Patch the audit-write + SSE cleanup so we can read the recorded issue."""
-    with (
-        patch.object(sse_operations, "finalize_run", new=AsyncMock()),
-        patch.object(sse_operations, "append_run_issue", new=AsyncMock()) as issue,
-        patch.object(sse_operations, "finalize_sse_operation", new=AsyncMock()),
-    ):
-        yield issue
 
 
 def _op_id() -> str:
@@ -140,11 +132,12 @@ class TestRunSseOperationErrorMessagePersistence:
 
     ``to_counts()`` flattens summary metrics only, so a soft failure's message
     (stashed in ``OperationResult.metadata``) used to exist nowhere queryable —
-    the v0.10.2.2 "errors: 1 with no message" gap. The seam now appends it as
-    a run issue for both failure paths.
+    the v0.10.2.2 "errors: 1 with no message" gap. The seam now hands it to
+    ``finalize_run`` for both failure paths, so status and reason land in one
+    transaction (a crash between two writes was reproducing the same symptom).
     """
 
-    async def test_soft_failure_message_recorded_as_issue(self, captured_issue):
+    async def test_soft_failure_message_recorded_as_issue(self, captured_finalize):
         result = OperationResult(operation_name="Import")
         result.summary_metrics.add("errors", 1, "Errors", significance=1)
         result.metadata["error"] = "Spotify file import failed: 429"
@@ -156,11 +149,11 @@ class TestRunSseOperationErrorMessagePersistence:
             _op_id(), coro(), run_id=uuid4(), user_id="u1"
         )
 
-        captured_issue.assert_awaited_once()
-        kwargs = captured_issue.await_args.kwargs
+        captured_finalize.assert_awaited_once()
+        kwargs = captured_finalize.await_args.kwargs
         assert kwargs["issue"] == {"message": "Spotify file import failed: 429"}
 
-    async def test_importer_errors_list_recorded_as_issue(self, captured_issue):
+    async def test_importer_errors_list_recorded_as_issue(self, captured_finalize):
         # create_error_result stashes the message under metadata["errors"].
         result = OperationResult(operation_name="Import")
         result.summary_metrics.add("errors", 1, "Errors", significance=0)
@@ -173,10 +166,10 @@ class TestRunSseOperationErrorMessagePersistence:
             _op_id(), coro(), run_id=uuid4(), user_id="u1"
         )
 
-        kwargs = captured_issue.await_args.kwargs
+        kwargs = captured_finalize.await_args.kwargs
         assert kwargs["issue"] == {"message": "boom one; boom two"}
 
-    async def test_uncaught_exception_recorded_as_issue(self, captured_issue):
+    async def test_uncaught_exception_recorded_as_issue(self, captured_finalize):
         async def coro() -> None:
             raise RuntimeError("boom")
 
@@ -184,10 +177,23 @@ class TestRunSseOperationErrorMessagePersistence:
             _op_id(), coro(), run_id=uuid4(), user_id="u1"
         )
 
-        kwargs = captured_issue.await_args.kwargs
+        kwargs = captured_finalize.await_args.kwargs
         assert kwargs["issue"] == {"message": "boom"}
 
-    async def test_clean_result_records_no_issue(self, captured_issue):
+    async def test_message_less_exception_records_its_type(self, captured_finalize):
+        # `raise KeyError()` has an empty str() — a blank issue is worse than
+        # none, so the type name stands in.
+        async def coro() -> None:
+            raise KeyError
+
+        await sse_operations.run_sse_operation(
+            _op_id(), coro(), run_id=uuid4(), user_id="u1"
+        )
+
+        kwargs = captured_finalize.await_args.kwargs
+        assert kwargs["issue"] == {"message": "KeyError"}
+
+    async def test_clean_result_records_no_issue(self, captured_finalize):
         result = OperationResult(operation_name="Import")
         result.summary_metrics.add("track_plays", 42, "Plays Imported")
 
@@ -198,9 +204,11 @@ class TestRunSseOperationErrorMessagePersistence:
             _op_id(), coro(), run_id=uuid4(), user_id="u1"
         )
 
-        captured_issue.assert_not_awaited()
+        assert captured_finalize.await_args.kwargs["issue"] is None
 
-    async def test_soft_failure_without_message_records_no_issue(self, captured_issue):
+    async def test_soft_failure_without_message_records_no_issue(
+        self, captured_finalize
+    ):
         # errors metric with nothing in metadata: nothing useful to persist.
         result = OperationResult(operation_name="Import")
         result.summary_metrics.add("errors", 1, "Errors", significance=1)
@@ -212,7 +220,7 @@ class TestRunSseOperationErrorMessagePersistence:
             _op_id(), coro(), run_id=uuid4(), user_id="u1"
         )
 
-        captured_issue.assert_not_awaited()
+        assert captured_finalize.await_args.kwargs["issue"] is None
 
 
 class TestRunSseOperationTerminalEvent:
