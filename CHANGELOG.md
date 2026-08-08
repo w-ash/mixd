@@ -17,6 +17,14 @@ SemVer. Format inspired by [Keep a Changelog](https://keepachangelog.com/en/1.1.
 - **Projection fixes**: progress events during the projection tail were all silently dropped (non-monotonic against the resolution phase's counter — frozen bar + warning storm); projection now scopes to days that actually contain resolutions, so one stray decade-old play can no longer trigger a 14-year empty-day sweep.
 - Also: the redundant per-mapping existence check is gone (~one round trip per created track), and dead-ID duration evidence accumulates across chunks so the wrong-version veto keeps its strength on large files.
 
+A high-effort adversarial review of this wave confirmed ten findings; all fixed before ship:
+
+- **A failed batch request can't condemn its tracks.** The batch fetch now distinguishes *unanswered* (chunk request failed) from *dead* (Spotify said null) — previously one transient failure classified ~50 live tracks as dead, wrote month-long backoff, and cached wrong search-substituted mappings. Unanswered ids are simply retried next import.
+- **The 429 brake is bounded and honest**: the pause is capped by the same per-service bound the retry sleep uses, the bucket restarts *empty* after a pause (resuming paced instead of releasing a synchronized burst into the window the server just closed), and pause extensions landing mid-sleep are honored.
+- **Projection ownership is airtight**: day-scoping now reaches back far enough to own groups whose anchor a cross-channel neighbor pulled across midnight (a class a full rebuild could not heal — the chunk fetch window had the same off-by-tolerance gap and both now share one derived `_ANCHOR_REACH` constant), and day derivation is explicitly UTC.
+- **Checkpoint-resume metrics tell the truth**: real inserted/duplicate counts flow from the ledger's ON CONFLICT through per-day persistence to the run summary — a resumed run reports its re-fetched rows as duplicates, not imports. The `uow`-less call shape that would have silently skipped persistence is no longer expressible.
+- **One way to do each thing** (the review's DRY mandate): the per-item persist fallback is literally bulk-of-one per savepoint (~150-line second write path deleted), primary election is a single stack (primacy is a flag on the mapping spec — the parallel promotion list is gone), and the single-track fetch is the degenerate case of the batch call.
+
 → [details](docs/backlog/v0.10.x.md#post-deploy-revisions)
 
 ## [0.10.2.3] — 2026-08-08

@@ -10,6 +10,7 @@ from unittest.mock import AsyncMock, MagicMock
 from src.config.constants import MatchMethod
 from src.domain.entities import Artist, Track
 from src.infrastructure.connectors.lastfm.inward_resolver import LastfmInwardResolver
+from src.infrastructure.connectors.spotify.client import SpotifyTracksFetch
 from src.infrastructure.connectors.spotify.inward_resolver import SpotifyInwardResolver
 from src.infrastructure.connectors.spotify.models import (
     SpotifyAlbum,
@@ -50,17 +51,19 @@ class TestSpotifyThenLastfm:
 
         # Step 1: Import 3 tracks via Spotify resolver
         spotify_connector = AsyncMock()
-        spotify_connector.get_tracks_by_ids.return_value = {
-            "sp_001": _make_spotify_track(
-                "sp_001", "Creep", "Radiohead", "GBAYE9300106"
-            ),
-            "sp_002": _make_spotify_track(
-                "sp_002", "Song (feat. X)", "Artist", "USRC17000001"
-            ),
-            "sp_003": _make_spotify_track(
-                "sp_003", "Unique Song", "Band", "USRC17000002"
-            ),
-        }
+        spotify_connector.get_tracks_by_ids.return_value = SpotifyTracksFetch(
+            tracks={
+                "sp_001": _make_spotify_track(
+                    "sp_001", "Creep", "Radiohead", "GBAYE9300106"
+                ),
+                "sp_002": _make_spotify_track(
+                    "sp_002", "Song (feat. X)", "Artist", "USRC17000001"
+                ),
+                "sp_003": _make_spotify_track(
+                    "sp_003", "Unique Song", "Band", "USRC17000002"
+                ),
+            }
+        )
         spotify_connector.connector_name = "spotify"
 
         spotify_resolver = SpotifyInwardResolver(spotify_connector=spotify_connector)
@@ -174,18 +177,24 @@ class TestLastfmThenSpotify:
         # Durations match the Last.fm canonicals — a real ISRC reuse, not a
         # suspect collision (which would route to review instead of reusing).
         spotify_connector = AsyncMock()
-        spotify_connector.get_tracks_by_ids.return_value = {
-            "sp_new_creep": _make_spotify_track(
-                "sp_new_creep", "Creep", "Radiohead", "GBAYE9300106", duration_ms=238000
-            ),
-            "sp_new_eiirp": _make_spotify_track(
-                "sp_new_eiirp",
-                "Everything In Its Right Place",
-                "Radiohead",
-                "GBAYE0000289",
-                duration_ms=250000,
-            ),
-        }
+        spotify_connector.get_tracks_by_ids.return_value = SpotifyTracksFetch(
+            tracks={
+                "sp_new_creep": _make_spotify_track(
+                    "sp_new_creep",
+                    "Creep",
+                    "Radiohead",
+                    "GBAYE9300106",
+                    duration_ms=238000,
+                ),
+                "sp_new_eiirp": _make_spotify_track(
+                    "sp_new_eiirp",
+                    "Everything In Its Right Place",
+                    "Radiohead",
+                    "GBAYE0000289",
+                    duration_ms=250000,
+                ),
+            }
+        )
         spotify_connector.connector_name = "spotify"
 
         spotify_resolver = SpotifyInwardResolver(spotify_connector=spotify_connector)
@@ -219,11 +228,13 @@ class TestLastfmThenSpotify:
         uow = get_unit_of_work(db_session)
 
         spotify_connector = AsyncMock()
-        spotify_connector.get_tracks_by_ids.return_value = {
-            "sp_brand_new": _make_spotify_track(
-                "sp_brand_new", "Never Heard Before", "New Artist", "XXXX00000001"
-            ),
-        }
+        spotify_connector.get_tracks_by_ids.return_value = SpotifyTracksFetch(
+            tracks={
+                "sp_brand_new": _make_spotify_track(
+                    "sp_brand_new", "Never Heard Before", "New Artist", "XXXX00000001"
+                ),
+            }
+        )
         spotify_connector.connector_name = "spotify"
 
         spotify_resolver = SpotifyInwardResolver(spotify_connector=spotify_connector)

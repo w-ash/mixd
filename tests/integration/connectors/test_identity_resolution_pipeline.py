@@ -11,6 +11,7 @@ from unittest.mock import AsyncMock, MagicMock
 from src.config.constants import MatchMethod
 from src.domain.entities import Artist, Track
 from src.infrastructure.connectors.lastfm.inward_resolver import LastfmInwardResolver
+from src.infrastructure.connectors.spotify.client import SpotifyTracksFetch
 from src.infrastructure.connectors.spotify.inward_resolver import SpotifyInwardResolver
 from src.infrastructure.connectors.spotify.models import (
     SpotifyAlbum,
@@ -116,16 +117,18 @@ class TestSpotifyISRCDedup:
 
         # Mock Spotify connector — different Spotify ID but same ISRC
         spotify_connector = AsyncMock()
-        spotify_connector.get_tracks_by_ids.return_value = {
-            "new_spotify_id_456": SpotifyTrack(
-                id="new_spotify_id_456",
-                name="Creep",
-                artists=[SpotifyModelArtist(id="a1", name="Radiohead")],
-                album=SpotifyAlbum(id="al1", name="Pablo Honey"),
-                duration_ms=238000,
-                external_ids=SpotifyExternalIds(isrc="GBAYE9300106"),
-            ),
-        }
+        spotify_connector.get_tracks_by_ids.return_value = SpotifyTracksFetch(
+            tracks={
+                "new_spotify_id_456": SpotifyTrack(
+                    id="new_spotify_id_456",
+                    name="Creep",
+                    artists=[SpotifyModelArtist(id="a1", name="Radiohead")],
+                    album=SpotifyAlbum(id="al1", name="Pablo Honey"),
+                    duration_ms=238000,
+                    external_ids=SpotifyExternalIds(isrc="GBAYE9300106"),
+                ),
+            }
+        )
         spotify_connector.connector_name = "spotify"
 
         resolver = SpotifyInwardResolver(spotify_connector=spotify_connector)
@@ -154,16 +157,18 @@ class TestSpotifyISRCDedup:
         uow = get_unit_of_work(db_session)
 
         spotify_connector = AsyncMock()
-        spotify_connector.get_tracks_by_ids.return_value = {
-            "sp_new_001": SpotifyTrack(
-                id="sp_new_001",
-                name="Everything In Its Right Place",
-                artists=[SpotifyModelArtist(id="a1", name="Radiohead")],
-                album=SpotifyAlbum(id="al1", name="Kid A"),
-                duration_ms=250000,
-                external_ids=SpotifyExternalIds(isrc="GBAYE0000289"),
-            ),
-        }
+        spotify_connector.get_tracks_by_ids.return_value = SpotifyTracksFetch(
+            tracks={
+                "sp_new_001": SpotifyTrack(
+                    id="sp_new_001",
+                    name="Everything In Its Right Place",
+                    artists=[SpotifyModelArtist(id="a1", name="Radiohead")],
+                    album=SpotifyAlbum(id="al1", name="Kid A"),
+                    duration_ms=250000,
+                    external_ids=SpotifyExternalIds(isrc="GBAYE0000289"),
+                ),
+            }
+        )
         spotify_connector.connector_name = "spotify"
 
         resolver = SpotifyInwardResolver(spotify_connector=spotify_connector)

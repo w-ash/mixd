@@ -5,7 +5,7 @@ accumulating a span-wide raw-record list: each day's scrobbles become
 ``ConnectorTrackPlay`` rows as they land, tenancy stamped at construction.
 """
 
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 from typing import ClassVar
 from unittest.mock import AsyncMock, Mock, patch
 
@@ -61,7 +61,13 @@ def _fake_fetch_day(
         mid = datetime.combine(current_date, datetime.min.time()).replace(
             hour=12, tzinfo=UTC
         )
-        return [_make_play_record(mid) for _ in range(records_per_day)]
+        # One minute apart, so a day's records are distinct rows under the
+        # ledger's dedup constraint — identical timestamps would collapse into
+        # one stored row and muddle what "imported" means.
+        return [
+            _make_play_record(mid + timedelta(minutes=index))
+            for index in range(records_per_day)
+        ]
 
     return _inner
 
@@ -92,15 +98,53 @@ def _persisted_plays(uow):
     return [play for call in insert.await_args_list for play in call.args[0]]
 
 
-@pytest.fixture
-def mock_uow():
-    """Mock UoW whose checkpoint saves echo the entity back."""
+def _dedup_key(play: ConnectorTrackPlay):
+    """The ledger's ``uq_connector_plays_deduplication`` tuple."""
+    return (
+        play.user_id,
+        play.connector_name,
+        play.connector_track_identifier,
+        play.played_at,
+        play.ms_played,
+    )
+
+
+def _ledger_backed_uow(stored: set | None = None):
+    """Mock UoW whose ledger insert honours the ON CONFLICT dedup constraint.
+
+    Returns ``(uow, stored)``. Seed ``stored`` to stage a crash-resume, where
+    the re-fetched cursor day's rows are no-ops — the only setup in which the
+    reported import counts can be caught lying.
+    """
     from tests.fixtures.mocks import make_mock_uow
 
     uow = make_mock_uow()
-    checkpoint_repo = uow.get_checkpoint_repository()
-    checkpoint_repo.save_sync_checkpoint = AsyncMock(side_effect=lambda cp: cp)
-    return uow
+    already: set = set() if stored is None else stored
+
+    async def _insert(plays):
+        inserted = duplicates = 0
+        for play in plays:
+            key = _dedup_key(play)
+            if key in already:
+                duplicates += 1
+            else:
+                already.add(key)
+                inserted += 1
+        return (inserted, duplicates)
+
+    uow.get_connector_play_repository().bulk_insert_connector_plays = AsyncMock(
+        side_effect=_insert
+    )
+    uow.get_checkpoint_repository().save_sync_checkpoint = AsyncMock(
+        side_effect=lambda cp: cp
+    )
+    return uow, already
+
+
+@pytest.fixture
+def mock_uow():
+    """Mock UoW with a dedup-honouring ledger and echoing checkpoint saves."""
+    return _ledger_backed_uow()[0]
 
 
 @pytest.fixture
@@ -218,24 +262,23 @@ class TestIncrementalCommit:
         # The account rides along in the cursor so an account switch is detectable.
         assert checkpoint.cursor == "2024-01-01@test_user"
 
-    async def test_no_uow_means_no_commit_batch(self, importer):
-        """Without a UoW, no checkpoint or commit_batch calls."""
-        from_date = datetime(2024, 1, 1, tzinfo=UTC)
-        to_date = datetime(2024, 1, 2, 23, 59, 59, tzinfo=UTC)
+    def test_a_uow_less_call_is_not_expressible(self, importer):
+        """``uow`` has no default: this loop IS the persistence path.
 
-        importer._fetch_day_records = AsyncMock(side_effect=_fake_fetch_day(1))
-
-        records = await importer._fetch_date_range_strategy(
-            from_date=from_date,
-            to_date=to_date,
-            user_id="mixd-user-1",
-            username="test_user",
-            batch_id=_BATCH_ID,
-            import_timestamp=_IMPORT_TS,
-            uow=None,
-        )
-
-        assert len(records) == 2  # 2 days * 1 record, no commit calls
+        ``persists_plays_during_fetch`` is unconditionally True here, so the
+        base class skips the run-end save. A uow-less call would fetch the whole
+        span, write nothing, and still report success — the signature is what
+        stops that, so its shape is the thing worth pinning.
+        """
+        with pytest.raises(TypeError, match="uow"):
+            _ = importer._fetch_date_range_strategy(
+                from_date=datetime(2024, 1, 1, tzinfo=UTC),
+                to_date=datetime(2024, 1, 2, 23, 59, 59, tzinfo=UTC),
+                user_id="mixd-user-1",
+                username="test_user",
+                batch_id=_BATCH_ID,
+                import_timestamp=_IMPORT_TS,
+            )
 
 
 class TestPerDayConversion:
@@ -245,7 +288,7 @@ class TestPerDayConversion:
     raw records for the whole span on top of the connector plays.
     """
 
-    async def test_day_records_become_stamped_connector_plays(self, importer):
+    async def test_day_records_become_stamped_connector_plays(self, importer, mock_uow):
         importer._fetch_day_records = AsyncMock(side_effect=_fake_fetch_day(2))
 
         plays = await importer._fetch_date_range_strategy(
@@ -255,6 +298,7 @@ class TestPerDayConversion:
             username="test_user",
             batch_id=_BATCH_ID,
             import_timestamp=_IMPORT_TS,
+            uow=mock_uow,
         )
 
         assert len(plays) == 6
@@ -464,6 +508,67 @@ class TestCheckpointDurabilityInvariant:
         assert result.summary_metrics.get("imported") == len(plays)
 
 
+class TestReportedCountsAreLedgerTruth:
+    """A run reports what the ledger ACCEPTED, not the size of the span.
+
+    ``persists_plays_during_fetch`` skips the run-end save, and the run-end
+    result used to fabricate ``(len(track_plays), 0)`` in its place. On a
+    crash-resume the re-fetched cursor day is ON CONFLICT no-ops, so those rows
+    were reported as freshly imported when nothing was written at all.
+    """
+
+    @staticmethod
+    def _importer():
+        connector = Mock()
+        connector.lastfm_username = "test_user"
+        storage = AsyncMock()
+        storage.load_token.return_value = None
+        importer = LastfmPlayImporter(lastfm_connector=connector, token_storage=storage)
+        importer._fetch_day_records = AsyncMock(side_effect=_fake_fetch_day(2))
+        return importer
+
+    @staticmethod
+    def _params(last_day: int):
+        return LastfmImportParams(
+            from_date=datetime(2024, 1, 1, tzinfo=UTC),
+            to_date=datetime(2024, 1, last_day, 23, 59, 59, tzinfo=UTC),
+        )
+
+    async def test_clean_run_counts_every_row_as_imported(self):
+        uow, _stored = _ledger_backed_uow()
+
+        result, plays = await self._importer().import_plays(
+            uow, self._params(3), user_id="mixd-user-1"
+        )
+
+        assert len(plays) == 6
+        assert result.summary_metrics.get("imported") == 6
+        # The metric is only emitted when non-zero — nothing was re-written.
+        assert not result.summary_metrics.get("duplicates")
+
+    async def test_resume_reports_the_re_fetched_day_as_duplicates(self):
+        """Days 1-2 already landed; the resumed run re-fetches day 1 and adds 3.
+
+        The re-fetched day contributes duplicates, never imports — the whole
+        point of the ON CONFLICT write is that re-running is free, and the
+        statistics have to say so.
+        """
+        uow, stored = _ledger_backed_uow()
+        _, first_run_plays = await self._importer().import_plays(
+            uow, self._params(2), user_id="mixd-user-1"
+        )
+        assert len(stored) == len(first_run_plays) == 4
+
+        # Resume: the cursor day (day 2) is always re-processed, day 3 is new.
+        result, plays = await self._importer().import_plays(
+            uow, self._params(3), user_id="mixd-user-1"
+        )
+
+        assert len(plays) == 6  # days 1-3 re-fetched by the explicit range
+        assert result.summary_metrics.get("imported") == 2  # only day 3 is new
+        assert result.summary_metrics.get("duplicates") == 4
+
+
 class TestCheckpointAccountTag:
     """The cursor's account tag guards against resuming another account's position.
 
@@ -525,7 +630,7 @@ class TestCheckpointAccountTag:
 class TestProgressEmission:
     """Verify per-day progress events in _fetch_date_range_strategy."""
 
-    async def test_emit_progress_called_per_day(self, importer):
+    async def test_emit_progress_called_per_day(self, importer, mock_uow):
         """3 days of records -> emit_progress called 3 times with increasing counts."""
         from_date = datetime(2024, 1, 1, tzinfo=UTC)
         to_date = datetime(2024, 1, 3, 23, 59, 59, tzinfo=UTC)
@@ -544,6 +649,7 @@ class TestProgressEmission:
             import_timestamp=_IMPORT_TS,
             progress_emitter=emitter,
             operation_id="test-op-123",
+            uow=mock_uow,
         )
 
         assert emitter.emit_progress.await_count == 3
@@ -552,7 +658,7 @@ class TestProgressEmission:
         currents = [call.args[0].current for call in calls]
         assert currents == [1, 2, 3]
 
-    async def test_no_progress_without_emitter(self, importer):
+    async def test_no_progress_without_emitter(self, importer, mock_uow):
         """Without progress_emitter, no emit_progress calls."""
         from_date = datetime(2024, 1, 1, tzinfo=UTC)
         to_date = datetime(2024, 1, 1, 23, 59, 59, tzinfo=UTC)
@@ -567,6 +673,7 @@ class TestProgressEmission:
             username="test_user",
             batch_id=_BATCH_ID,
             import_timestamp=_IMPORT_TS,
+            uow=mock_uow,
         )
         assert len(records) == 1
 

@@ -10,20 +10,23 @@ Also pins which days a batch chunks: only the ones its plays fall in (or near),
 never the whole span between its oldest and newest play.
 """
 
-from datetime import UTC, date, datetime, timedelta
+from datetime import UTC, date, datetime, timedelta, timezone
 from itertools import pairwise
+from random import Random
 from unittest.mock import AsyncMock
 from uuid import UUID
 
 import pytest
 
 from src.application.services.play_projection_service import (
+    MAX_ANCHOR_PULL_BACK,
     PROJECTION_FETCH_MARGIN,
     PlayProjectionService,
     _contiguous_chunk_cores,
     observed_day_cores,
 )
 from src.domain.entities import ConnectorTrackPlay, PlaySource, TrackPlay
+from src.domain.matching.play_projection import MAX_NORMALIZED_START_SHIFT
 from tests.fixtures.mocks import make_mock_uow
 
 _BASE = datetime(2024, 11, 5, 9, 0, 0, tzinfo=UTC)
@@ -82,6 +85,34 @@ def _wire_uow(
     plays_repo.get_play_sources_for_connector_plays.return_value = sources or []
     plays_repo.get_plays_by_ids.return_value = plays or []
     plays_repo.find_plays_in_window.return_value = adoptable or []
+    plays_repo.get_play_sources_for_plays.return_value = []
+    plays_repo.bulk_insert_plays.return_value = (1, 0)
+    plays_repo.delete_plays_without_sources.return_value = 0
+    uow = make_mock_uow(connector_play_repo=connector_repo, plays_repo=plays_repo)
+    return uow, plays_repo
+
+
+def _wire_windowed_uow(entries: list[ConnectorTrackPlay]):
+    """Like :func:`_wire_uow`, but the ledger read honours the asked-for window.
+
+    The fixed-return wiring cannot see an ownership bug: it hands every chunk
+    every entry, so a chunk that should never have been generated still finds
+    the group and applies it. Filtering on raw ``played_at`` is what makes a
+    missing core show up as a missing projection.
+    """
+    connector_repo = AsyncMock()
+
+    async def _find_resolved_in_window(
+        start: datetime, end: datetime, *, user_id: str
+    ) -> list[ConnectorTrackPlay]:
+        _ = user_id
+        return [entry for entry in entries if start <= entry.played_at < end]
+
+    connector_repo.find_resolved_in_window.side_effect = _find_resolved_in_window
+    plays_repo = AsyncMock()
+    plays_repo.get_play_sources_for_connector_plays.return_value = []
+    plays_repo.get_plays_by_ids.return_value = []
+    plays_repo.find_plays_in_window.return_value = []
     plays_repo.get_play_sources_for_plays.return_value = []
     plays_repo.bulk_insert_plays.return_value = (1, 0)
     plays_repo.delete_plays_without_sources.return_value = 0
@@ -249,10 +280,76 @@ class TestObservedDayCores:
             date(2024, 3, 10),
         ]
 
-    def test_play_exactly_a_margin_past_midnight_stays_one_day(self):
-        cores = observed_day_cores([datetime(2024, 3, 10, 6, 0, tzinfo=UTC)])
+    def test_a_play_just_past_the_margin_still_claims_the_day_before(self):
+        """The exact off-by-tolerance loss: normalization alone is not the reach.
+
+        A GDPR row at 06:00:10 with a clamped six-hour ``ms_played`` normalizes
+        to 00:00:10 — inside the day — but a stored scrobble 20s earlier holds
+        the group's anchor on the previous day. Generating only the 10th's core
+        leaves that group owned by nobody.
+        """
+        cores = observed_day_cores([datetime(2024, 3, 10, 6, 0, 10, tzinfo=UTC)])
+
+        assert [start.date() for start, _ in cores] == [
+            date(2024, 3, 9),
+            date(2024, 3, 10),
+        ]
+
+    def test_play_past_the_whole_reach_back_stays_one_day(self):
+        """Beyond normalization AND the pairing pull-back, one day suffices."""
+        cores = observed_day_cores([datetime(2024, 3, 10, 6, 30, tzinfo=UTC)])
 
         assert [start.date() for start, _ in cores] == [date(2024, 3, 10)]
+
+    def test_non_utc_timestamp_generates_its_utc_core(self):
+        """Cores are UTC midnights, so the date must be read in UTC.
+
+        ``validate_timezone_aware`` accepts any offset and the GDPR parser
+        preserves it: 2024-06-15T20:30-05:00 is the 16th in UTC, and reading
+        the local date would leave the 16th's core ungenerated.
+        """
+        cores = observed_day_cores([
+            datetime(2024, 6, 15, 20, 30, tzinfo=timezone(timedelta(hours=-5)))
+        ])
+
+        assert [start.date() for start, _ in cores] == [
+            date(2024, 6, 15),
+            date(2024, 6, 16),
+        ]
+
+    def test_every_reachable_anchor_lands_in_exactly_one_generated_core(self):
+        """THE ownership invariant, swept across the clamp and midnight.
+
+        For any observation, the anchor of the group it joins can sit anywhere
+        from its own normalized start back to ``MAX_ANCHOR_PULL_BACK`` earlier.
+        Every one of those anchors must be owned by exactly one of the cores
+        the observation alone generates — "at least one" or the group silently
+        never projects, "at most one" or two chunks apply it.
+        """
+        rng = Random(20241105)
+        clamp_ms = int(MAX_NORMALIZED_START_SHIFT.total_seconds() * 1000)
+        midnight = datetime(2024, 3, 10, tzinfo=UTC)
+
+        for _ in range(500):
+            # Straddle midnight and the clamp: the two boundaries whose
+            # interaction produced the loss.
+            raw = midnight + timedelta(seconds=rng.uniform(-3_600, 8 * 3_600))
+            ms_played = clamp_ms + rng.randint(-60_000, 60_000)
+            normalized = raw - min(
+                timedelta(milliseconds=ms_played), MAX_NORMALIZED_START_SHIFT
+            )
+            anchor = normalized - MAX_ANCHOR_PULL_BACK * rng.random()
+
+            owners = [
+                core
+                for core in observed_day_cores([raw])
+                if core[0] <= anchor < core[1]
+            ]
+
+            assert len(owners) == 1, (
+                f"raw={raw.isoformat()} ms_played={ms_played} "
+                f"anchor={anchor.isoformat()} owned by {len(owners)} cores"
+            )
 
     def test_cores_are_ordered_and_never_overlap(self):
         """Overlapping cores would let two chunks own — and apply — one group."""
@@ -266,6 +363,64 @@ class TestObservedDayCores:
 
     def test_no_observations_means_no_chunks(self):
         assert observed_day_cores([]) == []
+
+
+class TestAnchorPulledAcrossMidnight:
+    """The constructed silent-loss scenario, projected end to end.
+
+    A GDPR row whose normalized start lands just inside a day, unioned with an
+    already-stored scrobble from just before midnight: the group anchors the
+    PREVIOUS day. Both halves of the fix are exercised — the previous day's
+    core has to be generated at all, and its fetch window has to reach far
+    enough forward (past the plain six-hour margin) to see the GDPR row.
+    """
+
+    _MIDNIGHT = datetime(2024, 3, 10, tzinfo=UTC)
+    _SIX_HOURS_MS = 6 * 60 * 60 * 1000
+
+    @pytest.mark.asyncio
+    async def test_the_pulled_group_is_owned_and_projected(self):
+        neighbour = _scrobble(played_at=self._MIDNIGHT - timedelta(seconds=10))
+        gdpr = _export(
+            ended_at=self._MIDNIGHT + timedelta(hours=6, seconds=10),
+            ms_played=self._SIX_HOURS_MS,
+        )
+        uow, plays_repo = _wire_windowed_uow([neighbour, gdpr])
+
+        stats = await PlayProjectionService().project_observed_days(
+            uow, user_id=_USER, played_at=[gdpr.played_at]
+        )
+
+        assert stats["groups_created"] == 1
+        inserted = plays_repo.bulk_insert_plays.await_args.args[0]
+        assert len(inserted) == 1
+        # Last.fm outranks the export on timestamp quality, so the surviving
+        # played_at is the scrobble's — the previous day, as the anchor says.
+        assert inserted[0].played_at == neighbour.played_at
+        memberships = plays_repo.bulk_upsert_play_sources.await_args.args[0]
+        assert {m.connector_play_id for m in memberships} == {neighbour.id, gdpr.id}
+
+    @pytest.mark.asyncio
+    async def test_no_second_chunk_also_claims_it(self):
+        """Ownership is exactly-one: the day the GDPR row falls in must not
+        apply the group a second time (a duplicate canonical play)."""
+        neighbour = _scrobble(played_at=self._MIDNIGHT - timedelta(seconds=10))
+        gdpr = _export(
+            ended_at=self._MIDNIGHT + timedelta(hours=6, seconds=10),
+            ms_played=self._SIX_HOURS_MS,
+        )
+        uow, plays_repo = _wire_windowed_uow([neighbour, gdpr])
+
+        stats = await PlayProjectionService().project_observed_days(
+            uow, user_id=_USER, played_at=[gdpr.played_at]
+        )
+
+        # Two cores are visited (the 9th and the 10th) but only one owns.
+        assert (
+            uow.get_connector_play_repository().find_resolved_in_window.await_count == 2
+        )
+        assert plays_repo.bulk_insert_plays.await_count == 1
+        assert stats["groups_created"] + stats["groups_updated"] == 1
 
 
 class TestProjectObservedDays:

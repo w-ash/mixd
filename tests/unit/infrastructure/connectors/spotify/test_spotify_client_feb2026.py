@@ -70,40 +70,32 @@ def _batch_client(
 
 
 class TestGetTrackSingle:
-    """GET /tracks/{id} returns a single validated SpotifyTrack."""
+    """One track is the degenerate case of the batch fetch — one id, one call."""
 
     async def test_get_track_returns_model(self):
-        from src.infrastructure.connectors.spotify.client import SpotifyAPIClient
+        impl = AsyncMock(
+            return_value={"tracks": [{"id": "abc123", "name": "Test Song"}]}
+        )
 
-        track_data = {"id": "abc123", "name": "Test Song"}
-        mock_impl = AsyncMock(return_value=track_data)
+        with _batch_client(impl) as client:
+            result = await client.get_track("abc123")
 
-        async def passthrough_retry(impl, *args):
-            return await impl(*args)
-
-        with patch.object(SpotifyAPIClient, "_get_track_impl", mock_impl):
-            with patch.object(SpotifyAPIClient, "__attrs_post_init__"):
-                client = SpotifyAPIClient()
-                client._retry_policy = passthrough_retry
-                result = await client.get_track("abc123")
-
+        assert impl.await_args.args[0] == ["abc123"]
         assert result is not None
         assert result.id == "abc123"
         assert result.name == "Test Song"
 
+    async def test_get_track_returns_none_for_a_dead_id(self):
+        """A dead id is a null array entry, where it used to be a 404."""
+        with _batch_client(AsyncMock(return_value={"tracks": [None]})) as client:
+            result = await client.get_track("missing")
+
+        assert result is None
+
     async def test_get_track_returns_none_on_failure(self):
-        from src.infrastructure.connectors.spotify.client import SpotifyAPIClient
-
-        mock_impl = AsyncMock(return_value=None)
-
-        async def passthrough_retry(impl, *args):
-            return await impl(*args)
-
-        with patch.object(SpotifyAPIClient, "_get_track_impl", mock_impl):
-            with patch.object(SpotifyAPIClient, "__attrs_post_init__"):
-                client = SpotifyAPIClient()
-                client._retry_policy = passthrough_retry
-                result = await client.get_track("missing")
+        """Unanswered collapses to None here — the batch form keeps them apart."""
+        with _batch_client(AsyncMock(return_value=None)) as client:
+            result = await client.get_track("missing")
 
         assert result is None
 
@@ -111,21 +103,25 @@ class TestGetTrackSingle:
 class TestGetTracksBatched:
     """GET /tracks?ids= — chunking, positional correlation, pacing, progress."""
 
-    async def test_empty_input_returns_empty_dict(self):
+    async def test_empty_input_returns_an_empty_fetch(self):
         with _batch_client() as client:
-            assert await client.get_tracks_batched([]) == {}
+            fetch = await client.get_tracks_batched([])
+
+        assert fetch.tracks == {}
+        assert fetch.unanswered == frozenset()
 
     async def test_chunks_at_the_endpoint_maximum_of_fifty(self):
         ids = [f"id{i}" for i in range(120)]
         impl = _impl_returning_requested_ids()
 
         with _batch_client(impl) as client:
-            result = await client.get_tracks_batched(ids)
+            fetch = await client.get_tracks_batched(ids)
 
         requested_chunks = [call.args[0] for call in impl.await_args_list]
         assert sorted(len(chunk) for chunk in requested_chunks) == [20, 50, 50]
         assert sorted(id_ for chunk in requested_chunks for id_ in chunk) == sorted(ids)
-        assert len(result) == 120
+        assert len(fetch.tracks) == 120
+        assert fetch.unanswered == frozenset()
 
     async def test_keys_by_requested_id_when_spotify_relinks(self):
         """Position, not the returned .id, is what correlates a relinked track."""
@@ -139,37 +135,70 @@ class TestGetTracksBatched:
         )
 
         with _batch_client(impl) as client:
-            result = await client.get_tracks_batched(["aaa", "old_id"])
+            fetch = await client.get_tracks_batched(["aaa", "old_id"])
 
-        assert set(result) == {"aaa", "old_id"}
-        assert result["old_id"].id == "new_id"
+        assert set(fetch.tracks) == {"aaa", "old_id"}
+        assert fetch.tracks["old_id"].id == "new_id"
 
     async def test_null_entry_marks_that_id_dead(self):
+        """Dead means answered-with-null: absent from tracks AND from unanswered."""
         impl = AsyncMock(
             return_value={"tracks": [None, {"id": "bbb", "name": "Song B"}]}
         )
 
         with _batch_client(impl) as client:
-            result = await client.get_tracks_batched(["dead_id", "bbb"])
+            fetch = await client.get_tracks_batched(["dead_id", "bbb"])
 
-        assert set(result) == {"bbb"}
+        assert set(fetch.tracks) == {"bbb"}
+        assert fetch.unanswered == frozenset()
 
-    async def test_short_array_correlates_the_common_prefix(self):
-        """A broken-length response must not shift ids onto the wrong tracks."""
+    async def test_short_array_correlates_the_prefix_and_leaves_the_tail_unanswered(
+        self,
+    ):
+        """A broken-length response must not shift ids onto the wrong tracks —
+        nor invent deaths for the ids the array never reached."""
         impl = AsyncMock(return_value={"tracks": [{"id": "aaa", "name": "Song A"}]})
 
         with _batch_client(impl) as client:
-            result = await client.get_tracks_batched(["aaa", "bbb"])
+            fetch = await client.get_tracks_batched(["aaa", "bbb"])
 
-        assert set(result) == {"aaa"}
-        assert result["aaa"].id == "aaa"
+        assert set(fetch.tracks) == {"aaa"}
+        assert fetch.tracks["aaa"].id == "aaa"
+        assert fetch.unanswered == frozenset({"bbb"})
 
-    async def test_failed_batch_leaves_its_ids_absent(self):
-        """Suppressed request failure reads as 'no answer', never as wrong answers."""
+    async def test_failed_chunk_reports_every_one_of_its_ids_unanswered(self):
+        """A suppressed request failure is 'no answer', never 50 dead tracks."""
+        ids = [f"id{i}" for i in range(50)]
+
         with _batch_client(AsyncMock(return_value=None)) as client:
-            result = await client.get_tracks_batched(["aaa", "bbb"])
+            fetch = await client.get_tracks_batched(ids)
 
-        assert result == {}
+        assert fetch.tracks == {}
+        assert fetch.unanswered == frozenset(ids)
+
+    async def test_a_chunk_failure_does_not_touch_its_siblings(self):
+        """Chunks are classified independently — one 5xx costs one chunk."""
+        good = [f"good{i}" for i in range(50)]
+        bad = [f"bad{i}" for i in range(50)]
+
+        async def fail_the_bad_chunk(track_ids: list[str]) -> dict[str, object] | None:
+            if track_ids[0].startswith("bad"):
+                return None
+            return {"tracks": [{"id": tid, "name": f"Song {tid}"} for tid in track_ids]}
+
+        with _batch_client(AsyncMock(side_effect=fail_the_bad_chunk)) as client:
+            fetch = await client.get_tracks_batched([*good, *bad])
+
+        assert set(fetch.tracks) == set(good)
+        assert fetch.unanswered == frozenset(bad)
+
+    async def test_an_unparseable_response_is_unanswered_not_dead(self):
+        """Anything escaping the suppression told us as little as a 5xx did."""
+        with _batch_client(AsyncMock(return_value={"tracks": "not-a-list"})) as client:
+            fetch = await client.get_tracks_batched(["aaa", "bbb"])
+
+        assert fetch.tracks == {}
+        assert fetch.unanswered == frozenset({"aaa", "bbb"})
 
     async def test_one_rate_limiter_token_per_batch_call(self):
         ids = [f"id{i}" for i in range(120)]

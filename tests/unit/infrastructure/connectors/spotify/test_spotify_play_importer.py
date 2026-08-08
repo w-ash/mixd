@@ -56,7 +56,9 @@ def mock_uow():
     """
     uow = MagicMock()
     connector_play_repo = AsyncMock()
-    connector_play_repo.bulk_insert_connector_plays.return_value = []
+    # The repository's (inserted, duplicates) contract — the importer passes it
+    # straight through, so it is the only place the counts can come from.
+    connector_play_repo.bulk_insert_connector_plays.return_value = (0, 0)
     uow.get_connector_play_repository.return_value = connector_play_repo
     return uow
 
@@ -226,13 +228,30 @@ class TestSaveData:
         self, importer, mock_uow
     ):
         plays = [MagicMock(spec=ConnectorTrackPlay)]
-        mock_uow.get_connector_play_repository.return_value.bulk_insert_connector_plays.return_value = plays
+        mock_uow.get_connector_play_repository.return_value.bulk_insert_connector_plays.return_value = (
+            1,
+            0,
+        )
 
         inserted, dupes = await importer._save_connector_plays_via_uow(plays, mock_uow)
 
         mock_uow.get_connector_play_repository.assert_called_once()
         assert inserted == 1
         assert dupes == 0
+
+    async def test_save_reports_the_ledgers_counts_not_the_batch_size(
+        self, importer, mock_uow
+    ):
+        """A re-import writes nothing; saying otherwise launders it as new."""
+        plays = [MagicMock(spec=ConnectorTrackPlay) for _ in range(3)]
+        mock_uow.get_connector_play_repository.return_value.bulk_insert_connector_plays.return_value = (
+            0,
+            3,
+        )
+
+        inserted, dupes = await importer._save_connector_plays_via_uow(plays, mock_uow)
+
+        assert (inserted, dupes) == (0, 3)
 
     async def test_save_empty_list_returns_zero(self, importer, mock_uow):
         inserted, dupes = await importer._save_connector_plays_via_uow([], mock_uow)

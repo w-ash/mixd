@@ -803,30 +803,26 @@ class TrackConnectorRepository:
 
     @db_operation("map_tracks_to_connectors")
     async def map_tracks_to_connectors(
-        self,
-        mappings: list[ConnectorMappingSpec],
-        *,
-        promote_to_primary: Sequence[tuple[UUID, str, str]] = (),
+        self, mappings: list[ConnectorMappingSpec]
     ) -> list[Track]:
         """Link existing internal tracks to external service IDs with confidence scores.
 
         Pipeline: build connector-track rows → bulk upsert → build mapping rows →
         drop rows that would overwrite manual overrides → assert mappings
         (append-only: a changed decision supersedes rather than overwrites) →
-        elect the primaries the caller named.
+        elect the primaries the specs asked for.
+
+        Election reads ``ConnectorMappingSpec.primary`` off the specs
+        themselves, re-electing and syncing the denormalized fast-path column
+        in a fixed handful of statements for the whole batch instead of four
+        per row. It is the only primary-election path this method has: mapping
+        one track is ``map_track_to_connector``, which is a one-spec call to
+        exactly this.
 
         Args:
             mappings: Mapping specs pairing each track with its connector, external
-                id, match method, confidence, and optional metadata/evidence.
-            promote_to_primary: ``(track_id, connector_name, connector_id)``
-                triples whose mapping should own primacy — the batch
-                equivalent of ``map_track_to_connector``'s
-                ``auto_set_primary``, re-electing and syncing the
-                denormalized fast-path column in a fixed handful of
-                statements for the whole batch instead of four per row. Not
-                every asserted mapping belongs here: a relinked Spotify
-                track's stale-id mapping is written precisely so it will
-                *not* hold primacy.
+                id, match method, confidence, optional metadata/evidence, and
+                whether the mapping takes primacy.
 
         Returns:
             List of Track objects updated with external service connections.
@@ -847,9 +843,14 @@ class TrackConnectorRepository:
             await self._record_assertion(assertion)
             await self._restore_superseded_primaries(assertion)
 
+        promote_to_primary = [
+            (spec.track.id, spec.connector, spec.connector_id)
+            for spec in mappings
+            if spec.primary and spec.track.id
+        ]
         if promote_to_primary:
             _ = await self._batch_ensure_primary_mappings_by_external_id(
-                list(promote_to_primary)
+                promote_to_primary
             )
 
         # Note: metrics extraction lives in the application layer
@@ -1031,6 +1032,12 @@ class TrackConnectorRepository:
     ) -> Track:
         """Link an existing internal track to an external service ID.
 
+        One mapping is the degenerate case of a batch of them, all the way
+        down to the election: ``auto_set_primary`` is the spec's ``primary``
+        flag, so the promotion, the vacancy rules and the FM4d denormalized-id
+        sync are the batch path's and there is no second election chain to
+        keep in agreement with it.
+
         No existence probe on ``track``: every caller holds a canonical it
         either just persisted or just read back inside this same transaction,
         so the SELECT could only ever confirm what the caller already knows —
@@ -1049,26 +1056,10 @@ class TrackConnectorRepository:
                 metadata=metadata,
                 confidence_evidence=confidence_evidence,
                 origin=origin,
+                primary=auto_set_primary,
             )
         ])
-
-        result_track = results[0] if results else track
-
-        # Auto-set primary mapping if requested and track has an ID. The
-        # denormalized fast-path column syncs ONLY when the mapping actually
-        # became primary — an unconditional sync let the redirect flow's
-        # stale-secondary write (auto_set_primary=False, written last) leave
-        # the dead ID in the column (v0.8.18 FM4d).
-        if auto_set_primary and result_track.id:
-            primary_set = await self.ensure_primary_mapping(
-                result_track.id, connector, connector_id
-            )
-            if primary_set:
-                await self._sync_denormalized_id(
-                    result_track.id, connector, connector_id
-                )
-
-        return result_track
+        return results[0] if results else track
 
     @db_operation("ingest_external_tracks_bulk")
     async def ingest_external_tracks_bulk(
@@ -1463,23 +1454,6 @@ class TrackConnectorRepository:
         primaries = [(tid, connector, cid) for tid, cid in primaries_set.items()]
         if primaries:
             _ = await self._batch_ensure_primary_mappings_by_external_id(primaries)
-
-    async def _sync_denormalized_id(
-        self, track_id: UUID, connector: str, connector_id: str
-    ) -> None:
-        """Sync denormalized ID column on DBTrack after a mapping is created.
-
-        When a track gains a new Spotify or MusicBrainz mapping, the fast-path
-        lookup columns (spotify_id, mbid) on DBTrack must be updated so that
-        save_track() deduplication and _TRACK_ID_TYPES lookups find the track.
-        """
-        column_name = DenormalizedTrackColumns.COLUMN_MAP.get(connector)
-        if column_name:
-            await self.session.execute(
-                update(DBTrack)
-                .where(DBTrack.id == track_id)
-                .values(**{column_name: connector_id})
-            )
 
     async def _clear_denormalized_id(self, track_id: UUID, connector: str) -> None:
         """Clear denormalized ID column on DBTrack when no mappings remain for a connector."""
@@ -2277,19 +2251,21 @@ class TrackConnectorRepository:
     ) -> int:
         """``_batch_ensure_primary_mappings``, keyed by external connector id.
 
-        For the one caller that genuinely only holds the string —
-        ``_create_mappings_and_set_primaries`` reads it straight off
-        ``domain_tracks[].connector_track_identifiers``, never the connector
-        track's internal id. Resolves ids in a single bulk lookup, then
-        shares the UUID path's promotion step. A caller that already holds
-        the UUID should call ``_batch_ensure_primary_mappings`` directly
+        For the callers that genuinely only hold the string: the specs
+        ``map_tracks_to_connectors`` marked ``primary``, and
+        ``_create_mappings_and_set_primaries``, which reads it straight off
+        ``domain_tracks[].connector_track_identifiers``. Neither ever sees the
+        connector track's internal id. Resolves ids in a single bulk lookup,
+        then shares the UUID path's promotion step. A caller that already
+        holds the UUID should call ``_batch_ensure_primary_mappings`` directly
         instead of routing through here just to convert it back.
 
         Unlike its sibling this one still resets first, and so still re-elects
-        rather than merely filling a vacancy: it runs at the end of
-        ``_create_mappings_and_set_primaries``, where the caller has just named
-        which connector id each track's primary should be. Its reset is also
-        what keeps the shared promotion step's vacancy guard a no-op here.
+        rather than merely filling a vacancy: both callers have just named
+        which connector id each track's primary should be, which is the same
+        assertion the single-mapping ``auto_set_primary`` used to make through
+        its own reset-then-set chain. Its reset is also what keeps the shared
+        promotion step's vacancy guard a no-op here.
 
         Args:
             primaries: List of (track_id, connector_name, connector_track_identifier).

@@ -106,12 +106,19 @@ def _backoff_state(exception: BaseException) -> MagicMock:
     return state
 
 
+_PAUSE_CAP_SECONDS = 60.0
+
+
 class TestBackoffHandlerBrakesTheLimiter:
     """A 429 pauses the whole service's limiter, not just the failing call."""
 
-    def _run(self, exception: BaseException) -> MagicMock:
+    def _run(
+        self, exception: BaseException, cap: float = _PAUSE_CAP_SECONDS
+    ) -> MagicMock:
         limiter = MagicMock()
-        handler = create_tenacity_backoff_handler(SpotifyErrorClassifier(), "spotify")
+        handler = create_tenacity_backoff_handler(
+            SpotifyErrorClassifier(), "spotify", cap
+        )
         with patch(
             "src.infrastructure.connectors._shared.retry_policies.get_connector_rate_limiter",
             return_value=limiter,
@@ -124,6 +131,13 @@ class TestBackoffHandlerBrakesTheLimiter:
 
         limiter.pause_for.assert_called_once_with(7.0)
 
+    def test_hostile_retry_after_is_capped(self):
+        # 999999 is finite, so it clears the parse guard. Uncapped it would
+        # freeze the service's process-global limiter for ~11.5 days.
+        limiter = self._run(_http_status_error(429, {"Retry-After": "999999"}))
+
+        limiter.pause_for.assert_called_once_with(_PAUSE_CAP_SECONDS)
+
     def test_rate_limit_without_a_usable_header_pauses_for_the_default(self):
         limiter = self._run(_http_status_error(429, {}))
 
@@ -135,7 +149,9 @@ class TestBackoffHandlerBrakesTheLimiter:
         limiter.pause_for.assert_not_called()
 
     def test_unpaced_service_is_handled_without_a_limiter(self):
-        handler = create_tenacity_backoff_handler(SpotifyErrorClassifier(), "spotify")
+        handler = create_tenacity_backoff_handler(
+            SpotifyErrorClassifier(), "spotify", _PAUSE_CAP_SECONDS
+        )
         with patch(
             "src.infrastructure.connectors._shared.retry_policies.get_connector_rate_limiter",
             return_value=None,
@@ -144,16 +160,33 @@ class TestBackoffHandlerBrakesTheLimiter:
 
 
 class TestCreatePolicyWiring:
+    _CONFIG = RetryConfig(
+        service_name="spotify",
+        classifier=SpotifyErrorClassifier(),
+        max_attempts=3,
+        wait_multiplier=1.0,
+        wait_max=17.0,
+    )
+
     def test_policy_wait_is_retry_after_aware(self):
-        policy = RetryPolicyFactory.create_policy(
-            RetryConfig(
-                service_name="spotify",
-                classifier=SpotifyErrorClassifier(),
-                max_attempts=3,
-                wait_multiplier=1.0,
-                wait_max=60.0,
-            )
-        )
+        policy = RetryPolicyFactory.create_policy(self._CONFIG)
 
         assert isinstance(policy.wait, RetryAfterWait)
-        assert policy.wait.cap == 60.0
+        assert policy.wait.cap == self._CONFIG.wait_max
+
+    def test_limiter_pause_is_capped_by_the_policys_wait_max(self):
+        """One bound per service: the pause cap is the wait cap, not a constant."""
+        policy = RetryPolicyFactory.create_policy(self._CONFIG)
+        before_sleep = policy.before_sleep
+        assert before_sleep is not None
+        limiter = MagicMock()
+
+        with patch(
+            "src.infrastructure.connectors._shared.retry_policies.get_connector_rate_limiter",
+            return_value=limiter,
+        ):
+            before_sleep(
+                _backoff_state(_http_status_error(429, {"Retry-After": "999999"}))
+            )
+
+        limiter.pause_for.assert_called_once_with(self._CONFIG.wait_max)

@@ -41,6 +41,13 @@ class ConnectorMappingSpec:
     # supersession against the wrong value — and the old follow-up statement
     # matched on (track, connector) and flipped sibling mappings with it.
     origin: str = "automatic"
+    # Should this mapping own primacy for its (track, connector) pair? A flag
+    # here rather than a parallel ``(track_id, connector, connector_id)`` list
+    # alongside the specs: that list could only ever repeat identifiers the
+    # spec already carries, and the two had to be kept in step by hand. Not
+    # every mapping wants it — a relinked Spotify track's stale-id mapping is
+    # written precisely so it will *not* hold primacy — hence the default.
+    primary: bool = False
 
 
 @define(frozen=True, slots=True)
@@ -139,22 +146,15 @@ class ConnectorRepositoryProtocol(Protocol):
         ...
 
     def map_tracks_to_connectors(
-        self,
-        mappings: list[ConnectorMappingSpec],
-        *,
-        promote_to_primary: Sequence[tuple[UUID, str, str]] = (),
+        self, mappings: list[ConnectorMappingSpec]
     ) -> Awaitable[list[Track]]:
         """Batch-map multiple tracks to connectors in a single operation.
 
         Args:
             mappings: Mapping specs, each pairing a track with its connector,
-                external id, match method, confidence, and optional
-                metadata/confidence evidence.
-            promote_to_primary: ``(track_id, connector_name, connector_id)``
-                triples whose mapping should own primacy — the batch form of
-                ``map_track_to_connector``'s ``auto_set_primary``. Mappings
-                absent from it are asserted without touching primacy, which
-                is what a relinked track's stale-id mapping needs.
+                external id, match method, confidence, optional
+                metadata/confidence evidence, and whether it takes primacy
+                (``ConnectorMappingSpec.primary``).
 
         Returns:
             List of Track objects updated with external service connections.

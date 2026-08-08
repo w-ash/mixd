@@ -5,6 +5,8 @@ from collections.abc import Sequence
 from datetime import UTC, datetime
 from uuid import uuid4
 
+from attrs import define
+
 from src.config import get_logger
 from src.domain.entities import ConnectorTrackPlay, OperationResult
 from src.domain.entities.progress import (
@@ -49,6 +51,30 @@ def _require_uniform_tenancy(
         )
 
 
+@define(slots=True)
+class LedgerWriteTotals:
+    """Running (imported, duplicates) over one import run's ledger writes.
+
+    Checkpoint-metrics truth requirement: what an import reports as imported
+    must be what the ledger actually ACCEPTED, never the size of the span that
+    was streamed at it. The two diverge exactly where it matters — a
+    crash-and-resume re-fetches the checkpoint day, whose rows are ON CONFLICT
+    no-ops, and counting them as imported tells the user rows landed that were
+    already there.
+
+    Mutable by design: a source that persists mid-fetch writes one chunk per
+    day and only the accumulated pair is the run's answer.
+    """
+
+    imported: int = 0
+    duplicates: int = 0
+
+    def record(self, imported: int, duplicates: int) -> None:
+        """Fold one write's outcome into the run totals."""
+        self.imported += imported
+        self.duplicates += duplicates
+
+
 class BasePlayImporter[TRawData, TParams: PlayImportParams](ABC):
     """Base class for importing music listening data from external sources.
 
@@ -81,8 +107,30 @@ class BasePlayImporter[TRawData, TParams: PlayImportParams](ABC):
     # never written, and the resumed run skips them forever (the Last.fm
     # full-history data-loss bug). The run-end save is then a no-op: the rows
     # are already durable, and re-streaming the whole span would only make
-    # ON CONFLICT discard every one of them.
+    # ON CONFLICT discard every one of them. The run's reported counts come
+    # from ``_fetch_write_totals`` instead — see :class:`LedgerWriteTotals`.
     persists_plays_during_fetch: bool = False
+
+    # Run-scoped totals for the rows :meth:`_persist_fetched_chunk` wrote during
+    # this run's fetch. Reached through :meth:`_run_write_totals`, never
+    # directly. Safe as instance state because the registry mints a fresh
+    # importer per import (``create_play_importer``), so no two runs share one.
+    _fetch_write_totals: LedgerWriteTotals | None = None
+
+    def _run_write_totals(self) -> LedgerWriteTotals:
+        """This run's accumulated ledger-write outcome.
+
+        Created on demand rather than in ``__init__``: subclasses own their
+        constructors and none of them chain to a base one.
+        :meth:`_run_import_pipeline` replaces it at the top of every run, so a
+        reused importer can never report a previous run's rows, while a
+        :meth:`_persist_fetched_chunk` call made outside the pipeline (a test,
+        a subclass exercising its fetch loop alone) still accumulates somewhere
+        real instead of raising.
+        """
+        if self._fetch_write_totals is None:
+            self._fetch_write_totals = LedgerWriteTotals()
+        return self._fetch_write_totals
 
     async def import_data(
         self,
@@ -187,6 +235,8 @@ class BasePlayImporter[TRawData, TParams: PlayImportParams](ABC):
         user_id: str,
     ) -> tuple[OperationResult, list[ConnectorTrackPlay]]:
         """Fetch → process → save → checkpoint pipeline body for :meth:`import_data`."""
+        self._fetch_write_totals = LedgerWriteTotals()
+
         # Step 2: Fetch raw data (implemented by subclasses)
         await progress_emitter.emit_progress(
             create_progress_event(
@@ -271,8 +321,12 @@ class BasePlayImporter[TRawData, TParams: PlayImportParams](ABC):
         )
 
         if self.persists_plays_during_fetch:
-            # Already in the ledger, chunk by chunk, ahead of each checkpoint.
-            imported_count, duplicate_count = len(track_plays), 0
+            # Already in the ledger, chunk by chunk, ahead of each checkpoint —
+            # so the counts come from what those writes accepted, not from the
+            # length of the span. ``len(track_plays)`` here would report every
+            # re-fetched day of a crash-resume as freshly imported.
+            totals = self._run_write_totals()
+            imported_count, duplicate_count = totals.imported, totals.duplicates
         else:
             imported_count, duplicate_count = await self._save_connector_plays_via_uow(
                 track_plays, uow
@@ -416,7 +470,7 @@ class BasePlayImporter[TRawData, TParams: PlayImportParams](ABC):
         uow: UnitOfWorkProtocol,
         *,
         user_id: str,
-    ) -> None:
+    ) -> tuple[int, int]:
         """Persist one fetch chunk through the same path the run-end save uses.
 
         For sources that checkpoint mid-fetch (see
@@ -426,10 +480,19 @@ class BasePlayImporter[TRawData, TParams: PlayImportParams](ABC):
 
         Writes are ON CONFLICT DO NOTHING against the ledger's deduplication
         constraint, so re-persisting a chunk after a crash-and-resume is a
-        no-op rather than a duplicate.
+        no-op rather than a duplicate — which is precisely why the outcome is
+        folded into the run totals and returned instead of discarded: those
+        no-ops are the run's duplicates, and the run-end result reports them.
+
+        Returns:
+            This chunk's (imported_count, duplicate_count).
         """
         _require_uniform_tenancy(connector_plays, user_id, type(self).__name__)
-        _ = await self._save_connector_plays_via_uow(connector_plays, uow)
+        imported, duplicates = await self._save_connector_plays_via_uow(
+            connector_plays, uow
+        )
+        self._run_write_totals().record(imported, duplicates)
+        return imported, duplicates
 
     async def _save_connector_plays_via_uow(
         self, connector_plays: list[ConnectorTrackPlay], uow: UnitOfWorkProtocol
@@ -441,17 +504,23 @@ class BasePlayImporter[TRawData, TParams: PlayImportParams](ABC):
             uow: UnitOfWork instance for repository access.
 
         Returns:
-            Tuple of (inserted_count, duplicate_count) — duplicate_count is
-            always 0 for connector plays.
+            The repository's own (inserted_count, duplicate_count). Passed
+            through untouched: the ledger's ON CONFLICT is the only thing that
+            knows how many of these rows were already stored, so substituting
+            ``len(connector_plays)`` here would launder a re-import into a
+            fresh-import statistic.
         """
         if not connector_plays:
             return 0, 0
 
-        connector_play_repository = uow.get_connector_play_repository()
-        _ = await connector_play_repository.bulk_insert_connector_plays(connector_plays)
+        ledger = uow.get_connector_play_repository()
+        inserted, duplicates = await ledger.bulk_insert_connector_plays(connector_plays)
 
-        logger.info(f"💾 Saved {len(connector_plays)} connector plays via UnitOfWork")
-        return len(connector_plays), 0  # No duplicates for connector plays
+        logger.info(
+            f"💾 Saved {inserted} connector plays via UnitOfWork "
+            f"({duplicates} already stored)"
+        )
+        return inserted, duplicates
 
     def _create_success_result(
         self,

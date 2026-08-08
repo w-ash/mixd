@@ -119,6 +119,21 @@ def _insert_calls(uow) -> int:
     return repo.bulk_insert_connector_plays.await_count
 
 
+def _uow_with_ledger(*, inserted: int, duplicates: int):
+    """Mock UoW whose ledger write reports a fixed (inserted, duplicates).
+
+    The counts are the repository's to give — its ON CONFLICT is the only thing
+    that knows how many rows were already stored — so a test that wants to see
+    what an importer *reports* has to say what the ledger *accepted*.
+    """
+    uow = make_mock_uow()
+    uow.get_connector_play_repository().bulk_insert_connector_plays.return_value = (
+        inserted,
+        duplicates,
+    )
+    return uow
+
+
 class TestPersistsPlaysDuringFetch:
     """The run-end save belongs to whoever did not already write the rows.
 
@@ -128,7 +143,7 @@ class TestPersistsPlaysDuringFetch:
     """
 
     async def test_fetch_persisted_span_is_not_saved_again(self) -> None:
-        uow = make_mock_uow()
+        uow = _uow_with_ledger(inserted=1, duplicates=0)
         importer = _StubImporter(persists_during_fetch=True)
 
         result, plays = await importer.import_data(
@@ -139,7 +154,7 @@ class TestPersistsPlaysDuringFetch:
         assert result.summary_metrics.get("imported") == len(plays)
 
     async def test_ordinary_importer_still_saved_by_the_pipeline(self) -> None:
-        uow = make_mock_uow()
+        uow = _uow_with_ledger(inserted=1, duplicates=0)
         importer = _StubImporter(persists_during_fetch=False)
 
         result, plays = await importer.import_data(
@@ -152,7 +167,7 @@ class TestPersistsPlaysDuringFetch:
     async def test_chunk_tenancy_is_verified_before_the_write(self) -> None:
         """The guard runs on the chunk, not only on the assembled span —
         otherwise a mis-stamped row is already in the ledger when it fires."""
-        uow = make_mock_uow()
+        uow = _uow_with_ledger(inserted=1, duplicates=0)
         importer = _StubImporter(persists_during_fetch=True, user_id="someone-else")
 
         result, _plays = await importer.import_data(
@@ -161,3 +176,47 @@ class TestPersistsPlaysDuringFetch:
 
         assert result.is_failure
         assert _insert_calls(uow) == 0
+
+
+class TestReportedCountsComeFromTheLedger:
+    """What a run reports imported is what the ledger accepted, either path.
+
+    The mid-fetch path used to fabricate ``(len(track_plays), 0)`` at the run
+    end while the chunk writes' real answers were thrown away — a re-fetched
+    day's ON CONFLICT no-ops read back as fresh imports.
+    """
+
+    async def test_mid_fetch_writes_report_their_duplicates(self) -> None:
+        uow = _uow_with_ledger(inserted=0, duplicates=1)
+        importer = _StubImporter(persists_during_fetch=True)
+
+        result, plays = await importer.import_data(
+            LastfmImportParams(), uow=uow, user_id="u1"
+        )
+
+        assert len(plays) == 1  # the span was streamed...
+        assert result.summary_metrics.get("imported") == 0  # ...and stored nothing
+        assert result.summary_metrics.get("duplicates") == 1
+
+    async def test_persist_chunk_hands_the_counts_back_to_its_caller(self) -> None:
+        """The chunk write's own return, for sources accumulating per chunk."""
+        uow = _uow_with_ledger(inserted=3, duplicates=2)
+        importer = _StubImporter(persists_during_fetch=True)
+
+        counts = await importer._persist_fetched_chunk(
+            [_make_play("First", user_id="u1")], uow, user_id="u1"
+        )
+
+        assert counts == (3, 2)
+
+    async def test_run_totals_do_not_leak_between_runs(self) -> None:
+        """A second run on the same importer starts from zero, not doubled."""
+        uow = _uow_with_ledger(inserted=1, duplicates=0)
+        importer = _StubImporter(persists_during_fetch=True)
+
+        _ = await importer.import_data(LastfmImportParams(), uow=uow, user_id="u1")
+        result, _plays = await importer.import_data(
+            LastfmImportParams(), uow=uow, user_id="u1"
+        )
+
+        assert result.summary_metrics.get("imported") == 1

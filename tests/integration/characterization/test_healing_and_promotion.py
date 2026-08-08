@@ -14,6 +14,7 @@ from unittest.mock import AsyncMock
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from src.infrastructure.connectors.spotify.client import SpotifyTracksFetch
 from src.infrastructure.connectors.spotify.inward_resolver import SpotifyInwardResolver
 from src.infrastructure.connectors.spotify.models import (
     SpotifyAlbum,
@@ -45,15 +46,17 @@ class TestRedirectLeavesLiveIdInDenormColumn:
         connector.connector_name = "spotify"
         # Redirect: requesting sp_dead_001 returns a track whose id differs.
         # No ISRC in the payload — keeps the ISRC-dedup branch out of the way.
-        connector.get_tracks_by_ids.return_value = {
-            "sp_dead_001": SpotifyTrack(
-                id="sp_live_001",
-                name="Redirected Song",
-                artists=[SpotifyArtist(id="a1", name="Neon Priest")],
-                album=SpotifyAlbum(id="al1", name="Debut"),
-                duration_ms=200_000,
-            ),
-        }
+        connector.get_tracks_by_ids.return_value = SpotifyTracksFetch(
+            tracks={
+                "sp_dead_001": SpotifyTrack(
+                    id="sp_live_001",
+                    name="Redirected Song",
+                    artists=[SpotifyArtist(id="a1", name="Neon Priest")],
+                    album=SpotifyAlbum(id="al1", name="Debut"),
+                    duration_ms=200_000,
+                ),
+            }
+        )
 
         resolver = SpotifyInwardResolver(spotify_connector=connector)
         result, _metrics = await resolver.resolve_to_canonical_tracks(

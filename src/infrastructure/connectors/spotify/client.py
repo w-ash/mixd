@@ -86,6 +86,33 @@ def free_text_search_query(artist: str, title: str) -> str:
     return " ".join(term for term in terms if term)
 
 
+@define(frozen=True, slots=True)
+class SpotifyTracksFetch:
+    """A batch track fetch's answer, with "no answer" kept apart from "dead".
+
+    Three outcomes per requested id, never two:
+
+    - **answered** — the id is a key in ``tracks``;
+    - **dead** — requested, and in neither field: Spotify returned 200 with
+      ``null`` in that id's position, which is the endpoint saying the id is
+      gone;
+    - **unanswered** — the id's chunk request failed after its retries, or the
+      response was too short to correlate that far, so Spotify said nothing
+      about the id at all.
+
+    Reading absence from ``tracks`` as death is the whole hazard this type
+    exists to remove. One 5xx costs a *chunk* — up to 50 ids at once — and a
+    caller that calls those ids dead writes no-match backoff for all fifty and
+    stands search-picked recordings in for the hinted ones, permanently, on the
+    strength of a request that never landed. ``unanswered`` has to be
+    subtracted before anything is concluded; those ids are simply re-asked at
+    full strength on the next import.
+    """
+
+    tracks: dict[str, SpotifyTrack] = field(factory=dict)
+    unanswered: frozenset[str] = frozenset()
+
+
 @define(slots=True)
 class SpotifyAPIClient(BaseAPIClient):
     """Pure Spotify API client using native httpx2.
@@ -158,24 +185,26 @@ class SpotifyAPIClient(BaseAPIClient):
     # -------------------------------------------------------------------------
 
     async def get_track(self, track_id: str) -> SpotifyTrack | None:
-        """Fetch a single track from Spotify by ID."""
-        data = await self._api_call("get_spotify_track", self._get_track_impl, track_id)
-        return SpotifyTrack.model_validate(data) if data else None
+        """One track — the degenerate case of :meth:`get_tracks_batched`.
 
-    async def _get_track_impl(self, track_id: str) -> JsonDict | None:
-        """Pure implementation without retry logic."""
-        response = await self._client.get(
-            f"/tracks/{track_id}",
-            params={"market": self.market},
-        )
-        _ = response.raise_for_status()
-        return parse_json_response(response)
+        There is one GET-and-parse implementation for tracks and it is the
+        batch one: ``GET /tracks?ids=`` with a single id. A dead id comes back
+        as a ``null`` array entry rather than the 404 ``GET /tracks/{id}``
+        gave, so the answer is the same ``None`` as before.
+
+        ``None`` is also what an *unanswered* id yields, exactly as the old
+        single fetch did — a lone ``SpotifyTrack | None`` has nowhere to put
+        the dead-versus-unanswered distinction. Callers that must not read a
+        failed request as a dead id — the inward resolver above all — take
+        :meth:`get_tracks_batched` and its :class:`SpotifyTracksFetch`.
+        """
+        return (await self.get_tracks_batched([track_id])).tracks.get(track_id)
 
     async def get_tracks_batched(
         self,
         track_ids: list[str],
         progress_callback: Callable[[int, int, str], Awaitable[None]] | None = None,
-    ) -> dict[str, SpotifyTrack]:
+    ) -> SpotifyTracksFetch:
         """Fetch many tracks via GET /tracks?ids=, up to 50 ids per request.
 
         One request per chunk instead of one per id: a 46k-id import drops from
@@ -183,12 +212,15 @@ class SpotifyAPIClient(BaseAPIClient):
         ``settings.api.spotify.concurrency``) and each chunk spends exactly one
         rate-limiter token, since ``_api_call`` paces per invocation.
 
-        Returns a dict keyed by REQUESTED ID, not the returned track's ``.id``.
+        ``tracks`` is keyed by REQUESTED ID, not the returned track's ``.id``.
         The distinction is the whole point when Spotify relinks an old id to a
         new one — the caller looks up the id it asked about, and compares it
-        against the returned track's id to detect the redirect. Ids absent from
-        the dict are dead (or belonged to a chunk whose request failed after
-        retries).
+        against the returned track's id to detect the redirect.
+
+        A chunk request that fails after retries takes ~50 ids down with it,
+        which is why its ids land in ``unanswered`` instead of merely going
+        missing: see :class:`SpotifyTracksFetch` for what absence would
+        otherwise be taken to mean.
 
         If progress_callback is provided, it is awaited once per completed
         chunk with (completed_tracks, total_tracks, message) — counted in
@@ -197,14 +229,15 @@ class SpotifyAPIClient(BaseAPIClient):
         safe under concurrent invocations.
         """
         if not track_ids:
-            return {}
+            return SpotifyTracksFetch()
 
         chunks = [
             track_ids[i : i + SpotifyConstants.TRACKS_BATCH_SIZE]
             for i in range(0, len(track_ids), SpotifyConstants.TRACKS_BATCH_SIZE)
         ]
         semaphore = asyncio.Semaphore(settings.api.spotify.concurrency)
-        results: dict[str, SpotifyTrack] = {}
+        tracks: dict[str, SpotifyTrack] = {}
+        unanswered: set[str] = set()
         total = len(track_ids)
         completed = 0
 
@@ -212,9 +245,19 @@ class SpotifyAPIClient(BaseAPIClient):
             nonlocal completed
             async with semaphore:
                 try:
-                    results.update(await self._get_tracks_chunk(chunk))
+                    fetched = await self._get_tracks_chunk(chunk)
                 except Exception as e:
-                    logger.warning(f"Failed to fetch batch of {len(chunk)} tracks: {e}")
+                    # Anything that escapes ``_api_call``'s suppression — a
+                    # response that will not parse, most likely — told us just
+                    # as little about this chunk's ids as a 5xx did.
+                    logger.warning(
+                        f"Failed to fetch batch of {len(chunk)} tracks: {e}",
+                        exc_info=True,
+                    )
+                    unanswered.update(chunk)
+                else:
+                    tracks.update(fetched.tracks)
+                    unanswered.update(fetched.unanswered)
             completed += len(chunk)
             if progress_callback is not None:
                 await progress_callback(
@@ -227,32 +270,45 @@ class SpotifyAPIClient(BaseAPIClient):
             for chunk in chunks:
                 _ = tg.create_task(_fetch_chunk(chunk))
 
-        return results
+        return SpotifyTracksFetch(tracks=tracks, unanswered=frozenset(unanswered))
 
-    async def _get_tracks_chunk(self, track_ids: list[str]) -> dict[str, SpotifyTrack]:
+    async def _get_tracks_chunk(self, track_ids: list[str]) -> SpotifyTracksFetch:
         """One GET /tracks?ids= call, correlated back to the requested ids."""
         data = await self._api_call(
             "get_spotify_tracks_batch", self._get_tracks_batch_impl, track_ids
         )
         if data is None:
-            logger.warning(f"Failed to fetch batch of {len(track_ids)} tracks")
-            return {}
+            # ``_api_call`` swallowed the failure after exhausting its retries.
+            # Every id in the chunk is unanswered, not dead: one post-retry 5xx
+            # or timeout — or a 400 the whole chunk inherits from a single
+            # malformed id — must not be reported as fifty dead tracks.
+            logger.warning(
+                f"Spotify /tracks request failed for {len(track_ids)} ids — "
+                f"reporting them unanswered, not dead",
+                requested=len(track_ids),
+            )
+            return SpotifyTracksFetch(unanswered=frozenset(track_ids))
 
         returned = SpotifyTracksResponse.model_validate(data).tracks
         if len(returned) != len(track_ids):
-            # Positional alignment is the only correlation this endpoint offers;
-            # a length mismatch means it no longer holds. Correlate the common
-            # prefix (best effort) and let the remainder read as dead ids.
+            # Positional alignment is the only correlation this endpoint
+            # offers; a length mismatch means it stops holding partway. The
+            # common prefix is still correlated, and the ids past the end of
+            # the array are unanswered — reading a truncated response as a run
+            # of deaths would invent them out of one malformed reply.
             logger.warning(
                 "Spotify /tracks returned a differently-sized array than requested",
                 requested=len(track_ids),
                 returned=len(returned),
             )
-        return {
-            requested_id: track
-            for requested_id, track in zip(track_ids, returned, strict=False)
-            if track is not None
-        }
+        return SpotifyTracksFetch(
+            tracks={
+                requested_id: track
+                for requested_id, track in zip(track_ids, returned, strict=False)
+                if track is not None
+            },
+            unanswered=frozenset(track_ids[len(returned) :]),
+        )
 
     async def _get_tracks_batch_impl(self, track_ids: list[str]) -> JsonDict | None:
         """Pure implementation without retry logic."""

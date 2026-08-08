@@ -36,7 +36,10 @@ from src.domain.entities import (
 from src.domain.entities.shared import JsonValue
 from src.domain.playlist import PlaylistOperation, PlaylistOpsOutcome
 from src.domain.repositories.track import TrackRepositoryProtocol
-from src.infrastructure.connectors.spotify.client import SpotifyAPIClient
+from src.infrastructure.connectors.spotify.client import (
+    SpotifyAPIClient,
+    SpotifyTracksFetch,
+)
 from src.infrastructure.connectors.spotify.conversions import (
     convert_spotify_playlist_to_connector,
     convert_spotify_track_to_connector,
@@ -45,7 +48,7 @@ from src.infrastructure.connectors.spotify.conversions import (
     parse_spotify_timestamp,
     validate_non_empty,
 )
-from src.infrastructure.connectors.spotify.models import SpotifyPlaylist, SpotifyTrack
+from src.infrastructure.connectors.spotify.models import SpotifyPlaylist
 from src.infrastructure.connectors.spotify.playlist_sync_operations import (
     SpotifyPlaylistSyncOperations,
 )
@@ -110,29 +113,32 @@ class SpotifyOperations:
         self,
         track_ids: list[str],
         progress_callback: Callable[[int, int, str], Awaitable[None]] | None = None,
-    ) -> dict[str, SpotifyTrack]:
+    ) -> SpotifyTracksFetch:
         """Fetch multiple tracks from Spotify using the batch /tracks endpoint.
 
-        Returns dict keyed by REQUESTED ID. When Spotify redirects an old ID
-        to a new one (track.id != requested_id), the result is still keyed by
-        the requested ID so callers can find their results. IDs missing from
-        the dict are dead.
+        ``tracks`` is keyed by REQUESTED ID. When Spotify redirects an old ID
+        to a new one (track.id != requested_id), the entry is still keyed by
+        the requested ID so callers can find their results. An id that is
+        neither in ``tracks`` nor in ``unanswered`` is dead; see
+        :class:`SpotifyTracksFetch` for why the two are never merged.
 
         progress_callback is forwarded to ``client.get_tracks_batched`` and
         invoked once per completed batch, counted in tracks.
         """
-        empty_result: dict[str, SpotifyTrack] = {}
-        if early_return := validate_non_empty(track_ids, empty_result):
+        if early_return := validate_non_empty(track_ids, SpotifyTracksFetch()):
             return early_return
 
         logger.info(f"Fetching {len(track_ids)} tracks in batches")
 
-        results = await self.client.get_tracks_batched(
+        fetch = await self.client.get_tracks_batched(
             track_ids, progress_callback=progress_callback
         )
 
-        logger.info(f"Retrieved {len(results)}/{len(track_ids)} tracks")
-        return results
+        logger.info(
+            f"Retrieved {len(fetch.tracks)}/{len(track_ids)} tracks "
+            f"({len(fetch.unanswered)} unanswered)"
+        )
+        return fetch
 
     async def batch_get_track_info(
         self, tracks: list[Track], **_options: object
@@ -150,7 +156,7 @@ class SpotifyOperations:
 
         # Use existing bulk method
         spotify_ids = [sid for _, sid in spotify_mapped if sid is not None]
-        spotify_data = await self.get_tracks_by_ids(spotify_ids)
+        spotify_data = (await self.get_tracks_by_ids(spotify_ids)).tracks
 
         # Map back to track.id format expected by enricher (protocol requires dict)
         return {

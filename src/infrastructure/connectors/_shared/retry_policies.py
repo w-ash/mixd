@@ -183,14 +183,24 @@ def create_error_classifier_retry(classifier: ErrorClassifier):
 DEFAULT_RATE_LIMIT_PAUSE_SECONDS: Final = 2.0
 
 
-def _rate_limit_pause_seconds(retry_state: RetryCallState) -> float:
-    """How long the whole service should stand down after a rate-limit error."""
+def _rate_limit_pause_seconds(retry_state: RetryCallState, cap: float) -> float:
+    """How long the whole service should stand down after a rate-limit error.
+
+    Bounded by ``cap`` for the same reason :class:`RetryAfterWait` bounds its
+    sleep, and harder: ``Retry-After`` is server-supplied and may be hostile or
+    simply wrong, and this value brakes the service's *process-global* limiter
+    rather than one call. ``Retry-After: 999999`` is finite, so it clears the
+    parse guard in :func:`_retry_after_seconds` and would otherwise freeze every
+    caller of the service for ~11.5 days on the strength of one header.
+    """
     retry_after = _retry_after_seconds(retry_state)
-    return DEFAULT_RATE_LIMIT_PAUSE_SECONDS if retry_after is None else retry_after
+    if retry_after is None:
+        return DEFAULT_RATE_LIMIT_PAUSE_SECONDS
+    return min(retry_after, cap)
 
 
 def create_tenacity_backoff_handler(
-    classifier: ErrorClassifier, service_name: str
+    classifier: ErrorClassifier, service_name: str, pause_cap_seconds: float
 ) -> Callable[[RetryCallState], None]:
     """Create tenacity before_sleep callback with error classification.
 
@@ -202,13 +212,17 @@ def create_tenacity_backoff_handler(
     Args:
         classifier: Service-specific error classifier
         service_name: Name of service for logging (e.g., "spotify", "lastfm")
+        pause_cap_seconds: Upper bound on a ``Retry-After``-driven limiter
+            pause. Supplied by :meth:`RetryPolicyFactory.create_policy` from
+            ``RetryConfig.wait_max``, the same value that caps
+            :class:`RetryAfterWait` — one bound per service, not two.
 
     Returns:
         Callback function for tenacity's before_sleep parameter
 
     Example:
         >>> classifier = SpotifyErrorClassifier()
-        >>> handler = create_tenacity_backoff_handler(classifier, "spotify")
+        >>> handler = create_tenacity_backoff_handler(classifier, "spotify", 60.0)
         >>> policy = AsyncRetrying(before_sleep=handler, ...)
     """
 
@@ -226,7 +240,7 @@ def create_tenacity_backoff_handler(
 
         # Special handling for rate limit errors
         if error_type == "rate_limit":
-            pause_seconds = _rate_limit_pause_seconds(retry_state)
+            pause_seconds = _rate_limit_pause_seconds(retry_state, pause_cap_seconds)
             limiter = get_connector_rate_limiter(service_name)
             if limiter is not None:
                 limiter.pause_for(pause_seconds)
@@ -359,7 +373,10 @@ class RetryConfig:
             Source: ``settings.api.<service>_retry_count``.
         wait_multiplier: Exponential backoff base multiplier in seconds.
             Source: ``settings.api.<service>_retry_base_delay``.
-        wait_max: Maximum wait between retries in seconds.
+        wait_max: Maximum wait between retries in seconds. Doubles as the single
+            bound on server-declared rate-limit windows — it caps both
+            :class:`RetryAfterWait`'s sleep and the limiter pause the backoff
+            handler applies, so a hostile ``Retry-After`` has one ceiling.
             Source: ``settings.api.<service>_retry_max_delay``.
         max_delay: Optional time-based stop in seconds (``None`` = no limit).
             Source: ``settings.api.<service>_retry_max_delay`` when a hard
@@ -445,7 +462,7 @@ class RetryPolicyFactory:
             ),
             retry=retry_predicate,
             before_sleep=create_tenacity_backoff_handler(
-                config.classifier, config.service_name
+                config.classifier, config.service_name, config.wait_max
             ),
             after=create_tenacity_giveup_handler(
                 config.classifier, config.service_name

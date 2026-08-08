@@ -29,7 +29,10 @@ from src.infrastructure.connectors.base import (
     register_metrics,
 )
 from src.infrastructure.connectors.protocols import ConnectorConfig
-from src.infrastructure.connectors.spotify.client import SpotifyAPIClient
+from src.infrastructure.connectors.spotify.client import (
+    SpotifyAPIClient,
+    SpotifyTracksFetch,
+)
 from src.infrastructure.connectors.spotify.error_classifier import (
     SpotifyErrorClassifier,
 )
@@ -123,9 +126,11 @@ class SpotifyConnector(BaseAPIConnector):
 
         # Get spotify IDs and call existing bulk method
         spotify_ids = [sid for _, sid in spotify_mapped if sid is not None]
-        raw_metadata = await self._operations.get_tracks_by_ids(
-            spotify_ids, progress_callback=progress_callback
-        )
+        raw_metadata = (
+            await self._operations.get_tracks_by_ids(
+                spotify_ids, progress_callback=progress_callback
+            )
+        ).tracks
 
         # Map back to track.id format expected by the protocol
         return {
@@ -134,8 +139,12 @@ class SpotifyConnector(BaseAPIConnector):
             if spotify_id in raw_metadata
         }
 
-    async def get_tracks_by_ids(self, track_ids: list[str]) -> dict[str, SpotifyTrack]:
-        """Fetch multiple tracks from Spotify in bulk."""
+    async def get_tracks_by_ids(self, track_ids: list[str]) -> SpotifyTracksFetch:
+        """Fetch multiple tracks from Spotify in bulk.
+
+        Answered tracks and the ids whose request never landed come back
+        separately — see :class:`SpotifyTracksFetch`.
+        """
         return await self._operations.get_tracks_by_ids(track_ids)
 
     async def search_by_isrc(self, isrc: str) -> SpotifyTrack | None:

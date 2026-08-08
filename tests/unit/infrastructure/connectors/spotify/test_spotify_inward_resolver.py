@@ -5,12 +5,14 @@ detects redirects (where Spotify returns a different .id), creates dual mappings
 and delegates bulk lookup to the base class.
 """
 
+import itertools
 from unittest.mock import AsyncMock, MagicMock, call, patch
 
 from src.config import settings
 from src.config.constants import MatchMethod, SpotifyConstants
 from src.domain.repositories.connector import ConnectorMappingSpec
 from src.infrastructure.connectors.spotify.client import (
+    SpotifyTracksFetch,
     field_filtered_search_query,
     free_text_search_query,
 )
@@ -68,11 +70,7 @@ def _mapping_specs(connector_repo) -> list[ConnectorMappingSpec]:
 def _promoted_ids(connector_repo) -> list[str]:
     """The connector ids the chunk-bulk persist asked to hold primacy."""
     return [
-        connector_id
-        for c in connector_repo.map_tracks_to_connectors.call_args_list
-        for _track_id, _connector, connector_id in c.kwargs.get(
-            "promote_to_primary", ()
-        )
+        spec.connector_id for spec in _mapping_specs(connector_repo) if spec.primary
     ]
 
 
@@ -81,10 +79,12 @@ class TestBatchFetch:
 
     async def test_calls_get_tracks_by_ids_once(self):
         connector = AsyncMock()
-        connector.get_tracks_by_ids.return_value = {
-            "id1": make_spotify_track("id1", "Song A"),
-            "id2": make_spotify_track("id2", "Song B"),
-        }
+        connector.get_tracks_by_ids.return_value = SpotifyTracksFetch(
+            tracks={
+                "id1": make_spotify_track("id1", "Song A"),
+                "id2": make_spotify_track("id2", "Song B"),
+            }
+        )
 
         resolver = SpotifyInwardResolver(spotify_connector=connector)
 
@@ -130,10 +130,12 @@ class TestMissingMetadata:
 
     async def test_missing_api_response_counted_as_failed(self):
         connector = AsyncMock()
-        connector.get_tracks_by_ids.return_value = {
-            "id1": make_spotify_track("id1"),
-            # id2 intentionally missing from API response
-        }
+        connector.get_tracks_by_ids.return_value = SpotifyTracksFetch(
+            tracks={
+                "id1": make_spotify_track("id1"),
+                # id2 intentionally missing from API response
+            }
+        )
 
         resolver = SpotifyInwardResolver(spotify_connector=connector)
 
@@ -172,9 +174,11 @@ class TestRedirectDetection:
 
         connector = AsyncMock()
         # Spotify returns a track with new_id when we ask for old_id
-        connector.get_tracks_by_ids.return_value = {
-            old_id: make_spotify_track(new_id, "Redirected Song"),
-        }
+        connector.get_tracks_by_ids.return_value = SpotifyTracksFetch(
+            tracks={
+                old_id: make_spotify_track(new_id, "Redirected Song"),
+            }
+        )
 
         resolver = SpotifyInwardResolver(spotify_connector=connector)
 
@@ -211,9 +215,11 @@ class TestRedirectDetection:
         new_id = "new_canonical_id_000000"
 
         connector = AsyncMock()
-        connector.get_tracks_by_ids.return_value = {
-            old_id: make_spotify_track(new_id, "Song"),
-        }
+        connector.get_tracks_by_ids.return_value = SpotifyTracksFetch(
+            tracks={
+                old_id: make_spotify_track(new_id, "Song"),
+            }
+        )
 
         resolver = SpotifyInwardResolver(spotify_connector=connector)
 
@@ -228,9 +234,11 @@ class TestRedirectDetection:
         track_id = "same_id_returned_00000"
 
         connector = AsyncMock()
-        connector.get_tracks_by_ids.return_value = {
-            track_id: make_spotify_track(track_id, "Normal Song"),
-        }
+        connector.get_tracks_by_ids.return_value = SpotifyTracksFetch(
+            tracks={
+                track_id: make_spotify_track(track_id, "Normal Song"),
+            }
+        )
 
         resolver = SpotifyInwardResolver(spotify_connector=connector)
 
@@ -255,7 +263,7 @@ class TestFallbackSearch:
 
         connector = AsyncMock()
         # Batch fetch returns nothing for dead_id
-        connector.get_tracks_by_ids.return_value = {}
+        connector.get_tracks_by_ids.return_value = SpotifyTracksFetch()
         # Search returns a candidate
         connector.search_track.return_value = [
             make_spotify_track(found_id, "My Song"),
@@ -290,7 +298,7 @@ class TestFallbackSearch:
         dead_id = "dead_id_000000000000000"
 
         connector = AsyncMock()
-        connector.get_tracks_by_ids.return_value = {}
+        connector.get_tracks_by_ids.return_value = SpotifyTracksFetch()
         connector.search_track.return_value = []
 
         resolver = SpotifyInwardResolver(spotify_connector=connector)
@@ -312,7 +320,7 @@ class TestFallbackSearch:
         dead_id = "dead_id_000000000000000"
 
         connector = AsyncMock()
-        connector.get_tracks_by_ids.return_value = {}
+        connector.get_tracks_by_ids.return_value = SpotifyTracksFetch()
         # Return a candidate with a very different name
         connector.search_track.return_value = [
             make_spotify_track("other_id_00000000000000", "Completely Different Title"),
@@ -336,7 +344,7 @@ class TestFallbackSearch:
         dead_id = "dead_id_000000000000000"
 
         connector = AsyncMock()
-        connector.get_tracks_by_ids.return_value = {}
+        connector.get_tracks_by_ids.return_value = SpotifyTracksFetch()
         connector.search_track.side_effect = RuntimeError("API down")
 
         resolver = SpotifyInwardResolver(spotify_connector=connector)
@@ -356,7 +364,7 @@ class TestFallbackSearch:
     async def test_no_hints_leaves_dead_id_unresolved(self):
         """Dead IDs without hints should remain as failures (no search attempted)."""
         connector = AsyncMock()
-        connector.get_tracks_by_ids.return_value = {}  # All dead
+        connector.get_tracks_by_ids.return_value = SpotifyTracksFetch()  # All dead
 
         resolver = SpotifyInwardResolver(spotify_connector=connector)
         uow, _, _ = _make_uow_with_repos()
@@ -376,7 +384,7 @@ class TestFallbackSearch:
     async def test_isrc_dedup_reuses_existing_track(self):
         """Search results whose ISRC already exists should upsert, not duplicate."""
         connector = AsyncMock()
-        connector.get_tracks_by_ids.return_value = {}
+        connector.get_tracks_by_ids.return_value = SpotifyTracksFetch()
         connector.search_track.return_value = [
             make_spotify_track("new_id", "Song", "Artist", isrc="USRC12345678")
         ]
@@ -405,9 +413,11 @@ class TestFallbackSearch:
     async def test_fallback_resolved_ids_populated(self):
         """fallback_resolved_ids should contain only IDs resolved via search."""
         connector = AsyncMock()
-        connector.get_tracks_by_ids.return_value = {
-            "id1": make_spotify_track("id1"),
-        }
+        connector.get_tracks_by_ids.return_value = SpotifyTracksFetch(
+            tracks={
+                "id1": make_spotify_track("id1"),
+            }
+        )
         connector.search_track.return_value = [make_spotify_track("new_id2", "Song B")]
 
         resolver = SpotifyInwardResolver(spotify_connector=connector)
@@ -441,9 +451,11 @@ class TestRedirectAndFallbackMetrics:
 
         connector = AsyncMock()
         # old_id redirects to new_id; dead_id is absent (resolved via fallback search)
-        connector.get_tracks_by_ids.return_value = {
-            old_id: make_spotify_track(new_id, "Redirected Song"),
-        }
+        connector.get_tracks_by_ids.return_value = SpotifyTracksFetch(
+            tracks={
+                old_id: make_spotify_track(new_id, "Redirected Song"),
+            }
+        )
         connector.search_track.return_value = [
             make_spotify_track(found_id, "My Song"),
         ]
@@ -472,9 +484,11 @@ class TestRedirectAndFallbackMetrics:
         track_id = "same_id_returned_00000"
 
         connector = AsyncMock()
-        connector.get_tracks_by_ids.return_value = {
-            track_id: make_spotify_track(track_id, "Normal Song"),
-        }
+        connector.get_tracks_by_ids.return_value = SpotifyTracksFetch(
+            tracks={
+                track_id: make_spotify_track(track_id, "Normal Song"),
+            }
+        )
 
         resolver = SpotifyInwardResolver(spotify_connector=connector)
         uow, _, _ = _make_uow_with_repos()
@@ -496,7 +510,7 @@ class TestCanonicalReuse:
 
         connector = AsyncMock()
         # Batch fetch returns nothing — all IDs are "missing"
-        connector.get_tracks_by_ids.return_value = {}
+        connector.get_tracks_by_ids.return_value = SpotifyTracksFetch()
 
         resolver = SpotifyInwardResolver(spotify_connector=connector)
         uow, track_repo, connector_repo = _make_uow_with_repos()
@@ -530,7 +544,7 @@ class TestCanonicalReuse:
     async def test_no_reuse_without_hints(self):
         """Without fallback hints, canonical reuse should not find any candidates."""
         connector = AsyncMock()
-        connector.get_tracks_by_ids.return_value = {}
+        connector.get_tracks_by_ids.return_value = SpotifyTracksFetch()
 
         resolver = SpotifyInwardResolver(spotify_connector=connector)
         uow, track_repo, connector_repo = _make_uow_with_repos()
@@ -552,7 +566,7 @@ class TestCanonicalReuse:
         existing_track = make_track(42, title="Completely Different", artist="Artist")
 
         connector = AsyncMock()
-        connector.get_tracks_by_ids.return_value = {}
+        connector.get_tracks_by_ids.return_value = SpotifyTracksFetch()
 
         resolver = SpotifyInwardResolver(spotify_connector=connector)
         uow, track_repo, connector_repo = _make_uow_with_repos()
@@ -581,9 +595,11 @@ class TestCanonicalReuse:
 
         connector = AsyncMock()
         # id2 found by API, id1 not found (will try canonical reuse)
-        connector.get_tracks_by_ids.return_value = {
-            "id2": make_spotify_track("id2", "New Song", "Artist B"),
-        }
+        connector.get_tracks_by_ids.return_value = SpotifyTracksFetch(
+            tracks={
+                "id2": make_spotify_track("id2", "New Song", "Artist B"),
+            }
+        )
 
         resolver = SpotifyInwardResolver(spotify_connector=connector)
         uow, track_repo, connector_repo = _make_uow_with_repos()
@@ -641,14 +657,16 @@ class TestISRCDedup:
         spotify_id = "new_spotify_id_0000000"
 
         connector = AsyncMock()
-        connector.get_tracks_by_ids.return_value = {
-            spotify_id: make_spotify_track(
-                spotify_id,
-                "Same Song",
-                "Same Artist",
-                external_ids=SpotifyExternalIds(isrc="USRC17000001"),
-            ),
-        }
+        connector.get_tracks_by_ids.return_value = SpotifyTracksFetch(
+            tracks={
+                spotify_id: make_spotify_track(
+                    spotify_id,
+                    "Same Song",
+                    "Same Artist",
+                    external_ids=SpotifyExternalIds(isrc="USRC17000001"),
+                ),
+            }
+        )
 
         resolver = SpotifyInwardResolver(spotify_connector=connector)
         uow, track_repo, connector_repo = _make_uow_with_repos()
@@ -676,14 +694,16 @@ class TestISRCDedup:
         spotify_id = "new_spotify_id_0000000"
 
         connector = AsyncMock()
-        connector.get_tracks_by_ids.return_value = {
-            spotify_id: make_spotify_track(
-                spotify_id,
-                "New Song",
-                "New Artist",
-                external_ids=SpotifyExternalIds(isrc="USRC17000002"),
-            ),
-        }
+        connector.get_tracks_by_ids.return_value = SpotifyTracksFetch(
+            tracks={
+                spotify_id: make_spotify_track(
+                    spotify_id,
+                    "New Song",
+                    "New Artist",
+                    external_ids=SpotifyExternalIds(isrc="USRC17000002"),
+                ),
+            }
+        )
 
         resolver = SpotifyInwardResolver(spotify_connector=connector)
         uow, track_repo, connector_repo = _make_uow_with_repos()
@@ -705,9 +725,11 @@ class TestISRCDedup:
         spotify_id = "no_isrc_id_0000000000"
 
         connector = AsyncMock()
-        connector.get_tracks_by_ids.return_value = {
-            spotify_id: make_spotify_track(spotify_id, "No ISRC Song"),
-        }
+        connector.get_tracks_by_ids.return_value = SpotifyTracksFetch(
+            tracks={
+                spotify_id: make_spotify_track(spotify_id, "No ISRC Song"),
+            }
+        )
 
         resolver = SpotifyInwardResolver(spotify_connector=connector)
         uow, track_repo, connector_repo = _make_uow_with_repos()
@@ -742,15 +764,17 @@ class TestISRCSuspectGuard:
         spotify_id = "suspect_spotify_id_000"
 
         connector = AsyncMock()
-        connector.get_tracks_by_ids.return_value = {
-            spotify_id: make_spotify_track(
-                spotify_id,
-                "Same Song",
-                "Same Artist",
-                duration_ms=260_000,  # 60s off existing_track -> suspect
-                external_ids=SpotifyExternalIds(isrc="USRC17000001"),
-            ),
-        }
+        connector.get_tracks_by_ids.return_value = SpotifyTracksFetch(
+            tracks={
+                spotify_id: make_spotify_track(
+                    spotify_id,
+                    "Same Song",
+                    "Same Artist",
+                    duration_ms=260_000,  # 60s off existing_track -> suspect
+                    external_ids=SpotifyExternalIds(isrc="USRC17000001"),
+                ),
+            }
+        )
 
         resolver = SpotifyInwardResolver(spotify_connector=connector)
         uow, track_repo, connector_repo = _make_uow_with_repos()
@@ -802,15 +826,17 @@ class TestISRCSuspectGuard:
         spotify_id = "non_suspect_spotify_id"
 
         connector = AsyncMock()
-        connector.get_tracks_by_ids.return_value = {
-            spotify_id: make_spotify_track(
-                spotify_id,
-                "Same Song",
-                "Same Artist",
-                duration_ms=205_000,  # 5s off — under the 10s suspect threshold
-                external_ids=SpotifyExternalIds(isrc="USRC17000003"),
-            ),
-        }
+        connector.get_tracks_by_ids.return_value = SpotifyTracksFetch(
+            tracks={
+                spotify_id: make_spotify_track(
+                    spotify_id,
+                    "Same Song",
+                    "Same Artist",
+                    duration_ms=205_000,  # 5s off — under the 10s suspect threshold
+                    external_ids=SpotifyExternalIds(isrc="USRC17000003"),
+                ),
+            }
+        )
 
         resolver = SpotifyInwardResolver(spotify_connector=connector)
         uow, track_repo, connector_repo = _make_uow_with_repos()
@@ -844,9 +870,11 @@ class TestFallbackDoesNotClearItsOwnBackoff:
         found_id = "found_id_00000000000000"
 
         connector = AsyncMock()
-        connector.get_tracks_by_ids.return_value = {
-            live_id: make_spotify_track(live_id, "Present Song"),
-        }
+        connector.get_tracks_by_ids.return_value = SpotifyTracksFetch(
+            tracks={
+                live_id: make_spotify_track(live_id, "Present Song"),
+            }
+        )
         connector.search_track.return_value = [make_spotify_track(found_id, "My Song")]
 
         resolver = SpotifyInwardResolver(spotify_connector=connector)
@@ -869,7 +897,7 @@ class TestFallbackDoesNotClearItsOwnBackoff:
         found_id = "found_id_00000000000000"
 
         connector = AsyncMock()
-        connector.get_tracks_by_ids.return_value = {}
+        connector.get_tracks_by_ids.return_value = SpotifyTracksFetch()
         connector.search_track.return_value = [make_spotify_track(found_id, "My Song")]
 
         resolver = SpotifyInwardResolver(spotify_connector=connector)
@@ -885,60 +913,32 @@ class TestFallbackDoesNotClearItsOwnBackoff:
 
 
 def _written_mappings(connector_repo) -> set[tuple[str, str, int, bool]]:
-    """Every mapping written, however it was written.
+    """Every mapping written, with the primacy each one claimed.
 
-    Normalises the chunk-bulk shape (one ``map_tracks_to_connectors`` call
-    carrying specs plus a ``promote_to_primary`` list) and the per-item shape
-    (one ``map_track_to_connector`` call each, carrying ``auto_set_primary``)
-    to the same tuples, so the two paths can be compared directly.
+    One seam, because there is one write path: the isolating retry re-enters
+    ``map_tracks_to_connectors`` with a one-element chunk.
     """
-    written: set[tuple[str, str, int, bool]] = set()
-    for c in connector_repo.map_tracks_to_connectors.call_args_list:
-        promoted = {
-            connector_id
-            for _track_id, _connector, connector_id in c.kwargs.get(
-                "promote_to_primary", ()
-            )
-        }
-        written.update(
-            (
-                spec.connector_id,
-                spec.match_method,
-                spec.confidence,
-                spec.connector_id in promoted,
-            )
-            for spec in c.args[0]
-        )
-    written.update(
-        (
-            c.args[2],
-            c.args[3],
-            c.kwargs["confidence"],
-            c.kwargs.get("auto_set_primary", True),
-        )
-        for c in connector_repo.map_track_to_connector.call_args_list
-    )
-    return written
+    return {
+        (spec.connector_id, spec.match_method, spec.confidence, spec.primary)
+        for spec in _mapping_specs(connector_repo)
+    }
 
 
 def _poison_one_id(connector_repo, bad_id: str) -> None:
-    """Make the chunk-bulk persist fail, and the per-item retry fail for one id.
+    """Refuse any batch containing one id — the shape a poisoned row produces.
 
-    The shape a real poisoned row produces: the bulk statements are
-    all-or-nothing, so a row the database refuses takes the whole batch with
-    it and the chunk is rewritten one savepoint at a time — where only the bad
-    id is lost and every other write lands.
+    The bulk statements are all-or-nothing, so a row the database refuses
+    takes the whole chunk with it; the chunk is then rewritten one savepoint
+    at a time, where the one-element batch carrying the bad id fails alone and
+    every other write lands.
     """
-    connector_repo.map_tracks_to_connectors.side_effect = RuntimeError(
-        "deadlock detected"
-    )
 
-    async def _map_one(track, _connector, connector_id, *_args, **_kwargs):
-        if connector_id == bad_id:
+    async def _map_specs(specs, **_kwargs):
+        if any(spec.connector_id == bad_id for spec in specs):
             raise RuntimeError("deadlock detected")
-        return track
+        return [spec.track for spec in specs]
 
-    connector_repo.map_track_to_connector.side_effect = _map_one
+    connector_repo.map_tracks_to_connectors.side_effect = _map_specs
 
 
 class TestWriteFailureIsolation:
@@ -953,10 +953,12 @@ class TestWriteFailureIsolation:
 
     async def test_one_failed_id_does_not_stop_the_batch(self):
         connector = AsyncMock()
-        connector.get_tracks_by_ids.return_value = {
-            "bad_id": make_spotify_track("bad_id", "Song A"),
-            "good_id": make_spotify_track("good_id", "Song B"),
-        }
+        connector.get_tracks_by_ids.return_value = SpotifyTracksFetch(
+            tracks={
+                "bad_id": make_spotify_track("bad_id", "Song A"),
+                "good_id": make_spotify_track("good_id", "Song B"),
+            }
+        )
 
         resolver = SpotifyInwardResolver(spotify_connector=connector)
         uow, _, connector_repo = _make_uow_with_repos()
@@ -977,9 +979,11 @@ class TestWriteFailureIsolation:
     async def test_a_failed_write_is_never_substituted_by_search(self):
         """A live id whose write failed must not be answered with another track."""
         connector = AsyncMock()
-        connector.get_tracks_by_ids.return_value = {
-            "bad_id": make_spotify_track("bad_id", "My Song"),
-        }
+        connector.get_tracks_by_ids.return_value = SpotifyTracksFetch(
+            tracks={
+                "bad_id": make_spotify_track("bad_id", "My Song"),
+            }
+        )
         connector.search_track.return_value = [
             make_spotify_track("other_id", "My Song"),
         ]
@@ -1001,9 +1005,11 @@ class TestWriteFailureIsolation:
     async def test_a_failed_write_is_not_counted_absent(self):
         """The id is in the API response, so no backoff clock starts for it."""
         connector = AsyncMock()
-        connector.get_tracks_by_ids.return_value = {
-            "bad_id": make_spotify_track("bad_id", "My Song"),
-        }
+        connector.get_tracks_by_ids.return_value = SpotifyTracksFetch(
+            tracks={
+                "bad_id": make_spotify_track("bad_id", "My Song"),
+            }
+        )
 
         resolver = SpotifyInwardResolver(spotify_connector=connector)
         uow, _, connector_repo = _make_uow_with_repos()
@@ -1025,9 +1031,11 @@ class TestWriteFailureIsolation:
         the entry has to go with the rows.
         """
         connector = AsyncMock()
-        connector.get_tracks_by_ids.return_value = {
-            "bad_id": make_spotify_track("new_id", "Redirected Song"),
-        }
+        connector.get_tracks_by_ids.return_value = SpotifyTracksFetch(
+            tracks={
+                "bad_id": make_spotify_track("new_id", "Redirected Song"),
+            }
+        )
 
         resolver = SpotifyInwardResolver(spotify_connector=connector)
         uow, _, _ = _make_uow_with_repos()
@@ -1047,14 +1055,16 @@ class TestWriteFailureIsolation:
         """The deferral set is written before the canonical — and rolled back with it."""
         owner = make_track(42, isrc="USRC17000001", duration_ms=200_000)
         connector = AsyncMock()
-        connector.get_tracks_by_ids.return_value = {
-            "bad_id": make_spotify_track(
-                "bad_id",
-                "Same Song",
-                duration_ms=260_000,
-                external_ids=SpotifyExternalIds(isrc="USRC17000001"),
-            ),
-        }
+        connector.get_tracks_by_ids.return_value = SpotifyTracksFetch(
+            tracks={
+                "bad_id": make_spotify_track(
+                    "bad_id",
+                    "Same Song",
+                    duration_ms=260_000,
+                    external_ids=SpotifyExternalIds(isrc="USRC17000001"),
+                ),
+            }
+        )
 
         resolver = SpotifyInwardResolver(spotify_connector=connector)
         uow, track_repo, connector_repo = _make_uow_with_repos()
@@ -1092,7 +1102,7 @@ class TestFallbackSaveFailureIsolation:
         found = make_track(7)
 
         connector = AsyncMock()
-        connector.get_tracks_by_ids.return_value = {}
+        connector.get_tracks_by_ids.return_value = SpotifyTracksFetch()
         connector.search_track.return_value = [
             make_spotify_track("found_id_00000000000000", "My Song"),
         ]
@@ -1116,6 +1126,106 @@ class TestFallbackSaveFailureIsolation:
         assert metrics.failed == 1
         # One savepoint for the failed bulk attempt, then one per id.
         assert uow.savepoint.call_count == 3
+
+
+class TestUnansweredIsNotDeath:
+    """A chunk request that never landed says nothing about its ~50 ids.
+
+    Absence from the response used to mean one thing — dead — so a single
+    post-retry 5xx wrote a no-match backoff clock for every id in the failed
+    chunk and, for the hinted ones, cached a search-picked stand-in as their
+    durable SEARCH_FALLBACK primary. The provider had not answered at all.
+    """
+
+    UNANSWERED = "unanswered_id_00000000"
+    DEAD = "dead_id_0000000000000"
+
+    async def test_an_unanswered_id_starts_no_backoff_clock(self):
+        connector = AsyncMock()
+        connector.get_tracks_by_ids.return_value = SpotifyTracksFetch(
+            unanswered=frozenset({self.UNANSWERED})
+        )
+
+        resolver = SpotifyInwardResolver(spotify_connector=connector)
+        uow, _, _ = _make_uow_with_repos()
+        recorder = attach_resolution_recorder(uow)
+
+        _ = await resolver.resolve_to_canonical_tracks(
+            [self.UNANSWERED], uow, user_id="test-user"
+        )
+
+        recorder.remember_no_match.assert_not_awaited()
+
+    async def test_an_unanswered_id_is_never_searched_for_a_stand_in(self):
+        connector = AsyncMock()
+        connector.get_tracks_by_ids.return_value = SpotifyTracksFetch(
+            unanswered=frozenset({self.UNANSWERED})
+        )
+
+        resolver = SpotifyInwardResolver(spotify_connector=connector)
+        uow, _, _ = _make_uow_with_repos()
+
+        hints = {
+            self.UNANSWERED: FallbackHint(artist_name="Artist", track_name="My Song")
+        }
+        result, metrics = await resolver.resolve_to_canonical_tracks(
+            [self.UNANSWERED], uow, fallback_hints=hints, user_id="test-user"
+        )
+
+        connector.search_track.assert_not_called()
+        assert result == {}
+        assert resolver.fallback_resolved_ids == set()
+        assert metrics.failed == 1
+        assert metrics.fallbacks == 0
+
+    async def test_a_null_in_a_200_still_reads_as_dead(self):
+        """The distinction cuts one way only — answered-with-null is still dead."""
+        connector = AsyncMock()
+        connector.get_tracks_by_ids.return_value = SpotifyTracksFetch()
+        connector.search_track.return_value = [
+            make_spotify_track("found_id_00000000000000", "My Song")
+        ]
+
+        resolver = SpotifyInwardResolver(spotify_connector=connector)
+        uow, _, _ = _make_uow_with_repos()
+        recorder = attach_resolution_recorder(uow)
+
+        hints = {self.DEAD: FallbackHint(artist_name="Artist", track_name="My Song")}
+        _ = await resolver.resolve_to_canonical_tracks(
+            [self.DEAD], uow, fallback_hints=hints, user_id="test-user"
+        )
+
+        recorder.remember_no_match.assert_awaited_once()
+        assert [
+            side.identifier for side in recorder.remember_no_match.await_args.args[0]
+        ] == [self.DEAD]
+        assert resolver.fallback_resolved_ids == {self.DEAD}
+
+    async def test_a_failed_chunk_does_not_contaminate_the_answered_ones(self):
+        """Answered, dead and unanswered ids in one pass stay independent."""
+        live_id = "live_id_00000000000000"
+        connector = AsyncMock()
+        connector.get_tracks_by_ids.return_value = SpotifyTracksFetch(
+            tracks={live_id: make_spotify_track(live_id, "Song A")},
+            unanswered=frozenset({self.UNANSWERED}),
+        )
+
+        resolver = SpotifyInwardResolver(spotify_connector=connector)
+        uow, _, _ = _make_uow_with_repos()
+        recorder = attach_resolution_recorder(uow)
+
+        result, metrics = await resolver.resolve_to_canonical_tracks(
+            [live_id, self.DEAD, self.UNANSWERED], uow, user_id="test-user"
+        )
+
+        assert set(result) == {live_id}
+        assert metrics.created == 1
+        # The unanswered id and the dead one both went unresolved…
+        assert metrics.failed == 2
+        # …but only the dead one earned a backoff clock.
+        assert [
+            side.identifier for side in recorder.remember_no_match.await_args.args[0]
+        ] == [self.DEAD]
 
 
 class TestRestrictionIsNotDeath:
@@ -1237,9 +1347,11 @@ class TestSearchIsStrictlyAFallback:
         alive_id = "alive_id_00000000000000"
 
         connector = AsyncMock()
-        connector.get_tracks_by_ids.return_value = {
-            alive_id: make_spotify_track(alive_id, "My Song"),
-        }
+        connector.get_tracks_by_ids.return_value = SpotifyTracksFetch(
+            tracks={
+                alive_id: make_spotify_track(alive_id, "My Song"),
+            }
+        )
 
         resolver = SpotifyInwardResolver(spotify_connector=connector)
         uow, _, _ = _make_uow_with_repos()
@@ -1259,14 +1371,16 @@ class TestSearchIsStrictlyAFallback:
         restricted_id = "restricted_id_00000000"
 
         connector = AsyncMock()
-        connector.get_tracks_by_ids.return_value = {
-            restricted_id: make_spotify_track(
-                restricted_id,
-                "My Song",
-                is_playable=False,
-                restrictions=SpotifyRestrictions(reason="market"),
-            ),
-        }
+        connector.get_tracks_by_ids.return_value = SpotifyTracksFetch(
+            tracks={
+                restricted_id: make_spotify_track(
+                    restricted_id,
+                    "My Song",
+                    is_playable=False,
+                    restrictions=SpotifyRestrictions(reason="market"),
+                ),
+            }
+        )
 
         resolver = SpotifyInwardResolver(spotify_connector=connector)
         uow, _, _ = _make_uow_with_repos()
@@ -1288,15 +1402,17 @@ class TestSearchIsStrictlyAFallback:
         absent_id = "absent_id_0000000000000"
 
         connector = AsyncMock()
-        connector.get_tracks_by_ids.return_value = {
-            alive_id: make_spotify_track(alive_id, "Song A"),
-            restricted_id: make_spotify_track(
-                restricted_id,
-                "Song B",
-                is_playable=False,
-                restrictions=SpotifyRestrictions(reason="market"),
-            ),
-        }
+        connector.get_tracks_by_ids.return_value = SpotifyTracksFetch(
+            tracks={
+                alive_id: make_spotify_track(alive_id, "Song A"),
+                restricted_id: make_spotify_track(
+                    restricted_id,
+                    "Song B",
+                    is_playable=False,
+                    restrictions=SpotifyRestrictions(reason="market"),
+                ),
+            }
+        )
         connector.search_track.return_value = [
             make_spotify_track("found_id_00000000000000", "Song C"),
         ]
@@ -1335,7 +1451,7 @@ class TestDeadIdSearchWidening:
 
     async def test_free_text_pass_recovers_the_living_track(self):
         connector = AsyncMock()
-        connector.get_tracks_by_ids.return_value = {}
+        connector.get_tracks_by_ids.return_value = SpotifyTracksFetch()
         # Field-filtered pass finds nothing; free text finds the live recording.
         connector.search_track.side_effect = [
             [],
@@ -1368,7 +1484,7 @@ class TestDeadIdSearchWidening:
 
     async def test_both_queries_are_issued_in_their_documented_forms(self):
         connector = AsyncMock()
-        connector.get_tracks_by_ids.return_value = {}
+        connector.get_tracks_by_ids.return_value = SpotifyTracksFetch()
         connector.search_track.side_effect = [
             [],
             [make_spotify_track(self.LIVING_ID, self.TITLE, self.ARTIST)],
@@ -1428,7 +1544,7 @@ class TestFallbackRejectsTheWrongRecording:
 
     async def test_a_widened_wrong_artist_hit_is_not_accepted(self):
         connector = AsyncMock()
-        connector.get_tracks_by_ids.return_value = {}
+        connector.get_tracks_by_ids.return_value = SpotifyTracksFetch()
         connector.search_track.side_effect = [
             [],
             # Nine Inch Nails' 6:13 original — same title, different act.
@@ -1464,7 +1580,7 @@ class TestFallbackRejectsTheWrongRecording:
     async def test_a_widened_right_artist_hit_is_still_accepted(self):
         living_id = "living_hurt_id_00000000"
         connector = AsyncMock()
-        connector.get_tracks_by_ids.return_value = {}
+        connector.get_tracks_by_ids.return_value = SpotifyTracksFetch()
         connector.search_track.side_effect = [
             [],
             [make_spotify_track(living_id, "Hurt", self.ARTIST, duration_ms=216_000)],
@@ -1507,7 +1623,7 @@ class TestFallbackDurationVeto:
 
     async def _resolve(self, candidate_ms: int, estimate: int | None):
         connector = AsyncMock()
-        connector.get_tracks_by_ids.return_value = {}
+        connector.get_tracks_by_ids.return_value = SpotifyTracksFetch()
         connector.search_track.return_value = [
             make_spotify_track(
                 "found_id_00000000000000",
@@ -1571,7 +1687,7 @@ class TestUnresolvableFallbackTelemetry:
         dead_id = "dead_id_000000000000000"
 
         connector = AsyncMock()
-        connector.get_tracks_by_ids.return_value = {}
+        connector.get_tracks_by_ids.return_value = SpotifyTracksFetch()
         connector.search_track.return_value = []
 
         resolver = SpotifyInwardResolver(spotify_connector=connector)
@@ -1603,7 +1719,7 @@ class TestUnresolvableFallbackTelemetry:
         dead_id = "dead_id_000000000000000"
 
         connector = AsyncMock()
-        connector.get_tracks_by_ids.return_value = {}
+        connector.get_tracks_by_ids.return_value = SpotifyTracksFetch()
         connector.search_track.return_value = [
             make_spotify_track("found_id_00000000000000", "My Song"),
         ]
@@ -1630,9 +1746,11 @@ class TestSubstitutionRecordsTheMarketSent:
         new_id = "new_canonical_id_000000"
 
         connector = AsyncMock()
-        connector.get_tracks_by_ids.return_value = {
-            old_id: make_spotify_track(new_id, "Redirected Song"),
-        }
+        connector.get_tracks_by_ids.return_value = SpotifyTracksFetch(
+            tracks={
+                old_id: make_spotify_track(new_id, "Redirected Song"),
+            }
+        )
 
         resolver = SpotifyInwardResolver(spotify_connector=connector)
         uow, _, _ = _make_uow_with_repos()
@@ -1650,12 +1768,13 @@ class TestSubstitutionRecordsTheMarketSent:
 
 
 class TestBulkAndPerItemPathsAgree:
-    """Two implementations of one contract must write the same rows.
+    """Isolating a chunk must not change what it writes.
 
-    The chunk-bulk persist is the fast path; the per-item retry is what a
-    chunk degrades to when a poisoned row takes the batch down. A scenario
-    carrying every branch — a plain creation, a relink's dual mapping, an ISRC
-    reuse — is run through both and the outcomes compared.
+    The chunk-bulk persist is the fast path; when a poisoned row takes the
+    batch down the chunk is rewritten one savepoint at a time through the same
+    bulk call, one write per chunk. A scenario carrying every branch — a plain
+    creation, a relink's dual mapping, an ISRC reuse — is run both ways and the
+    outcomes compared.
     """
 
     PLAIN_ID = "plain_id_00000000000000"
@@ -1666,15 +1785,17 @@ class TestBulkAndPerItemPathsAgree:
 
     async def _run(self, *, force_per_item: bool):
         connector = AsyncMock()
-        connector.get_tracks_by_ids.return_value = {
-            self.PLAIN_ID: make_spotify_track(self.PLAIN_ID, "Plain Song"),
-            self.OLD_ID: make_spotify_track(self.NEW_ID, "Redirected Song"),
-            self.ISRC_ID: make_spotify_track(
-                self.ISRC_ID,
-                "Owned Song",
-                external_ids=SpotifyExternalIds(isrc=self.ISRC),
-            ),
-        }
+        connector.get_tracks_by_ids.return_value = SpotifyTracksFetch(
+            tracks={
+                self.PLAIN_ID: make_spotify_track(self.PLAIN_ID, "Plain Song"),
+                self.OLD_ID: make_spotify_track(self.NEW_ID, "Redirected Song"),
+                self.ISRC_ID: make_spotify_track(
+                    self.ISRC_ID,
+                    "Owned Song",
+                    external_ids=SpotifyExternalIds(isrc=self.ISRC),
+                ),
+            }
+        )
 
         resolver = SpotifyInwardResolver(spotify_connector=connector)
         uow, track_repo, connector_repo = _make_uow_with_repos()
@@ -1687,12 +1808,17 @@ class TestBulkAndPerItemPathsAgree:
         track_repo.save_track.side_effect = lambda track: saved[track.title]
 
         if force_per_item:
-            connector_repo.map_tracks_to_connectors.side_effect = RuntimeError(
-                "bulk statement refused"
-            )
-            connector_repo.map_track_to_connector.side_effect = (
-                lambda track, *_args, **_kwargs: track
-            )
+            # Only the chunk-wide attempt is refused; the one-element retries
+            # that follow it succeed, which is what a single poisoned
+            # statement looks like from here.
+            attempts = itertools.count()
+
+            async def _refuse_the_chunk(specs, **_kwargs):
+                if next(attempts) == 0:
+                    raise RuntimeError("bulk statement refused")
+                return [spec.track for spec in specs]
+
+            connector_repo.map_tracks_to_connectors.side_effect = _refuse_the_chunk
 
         result, metrics = await resolver.resolve_to_canonical_tracks(
             [self.PLAIN_ID, self.OLD_ID, self.ISRC_ID], uow, user_id="test-user"
@@ -1743,10 +1869,12 @@ class TestChunkBulkPersistIsOneRoundTripGroup:
     async def test_a_ten_id_chunk_makes_one_save_and_one_mapping_call(self):
         ids = [f"chunk_id_{n:016d}" for n in range(10)]
         connector = AsyncMock()
-        connector.get_tracks_by_ids.return_value = {
-            spotify_id: make_spotify_track(spotify_id, f"Song {spotify_id}")
-            for spotify_id in ids
-        }
+        connector.get_tracks_by_ids.return_value = SpotifyTracksFetch(
+            tracks={
+                spotify_id: make_spotify_track(spotify_id, f"Song {spotify_id}")
+                for spotify_id in ids
+            }
+        )
 
         resolver = SpotifyInwardResolver(spotify_connector=connector)
         uow, track_repo, connector_repo = _make_uow_with_repos()

@@ -311,6 +311,7 @@ class TestClientSmokeViaRealHttpx2:
             s.api.spotify.retry_count = 3
             s.api.spotify.retry_base_delay = 0.5
             s.api.spotify.retry_max_delay = 30.0
+            s.api.spotify.concurrency = 4
             yield s
 
     async def test_spotify_success_response_does_not_crash_hook(self, spotify_settings):
@@ -325,7 +326,9 @@ class TestClientSmokeViaRealHttpx2:
         )
         from src.infrastructure.connectors.spotify.client import SpotifyAPIClient
 
-        payload = {"id": "abc123", "name": "Test Track"}
+        # ``get_track`` is one id through the batch endpoint, so the body it
+        # parses is the ``/tracks?ids=`` array shape.
+        payload = {"tracks": [{"id": "abc123", "name": "Test Track"}]}
         transport = _QueueTransport((200, payload))
 
         # Patch make_spotify_client to inject our mock transport (same event hooks)

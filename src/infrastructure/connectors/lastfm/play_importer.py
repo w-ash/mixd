@@ -353,9 +353,9 @@ class LastfmPlayImporter(
         username: str,
         batch_id: str,
         import_timestamp: datetime,
+        uow: UnitOfWorkProtocol,
         checkpoint: SyncCheckpoint | None = None,
         progress_emitter: ProgressEmitter | None = None,
-        uow: UnitOfWorkProtocol | None = None,
         explicit_range: bool = False,
         operation_id: str | None = None,
     ) -> list[ConnectorTrackPlay]:
@@ -378,6 +378,12 @@ class LastfmPlayImporter(
             batch_id: The import batch each day's rows are tagged with.
             import_timestamp: When the import started — shared by every row so
                 the batch has one timestamp, not one per day of the loop.
+            uow: Required, with no default, because this loop IS the persistence
+                path: ``persists_plays_during_fetch`` is unconditionally True on
+                this importer, so the base class skips the run-end save. A
+                uow-less call would fetch the whole span, write nothing, and
+                still report success — the type system forbids it rather than a
+                runtime guard catching it afterwards.
             explicit_range: When True, the caller explicitly requested this date range.
                 The checkpoint will NOT override the start date, allowing historical
                 fetches even when the checkpoint is ahead of the requested range.
@@ -404,7 +410,7 @@ class LastfmPlayImporter(
 
         all_connector_plays: list[ConnectorTrackPlay] = []
         days_processed = 0
-        batch_commit = getattr(uow, "commit_batch", None) if uow else None
+        batch_commit = getattr(uow, "commit_batch", None)
 
         # Process each day chronologically (oldest → newest)
         current_date = start_date
@@ -464,17 +470,19 @@ class LastfmPlayImporter(
             # span only at the end of the run (as this loop used to) meant a
             # crash at day 300 of 5,100 left a day-300 cursor with ZERO rows
             # written, and days 1-299 were silently skipped forever.
-            if uow:
-                await self._persist_fetched_chunk(day_plays, uow, user_id=user_id)
-                await self._save_day_checkpoint(
-                    user_id=user_id,
-                    account=username,
-                    completed_date=current_date,
-                    day_end=effective_end,
-                    uow=uow,
-                )
-                if batch_commit is not None:
-                    await batch_commit()
+            #
+            # Unconditional: ``uow`` is required precisely so this write can
+            # never be skipped while the base class also skips the run-end save.
+            _ = await self._persist_fetched_chunk(day_plays, uow, user_id=user_id)
+            await self._save_day_checkpoint(
+                user_id=user_id,
+                account=username,
+                completed_date=current_date,
+                day_end=effective_end,
+                uow=uow,
+            )
+            if batch_commit is not None:
+                await batch_commit()
 
             current_date += timedelta(days=1)
 

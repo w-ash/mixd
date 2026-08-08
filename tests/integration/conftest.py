@@ -22,6 +22,7 @@ import pytest
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.domain.entities import Artist, Track, TrackList
+from src.infrastructure.connectors.spotify.client import SpotifyTracksFetch
 from src.infrastructure.persistence.database.db_models import DBPlaylist, DBTrack
 
 
@@ -353,7 +354,7 @@ def mock_external_connector():
     from unittest.mock import AsyncMock
 
     mock = AsyncMock()
-    mock.get_tracks_by_ids.return_value = {}
+    mock.get_tracks_by_ids.return_value = SpotifyTracksFetch()
     mock.get_track_metadata.return_value = {}
     mock.search_tracks.return_value = []
     return mock

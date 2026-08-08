@@ -6,13 +6,14 @@ IS a rebuild. Canonical state is diffed, never blindly rewritten: an
 unchanged group produces zero writes, which is what makes re-imports and
 re-runs mechanical no-ops.
 
-Chunking is correctness-aware: each chunk fetches with a margin wide enough
-that every group whose earliest normalized start falls inside the chunk core
-is fully visible (members can sit up to the fetch margin away in raw
-``played_at`` — an end-time observation's normalized start shifts back by up
-to its ``ms_played``). A group is applied by exactly one chunk: the one whose
-core contains its earliest member's normalized start. That ownership rule is
-batch-boundary invariance operationalized.
+Chunking is correctness-aware: each chunk fetches ``_ANCHOR_REACH`` outside its
+core, wide enough that every group anchored inside the core is fully visible.
+Members sit away from the anchor in raw ``played_at`` for two compounding
+reasons — an end-time observation's normalized start shifts back by up to its
+``ms_played``, and pairing spreads a group's members across up to
+``MAX_ANCHOR_PULL_BACK`` of normalized start. A group is applied by exactly one
+chunk: the one whose core contains its earliest member's normalized start. That
+ownership rule is batch-boundary invariance operationalized.
 
 Two entry points, same diff-apply body: ``project_range`` tiles a contiguous
 span (the rebuild), ``project_observed_days`` chunks only the days a batch's
@@ -21,7 +22,7 @@ between its oldest and newest play.
 """
 
 from collections.abc import Iterable, Mapping, Sequence
-from datetime import UTC, datetime, time, timedelta
+from datetime import UTC, date, datetime, time, timedelta
 from uuid import UUID
 
 from attrs import define
@@ -31,6 +32,9 @@ from src.config import get_logger
 from src.domain.entities import PlaySource, TrackPlay
 from src.domain.entities.progress import ProgressEmitter, create_progress_event
 from src.domain.matching.play_projection import (
+    CHANNEL_SPECS,
+    CROSS_CHANNEL_TOLERANCE_FALLBACK_SECONDS,
+    CROSS_CHANNEL_TOLERANCE_SECONDS,
     MAX_NORMALIZED_START_SHIFT,
     PlayGroup,
     ProjectedPlay,
@@ -51,6 +55,43 @@ _CHUNK = timedelta(days=1)
 # group's members are guaranteed visible to the chunk that owns its earliest
 # normalized start; the cost is only a few extra fetched rows per chunk.
 PROJECTION_FETCH_MARGIN = MAX_NORMALIZED_START_SHIFT
+
+# The widest tolerance any single cross-channel pairing can use. Read off the
+# domain's own rules instead of restated, so registering a channel with a wider
+# ``tolerance_override`` widens every window derived from it automatically.
+_WIDEST_PAIR_TOLERANCE_SECONDS = max(
+    CROSS_CHANNEL_TOLERANCE_SECONDS,
+    CROSS_CHANNEL_TOLERANCE_FALLBACK_SECONDS,
+    *(
+        spec.tolerance_override
+        for spec in CHANNEL_SPECS.values()
+        if spec.tolerance_override is not None
+    ),
+)
+
+# How much EARLIER than an observation's own normalized start its group's
+# anchor (the earliest member's normalized start) can sit — and, symmetrically,
+# how far past the anchor the group's last member can sit.
+#
+# A group holds at most one observation per channel (the grouping invariant),
+# and is built from pairings that are each within the widest pair tolerance, so
+# a chain running through every channel spans at most ``len(CHANNEL_SPECS) - 1``
+# tolerances. Ignoring this is a silent-loss bug in both directions: a chunk
+# derived from an observation's own timestamp alone misses the group its
+# neighbour anchored a day earlier, and a fetch window sized for normalization
+# alone misses the member sitting a tolerance past the core's end.
+MAX_ANCHOR_PULL_BACK = timedelta(
+    seconds=_WIDEST_PAIR_TOLERANCE_SECONDS * (len(CHANNEL_SPECS) - 1)
+)
+
+# The greatest distance, measured in raw ``played_at``, between a group's
+# anchor and any of its members — normalization moves a member's start back by
+# up to the fetch margin, and pairing spreads the members themselves across up
+# to the anchor pull-back. Both consumers of the ownership rule are sized by it:
+# a chunk fetches this far outside its core to see every member of every group
+# it can own, and :func:`observed_day_cores` reaches this far back from a raw
+# timestamp to find every day the group it joins can be anchored in.
+_ANCHOR_REACH = PROJECTION_FETCH_MARGIN + MAX_ANCHOR_PULL_BACK
 
 # One chunk's core: the ``[start, end)`` window whose owned groups it applies.
 type _ChunkCore = tuple[datetime, datetime]
@@ -97,19 +138,44 @@ def observed_day_cores(played_at: Iterable[datetime]) -> list[_ChunkCore]:
     recent incremental import spans 14 years, and tiling that span contiguously
     materializes ~5,000 day-chunks — each costing round trips to find nothing.
 
-    A group is applied by the chunk whose core contains its earliest member's
-    NORMALIZED start, which sits up to ``PROJECTION_FETCH_MARGIN`` before the
-    raw ``played_at`` (an end-time observation shifts back by its ``ms_played``,
-    clamped to that margin). So each play contributes its own UTC date plus the
-    date the margin reaches back into — the previous day for anything in the
-    first six hours. Cores are whole calendar days and so never overlap: the
-    "exactly one chunk applies a group" ownership rule is preserved.
+    OWNERSHIP INVARIANT — every group that any generated chunk could own is
+    owned by exactly one generated chunk. Cores are whole UTC calendar days, so
+    they never overlap ("at most one"); ``_ANCHOR_REACH`` is what buys "at least
+    one". A group is applied by the chunk whose core contains its
+    anchor — the earliest member's NORMALIZED start — and that anchor sits
+    earlier than the raw ``played_at`` this function is handed for two
+    independent reasons that BOTH have to be paid for:
+
+    1. Normalization: an end-time observation's own start is its ``played_at``
+       minus ``ms_played``, clamped to ``PROJECTION_FETCH_MARGIN`` (6h).
+    2. Pairing: the group's anchor belongs to whichever member starts earliest,
+       and an already-stored cross-channel neighbour can hold that anchor up to
+       ``MAX_ANCHOR_PULL_BACK`` earlier still.
+
+    Paying only (1) loses plays outright. The failure is real and does not heal:
+    a GDPR row at 06:00:10 with ~6h of ``ms_played`` normalizes to 00:00:10 and
+    unions with a stored 23:59:50 scrobble from the previous day, so the group
+    anchors the previous day while only the current day's core was generated —
+    no chunk owns the group and the play never projects.
+
+    Note the asymmetry: only the *earlier* side needs covering, because the
+    anchor is a minimum over the group's members and so can never be later than
+    the observation's own normalized start.
     """
-    days = {
-        day
-        for moment in played_at
-        for day in (moment.date(), (moment - PROJECTION_FETCH_MARGIN).date())
-    }
+    days: set[date] = set()
+    for moment in played_at:
+        # Both endpoints in UTC: cores are UTC midnights, and a tz-aware
+        # non-UTC ``played_at`` (accepted at validation, preserved by the GDPR
+        # parser) would otherwise name a local date whose UTC core is never
+        # generated — 2024-06-15T20:30-05:00 is the 16th in UTC.
+        latest = moment.astimezone(UTC).date()
+        earliest = (moment - _ANCHOR_REACH).astimezone(UTC).date()
+        # Whole range, not just the two endpoints: correctness must not rest on
+        # the reach-back happening to be shorter than a day.
+        days.update(
+            earliest + timedelta(days=offset)
+            for offset in range((latest - earliest).days + 1)
+        )
     return [
         (midnight, midnight + _CHUNK)
         for midnight in (datetime.combine(day, time.min, UTC) for day in sorted(days))
@@ -205,7 +271,8 @@ class PlayProjectionService:
         :meth:`project_range`, but the chunks come from the plays themselves, so
         a sparse batch costs chunks proportional to the days it touched rather
         than to the span it happens to straddle. See :func:`observed_day_cores`
-        for why the margin makes each play contribute two candidate days.
+        for the ownership invariant and why a play claims more days than the
+        one its own timestamp names.
         """
         return await self._apply_chunks(
             uow,
@@ -260,7 +327,8 @@ class PlayProjectionService:
                         current=index + 1,
                         total=len(cores),
                         message=(
-                            f"Projected plays through {chunk_end.date().isoformat()}"
+                            "Projected plays through "
+                            f"{chunk_end.astimezone(UTC).date().isoformat()}"
                         ),
                     )
                 )
@@ -285,8 +353,8 @@ class PlayProjectionService:
         plays_repo = uow.get_plays_repository()
 
         entries = await connector_repo.find_resolved_in_window(
-            chunk_start - PROJECTION_FETCH_MARGIN,
-            chunk_end + PROJECTION_FETCH_MARGIN,
+            chunk_start - _ANCHOR_REACH,
+            chunk_end + _ANCHOR_REACH,
             user_id=user_id,
         )
         if not entries:
@@ -324,8 +392,8 @@ class PlayProjectionService:
         # claimed instead of duplicated (keeps convergence robust to legacy
         # rows and cascade-rebuilt neighbors).
         adoptable = await plays_repo.find_plays_in_window(
-            chunk_start - PROJECTION_FETCH_MARGIN,
-            chunk_end + PROJECTION_FETCH_MARGIN,
+            chunk_start - _ANCHOR_REACH,
+            chunk_end + _ANCHOR_REACH,
             user_id=user_id,
         )
         sourced_play_ids = set(source_by_member.values())
@@ -478,6 +546,14 @@ class PlayProjectionService:
         """The [start, end) window covering every resolved ledger row.
 
         Rebuild's helper: derives the projection span from the ledger itself.
+
+        ``PROJECTION_FETCH_MARGIN`` — not ``_ANCHOR_REACH`` — is the right
+        padding here, and the difference is not an oversight. Every anchor is
+        some member's own normalized start, so no anchor can precede the
+        earliest raw ``played_at`` by more than the normalization clamp; the
+        pairing spread moves which member holds the anchor, never the minimum
+        over all of them. The contiguous tiling therefore has no off-by-tolerance
+        gap at either span edge.
         """
         bounds = (
             await uow.get_connector_play_repository().get_resolved_played_at_bounds(

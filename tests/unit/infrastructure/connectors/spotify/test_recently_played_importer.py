@@ -79,6 +79,11 @@ def _client(items: list[SpotifyPlayHistoryItem] | None = None) -> MagicMock:
 def _uow_with_checkpoint(checkpoint: SyncCheckpoint | None):
     """A mock UoW whose checkpoint repo returns `checkpoint` on read."""
     uow = make_mock_uow()
+    # (inserted, duplicates) — the ledger write's contract, passed straight
+    # through to the run's reported counts.
+    uow.get_connector_play_repository().bulk_insert_connector_plays = AsyncMock(
+        side_effect=lambda plays: (len(list(plays)), 0)
+    )
     repo = uow.get_checkpoint_repository()
     repo.get_sync_checkpoint = AsyncMock(return_value=checkpoint)
     repo.get_or_create_sync_checkpoint = AsyncMock(

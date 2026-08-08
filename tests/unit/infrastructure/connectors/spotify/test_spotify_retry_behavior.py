@@ -11,6 +11,8 @@ retry policy into each client method. Covers:
 - All 13 client methods wired with retry
 
 Injection strategy: patch individual _impl methods to inject httpx2 errors.
+``get_track`` is a one-id call to the batch endpoint, so its injection point is
+``_get_tracks_batch_impl`` — there is one GET-and-parse implementation for tracks.
 """
 
 from unittest.mock import AsyncMock, patch
@@ -52,6 +54,8 @@ class TestComprehensiveErrorClassification:
             mock_settings.api.spotify_market = "US"
             mock_settings.api.spotify.rate_limit = 10.0
             mock_settings.api.spotify.request_timeout = 15
+            # Concrete: the batch fetch sizes an asyncio.Semaphore with it.
+            mock_settings.api.spotify.concurrency = 4
             # Retry policy parameters — must be concrete values, not MagicMock
             mock_settings.api.spotify.retry_count = 3
             mock_settings.api.spotify.retry_base_delay = 0.5
@@ -86,7 +90,7 @@ class TestComprehensiveErrorClassification:
         error = make_httpx_error(status_code, description)
 
         mock_impl = AsyncMock(side_effect=error)
-        with patch.object(SpotifyAPIClient, "_get_track_impl", mock_impl):
+        with patch.object(SpotifyAPIClient, "_get_tracks_batch_impl", mock_impl):
             result = await spotify_client.get_track("test_track_id")
 
         # Should return None gracefully (no exception raised)
@@ -103,7 +107,7 @@ class TestComprehensiveErrorClassification:
         error = make_httpx_error(404, "Not Found - resource doesn't exist")
 
         mock_impl = AsyncMock(side_effect=error)
-        with patch.object(SpotifyAPIClient, "_get_track_impl", mock_impl):
+        with patch.object(SpotifyAPIClient, "_get_tracks_batch_impl", mock_impl):
             result = await spotify_client.get_track("nonexistent_track_id")
 
         assert result is None
@@ -117,7 +121,7 @@ class TestComprehensiveErrorClassification:
         error = make_httpx_error(429, "Too Many Requests - rate limit exceeded")
 
         mock_impl = AsyncMock(side_effect=error)
-        with patch.object(SpotifyAPIClient, "_get_track_impl", mock_impl):
+        with patch.object(SpotifyAPIClient, "_get_tracks_batch_impl", mock_impl):
             result = await fast_retry_client.get_track("test_track_id")
 
         assert result is None
@@ -145,7 +149,7 @@ class TestComprehensiveErrorClassification:
         error = make_httpx_error(status_code, description)
 
         mock_impl = AsyncMock(side_effect=error)
-        with patch.object(SpotifyAPIClient, "_get_track_impl", mock_impl):
+        with patch.object(SpotifyAPIClient, "_get_tracks_batch_impl", mock_impl):
             result = await fast_retry_client.get_track("test_track_id")
 
         assert result is None
@@ -175,7 +179,7 @@ class TestComprehensiveErrorClassification:
         error = httpx2.ConnectError(error_message, request=req)
 
         mock_impl = AsyncMock(side_effect=error)
-        with patch.object(SpotifyAPIClient, "_get_track_impl", mock_impl):
+        with patch.object(SpotifyAPIClient, "_get_tracks_batch_impl", mock_impl):
             result = await fast_retry_client.get_track("test_track_id")
 
         # Network errors ARE retried (3 times) and then return None
@@ -187,11 +191,11 @@ class TestComprehensiveErrorClassification:
     # SUCCESS AFTER RETRIES - Test resilience patterns
     async def test_success_after_temporary_failure(self, fast_retry_client):
         """Test successful recovery after temporary failures."""
-        success_data = {"id": "test_track", "name": "Test Track"}
+        success_data = {"tracks": [{"id": "test_track", "name": "Test Track"}]}
         error = make_httpx_error(503, "Service Unavailable")
 
         mock_impl = AsyncMock(side_effect=[error, error, success_data])
-        with patch.object(SpotifyAPIClient, "_get_track_impl", mock_impl):
+        with patch.object(SpotifyAPIClient, "_get_tracks_batch_impl", mock_impl):
             result = await fast_retry_client.get_track("test_track_id")
 
         # Should succeed and return parsed model on 3rd attempt
@@ -205,7 +209,7 @@ class TestComprehensiveErrorClassification:
     @pytest.mark.parametrize(
         ("method_name", "method_args", "impl_name"),
         [
-            ("get_track", ("test_id",), "_get_track_impl"),
+            ("get_track", ("test_id",), "_get_tracks_batch_impl"),
             ("search_by_isrc", ("USRC17607839",), "_search_by_isrc_impl"),
             (
                 "search_track",

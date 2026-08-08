@@ -12,6 +12,7 @@ import pytest
 from src.config.constants import MatchMethod, SpotifyConstants
 from src.domain.entities import ConnectorTrackPlay, TrackPlay
 from src.infrastructure.connectors.spotify.client import (
+    SpotifyTracksFetch,
     field_filtered_search_query,
     free_text_search_query,
 )
@@ -21,6 +22,20 @@ from src.infrastructure.connectors.spotify.play_resolver import (
 )
 from tests.fixtures import attach_resolution_recorder
 from tests.fixtures.factories import make_spotify_track, make_track
+
+
+def _route_batch_save(track_repo) -> None:
+    """Send the batch save through whatever ``save_track`` is configured with.
+
+    The resolver persists a chunk with ``save_tracks`` and falls back to the
+    same call on a one-element chunk, so a test that only configures
+    ``save_track`` would otherwise be asserting against an unstubbed mock.
+    """
+
+    async def _save_tracks(tracks):
+        return [await track_repo.save_track(track) for track in tracks]
+
+    track_repo.save_tracks.side_effect = _save_tracks
 
 
 def _make_connector_play(
@@ -288,9 +303,11 @@ class TestResolverTrackResolution:
     async def test_missing_mapping_creates_new_track_via_api(self):
         """Missing mappings should trigger Spotify API lookup + track creation."""
         connector = AsyncMock()
-        connector.get_tracks_by_ids.return_value = {
-            "4iV5W9uYEdYUVa79Axb7Rh": make_spotify_track("4iV5W9uYEdYUVa79Axb7Rh"),
-        }
+        connector.get_tracks_by_ids.return_value = SpotifyTracksFetch(
+            tracks={
+                "4iV5W9uYEdYUVa79Axb7Rh": make_spotify_track("4iV5W9uYEdYUVa79Axb7Rh"),
+            }
+        )
         resolver = SpotifyConnectorPlayResolver(spotify_connector=connector)
 
         uow = MagicMock()
@@ -305,6 +322,7 @@ class TestResolverTrackResolution:
         saved_track = make_track(id=99)
         track_repo.save_track.return_value = saved_track
         track_repo.find_tracks_by_title_artist.return_value = {}
+        _route_batch_save(track_repo)
         uow.get_track_repository.return_value = track_repo
 
         play = _make_connector_play(ms_played=300000)
@@ -321,7 +339,9 @@ class TestResolverTrackResolution:
     async def test_failed_resolution_logged_and_skipped(self):
         """Failed track resolution should be logged as error, not crash."""
         connector = AsyncMock()
-        connector.get_tracks_by_ids.return_value = {}  # No metadata found
+        connector.get_tracks_by_ids.return_value = (
+            SpotifyTracksFetch()
+        )  # No metadata found
         resolver = SpotifyConnectorPlayResolver(spotify_connector=connector)
 
         uow = MagicMock()
@@ -332,6 +352,7 @@ class TestResolverTrackResolution:
         uow.get_connector_repository.return_value = connector_repo
         track_repo = AsyncMock()
         track_repo.find_tracks_by_title_artist.return_value = {}
+        _route_batch_save(track_repo)
         uow.get_track_repository.return_value = track_repo
 
         play = _make_connector_play(ms_played=300000)
@@ -507,7 +528,7 @@ class TestFallbackHintsIntegration:
     async def test_fallback_hints_built_from_connector_plays(self):
         """resolve_connector_plays should build FallbackHints from play metadata."""
         connector = AsyncMock()
-        connector.get_tracks_by_ids.return_value = {}
+        connector.get_tracks_by_ids.return_value = SpotifyTracksFetch()
         connector.search_track.return_value = []
         resolver = SpotifyConnectorPlayResolver(spotify_connector=connector)
 
@@ -519,6 +540,7 @@ class TestFallbackHintsIntegration:
         uow.get_connector_repository.return_value = connector_repo
         track_repo = AsyncMock()
         track_repo.find_tracks_by_title_artist.return_value = {}
+        _route_batch_save(track_repo)
         uow.get_track_repository.return_value = track_repo
 
         play = _make_connector_play(
@@ -544,7 +566,7 @@ class TestFallbackHintsIntegration:
     async def test_fallback_resolved_plays_tagged_in_context(self):
         """Plays resolved via fallback should have resolution_method='search_fallback'."""
         connector = AsyncMock()
-        connector.get_tracks_by_ids.return_value = {}
+        connector.get_tracks_by_ids.return_value = SpotifyTracksFetch()
         search_result = make_spotify_track(
             "new_id", name="Test Song", artist_name="Test Artist"
         )
@@ -562,6 +584,7 @@ class TestFallbackHintsIntegration:
         saved_track = make_track(id=99)
         track_repo.save_track.return_value = saved_track
         track_repo.find_tracks_by_title_artist.return_value = {}
+        _route_batch_save(track_repo)
         uow.get_track_repository.return_value = track_repo
 
         # ms_played matches the candidate's length: a completed play is the
@@ -588,9 +611,11 @@ class TestRedirectResolvedPlays:
         redirected_track = make_spotify_track(
             "new_canonical_id_000000", name="Test Song"
         )
-        connector.get_tracks_by_ids.return_value = {
-            "4iV5W9uYEdYUVa79Axb7Rh": redirected_track,
-        }
+        connector.get_tracks_by_ids.return_value = SpotifyTracksFetch(
+            tracks={
+                "4iV5W9uYEdYUVa79Axb7Rh": redirected_track,
+            }
+        )
 
         resolver = SpotifyConnectorPlayResolver(spotify_connector=connector)
 
@@ -604,6 +629,7 @@ class TestRedirectResolvedPlays:
         saved_track = make_track(id=99)
         track_repo.save_track.return_value = saved_track
         track_repo.find_tracks_by_title_artist.return_value = {}
+        _route_batch_save(track_repo)
         uow.get_track_repository.return_value = track_repo
 
         play = _make_connector_play(ms_played=300000)
@@ -619,9 +645,11 @@ class TestRedirectResolvedPlays:
     async def test_redirect_resolved_metric(self):
         """redirect_resolved metric should count redirected IDs."""
         connector = AsyncMock()
-        connector.get_tracks_by_ids.return_value = {
-            "4iV5W9uYEdYUVa79Axb7Rh": make_spotify_track("new_id_0000000000000000"),
-        }
+        connector.get_tracks_by_ids.return_value = SpotifyTracksFetch(
+            tracks={
+                "4iV5W9uYEdYUVa79Axb7Rh": make_spotify_track("new_id_0000000000000000"),
+            }
+        )
 
         resolver = SpotifyConnectorPlayResolver(spotify_connector=connector)
 
@@ -634,6 +662,7 @@ class TestRedirectResolvedPlays:
         track_repo = AsyncMock()
         track_repo.save_track.return_value = make_track(id=99)
         track_repo.find_tracks_by_title_artist.return_value = {}
+        _route_batch_save(track_repo)
         uow.get_track_repository.return_value = track_repo
 
         play = _make_connector_play(ms_played=300000)
@@ -677,7 +706,7 @@ class TestResolverMetrics:
     async def test_mixed_play_metrics_correct(self):
         """Multiple plays with different outcomes should produce correct aggregate metrics."""
         connector = AsyncMock()
-        connector.get_tracks_by_ids.return_value = {}
+        connector.get_tracks_by_ids.return_value = SpotifyTracksFetch()
         resolver = SpotifyConnectorPlayResolver(spotify_connector=connector)
 
         canonical = make_track(id=1, duration_ms=300000)

@@ -3,13 +3,19 @@
 Spotify Track ID Resolution Strategy
 =====================================
 Spotify tracks can change IDs when relinked (label transfers, catalogue cleanup).
-This creates three resolution scenarios for historical data:
+IDs are asked about in chunks via ``GET /tracks?ids=``, which yields four
+outcomes for historical data:
 
-1. DIRECT: GET /tracks/{id} returns the same ID -> 100% confidence, primary mapping
-2. REDIRECT: GET /tracks/{old_id} returns a track with a DIFFERENT .id -> 100% confidence,
+1. DIRECT: the array entry carries the same ID -> 100% confidence, primary mapping
+2. REDIRECT: the entry carries a DIFFERENT .id -> 100% confidence,
    dual mapping (new ID primary, old ID secondary for cache)
-3. SEARCH FALLBACK: GET /tracks/{id} returns 404 (true dead) -> artist+title search ->
+3. SEARCH FALLBACK: the entry is ``null`` (true dead) -> artist+title search ->
    70% confidence, dual mapping (found ID primary, dead ID secondary)
+4. UNANSWERED: the chunk's request failed after retries, so the ID has no entry
+   at all -> nothing is concluded and nothing is written; the next import asks
+   again. This is deliberately NOT scenario 3: a single failed request covers
+   ~50 IDs, and calling them dead would back them all off and cache a
+   search-picked stand-in for every hinted one.
 
 Scenario 2 is the most reliable - Spotify explicitly confirms the identity link.
 Scenario 3 is approximate - title similarity may match a different recording (live, remix).
@@ -20,7 +26,6 @@ instantly via the bulk lookup fast path (no API call needed).
 import asyncio
 from collections.abc import Mapping, Set as AbstractSet
 from typing import ClassVar, Final, override
-from uuid import UUID
 
 from attrs import define, evolve
 
@@ -116,9 +121,9 @@ class _ResolvedWrite:
     """One requested id's persist, decided before anything is written.
 
     Deciding is pure and happens once per id: ISRC reuse, suspect deferral,
-    relink. The chunk-bulk persist and the per-item fallback then write *this*
-    — neither builds a payload of its own, so the fast path and the isolating
-    path cannot drift into disagreeing about what they store.
+    relink. The persist step then writes *this* and builds no payload of its
+    own — once for the whole chunk, or one savepoint at a time over the same
+    code when the chunk has to be isolated.
     """
 
     requested_id: str
@@ -294,49 +299,6 @@ class SpotifyInwardResolver(InwardTrackResolver):
             track_data = evolve(track_data, isrc=None)
         return track_data
 
-    async def _save_with_connector_mappings(
-        self,
-        write: _ResolvedWrite,
-        uow: UnitOfWorkProtocol,
-    ) -> Track:
-        """Save one track and its connector mappings, one statement at a time.
-
-        The isolating path — the chunk-bulk persist writes the same rows for a
-        whole chunk at once. Spotify can return a track with a different ID
-        than requested (relinking). When this happens:
-        - The RETURNED ID is the current canonical Spotify ID -> primary mapping
-        - The REQUESTED ID is stale but must be cached -> secondary mapping
-        Both mappings point to the same canonical track, ensuring future lookups
-        for either ID resolve instantly via the Mapping Lookup fast path.
-        """
-        canonical_track = await uow.get_track_repository().save_track(
-            self._canonical_payload(write)
-        )
-
-        # Primary mapping — always the current Spotify ID
-        _ = await uow.get_connector_repository().map_track_to_connector(
-            canonical_track,
-            "spotify",
-            write.current_id,
-            write.match_method,
-            confidence=write.confidence,
-            metadata=write.spotify_track.model_dump(),
-            auto_set_primary=True,
-        )
-
-        # Secondary mapping if IDs differ (redirect or search found a different ID)
-        if write.requested_id_is_stale:
-            _ = await uow.get_connector_repository().map_track_to_connector(
-                canonical_track,
-                "spotify",
-                write.requested_id,
-                self._STALE_ID_METHODS[write.match_method],
-                confidence=write.confidence,
-                auto_set_primary=False,
-            )
-
-        return canonical_track
-
     @override
     async def _create_tracks_batch(
         self,
@@ -350,10 +312,33 @@ class SpotifyInwardResolver(InwardTrackResolver):
         Detects redirects (track.id != requested_id) and creates dual mappings.
         Before creating new tracks, checks if an existing canonical already owns
         the same ISRC — reuses it instead of creating a duplicate.
-        Dead IDs (not returned by API) are resolved via artist+title search
-        if fallback hints are available.
+        Dead IDs (returned as null by the API) are resolved via artist+title
+        search if fallback hints are available. Ids whose *request* failed are
+        excluded from every conclusion below — see ``answered_ids``.
         """
-        spotify_metadata = await self._spotify_connector.get_tracks_by_ids(missing_ids)
+        fetch = await self._spotify_connector.get_tracks_by_ids(missing_ids)
+        spotify_metadata = fetch.tracks
+
+        # An id whose chunk request failed has told us nothing, and every
+        # conclusion this method draws from absence — no-match backoff, and a
+        # SEARCH_FALLBACK stand-in cached permanently against a hinted id —
+        # would be drawn from a request that never landed. One 5xx covers ~50
+        # ids, so these are dropped from the classification entirely: they fall
+        # out of ``result``, count as ``failed`` in the metrics the base class
+        # derives, and the next import asks about them again at full strength.
+        answered_ids = [
+            spotify_id
+            for spotify_id in missing_ids
+            if spotify_id not in fetch.unanswered
+        ]
+        if fetch.unanswered:
+            logger.warning(
+                f"Spotify answered for {len(answered_ids)}/{len(missing_ids)} ids — "
+                f"{len(fetch.unanswered)} left unanswered by a failed batch request; "
+                f"no backoff or fallback recorded for them",
+                unanswered=len(fetch.unanswered),
+                requested=len(missing_ids),
+            )
 
         # ISRC dedup: collect ISRCs from API results and check for existing canonicals
         isrc_to_spotify_id: dict[str, str] = {}
@@ -373,17 +358,17 @@ class SpotifyInwardResolver(InwardTrackResolver):
             self._plan_direct_write(
                 spotify_id, spotify_metadata[spotify_id], existing_by_isrc
             )
-            for spotify_id in missing_ids
+            for spotify_id in answered_ids
             if spotify_id in spotify_metadata
         ]
         result, failed_ids = await self._persist_writes(writes, uow, user_id=user_id)
 
-        absent_ids = self._absent_from(missing_ids, spotify_metadata)
+        absent_ids = self._absent_from(answered_ids, spotify_metadata)
         if absent_ids:
             await self._note_absent_ids(absent_ids, uow, user_id=user_id)
 
         dead_ids = self._substitutable_from(
-            missing_ids, spotify_metadata, result, failed_ids
+            answered_ids, spotify_metadata, result, failed_ids
         )
         if dead_ids and self._fallback_hints:
             fallback_tracks = await self._fallback_resolve_by_search(
@@ -454,6 +439,11 @@ class SpotifyInwardResolver(InwardTrackResolver):
         Absence proper is still a weak signal — the measured transient band for
         a spurious Spotify 404 is seconds to minutes — which is why it only
         advances a counter rather than deciding anything.
+
+        ``requested`` must already have the unanswered ids taken out of it: an
+        id whose chunk request never landed is absent from ``returned`` for a
+        reason that has nothing to do with the id. The caller does that
+        filtering (``answered_ids``) so this stays a pure membership rule.
         """
         return [spotify_id for spotify_id in requested if spotify_id not in returned]
 
@@ -479,6 +469,11 @@ class SpotifyInwardResolver(InwardTrackResolver):
         import", never "substitute": treating it as death would commit a
         SEARCH_FALLBACK mapping onto a search-picked recording for a track
         whose real id is alive.
+
+        Ids the provider never answered for are excluded upstream, for the same
+        reason and more forcefully: a failed chunk request would otherwise hand
+        a search-picked stand-in a durable SEARCH_FALLBACK mapping for every id
+        in the chunk.
         """
         return [
             spotify_id
@@ -490,25 +485,6 @@ class SpotifyInwardResolver(InwardTrackResolver):
                 and track.is_market_restricted
             )
         ]
-
-    def _forget_rolled_back(self, spotify_id: str) -> None:
-        """Drop in-memory tracking for a write the savepoint discarded.
-
-        ``_persist_one_write`` records redirects and suspect-ISRC deferrals in
-        sets as it goes, but it runs inside the caller's savepoint: on
-        rollback the rows are gone while the set entries would survive,
-        inflating ``metrics.redirects`` and letting ``get_resolution_method``
-        report SPOTIFY_REDIRECT provenance for a track that ended up
-        search-fallback-resolved instead. Both sets are keyed by the
-        *requested* id and reset per run, and each id is processed once, so
-        discarding cannot drop an entry another call earned.
-
-        The bulk path needs no equivalent: it records nothing until its single
-        savepoint has released (``_remember_provenance``), so there is never a
-        stale entry to drop.
-        """
-        self._redirect_resolved_ids.discard(spotify_id)
-        self._isrc_suspect_deferred_ids.discard(spotify_id)
 
     def _absent_side(self, spotify_id: str) -> DigestSide:
         """The little that is known about an id the API would not return."""
@@ -599,11 +575,11 @@ class SpotifyInwardResolver(InwardTrackResolver):
         the difference between the ~50s a 50-play chunk was spending in the
         database and well under a second.
 
-        When it fails, the chunk is rewritten one savepoint per id. That is
-        the slow shape, and deliberately so: the bulk statements are all-or-
-        nothing, so a single poisoned row would otherwise cost the chunk,
-        while the per-item retry costs it only the id that is actually bad.
-        Both paths write the same ``_ResolvedWrite`` payloads.
+        When it fails, the chunk is rewritten one savepoint per id — the same
+        bulk write, on a one-element chunk. That is the slow shape, and
+        deliberately so: the bulk statements are all-or-nothing, so a single
+        poisoned row would otherwise cost the chunk, while the per-id retry
+        costs it only the id that is actually bad.
 
         Returns the resolved tracks and the ids whose write was rolled back —
         never absent ids, which the caller classifies separately.
@@ -672,9 +648,8 @@ class SpotifyInwardResolver(InwardTrackResolver):
             if write.reuse_track is not None
         })
 
-        specs, promote_to_primary = self._mapping_batch(writes, canonicals)
         _ = await connector_repo.map_tracks_to_connectors(
-            specs, promote_to_primary=promote_to_primary
+            self._mapping_batch(writes, canonicals)
         )
 
         await self._record_substitutions(
@@ -689,35 +664,31 @@ class SpotifyInwardResolver(InwardTrackResolver):
     def _mapping_batch(
         writes: list[_ResolvedWrite],
         canonicals: Mapping[str, Track],
-    ) -> tuple[list[ConnectorMappingSpec], list[tuple[UUID, str, str]]]:
-        """Every mapping the chunk owes, plus the ids that must hold primacy.
+    ) -> list[ConnectorMappingSpec]:
+        """Every mapping the chunk owes, each saying whether it holds primacy.
 
-        The bulk twin of ``_save_with_connector_mappings`` + the ISRC-reuse
-        mapping: primary mappings and reuse mappings are promoted (the
-        per-item path passes ``auto_set_primary=True`` for both), and a
-        relink's stale-id mapping deliberately is not — it exists to make the
-        old id resolve from cache, not to describe the track.
+        Primary mappings and ISRC-reuse mappings take primacy; a relink's
+        stale-id mapping deliberately does not — it exists to make the old id
+        resolve from cache, not to describe the track.
         """
         specs: list[ConnectorMappingSpec] = []
-        promote_to_primary: list[tuple[UUID, str, str]] = []
         for write in writes:
             track = canonicals[write.requested_id]
-            primary_id = (
-                write.requested_id
-                if write.reuse_track is not None
-                else write.current_id
-            )
             specs.append(
                 ConnectorMappingSpec(
                     track=track,
                     connector="spotify",
-                    connector_id=primary_id,
+                    connector_id=(
+                        write.requested_id
+                        if write.reuse_track is not None
+                        else write.current_id
+                    ),
                     match_method=write.match_method,
                     confidence=write.confidence,
                     metadata=write.spotify_track.model_dump(),
+                    primary=True,
                 )
             )
-            promote_to_primary.append((track.id, "spotify", primary_id))
 
             if write.reuse_track is None and write.requested_id_is_stale:
                 specs.append(
@@ -731,7 +702,7 @@ class SpotifyInwardResolver(InwardTrackResolver):
                         confidence=write.confidence,
                     )
                 )
-        return specs, promote_to_primary
+        return specs
 
     async def _persist_writes_per_item(
         self,
@@ -746,78 +717,47 @@ class SpotifyInwardResolver(InwardTrackResolver):
         failed write rolls back alone instead of aborting the transaction for
         every remaining id — and for the backoff clearing the caller runs
         afterwards on the same uow.
+
+        Isolation is the *only* thing this adds. What gets written is
+        ``_persist_writes_bulk`` on a one-element chunk — a single write is the
+        degenerate case of a batch, not a second implementation of it — so the
+        fast path and the isolating path cannot drift into storing different
+        rows for the same ``_ResolvedWrite``.
         """
         resolved: dict[str, Track] = {}
         failed_ids: set[str] = set()
         for write in writes:
             try:
                 async with uow.savepoint():
-                    resolved[write.requested_id] = await self._persist_one_write(
-                        write, uow, user_id=user_id
+                    persisted = await self._persist_writes_bulk(
+                        [write], uow, user_id=user_id
                     )
             except Exception as e:
                 failed_ids.add(write.requested_id)
-                self._forget_rolled_back(write.requested_id)
                 logger.error(
                     f"Failed to create track for {write.requested_id}: {e}",
                     exc_info=True,
                 )
+            else:
+                # Provenance stays on the far side of the savepoint here for
+                # the same reason it does in ``_persist_writes``: until the
+                # savepoint releases, the rows these sets describe may still be
+                # discarded, and a surviving entry would inflate
+                # ``metrics.redirects`` and make ``get_resolution_method``
+                # report SPOTIFY_REDIRECT for a track that ended up
+                # search-fallback-resolved. No id can be recorded twice — the
+                # outer bulk attempt records nothing unless it wholly
+                # succeeded, and this loop visits each write once.
+                self._remember_provenance([write])
+                resolved.update(persisted)
         return resolved, failed_ids
-
-    async def _persist_one_write(
-        self,
-        write: _ResolvedWrite,
-        uow: UnitOfWorkProtocol,
-        *,
-        user_id: str,
-    ) -> Track:
-        """Persist one decided resolution — ISRC reuse, or a new canonical."""
-        connector_repo = uow.get_connector_repository()
-
-        if write.review is not None:
-            _ = await connector_repo.queue_isrc_collision_review(
-                write.review.owner,
-                "spotify",
-                write.requested_id,
-                write.review.service_data,
-                user_id=user_id,
-            )
-            self._isrc_suspect_deferred_ids.add(write.requested_id)
-
-        if write.reuse_track is not None:
-            await connector_repo.map_track_to_connector(
-                write.reuse_track,
-                "spotify",
-                write.requested_id,
-                write.match_method,
-                confidence=write.confidence,
-                metadata=write.spotify_track.model_dump(),
-            )
-            logger.info(
-                f"ISRC dedup: reused canonical {write.reuse_track.id} "
-                f"for spotify:{write.requested_id}"
-            )
-            return write.reuse_track
-
-        canonical_track = await self._save_with_connector_mappings(write, uow)
-
-        if write.is_redirect:
-            self._redirect_resolved_ids.add(write.requested_id)
-            await self._record_substitutions(
-                [write],
-                {write.requested_id: canonical_track},
-                uow,
-                user_id=user_id,
-            )
-
-        return canonical_track
 
     def _remember_provenance(self, writes: list[_ResolvedWrite]) -> None:
         """Record which ids were relinked or ISRC-deferred, after the write landed.
 
-        The per-item path adds each entry as it goes and drops it again in
-        ``_forget_rolled_back``; the bulk path has one all-or-nothing
-        savepoint, so it records the whole chunk once, on the far side of it.
+        Called once per savepoint that released: over the whole chunk on the
+        bulk path, over the single write on the isolating one. Never before —
+        an unreleased savepoint's rows can still be discarded.
         """
         for write in writes:
             if write.is_redirect:

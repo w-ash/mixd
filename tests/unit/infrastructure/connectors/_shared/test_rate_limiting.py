@@ -178,8 +178,10 @@ class TestPauseFor:
         await limiter.acquire()
 
         # Bucket was full — without the pause this acquire would not have slept.
-        assert clock.sleeps == pytest.approx([5.0])
-        assert clock.now == pytest.approx(5.0)
+        # Serving the pause empties the bucket, so the acquire that follows it
+        # also pays one token interval instead of riding the accrued burst.
+        assert clock.sleeps == pytest.approx([5.0, 0.2])
+        assert clock.now == pytest.approx(5.2)
 
     async def test_expired_pause_does_not_delay(self):
         clock = FakeTime()
@@ -199,7 +201,9 @@ class TestPauseFor:
         limiter.pause_for(1.0)
         await limiter.acquire()
 
-        assert clock.sleeps == pytest.approx([5.0])
+        # The longer window is served once; the trailing 0.2 is the post-pause
+        # token interval, not a second pause.
+        assert clock.sleeps == pytest.approx([5.0, 0.2])
 
     def test_non_positive_pause_is_a_no_op(self):
         clock = FakeTime()
@@ -228,9 +232,53 @@ class TestPauseFor:
                 _ = tg.create_task(acquire_one())
 
         # One acquirer sleeps the remainder; the rest re-read the deadline and
-        # fall through, so none is issued inside the window.
-        assert clock.sleeps == pytest.approx([3.0])
-        assert all(at >= 3.0 for at in issued_at)
+        # fall through, so none is issued inside the window. Past it the bucket
+        # is empty, so all four emerge serialized at 1/rate — the window does
+        # not end in a `capacity`-wide burst.
+        assert clock.sleeps == pytest.approx([3.0, 0.1, 0.1, 0.1, 0.1])
+        assert sorted(issued_at) == pytest.approx([3.1, 3.2, 3.3, 3.4])
+
+    async def test_resume_after_a_pause_is_paced_not_bursted(self):
+        clock = FakeTime()
+        limiter = _make_limiter(5.0, clock)
+
+        limiter.pause_for(1.0)
+        for _ in range(3):
+            await limiter.acquire()
+
+        # Capacity is 5 tokens and 1s of pause would accrue all of them; the
+        # bucket is emptied instead, so every acquire pays the 1/rate interval.
+        assert clock.sleeps == pytest.approx([1.0, 0.2, 0.2, 0.2])
+        assert limiter._tokens == pytest.approx(0.0)
+
+    async def test_pause_landing_during_the_token_wait_is_honored(self):
+        """A 429 that arrives mid-token-sleep must not be spent through."""
+        clock = FakeTime()
+        limiter: ConnectorRateLimiter | None = None
+        pause_armed = False
+
+        async def sleep_then_maybe_pause(delay: float) -> None:
+            nonlocal pause_armed
+            if pause_armed:
+                pause_armed = False
+                assert limiter is not None
+                limiter.pause_for(2.0)
+            await clock.sleep(delay)
+
+        limiter = ConnectorRateLimiter(
+            rate_per_second=5.0, clock=clock.monotonic, sleep=sleep_then_maybe_pause
+        )
+        for _ in range(5):  # drain the burst so the next acquire waits for a token
+            await limiter.acquire()
+
+        pause_armed = True
+        await limiter.acquire()
+
+        # 0.2 token wait, then the remainder of the window that opened during it
+        # (2.0 declared at t=0, 0.2 already elapsed), then a fresh token
+        # interval from the emptied bucket.
+        assert clock.sleeps == pytest.approx([0.2, 1.8, 0.2])
+        assert clock.now == pytest.approx(2.2)
 
 
 @pytest.fixture
