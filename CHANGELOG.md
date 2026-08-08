@@ -23,7 +23,13 @@ A high-effort adversarial review of this wave confirmed ten findings; all fixed 
 - **The 429 brake is bounded and honest**: the pause is capped by the same per-service bound the retry sleep uses, the bucket restarts *empty* after a pause (resuming paced instead of releasing a synchronized burst into the window the server just closed), and pause extensions landing mid-sleep are honored.
 - **Projection ownership is airtight**: day-scoping now reaches back far enough to own groups whose anchor a cross-channel neighbor pulled across midnight (a class a full rebuild could not heal — the chunk fetch window had the same off-by-tolerance gap and both now share one derived `_ANCHOR_REACH` constant), and day derivation is explicitly UTC.
 - **Checkpoint-resume metrics tell the truth**: real inserted/duplicate counts flow from the ledger's ON CONFLICT through per-day persistence to the run summary — a resumed run reports its re-fetched rows as duplicates, not imports. The `uow`-less call shape that would have silently skipped persistence is no longer expressible.
-- **One way to do each thing** (the review's DRY mandate): the per-item persist fallback is literally bulk-of-one per savepoint (~150-line second write path deleted), primary election is a single stack (primacy is a flag on the mapping spec — the parallel promotion list is gone), and the single-track fetch is gone entirely — callers pass lists (`get_tracks_batched([id])` for one), the stale-ID diagnose script got the same batch-first treatment (50× fewer calls, and its hand-rolled classification no longer mistakes a failed request for a dead track), and the dead-code gate (vulture) is green.
+- **One way to do each thing** (the review's DRY mandate): the per-item persist fallback is literally bulk-of-one per savepoint (~150-line second write path deleted), primary election is a single stack (primacy is a flag on the mapping spec — the parallel promotion list is gone), and the single-track fetch is the degenerate case of the batch call.
+
+→ [details](docs/backlog/v0.10.x.md#post-deploy-revisions)
+
+## [0.10.2.5] — 2026-08-08
+
+**A long import now survives a deploy, a restart, or the machine going away — and when one is killed anyway, it says so instead of reporting success.** v0.10.2.4 shipped the throughput work; this closes the incident that made that throughput unusable in practice, so the remaining GDPR files and the full Last.fm history can run unattended.
 
 **The autostop incident (2026-08-08), diagnosed and closed.** A 54-minute prod import died at the finish line: Fly's proxy autostopped the machine running it ("excess capacity" — the proxy watches inbound traffic, not work inside the container), the cancellation escaped a too-narrow exception handler, and the dead run was durably recorded as *complete* with empty counts — 15,317 plays ingested, zero projected, "successful" on refresh. Fixes across every layer it touched:
 
@@ -33,7 +39,11 @@ A high-effort adversarial review of this wave confirmed ten findings; all fixed 
 - **Re-upload heals stranded runs — proven**: an integration test reproduces the incident's exact stranded state and pins that re-uploading the same file resolves and projects everything with zero duplicate rows. The stale backfill script (obsolete detection premise; RLS silently pinning it to the wrong user) was repaired as the fallback for rows a re-upload can't reach.
 - **The UI never lies about a dead stream**: one bounded SSE resume carrying `Last-Event-ID` (activating the server's replay filter, previously dead code), then polling the durable run row into the same terminal card/toast the stream would have shown; "Connection failed" now means the network is actually down, and an amber "Reconnecting" state covers the gap.
 
-Follow-ups scheduled in-series: multi-file import queue (v0.10.2.5), batch-first Last.fm path (v0.10.2.6), liveness reaper + pre-deploy busy gate (v0.10.2.7). PDR-003 opens the watch on Spotify's postponed dev-mode batch-endpoint removal — the one finding that threatens batch-first architecturally.
+**One way to fetch a track, and a dead-code gate that means it.** The single-track fetch is gone entirely — callers pass lists (`get_tracks_batched([id])` for one), and the stale-ID diagnose script got the same batch-first treatment (50× fewer calls, and its hand-rolled classification no longer mistakes a failed request for a dead track). This also cleared a red `vulture` step that had been failing CI's dead-code gate since the v0.10.2.4 assembly.
+
+Also: the `get_database_url` tests now assert the normalization contract against pinned inputs. They previously compared the result to the ambient settings value — which made them vacuous in CI (no `.env`, so both sides were the empty string) and failing on any machine whose `.env.local` carried a plain `postgresql://`.
+
+Follow-ups scheduled in-series: multi-file import queue (v0.10.2.6), batch-first Last.fm path (v0.10.2.7), liveness reaper + pre-deploy busy gate (v0.10.2.8). PDR-003 opens the watch on Spotify's postponed dev-mode batch-endpoint removal — the one finding that threatens batch-first architecturally.
 
 **A dependency-freshness sweep rides along.** Every dependency to its latest stable release — internal currency and security patches rather than anything user-visible, taken now because this release redeploys anyway.
 

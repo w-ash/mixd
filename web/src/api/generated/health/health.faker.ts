@@ -3,6 +3,6 @@
  * Do not edit manually.
  * Mixd
  * Personal music metadata hub
- * OpenAPI spec version: 0.10.2.4
+ * OpenAPI spec version: 0.10.2.5
  */
 
