@@ -123,7 +123,7 @@ class SpotifyAPIClient(BaseAPIClient):
 
     Example:
         >>> client = SpotifyAPIClient()
-        >>> track_data = await client.get_track("4iV5W9uYEdYUVa79Axb7Rh")
+        >>> fetch = await client.get_tracks_batched(["4iV5W9uYEdYUVa79Axb7Rh"])
         >>> playlist_data = await client.get_playlist("37i9dQZF1DX0XUsuxWHRQd")
     """
 
@@ -184,28 +184,17 @@ class SpotifyAPIClient(BaseAPIClient):
     # Track API Methods
     # -------------------------------------------------------------------------
 
-    async def get_track(self, track_id: str) -> SpotifyTrack | None:
-        """One track — the degenerate case of :meth:`get_tracks_batched`.
-
-        There is one GET-and-parse implementation for tracks and it is the
-        batch one: ``GET /tracks?ids=`` with a single id. A dead id comes back
-        as a ``null`` array entry rather than the 404 ``GET /tracks/{id}``
-        gave, so the answer is the same ``None`` as before.
-
-        ``None`` is also what an *unanswered* id yields, exactly as the old
-        single fetch did — a lone ``SpotifyTrack | None`` has nowhere to put
-        the dead-versus-unanswered distinction. Callers that must not read a
-        failed request as a dead id — the inward resolver above all — take
-        :meth:`get_tracks_batched` and its :class:`SpotifyTracksFetch`.
-        """
-        return (await self.get_tracks_batched([track_id])).tracks.get(track_id)
-
     async def get_tracks_batched(
         self,
         track_ids: list[str],
         progress_callback: Callable[[int, int, str], Awaitable[None]] | None = None,
     ) -> SpotifyTracksFetch:
-        """Fetch many tracks via GET /tracks?ids=, up to 50 ids per request.
+        """Fetch tracks via GET /tracks?ids=, up to 50 ids per request.
+
+        The only track fetch there is — one id is the degenerate case, asked as
+        a one-element list and read back out of ``tracks``. Nothing collapses
+        the fetch to a bare ``SpotifyTrack | None``, because that shape has
+        nowhere to put the dead-versus-unanswered distinction below.
 
         One request per chunk instead of one per id: a 46k-id import drops from
         46k requests to ~920. Chunks are issued concurrently (bounded by

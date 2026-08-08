@@ -1739,7 +1739,7 @@ class TestUnresolvableFallbackTelemetry:
 
 
 class TestSubstitutionRecordsTheMarketSent:
-    """``get_track`` sends ``market`` on every request, so the event must say which."""
+    """``get_tracks_batched`` sends ``market`` on every request, so the event must say which."""
 
     async def test_relink_event_payload_carries_the_configured_market(self):
         old_id = "old_stale_id_0000000000"

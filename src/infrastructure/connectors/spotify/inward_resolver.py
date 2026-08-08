@@ -785,7 +785,7 @@ class SpotifyInwardResolver(InwardTrackResolver):
         break writes and write-flap under a multi-market user. The dual mapping
         already caches both ids; this records the assertion that produced it.
 
-        ``market`` records the one the batch fetch actually sent (``get_track``
+        ``market`` records the one the batch fetch actually sent (``get_tracks_batched``
         passes ``settings.api.spotify_market`` on every request). Relinking only
         fires when a market is supplied, so the market in force is what makes a
         substitution interpretable later — the same requested id can relink to

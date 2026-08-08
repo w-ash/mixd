@@ -1,7 +1,7 @@
 """Tests for Spotify Feb 2026 API migration changes.
 
-Validates: single track fetch, batched track fetch (GET /tracks?ids=),
-search limit clamping, playlist items field rename, and non-owned playlist warning.
+Validates: batched track fetch (GET /tracks?ids=), search limit clamping,
+playlist items field rename, and non-owned playlist warning.
 """
 
 from collections.abc import Awaitable, Callable, Iterator
@@ -69,39 +69,21 @@ def _batch_client(
         yield client
 
 
-class TestGetTrackSingle:
-    """One track is the degenerate case of the batch fetch — one id, one call."""
+class TestGetTracksBatched:
+    """GET /tracks?ids= — chunking, positional correlation, pacing, progress."""
 
-    async def test_get_track_returns_model(self):
+    async def test_one_id_is_the_degenerate_case(self):
+        """A single track is asked for as a one-element list, like any other."""
         impl = AsyncMock(
             return_value={"tracks": [{"id": "abc123", "name": "Test Song"}]}
         )
 
         with _batch_client(impl) as client:
-            result = await client.get_track("abc123")
+            fetch = await client.get_tracks_batched(["abc123"])
 
         assert impl.await_args.args[0] == ["abc123"]
-        assert result is not None
-        assert result.id == "abc123"
-        assert result.name == "Test Song"
-
-    async def test_get_track_returns_none_for_a_dead_id(self):
-        """A dead id is a null array entry, where it used to be a 404."""
-        with _batch_client(AsyncMock(return_value={"tracks": [None]})) as client:
-            result = await client.get_track("missing")
-
-        assert result is None
-
-    async def test_get_track_returns_none_on_failure(self):
-        """Unanswered collapses to None here — the batch form keeps them apart."""
-        with _batch_client(AsyncMock(return_value=None)) as client:
-            result = await client.get_track("missing")
-
-        assert result is None
-
-
-class TestGetTracksBatched:
-    """GET /tracks?ids= — chunking, positional correlation, pacing, progress."""
+        assert fetch.tracks["abc123"].name == "Test Song"
+        assert fetch.unanswered == frozenset()
 
     async def test_empty_input_returns_an_empty_fetch(self):
         with _batch_client() as client:

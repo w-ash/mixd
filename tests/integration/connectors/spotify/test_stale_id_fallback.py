@@ -12,15 +12,49 @@ Spotify client would fall back to launching the interactive browser OAuth
 flow — never an acceptable side effect of an automated test run.
 """
 
+from collections.abc import Sequence
 import os
 from pathlib import Path
+import random
 
 import pytest
 
 from src.infrastructure.connectors.spotify.client import (
     SpotifyAPIClient,
+    SpotifyTracksFetch,
     field_filtered_search_query,
 )
+
+
+def _sample_export_ids(
+    export_file: Path, sample_size: int
+) -> tuple[list[str], dict[str, tuple[str, str]]]:
+    """Sample unique track ids from an export, with their (artist, title)."""
+    from src.infrastructure.connectors.spotify.personal_data import (
+        parse_spotify_personal_data,
+    )
+
+    id_map: dict[str, tuple[str, str]] = {}
+    for r in parse_spotify_personal_data(export_file):
+        parts = r.track_uri.split(":")
+        if len(parts) == 3:
+            id_map[parts[2]] = (r.artist_name, r.track_name)
+
+    sample_ids = random.sample(list(id_map.keys()), min(sample_size, len(id_map)))
+    return sample_ids, id_map
+
+
+def _dead_ids(requested: Sequence[str], fetch: SpotifyTracksFetch) -> list[str]:
+    """Ids Spotify answered about with null — absent from tracks AND unanswered.
+
+    An unanswered id is a request that never landed, so counting it as dead
+    would manufacture deaths out of one 5xx.
+    """
+    return [
+        track_id
+        for track_id in requested
+        if track_id not in fetch.tracks and track_id not in fetch.unanswered
+    ]
 
 
 @pytest.mark.diagnostic
@@ -40,64 +74,33 @@ class TestStaleIdDiscovery:
         return path
 
     async def test_oldest_export_has_dead_ids(self, export_file):
-        """Parse old export, sample 20 IDs, verify at least 1 is dead."""
-        import random
-
-        from src.infrastructure.connectors.spotify.personal_data import (
-            parse_spotify_personal_data,
-        )
-
-        records = parse_spotify_personal_data(export_file)
-
-        # Extract unique track IDs
-        id_map: dict[str, tuple[str, str]] = {}
-        for r in records:
-            parts = r.track_uri.split(":")
-            if len(parts) == 3:
-                id_map[parts[2]] = (r.artist_name, r.track_name)
-
-        sample_ids = random.sample(list(id_map.keys()), min(20, len(id_map)))
+        """Parse old export, ask about 20 IDs in one batch, expect ≥1 dead."""
+        sample_ids, _ = _sample_export_ids(export_file, 20)
 
         client = SpotifyAPIClient()
-        dead_count = 0
         try:
-            for track_id in sample_ids:
-                result = await client.get_track(track_id)
-                if not result:
-                    dead_count += 1
+            fetch = await client.get_tracks_batched(sample_ids)
         finally:
             await client.aclose()
 
-        # At least 1 dead ID expected in old export data
-        assert dead_count >= 1, (
+        if fetch.unanswered:
+            pytest.skip(
+                f"{len(fetch.unanswered)}/{len(sample_ids)} IDs went unanswered — "
+                "the API did not answer, so nothing can be concluded; re-run"
+            )
+
+        assert _dead_ids(sample_ids, fetch), (
             f"Expected dead IDs in old export, but all {len(sample_ids)} were alive"
         )
 
     async def test_dead_id_resolvable_by_search(self, export_file):
         """For dead IDs, verify artist+title search returns results with ISRCs."""
-        import random
-
-        from src.infrastructure.connectors.spotify.personal_data import (
-            parse_spotify_personal_data,
-        )
-
-        records = parse_spotify_personal_data(export_file)
-
-        id_map: dict[str, tuple[str, str]] = {}
-        for r in records:
-            parts = r.track_uri.split(":")
-            if len(parts) == 3:
-                id_map[parts[2]] = (r.artist_name, r.track_name)
-
-        sample_ids = random.sample(list(id_map.keys()), min(30, len(id_map)))
+        sample_ids, id_map = _sample_export_ids(export_file, 30)
 
         client = SpotifyAPIClient()
-        dead_ids: list[str] = []
         try:
-            for track_id in sample_ids:
-                result = await client.get_track(track_id)
-                if not result:
-                    dead_ids.append(track_id)
+            fetch = await client.get_tracks_batched(sample_ids)
+            dead_ids = _dead_ids(sample_ids, fetch)
 
             if not dead_ids:
                 pytest.skip(

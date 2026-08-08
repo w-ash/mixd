@@ -35,6 +35,13 @@ A high-effort adversarial review of this wave confirmed ten findings; all fixed 
 
 Follow-ups scheduled in-series: multi-file import queue (v0.10.2.5), batch-first Last.fm path (v0.10.2.6), liveness reaper + pre-deploy busy gate (v0.10.2.7). PDR-003 opens the watch on Spotify's postponed dev-mode batch-endpoint removal — the one finding that threatens batch-first architecturally.
 
+**A dependency-freshness sweep rides along.** Every dependency to its latest stable release — internal currency and security patches rather than anything user-visible, taken now because this release redeploys anyway.
+
+- **Python** (22 packages): `cryptography` 49→50, `starlette` 1.3.1→1.6.0, `fastapi` 0.141.1, `websockets` 16→17. `pyproject.toml` floors now track the lock rather than the oldest version that once happened to work — mixd deploys from its own lockfile and is never co-installed as a library, so a tight floor costs nothing and the manifest stops overstating what it supports.
+- **Web** (10 packages) plus pnpm 11.5.2 → 11.20.0 and Playwright 1.61.1 → 1.62.1, each moved across every pin at once (`packageManager`, `Dockerfile`, `ci.yml`, e2e docs). Baselines regenerated in the new Playwright image came back pixel-identical — which incidentally proves `elkjs` 0.12 lays the workflow graphs out exactly as 0.11 did.
+- **GitHub Actions**: checkout / setup-node / upload-artifact v7, pnpm/action-setup v6, build-push v7, buildx v4. `setup-uv` v7 → **v9.0.0**, pinned to the full version because it stopped publishing major tags at v8.0.0 as a supply-chain measure — the usual `@v9` shorthand would have failed CI at "Unable to resolve action". Its one breaking change (`prune-cache` now defaults to false) raises Actions cache usage.
+- Held back deliberately: `orval` 8.24.0 (published hours before the sweep, inside pnpm's `minimumReleaseAge` cooldown) and `pydantic-core` 2.48.0 (pydantic exact-pins 2.46.4).
+
 → [details](docs/backlog/v0.10.x.md#post-deploy-revisions)
 
 ## [0.10.2.3] — 2026-08-08

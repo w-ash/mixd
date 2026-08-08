@@ -1,11 +1,14 @@
 #!/usr/bin/env python3
 """Diagnose stale Spotify track IDs in personal data exports.
 
-Scans export files, extracts unique Spotify track IDs, tests them against the
-real API, and classifies each as alive, redirected, or dead:
-- alive: API returns track with same ID
-- redirected: API returns track with DIFFERENT ID (Spotify relinking)
-- dead: API returns None (true 404)
+Scans export files, extracts unique Spotify track IDs, asks the batch
+``GET /tracks?ids=`` endpoint about all of them in one call, and classifies
+each ID from the returned ``SpotifyTracksFetch``:
+- alive: the answer carries the same ID
+- redirected: the answer carries a DIFFERENT ID (Spotify relinking)
+- dead: Spotify answered with null for that ID
+- unanswered: that ID's chunk request failed — no answer at all, which is NOT
+  evidence of death; re-run to ask again
 
 Usage:
     uv run python scripts/diagnose_stale_spotify_ids.py
@@ -55,34 +58,6 @@ def extract_id_from_uri(uri: str) -> str | None:
     return None
 
 
-async def _classify_track_id(
-    client: SpotifyAPIClient,
-    track_id: str,
-    i: int,
-    total: int,
-    id_metadata: dict[str, tuple[str, str]],
-    alive: list[str],
-    redirected: list[tuple[str, str, str, str]],
-    dead: list[str],
-) -> None:
-    """Fetch one track from the API and append it to the matching bucket."""
-    result = await client.get_track(track_id)
-    if result:
-        if result.id != track_id:
-            artist, title = id_metadata[track_id]
-            redirected.append((track_id, result.id, artist, title))
-            print(
-                f"  REDIRECT [{i}/{total}] {track_id} → {result.id} "
-                f"({artist} - {title})"
-            )
-        else:
-            alive.append(track_id)
-    else:
-        dead.append(track_id)
-        artist, title = id_metadata[track_id]
-        print(f"  DEAD [{i}/{total}] {artist} - {title} (id: {track_id})")
-
-
 async def main() -> None:
     setup_script_logger("diagnose_stale_spotify_ids")
 
@@ -112,45 +87,62 @@ async def main() -> None:
         ids_to_check = random.sample(ids_to_check, sample_size)
         print(f"Sampling {sample_size} IDs")
 
-    # Check each ID against API — classify as alive, redirected, or dead
+    total = len(ids_to_check)
+    print(f"\nChecking {total} IDs against Spotify API...")
+    print("=" * 60)
+
+    async def report_progress(completed: int, of_total: int, _message: str) -> None:
+        if completed < of_total:
+            print(f"  ... checked {completed}/{of_total}")
+
     client = SpotifyAPIClient()
+    try:
+        # One call: it chunks at 50, paces itself, and keeps "no answer" apart
+        # from "dead" — the distinction this diagnostic exists to report.
+        fetch = await client.get_tracks_batched(
+            ids_to_check, progress_callback=report_progress
+        )
+    finally:
+        await client.aclose()
+
     alive: list[str] = []
     redirected: list[tuple[str, str, str, str]] = []  # (old_id, new_id, artist, title)
     dead: list[str] = []
-    errors: list[str] = []
+    unanswered: list[str] = []
 
-    print(f"\nChecking {len(ids_to_check)} IDs against Spotify API...")
-    print("=" * 60)
-
-    total = len(ids_to_check)
     for i, track_id in enumerate(ids_to_check, 1):
-        try:
-            await _classify_track_id(
-                client, track_id, i, total, id_metadata, alive, redirected, dead
+        artist, title = id_metadata[track_id]
+        track = fetch.tracks.get(track_id)
+        if track is None:
+            if track_id in fetch.unanswered:
+                unanswered.append(track_id)
+                print(f"  UNANSWERED [{i}/{total}] {artist} - {title} (id: {track_id})")
+            else:
+                dead.append(track_id)
+                print(f"  DEAD [{i}/{total}] {artist} - {title} (id: {track_id})")
+        elif track.id != track_id:
+            redirected.append((track_id, track.id, artist, title))
+            print(
+                f"  REDIRECT [{i}/{total}] {track_id} → {track.id} ({artist} - {title})"
             )
-        except Exception as e:
-            errors.append(track_id)
-            print(f"  ERROR [{i}/{total}] {track_id}: {e}")
-
-        # Progress indicator every 25 IDs
-        if i % 25 == 0 and i < len(ids_to_check):
-            print(f"  ... checked {i}/{len(ids_to_check)}")
+        else:
+            alive.append(track_id)
 
     # Summary
     print("\n" + "=" * 60)
     print(
         f"Results: {len(alive)} alive, {len(redirected)} redirected, "
-        f"{len(dead)} dead, {len(errors)} errors out of {len(ids_to_check)} unique IDs"
+        f"{len(dead)} dead, {len(unanswered)} unanswered out of {total} unique IDs"
     )
 
     if redirected:
-        print(f"\nRedirect rate: {len(redirected) / len(ids_to_check) * 100:.1f}%")
+        print(f"\nRedirect rate: {len(redirected) / total * 100:.1f}%")
         print("\n# Redirected IDs:")
         for old_id, new_id, artist, title in redirected:
             print(f"  {old_id} → {new_id}  # {artist} - {title}")
 
     if dead:
-        print(f"\nDead ID rate: {len(dead) / len(ids_to_check) * 100:.1f}%")
+        print(f"\nDead ID rate: {len(dead) / total * 100:.1f}%")
         print("\n# Dead IDs (copy-paste into test fixtures):")
         print("KNOWN_DEAD_SPOTIFY_IDS = [")
         for did in dead:
@@ -158,7 +150,14 @@ async def main() -> None:
             print(f'    "{did}",  # {artist} - {title}')
         print("]")
 
-    await client.aclose()
+    if unanswered:
+        print(
+            f"\nUNANSWERED (request failed — not evidence of death; re-run): "
+            f"{len(unanswered)} IDs"
+        )
+        for uid in unanswered:
+            artist, title = id_metadata[uid]
+            print(f"  {uid}  # {artist} - {title}")
 
 
 asyncio.run(main())

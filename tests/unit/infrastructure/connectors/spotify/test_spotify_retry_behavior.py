@@ -8,11 +8,14 @@ retry policy into each client method. Covers:
 - Not found errors (404): No retries, immediate failure
 - Network errors: 3 retries as temporary
 - Recovery: Success after transient failures
-- All 13 client methods wired with retry
+- Every client method wired with retry
 
 Injection strategy: patch individual _impl methods to inject httpx2 errors.
-``get_track`` is a one-id call to the batch endpoint, so its injection point is
-``_get_tracks_batch_impl`` — there is one GET-and-parse implementation for tracks.
+The per-classification cases below all run through ``get_tracks_batched``,
+whose per-chunk ``_api_call`` is the single GET-and-parse implementation for
+tracks, so its injection point is ``_get_tracks_batch_impl``. A suppressed
+failure there surfaces as the chunk's ids in ``unanswered`` — the shape that
+keeps a failed request from being read as a dead id.
 """
 
 from unittest.mock import AsyncMock, patch
@@ -91,10 +94,11 @@ class TestComprehensiveErrorClassification:
 
         mock_impl = AsyncMock(side_effect=error)
         with patch.object(SpotifyAPIClient, "_get_tracks_batch_impl", mock_impl):
-            result = await spotify_client.get_track("test_track_id")
+            fetch = await spotify_client.get_tracks_batched(["test_track_id"])
 
-        # Should return None gracefully (no exception raised)
-        assert result is None
+        # Should degrade gracefully to "no answer" (no exception raised)
+        assert fetch.tracks == {}
+        assert fetch.unanswered == frozenset({"test_track_id"})
 
         # Should NOT retry (only 1 call) - permanent errors are immediate failures
         assert mock_impl.call_count == 1, (
@@ -108,9 +112,10 @@ class TestComprehensiveErrorClassification:
 
         mock_impl = AsyncMock(side_effect=error)
         with patch.object(SpotifyAPIClient, "_get_tracks_batch_impl", mock_impl):
-            result = await spotify_client.get_track("nonexistent_track_id")
+            fetch = await spotify_client.get_tracks_batched(["nonexistent_track_id"])
 
-        assert result is None
+        assert fetch.tracks == {}
+        assert fetch.unanswered == frozenset({"nonexistent_track_id"})
         assert mock_impl.call_count == 1, (
             f"Expected 1 call for not found error, got {mock_impl.call_count}"
         )
@@ -122,9 +127,9 @@ class TestComprehensiveErrorClassification:
 
         mock_impl = AsyncMock(side_effect=error)
         with patch.object(SpotifyAPIClient, "_get_tracks_batch_impl", mock_impl):
-            result = await fast_retry_client.get_track("test_track_id")
+            fetch = await fast_retry_client.get_tracks_batched(["test_track_id"])
 
-        assert result is None
+        assert fetch.unanswered == frozenset({"test_track_id"})
         assert mock_impl.call_count == 3, (
             f"Expected 3 calls for rate limit error, got {mock_impl.call_count}"
         )
@@ -150,9 +155,9 @@ class TestComprehensiveErrorClassification:
 
         mock_impl = AsyncMock(side_effect=error)
         with patch.object(SpotifyAPIClient, "_get_tracks_batch_impl", mock_impl):
-            result = await fast_retry_client.get_track("test_track_id")
+            fetch = await fast_retry_client.get_tracks_batched(["test_track_id"])
 
-        assert result is None
+        assert fetch.unanswered == frozenset({"test_track_id"})
         assert mock_impl.call_count == 3, (
             f"Expected 3 calls for server error {status_code}, got {mock_impl.call_count}"
         )
@@ -173,17 +178,18 @@ class TestComprehensiveErrorClassification:
 
         Unlike the old spotipy-based implementation where non-SpotifyException errors
         propagated immediately, httpx2.RequestError is explicitly in the retry type filter
-        and is classified as 'temporary' — so it gets 3 retry attempts before returning None.
+        and is classified as 'temporary' — so it gets 3 retry attempts before the
+        chunk's ids are reported unanswered.
         """
         req = httpx2.Request("GET", "https://api.spotify.com/v1/tracks")
         error = httpx2.ConnectError(error_message, request=req)
 
         mock_impl = AsyncMock(side_effect=error)
         with patch.object(SpotifyAPIClient, "_get_tracks_batch_impl", mock_impl):
-            result = await fast_retry_client.get_track("test_track_id")
+            fetch = await fast_retry_client.get_tracks_batched(["test_track_id"])
 
-        # Network errors ARE retried (3 times) and then return None
-        assert result is None
+        # Network errors ARE retried (3 times) and then leave the id unanswered
+        assert fetch.unanswered == frozenset({"test_track_id"})
         assert mock_impl.call_count == 3, (
             f"Expected 3 retries for network error, got {mock_impl.call_count}"
         )
@@ -191,16 +197,16 @@ class TestComprehensiveErrorClassification:
     # SUCCESS AFTER RETRIES - Test resilience patterns
     async def test_success_after_temporary_failure(self, fast_retry_client):
         """Test successful recovery after temporary failures."""
-        success_data = {"tracks": [{"id": "test_track", "name": "Test Track"}]}
+        success_data = {"tracks": [{"id": "test_track_id", "name": "Test Track"}]}
         error = make_httpx_error(503, "Service Unavailable")
 
         mock_impl = AsyncMock(side_effect=[error, error, success_data])
         with patch.object(SpotifyAPIClient, "_get_tracks_batch_impl", mock_impl):
-            result = await fast_retry_client.get_track("test_track_id")
+            fetch = await fast_retry_client.get_tracks_batched(["test_track_id"])
 
-        # Should succeed and return parsed model on 3rd attempt
-        assert result is not None
-        assert result.id == "test_track"
+        # Should succeed and return the parsed model on the 3rd attempt
+        assert fetch.unanswered == frozenset()
+        assert fetch.tracks["test_track_id"].id == "test_track_id"
         assert mock_impl.call_count == 3, (
             f"Expected 3 calls for eventual success, got {mock_impl.call_count}"
         )
@@ -209,7 +215,9 @@ class TestComprehensiveErrorClassification:
     @pytest.mark.parametrize(
         ("method_name", "method_args", "impl_name"),
         [
-            ("get_track", ("test_id",), "_get_tracks_batch_impl"),
+            # get_tracks_batched is absent by design: its result is a
+            # SpotifyTracksFetch, not a falsy None, and the classification
+            # tests above already drive every error class through it.
             ("search_by_isrc", ("USRC17607839",), "_search_by_isrc_impl"),
             (
                 "search_track",

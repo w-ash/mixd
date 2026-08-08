@@ -326,8 +326,8 @@ class TestClientSmokeViaRealHttpx2:
         )
         from src.infrastructure.connectors.spotify.client import SpotifyAPIClient
 
-        # ``get_track`` is one id through the batch endpoint, so the body it
-        # parses is the ``/tracks?ids=`` array shape.
+        # The batch fetch is the only track call, so the body it parses is the
+        # ``/tracks?ids=`` array shape.
         payload = {"tracks": [{"id": "abc123", "name": "Test Track"}]}
         transport = _QueueTransport((200, payload))
 
@@ -352,13 +352,12 @@ class TestClientSmokeViaRealHttpx2:
         ):
             client = SpotifyAPIClient()
             # Must not raise RuntimeError from the event hook
-            result = await client.get_track("abc123")
+            fetch = await client.get_tracks_batched(["abc123"])
             await client.aclose()
 
-        # get_track returns validated SpotifyTrack
-        assert result is not None
-        assert result.id == "abc123"
-        assert result.name == "Test Track"
+        # The fetch carries a validated SpotifyTrack under the requested id
+        assert fetch.tracks["abc123"].name == "Test Track"
+        assert fetch.unanswered == frozenset()
 
     async def test_spotify_error_response_returns_none_via_hook(self, spotify_settings):
         """A 429 from Spotify must log the body in the hook and return None.
@@ -394,10 +393,11 @@ class TestClientSmokeViaRealHttpx2:
             client = SpotifyAPIClient()
             client._retry_policy.wait = wait_none()
             # Must not raise — _api_call suppresses HTTPStatusError
-            result = await client.get_track("abc123")
+            fetch = await client.get_tracks_batched(["abc123"])
             await client.aclose()
 
-        assert result is None
+        assert fetch.tracks == {}
+        assert fetch.unanswered == frozenset({"abc123"})
 
     async def test_lastfm_success_response_does_not_crash_hook(self):
         """A 200 from Last.fm must not raise in the response event hook."""
