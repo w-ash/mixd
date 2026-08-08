@@ -22,23 +22,56 @@ def capture_logs():
 
 
 class TestGetDatabaseUrl:
-    """get_database_url() resolves DATABASE_URL from environ or settings default."""
+    """get_database_url() resolves DATABASE_URL from environ or settings default.
 
-    def test_returns_settings_default_when_env_unset(self):
-        with patch.dict("os.environ", {}, clear=True):
-            result = get_database_url()
-        assert result == settings.database.url
+    Both inputs are pinned explicitly. Asserting the result against the ambient
+    ``settings.database.url`` instead would be vacuous wherever that value is
+    empty (CI, which has no .env) and wrong wherever it is set un-normalized
+    (any developer machine with a plain ``postgresql://`` in .env.local).
+    """
+
+    SETTINGS_RAW = "postgresql://settings-host/settings_db"
+    SETTINGS_NORMALIZED = "postgresql+psycopg://settings-host/settings_db"
+
+    def test_falls_back_to_settings_when_env_unset(self):
+        with (
+            patch.object(settings.database, "url", self.SETTINGS_RAW),
+            patch.dict("os.environ", {}, clear=True),
+        ):
+            assert get_database_url() == self.SETTINGS_NORMALIZED
+
+    def test_ignores_empty_environ(self):
+        with (
+            patch.object(settings.database, "url", self.SETTINGS_RAW),
+            patch.dict("os.environ", {"DATABASE_URL": ""}),
+        ):
+            assert get_database_url() == self.SETTINGS_NORMALIZED
 
     def test_respects_environ_override(self):
         override = "postgresql+asyncpg://localhost/test_db"
-        with patch.dict("os.environ", {"DATABASE_URL": override}):
-            result = get_database_url()
-        assert result == override
+        with (
+            patch.object(settings.database, "url", self.SETTINGS_RAW),
+            patch.dict("os.environ", {"DATABASE_URL": override}),
+        ):
+            # An unrecognized driver suffix passes through untouched, so this
+            # also pins that normalization never rewrites a driver we don't own.
+            assert get_database_url() == override
 
-    def test_ignores_empty_environ(self):
-        with patch.dict("os.environ", {"DATABASE_URL": ""}):
-            result = get_database_url()
-        assert result == settings.database.url
+    @pytest.mark.parametrize(
+        ("raw", "expected"),
+        [
+            ("postgres://h/db", "postgresql+psycopg://h/db"),
+            ("postgresql://h/db", "postgresql+psycopg://h/db"),
+            ("postgresql+psycopg_async://h/db", "postgresql+psycopg://h/db"),
+            ("postgresql+psycopg://h/db", "postgresql+psycopg://h/db"),
+            ("", ""),
+        ],
+    )
+    def test_normalizes_url_variants(self, raw: str, expected: str):
+        with patch.dict("os.environ", {"DATABASE_URL": raw}):
+            # Empty environ falls through to settings, so pin that empty too.
+            with patch.object(settings.database, "url", ""):
+                assert get_database_url() == expected
 
 
 class TestServerConfig:
