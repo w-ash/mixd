@@ -30,7 +30,7 @@ regenerate on every PR. The single source of truth is the Playwright Docker
 image used in CI.
 
 **Image ↔ package coupling**: the Docker tag must match `@playwright/test`
-in `web/pnpm-lock.yaml` exactly (currently `v1.61.1-noble`) — the browsers
+in `web/pnpm-lock.yaml` exactly (currently `v1.62.1-noble`) — the browsers
 inside the image are revision-locked to the Playwright version, and a skew
 kills every test at `browserType.launch`. Baselines are additionally coupled
 to the browser build: bumping `@playwright/test` (and therefore the image)
@@ -53,8 +53,8 @@ Docker image:
 ```bash
 docker run --rm -e CI=true \
   -v "$PWD":/work -w /work/web \
-  mcr.microsoft.com/playwright:v1.61.1-noble \
-  bash -c "corepack enable && corepack prepare pnpm@11.5.2 --activate \
+  mcr.microsoft.com/playwright:v1.62.1-noble \
+  bash -c "corepack enable && corepack prepare pnpm@11.20.0 --activate \
            && pnpm install --frozen-lockfile \
            && pnpm exec playwright test --update-snapshots"
 ```
@@ -71,9 +71,12 @@ the image and `@playwright/test` have skewed.
 rm -rf web/node_modules && pnpm --prefix web install
 ```
 
-Use `pnpm exec playwright test --update-snapshots`, NOT
-`pnpm test:e2e -- --update-snapshots` — pnpm 11.5 silently drops the
-flag after `--`, the run looks normal, and nothing regenerates.
+Prefer `pnpm exec playwright test --update-snapshots` over
+`pnpm test:e2e -- --update-snapshots`. The `--` form was actively broken on
+pnpm 11.5 (the flag was silently dropped, the run looked normal, and nothing
+regenerated); pnpm 11.20 forwards it correctly, so both work today. `pnpm exec`
+stays the documented form because it has no version-dependent behaviour to
+remember.
 
 `CI=true` is load-bearing twice over: without a TTY pnpm silently aborts
 purging the macOS `node_modules` (and still exits 0 — nothing regenerates),

@@ -24,7 +24,7 @@ jobs:
     timeout-minutes: 10
 
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@v7
         with:
           submodules: false
 
@@ -51,7 +51,11 @@ jobs:
         env:
           DB_URL: ${{ steps.neon-branch.outputs.db_url }}
 
-      - uses: astral-sh/setup-uv@v7
+      # Full version, not `@v9` — setup-uv stopped publishing major/minor tags at
+      # v8.0.0 (deliberately, as a supply-chain measure after the tj-actions
+      # compromise), so a shortened `@v9` fails at "Unable to resolve action".
+      # Dependabot's github-actions ecosystem still bumps an exact tag like this.
+      - uses: astral-sh/setup-uv@v9.0.0
 
       # --locked, not --frozen: assert uv.lock is current for pyproject.toml. --frozen
       # installs a stale lock happily, deferring the failure to the Dockerfile's
@@ -126,13 +130,13 @@ jobs:
         working-directory: web
 
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@v7
 
-      - uses: pnpm/action-setup@v5
+      - uses: pnpm/action-setup@v6
         with:
           package_json_file: web/package.json
 
-      - uses: actions/setup-node@v6
+      - uses: actions/setup-node@v7
         with:
           node-version: 24
           cache: pnpm
@@ -163,13 +167,13 @@ jobs:
     timeout-minutes: 15
 
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@v7
 
-      - uses: docker/setup-buildx-action@v3
+      - uses: docker/setup-buildx-action@v4
 
       # Build only, never pushed — the real image is still built by Fly at deploy.
       # VITE_NEON_AUTH_URL defaults to "" in the Dockerfile, so no secret is needed.
-      - uses: docker/build-push-action@v6
+      - uses: docker/build-push-action@v7
         with:
           context: .
           target: runtime
@@ -186,19 +190,19 @@ jobs:
       # ships the wrong browser revisions and every test dies at browserType.launch.
       # When bumping @playwright/test: bump this tag AND regenerate the visual
       # baselines inside the new image (web/e2e/README.md).
-      image: mcr.microsoft.com/playwright:v1.61.1-noble
+      image: mcr.microsoft.com/playwright:v1.62.1-noble
 
     defaults:
       run:
         working-directory: web
 
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@v7
 
       - name: Enable corepack
         run: |
           corepack enable
-          corepack prepare pnpm@11.5.2 --activate
+          corepack prepare pnpm@11.20.0 --activate
 
       - name: Install dependencies
         run: pnpm install --frozen-lockfile
@@ -208,7 +212,7 @@ jobs:
 
       - name: Upload diff artifacts on failure
         if: failure()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: playwright-diffs
           path: |

@@ -42,7 +42,7 @@ ENV VITE_NEON_AUTH_URL=$VITE_NEON_AUTH_URL \
 # `packageManager` field. Drift here caused the v0.7.8 deploy to fail with
 # `settings.onlyBuiltDependencies.push is not a function` against a workspace
 # config that pnpm v11 tolerates and pnpm v10 doesn't.
-RUN npm install -g pnpm@11.5.2
+RUN npm install -g pnpm@11.20.0
 
 # Install dependencies first (layer cache)
 COPY web/package.json web/pnpm-lock.yaml web/pnpm-workspace.yaml ./

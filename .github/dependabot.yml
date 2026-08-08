@@ -14,7 +14,7 @@ updates:
     directory: "/"
     schedule:
       interval: "weekly"
-    # Mirrors pnpm 11.5's minimumReleaseAge behaviour on the JS side, so both
+    # Mirrors pnpm's minimumReleaseAge behaviour on the JS side, so both
     # ecosystems wait out a fresh release before we adopt it.
     cooldown:
       default-days: 7
