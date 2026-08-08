@@ -191,11 +191,11 @@ describe("useOperationSSE", () => {
     expect(result.current.recovery.active).toBe(false);
   });
 
-  it("surfaces transport errors", async () => {
+  it("surfaces transport errors once the bounded resume is spent", async () => {
     mockSSEError("SSE connection failed: 404");
 
     const { result } = renderHook(() =>
-      useOperationSSE({ onDomainEvent: noopDomainEvent }),
+      useOperationSSE({ onDomainEvent: noopDomainEvent, resumeDelayMs: 0 }),
     );
 
     act(() => {
@@ -205,6 +205,64 @@ describe("useOperationSSE", () => {
     await waitFor(() => {
       expect(result.current.error?.message).toMatch(/SSE connection failed/);
     });
+  });
+
+  it("opens the recovery gate as `unresumable` when the stream can't be resumed", async () => {
+    // The transport is out of retries — REST is now the only source of truth,
+    // so the gate must open rather than the run being declared dead.
+    mockSSEError("SSE connection failed: 404");
+
+    const { result } = renderHook(() =>
+      useOperationSSE({ onDomainEvent: noopDomainEvent, resumeDelayMs: 0 }),
+    );
+
+    act(() => {
+      result.current.start("op-lost");
+    });
+
+    await waitFor(() => {
+      expect(result.current.recovery.reason).toBe("unresumable");
+    });
+    expect(result.current.recovery.active).toBe(true);
+    expect(result.current.isRunning).toBe(true);
+  });
+
+  it("opens the recovery gate when the stream ends without a terminal frame", async () => {
+    mockSSEWithEvents([{ event: "progress", data: '{"current":1}' }]);
+
+    const { result } = renderHook(() =>
+      useOperationSSE({ onDomainEvent: noopDomainEvent }),
+    );
+
+    act(() => {
+      result.current.start("op-cut");
+    });
+
+    await waitFor(() => {
+      expect(result.current.recovery.reason).toBe("unresumable");
+    });
+  });
+
+  it("leaves the recovery gate shut when a terminal frame closed the stream", async () => {
+    mockSSEWithEvents([{ event: "done", data: "{}" }]);
+
+    const { result } = renderHook(() =>
+      useOperationSSE({
+        onDomainEvent: (eventType, _d, reportTerminal) => {
+          if (eventType === "done") reportTerminal();
+        },
+      }),
+    );
+
+    act(() => {
+      result.current.start("op-clean");
+    });
+
+    await waitFor(() => {
+      expect(result.current.isRunning).toBe(false);
+    });
+    expect(result.current.recovery.active).toBe(false);
+    expect(result.current.recovery.reason).toBeNull();
   });
 
   it("calls onStreamEnd when the stream ends normally", async () => {

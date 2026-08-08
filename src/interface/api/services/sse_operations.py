@@ -19,7 +19,10 @@ Reusable primitives:
 """
 
 import asyncio
+from asyncio import CancelledError
 from collections.abc import Awaitable, Callable
+import contextlib
+from typing import Final
 from uuid import UUID, uuid4
 
 from fastapi import HTTPException
@@ -56,6 +59,25 @@ logger = get_logger(__name__).bind(service="sse_operations")
 # globally, not per-route. Cleared before the SSE grace period so finished-
 # but-draining tasks don't block new kickoffs.
 _active_operations: set[str] = set()
+
+# What a run killed by a server shutdown/restart records. Two strings because they
+# land in two places: the terse one in ``counts["error_message"]`` (and so in the
+# live toast), the explanatory one in the audit row's issues, where the run log
+# has room to say what to do next. Re-running an import is always safe — the
+# ingest path is idempotent — so the advice is unconditional.
+CANCELLED_ERROR_MESSAGE: Final = "cancelled by server shutdown"
+CANCELLED_ISSUE_MESSAGE: Final = (
+    "Cancelled by server (shutdown or restart) — the import did not finish; "
+    "re-run it (re-imports are idempotent)"
+)
+
+# Bounded second wait for a shielded audit write that was still in flight when the
+# cancellation arrived. Sized well inside ``SHUTDOWN_DRAIN_TIMEOUT_SECONDS`` so a
+# slow write can't consume the whole drain budget on its own.
+_AUDIT_WRITE_GRACE_SECONDS: Final = 2.0
+
+# A cancelled operation skips the SSE read window: see ``finalize_sse_operation``.
+_CANCELLED_GRACE_PERIOD_SECONDS: Final = 0.0
 
 
 async def prepare_sse_operation() -> tuple[str, asyncio.Queue[object]]:
@@ -145,6 +167,10 @@ async def run_sse_operation(
     "if a run fails, they see it" fix, mirroring the workflow/preview path that
     has always pushed its own ``build_terminal_event``. ``finalize_sse_operation``
     pushes the single sentinel. Audit-finalize is best-effort.
+
+    A cancellation (server shutdown/restart) is recorded as ``error`` with the
+    ``CANCELLED_*`` messages and then re-raised, so the task ends cancelled. The
+    audit write is shielded — see ``_finalize_run_shielded``.
     """
     _active_operations.add(operation_id)
     # Own the request operation: it is the top-level op the SSE client is attached
@@ -155,8 +181,21 @@ async def run_sse_operation(
     status: OperationStatus = "complete"
     counts: JsonDict | None = None
     issues: list[JsonDict] = []
+    cancellation: CancelledError | None = None
     try:
         result = await coro
+    except CancelledError as exc:
+        # MUST precede `except Exception`: CancelledError is a BaseException, so the
+        # generic handler never sees it. Without this branch a cancellation (Fly
+        # autostop → SIGINT → task.cancel()) fell straight through to `finally` with
+        # the optimistic `status = "complete"` default still in place — 15,317
+        # ingested plays durably recorded as a successful import with empty counts.
+        # Mirrors workflow_execution.execute_workflow_background, which has always
+        # caught CancelledError, recorded a terminal state, and re-raised.
+        cancellation = exc
+        logger.warning("SSE operation cancelled", operation_id=operation_id)
+        status, counts = "error", {"error_message": CANCELLED_ERROR_MESSAGE}
+        issues = [{"message": CANCELLED_ISSUE_MESSAGE}]
     except Exception as exc:
         logger.error("SSE operation failed", operation_id=operation_id, exc_info=True)
         # str(exc) is empty for argument-less exceptions (e.g. `raise KeyError()`);
@@ -170,29 +209,80 @@ async def run_sse_operation(
             issues = failure_issues(result)
     finally:
         if run_id is not None and user_id is not None:
-            try:
-                # One transaction for status + issues: a separate append could
-                # fail after the status write and leave a durable failed run
-                # with no reason attached.
-                await finalize_run(
-                    run_id,
-                    user_id=user_id,
-                    status=status,
-                    counts=counts,
-                    issues=issues,
-                )
-            except Exception:
-                logger.error(
-                    "Failed to finalize OperationRun row",
-                    operation_id=operation_id,
-                    run_id=str(run_id),
-                    status=status,
-                    exc_info=True,
-                )
+            await _finalize_run_shielded(
+                run_id,
+                operation_id,
+                user_id=user_id,
+                status=status,
+                counts=counts,
+                issues=issues,
+            )
         await _push_terminal_event(operation_id, status, counts, run_id)
         await _safe_complete_parent(operation_id, status)
         _active_operations.discard(operation_id)
-        await finalize_sse_operation(operation_id)
+        await finalize_sse_operation(
+            operation_id,
+            grace_period_seconds=(
+                _CANCELLED_GRACE_PERIOD_SECONDS if cancellation is not None else None
+            ),
+        )
+    if cancellation is not None:
+        # Re-raise once the cleanup above is durable, so the task still ends
+        # *cancelled*: `_on_task_done` logs it as such and the shutdown drain sees a
+        # settled task. Swallowing it would turn a killed run into a normal return.
+        raise cancellation
+
+
+async def _finalize_run_shielded(
+    run_id: UUID,
+    operation_id: str,
+    *,
+    user_id: str,
+    status: OperationStatus,
+    counts: JsonDict | None,
+    issues: list[JsonDict],
+) -> None:
+    """Write the terminal audit row so it survives cancellation of this task.
+
+    ``asyncio.shield`` is load-bearing, not defensive. This runs from a ``finally``
+    that can be entered while a cancellation is being delivered, and an ``await``
+    inside such a ``finally`` is re-cancelled at its first suspension point —
+    ``finalize_run`` does real DB I/O, so unshielded the UPDATE would be interrupted
+    before it lands and the run row would stay exactly as the incident found it. The
+    shielded write runs as its own task and completes even as this one dies.
+
+    Status + issues ride ONE ``finalize_run`` call: a separate append could fail
+    after the status write and leave a durable failed run with no reason attached.
+
+    Never raises — the terminal SSE event and registry teardown still have to run.
+    """
+    write = asyncio.ensure_future(
+        finalize_run(
+            run_id,
+            user_id=user_id,
+            status=status,
+            counts=counts,
+            issues=issues,
+        )
+    )
+    try:
+        await asyncio.shield(write)
+    except CancelledError:
+        # Cancelled while the shielded write was in flight. The write itself lives
+        # on (that is what the shield buys); wait a bounded moment for it to land so
+        # the row is durable before the process goes away. Swallowing the
+        # cancellation here doesn't change the task's outcome — `run_sse_operation`
+        # re-raises it after the cleanup completes.
+        with contextlib.suppress(CancelledError, Exception):
+            await asyncio.wait_for(asyncio.shield(write), _AUDIT_WRITE_GRACE_SECONDS)
+    except Exception:
+        logger.error(
+            "Failed to finalize OperationRun row",
+            operation_id=operation_id,
+            run_id=str(run_id),
+            status=status,
+            exc_info=True,
+        )
 
 
 async def _safe_start_parent(operation_id: str, description: str) -> None:

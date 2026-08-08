@@ -6,9 +6,10 @@
  *   - the SSE transport (`useSSEConnection`) + `operationId`/`isRunning` lifecycle,
  *   - `start` / `adopt` / `reset` / `disconnect`,
  *   - a single first-writer-wins terminal latch (`reportTerminal`), and
- *   - the recovery gate (`recovery.active`) that tells a wrapper *when* to run its
- *     own REST re-attach fetch (snapshot for workflows, operation-run row for
- *     imports) — seed-on-adopt, then stall-only.
+ *   - the recovery gate (`recovery.active` / `recovery.reason`) that tells a wrapper
+ *     *when* to run its own REST re-attach fetch (snapshot for workflows,
+ *     operation-run row for imports): seed-on-adopt, on a 45 s stall, and on an
+ *     unresumable stream (bounded resume spent, or closed with no terminal frame).
  *
  * It deliberately owns NO terminal semantics: the two worlds parse the `error`
  * channel differently (workflows read `final_status`/`error_message` and surface
@@ -22,14 +23,23 @@ import { useCallback, useRef, useState } from "react";
 import { useSSEConnection } from "#/hooks/useSSEConnection";
 import type { SSEState } from "#/lib/sse-types";
 
+/**
+ * Why the recovery gate is open.
+ *
+ * - `seed`: just adopted an in-flight run, waiting for the first REST seed.
+ * - `stalled`: the 45 s watchdog fired — the stream may still recover.
+ * - `unresumable`: the stream is gone for good (bounded resume spent, or it
+ *   ended without a terminal frame). REST is now the ONLY source of truth,
+ *   so wrappers should say so honestly rather than declare the run failed.
+ */
+export type OperationSSERecoveryReason = "seed" | "stalled" | "unresumable";
+
 /** Re-attach recovery gate. Wrappers enable their REST seed/poll on `active`. */
 export interface OperationSSERecovery {
-  /**
-   * True while a re-attach seed is pending (just adopted) OR the SSE stream is
-   * stalled — and no terminal has fired. A wrapper gates its own snapshot/row
-   * fetch on this; without a fetch source it can simply ignore it.
-   */
+  /** True while {@link reason} is set — i.e. REST should be consulted. */
   active: boolean;
+  /** Which condition opened the gate, or null when it's closed. */
+  reason: OperationSSERecoveryReason | null;
   /** Drop the seed gate to stall-only once the first re-attach seed is consumed. */
   markSeeded: () => void;
 }
@@ -49,6 +59,8 @@ export interface UseOperationSSEOptions {
   onReset?: () => void;
   /** Called when the SSE stream ends normally (iterator exhausted, not aborted). */
   onStreamEnd?: () => void;
+  /** Resume backoff override, forwarded to the transport. Test seam. */
+  resumeDelayMs?: number;
 }
 
 export interface UseOperationSSEReturn {
@@ -85,6 +97,10 @@ export function useOperationSSE(
   // True between an adopt() and the first recovery seed. Keeps the recovery gate
   // open immediately on reconnect (not only after a 45 s SSE stall).
   const [isSeeking, setIsSeeking] = useState(false);
+  // True when the stream ended without a terminal frame (server killed, proxy
+  // drop). A clean close never fires the stall watchdog, so this is what opens
+  // the recovery gate for that shape.
+  const [streamEnded, setStreamEnded] = useState(false);
 
   // First-writer-wins guard: terminal signals can race between SSE delivery and
   // the recovery fetch. The first to fire wins; the rest are no-ops.
@@ -109,6 +125,7 @@ export function useOperationSSE(
     state: sseState,
     lastEventAt,
   } = useSSEConnection(operationId, {
+    resumeDelayMs: options.resumeDelayMs,
     onEvent(eventType, data) {
       onDomainEventRef.current(
         eventType,
@@ -119,8 +136,10 @@ export function useOperationSSE(
     onStreamEnd() {
       // Only an *abnormal* close (no terminal latched) needs wrapper handling.
       // A normal terminal frame already fired reportTerminal before the stream
-      // ended, so we skip a redundant failIfActive / snapshot reconcile.
-      if (!terminalEmittedRef.current) onStreamEndRef.current?.();
+      // ended, so we skip a redundant recovery poll.
+      if (terminalEmittedRef.current) return;
+      setStreamEnded(true);
+      onStreamEndRef.current?.();
     },
   });
 
@@ -138,6 +157,7 @@ export function useOperationSSE(
     onResetRef.current?.();
     terminalEmittedRef.current = false;
     setIsSeeking(seed);
+    setStreamEnded(false);
     setOperationId(opId);
     setIsRunning(true);
   }, []);
@@ -152,17 +172,31 @@ export function useOperationSSE(
     onResetRef.current?.();
     terminalEmittedRef.current = false;
     setIsSeeking(false);
+    setStreamEnded(false);
     setOperationId(null);
     setIsRunning(false);
   }, [disconnect]);
 
   const markSeeded = useCallback(() => setIsSeeking(false), []);
 
+  // Derived from state, never the terminal ref — reading a ref during render
+  // can tear/go stale. `isRunning` is flipped false by reportTerminal on the
+  // terminal fire, so the gate closes at the same moment the ref would.
+  // `unresumable` outranks the rest: once the stream is gone, how we got here
+  // (seed pending, stall) no longer changes what the wrapper should do or say.
+  const recoveryReason: OperationSSERecoveryReason | null = !isRunning
+    ? null
+    : sseState.kind === "closed-error" || streamEnded
+      ? "unresumable"
+      : isSeeking
+        ? "seed"
+        : sseState.kind === "stalled"
+          ? "stalled"
+          : null;
+
   const recovery: OperationSSERecovery = {
-    // Derived from state, never the terminal ref — reading a ref during render
-    // can tear/go stale. `isRunning` is flipped false by reportTerminal on the
-    // terminal fire, so it closes the gate at the same moment the ref would.
-    active: (isSeeking || sseState.kind === "stalled") && isRunning,
+    active: recoveryReason !== null,
+    reason: recoveryReason,
     markSeeded,
   };
 

@@ -25,6 +25,16 @@ A high-effort adversarial review of this wave confirmed ten findings; all fixed 
 - **Checkpoint-resume metrics tell the truth**: real inserted/duplicate counts flow from the ledger's ON CONFLICT through per-day persistence to the run summary — a resumed run reports its re-fetched rows as duplicates, not imports. The `uow`-less call shape that would have silently skipped persistence is no longer expressible.
 - **One way to do each thing** (the review's DRY mandate): the per-item persist fallback is literally bulk-of-one per savepoint (~150-line second write path deleted), primary election is a single stack (primacy is a flag on the mapping spec — the parallel promotion list is gone), and the single-track fetch is the degenerate case of the batch call.
 
+**The autostop incident (2026-08-08), diagnosed and closed.** A 54-minute prod import died at the finish line: Fly's proxy autostopped the machine running it ("excess capacity" — the proxy watches inbound traffic, not work inside the container), the cancellation escaped a too-narrow exception handler, and the dead run was durably recorded as *complete* with empty counts — 15,317 plays ingested, zero projected, "successful" on refresh. Fixes across every layer it touched:
+
+- **Infra** (per Fly's own June-2026 long-running-tasks blueprint, which describes this incident class verbatim): `auto_stop_machines = 'off'`, SIGTERM with the maximum 300s drain window (was the default SIGINT + 5s — why the import died instantly), single-machine operation (`fly scale count 1` at deploy).
+- **Honest cancellation**: `CancelledError` is caught before the generic handler, the run finalizes as `error` with a "cancelled by server shutdown" issue via a *shielded* audit write (verified load-bearing — removing the shield fails the test), and the app's shutdown hook drains background tasks inside the kill window so the path runs on a live event loop.
+- **Kill loses at most one chunk**: `resolved_at` write-back moved from end-of-run (where the incident discarded all 15,317 resolutions) into each chunk's transaction; the end bracket keeps only the cheap, idempotent, day-scoped projection.
+- **Re-upload heals stranded runs — proven**: an integration test reproduces the incident's exact stranded state and pins that re-uploading the same file resolves and projects everything with zero duplicate rows. The stale backfill script (obsolete detection premise; RLS silently pinning it to the wrong user) was repaired as the fallback for rows a re-upload can't reach.
+- **The UI never lies about a dead stream**: one bounded SSE resume carrying `Last-Event-ID` (activating the server's replay filter, previously dead code), then polling the durable run row into the same terminal card/toast the stream would have shown; "Connection failed" now means the network is actually down, and an amber "Reconnecting" state covers the gap.
+
+Follow-ups scheduled in-series: multi-file import queue (v0.10.2.5), batch-first Last.fm path (v0.10.2.6), liveness reaper + pre-deploy busy gate (v0.10.2.7). PDR-003 opens the watch on Spotify's postponed dev-mode batch-endpoint removal — the one finding that threatens batch-first architecturally.
+
 → [details](docs/backlog/v0.10.x.md#post-deploy-revisions)
 
 ## [0.10.2.3] — 2026-08-08

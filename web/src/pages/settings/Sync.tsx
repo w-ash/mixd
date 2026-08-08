@@ -150,6 +150,9 @@ function OperationCard({
       progress.status === "failed" ||
       progress.status === "cancelled";
     if (!isTerminal) return;
+    // A cancelled/superseded run is a deliberate stop, not news — the global
+    // watcher stays quiet on these too, so the two surfaces agree.
+    if (progress.status === "cancelled") return;
     if (toastedForOpIdRef.current === operationId) return;
     toastedForOpIdRef.current = operationId;
     // Claim the shared ledger so the global operations watcher (which polls the

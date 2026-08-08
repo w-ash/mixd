@@ -13,12 +13,20 @@
  * (including server keepalive comments) arrives. Comment frames bypass
  * the data guard but still bump lastEventAt — a server keepalive every
  * 15 s is enough to keep state in "streaming".
+ *
+ * A transport drop is retried ONCE (kind="resuming") after a short backoff,
+ * replaying from the last received event id via `Last-Event-ID`. Only when
+ * that retry also fails does the state reach "closed-error" — which callers
+ * treat as "the stream is unrecoverable", not as "the run failed": the run's
+ * durable state is still readable over REST.
  */
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
 import { connectToSSE } from "#/api/sse-client";
 import {
+  SSE_MAX_RESUME_ATTEMPTS,
+  SSE_RESUME_DELAY_MS,
   SSE_STALL_THRESHOLD_MS,
   SSE_WATCHDOG_TICK_MS,
   type SSEState,
@@ -29,6 +37,27 @@ export interface UseSSEConnectionOptions {
   onEvent: (eventType: string, data: unknown) => void;
   /** Called when the SSE stream ends normally (iterator exhausted). */
   onStreamEnd?: () => void;
+  /** Backoff before the resume attempt. Defaults to {@link SSE_RESUME_DELAY_MS}. */
+  resumeDelayMs?: number;
+  /** Resume attempts after a drop. Defaults to {@link SSE_MAX_RESUME_ATTEMPTS} (one). */
+  maxResumeAttempts?: number;
+}
+
+/** Abort-aware sleep. Resolves false when the signal fired (caller should bail). */
+function delay(ms: number, signal: AbortSignal): Promise<boolean> {
+  if (signal.aborted) return Promise.resolve(false);
+  if (ms <= 0) return Promise.resolve(true);
+  return new Promise((resolve) => {
+    const onAbort = () => {
+      clearTimeout(timer);
+      resolve(false);
+    };
+    const timer = setTimeout(() => {
+      signal.removeEventListener("abort", onAbort);
+      resolve(!signal.aborted);
+    }, ms);
+    signal.addEventListener("abort", onAbort, { once: true });
+  });
 }
 
 export interface UseSSEConnectionReturn {
@@ -53,7 +82,7 @@ function deriveLiveness(state: SSEState): {
   switch (state.kind) {
     case "streaming":
     case "stalled":
-    case "reconnecting":
+    case "resuming":
     case "closed-error":
       return { lastEventAt: state.lastEventAt, isConnected };
     default:
@@ -68,13 +97,19 @@ export function useSSEConnection(
   const [state, setState] = useState<SSEState>({ kind: "idle" });
 
   const abortRef = useRef<AbortController | null>(null);
+  // Last event id seen on this operation's stream — the resume marker.
+  const lastEventIdRef = useRef<string | null>(null);
 
-  // Store callbacks in refs so the effect only depends on operationId.
+  // Store callbacks/tunables in refs so the effect only depends on operationId.
   // Callers don't need to memoize their onEvent / onStreamEnd.
   const onEventRef = useRef(options.onEvent);
   onEventRef.current = options.onEvent;
   const onStreamEndRef = useRef(options.onStreamEnd);
   onStreamEndRef.current = options.onStreamEnd;
+  const resumeDelayRef = useRef(options.resumeDelayMs);
+  resumeDelayRef.current = options.resumeDelayMs;
+  const maxResumeAttemptsRef = useRef(options.maxResumeAttempts);
+  maxResumeAttemptsRef.current = options.maxResumeAttempts;
 
   const disconnect = useCallback(() => {
     if (abortRef.current) {
@@ -114,75 +149,108 @@ export function useSSEConnection(
 
     const ctrl = new AbortController();
     abortRef.current = ctrl;
+    lastEventIdRef.current = null;
     setState({ kind: "connecting" });
 
     (async () => {
-      try {
-        const events = await connectToSSE(
-          `/api/v1/operations/${operationId}/progress`,
-          ctrl.signal,
-        );
-        // The effect cleanup aborts `ctrl` on unmount/disconnect. Bail before
-        // every state write so a stream that resolves or keeps yielding after
-        // teardown can't `setState` on an unmounted component — the source of a
-        // stray cross-test "1 error" in the Vitest suite when a mocked iterator
-        // ignores the abort signal.
-        if (ctrl.signal.aborted) return;
-        setState({ kind: "open-no-events", openedAt: Date.now() });
+      const url = `/api/v1/operations/${operationId}/progress`;
+      const maxAttempts =
+        maxResumeAttemptsRef.current ?? SSE_MAX_RESUME_ATTEMPTS;
 
-        for await (const event of events) {
-          if (ctrl.signal.aborted) return;
-          // Bump freshness for every frame, including server keepalive
-          // comments (which arrive as `event: ""` with empty data).
-          // Done before the data guard so keepalives reset the watchdog.
-          //
-          // Snap to second-resolution: the freshness pill ticks at 1Hz
-          // via useNow(1000), so finer-grained updates would only burn
-          // React reconciliations without changing what the user sees.
-          // Same-reference returns from the updater are skipped by React,
-          // so a 4Hz sub_progress storm collapses to ~1 Hz of commits.
-          const now = Date.now();
-          const nowSecond = Math.floor(now / 1000);
-          setState((prev) => {
-            if (prev.kind === "closed-error" || prev.kind === "closed-done") {
-              return prev;
-            }
-            if (
-              prev.kind === "streaming" &&
-              Math.floor(prev.lastEventAt / 1000) === nowSecond
-            ) {
-              return prev;
-            }
-            return { kind: "streaming", lastEventAt: now };
-          });
-
-          if (!event.data) continue;
-
-          try {
-            const data = JSON.parse(event.data);
-            onEventRef.current(event.event, data);
-          } catch {
-            // Skip malformed JSON — don't break the stream
-          }
+      for (let attempt = 0; ; attempt++) {
+        if (attempt > 0) {
+          // Bounded resume: announce the window, wait out the backoff, then
+          // reconnect asking the server to replay from the last event we saw.
+          setState((prev) => ({
+            kind: "resuming",
+            attempt,
+            lastEventAt: deriveLiveness(prev).lastEventAt,
+            lastEventId: lastEventIdRef.current,
+          }));
+          const waited = await delay(
+            resumeDelayRef.current ?? SSE_RESUME_DELAY_MS,
+            ctrl.signal,
+          );
+          if (!waited) return;
         }
 
-        if (ctrl.signal.aborted) return;
-        setState((prev) =>
-          prev.kind === "closed-error" || prev.kind === "closed-done"
-            ? prev
-            : { kind: "closed-done", finalAt: Date.now() },
-        );
-        onStreamEndRef.current?.();
-      } catch (err) {
-        if (err instanceof DOMException && err.name === "AbortError") return;
-        if (ctrl.signal.aborted) return;
-        const error =
-          err instanceof Error ? err : new Error("SSE connection error");
-        setState((prev) => ({
-          kind: "closed-error",
-          error,
-          lastEventAt: deriveLiveness(prev).lastEventAt,
-        }));
+        try {
+          const events =
+            attempt === 0
+              ? await connectToSSE(url, ctrl.signal)
+              : await connectToSSE(url, ctrl.signal, {
+                  lastEventId: lastEventIdRef.current,
+                });
+          // The effect cleanup aborts `ctrl` on unmount/disconnect. Bail before
+          // every state write so a stream that resolves or keeps yielding after
+          // teardown can't `setState` on an unmounted component — the source of a
+          // stray cross-test "1 error" in the Vitest suite when a mocked iterator
+          // ignores the abort signal.
+          if (ctrl.signal.aborted) return;
+          setState({ kind: "open-no-events", openedAt: Date.now() });
+
+          for await (const event of events) {
+            if (ctrl.signal.aborted) return;
+            if (event.id) lastEventIdRef.current = event.id;
+            // Bump freshness for every frame, including server keepalive
+            // comments (which arrive as `event: ""` with empty data).
+            // Done before the data guard so keepalives reset the watchdog.
+            //
+            // Snap to second-resolution: the freshness pill ticks at 1Hz
+            // via useNow(1000), so finer-grained updates would only burn
+            // React reconciliations without changing what the user sees.
+            // Same-reference returns from the updater are skipped by React,
+            // so a 4Hz sub_progress storm collapses to ~1 Hz of commits.
+            const now = Date.now();
+            const nowSecond = Math.floor(now / 1000);
+            setState((prev) => {
+              if (prev.kind === "closed-error" || prev.kind === "closed-done") {
+                return prev;
+              }
+              if (
+                prev.kind === "streaming" &&
+                Math.floor(prev.lastEventAt / 1000) === nowSecond
+              ) {
+                return prev;
+              }
+              return { kind: "streaming", lastEventAt: now };
+            });
+
+            if (!event.data) continue;
+
+            try {
+              const data = JSON.parse(event.data);
+              onEventRef.current(event.event, data);
+            } catch {
+              // Skip malformed JSON — don't break the stream
+            }
+          }
+
+          if (ctrl.signal.aborted) return;
+          setState((prev) =>
+            prev.kind === "closed-error" || prev.kind === "closed-done"
+              ? prev
+              : { kind: "closed-done", finalAt: Date.now() },
+          );
+          onStreamEndRef.current?.();
+          return;
+        } catch (err) {
+          if (err instanceof DOMException && err.name === "AbortError") return;
+          if (ctrl.signal.aborted) return;
+          // Retry budget left → loop and resume. A 404 here means the server's
+          // in-memory queue is gone (run ended, or the machine restarted); it
+          // exhausts the budget like any other drop, and the caller falls
+          // through to the durable REST state rather than declaring failure.
+          if (attempt < maxAttempts) continue;
+          const error =
+            err instanceof Error ? err : new Error("SSE connection error");
+          setState((prev) => ({
+            kind: "closed-error",
+            error,
+            lastEventAt: deriveLiveness(prev).lastEventAt,
+          }));
+          return;
+        }
       }
     })();
 

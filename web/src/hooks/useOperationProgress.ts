@@ -1,12 +1,19 @@
 import { useQueryClient } from "@tanstack/react-query";
 import { useCallback, useEffect, useRef, useState } from "react";
 
+import type { OperationRunSummarySchema } from "#/api/generated/model";
+import {
+  isTerminalRunRow,
+  useOperationRunRow,
+} from "#/hooks/useOperationRunRow";
 import { useOperationSSE } from "#/hooks/useOperationSSE";
 import { SSE_EVENT } from "#/lib/sse-types";
 
 export type OperationStatus =
   | "pending"
   | "running"
+  /** Live updates were lost; the run itself is still being resolved. */
+  | "reconnecting"
   | "completed"
   | "failed"
   | "cancelled";
@@ -63,6 +70,10 @@ export interface OperationProgress {
 export interface UseOperationProgressOptions {
   /** Query keys to invalidate when the operation completes or fails. */
   invalidateKeys?: readonly (readonly unknown[])[];
+  /** Durable-state poll cadence during recovery. Test seam. */
+  recoveryPollIntervalMs?: number;
+  /** SSE resume backoff. Test seam. */
+  resumeDelayMs?: number;
 }
 
 interface UseOperationProgressResult {
@@ -100,11 +111,18 @@ function subOpKey(
   return connectorPlaylistIdentifier ?? operationId;
 }
 
-/** Transition to failed only if the operation is still active (pending/running).
+/** Statuses that can still change — anything the run hasn't concluded from. */
+function isLive(status: OperationStatus): boolean {
+  return (
+    status === "pending" || status === "running" || status === "reconnecting"
+  );
+}
+
+/** Transition to failed only if the operation is still live.
  *  Guards against clobbering a terminal state (completed, failed, cancelled). */
 function failIfActive(message: string) {
   return (prev: OperationProgress | null): OperationProgress | null =>
-    prev && (prev.status === "pending" || prev.status === "running")
+    prev && isLive(prev.status)
       ? {
           ...DEFAULT_PROGRESS,
           ...prev,
@@ -114,6 +132,59 @@ function failIfActive(message: string) {
         }
       : prev;
 }
+
+/** Copy for the two honest intermediate states. Deliberately NOT
+ *  "Connection failed": the run is still out there, and the durable row
+ *  usually answers within seconds. */
+const RESUMING_MESSAGE = "Connection lost — reconnecting…";
+const POLLING_MESSAGE = "Connection lost — checking result…";
+
+/** Flag the live-update channel as broken without claiming the run failed. */
+function markRecovering(message: string) {
+  return (prev: OperationProgress | null): OperationProgress | null =>
+    prev && isLive(prev.status)
+      ? { ...prev, status: "reconnecting" as const, message }
+      : prev;
+}
+
+/** Terminal card state from the durable audit row — the same shape the SSE
+ *  terminal frames produce, so every consumer's toast/badge logic is reused.
+ *  A `partial` run rides its failure count in `counts.errors` exactly as the
+ *  live `complete` event does, which is what `issueCountFromCounts` reads. */
+function progressFromRunRow(row: OperationRunSummarySchema) {
+  const counts: Record<string, unknown> = { ...row.counts };
+  if (row.issue_count > 0) counts.errors = row.issue_count;
+
+  const status: OperationStatus =
+    row.status === "error"
+      ? "failed"
+      : row.status === "cancelled"
+        ? "cancelled"
+        : "completed";
+  const message =
+    row.status === "error"
+      ? "Operation failed"
+      : row.status === "cancelled"
+        ? "Cancelled"
+        : row.status === "partial"
+          ? "Completed with issues"
+          : "Complete";
+
+  return (prev: OperationProgress | null): OperationProgress => ({
+    ...DEFAULT_PROGRESS,
+    ...prev,
+    subOperationHistory: prev?.subOperationHistory ?? {},
+    status,
+    message,
+    counts,
+    subOperation: null,
+  });
+}
+
+/** Give up after this many polls that find no audit row at all (~1 min at the
+ *  default cadence). A run with a row that's still `running` keeps polling —
+ *  that row is positive evidence the operation is alive. */
+const MAX_ROWLESS_POLLS = 20;
 
 /** Build a fresh zero-state keyed progress object. */
 function initialProgress(
@@ -138,6 +209,12 @@ function initialProgress(
  * the `operationId` prop — pending state on connect, cleared on null. Connects
  * to GET /api/v1/operations/{operationId}/progress and invalidates the supplied
  * query keys when the operation completes or fails.
+ *
+ * Losing the stream never ends the run's story: the transport retries once with
+ * `Last-Event-ID`, and if that can't resume, the hook polls the durable
+ * `operation_runs` row and renders its terminal state through the same path a
+ * live terminal frame would. "Connection failed" is reserved for the case where
+ * neither the stream nor the API can be reached.
  */
 export function useOperationProgress(
   operationId: string | null,
@@ -161,8 +238,11 @@ export function useOperationProgress(
   }, [queryClient]);
 
   const core = useOperationSSE({
+    resumeDelayMs: options?.resumeDelayMs,
     onReset: () => setProgress(null),
-    onStreamEnd: () => setProgress(failIfActive("Connection lost")),
+    // A stream that ends without a terminal frame is NOT a failed run — the
+    // recovery gate opens and the durable row decides. See the poll below.
+    onStreamEnd: () => setProgress(markRecovering(POLLING_MESSAGE)),
     onDomainEvent(eventType, d, reportTerminal) {
       switch (eventType) {
         case SSE_EVENT.STARTED:
@@ -337,10 +417,83 @@ export function useOperationProgress(
     },
   });
 
-  // Transition to failed if the SSE transport errors (404, network failure, etc.)
+  // ─── Recovery: the stream is not the source of truth ─────────────
+  //
+  // A dead socket says nothing about the run. While the core's recovery gate is
+  // open (bounded resume spent, stream closed with no terminal, or a 45 s
+  // stall) poll the durable audit row and render its verdict through the same
+  // terminal path the SSE frames use.
+
+  const { reportTerminal } = core;
+  const recoveryActive = core.recovery.active;
+  const recoveryReason = core.recovery.reason;
+  const sseKind = core.sseState.kind;
+
+  const {
+    data: runRowData,
+    isError: runRowUnreachable,
+    dataUpdatedAt: runRowUpdatedAt,
+  } = useOperationRunRow(core.operationId, {
+    enabled: recoveryActive,
+    refetchInterval: options?.recoveryPollIntervalMs,
+  });
+
+  // Honest intermediate copy — the run is unresolved, not failed.
   useEffect(() => {
-    if (core.error) setProgress(failIfActive("Connection failed"));
-  }, [core.error]);
+    if (sseKind === "resuming") setProgress(markRecovering(RESUMING_MESSAGE));
+    else if (recoveryReason === "unresumable")
+      setProgress(markRecovering(POLLING_MESSAGE));
+  }, [sseKind, recoveryReason]);
+
+  const rowlessPollsRef = useRef(0);
+  useEffect(() => {
+    if (!recoveryActive) rowlessPollsRef.current = 0;
+  }, [recoveryActive]);
+
+  useEffect(() => {
+    if (!recoveryActive) return;
+    // Only an unresumable stream can end in a dead end here. A stall or a
+    // re-attach seed may still recover on its own, so those poll quietly.
+    const isDeadEndCandidate = recoveryReason === "unresumable";
+
+    // Stream gone AND the API unreachable: the only true dead end.
+    if (runRowUnreachable) {
+      if (isDeadEndCandidate && reportTerminal()) {
+        setProgress(failIfActive("Connection failed"));
+      }
+      return;
+    }
+    // `dataUpdatedAt` is 0 until a poll lands, and moves on every poll after —
+    // including ones that return the same row, which is what paces the
+    // rowless counter below.
+    if (runRowUpdatedAt === 0) return;
+
+    if (runRowData && isTerminalRunRow(runRowData)) {
+      if (reportTerminal()) {
+        setProgress(progressFromRunRow(runRowData));
+        invalidateQueries();
+      }
+      return;
+    }
+    // A row that's still `running` means the operation is alive — keep polling.
+    if (runRowData) return;
+    rowlessPollsRef.current += 1;
+    if (
+      isDeadEndCandidate &&
+      rowlessPollsRef.current >= MAX_ROWLESS_POLLS &&
+      reportTerminal()
+    ) {
+      setProgress(failIfActive("Connection failed"));
+    }
+  }, [
+    recoveryActive,
+    recoveryReason,
+    runRowData,
+    runRowUpdatedAt,
+    runRowUnreachable,
+    reportTerminal,
+    invalidateQueries,
+  ]);
 
   const { start: coreStart, reset: coreReset } = core;
 
@@ -358,8 +511,9 @@ export function useOperationProgress(
     else coreReset();
   }, [operationId, start, coreReset]);
 
-  const isActive =
-    progress?.status === "running" || progress?.status === "pending";
+  // "reconnecting" counts as active: the run may still be going, so the
+  // trigger stays disabled rather than inviting a duplicate launch.
+  const isActive = progress !== null && isLive(progress.status);
 
   return {
     progress,

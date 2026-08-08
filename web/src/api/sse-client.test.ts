@@ -99,6 +99,43 @@ describe("connectToSSE", () => {
     });
   });
 
+  describe("resume", () => {
+    it("sends Last-Event-ID so the server replays only what was missed", async () => {
+      mockFetchOk();
+
+      try {
+        await connectToSSE(
+          "/api/v1/operations/op-1/progress",
+          new AbortController().signal,
+          { lastEventId: "evt_42" },
+        );
+      } catch {
+        // Body stream parsing fails in jsdom — expected, we only check headers
+      }
+
+      const headers = (vi.mocked(fetch).mock.calls[0][1] as RequestInit)
+        .headers as Record<string, string>;
+      expect(headers["Last-Event-ID"]).toBe("evt_42");
+    });
+
+    it("omits Last-Event-ID on a first connect", async () => {
+      mockFetchOk();
+
+      try {
+        await connectToSSE(
+          "/api/v1/operations/op-1/progress",
+          new AbortController().signal,
+        );
+      } catch {
+        // Body stream parsing fails in jsdom — expected
+      }
+
+      const headers = (vi.mocked(fetch).mock.calls[0][1] as RequestInit)
+        .headers as Record<string, string>;
+      expect(headers["Last-Event-ID"]).toBeUndefined();
+    });
+  });
+
   describe("connection timeout", () => {
     it("throws when server does not respond within timeout", async () => {
       mockFetchHanging();
@@ -107,7 +144,7 @@ describe("connectToSSE", () => {
         connectToSSE(
           "/api/v1/operations/op-1/progress",
           new AbortController().signal,
-          50, // 50ms timeout
+          { connectionTimeoutMs: 50 },
         ),
       ).rejects.toThrow("SSE connection timed out");
     });
@@ -120,7 +157,7 @@ describe("connectToSSE", () => {
         await connectToSSE(
           "/api/v1/operations/op-1/progress",
           new AbortController().signal,
-          10,
+          { connectionTimeoutMs: 10 },
         );
       } catch {
         // Body stream parsing fails in jsdom — expected
@@ -142,7 +179,7 @@ describe("connectToSSE", () => {
         connectToSSE(
           "/api/v1/operations/op-1/progress",
           new AbortController().signal,
-          1000,
+          { connectionTimeoutMs: 1000 },
         ),
       ).rejects.toThrow("SSE connection failed: 401");
     });
@@ -154,7 +191,7 @@ describe("connectToSSE", () => {
       const promise = connectToSSE(
         "/api/v1/operations/op-1/progress",
         ctrl.signal,
-        5000,
+        { connectionTimeoutMs: 5000 },
       );
 
       // Let connectToSSE register the abort-forwarding listener

@@ -6,6 +6,15 @@
 app = 'mixd'
 primary_region = 'sjc'
 
+# Fly's long-running-tasks blueprint (2026-06): SIGTERM (not the SIGINT
+# default) with the maximum drain window, so shutdown reaches the app's
+# handlers — which cancel background tasks and record in-flight runs as
+# interrupted — instead of killing them 5s after a signal they don't expect.
+# This is a drain window, not a finish-your-work timer: a long import still
+# dies on deploy, but honestly.
+kill_signal = 'SIGTERM'
+kill_timeout = '300s'
+
 [build]
   dockerfile = 'Dockerfile'
 
@@ -24,8 +33,17 @@ primary_region = 'sjc'
 [http_service]
   internal_port = 8000
   force_https = true
-  auto_stop_machines = 'stop'
+  # Never 'stop': the proxy's excess-capacity rebalancing stops whichever
+  # machine it picks — including one 54 minutes into a background import
+  # (2026-08-08 incident: SIGINT mid-import, run falsely recorded complete).
+  # Long-running work lives in-process, so machines must only stop on deploy.
+  # Keep the machine count at 1 (`fly scale count 1`) — a second machine also
+  # splits the in-process SSE registry and the concurrency cap.
+  auto_stop_machines = 'off'
   auto_start_machines = true
+  # Inert while auto_stop is 'off' (it only applies to stop/suspend modes);
+  # kept for the day autostop is ever reconsidered, not as protection — it
+  # guarantees a count, never a specific machine.
   min_machines_running = 1
 
   [http_service.concurrency]

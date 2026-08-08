@@ -568,6 +568,17 @@ def _deterministic_outcome(
     )
 
 
+def _resolving_outcome(plays: list[ConnectorTrackPlay]) -> PlayResolutionOutcome:
+    """Every play resolves and reports its ledger write-back pair."""
+    return PlayResolutionOutcome(
+        track_plays=[
+            _make_resolved_track_play(track_id=_play_index(p) + 1) for p in plays
+        ],
+        metrics={"error_count": 0},
+        resolutions=tuple((p, _RESOLVED_TRACK_ID) for p in plays),
+    )
+
+
 def _failing_outcome(plays: list[ConnectorTrackPlay]) -> PlayResolutionOutcome:
     """Every play fails, each with its own named failure record."""
     return PlayResolutionOutcome(
@@ -812,7 +823,13 @@ class TestResolutionChunking:
 
 
 class TestResolutionWriteBack:
-    """Phase 2 persists connector-play↔track resolutions onto the ledger."""
+    """Phase 2 persists connector-play↔track resolutions onto the ledger.
+
+    Per chunk, inside the transaction that chunk's ``commit_batch`` makes
+    durable — resolution durability has to match track durability. Accumulating
+    the run's resolutions for one end-of-run write-back is what discarded all
+    15,317 of them when a 54-minute import was killed mid-run.
+    """
 
     async def test_resolutions_persisted_after_resolution(
         self, orchestrator, mock_resolver, mock_uow
@@ -859,6 +876,72 @@ class TestResolutionWriteBack:
 
         repo = mock_uow.get_connector_play_repository.return_value
         repo.bulk_update_resolution.assert_not_awaited()
+
+    async def test_write_back_runs_once_per_chunk_with_that_chunks_resolutions(
+        self, orchestrator, mock_resolver, mock_uow
+    ):
+        """Each chunk stamps its own plays — never the run's accumulated set."""
+        connector_plays = [_make_connector_play(f"Song {i}") for i in range(120)]
+        mock_resolver.resolve_connector_plays.side_effect = (
+            lambda plays, _uow, **_kwargs: _resolving_outcome(plays)
+        )
+
+        await orchestrator.execute_resolution_phase(
+            connector_plays,
+            mock_uow,
+            user_id="test-user",
+            progress_emitter=NullProgressEmitter(),
+        )
+
+        repo = mock_uow.get_connector_play_repository.return_value
+        stamped = [
+            [play for play, _ in call.args[0]]
+            for call in repo.bulk_update_resolution.await_args_list
+        ]
+        assert stamped == [
+            connector_plays[0:50],
+            connector_plays[50:100],
+            connector_plays[100:120],
+        ]
+
+    async def test_chunk_failure_preserves_earlier_chunks_stamped_resolutions(
+        self, orchestrator, mock_resolver, mock_uow
+    ):
+        """Chunks 1-2 are stamped AND committed before chunk 3 blows up.
+
+        The journal is the whole point: a write-back that lands after the last
+        chunk's commit — or after the loop — is not durable when the process
+        dies, which is exactly the incident.
+        """
+        connector_plays = [_make_connector_play(f"Song {i}") for i in range(120)]
+        boom = RuntimeError("resolver exploded on chunk 3")
+        journal: list[str] = []
+
+        async def resolve(plays, _uow, **_kwargs):
+            if _play_index(plays[0]) == 100:
+                raise boom
+            return _resolving_outcome(plays)
+
+        async def stamp(resolutions, *, resolved_at):
+            _ = resolved_at
+            journal.append(f"stamp:{_play_index(resolutions[0][0])}")
+            return len(resolutions)
+
+        mock_resolver.resolve_connector_plays.side_effect = resolve
+        repo = mock_uow.get_connector_play_repository.return_value
+        repo.bulk_update_resolution.side_effect = stamp
+        mock_uow.commit_batch.side_effect = lambda: journal.append("commit")
+
+        with pytest.raises(RuntimeError) as exc_info:
+            await orchestrator.execute_resolution_phase(
+                connector_plays,
+                mock_uow,
+                user_id="test-user",
+                progress_emitter=NullProgressEmitter(),
+            )
+
+        assert exc_info.value is boom
+        assert journal == ["stamp:0", "commit", "stamp:50", "commit"]
 
 
 class _RecordingSubscriber:
@@ -911,14 +994,7 @@ class TestProjectionProgressOperation:
     @staticmethod
     async def _run(orchestrator, mock_resolver, mock_uow, connector_plays):
         mock_resolver.resolve_connector_plays.side_effect = (
-            lambda plays, _uow, **_kwargs: PlayResolutionOutcome(
-                track_plays=[
-                    _make_resolved_track_play(track_id=_play_index(p) + 1)
-                    for p in plays
-                ],
-                metrics={"error_count": 0},
-                resolutions=tuple((p, _RESOLVED_TRACK_ID) for p in plays),
-            )
+            lambda plays, _uow, **_kwargs: _resolving_outcome(plays)
         )
         broker = ProgressBroker()
         subscriber = _RecordingSubscriber()

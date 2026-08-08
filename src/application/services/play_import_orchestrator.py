@@ -11,7 +11,6 @@ pluggable importer instances from the infrastructure layer.
 from collections.abc import Awaitable, Callable
 from datetime import UTC, datetime
 from typing import Final
-from uuid import UUID
 
 from attrs import define, field
 
@@ -223,7 +222,11 @@ class PlayImportOrchestrator:
         lastfm_plays = [p for p in connector_plays if p.connector_name == "lastfm"]
 
         all_track_plays: list[TrackPlay] = []
-        all_resolutions: list[tuple[ConnectorTrackPlay, UUID]] = []
+        # Only what Phase 3 still needs after a chunk is durable: the days the
+        # projection has to sweep. The resolutions themselves are written back
+        # per chunk, so holding them for the whole run would keep a 198k-play
+        # export's worth of entities alive for nothing.
+        resolved_played_at: list[datetime] = []
         failure_log = _ResolutionFailureLog()
         combined_metrics = {
             "total_plays": len(connector_plays),
@@ -252,7 +255,6 @@ class PlayImportOrchestrator:
                         )
                         track_plays, metrics = outcome.track_plays, outcome.metrics
                         all_track_plays.extend(track_plays)
-                        all_resolutions.extend(outcome.resolutions)
                         combined_metrics["resolved_plays"] += len(track_plays)
                         combined_metrics["error_count"] += metrics.get("error_count", 0)
                         combined_metrics["fallback_resolved"] += metrics.get(
@@ -268,6 +270,25 @@ class PlayImportOrchestrator:
                             "isrc_suspect_deferred", 0
                         )
                         failure_log.record(metrics)
+
+                        # Resolution durability must match track durability: a
+                        # killed run may lose at most one chunk of resolutions.
+                        # The stamp goes into the SAME transaction that
+                        # ``commit_batch`` below makes durable, alongside the
+                        # connector_tracks, tracks and mappings this chunk
+                        # produced. Accumulating the run's resolutions for one
+                        # end-of-run write-back is what discarded all 15,317 of
+                        # them when a 54-minute import was killed mid-run —
+                        # every track was durable and every play still read as
+                        # unresolved.
+                        if outcome.resolutions:
+                            ledger = uow.get_connector_play_repository()
+                            _ = await ledger.bulk_update_resolution(
+                                outcome.resolutions, resolved_at=datetime.now(UTC)
+                            )
+                            resolved_played_at.extend(
+                                play.played_at for play, _ in outcome.resolutions
+                            )
 
                         # Strictly between resolver calls: the resolver's
                         # per-item savepoints are all closed by the time it
@@ -287,18 +308,14 @@ class PlayImportOrchestrator:
                             )
                         )
 
-            # Phase 3: ledger write-back, then project the affected window.
-            # Canonical plays are derived from the observation ledger — the
-            # resolver-built TrackPlays above only feed metrics.
+            # Phase 3: project the affected window. Canonical plays are derived
+            # from the observation ledger the chunk loop already stamped — the
+            # resolver-built TrackPlays above only feed metrics. Projection
+            # stays end-of-run rather than per chunk because it is day-scoped
+            # and idempotent: re-running it after a crash costs one sweep of
+            # the touched days and produces the same result.
             projection_stats: dict[str, int] = {}
-            if all_resolutions:
-                async with uow:
-                    _ = await uow.get_connector_play_repository().bulk_update_resolution(
-                        all_resolutions, resolved_at=datetime.now(UTC)
-                    )
-                    await uow.commit()
-
-                played = [cp.played_at for cp, _ in all_resolutions]
+            if resolved_played_at:
                 projection = PlayProjectionService()
                 # The projection gets its OWN operation, as the rebuild use
                 # case does. The progress ledger enforces monotonic ``current``
@@ -325,7 +342,7 @@ class PlayImportOrchestrator:
                     projection_stats = await projection.project_observed_days(
                         uow,
                         user_id=user_id,
-                        played_at=played,
+                        played_at=resolved_played_at,
                         progress_emitter=progress_emitter,
                         operation_id=projection_operation_id,
                     )

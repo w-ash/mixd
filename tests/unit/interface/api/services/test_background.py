@@ -1,10 +1,12 @@
-"""Tests for background task launcher and done-callback enrichment.
+"""Tests for background task launcher, done-callback enrichment, and shutdown drain.
 
 Validates _on_task_done logs with workflow_id, run_id, and duration_ms
-when task metadata is registered via launch_background.
+when task metadata is registered via launch_background, and that
+cancel_all_background_tasks drains in-flight tasks within a bounded budget.
 """
 
 import asyncio
+import time
 from unittest.mock import MagicMock, patch
 
 import pytest
@@ -14,6 +16,7 @@ from src.interface.api.services.background import (
     _on_task_done,
     _task_meta,
     _TaskMeta,
+    cancel_all_background_tasks,
     launch_background,
 )
 
@@ -146,3 +149,61 @@ class TestLaunchBackground:
             launch_background("plain_task", MagicMock(return_value=MagicMock()))
 
         assert "plain_task" not in _task_meta
+
+
+class TestCancelAllBackgroundTasks:
+    """The lifespan shutdown drain.
+
+    Exists so an in-flight SSE operation takes its cancellation branch — and
+    writes its terminal audit row — while the loop and DB engine are still up,
+    rather than during interpreter teardown where the write cannot land.
+    """
+
+    async def test_cancels_registered_tasks(self) -> None:
+        cancelled_here = asyncio.Event()
+
+        async def blocks_until_cancelled() -> None:
+            try:
+                await asyncio.Event().wait()
+            except asyncio.CancelledError:
+                cancelled_here.set()
+                raise
+
+        launch_background("drain_me", blocks_until_cancelled)
+        await asyncio.sleep(0)  # let the task reach its await
+
+        assert await cancel_all_background_tasks(1.0) == 1
+        assert cancelled_here.is_set()
+
+    async def test_returns_zero_when_nothing_is_running(self) -> None:
+        assert await cancel_all_background_tasks(1.0) == 0
+
+    async def test_returns_within_budget_and_logs_stragglers(self) -> None:
+        """A task that outlives the budget is logged and abandoned, not awaited.
+
+        Fly SIGKILLs at kill_timeout; the drain must never be the thing that
+        overruns it.
+        """
+
+        async def slow_cleanup() -> None:
+            try:
+                await asyncio.Event().wait()
+            except asyncio.CancelledError:
+                await asyncio.sleep(0.3)  # cleanup that outlasts the drain budget
+
+        launch_background("straggler", slow_cleanup)
+        await asyncio.sleep(0)
+        task = next(iter(_background_tasks))
+
+        with patch("src.interface.api.services.background.logger") as mock_logger:
+            mock_logger.bind.return_value = mock_logger
+            started = time.perf_counter()
+            assert await cancel_all_background_tasks(0.05) == 1
+            elapsed = time.perf_counter() - started
+
+        assert elapsed < 0.25
+        warning_kwargs = mock_logger.warning.call_args.kwargs
+        assert warning_kwargs["straggler_names"] == ["straggler"]
+
+        # Let the abandoned task finish so it isn't destroyed while pending.
+        await asyncio.wait([task], timeout=1.0)

@@ -12,6 +12,7 @@ The result→outcome truth table itself lives with the mapping, in
 the scheduled/demand path and must not be pinned per consumer.
 """
 
+import asyncio
 from collections.abc import Awaitable, Callable
 from unittest.mock import AsyncMock, MagicMock, patch
 from uuid import UUID, uuid4
@@ -252,6 +253,186 @@ class TestRunSseOperationTerminalEvent:
             assert len(terminal) == 1
             assert terminal[0]["event"] == "error"
             assert "error_message" in terminal[0]["data"]["counts"]
+        finally:
+            await registry.unregister(op_id)
+
+
+class TestRunSseOperationCancellation:
+    """A server shutdown (Fly autostop → SIGINT → task.cancel()) must not read as
+    success. ``CancelledError`` is a ``BaseException``, so it bypasses the seam's
+    ``except Exception`` — before the dedicated branch existed it fell through to
+    ``finally`` with the optimistic ``status = "complete"`` default still set, and a
+    killed import (15,317 ingested plays, nothing projected) was durably recorded as
+    a clean run with empty counts.
+    """
+
+    async def test_cancellation_finalizes_error_with_reason_and_reraises(
+        self, captured_finalize
+    ):
+        entered = asyncio.Event()
+
+        async def coro() -> None:
+            entered.set()
+            await asyncio.Event().wait()  # never resolves; only cancellation ends it
+
+        task = asyncio.create_task(
+            sse_operations.run_sse_operation(
+                _op_id(), coro(), run_id=uuid4(), user_id="u1"
+            )
+        )
+        await entered.wait()
+        task.cancel()
+
+        # Cancellation semantics are preserved: the task ends cancelled, it does not
+        # quietly return as if the operation had finished.
+        with pytest.raises(asyncio.CancelledError):
+            await task
+
+        kwargs = captured_finalize.await_args.kwargs
+        assert kwargs["status"] == "error"
+        assert kwargs["counts"] == {
+            "error_message": sse_operations.CANCELLED_ERROR_MESSAGE
+        }
+        assert kwargs["issues"] == [{"message": sse_operations.CANCELLED_ISSUE_MESSAGE}]
+
+    async def test_cancellation_pushes_terminal_error_event(self, captured_finalize):
+        registry = get_operation_registry()
+        op_id = _op_id()
+        queue = await registry.register(op_id)
+        try:
+            entered = asyncio.Event()
+
+            async def coro() -> None:
+                entered.set()
+                await asyncio.Event().wait()
+
+            task = asyncio.create_task(
+                sse_operations.run_sse_operation(
+                    op_id, coro(), run_id=uuid4(), user_id="u1"
+                )
+            )
+            await entered.wait()
+            task.cancel()
+            with pytest.raises(asyncio.CancelledError):
+                await task
+
+            terminal = [
+                e for e in _drain(queue) if e.get("event") in ("complete", "error")
+            ]
+            assert len(terminal) == 1
+            assert terminal[0]["event"] == "error"
+            assert (
+                terminal[0]["data"]["counts"]["error_message"]
+                == sse_operations.CANCELLED_ERROR_MESSAGE
+            )
+        finally:
+            await registry.unregister(op_id)
+
+    async def test_cancellation_skips_the_sse_grace_period(self, captured_finalize):
+        # The 30s read window exists for a live client; holding it per task would
+        # blow the shutdown drain's kill_timeout budget.
+        entered = asyncio.Event()
+
+        async def coro() -> None:
+            entered.set()
+            await asyncio.Event().wait()
+
+        with patch.object(
+            sse_operations, "finalize_sse_operation", new=AsyncMock()
+        ) as finalize_sse:
+            task = asyncio.create_task(
+                sse_operations.run_sse_operation(
+                    _op_id(), coro(), run_id=uuid4(), user_id="u1"
+                )
+            )
+            await entered.wait()
+            task.cancel()
+            with pytest.raises(asyncio.CancelledError):
+                await task
+
+        assert finalize_sse.await_args.kwargs["grace_period_seconds"] == 0.0
+
+    async def test_clean_run_keeps_the_default_grace_period(self, captured_finalize):
+        async def coro() -> OperationResult:
+            return OperationResult(operation_name="Import")
+
+        with patch.object(
+            sse_operations, "finalize_sse_operation", new=AsyncMock()
+        ) as finalize_sse:
+            await sse_operations.run_sse_operation(
+                _op_id(), coro(), run_id=uuid4(), user_id="u1"
+            )
+
+        assert finalize_sse.await_args.kwargs["grace_period_seconds"] is None
+
+    async def test_audit_write_lands_despite_cancellation_mid_write(self):
+        """The shield is the whole point: the finalize write must survive.
+
+        A second cancellation arriving while the audit write is in flight — the
+        realistic shutdown shape, where the drain and the ASGI cancel scope both
+        push — would interrupt an unshielded ``finalize_run`` at its first
+        suspension point, leaving the run row untouched forever.
+        """
+        write_started = asyncio.Event()
+        recorded: list[str] = []
+
+        async def slow_finalize(
+            _run_id, *, user_id: str, status: str, counts, issues
+        ) -> None:
+            write_started.set()
+            await asyncio.sleep(0.05)  # the suspension point cancellation would hit
+            recorded.append(status)
+
+        entered = asyncio.Event()
+
+        async def coro() -> None:
+            entered.set()
+            await asyncio.Event().wait()
+
+        with (
+            patch.object(sse_operations, "finalize_run", new=slow_finalize),
+            patch.object(sse_operations, "finalize_sse_operation", new=AsyncMock()),
+        ):
+            task = asyncio.create_task(
+                sse_operations.run_sse_operation(
+                    _op_id(), coro(), run_id=uuid4(), user_id="u1"
+                )
+            )
+            await entered.wait()
+            task.cancel()
+            await write_started.wait()
+            task.cancel()  # lands while the shielded write is suspended
+            with pytest.raises(asyncio.CancelledError):
+                await task
+
+        assert recorded == ["error"]
+
+    async def test_audit_write_failure_does_not_break_cleanup(self, captured_finalize):
+        # A failed audit write must not swallow the terminal event or the
+        # cancellation — the live client still needs to be told.
+        captured_finalize.side_effect = RuntimeError("db gone")
+        registry = get_operation_registry()
+        op_id = _op_id()
+        queue = await registry.register(op_id)
+        try:
+            entered = asyncio.Event()
+
+            async def coro() -> None:
+                entered.set()
+                await asyncio.Event().wait()
+
+            task = asyncio.create_task(
+                sse_operations.run_sse_operation(
+                    op_id, coro(), run_id=uuid4(), user_id="u1"
+                )
+            )
+            await entered.wait()
+            task.cancel()
+            with pytest.raises(asyncio.CancelledError):
+                await task
+
+            terminal = [e for e in _drain(queue) if e.get("event") == "error"]
+            assert len(terminal) == 1
         finally:
             await registry.unregister(op_id)
 

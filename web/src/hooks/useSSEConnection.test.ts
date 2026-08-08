@@ -39,6 +39,10 @@ describe("useSSEConnection", () => {
 
   beforeEach(() => {
     vi.restoreAllMocks();
+    // Vitest 4's restoreAllMocks only touches vi.spyOn spies — the module-level
+    // connectToTest mock keeps its call history without an explicit reset,
+    // which would make per-test attempt counts cumulative.
+    vi.resetAllMocks();
   });
 
   it("returns idle state when operationId is null", () => {
@@ -153,11 +157,11 @@ describe("useSSEConnection", () => {
     expect(result.current.error).toBeNull();
   });
 
-  it("sets error on non-abort transport failure", async () => {
+  it("sets error on non-abort transport failure, once the resume is spent", async () => {
     mockSSEError(new Error("SSE connection failed: 404"));
 
     const { result } = renderHook(
-      () => useSSEConnection("op-bad", noopOptions),
+      () => useSSEConnection("op-bad", { ...noopOptions, resumeDelayMs: 0 }),
       { wrapper: createWrapper() },
     );
 
@@ -165,6 +169,8 @@ describe("useSSEConnection", () => {
       expect(result.current.error).toBeInstanceOf(Error);
       expect(result.current.error?.message).toBe("SSE connection failed: 404");
     });
+    // One initial attempt + one resume, and no more.
+    expect(connectToSSE).toHaveBeenCalledTimes(2);
   });
 
   it("calls onStreamEnd when the event iterator completes", async () => {
@@ -340,7 +346,7 @@ describe("useSSEConnection", () => {
       mockSSEError(new Error("boom"));
 
       const { result } = renderHook(
-        () => useSSEConnection("op-bad", noopOptions),
+        () => useSSEConnection("op-bad", { ...noopOptions, resumeDelayMs: 0 }),
         { wrapper: createWrapper() },
       );
 
@@ -348,6 +354,93 @@ describe("useSSEConnection", () => {
         expect(result.current.state.kind).toBe("closed-error");
       });
       expect(result.current.error).toEqual(new Error("boom"));
+    });
+  });
+
+  // ─── Bounded resume (v0.10.3 incident fix) ───────────────────
+
+  describe("resume after a transport drop", () => {
+    it("retries once, replaying from the last received event id", async () => {
+      // First attempt streams two events then dies mid-stream; the retry must
+      // ask the server to resume from the last id it delivered.
+      vi.mocked(connectToSSE)
+        .mockImplementationOnce(async () =>
+          (async function* () {
+            yield { event: "progress", data: '{"current":1}', id: "evt_1" };
+            yield { event: "progress", data: '{"current":2}', id: "evt_2" };
+            throw new Error("network error");
+          })(),
+        )
+        .mockImplementationOnce(async () =>
+          (async function* () {
+            yield { event: "complete", data: "{}", id: "evt_3" };
+          })(),
+        );
+
+      const onEvent = vi.fn();
+      const { result } = renderHook(
+        () => useSSEConnection("op-resume", { onEvent, resumeDelayMs: 0 }),
+        { wrapper: createWrapper() },
+      );
+
+      await waitFor(() => {
+        expect(result.current.state.kind).toBe("closed-done");
+      });
+      expect(connectToSSE).toHaveBeenNthCalledWith(
+        2,
+        "/api/v1/operations/op-resume/progress",
+        expect.any(AbortSignal),
+        { lastEventId: "evt_2" },
+      );
+      // The resumed stream's events keep flowing to the consumer.
+      expect(onEvent).toHaveBeenCalledWith("complete", {});
+      expect(result.current.error).toBeNull();
+    });
+
+    it("passes through the resuming state before the retry", async () => {
+      vi.mocked(connectToSSE)
+        .mockRejectedValueOnce(new Error("network error"))
+        .mockImplementationOnce(async () =>
+          (async function* () {
+            await new Promise(() => {});
+          })(),
+        );
+
+      const { result } = renderHook(
+        () =>
+          useSSEConnection("op-resume", { ...noopOptions, resumeDelayMs: 200 }),
+        { wrapper: createWrapper() },
+      );
+
+      // Backoff window: not connected, but not an error either.
+      await waitFor(() => {
+        expect(result.current.state.kind).toBe("resuming");
+      });
+      expect(result.current.error).toBeNull();
+
+      await waitFor(() => {
+        expect(result.current.state.kind).toBe("open-no-events");
+      });
+      expect(result.current.error).toBeNull();
+    });
+
+    it("a 404 on the retry closes the stream without further attempts", async () => {
+      // The server's in-memory queue is gone (run ended / machine restarted).
+      // The transport gives up here; recovering the run is the caller's job.
+      vi.mocked(connectToSSE)
+        .mockRejectedValueOnce(new Error("network error"))
+        .mockRejectedValueOnce(new Error("SSE connection failed: 404"));
+
+      const { result } = renderHook(
+        () => useSSEConnection("op-gone", { ...noopOptions, resumeDelayMs: 0 }),
+        { wrapper: createWrapper() },
+      );
+
+      await waitFor(() => {
+        expect(result.current.state.kind).toBe("closed-error");
+      });
+      expect(result.current.error?.message).toBe("SSE connection failed: 404");
+      expect(connectToSSE).toHaveBeenCalledTimes(2);
     });
   });
 });

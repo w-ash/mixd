@@ -139,6 +139,18 @@ async def lifespan(_app: FastAPI) -> AsyncGenerator[None]:
         # Cleanup must run even if the lifespan body raises, so background
         # tasks and the progress subscription are never leaked on shutdown.
         logger.info("API server shutting down — cancelling background tasks")
+        # Drain in-flight SSE operations FIRST, and explicitly: each one's
+        # cancellation branch writes its terminal audit row, and that write needs a
+        # live event loop + DB engine. Left to interpreter teardown it never lands —
+        # the incident where a Fly-autostop SIGINT killed an import mid-flight and
+        # the run stayed durably recorded as `complete` with empty counts. Bounded
+        # by Fly's 5s kill_timeout; stragglers are logged and abandoned.
+        from src.interface.api.services.background import (
+            SHUTDOWN_DRAIN_TIMEOUT_SECONDS,
+            cancel_all_background_tasks,
+        )
+
+        await cancel_all_background_tasks(SHUTDOWN_DRAIN_TIMEOUT_SECONDS)
         sweeper_task.cancel()
         if scheduler_task is not None:
             scheduler_task.cancel()

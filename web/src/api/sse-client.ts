@@ -16,6 +16,17 @@ export interface SSEEvent {
   id?: string;
 }
 
+export interface ConnectToSSEOptions {
+  /**
+   * Id of the last event the caller already processed. Sent as the
+   * `Last-Event-ID` header so a resumed stream replays only what was missed —
+   * the server filters on it (`routes/operations.py`). Omit on a first connect.
+   */
+  lastEventId?: string | null;
+  /** Budget for the initial HTTP handshake only, not the stream. */
+  connectionTimeoutMs?: number;
+}
+
 /**
  * Connect to an SSE endpoint and return an async iterable of parsed events.
  *
@@ -28,13 +39,17 @@ const CONNECTION_TIMEOUT_MS = 30_000;
 export async function connectToSSE(
   url: string,
   signal: AbortSignal,
-  connectionTimeoutMs = CONNECTION_TIMEOUT_MS,
+  options: ConnectToSSEOptions = {},
 ): Promise<AsyncIterable<SSEEvent>> {
+  const { lastEventId, connectionTimeoutMs = CONNECTION_TIMEOUT_MS } = options;
   const headers: Record<string, string> = { Accept: "text/event-stream" };
 
   const token = await getAuthToken();
   if (token) {
     headers.Authorization = `Bearer ${token}`;
+  }
+  if (lastEventId) {
+    headers["Last-Event-ID"] = lastEventId;
   }
 
   // Timeout covers only the initial HTTP connection, not the stream.

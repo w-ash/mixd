@@ -1,4 +1,11 @@
-import { AlertTriangle, Check, Ellipsis, Play, X } from "lucide-react";
+import {
+  AlertTriangle,
+  Check,
+  Ellipsis,
+  Play,
+  RefreshCw,
+  X,
+} from "lucide-react";
 import type {
   OperationProgress as OperationProgressData,
   SubOperationProgress,
@@ -30,6 +37,15 @@ const statusConfig = {
     barClass: "bg-primary",
     iconBg: "bg-primary/20",
     iconText: "text-primary",
+  },
+  // Live updates were lost, the outcome is still being resolved from the
+  // durable run row. Amber, not red — nothing has failed yet.
+  reconnecting: {
+    icon: <RefreshCw className="size-3" />,
+    label: "Reconnecting",
+    barClass: "bg-status-warning",
+    iconBg: "bg-status-warning/20",
+    iconText: "text-status-warning",
   },
   completed: {
     icon: <Check className="size-3" />,
@@ -118,6 +134,7 @@ export function OperationProgress({
             "h-full rounded-full transition-all duration-300 ease-out",
             config.barClass,
             progress.status === "pending" && "animate-pulse w-full opacity-30",
+            progress.status === "reconnecting" && "animate-pulse",
           )}
           style={
             progress.status !== "pending"

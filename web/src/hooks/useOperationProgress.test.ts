@@ -1,7 +1,11 @@
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { renderHook, waitFor } from "@testing-library/react";
+import { HttpResponse, http } from "msw";
 import { createElement, type ReactNode } from "react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
+
+import type { OperationRunSummarySchema } from "#/api/generated/model";
+import { server } from "#/test/setup";
 
 import { useOperationProgress } from "./useOperationProgress";
 
@@ -35,11 +39,45 @@ function createWrapper(queryClient?: QueryClient) {
   };
 }
 
+// ─── Durable-run helpers ────────────────────────────────────────
+
+function makeRunRow(
+  overrides: Partial<OperationRunSummarySchema> = {},
+): OperationRunSummarySchema {
+  return {
+    id: "run-1",
+    operation_id: "op-123",
+    operation_type: "import_lastfm_history",
+    started_at: "2026-01-01T10:00:00Z",
+    ended_at: "2026-01-01T10:05:00Z",
+    status: "complete",
+    counts: { track_plays: 42 },
+    issue_count: 0,
+    retryable: false,
+    initiated_by: "user",
+    ...overrides,
+  };
+}
+
+/** Serve the audit-log list the recovery poll reads. */
+function mockRunRows(...rows: OperationRunSummarySchema[]) {
+  server.use(
+    http.get("*/api/v1/operation-runs", () =>
+      HttpResponse.json({ data: rows, limit: 20, next_cursor: null }),
+    ),
+  );
+}
+
+/** Recovery timings that keep the tests deterministic and fast. */
+const FAST_RECOVERY = { resumeDelayMs: 0, recoveryPollIntervalMs: 20 } as const;
+
 // ─── Tests ──────────────────────────────────────────────────────
 
 describe("useOperationProgress", () => {
   beforeEach(() => {
     vi.restoreAllMocks();
+    // Vitest 4's restoreAllMocks leaves vi.fn() history/implementations intact.
+    vi.resetAllMocks();
   });
 
   it("returns null progress when operationId is null", () => {
@@ -255,17 +293,21 @@ describe("useOperationProgress", () => {
     close();
   });
 
-  it("sets error on connection failure", async () => {
+  it("surfaces the transport error once the bounded resume is spent", async () => {
     mockSSEError("SSE connection failed: 404");
+    mockRunRows();
 
-    const { result } = renderHook(() => useOperationProgress("op-bad"), {
-      wrapper: createWrapper(),
-    });
+    const { result } = renderHook(
+      () => useOperationProgress("op-bad", FAST_RECOVERY),
+      { wrapper: createWrapper() },
+    );
 
     await waitFor(() => {
       expect(result.current.error).toBeInstanceOf(Error);
       expect(result.current.error?.message).toMatch(/SSE connection failed/);
     });
+    // A dead socket is not a dead run — the card must not read as failed yet.
+    expect(result.current.progress?.status).not.toBe("failed");
   });
 
   it("invalidates custom query keys on complete", async () => {
@@ -547,6 +589,223 @@ describe("useOperationProgress", () => {
       expect(result.current.progress?.status).toBe("running");
     });
     close();
+  });
+
+  // ─── Recovery: the durable row outlives the stream ────────────
+  //
+  // Prod incident: the machine running a long import was stopped mid-run. The
+  // socket died, the client had no reconnect, and the card latched "Connection
+  // failed" forever — while the operation_runs row held the real outcome.
+
+  describe("recovery", () => {
+    /** Stream dies mid-run, and the resume 404s: the queue is gone. */
+    function mockStreamLostThenQueueGone() {
+      vi.mocked(connectToSSE)
+        .mockImplementationOnce(async () =>
+          (async function* () {
+            yield {
+              event: "progress",
+              data: JSON.stringify({ current: 10, total: 100 }),
+              id: "evt_9",
+            };
+            throw new Error("network error");
+          })(),
+        )
+        .mockRejectedValueOnce(new Error("SSE connection failed: 404"));
+    }
+
+    it("resumes the stream with Last-Event-ID rather than giving up", async () => {
+      vi.mocked(connectToSSE)
+        .mockImplementationOnce(async () =>
+          (async function* () {
+            yield {
+              event: "progress",
+              data: JSON.stringify({ current: 10, total: 100 }),
+              id: "evt_9",
+            };
+            throw new Error("network error");
+          })(),
+        )
+        .mockImplementationOnce(async () =>
+          (async function* () {
+            yield {
+              event: "complete",
+              data: JSON.stringify({ counts: { track_plays: 42 } }),
+              id: "evt_10",
+            };
+          })(),
+        );
+
+      const { result } = renderHook(
+        () => useOperationProgress("op-123", FAST_RECOVERY),
+        { wrapper: createWrapper() },
+      );
+
+      await waitFor(() => {
+        expect(result.current.progress?.status).toBe("completed");
+      });
+      expect(connectToSSE).toHaveBeenNthCalledWith(
+        2,
+        "/api/v1/operations/op-123/progress",
+        expect.any(AbortSignal),
+        { lastEventId: "evt_9" },
+      );
+      expect(result.current.progress?.message).not.toMatch(/Connection failed/);
+    });
+
+    it("shows an honest intermediate state while the durable row still says running", async () => {
+      mockStreamLostThenQueueGone();
+      mockRunRows(makeRunRow({ status: "running", ended_at: null }));
+
+      const { result } = renderHook(
+        () => useOperationProgress("op-123", FAST_RECOVERY),
+        { wrapper: createWrapper() },
+      );
+
+      await waitFor(() => {
+        expect(result.current.progress?.status).toBe("reconnecting");
+      });
+      expect(result.current.progress?.message).toBe(
+        "Connection lost — checking result…",
+      );
+      // Still "in flight" as far as the UI is concerned — no re-trigger.
+      expect(result.current.isActive).toBe(true);
+    });
+
+    it("renders the terminal state from a completed run row", async () => {
+      mockStreamLostThenQueueGone();
+      mockRunRows(
+        makeRunRow({ status: "complete", counts: { track_plays: 42 } }),
+      );
+
+      const { result } = renderHook(
+        () => useOperationProgress("op-123", FAST_RECOVERY),
+        { wrapper: createWrapper() },
+      );
+
+      await waitFor(() => {
+        expect(result.current.progress?.status).toBe("completed");
+      });
+      expect(result.current.progress?.message).toBe("Complete");
+      expect(result.current.progress?.counts).toEqual({ track_plays: 42 });
+      expect(result.current.isActive).toBe(false);
+    });
+
+    it("carries a partial run's issue count in counts.errors for the toast", async () => {
+      // `issueCountFromCounts` reads counts.errors — the live `complete` event
+      // rides the failure count there, so the recovered row must match it or a
+      // lossy run gets announced as a clean success.
+      mockStreamLostThenQueueGone();
+      mockRunRows(
+        makeRunRow({
+          status: "partial",
+          counts: { track_plays: 98 },
+          issue_count: 2,
+        }),
+      );
+
+      const { result } = renderHook(
+        () => useOperationProgress("op-123", FAST_RECOVERY),
+        { wrapper: createWrapper() },
+      );
+
+      await waitFor(() => {
+        expect(result.current.progress?.status).toBe("completed");
+      });
+      expect(result.current.progress?.counts).toEqual({
+        track_plays: 98,
+        errors: 2,
+      });
+      expect(result.current.progress?.message).toBe("Completed with issues");
+    });
+
+    it("renders a failed run row as failed", async () => {
+      mockStreamLostThenQueueGone();
+      mockRunRows(makeRunRow({ status: "error", issue_count: 3 }));
+
+      const { result } = renderHook(
+        () => useOperationProgress("op-123", FAST_RECOVERY),
+        { wrapper: createWrapper() },
+      );
+
+      await waitFor(() => {
+        expect(result.current.progress?.status).toBe("failed");
+      });
+      expect(result.current.progress?.message).toBe("Operation failed");
+      expect(result.current.progress?.counts).toEqual({
+        track_plays: 42,
+        errors: 3,
+      });
+    });
+
+    it("invalidates the caller's query keys when recovery resolves the run", async () => {
+      mockStreamLostThenQueueGone();
+      mockRunRows(makeRunRow({ status: "complete" }));
+
+      const queryClient = new QueryClient({
+        defaultOptions: { queries: { retry: false, gcTime: 0 } },
+      });
+      const invalidateSpy = vi.spyOn(queryClient, "invalidateQueries");
+
+      renderHook(
+        () =>
+          useOperationProgress("op-123", {
+            ...FAST_RECOVERY,
+            invalidateKeys: [["/api/v1/imports/checkpoints"]],
+          }),
+        { wrapper: createWrapper(queryClient) },
+      );
+
+      await waitFor(() => {
+        expect(invalidateSpy).toHaveBeenCalledWith({
+          queryKey: ["/api/v1/imports/checkpoints"],
+        });
+      });
+    });
+
+    it("recovers a stream that ended without a terminal frame", async () => {
+      // A clean EOF never fires the stall watchdog — this used to latch the
+      // card at "Connection lost" with no way back.
+      mockSSEWithEvents([
+        {
+          event: "progress",
+          data: JSON.stringify({ current: 10, total: 100 }),
+        },
+      ]);
+      mockRunRows(makeRunRow({ status: "complete" }));
+
+      const { result } = renderHook(
+        () => useOperationProgress("op-123", FAST_RECOVERY),
+        { wrapper: createWrapper() },
+      );
+
+      await waitFor(() => {
+        expect(result.current.progress?.status).toBe("completed");
+      });
+      expect(connectToSSE).toHaveBeenCalledTimes(1);
+    });
+
+    it("falls back to Connection failed only when the API is unreachable too", async () => {
+      mockStreamLostThenQueueGone();
+      server.use(
+        http.get("*/api/v1/operation-runs", () =>
+          HttpResponse.json(
+            { error: { code: "INTERNAL", message: "down" } },
+            { status: 500 },
+          ),
+        ),
+      );
+
+      const { result } = renderHook(
+        () => useOperationProgress("op-123", FAST_RECOVERY),
+        { wrapper: createWrapper() },
+      );
+
+      await waitFor(() => {
+        expect(result.current.progress?.status).toBe("failed");
+      });
+      expect(result.current.progress?.message).toBe("Connection failed");
+    });
   });
 
   it("clears a still-active sub-op on complete (lost sub_operation_completed)", async () => {
