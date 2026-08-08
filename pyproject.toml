@@ -6,9 +6,14 @@ authors = [{name = "Ash Wright", email = "a@ashwright.net"}]
 readme = "README.md"
 license = "AGPL-3.0-only"
 requires-python = ">=3.14,<3.15"
+# Floors track the lock: every `>=` below is the version `uv.lock` resolves to, raised
+# in step on each dependency sweep. Mixd is an application deployed from its own
+# lockfile, never a library someone else co-installs, so a tight floor costs nothing
+# and buys an honest manifest — `pyproject.toml` states what we actually run against
+# rather than the oldest version that once happened to work.
 dependencies = [
     "sqlalchemy[asyncio]>=2.0.51",
-    "alembic>=1.18.5",
+    "alembic>=1.19.1",
     # Pydantic's stewarded continuation of httpx (encode/httpx has had no release
     # since 2024). Starlette's TestClient already prefers it and mcp v2 requires it,
     # so this is the line the ecosystem settled on. Plain httpx stays in the lock
@@ -17,29 +22,27 @@ dependencies = [
     "structlog>=26.1.0",
     "python-dotenv>=1.2.2",
     "rich>=15.0.0",
-    "typer>=0.26.8",
+    "typer>=0.27.1",
     "attrs>=26.1.0",
     "tenacity>=9.1.4",
     "psycopg[binary]>=3.3.4",
     "rapidfuzz>=3.14.5",
     "pydantic>=2.13.4",
-    "pydantic-settings>=2.14.2",
-    "cryptography>=49.0.0",
-    "fastapi>=0.139.0",
+    "pydantic-settings>=2.15.0",
+    "cryptography>=50.0.0",
+    "fastapi>=0.141.1",
     # Imported directly by the ASGI middleware in src/interface/api/ and
-    # src/interface/mcp/ (starlette.datastructures, .types, .routing — FastAPI does
-    # not re-export these), so it is a real first-party dependency, not just a
-    # fastapi transitive. Floor mirrors fastapi's own `starlette>=0.46.0` rather
-    # than inventing a tighter one; mcp (>=0.48.0 on 3.14) and sse-starlette
-    # (>=0.49.1) already pull resolution higher.
-    "starlette>=0.46.0",
-    "uvicorn[standard]>=0.49.0",
+    # src/interface/mcp/ (starlette.datastructures, .types, .routing,
+    # .middleware.authentication — FastAPI does not re-export these), so it is a
+    # real first-party dependency, not just a fastapi transitive.
+    "starlette>=1.6.0",
+    "uvicorn[standard]>=0.52.1",
     "python-multipart>=0.0.32",
     "jellyfish>=1.2.1",
     "pyjwt[crypto]>=2.13.0",
     "orjson>=3.11.9",
-    "croniter>=6.2.2",
-    "anthropic>=0.116,<1",
+    "croniter>=6.2.4",
+    "anthropic>=0.121.0,<1",
     # v0.9.3 MCP server, on the stable v2 SDK (2.0.0 released 2026-07-28).
     "mcp>=2.0.0,<3",
     # Imported directly by src/interface/mcp/server.py, so declared here; mcp itself
@@ -64,13 +67,13 @@ dev = [
     "pytest-asyncio>=1.4.0",
     "pytest-cov>=7.1.0",
     "pytest-xdist>=3.8.0",
-    "ruff>=0.16.0",
-    "pre-commit>=4.6.0",
+    "ruff>=0.16.2",
+    "pre-commit>=4.6.1",
     "basedpyright>=1.39.9",
     "vulture>=2.16",
     "import-linter>=2.13",
-    "testcontainers[postgres]>=4.14.2",
-    "hypothesis>=6.156.6",
+    "testcontainers[postgres]>=4.15.0",
+    "hypothesis>=6.165.2",
 ]
 
 [tool.uv]
