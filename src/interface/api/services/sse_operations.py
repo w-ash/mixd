@@ -31,7 +31,7 @@ from src.application.services.operation_run_recorder import (
 from src.application.services.progress_broker import get_progress_broker
 from src.config import get_logger
 from src.config.constants import SSEConstants, WorkflowConstants
-from src.domain.entities.operation_run import OperationStatus
+from src.domain.entities.operation_run import FAILED_STATUSES, OperationStatus
 from src.domain.entities.operations import OperationResult
 from src.domain.entities.progress import (
     OperationStatus as ProgressOpStatus,
@@ -119,7 +119,13 @@ def _audit_outcome(result: object) -> tuple[OperationStatus, JsonDict | None]:
     A use case that handled a failure internally returns an ``OperationResult``
     with ``is_failure`` set — the same soft-failure signal the scheduler reads
     (``sync_targets.sync_result_failed``) and the CLI renders. The audit row must
-    record that as ``error`` with the run's counts, not a blanket ``complete``.
+    record that as a failure with the run's counts, not a blanket ``complete``.
+
+    A failure that still landed work (``is_partial_failure``) records as
+    ``partial`` instead of ``error``: "the import finished but some tracks
+    couldn't be resolved" is a different thing for the user to act on than "the
+    import failed". This split is presentation only — ``is_failure`` is untouched,
+    so the scheduler's health signal sees a partial run exactly as it did before.
 
     This is what makes the cycle's headline acceptance — *"if an overnight run
     fails, the user sees it the next time they open mixd"* — true on the web: the
@@ -128,9 +134,37 @@ def _audit_outcome(result: object) -> tuple[OperationStatus, JsonDict | None]:
     failure signal and no counts, so it stays ``complete``.
     """
     if isinstance(result, OperationResult):
-        status: OperationStatus = "error" if result.is_failure else "complete"
+        status: OperationStatus = "complete"
+        if result.is_partial_failure:
+            status = "partial"
+        elif result.is_failure:
+            status = "error"
         return status, result.to_counts()
     return "complete", None
+
+
+def _failure_issues(result: OperationResult) -> list[JsonDict]:
+    """Build the run's ``issues`` array from a failed use-case result.
+
+    Ordered: the headline reason (why the run is marked failed), then one issue
+    per per-item failure the use case recorded, then a truncation notice when the
+    producer's cap dropped some. The per-item dicts pass through as-is — they are
+    already the user-legible ``{track, spotify_id, reason}`` shape, and this is
+    what puts the exact unresolved tracks in the Import History row.
+
+    A soft failure's detail lives only in ``OperationResult.metadata``, which
+    ``to_counts()`` drops — without this it exists nowhere queryable (the
+    v0.10.2.2 "errors: 1 with no message" fix, now extended to per-item detail).
+    """
+    issues: list[JsonDict] = []
+    failure_message = result.failure_message
+    if failure_message:
+        issues.append({"message": failure_message[:500]})
+    issues.extend(result.resolution_failures)
+    truncated = result.resolution_failures_truncated
+    if truncated > 0:
+        issues.append({"message": f"…and {truncated} more failures — see server logs"})
+    return issues
 
 
 async def run_sse_operation(
@@ -173,7 +207,7 @@ async def run_sse_operation(
     await _safe_start_parent(operation_id, description)
     status: OperationStatus = "complete"
     counts: JsonDict | None = None
-    error_message: str | None = None
+    issues: list[JsonDict] = []
     try:
         result = await coro
     except Exception as exc:
@@ -182,26 +216,23 @@ async def run_sse_operation(
         # the type name is the only reason left, and a blank issue is worse than none.
         error_message = str(exc)[:500] or type(exc).__name__
         status, counts = "error", {"error_message": error_message}
+        issues = [{"message": error_message}]
     else:
         status, counts = _audit_outcome(result)
-        # A soft failure's reason lives only in OperationResult.metadata, which
-        # to_counts() drops — persist it as a run issue or it exists nowhere
-        # queryable (the v0.10.2.2 "errors: 1 with no message" fix).
-        if status == "error" and isinstance(result, OperationResult):
-            failure_message = result.failure_message
-            error_message = failure_message[:500] if failure_message else None
+        if status in FAILED_STATUSES and isinstance(result, OperationResult):
+            issues = _failure_issues(result)
     finally:
         if run_id is not None and user_id is not None:
             try:
-                # One transaction for status + issue: a separate append could
-                # fail after the status write and leave a durable 'error' run
+                # One transaction for status + issues: a separate append could
+                # fail after the status write and leave a durable failed run
                 # with no reason attached.
                 await finalize_run(
                     run_id,
                     user_id=user_id,
                     status=status,
                     counts=counts,
-                    issue={"message": error_message} if error_message else None,
+                    issues=issues,
                 )
             except Exception:
                 logger.error(
@@ -257,10 +288,15 @@ async def _push_terminal_event(
 ) -> None:
     """Push the live terminal SSE event with the run's final status + counts.
 
-    ``complete`` → ``complete`` event; ``error`` → ``error`` event. ``counts`` are
-    spread into the event data so the toast can render the real per-operation
-    numbers (``track_plays``, ``imported``, ``errors``, …). Best-effort: if the
-    queue is already gone the run still finalized via the audit row.
+    ``error`` → ``error`` event; every other terminal status → ``complete``.
+    ``partial`` lands on ``complete`` deliberately: the operation *did* finish, and
+    the ``errors`` count rides along in ``counts`` so the live toast still shows
+    what went wrong. Only the durable audit row draws the finer distinction — the
+    SSE terminal vocabulary is shared with the workflow/preview streams and is not
+    the place to introduce a third outcome. ``counts`` are spread into the event
+    data so the toast can render the real per-operation numbers (``track_plays``,
+    ``imported``, ``errors``, …). Best-effort: if the queue is already gone the run
+    still finalized via the audit row.
     """
     registry = get_operation_registry()
     queue = await registry.get_queue(operation_id)

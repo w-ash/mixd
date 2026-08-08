@@ -103,6 +103,9 @@ function OperationsWatcher({
         counts: run.counts,
         issueCount: run.issues.length,
         runId,
+        // "partial" is deliberately NOT failed: the run finished, so it earns the
+        // warning toast (issueCount > 0) rather than the error one — the row's
+        // issues already name the items that didn't land.
         failed: run.status === "error",
         onNavigate: navigate,
         action: run.retryable

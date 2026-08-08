@@ -42,6 +42,41 @@ from src.infrastructure.connectors.spotify.models import (
 logger = get_logger(__name__).bind(service="spotify_client")
 
 
+def sanitize_filter_value(value: str) -> str:
+    """Make a raw artist/title safe to sit inside a quoted Spotify field filter.
+
+    Spotify's query grammar has no in-quote escape syntax, so an embedded double
+    quote terminates the filter early and the remainder degrades into loose
+    words. It is replaced by a space rather than escaped. Apostrophes, ampersands
+    and non-ASCII are legal inside quotes and are left untouched — GDPR exports
+    carry them verbatim and normalising them would lose real matches.
+    """
+    return " ".join(value.replace('"', " ").split())
+
+
+def field_filtered_search_query(artist: str, title: str) -> str:
+    """``artist:"…" track:"…"`` — filters bound to the full artist and title.
+
+    A Spotify field filter binds to a SINGLE term unless the value is quoted:
+    unquoted, ``artist:Robert Johnson track:Come On in My Kitchen`` filters on
+    artist "Robert" and track "Come", leaving every remaining word as a loose
+    free-text term. Quoting binds the whole value to its filter.
+    """
+    return (
+        f'artist:"{sanitize_filter_value(artist)}" '
+        f'track:"{sanitize_filter_value(title)}"'
+    )
+
+
+def free_text_search_query(artist: str, title: str) -> str:
+    """Artist and title as plain terms — no field filters, no quoting.
+
+    Spotify's relevance ranking gets to match across all fields, which recovers
+    tracks whose stored artist/title spelling differs from the caller's.
+    """
+    return " ".join(f"{artist} {title}".split())
+
+
 @define(slots=True)
 class SpotifyAPIClient(BaseAPIClient):
     """Pure Spotify API client using native httpx2.
@@ -216,24 +251,46 @@ class SpotifyAPIClient(BaseAPIClient):
         return dict(first) if isinstance(first, dict) else None
 
     async def search_track(
-        self, artist: str, title: str, limit: int = 5
+        self,
+        artist: str,
+        title: str,
+        limit: int = SpotifyConstants.SEARCH_DEFAULT_LIMIT,
+        *,
+        field_filtered: bool = True,
     ) -> list[SpotifyTrack]:
         """Search for tracks by artist and title.
 
         Returns multiple candidates so callers can rank by similarity.
+
+        ``field_filtered=False`` issues the artist and title as plain terms
+        instead of ``artist:``/``track:`` filters — the widening pass callers
+        use when the filtered query found nothing they could accept.
         """
         result = await self._api_call(
-            "search_spotify_track", self._search_track_impl, artist, title, limit
+            "search_spotify_track",
+            self._search_track_impl,
+            artist,
+            title,
+            limit,
+            field_filtered,
         )
         if not result:
             return []
         return [SpotifyTrack.model_validate(t) for t in result]
 
     async def _search_track_impl(
-        self, artist: str, title: str, limit: int = 5
+        self,
+        artist: str,
+        title: str,
+        limit: int = SpotifyConstants.SEARCH_DEFAULT_LIMIT,
+        field_filtered: bool = True,
     ) -> list[JsonDict]:
         """Pure implementation without retry logic."""
-        query = f"artist:{artist} track:{title}"
+        query = (
+            field_filtered_search_query(artist, title)
+            if field_filtered
+            else free_text_search_query(artist, title)
+        )
         logger.debug(f"Searching Spotify with query: {query}")
         response = await self._client.get(
             "/search",

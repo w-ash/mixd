@@ -18,7 +18,18 @@ from attrs import define, field
 
 from .shared import JsonDict, empty_json_map, utc_now_factory
 
-type OperationStatus = Literal["running", "complete", "error", "cancelled"]
+# ``partial`` sits between ``complete`` and ``error``: the run did real work AND
+# recorded per-item errors (see ``OperationResult.is_partial_failure``). It is a
+# presentation refinement of the audit row only — every failure *signal* consumer
+# (the scheduler's ``sync_result_failed``, the CLI) still reads
+# ``OperationResult.is_failure``, which a partial run sets exactly as before.
+# Mirrored by the API's ``OperationStatusLiteral`` and the
+# ``ck_operation_runs_valid_status`` CHECK constraint — all three must agree.
+type OperationStatus = Literal["running", "complete", "partial", "error", "cancelled"]
+
+# Terminal statuses that mean "some items did not land". Both are retry candidates:
+# a partial import is the *typical* one — most items succeeded, a named few didn't.
+FAILED_STATUSES: Final[frozenset[str]] = frozenset({"error", "partial"})
 
 # Operation types whose audit row carries enough to reconstruct a targeted
 # "retry the failed items" run — connector config in ``request_params`` plus
@@ -89,7 +100,7 @@ class OperationRun:
         409 gate and the ``retryable`` flag the UI reads.
         """
         return (
-            self.status == "error"
+            self.status in FAILED_STATUSES
             and self.operation_type in _RETRYABLE_OPERATION_TYPES
             and bool(self.request_params.get("connector_name"))
             and bool(self.request_params.get("sync_direction"))

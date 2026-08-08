@@ -43,7 +43,9 @@ from src.domain.entities.operation_run import OperationRun, OperationStatus
 from src.domain.entities.shared import JsonDict, JsonValue
 
 _VIEWS = ("run_detail", "run_list", "sync_checkpoint")
-_STATUSES = ("running", "complete", "error", "cancelled")
+# Mirrors ``OperationStatus`` (domain ``operation_run.py``) — the tool's enum must
+# offer every state a row can actually hold, or the filter silently can't reach one.
+_STATUSES = ("running", "complete", "partial", "error", "cancelled")
 _ENTITY_TYPES = ("likes", "plays")
 
 

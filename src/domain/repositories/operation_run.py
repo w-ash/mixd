@@ -41,14 +41,18 @@ class OperationRunRepositoryProtocol(Protocol):
         """
         ...
 
-    def append_issue(
+    def append_issues(
         self,
         run_id: UUID,
         *,
         user_id: str,
-        issue: JsonDict,
+        issues: Sequence[JsonDict],
     ) -> Awaitable[None]:
-        """Append one issue dict to the JSONB ``issues`` array."""
+        """Append issue dicts to the JSONB ``issues`` array in one statement.
+
+        Batched: a partially-failed import records one issue per unresolved
+        item, and those must not become N round-trips.
+        """
         ...
 
     def get_by_id_for_user(

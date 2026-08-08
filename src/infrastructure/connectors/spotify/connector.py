@@ -13,6 +13,7 @@ from uuid import UUID
 from attrs import define, field
 
 from src.config import get_logger, settings
+from src.config.constants import SpotifyConstants
 from src.domain.entities import (
     ConnectorPlaylist,
     ConnectorTrack,
@@ -142,13 +143,21 @@ class SpotifyConnector(BaseAPIConnector):
         return await self._client.search_by_isrc(isrc)
 
     async def search_track(
-        self, artist: str, title: str, limit: int = 5
+        self,
+        artist: str,
+        title: str,
+        limit: int = SpotifyConstants.SEARCH_DEFAULT_LIMIT,
+        *,
+        field_filtered: bool = True,
     ) -> list[SpotifyTrack]:
         """Search for tracks by artist and title.
 
         Returns multiple candidates so callers can rank by similarity.
+        ``field_filtered=False`` widens to a plain free-text query.
         """
-        return await self._client.search_track(artist, title, limit)
+        return await self._client.search_track(
+            artist, title, limit, field_filtered=field_filtered
+        )
 
     # Playlist Operations - Delegate to operations
 

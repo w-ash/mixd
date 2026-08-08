@@ -380,6 +380,32 @@ class PlaySource:
     id: UUID = field(factory=uuid7)
 
 
+# Summary-metric names that count items an operation *finished* — the evidence
+# that a run with errors still did real work (``is_partial_failure``). Only
+# completed-item counters belong here; denominators (``raw_plays``,
+# ``candidates``, ``total``) and no-op tallies (``already_liked``,
+# ``already_loved``, ``filtered``) do not, because they are positive on a run
+# where nothing landed. Current producers:
+#   ``track_plays``  — play import, canonical plays created (orchestrator)
+#   ``resolved``     — play resolution phase, connector plays resolved
+#   ``imported``     — Spotify likes import; Last.fm import (``domain/results``)
+#   ``exported``     — Last.fm likes export
+_SUCCESS_METRIC_NAMES: Final[frozenset[str]] = frozenset({
+    "track_plays",
+    "resolved",
+    "imported",
+    "exported",
+})
+
+# Metadata keys carrying the per-item failures of a partially-failed run. The
+# entity that carries the value owns its vocabulary: the producer (the play
+# import orchestrator) and the consumer (the SSE seam, which turns each entry
+# into a run issue) both name the keys from here rather than agreeing on a
+# string literal twice. Read through :attr:`OperationResult.resolution_failures`.
+RESOLUTION_FAILURES_KEY: Final = "resolution_failures"
+RESOLUTION_FAILURES_TRUNCATED_KEY: Final = "resolution_failures_truncated"
+
+
 @define(frozen=False)
 class OperationResult:
     """Collects results and metrics from music data operations.
@@ -442,6 +468,28 @@ class OperationResult:
         return self.summary_metrics.get("errors", 0) > 0 or "error" in self.metadata
 
     @property
+    def is_partial_failure(self) -> bool:
+        """True if this result recorded per-item errors *and* landed real work.
+
+        Distinguishes "the operation fully failed" from "the operation finished
+        but some items couldn't be processed" — the audit row's ``partial``
+        status. Deliberately a refinement of :attr:`is_failure`, never a
+        replacement: every failure-*signal* consumer (the scheduler's
+        ``sync_targets.sync_result_failed``, the CLI) keeps reading
+        ``is_failure``, which stays true here.
+
+        "Landed real work" is the allowlist in ``_SUCCESS_METRIC_NAMES``, not
+        "any non-``errors`` metric": denominators like ``raw_plays``,
+        ``candidates``, and ``total`` are positive even when nothing succeeded,
+        so counting them would report a total failure as partial. A new
+        operation that wants ``partial`` adds its completed-item counter to that
+        set — the single place the convention is written down.
+        """
+        return self.is_failure and any(
+            self.summary_metrics.get(name, 0) > 0 for name in _SUCCESS_METRIC_NAMES
+        )
+
+    @property
     def failure_message(self) -> str | None:
         """Human-readable reason for a soft failure, if one was recorded.
 
@@ -459,6 +507,27 @@ class OperationResult:
             if parts:
                 return "; ".join(parts)
         return None
+
+    @property
+    def resolution_failures(self) -> list[JsonDict]:
+        """Per-item failure records this run kept, already user-legible.
+
+        Producers cap the list (the audit row's ``issues`` is a JSONB column, not
+        a log); :attr:`resolution_failures_truncated` says how many were dropped.
+        Like :attr:`failure_message`, this exists because ``to_counts()`` flattens
+        only ``summary_metrics`` — without an accessor the detail never leaves the
+        process, and the user never learns *which* tracks failed.
+        """
+        failures = self.metadata.get(RESOLUTION_FAILURES_KEY)
+        if not isinstance(failures, list):
+            return []
+        return [dict(f) for f in failures if isinstance(f, Mapping)]
+
+    @property
+    def resolution_failures_truncated(self) -> int:
+        """How many per-item failures were seen but not recorded (0 if none)."""
+        truncated = self.metadata.get(RESOLUTION_FAILURES_TRUNCATED_KEY)
+        return truncated if isinstance(truncated, int) else 0
 
     def to_counts(self) -> dict[str, JsonValue]:
         """Flatten summary metrics into a ``name -> value`` mapping.

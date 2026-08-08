@@ -3,7 +3,7 @@
   "info": {
     "title": "Mixd",
     "description": "Personal music metadata hub",
-    "version": "0.10.2.2"
+    "version": "0.10.2.3"
   },
   "paths": {
     "/api/v1/connectors/{service}/auth-url": {
@@ -7015,6 +7015,7 @@
             "enum": [
               "running",
               "complete",
+              "partial",
               "error",
               "cancelled"
             ],
@@ -7144,6 +7145,7 @@
             "enum": [
               "running",
               "complete",
+              "partial",
               "error",
               "cancelled"
             ],
@@ -7377,6 +7379,7 @@
         "enum": [
           "running",
           "complete",
+          "partial",
           "error",
           "cancelled"
         ]

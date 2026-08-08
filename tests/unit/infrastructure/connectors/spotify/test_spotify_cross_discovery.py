@@ -9,7 +9,7 @@ decision (and performs its own side effects, e.g. queuing an ISRC review).
 
 from unittest.mock import AsyncMock, MagicMock
 
-from src.config.constants import MatchMethod
+from src.config.constants import MatchMethod, SpotifyConstants
 from src.domain.matching.protocols import NewMapping, Nothing, ReuseExisting
 from src.infrastructure.connectors.spotify.cross_discovery import (
     SpotifyCrossDiscoveryProvider,
@@ -61,7 +61,9 @@ class TestSuccessfulDiscovery:
         assert outcome.match_method == MatchMethod.LASTFM_DISCOVERY
         # ISRC carried for backfill (normalized).
         assert outcome.isrc == "GBAYE9300106"
-        connector.search_track.assert_called_once_with("Radiohead", "Creep")
+        connector.search_track.assert_called_once_with(
+            "Radiohead", "Creep", SpotifyConstants.SEARCH_DEFAULT_LIMIT
+        )
 
 
 class TestNoResults:

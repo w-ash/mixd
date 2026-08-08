@@ -117,6 +117,59 @@ class TestRunSseOperationAuditOutcome:
         assert kwargs["status"] == "complete"
         assert kwargs["counts"] is None
 
+    async def test_failure_with_successes_finalizes_partial(self, captured_finalize):
+        # "Finished, but some tracks couldn't be resolved" — a different thing
+        # for the user to act on than a run that failed outright.
+        result = OperationResult(operation_name="Import")
+        result.summary_metrics.add("track_plays", 98, "Track Plays Created")
+        result.summary_metrics.add("errors", 2, "Errors", significance=1)
+        result.metadata["error"] = "2 of 100 plays failed import"
+
+        async def coro() -> OperationResult:
+            return result
+
+        await sse_operations.run_sse_operation(
+            _op_id(), coro(), run_id=uuid4(), user_id="u1"
+        )
+
+        kwargs = captured_finalize.await_args.kwargs
+        assert kwargs["status"] == "partial"
+        assert kwargs["counts"] == {"track_plays": 98, "errors": 2}
+
+    async def test_errors_only_result_stays_error(self, captured_finalize):
+        # No success metric recorded → nothing landed → a total failure, not a
+        # partial one. This is the shape that must NOT drift into 'partial'.
+        result = OperationResult(operation_name="Import")
+        result.summary_metrics.add("errors", 1, "Errors", significance=1)
+
+        async def coro() -> OperationResult:
+            return result
+
+        await sse_operations.run_sse_operation(
+            _op_id(), coro(), run_id=uuid4(), user_id="u1"
+        )
+
+        assert captured_finalize.await_args.kwargs["status"] == "error"
+
+    async def test_denominator_metrics_do_not_make_a_failure_partial(
+        self, captured_finalize
+    ):
+        # raw_plays/candidates count what was *attempted*, so they are positive
+        # even when nothing succeeded — they are outside the success allowlist.
+        result = OperationResult(operation_name="Import")
+        result.summary_metrics.add("raw_plays", 100, "Raw Plays Found")
+        result.summary_metrics.add("candidates", 100, "Candidates")
+        result.summary_metrics.add("errors", 100, "Errors", significance=1)
+
+        async def coro() -> OperationResult:
+            return result
+
+        await sse_operations.run_sse_operation(
+            _op_id(), coro(), run_id=uuid4(), user_id="u1"
+        )
+
+        assert captured_finalize.await_args.kwargs["status"] == "error"
+
     async def test_without_run_id_no_audit_write(self, captured_finalize):
         async def coro() -> OperationResult:
             return OperationResult(operation_name="x")
@@ -151,7 +204,7 @@ class TestRunSseOperationErrorMessagePersistence:
 
         captured_finalize.assert_awaited_once()
         kwargs = captured_finalize.await_args.kwargs
-        assert kwargs["issue"] == {"message": "Spotify file import failed: 429"}
+        assert kwargs["issues"] == [{"message": "Spotify file import failed: 429"}]
 
     async def test_importer_errors_list_recorded_as_issue(self, captured_finalize):
         # create_error_result stashes the message under metadata["errors"].
@@ -167,7 +220,7 @@ class TestRunSseOperationErrorMessagePersistence:
         )
 
         kwargs = captured_finalize.await_args.kwargs
-        assert kwargs["issue"] == {"message": "boom one; boom two"}
+        assert kwargs["issues"] == [{"message": "boom one; boom two"}]
 
     async def test_uncaught_exception_recorded_as_issue(self, captured_finalize):
         async def coro() -> None:
@@ -178,7 +231,7 @@ class TestRunSseOperationErrorMessagePersistence:
         )
 
         kwargs = captured_finalize.await_args.kwargs
-        assert kwargs["issue"] == {"message": "boom"}
+        assert kwargs["issues"] == [{"message": "boom"}]
 
     async def test_message_less_exception_records_its_type(self, captured_finalize):
         # `raise KeyError()` has an empty str() — a blank issue is worse than
@@ -191,7 +244,7 @@ class TestRunSseOperationErrorMessagePersistence:
         )
 
         kwargs = captured_finalize.await_args.kwargs
-        assert kwargs["issue"] == {"message": "KeyError"}
+        assert kwargs["issues"] == [{"message": "KeyError"}]
 
     async def test_clean_result_records_no_issue(self, captured_finalize):
         result = OperationResult(operation_name="Import")
@@ -204,7 +257,7 @@ class TestRunSseOperationErrorMessagePersistence:
             _op_id(), coro(), run_id=uuid4(), user_id="u1"
         )
 
-        assert captured_finalize.await_args.kwargs["issue"] is None
+        assert captured_finalize.await_args.kwargs["issues"] == []
 
     async def test_soft_failure_without_message_records_no_issue(
         self, captured_finalize
@@ -220,7 +273,93 @@ class TestRunSseOperationErrorMessagePersistence:
             _op_id(), coro(), run_id=uuid4(), user_id="u1"
         )
 
-        assert captured_finalize.await_args.kwargs["issue"] is None
+        assert captured_finalize.await_args.kwargs["issues"] == []
+
+
+class TestRunSseOperationPerItemIssues:
+    """Every recorded per-item failure becomes its own run issue.
+
+    This is what makes the Import History expandable row answer *which* tracks
+    couldn't be resolved, rather than only "2 of 100 failed (e.g. …)".
+    """
+
+    @staticmethod
+    def _partial_result(
+        failures: list[dict[str, str]], truncated: int | None = None
+    ) -> OperationResult:
+        result = OperationResult(operation_name="Import")
+        result.summary_metrics.add("track_plays", 98, "Track Plays Created")
+        result.summary_metrics.add("errors", len(failures), "Errors", significance=1)
+        result.metadata["error"] = "2 of 100 plays failed import"
+        result.metadata["resolution_failures"] = failures
+        if truncated is not None:
+            result.metadata["resolution_failures_truncated"] = truncated
+        return result
+
+    async def test_each_recorded_failure_becomes_an_issue(self, captured_finalize):
+        result = self._partial_result([
+            {
+                "track": "Aphex Twin - Xtal",
+                "spotify_id": "abc",
+                "reason": "track_resolution_failed",
+            },
+            {
+                "track": "Boards of Canada - Roygbiv",
+                "spotify_id": "def",
+                "reason": "track_resolution_failed",
+            },
+        ])
+
+        async def coro() -> OperationResult:
+            return result
+
+        await sse_operations.run_sse_operation(
+            _op_id(), coro(), run_id=uuid4(), user_id="u1"
+        )
+
+        issues = captured_finalize.await_args.kwargs["issues"]
+        # Headline first, then one issue per failure, passed through as-is.
+        assert issues[0] == {"message": "2 of 100 plays failed import"}
+        assert issues[1]["track"] == "Aphex Twin - Xtal"
+        assert issues[2]["spotify_id"] == "def"
+        assert len(issues) == 3
+
+    async def test_truncation_notice_appended_last(self, captured_finalize):
+        result = self._partial_result(
+            [
+                {
+                    "track": "A - B",
+                    "spotify_id": "x",
+                    "reason": "track_resolution_failed",
+                }
+            ],
+            truncated=12,
+        )
+
+        async def coro() -> OperationResult:
+            return result
+
+        await sse_operations.run_sse_operation(
+            _op_id(), coro(), run_id=uuid4(), user_id="u1"
+        )
+
+        issues = captured_finalize.await_args.kwargs["issues"]
+        assert issues[-1] == {"message": "…and 12 more failures — see server logs"}
+
+    async def test_no_truncation_notice_when_under_the_cap(self, captured_finalize):
+        result = self._partial_result([
+            {"track": "A - B", "spotify_id": "x", "reason": "track_resolution_failed"}
+        ])
+
+        async def coro() -> OperationResult:
+            return result
+
+        await sse_operations.run_sse_operation(
+            _op_id(), coro(), run_id=uuid4(), user_id="u1"
+        )
+
+        issues = captured_finalize.await_args.kwargs["issues"]
+        assert not any("more failures" in str(i.get("message", "")) for i in issues)
 
 
 class TestRunSseOperationTerminalEvent:

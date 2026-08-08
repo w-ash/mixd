@@ -6,6 +6,24 @@ linked backlog version file. Versioning follows mixd's four-segment
 `major.minor.feature.revision` scheme (`.claude/rules/version-management.md`), not strict
 SemVer. Format inspired by [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [0.10.2.3] — 2026-08-08
+
+**Dead Spotify IDs now actually get rescued.** The first prod retry under v0.10.2.2 did its job — the failed play showed its reason: "Robert Johnson – Come On in My Kitchen (track_resolution_failed)", classified dead. But the track is alive on Spotify under a new ID; the search fallback that should have found it was asking a malformed question. Spotify binds a field filter to a single term unless quoted, so `artist:Robert Johnson track:Come On in My Kitchen` searched for artist "Robert" and title "Come" — every multi-word artist or title got a garbage query, and at full-import scale that would have falsely condemned a large share of rescuable old IDs to a month-long retry snooze.
+
+- **Field-filter values are quoted** (`artist:"Robert Johnson" track:"Come On in My Kitchen"`), with embedded quotes sanitized from raw export data; the fallback search now uses the full 10-result window (the Feb-2026 dev-mode cap) instead of 5.
+- **One bounded widening retry**: if the precise quoted search clears nothing past the 0.7 title-similarity gate, a single plain free-text search runs through the same gate — paced by the connector rate limiter like every call.
+- **Misses are loud**: a fallback that finds nothing logs at warning with the exact queries issued, so a malformed-query regression can never again be indistinguishable from a genuinely vanished track.
+- **Guarantees pinned by test, not just design**: re-uploading the same export file is a zero-delta no-op (the v0.10.3 audit's re-import check, formalized early), and text search can only ever run as the last-resort fallback — never for an ID the API answered.
+- Verified live before shipping: the corrected query returns the incident track as the #1 result against the real Spotify API.
+- The one mis-condemned track self-heals: its ~1-day no-match backoff lapses, and the next import re-searches with the corrected query. No manual data edits.
+
+**A mostly-successful import no longer masquerades as a total failure — and it names its casualties.**
+
+- **New `partial` run status**: an import that did real work but recorded per-item errors shows an amber "Completed with issues" badge instead of the red Error badge (new status through domain → API → UI; migration `047` widens the status CHECK constraint — without it the write would have been rejected and the run stuck at `running`). The scheduler's failure signal is unchanged: partial still counts as a failure for scheduling health, and "Retry failed only" works on partial runs.
+- **Every unresolved track is listed.** The per-item resolution failures (previously discarded after the first exemplar) are persisted as individual issues on the run — `{track, spotify_id, reason}` each — capped at 50 with an "…and N more, see server logs" notice. Expanding the Import History row now shows exactly which tracks couldn't resolve, written atomically with the run's status.
+
+→ [details](docs/backlog/v0.10.x.md#post-deploy-revisions)
+
 ## [0.10.2.2] — 2026-08-02
 
 **When an import fails, mixd now tells you why — and one bad track no longer kills the whole batch.** The first GDPR history upload on prod died in 32 seconds showing only "errors: 1" and "No issues recorded". Two defects compounded: the importer converts pipeline exceptions into a soft-failure result whose message lives in a field the audit row never persisted (so the reason existed nowhere queryable), and prod logs revealed the failure itself was a poisoned-transaction cascade — the track resolvers' continue-on-error loops swallow a per-item SQL failure and keep issuing statements on the now-aborted transaction, so every later item dies with `InFailedSqlTransaction` and the run's recorded error is a misleading secondary symptom.

@@ -13,6 +13,7 @@ emitter wiring. v0.7.7 deliberately keeps the recorder out of the
 audit log; future iterations can add an auto-tee if call sites grow.
 """
 
+from collections.abc import Sequence
 from datetime import UTC, datetime
 from uuid import UUID
 
@@ -76,18 +77,20 @@ async def finalize_run(
     user_id: str,
     status: OperationStatus,
     counts: JsonDict | None = None,
-    issue: JsonDict | None = None,
+    issues: Sequence[JsonDict] | None = None,
 ) -> None:
-    """Set the terminal fields, merge ``counts``, and append ``issue`` at run end.
+    """Set the terminal fields, merge ``counts``, and append ``issues`` at run end.
 
-    Called from ``run_sse_operation`` on success (``status="complete"``)
-    or exception (``status="error"``). Counts merge at the JSONB level so
-    partial counts emitted during the run are preserved.
+    Called from ``run_sse_operation`` on success (``status="complete"``), on a
+    handled per-item failure (``status="partial"``), or on failure
+    (``status="error"``). Counts merge at the JSONB level so partial counts
+    emitted during the run are preserved.
 
-    ``issue`` — the failure reason for an ``error`` run — is appended inside the
-    SAME transaction as the status update. Appending it separately would let a
-    crash between the two writes durably finalize an ``error`` run with an empty
-    ``issues`` array, which is the "errors: N with no message" symptom itself.
+    ``issues`` — the headline failure reason plus one entry per recorded per-item
+    failure — is appended in ONE array-concat inside the SAME transaction as the
+    status update. Appending separately would let a crash between the writes
+    durably finalize a failed run with an empty ``issues`` array, which is the
+    "errors: N with no message" symptom itself.
     """
 
     async def _update(uow: UnitOfWorkProtocol) -> None:
@@ -100,8 +103,8 @@ async def finalize_run(
                 ended_at=datetime.now(UTC),
                 counts=counts,
             )
-            if issue is not None:
-                await repo.append_issue(run_id, user_id=user_id, issue=issue)
+            if issues:
+                await repo.append_issues(run_id, user_id=user_id, issues=issues)
             await uow.commit()
 
     await execute_use_case(_update, user_id=user_id)
@@ -118,7 +121,7 @@ async def append_run_issue(
     async def _append(uow: UnitOfWorkProtocol) -> None:
         async with uow:
             repo = uow.get_operation_run_repository()
-            await repo.append_issue(run_id, user_id=user_id, issue=issue)
+            await repo.append_issues(run_id, user_id=user_id, issues=[issue])
             await uow.commit()
 
     await execute_use_case(_append, user_id=user_id)

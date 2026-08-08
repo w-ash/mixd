@@ -3,7 +3,7 @@
 Covers the audit-log contract:
 - create + read-back preserves all fields including JSONB shapes
 - ``update_status`` sets terminal fields and merges ``counts`` (JSONB ``||``)
-- ``append_issue`` is additive across calls (JSONB array concat)
+- ``append_issues`` is additive across calls and batches (JSONB array concat)
 - ``get_by_id_for_user`` returns None for non-owner (no existence leak)
 - ``list_for_user`` is user-scoped, sorts started_at DESC with id tiebreaker,
   and paginates correctly via the ``(after_started_at, after_id)`` keyset.
@@ -163,23 +163,23 @@ class TestUpdateStatus:
         }
 
 
-class TestAppendIssue:
+class TestAppendIssues:
     """Issue accumulation via JSONB array concat."""
 
-    async def test_append_issue_is_additive(self, db_session: AsyncSession) -> None:
+    async def test_append_issues_is_additive(self, db_session: AsyncSession) -> None:
         repo = OperationRunRepository(db_session)
         run = make_operation_run(user_id="alice")
         await repo.create(run)
 
-        await repo.append_issue(
+        await repo.append_issues(
             run.id,
             user_id="alice",
-            issue={"track_id": "abc", "reason": "no_match"},
+            issues=[{"track_id": "abc", "reason": "no_match"}],
         )
-        await repo.append_issue(
+        await repo.append_issues(
             run.id,
             user_id="alice",
-            issue={"track_id": "def", "reason": "rate_limit"},
+            issues=[{"track_id": "def", "reason": "rate_limit"}],
         )
 
         updated = await repo.get_by_id_for_user(run.id, user_id="alice")
@@ -188,6 +188,35 @@ class TestAppendIssue:
             {"track_id": "abc", "reason": "no_match"},
             {"track_id": "def", "reason": "rate_limit"},
         ]
+
+    async def test_batch_append_preserves_order(self, db_session: AsyncSession) -> None:
+        # A partial import appends its headline + one issue per unresolved track
+        # in a single UPDATE; the row must read back in the order it was sent.
+        repo = OperationRunRepository(db_session)
+        run = make_operation_run(user_id="alice")
+        await repo.create(run)
+        batch: list[dict[str, object]] = [
+            {"message": "2 of 100 plays failed import"},
+            {"track": "A - B", "reason": "track_resolution_failed"},
+            {"track": "C - D", "reason": "track_resolution_failed"},
+        ]
+
+        await repo.append_issues(run.id, user_id="alice", issues=batch)
+
+        updated = await repo.get_by_id_for_user(run.id, user_id="alice")
+        assert updated is not None
+        assert updated.issues == batch
+
+    async def test_empty_batch_is_a_no_op(self, db_session: AsyncSession) -> None:
+        repo = OperationRunRepository(db_session)
+        run = make_operation_run(user_id="alice")
+        await repo.create(run)
+
+        await repo.append_issues(run.id, user_id="alice", issues=[])
+
+        updated = await repo.get_by_id_for_user(run.id, user_id="alice")
+        assert updated is not None
+        assert updated.issues == []
 
 
 class TestListForUser:

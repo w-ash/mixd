@@ -3,7 +3,7 @@
  * Do not edit manually.
  * Mixd
  * Personal music metadata hub
- * OpenAPI spec version: 0.10.2.2
+ * OpenAPI spec version: 0.10.2.3
  */
 
 export type OperationRunSummarySchemaStatus = typeof OperationRunSummarySchemaStatus[keyof typeof OperationRunSummarySchemaStatus];
@@ -12,6 +12,7 @@ export type OperationRunSummarySchemaStatus = typeof OperationRunSummarySchemaSt
 export const OperationRunSummarySchemaStatus = {
   running: 'running',
   complete: 'complete',
+  partial: 'partial',
   error: 'error',
   cancelled: 'cancelled',
 } as const;

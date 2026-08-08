@@ -109,6 +109,97 @@ class TestOperationResultFailureSignal:
         assert result.is_failure is True
 
 
+class TestPartialFailure:
+    """is_partial_failure separates "finished with casualties" from "failed"."""
+
+    def test_errors_alongside_successes_is_partial(self):
+        result = OperationResult(operation_name="Import")
+        result.summary_metrics.add("track_plays", 98, "Track Plays Created")
+        result.summary_metrics.add("errors", 2, "Errors", significance=1)
+
+        assert result.is_partial_failure is True
+
+    def test_partial_is_still_a_failure_for_the_scheduler(self):
+        # The scheduler's health signal reads is_failure; partial refines the
+        # audit row only and must never soften that signal.
+        result = OperationResult(operation_name="Import")
+        result.summary_metrics.add("track_plays", 98, "Track Plays Created")
+        result.summary_metrics.add("errors", 2, "Errors", significance=1)
+
+        assert result.is_failure is True
+
+    def test_errors_without_successes_is_not_partial(self):
+        result = OperationResult(operation_name="Import")
+        result.summary_metrics.add("errors", 5, "Errors", significance=1)
+
+        assert result.is_partial_failure is False
+
+    def test_denominator_metrics_are_not_successes(self):
+        # raw_plays/candidates/total count attempts, not completions — a run
+        # where nothing landed must not read as partial.
+        result = OperationResult(operation_name="Import")
+        result.summary_metrics.add("raw_plays", 100, "Raw Plays Found")
+        result.summary_metrics.add("candidates", 100, "Candidates")
+        result.summary_metrics.add("total", 100, "Total Plays")
+        result.summary_metrics.add("errors", 100, "Errors", significance=1)
+
+        assert result.is_partial_failure is False
+
+    def test_clean_result_is_not_partial(self):
+        result = OperationResult(operation_name="Import")
+        result.summary_metrics.add("track_plays", 42, "Track Plays Created")
+
+        assert result.is_partial_failure is False
+
+    def test_error_metadata_with_successes_is_partial(self):
+        result = OperationResult(operation_name="Likes Export")
+        result.summary_metrics.add("exported", 7, "Exported")
+        result.metadata["error"] = "3 of 10 likes failed to export"
+
+        assert result.is_partial_failure is True
+
+    def test_zero_valued_success_metric_does_not_count(self):
+        result = OperationResult(operation_name="Import")
+        result.summary_metrics.add("track_plays", 0, "Track Plays Created")
+        result.summary_metrics.add("errors", 3, "Errors", significance=1)
+
+        assert result.is_partial_failure is False
+
+
+class TestResolutionFailures:
+    """Per-item failure detail the SSE seam turns into individual run issues."""
+
+    def test_recorded_failures_returned(self):
+        result = OperationResult(operation_name="Import")
+        result.metadata["resolution_failures"] = [
+            {"track": "A - B", "spotify_id": "x", "reason": "track_resolution_failed"}
+        ]
+
+        assert result.resolution_failures == [
+            {"track": "A - B", "spotify_id": "x", "reason": "track_resolution_failed"}
+        ]
+
+    def test_absent_metadata_yields_empty_list(self):
+        assert OperationResult(operation_name="Import").resolution_failures == []
+
+    def test_non_mapping_entries_filtered(self):
+        result = OperationResult(operation_name="Import")
+        result.metadata["resolution_failures"] = ["not a dict", {"track": "A - B"}]
+
+        assert result.resolution_failures == [{"track": "A - B"}]
+
+    def test_truncated_count_read(self):
+        result = OperationResult(operation_name="Import")
+        result.metadata["resolution_failures_truncated"] = 12
+
+        assert result.resolution_failures_truncated == 12
+
+    def test_truncated_defaults_to_zero(self):
+        assert (
+            OperationResult(operation_name="Import").resolution_failures_truncated == 0
+        )
+
+
 class TestFailureMessage:
     """failure_message surfaces the soft-failure reason to_counts() drops."""
 

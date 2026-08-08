@@ -84,6 +84,72 @@ describe("ImportHistoryPage", () => {
     expect(screen.getByText("Error")).toBeInTheDocument();
   });
 
+  it("distinguishes a partial run from a failed one in the list", async () => {
+    setupListMock([
+      makeSummary({
+        id: "00000000-0000-0000-0000-000000000001",
+        operation_type: "import_spotify_history",
+        status: "partial",
+        counts: { track_plays: 98, errors: 2 },
+        issue_count: 3,
+      }),
+      makeSummary({
+        id: "00000000-0000-0000-0000-000000000002",
+        operation_type: "apply_assignments_bulk",
+        status: "error",
+      }),
+    ]);
+    renderWithProviders(<ImportHistoryPage />);
+
+    expect(
+      await screen.findByText("Completed with issues"),
+    ).toBeInTheDocument();
+    expect(screen.getByText("Error")).toBeInTheDocument();
+    expect(screen.getByText("3 issues")).toBeInTheDocument();
+  });
+
+  it("lists the exact unresolved tracks when a partial run is expanded", async () => {
+    // The point of the feature: "which tracks couldn't be imported?" is
+    // answerable from the row, not only from the server logs.
+    const targetId = "00000000-0000-0000-0000-000000000077";
+    setupListMock([
+      makeSummary({ id: targetId, status: "partial", issue_count: 3 }),
+    ]);
+    setupDetailMock({
+      id: targetId,
+      operation_id: null,
+      operation_type: "import_spotify_history",
+      started_at: "2026-04-26T10:00:00Z",
+      ended_at: "2026-04-26T10:01:00Z",
+      status: "partial",
+      counts: { track_plays: 98, errors: 2 },
+      issues: [
+        { message: "2 of 100 plays failed import" },
+        {
+          track: "Aphex Twin - Xtal",
+          spotify_id: "abc",
+          reason: "track_resolution_failed",
+        },
+        {
+          track: "Boards of Canada - Roygbiv",
+          spotify_id: "def",
+          reason: "track_resolution_failed",
+        },
+      ],
+      retryable: false,
+      initiated_by: "manual",
+    });
+
+    renderWithProviders(<ImportHistoryPage />, {
+      routerProps: { initialEntries: [`/settings/imports?run=${targetId}`] },
+    });
+
+    await waitFor(() => {
+      expect(screen.getByText(/Aphex Twin - Xtal/)).toBeInTheDocument();
+    });
+    expect(screen.getByText(/Boards of Canada - Roygbiv/)).toBeInTheDocument();
+  });
+
   it("shows the Assistant badge only for an assistant-initiated run", async () => {
     setupListMock([
       makeSummary({

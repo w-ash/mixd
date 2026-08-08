@@ -13,7 +13,7 @@ from datetime import UTC, datetime
 from typing import Final
 from uuid import UUID
 
-from attrs import define
+from attrs import define, field
 
 from src.application.services.play_projection_service import (
     PROJECTION_FETCH_MARGIN,
@@ -23,12 +23,17 @@ from src.application.services.play_projection_service import (
 from src.application.use_cases._shared.batch_commit import commit_batch
 from src.config import get_logger
 from src.domain.entities import ConnectorTrackPlay, OperationResult, TrackPlay
+from src.domain.entities.operations import (
+    RESOLUTION_FAILURES_KEY,
+    RESOLUTION_FAILURES_TRUNCATED_KEY,
+)
 from src.domain.entities.progress import (
     NullProgressEmitter,
     ProgressEmitter,
     create_progress_event,
     tracked_operation,
 )
+from src.domain.entities.shared import JsonValue
 from src.domain.repositories.play import (
     PlayImporterProtocol,
     PlayImportParams,
@@ -49,15 +54,63 @@ logger = get_logger(__name__)
 _RESOLUTION_COMMIT_CHUNK_SIZE: Final = 50
 
 
-def _first_resolution_failure(metrics: ResolutionMetrics) -> str | None:
-    """One human-readable exemplar from a resolver's per-item failure list."""
-    failures = metrics.get("resolution_failures") or []
-    if not failures:
-        return None
-    failure = failures[0]
+# Bounds the JSONB ``issues`` array on the audit row: every recorded failure
+# becomes one issue the Import History row renders, and an unbounded 198k-play
+# export would otherwise put a 198k-element array in a single column. The full
+# detail is in the server logs; the row carries the first N plus a count of the
+# rest.
+_MAX_RECORDED_RESOLUTION_FAILURES: Final = 50
+
+
+def _describe_failure(failure: dict[str, str]) -> str:
+    """One human-readable exemplar from a resolver's per-item failure entry."""
     track = failure.get("track", "unknown track")
     reason = failure.get("reason", "unknown reason")
     return f"{track} ({reason})"
+
+
+@define(slots=True)
+class _ResolutionFailureLog:
+    """Bounded accumulation of per-item resolution failures.
+
+    A resolver reports its failures per call, and the orchestrator calls it once
+    per chunk per service — so the exemplar and the recorded list must be built
+    across calls, not read off the last one. ``total`` keeps counting past the
+    cap so the run can say how many were dropped.
+    """
+
+    recorded: list[dict[str, str]] = field(factory=list)
+    total: int = 0
+
+    def record(self, metrics: ResolutionMetrics) -> None:
+        """Absorb one resolver call's failure list, respecting the cap."""
+        failures = metrics.get("resolution_failures") or []
+        self.total += len(failures)
+        room = _MAX_RECORDED_RESOLUTION_FAILURES - len(self.recorded)
+        if room > 0:
+            self.recorded.extend(failures[:room])
+
+    @property
+    def truncated(self) -> int:
+        """How many failures were seen but not recorded (0 when under the cap)."""
+        return self.total - len(self.recorded)
+
+    @property
+    def exemplar(self) -> str | None:
+        """The first recorded failure, rendered for the headline message."""
+        return _describe_failure(self.recorded[0]) if self.recorded else None
+
+    def write_to(self, metadata: dict[str, JsonValue]) -> None:
+        """Publish the recorded failures onto an ``OperationResult``'s metadata.
+
+        The SSE seam turns each entry into its own run issue, which is what makes
+        the exact unresolved tracks visible in the Import History row.
+        """
+        if not self.recorded:
+            return
+        metadata[RESOLUTION_FAILURES_KEY] = [dict(f) for f in self.recorded]
+        if self.truncated > 0:
+            metadata[RESOLUTION_FAILURES_TRUNCATED_KEY] = self.truncated
 
 
 def _partial_failure_message(
@@ -172,7 +225,7 @@ class PlayImportOrchestrator:
 
         all_track_plays: list[TrackPlay] = []
         all_resolutions: list[tuple[ConnectorTrackPlay, UUID]] = []
-        first_failure: str | None = None
+        failure_log = _ResolutionFailureLog()
         combined_metrics = {
             "total_plays": len(connector_plays),
             "resolved_plays": 0,
@@ -215,8 +268,7 @@ class PlayImportOrchestrator:
                         combined_metrics["isrc_suspect_deferred"] += metrics.get(
                             "isrc_suspect_deferred", 0
                         )
-                        if first_failure is None:
-                            first_failure = _first_resolution_failure(metrics)
+                        failure_log.record(metrics)
 
                         # Strictly between resolver calls: the resolver's
                         # per-item savepoints are all closed by the time it
@@ -306,12 +358,14 @@ class PlayImportOrchestrator:
         if filtered > 0:
             result.summary_metrics.add("filtered", filtered, "Filtered", significance=3)
         if errors > 0:
+            exemplar = failure_log.exemplar
             result.summary_metrics.add("errors", errors, "Errors", significance=4)
             result.metadata["error"] = _partial_failure_message(
-                errors, total_plays, phase="resolution", exemplar=first_failure
+                errors, total_plays, phase="resolution", exemplar=exemplar
             )
-            if first_failure is not None:
-                result.metadata["first_failure"] = first_failure
+            if exemplar is not None:
+                result.metadata["first_failure"] = exemplar
+            failure_log.write_to(result.metadata)
 
         fallback_resolved = combined_metrics["fallback_resolved"]
         redirect_resolved = combined_metrics["redirect_resolved"]
@@ -450,6 +504,13 @@ class PlayImportOrchestrator:
                 phase="import",
                 exemplar=exemplar if isinstance(exemplar, str) else None,
             )
+            # Re-surface the per-item failures at the top level: the SSE seam
+            # reads the combined result, and ``resolution_phase`` is an opaque
+            # nested blob to it.
+            for key in (RESOLUTION_FAILURES_KEY, RESOLUTION_FAILURES_TRUNCATED_KEY):
+                carried = resolution_result.metadata.get(key)
+                if carried is not None:
+                    result.metadata[key] = carried
 
         # Calculate success rate
         attempted = int(resolved + resolution_filtered + resolution_errors)

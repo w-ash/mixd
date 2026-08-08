@@ -5,9 +5,14 @@ detects redirects (where Spotify returns a different .id), creates dual mappings
 and delegates bulk lookup to the base class.
 """
 
-from unittest.mock import AsyncMock, MagicMock, patch
+from unittest.mock import AsyncMock, MagicMock, call, patch
 
-from src.config.constants import MatchMethod
+from src.config import settings
+from src.config.constants import MatchMethod, SpotifyConstants
+from src.infrastructure.connectors.spotify.client import (
+    field_filtered_search_query,
+    free_text_search_query,
+)
 from src.infrastructure.connectors.spotify.inward_resolver import (
     FallbackHint,
     SpotifyInwardResolver,
@@ -288,7 +293,10 @@ class TestFallbackSearch:
 
         assert dead_id in result
         assert dead_id in resolver.fallback_resolved_ids
-        connector.search_track.assert_called_once_with("Artist", "My Song")
+        # The dead-ID fallback asks for the full dev-mode page, not the default 5.
+        connector.search_track.assert_called_once_with(
+            "Artist", "My Song", SpotifyConstants.SEARCH_MAX_LIMIT
+        )
 
         # Primary mapping (found_id) + secondary mapping (dead_id stale)
         map_calls = connector_repo.map_track_to_connector.call_args_list
@@ -1182,3 +1190,269 @@ class TestRestrictionIsNotDeath:
             )
             == []
         )
+
+
+class TestSearchIsStrictlyAFallback:
+    """The ID probe is the question; search only runs where it went unanswered.
+
+    Search picks a track by title similarity, so letting it run for an id the
+    probe answered would risk replacing a perfectly good mapping with a
+    different recording. It is reached only via ``_substitutable_from``, whose
+    output excludes everything the probe accounted for.
+    """
+
+    async def test_no_search_for_an_id_the_probe_answered(self):
+        alive_id = "alive_id_00000000000000"
+
+        connector = AsyncMock()
+        connector.get_tracks_by_ids.return_value = {
+            alive_id: make_spotify_track(alive_id, "My Song"),
+        }
+
+        resolver = SpotifyInwardResolver(spotify_connector=connector)
+        uow, _, _ = _make_uow_with_repos()
+
+        # A hint is present, so only the probe's answer keeps search away.
+        hints = {alive_id: FallbackHint(artist_name="Artist", track_name="My Song")}
+        result, _ = await resolver.resolve_to_canonical_tracks(
+            [alive_id], uow, fallback_hints=hints, user_id="test-user"
+        )
+
+        assert alive_id in result
+        connector.search_track.assert_not_called()
+        assert resolver.fallback_resolved_ids == set()
+
+    async def test_no_search_for_a_market_restricted_id(self):
+        """ "Exists, unplayable here" is an answer — availability, not death."""
+        restricted_id = "restricted_id_00000000"
+
+        connector = AsyncMock()
+        connector.get_tracks_by_ids.return_value = {
+            restricted_id: make_spotify_track(
+                restricted_id,
+                "My Song",
+                is_playable=False,
+                restrictions=SpotifyRestrictions(reason="market"),
+            ),
+        }
+
+        resolver = SpotifyInwardResolver(spotify_connector=connector)
+        uow, _, _ = _make_uow_with_repos()
+
+        hints = {
+            restricted_id: FallbackHint(artist_name="Artist", track_name="My Song")
+        }
+        result, _ = await resolver.resolve_to_canonical_tracks(
+            [restricted_id], uow, fallback_hints=hints, user_id="test-user"
+        )
+
+        assert restricted_id in result
+        connector.search_track.assert_not_called()
+
+    async def test_only_the_probe_absent_hinted_id_is_searched(self):
+        """A mixed batch: one alive, one restricted, one absent with a hint."""
+        alive_id = "alive_id_00000000000000"
+        restricted_id = "restricted_id_00000000"
+        absent_id = "absent_id_0000000000000"
+
+        connector = AsyncMock()
+        connector.get_tracks_by_ids.return_value = {
+            alive_id: make_spotify_track(alive_id, "Song A"),
+            restricted_id: make_spotify_track(
+                restricted_id,
+                "Song B",
+                is_playable=False,
+                restrictions=SpotifyRestrictions(reason="market"),
+            ),
+        }
+        connector.search_track.return_value = [
+            make_spotify_track("found_id_00000000000000", "Song C"),
+        ]
+
+        resolver = SpotifyInwardResolver(spotify_connector=connector)
+        uow, _, _ = _make_uow_with_repos()
+
+        hints = {
+            alive_id: FallbackHint(artist_name="Artist", track_name="Song A"),
+            restricted_id: FallbackHint(artist_name="Artist", track_name="Song B"),
+            absent_id: FallbackHint(artist_name="Artist", track_name="Song C"),
+        }
+        _ = await resolver.resolve_to_canonical_tracks(
+            [alive_id, restricted_id, absent_id],
+            uow,
+            fallback_hints=hints,
+            user_id="test-user",
+        )
+
+        searched_titles = {c.args[1] for c in connector.search_track.await_args_list}
+        assert searched_titles == {"Song C"}
+
+
+class TestDeadIdSearchWidening:
+    """v0.10.3 incident: a live track missed because the filters were malformed.
+
+    "Robert Johnson - Come On in My Kitchen" (dead 2012 id) was classified dead
+    although the recording is alive under a different id. The unquoted filters
+    bound to "Robert"/"Come"; the quoted ones plus one free-text pass find it.
+    """
+
+    ARTIST = "Robert Johnson"
+    TITLE = "Come On in My Kitchen"
+    DEAD_ID = "1PmMcnr8f5xGeBmBOtc0Ow"
+    LIVING_ID = "5rHtvcQXTiZbjPGYAOMQMP"
+
+    async def test_free_text_pass_recovers_the_living_track(self):
+        connector = AsyncMock()
+        connector.get_tracks_by_ids.return_value = {}
+        # Field-filtered pass finds nothing; free text finds the live recording.
+        connector.search_track.side_effect = [
+            [],
+            [make_spotify_track(self.LIVING_ID, self.TITLE, self.ARTIST)],
+        ]
+
+        resolver = SpotifyInwardResolver(spotify_connector=connector)
+        uow, _, connector_repo = _make_uow_with_repos()
+
+        hints = {
+            self.DEAD_ID: FallbackHint(artist_name=self.ARTIST, track_name=self.TITLE)
+        }
+        result, metrics = await resolver.resolve_to_canonical_tracks(
+            [self.DEAD_ID], uow, fallback_hints=hints, user_id="test-user"
+        )
+
+        assert self.DEAD_ID in result
+        assert resolver.fallback_resolved_ids == {self.DEAD_ID}
+        assert metrics.fallbacks == 1
+
+        # Substitution recorded: living id primary, dead id cached as stale.
+        map_calls = connector_repo.map_track_to_connector.call_args_list
+        assert [c.args[2] for c in map_calls] == [self.LIVING_ID, self.DEAD_ID]
+        assert map_calls[0].args[3] == MatchMethod.SEARCH_FALLBACK
+        assert map_calls[0].kwargs["auto_set_primary"] is True
+        assert (
+            map_calls[0].kwargs["confidence"]
+            >= SpotifyConstants.FALLBACK_SIMILARITY_THRESHOLD * 100
+        )
+        assert map_calls[1].args[3] == MatchMethod.SEARCH_FALLBACK_STALE_ID
+        assert map_calls[1].kwargs["auto_set_primary"] is False
+
+    async def test_both_queries_are_issued_in_their_documented_forms(self):
+        connector = AsyncMock()
+        connector.get_tracks_by_ids.return_value = {}
+        connector.search_track.side_effect = [
+            [],
+            [make_spotify_track(self.LIVING_ID, self.TITLE, self.ARTIST)],
+        ]
+
+        resolver = SpotifyInwardResolver(spotify_connector=connector)
+        uow, _, _ = _make_uow_with_repos()
+
+        hints = {
+            self.DEAD_ID: FallbackHint(artist_name=self.ARTIST, track_name=self.TITLE)
+        }
+        _ = await resolver.resolve_to_canonical_tracks(
+            [self.DEAD_ID], uow, fallback_hints=hints, user_id="test-user"
+        )
+
+        assert connector.search_track.await_args_list == [
+            call(self.ARTIST, self.TITLE, SpotifyConstants.SEARCH_MAX_LIMIT),
+            call(
+                self.ARTIST,
+                self.TITLE,
+                SpotifyConstants.SEARCH_MAX_LIMIT,
+                field_filtered=False,
+            ),
+        ]
+        assert (
+            field_filtered_search_query(self.ARTIST, self.TITLE)
+            == 'artist:"Robert Johnson" track:"Come On in My Kitchen"'
+        )
+        assert (
+            free_text_search_query(self.ARTIST, self.TITLE)
+            == "Robert Johnson Come On in My Kitchen"
+        )
+
+
+class TestUnresolvableFallbackTelemetry:
+    """A dead track and a malformed query look identical unless the query is logged."""
+
+    async def test_warns_with_artist_title_and_every_query_issued(self):
+        dead_id = "dead_id_000000000000000"
+
+        connector = AsyncMock()
+        connector.get_tracks_by_ids.return_value = {}
+        connector.search_track.return_value = []
+
+        resolver = SpotifyInwardResolver(spotify_connector=connector)
+        uow, _, _ = _make_uow_with_repos()
+
+        hints = {
+            dead_id: FallbackHint(
+                artist_name="Robert Johnson", track_name="Come On in My Kitchen"
+            )
+        }
+        with patch(
+            "src.infrastructure.connectors.spotify.inward_resolver.logger"
+        ) as mock_logger:
+            _ = await resolver.resolve_to_canonical_tracks(
+                [dead_id], uow, fallback_hints=hints, user_id="test-user"
+            )
+
+        mock_logger.warning.assert_called_once()
+        warn_kwargs = mock_logger.warning.call_args.kwargs
+        assert warn_kwargs["artist"] == "Robert Johnson"
+        assert warn_kwargs["title"] == "Come On in My Kitchen"
+        assert warn_kwargs["dead_id"] == dead_id
+        assert warn_kwargs["queries"] == [
+            'artist:"Robert Johnson" track:"Come On in My Kitchen"',
+            "Robert Johnson Come On in My Kitchen",
+        ]
+
+    async def test_a_resolved_fallback_does_not_warn(self):
+        dead_id = "dead_id_000000000000000"
+
+        connector = AsyncMock()
+        connector.get_tracks_by_ids.return_value = {}
+        connector.search_track.return_value = [
+            make_spotify_track("found_id_00000000000000", "My Song"),
+        ]
+
+        resolver = SpotifyInwardResolver(spotify_connector=connector)
+        uow, _, _ = _make_uow_with_repos()
+
+        hints = {dead_id: FallbackHint(artist_name="Artist", track_name="My Song")}
+        with patch(
+            "src.infrastructure.connectors.spotify.inward_resolver.logger"
+        ) as mock_logger:
+            _ = await resolver.resolve_to_canonical_tracks(
+                [dead_id], uow, fallback_hints=hints, user_id="test-user"
+            )
+
+        mock_logger.warning.assert_not_called()
+
+
+class TestSubstitutionRecordsTheMarketSent:
+    """``get_track`` sends ``market`` on every request, so the event must say which."""
+
+    async def test_relink_event_payload_carries_the_configured_market(self):
+        old_id = "old_stale_id_0000000000"
+        new_id = "new_canonical_id_000000"
+
+        connector = AsyncMock()
+        connector.get_tracks_by_ids.return_value = {
+            old_id: make_spotify_track(new_id, "Redirected Song"),
+        }
+
+        resolver = SpotifyInwardResolver(spotify_connector=connector)
+        uow, _, _ = _make_uow_with_repos()
+        recorder = attach_resolution_recorder(uow)
+
+        _ = await resolver.resolve_to_canonical_tracks(
+            [old_id], uow, user_id="test-user"
+        )
+
+        decisions = recorder.record.await_args.args[0]
+        payload = decisions[0].payload
+        assert payload["market"] == settings.api.spotify_market
+        assert payload["requested_id"] == old_id
+        assert payload["returned_id"] == new_id

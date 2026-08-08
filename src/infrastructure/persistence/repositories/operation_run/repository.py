@@ -91,22 +91,29 @@ class OperationRunRepository(BaseRepository[DBOperationRun, OperationRun]):
         )
         await self.session.execute(stmt)
 
-    @db_operation("append_operation_run_issue")
-    async def append_issue(
+    @db_operation("append_operation_run_issues")
+    async def append_issues(
         self,
         run_id: UUID,
         *,
         user_id: str,
-        issue: JsonDict,
+        issues: Sequence[JsonDict],
     ) -> None:
-        """Append one issue to the JSONB ``issues`` array."""
+        """Append issues to the JSONB ``issues`` array in one UPDATE.
+
+        Batched because a partially-failed import records one issue per
+        unresolved track; a per-issue round-trip would be N statements for what
+        JSONB concat does in a single array append.
+        """
+        if not issues:
+            return
         stmt = (
             update(self.model_class)
             .where(
                 self.model_class.id == run_id,
                 self.model_class.user_id == user_id,
             )
-            .values(issues=self.model_class.issues.op("||")([issue]))
+            .values(issues=self.model_class.issues.op("||")(list(issues)))
         )
         await self.session.execute(stmt)
 

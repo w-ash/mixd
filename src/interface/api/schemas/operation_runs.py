@@ -8,7 +8,11 @@ from pydantic import BaseModel, ConfigDict
 
 from src.domain.entities.shared import JsonDict
 
-OperationStatusLiteral = Literal["running", "complete", "error", "cancelled"]
+# Wire mirror of the domain's ``OperationStatus`` — declared explicitly rather
+# than re-exported so the generated OpenAPI enum (and the Orval types the web
+# reads) stays a stable, inlined literal. ``partial`` = the run finished but
+# recorded per-item failures.
+OperationStatusLiteral = Literal["running", "complete", "partial", "error", "cancelled"]
 
 
 class OperationRunSummarySchema(BaseModel):

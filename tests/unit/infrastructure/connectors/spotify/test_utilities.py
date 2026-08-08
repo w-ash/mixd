@@ -5,11 +5,12 @@ models into domain Track entities with proper field mapping and validation.
 Also tests the shared search_and_evaluate_match pipeline.
 """
 
-from unittest.mock import AsyncMock, MagicMock
+from unittest.mock import AsyncMock, MagicMock, call
 
 import pytest
 
 from src.config import create_matching_config
+from src.config.constants import SpotifyConstants
 from src.domain.entities import Artist
 from src.domain.matching.evaluation_service import TrackMatchEvaluationService
 from src.infrastructure.connectors.spotify.models import (
@@ -21,6 +22,7 @@ from src.infrastructure.connectors.spotify.models import (
 from src.infrastructure.connectors.spotify.utilities import (
     SpotifySearchMatch,
     create_track_from_spotify_data,
+    search_and_evaluate_attempt,
     search_and_evaluate_match,
 )
 from tests.fixtures import make_track
@@ -197,7 +199,10 @@ class TestSearchAndEvaluateHappyPath:
         assert result.candidate is candidate
         assert result.similarity > 0.0
         assert result.match_result.confidence > 0
-        connector.search_track.assert_called_once_with("Radiohead", "Creep")
+        # An accepted first pass never widens.
+        connector.search_track.assert_called_once_with(
+            "Radiohead", "Creep", SpotifyConstants.SEARCH_DEFAULT_LIMIT
+        )
 
 
 class TestSearchAndEvaluateNoCandidates:
@@ -277,6 +282,126 @@ class TestSearchAndEvaluateNoIdWithFallback:
         assert result is not None
         assert result.candidate is candidate
         assert result.match_result.connector_id == "dead_id_123"
+
+
+class TestSearchWidening:
+    """One free-text pass follows a field-filtered pass that found nothing usable.
+
+    Field filters are precise and therefore brittle: a stored artist or title
+    that differs from Spotify's spelling filters the living track out entirely.
+    """
+
+    async def test_widens_once_and_accepts_the_free_text_match(
+        self, evaluation_service: TrackMatchEvaluationService
+    ):
+        candidate = _make_candidate()
+        connector = _make_connector()
+        connector.search_track.side_effect = [[], [candidate]]
+        track = make_track(id=1, title="Creep", artist="Radiohead")
+
+        attempt = await search_and_evaluate_attempt(
+            connector, evaluation_service, track, "Radiohead", "Creep"
+        )
+
+        assert attempt.match is not None
+        assert attempt.match.candidate is candidate
+        assert connector.search_track.await_args_list == [
+            call("Radiohead", "Creep", SpotifyConstants.SEARCH_DEFAULT_LIMIT),
+            call(
+                "Radiohead",
+                "Creep",
+                SpotifyConstants.SEARCH_DEFAULT_LIMIT,
+                field_filtered=False,
+            ),
+        ]
+
+    async def test_widens_when_candidates_exist_but_miss_the_similarity_gate(
+        self, evaluation_service: TrackMatchEvaluationService
+    ):
+        """Returning junk is not the same as clearing the gate."""
+        connector = _make_connector()
+        connector.search_track.side_effect = [
+            [_make_candidate(name="Something Else Entirely")],
+            [_make_candidate()],
+        ]
+        track = make_track(id=1, title="Creep", artist="Radiohead")
+
+        attempt = await search_and_evaluate_attempt(
+            connector,
+            evaluation_service,
+            track,
+            "Radiohead",
+            "Creep",
+            min_similarity=0.7,
+        )
+
+        assert attempt.match is not None
+        assert connector.search_track.await_count == 2
+
+    async def test_widening_is_bounded_to_exactly_one_extra_pass(
+        self, evaluation_service: TrackMatchEvaluationService
+    ):
+        connector = _make_connector()
+        connector.search_track.side_effect = [[], []]
+        track = make_track(id=1, title="Creep", artist="Radiohead")
+
+        attempt = await search_and_evaluate_attempt(
+            connector, evaluation_service, track, "Radiohead", "Creep"
+        )
+
+        assert attempt.match is None
+        assert connector.search_track.await_count == 2
+
+    async def test_the_limit_is_the_same_on_both_passes(
+        self, evaluation_service: TrackMatchEvaluationService
+    ):
+        connector = _make_connector()
+        connector.search_track.side_effect = [[], []]
+        track = make_track(id=1, title="Creep", artist="Radiohead")
+
+        _ = await search_and_evaluate_attempt(
+            connector,
+            evaluation_service,
+            track,
+            "Radiohead",
+            "Creep",
+            limit=SpotifyConstants.SEARCH_MAX_LIMIT,
+        )
+
+        for search_call in connector.search_track.await_args_list:
+            assert search_call.args[2] == SpotifyConstants.SEARCH_MAX_LIMIT
+
+
+class TestSearchAttemptQueries:
+    """The attempt carries the exact query strings sent, for caller telemetry."""
+
+    async def test_accepted_first_pass_records_only_the_filtered_query(
+        self, evaluation_service: TrackMatchEvaluationService
+    ):
+        connector = _make_connector([_make_candidate()])
+        track = make_track(id=1, title="Creep", artist="Radiohead")
+
+        attempt = await search_and_evaluate_attempt(
+            connector, evaluation_service, track, "Radiohead", "Creep"
+        )
+
+        assert attempt.queries == ('artist:"Radiohead" track:"Creep"',)
+
+    async def test_widened_attempt_records_both_queries_in_order(
+        self, evaluation_service: TrackMatchEvaluationService
+    ):
+        connector = _make_connector()
+        connector.search_track.side_effect = [[], []]
+        track = make_track(id=1, title="Creep", artist="Radiohead")
+
+        attempt = await search_and_evaluate_attempt(
+            connector, evaluation_service, track, "Radiohead", "Creep"
+        )
+
+        assert attempt.queries == (
+            'artist:"Radiohead" track:"Creep"',
+            "Radiohead Creep",
+        )
 
 
 class TestSearchAndEvaluateExceptionPropagation:

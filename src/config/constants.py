@@ -34,6 +34,7 @@ class HTTPStatus:
 class SpotifyConstants:
     """Spotify API format specifications and validation constants."""
 
+    SEARCH_DEFAULT_LIMIT: Final = 5  # candidates a caller gets without asking
     SEARCH_MAX_LIMIT: Final = 10  # max results per search query (Feb 2026 API)
     LIBRARY_CONTAINS_BATCH_SIZE: Final = (
         40  # /me/library/contains max per request (Feb 2026 API)

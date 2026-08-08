@@ -10,6 +10,9 @@ describe("RunStatusBadge", () => {
     "completed",
     "failed",
     "crashed",
+    "complete",
+    "partial",
+    "error",
     "cancelled",
   ])("renders %s status", (status) => {
     render(<RunStatusBadge status={status} />);
@@ -38,6 +41,9 @@ describe("getStatusConfig", () => {
     expect(getStatusConfig("completed").label).toBe("Completed");
     expect(getStatusConfig("failed").label).toBe("Failed");
     expect(getStatusConfig("crashed").label).toBe("Crashed");
+    expect(getStatusConfig("complete").label).toBe("Complete");
+    expect(getStatusConfig("partial").label).toBe("Completed with issues");
+    expect(getStatusConfig("error").label).toBe("Error");
     expect(getStatusConfig("cancelled").label).toBe("Cancelled");
   });
 

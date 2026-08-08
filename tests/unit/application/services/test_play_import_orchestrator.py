@@ -10,7 +10,10 @@ from unittest.mock import AsyncMock
 
 import pytest
 
-from src.application.services.play_import_orchestrator import PlayImportOrchestrator
+from src.application.services.play_import_orchestrator import (
+    _MAX_RECORDED_RESOLUTION_FAILURES,
+    PlayImportOrchestrator,
+)
 from src.domain.entities import ConnectorTrackPlay, OperationResult, TrackPlay
 from src.domain.entities.progress import NullProgressEmitter
 from src.domain.repositories.play import (
@@ -551,6 +554,127 @@ def _deterministic_outcome(
         },
         resolutions=(),
     )
+
+
+def _failing_outcome(plays: list[ConnectorTrackPlay]) -> PlayResolutionOutcome:
+    """Every play fails, each with its own named failure record."""
+    return PlayResolutionOutcome(
+        track_plays=[],
+        metrics={
+            "error_count": len(plays),
+            "resolution_failures": [
+                {
+                    "track": f"Artist - {p.track_name}",
+                    "spotify_id": f"id-{_play_index(p)}",
+                    "reason": "track_resolution_failed",
+                }
+                for p in plays
+            ],
+        },
+        resolutions=(),
+    )
+
+
+class TestResolutionFailureAccumulation:
+    """Per-item failures accumulate across chunks and services, bounded.
+
+    The resolver reports failures per call and the orchestrator calls it once per
+    chunk — reading only the last call's list would report a handful of failures
+    from a run that had hundreds. The cap bounds the JSONB ``issues`` array the
+    audit row carries.
+    """
+
+    async def test_failures_accumulate_across_chunks(
+        self, orchestrator, mock_resolver, mock_uow
+    ):
+        # 3 chunks (50/50/20), all failing — the recorded list must span them.
+        connector_plays = [_make_connector_play(f"Song {i}") for i in range(120)]
+        mock_resolver.resolve_connector_plays.side_effect = (
+            lambda plays, _uow, **_kwargs: _failing_outcome(plays)
+        )
+
+        result = await orchestrator.execute_resolution_phase(
+            connector_plays,
+            mock_uow,
+            user_id="test-user",
+            progress_emitter=NullProgressEmitter(),
+        )
+
+        failures = result.resolution_failures
+        assert len(failures) == _MAX_RECORDED_RESOLUTION_FAILURES
+        assert result.resolution_failures_truncated == 120 - len(failures)
+        # Spans the first chunk's boundary rather than restarting per call.
+        assert failures[0]["spotify_id"] == "id-0"
+        assert failures[-1]["spotify_id"] == f"id-{len(failures) - 1}"
+
+    async def test_under_the_cap_records_everything_untruncated(
+        self, orchestrator, mock_resolver, mock_uow
+    ):
+        connector_plays = [_make_connector_play(f"Song {i}") for i in range(3)]
+        mock_resolver.resolve_connector_plays.side_effect = (
+            lambda plays, _uow, **_kwargs: _failing_outcome(plays)
+        )
+
+        result = await orchestrator.execute_resolution_phase(
+            connector_plays,
+            mock_uow,
+            user_id="test-user",
+            progress_emitter=NullProgressEmitter(),
+        )
+
+        assert len(result.resolution_failures) == 3
+        assert result.resolution_failures_truncated == 0
+
+    async def test_failures_survive_into_the_combined_result(
+        self, orchestrator, mock_resolver, mock_uow, mock_importer
+    ):
+        # The SSE seam reads the COMBINED result; nested resolution_phase
+        # metadata is opaque to it.
+        connector_plays = [_make_connector_play("Song 0")]
+        mock_importer.import_plays.return_value = (
+            _make_ingestion_result(imported=1, raw_plays=1, duplicates=0),
+            connector_plays,
+        )
+        mock_resolver.resolve_connector_plays.side_effect = (
+            lambda plays, _uow, **_kwargs: _failing_outcome(plays)
+        )
+
+        result = await orchestrator.import_plays_two_phase(
+            mock_importer, mock_uow, user_id="test-user", params=LastfmImportParams()
+        )
+
+        assert result.resolution_failures == [
+            {
+                "track": "Artist - Song 0",
+                "spotify_id": "id-0",
+                "reason": "track_resolution_failed",
+            }
+        ]
+
+    async def test_clean_run_records_no_failures(
+        self, orchestrator, mock_resolver, mock_uow
+    ):
+        connector_plays = [_make_connector_play(f"Song {i}") for i in range(3)]
+        mock_resolver.resolve_connector_plays.side_effect = (
+            lambda plays, _uow, **_kwargs: PlayResolutionOutcome(
+                track_plays=[
+                    _make_resolved_track_play(track_id=_play_index(p) + 1)
+                    for p in plays
+                ],
+                metrics={"error_count": 0},
+                resolutions=(),
+            )
+        )
+
+        result = await orchestrator.execute_resolution_phase(
+            connector_plays,
+            mock_uow,
+            user_id="test-user",
+            progress_emitter=NullProgressEmitter(),
+        )
+
+        assert result.resolution_failures == []
+        assert result.resolution_failures_truncated == 0
 
 
 class TestResolutionChunking:

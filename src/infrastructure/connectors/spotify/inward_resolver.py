@@ -44,7 +44,7 @@ from src.infrastructure.connectors._shared.isrc import normalize_isrc
 from src.infrastructure.connectors.spotify import SpotifyConnector
 from src.infrastructure.connectors.spotify.models import SpotifyTrack
 
-from .utilities import create_track_from_spotify_data, search_and_evaluate_match
+from .utilities import create_track_from_spotify_data, search_and_evaluate_attempt
 
 logger = get_logger(__name__)
 
@@ -530,9 +530,11 @@ class SpotifyInwardResolver(InwardTrackResolver):
         break writes and write-flap under a multi-market user. The dual mapping
         already caches both ids; this records the assertion that produced it.
 
-        ``market`` is null because the batch fetch sends none: relinking only
-        fires when a market is supplied, so a substitution observed without one
-        is worth being able to distinguish later (memo §10.2). The pair is
+        ``market`` records the one the batch fetch actually sent (``get_track``
+        passes ``settings.api.spotify_market`` on every request). Relinking only
+        fires when a market is supplied, so the market in force is what makes a
+        substitution interpretable later — the same requested id can relink to
+        different returned ids in different markets (memo §10.2). The pair is
         detected by request/response correlation — ``linked_from`` was removed
         in Feb 2026 and the label never came back.
 
@@ -556,7 +558,7 @@ class SpotifyInwardResolver(InwardTrackResolver):
                     payload={
                         "requested_id": requested_id,
                         "returned_id": returned_id,
-                        "market": None,
+                        "market": settings.api.spotify_market,
                         "detection": "id_mismatch",
                     },
                 )
@@ -648,7 +650,7 @@ class SpotifyInwardResolver(InwardTrackResolver):
                 title=hint.track_name,
                 artists=[Artist(name=hint.artist_name)],
             )
-            search_match = await search_and_evaluate_match(
+            attempt = await search_and_evaluate_attempt(
                 self._spotify_connector,
                 self._match_evaluation_service,
                 hint_track,
@@ -656,17 +658,27 @@ class SpotifyInwardResolver(InwardTrackResolver):
                 hint.track_name,
                 min_similarity=SpotifyConstants.FALLBACK_SIMILARITY_THRESHOLD,
                 fallback_connector_id=dead_id,
+                limit=SpotifyConstants.SEARCH_MAX_LIMIT,
             )
-            if search_match is None:
-                logger.debug(
-                    f"Fallback search found no viable match for {hint.artist_name} - {hint.track_name}"
+            if attempt.match is None:
+                # WARNING, not debug, and carrying the queries verbatim: a
+                # track that is genuinely gone and a query malformed by bad
+                # export data produce the same empty result, and only the
+                # strings that were actually sent tell the two apart.
+                logger.warning(
+                    f"Fallback search found no viable match for "
+                    f"{hint.artist_name} - {hint.track_name} (spotify:{dead_id})",
+                    artist=hint.artist_name,
+                    title=hint.track_name,
+                    dead_id=dead_id,
+                    queries=list(attempt.queries),
                 )
                 return None
 
             return _FallbackSearchResult(
-                candidate=search_match.candidate,
-                confidence=search_match.match_result.confidence,
-                similarity=search_match.similarity,
+                candidate=attempt.match.candidate,
+                confidence=attempt.match.match_result.confidence,
+                similarity=attempt.match.similarity,
                 hint=hint,
             )
         except Exception as e:

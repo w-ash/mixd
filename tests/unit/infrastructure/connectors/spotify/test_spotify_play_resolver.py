@@ -5,11 +5,11 @@ track resolution, relinking, metadata preservation, and error handling.
 """
 
 from datetime import UTC, datetime
-from unittest.mock import AsyncMock, MagicMock
+from unittest.mock import AsyncMock, MagicMock, call
 
 import pytest
 
-from src.config.constants import MatchMethod
+from src.config.constants import MatchMethod, SpotifyConstants
 from src.domain.entities import ConnectorTrackPlay, TrackPlay
 from src.infrastructure.connectors.spotify.play_resolver import (
     SpotifyConnectorPlayResolver,
@@ -387,7 +387,16 @@ class TestFallbackHintsIntegration:
         # The inward resolver should have received fallback hints
         # We verify indirectly by checking search was attempted for the dead ID
         # (since get_tracks_by_ids returned empty, ID is dead, hint should trigger search)
-        connector.search_track.assert_called_once_with("My Artist", "My Song")
+        # Two calls: the field-filtered query, then the single widening pass.
+        assert connector.search_track.await_args_list == [
+            call("My Artist", "My Song", SpotifyConstants.SEARCH_MAX_LIMIT),
+            call(
+                "My Artist",
+                "My Song",
+                SpotifyConstants.SEARCH_MAX_LIMIT,
+                field_filtered=False,
+            ),
+        ]
 
     async def test_fallback_resolved_plays_tagged_in_context(self):
         """Plays resolved via fallback should have resolution_method='search_fallback'."""

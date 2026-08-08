@@ -34,11 +34,21 @@ const STATUS_CONFIG: Record<
     className: "bg-status-expired/15 text-status-expired",
     icon: <AlertTriangle className="size-2.5" />,
   },
-  // OperationRun vocabulary: complete/error/cancelled.
+  // OperationRun vocabulary: complete/partial/error/cancelled.
   complete: {
     label: "Complete",
     className: "bg-status-connected/15 text-status-connected",
     icon: <Check className="size-2.5" />,
+  },
+  // Partial = the run finished and did real work, but some items couldn't be
+  // processed — expand the row to see exactly which. Shares the amber warning
+  // tone with `crashed`: both say "it ran, but look at it", as opposed to the
+  // destructive red of an outright failure. The label spells that out rather
+  // than saying "Partial", which on its own doesn't tell you what happened.
+  partial: {
+    label: "Completed with issues",
+    className: "bg-status-expired/15 text-status-expired",
+    icon: <AlertTriangle className="size-2.5" />,
   },
   error: {
     label: "Error",
