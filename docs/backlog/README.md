@@ -1,7 +1,7 @@
 # Project Mixd — Planning
 
 **Current Version**: 0.10.2.4
-**Next**: v0.10.3 Post-import data integrity audit — agent-driven adversarial verification of the first at-scale prod imports (duplicate plays, missed merges, identity twins; the checklist is a floor, the agent extends it) ([details](v0.10.x.md#v0103-post-import-data-integrity-audit)). Follow-up pool: the PLR0913/0917 flip decision ([spoke 26](fable-sweep/26-ratchet-closeout.md)), and the still-gated candidates (**MCP spec/SDK drift check — now unblocked**, the stable-v2 bump landed here; model/effort cost re-eval before Sonnet 5 intro pricing ends 2026-08-31; demand-gated conversation persistence, memory tool, subagent fan-out, chat-voices toggle).
+**Next**: finish the v0.10.2.x import-hardening train — deploy v0.10.2.4, then the planned revisions in sequence (v0.10.2.5 queue, v0.10.2.6 Last.fm batch-first, v0.10.2.7 unattended-run robustness; entries in [v0.10.x.md](v0.10.x.md#post-deploy-revisions)) — then the remaining prod imports, then v0.10.3 Post-import data integrity audit — agent-driven adversarial verification of the first at-scale prod imports (duplicate plays, missed merges, identity twins; the checklist is a floor, the agent extends it) ([details](v0.10.x.md#v0103-post-import-data-integrity-audit)). Follow-up pool: the PLR0913/0917 flip decision ([spoke 26](fable-sweep/26-ratchet-closeout.md)), and the still-gated candidates (**MCP spec/SDK drift check — now unblocked**, the stable-v2 bump landed here; model/effort cost re-eval before Sonnet 5 intro pricing ends 2026-08-31; demand-gated conversation persistence, memory tool, subagent fan-out, chat-voices toggle).
 
 ## Shipped — current cycle (v0.9.x–v0.10.x)
 
