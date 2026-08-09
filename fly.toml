@@ -4,11 +4,15 @@
 #
 
 app = 'mixd'
-# Co-located with the Neon compute in us-west-2 (Oregon). From sjc the
-# round trip measured ~26ms, and an import chunk pays it ~68 times — more
-# than every code-level saving combined. `sea` is the nearest Fly region;
-# there is no `pdx`. Verify with `rtt_ms` on the play_import_chunk log line.
-primary_region = 'sea'
+# Already optimal — do not re-litigate (checked 2026-08-09). The Neon compute
+# is in us-west-2 (Oregon) and every statement pays the distance: measured from
+# this machine, 24.55ms to the pooler and 23.29ms direct, so ~23ms of it is
+# propagation and only 1.26ms is PgBouncer. `sea` would have been ~7ms but is
+# deprecated and refuses new resources; Fly's remaining North America regions
+# (lax, dfw, ord, iad, ewr, yyz) are all *further* from Oregon than sjc.
+# The ~24ms is therefore a floor, and the only lever on import throughput is
+# issuing fewer statements — see `db_stmts` on the play_import_chunk log line.
+primary_region = 'sjc'
 
 # Fly's long-running-tasks blueprint (2026-06): SIGTERM (not the SIGINT
 # default) with the maximum drain window, so shutdown reaches the app's
