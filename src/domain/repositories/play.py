@@ -131,6 +131,9 @@ class ResolutionMetrics(TypedDict, total=False):
     spotify_enhanced_count: int
     dead_ids_unresolved: int
     isrc_suspect_deferred: int
+    reused_tracks: int
+    suppressed: int
+    degraded_persists: int
 
 
 @define(frozen=True, slots=True)

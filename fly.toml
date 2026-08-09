@@ -4,7 +4,11 @@
 #
 
 app = 'mixd'
-primary_region = 'sjc'
+# Co-located with the Neon compute in us-west-2 (Oregon). From sjc the
+# round trip measured ~26ms, and an import chunk pays it ~68 times — more
+# than every code-level saving combined. `sea` is the nearest Fly region;
+# there is no `pdx`. Verify with `rtt_ms` on the play_import_chunk log line.
+primary_region = 'sea'
 
 # Fly's long-running-tasks blueprint (2026-06): SIGTERM (not the SIGINT
 # default) with the maximum drain window, so shutdown reaches the app's
@@ -26,6 +30,10 @@ kill_timeout = '300s'
 
 [env]
   PYTHONUNBUFFERED = '1'
+  # structlog's stdlib BoundLogger has no level short-circuit, so a DEBUG file
+  # sink runs the full processor chain (callsite frame walk included) for every
+  # @db_operation's two debug lines.
+  FILE_LOG_LEVEL = 'INFO'
   NEON_AUTH_URL = 'https://ep-super-glade-ak6se863.neonauth.c-3.us-west-2.aws.neon.tech/neondb/auth'
   NEON_AUTH_JWKS_URL = 'https://ep-super-glade-ak6se863.neonauth.c-3.us-west-2.aws.neon.tech/neondb/auth/.well-known/jwks.json'
   ALLOWED_EMAILS = 'a@ashwright.net'

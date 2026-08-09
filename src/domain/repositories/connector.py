@@ -19,6 +19,19 @@ from src.domain.entities.shared import JsonDict, JsonValue
 
 
 @define(frozen=True, slots=True)
+class IsrcCollisionSpec:
+    """An incoming connector track whose ISRC is already claimed elsewhere.
+
+    ``owner`` is the canonical currently holding the ISRC. The incoming track
+    is scored against it and routed to review rather than merged into it.
+    """
+
+    owner: Track
+    connector_id: str
+    service_data: Mapping[str, JsonValue]
+
+
+@define(frozen=True, slots=True)
 class ConnectorMappingSpec:
     """A single track→connector mapping request for batch mapping.
 
@@ -443,6 +456,31 @@ class ConnectorRepositoryProtocol(Protocol):
 
         Returns:
             True if a review was queued, False if one already existed.
+        """
+        ...
+
+    def queue_isrc_collision_reviews(
+        self,
+        collisions: Sequence[IsrcCollisionSpec],
+        connector: str,
+        *,
+        user_id: str,
+    ) -> Awaitable[int]:
+        """Batch form of ``queue_isrc_collision_review``, same semantics.
+
+        Import chunks can carry several collisions, and the per-item form costs
+        ~7 round trips each; this one shares the connector-track ensure, the
+        any-status dedupe probe and the insert across the batch.
+
+        Args:
+            collisions: Contested ISRCs, each pairing the owning canonical with
+                the incoming track's id and metadata.
+            connector: Service name (e.g., "spotify").
+            user_id: Owner's user ID.
+
+        Returns:
+            Number of reviews queued; collisions already reviewed in any
+            status are excluded.
         """
         ...
 

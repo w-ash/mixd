@@ -51,16 +51,18 @@ class TestStatementTimeoutOnBegin:
             connection = _fire_hook()
 
         sql = _executed_sql(connection)
-        assert len(sql) == 2
+        # One statement, not two: transaction begin is a round trip, and bulk
+        # imports open one per chunk.
+        assert len(sql) == 1
         # ``true`` is the is_local flag — reverts on COMMIT, unlike a bare SET.
-        assert sql[1] == "SELECT set_config('statement_timeout', :timeout, true)"
-        assert _bound_params(connection)[1] == {"timeout": "300s"}
+        assert "set_config('statement_timeout', :timeout, true)" in sql[0]
+        assert _bound_params(connection)[0]["timeout"] == "300s"
 
     def test_user_id_is_still_set_alongside_the_timeout(self) -> None:
         with user_context("user-42"), statement_timeout_context("300s"):
             connection = _fire_hook()
 
-        assert _bound_params(connection)[0] == {"uid": "user-42"}
+        assert _bound_params(connection)[0]["uid"] == "user-42"
 
     def test_savepoints_set_neither_setting(self) -> None:
         with statement_timeout_context("300s"):
@@ -97,8 +99,8 @@ class TestStatementTimeoutContextLifetime:
                 inner = _fire_hook()
             outer = _fire_hook()
 
-        assert _bound_params(inner)[1] == {"timeout": "60s"}
-        assert _bound_params(outer)[1] == {"timeout": "300s"}
+        assert _bound_params(inner)[0]["timeout"] == "60s"
+        assert _bound_params(outer)[0]["timeout"] == "300s"
 
     def test_user_context_is_unaffected_by_the_timeout_context(self) -> None:
         with user_context("user-42"), statement_timeout_context("300s"):

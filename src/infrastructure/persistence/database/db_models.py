@@ -245,10 +245,22 @@ class DBTrack(BaseEntity):
         UniqueConstraint("user_id", "mbid", name="uq_tracks_user_mbid"),
         # Regular index for title searches
         Index("ix_tracks_title", "title"),
-        # Composite index for Canonical Reuse normalized fuzzy lookup
-        Index("ix_tracks_normalized_lookup", "title_normalized", "artist_normalized"),
-        # Composite index for parenthetical-stripped fallback matching
-        Index("ix_tracks_stripped_lookup", "title_stripped", "artist_normalized"),
+        # Canonical Reuse normalized fuzzy lookup, and its parenthetical-
+        # stripped fallback. ``user_id`` leads because every read of these
+        # columns is user-scoped (explicit predicate plus the RLS qual), so
+        # without it the probe's cost grew with the whole table.
+        Index(
+            "ix_tracks_user_normalized_lookup",
+            "user_id",
+            "title_normalized",
+            "artist_normalized",
+        ),
+        Index(
+            "ix_tracks_user_stripped_lookup",
+            "user_id",
+            "title_stripped",
+            "artist_normalized",
+        ),
     )
 
 

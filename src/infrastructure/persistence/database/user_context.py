@@ -105,24 +105,32 @@ def set_rls_user_on_begin(
     - Uses ``set_config(..., true)`` for transaction-scoped setting — safe
       with Neon's PgBouncer in transaction mode (clears on COMMIT/ROLLBACK).
       ``SET LOCAL x = :v`` is not an alternative: SET takes no bind parameters.
+    - **One statement, always** — transaction begin is a round trip, and bulk
+      imports (which always set a timeout) open one per chunk. ``set_config``
+      is a plain function, so both settings compose into one SELECT.
     - Skips savepoints (``transaction.parent is not None``) — only top-level
       transactions need the SET LOCAL; savepoints inherit both settings.
     - Single listener by design: registering a second ``after_begin`` hook
       re-runs on every session class the harness touches (see the
       double-registration note in ``live_rows.register_live_rows_filter``).
+      ``create_session_factory`` enforces this with an ``event.contains`` guard.
     """
     if transaction.parent is not None:
         return  # Savepoint — inherit parent transaction's settings
 
     uid = _current_user_id.get()
-    connection.execute(
-        text("SELECT set_config('app.user_id', :uid, true)"),
-        {"uid": uid},
-    )
-
     timeout = _current_statement_timeout.get()
-    if timeout is not None:
+
+    if timeout is None:
         connection.execute(
-            text("SELECT set_config('statement_timeout', :timeout, true)"),
-            {"timeout": timeout},
+            text("SELECT set_config('app.user_id', :uid, true)"),
+            {"uid": uid},
+        )
+    else:
+        connection.execute(
+            text(
+                "SELECT set_config('app.user_id', :uid, true), "
+                "set_config('statement_timeout', :timeout, true)"
+            ),
+            {"uid": uid, "timeout": timeout},
         )

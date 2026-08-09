@@ -12,10 +12,12 @@ reuse (via the _extract_reuse_metadata hook).
 """
 
 from abc import ABC, abstractmethod
-from collections.abc import Awaitable, Callable, Mapping, Sequence
+from collections.abc import Awaitable, Callable, Generator, Mapping, Sequence
+from contextlib import contextmanager
+from contextvars import ContextVar
 from typing import NamedTuple
 
-from attrs import define
+from attrs import define, evolve
 
 from src.config import create_evaluation_service, get_logger
 from src.config.constants import MatchMethod
@@ -27,6 +29,36 @@ from src.domain.repositories.resolution import ResolutionDecision
 from src.domain.repositories.uow import UnitOfWorkProtocol
 
 logger = get_logger(__name__)
+
+
+@define(slots=True)
+class _DegradedTally:
+    """How many bulk persists fell back to per-item retries this pass."""
+
+    count: int = 0
+
+
+_degraded_persists: ContextVar[_DegradedTally | None] = ContextVar(
+    "mixd_degraded_persists", default=None
+)
+
+
+@contextmanager
+def count_degraded_persists() -> Generator[_DegradedTally]:
+    """Tally per-item fallbacks across one resolution pass.
+
+    The degraded path is the only one that opens a savepoint per item, and a
+    subxid is released on rollback but *retained* through commit — so its
+    count tracks successes and is what would bind PostgreSQL's 64-subxid cache
+    if the chunk grew. Surfacing it keeps that constraint observable instead of
+    inferred.
+    """
+    tally = _DegradedTally()
+    token = _degraded_persists.set(tally)
+    try:
+        yield tally
+    finally:
+        _degraded_persists.reset(token)
 
 
 async def persist_bulk_with_item_fallback[TWrite, TKey, TPersisted](
@@ -64,6 +96,9 @@ async def persist_bulk_with_item_fallback[TWrite, TKey, TPersisted](
         async with uow.savepoint():
             persisted = dict(await persist(writes))
     except Exception as e:
+        tally = _degraded_persists.get()
+        if tally is not None:
+            tally.count += 1
         logger.warning(
             f"Bulk persist of {len(writes)} {describe} failed — "
             f"retrying one savepoint per item: {e}",
@@ -113,6 +148,7 @@ class TrackResolutionMetrics:
     redirects: int = 0
     fallbacks: int = 0
     suppressed: int = 0
+    degraded_persists: int = 0
 
     @property
     def total(self) -> int:
@@ -413,6 +449,20 @@ class InwardTrackResolver(ABC):
         Returns:
             Tuple of (normalized_id → Track mapping, resolution metrics).
         """
+        with count_degraded_persists() as degraded:
+            result, metrics = await self._resolve_to_canonical_tracks(
+                connector_ids, uow, user_id=user_id
+            )
+        return result, evolve(metrics, degraded_persists=degraded.count)
+
+    async def _resolve_to_canonical_tracks(
+        self,
+        connector_ids: list[str],
+        uow: UnitOfWorkProtocol,
+        *,
+        user_id: str,
+    ) -> tuple[dict[str, Track], TrackResolutionMetrics]:
+        """The three-step resolution itself; see the public wrapper."""
         if not connector_ids:
             return {}, TrackResolutionMetrics()
 

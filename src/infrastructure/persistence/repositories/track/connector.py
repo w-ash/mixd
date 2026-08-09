@@ -49,6 +49,7 @@ from src.domain.matching.types import RawProviderMatch
 from src.domain.repositories.connector import (
     ConnectorMappingSpec,
     FullMappingInfo,
+    IsrcCollisionSpec,
     MatchMethodStatRow,
     PrimaryMappingDetail,
 )
@@ -850,7 +851,7 @@ class TrackConnectorRepository:
         ]
         if promote_to_primary:
             _ = await self._batch_ensure_primary_mappings_by_external_id(
-                promote_to_primary
+                promote_to_primary, connector_id_map=connector_id_map
             )
 
         # Note: metrics extraction lives in the application layer
@@ -1871,6 +1872,107 @@ class TrackConnectorRepository:
         )
         return True
 
+    @db_operation("queue_isrc_collision_reviews")
+    async def queue_isrc_collision_reviews(
+        self,
+        collisions: Sequence[IsrcCollisionSpec],
+        connector: str,
+        *,
+        user_id: str,
+    ) -> int:
+        """``queue_isrc_collision_review`` for a whole batch, in four statements.
+
+        The per-item version costs ~7 round trips each; an import chunk can
+        carry several. Same semantics, including the any-status dedupe that
+        keeps a re-import from resurrecting a rejected review.
+
+        Returns:
+            Number of reviews queued (already-reviewed collisions excluded).
+        """
+        from src.config import create_evaluation_service
+        from src.infrastructure.persistence.repositories.match_review import (
+            MatchReviewRepository,
+        )
+
+        if not collisions:
+            return 0
+
+        ct_ids = await self.ensure_connector_tracks(
+            connector,
+            [
+                {
+                    "connector_id": collision.connector_id,
+                    "title": collision.service_data.get("title", ""),
+                    "artists": collision.service_data.get("artists", []),
+                    "duration_ms": collision.service_data.get("duration_ms"),
+                    "isrc": collision.service_data.get("isrc"),
+                }
+                for collision in collisions
+            ],
+        )
+
+        candidates = [
+            (collision, ct_uuid)
+            for collision in collisions
+            if (ct_uuid := ct_ids.get((connector, collision.connector_id))) is not None
+        ]
+        if not candidates:
+            return 0
+
+        # Any-status dedupe: re-imports must not resurrect rejected reviews.
+        reviewed = await self.session.execute(
+            select(DBMatchReview.track_id, DBMatchReview.connector_track_id).where(
+                DBMatchReview.user_id == user_id,
+                DBMatchReview.connector_name == connector,
+                DBMatchReview.connector_track_id.in_([
+                    ct_uuid for _, ct_uuid in candidates
+                ]),
+            )
+        )
+        already_reviewed = set(reviewed.tuples().all())
+
+        evaluator = create_evaluation_service()
+        reviews: list[MatchReview] = []
+        for collision, ct_uuid in candidates:
+            if (collision.owner.id, ct_uuid) in already_reviewed:
+                continue
+            match = evaluator.evaluate_single_match(
+                collision.owner,
+                RawProviderMatch(
+                    connector_id=collision.connector_id,
+                    match_method="isrc",
+                    service_data=collision.service_data,
+                ),
+                connector,
+            )
+            reviews.append(
+                MatchReview(
+                    user_id=user_id,
+                    track_id=collision.owner.id,
+                    connector_name=connector,
+                    connector_track_id=ct_uuid,
+                    match_method=MatchMethod.ISRC_SUSPECT,
+                    confidence=match.confidence,
+                    match_weight=(
+                        match.evidence.match_weight if match.evidence else 0.0
+                    ),
+                    confidence_evidence=match.evidence_dict,
+                )
+            )
+            logger.warning(
+                "isrc_collision_deferred",
+                track_id=collision.owner.id,
+                connector=connector,
+                connector_id=collision.connector_id,
+                isrc=collision.service_data.get("isrc"),
+                confidence=match.confidence,
+            )
+
+        if not reviews:
+            return 0
+        _ = await MatchReviewRepository(self.session).create_reviews_batch(reviews)
+        return len(reviews)
+
     @overload
     async def get_connector_metadata(
         self,
@@ -2081,7 +2183,10 @@ class TrackConnectorRepository:
             )
 
     async def _promote_primaries_by_uuid(
-        self, primaries: list[tuple[UUID, str, UUID]]
+        self,
+        primaries: list[tuple[UUID, str, UUID]],
+        *,
+        external_by_ct_id: Mapping[UUID, str] | None = None,
     ) -> int:
         """Fill a vacant primary slot for each pair, in one statement.
 
@@ -2153,11 +2258,16 @@ class TrackConnectorRepository:
         promoted: list[tuple[UUID, str, UUID]] = list(result.tuples().all())
 
         if promoted:
-            await self._sync_promoted_denormalized_ids(promoted)
+            await self._sync_promoted_denormalized_ids(
+                promoted, external_by_ct_id=external_by_ct_id
+            )
         return len(promoted)
 
     async def _sync_promoted_denormalized_ids(
-        self, promoted: list[tuple[UUID, str, UUID]]
+        self,
+        promoted: list[tuple[UUID, str, UUID]],
+        *,
+        external_by_ct_id: Mapping[UUID, str] | None = None,
     ) -> None:
         """Sync the fast-path column for pairs whose promotion actually landed.
 
@@ -2169,9 +2279,9 @@ class TrackConnectorRepository:
         disagreement migration 044's pre-pass had to repair on 366 rows.
 
         The external identifier *string* is what the column stores, while
-        ``promoted`` only carries the connector track's UUID, so it still needs
-        resolving — one lookup here for the promoted subset, in place of a
-        lookup for every candidate regardless of whether its promotion landed.
+        ``promoted`` only carries the connector track's UUID. Callers that came
+        in by external id already hold the mapping and pass it; the rest pay a
+        lookup, scoped to the promoted subset rather than every candidate.
 
         Written back one statement per denormalized *column* rather than one
         per row: the column name cannot be parameterised, so rows are grouped
@@ -2179,13 +2289,14 @@ class TrackConnectorRepository:
         fast-path column is dropped by the ``COLUMN_MAP`` lookup — most of
         them have none, and nothing to sync is not a failure.
         """
-        ct_ids = [ct_id for _, _, ct_id in promoted]
-        result = await self.session.execute(
-            select(
-                DBConnectorTrack.id, DBConnectorTrack.connector_track_identifier
-            ).where(DBConnectorTrack.id.in_(ct_ids))
-        )
-        external_by_ct_id = dict(result.tuples().all())
+        if external_by_ct_id is None:
+            ct_ids = [ct_id for _, _, ct_id in promoted]
+            result = await self.session.execute(
+                select(
+                    DBConnectorTrack.id, DBConnectorTrack.connector_track_identifier
+                ).where(DBConnectorTrack.id.in_(ct_ids))
+            )
+            external_by_ct_id = dict(result.tuples().all())
 
         by_column: dict[str, list[tuple[UUID, str]]] = defaultdict(list)
         for track_id, connector_name, ct_id in promoted:
@@ -2248,6 +2359,8 @@ class TrackConnectorRepository:
     async def _batch_ensure_primary_mappings_by_external_id(
         self,
         primaries: list[tuple[UUID, str, str]],
+        *,
+        connector_id_map: Mapping[tuple[str, str], UUID] | None = None,
     ) -> int:
         """``_batch_ensure_primary_mappings``, keyed by external connector id.
 
@@ -2255,10 +2368,9 @@ class TrackConnectorRepository:
         ``map_tracks_to_connectors`` marked ``primary``, and
         ``_create_mappings_and_set_primaries``, which reads it straight off
         ``domain_tracks[].connector_track_identifiers``. Neither ever sees the
-        connector track's internal id. Resolves ids in a single bulk lookup,
-        then shares the UUID path's promotion step. A caller that already
-        holds the UUID should call ``_batch_ensure_primary_mappings`` directly
-        instead of routing through here just to convert it back.
+        connector track's internal id. A caller that already holds the UUID
+        should call ``_batch_ensure_primary_mappings`` directly instead of
+        routing through here just to convert it back.
 
         Unlike its sibling this one still resets first, and so still re-elects
         rather than merely filling a vacancy: both callers have just named
@@ -2269,6 +2381,10 @@ class TrackConnectorRepository:
 
         Args:
             primaries: List of (track_id, connector_name, connector_track_identifier).
+            connector_id_map: The ``(name, external_id) -> id`` mapping the
+                caller already holds, if any. ``map_tracks_to_connectors`` has
+                just built it upserting the same rows, so passing it skips a
+                lookup of ids that were resolved moments earlier.
 
         Returns:
             Number of mappings successfully promoted to primary.
@@ -2278,7 +2394,26 @@ class TrackConnectorRepository:
 
         await self._reset_primaries(primaries)
 
-        # Single bulk query: find all connector track DB IDs
+        ct_id_map = (
+            connector_id_map
+            if connector_id_map is not None
+            else await self._resolve_connector_track_ids(primaries)
+        )
+        external_by_ct_id = {ct_id: cid for (_, cid), ct_id in ct_id_map.items()}
+
+        by_uuid = [
+            (track_id, connector_name, ct_db_id)
+            for track_id, connector_name, connector_id in primaries
+            if (ct_db_id := ct_id_map.get((connector_name, connector_id))) is not None
+        ]
+        return await self._promote_primaries_by_uuid(
+            by_uuid, external_by_ct_id=external_by_ct_id
+        )
+
+    async def _resolve_connector_track_ids(
+        self, primaries: list[tuple[UUID, str, str]]
+    ) -> dict[tuple[str, str], UUID]:
+        """Look up ``(name, external_id) -> id`` for callers that hold no map."""
         connectors = list({cn for _, cn, _ in primaries})
         connector_ids = list({cid for _, _, cid in primaries})
         ct_records = await self.connector_repo.find_by([
@@ -2287,17 +2422,10 @@ class TrackConnectorRepository:
                 connector_ids
             ),
         ])
-        ct_id_map: dict[tuple[str, str], UUID] = {
+        return {
             (ct.connector_name, ct.connector_track_identifier): ct.id
             for ct in ct_records
         }
-
-        by_uuid = [
-            (track_id, connector_name, ct_db_id)
-            for track_id, connector_name, connector_id in primaries
-            if (ct_db_id := ct_id_map.get((connector_name, connector_id))) is not None
-        ]
-        return await self._promote_primaries_by_uuid(by_uuid)
 
     # ── Integrity check queries ──────────────────────────────────────
 

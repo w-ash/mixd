@@ -21,6 +21,7 @@ Example:
 
 from abc import ABC, abstractmethod
 from collections.abc import Awaitable, Callable, Mapping
+import time
 from typing import ClassVar, Self
 
 from attrs import define, field
@@ -28,6 +29,7 @@ from tenacity import AsyncRetrying
 
 from src.config import get_logger
 from src.config.logging import logging_context
+from src.config.telemetry import record_api_call
 from src.domain.entities.playlist import ConnectorPlaylist
 from src.domain.entities.shared import JsonValue, MetricValue
 from src.domain.entities.track import ConnectorTrack
@@ -88,10 +90,13 @@ class BaseAPIClient:
         see retry-exhausted transport failures instead of a ``None`` that is
         indistinguishable from "the API answered with nothing" — the Last.fm
         enrichment reads depend on that distinction (v0.10.2.9 F5).
+
+        Recorded time covers pacing waits and every retry attempt.
         """
         limiter = get_connector_rate_limiter(self.service_name)
         attempt = impl if limiter is None else _paced(limiter, impl)
         suppressed_types = self._SUPPRESS_ERRORS if suppress is None else suppress
+        started = time.perf_counter_ns()
         with logging_context(operation=operation):
             try:
                 return await self._retry_policy(attempt, *args)
@@ -99,6 +104,8 @@ class BaseAPIClient:
                 if isinstance(exc, suppressed_types):
                     return None
                 raise
+            finally:
+                record_api_call(time.perf_counter_ns() - started)
 
     async def aclose(self) -> None:
         """Close underlying resources. Override for clients with connection pools."""

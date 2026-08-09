@@ -10,6 +10,7 @@ from unittest.mock import AsyncMock
 from uuid import UUID
 
 import pytest
+from structlog.testing import capture_logs
 
 from src.application.services.play_import_orchestrator import (
     _MAX_RECORDED_RESOLUTION_FAILURES,
@@ -698,6 +699,76 @@ class TestResolutionFailureAccumulation:
 
         assert result.resolution_failures == []
         assert result.resolution_failures_truncated == 0
+
+
+class TestChunkFlightRecording:
+    """One structured line per chunk — the instrument the import is tuned by."""
+
+    async def _flight_lines(self, orchestrator, mock_resolver, mock_uow, *, plays):
+        connector_plays = [_make_connector_play(f"Song {i}") for i in range(plays)]
+        mock_resolver.resolve_connector_plays.side_effect = (
+            lambda chunk, _uow, **_kwargs: _deterministic_outcome(chunk)
+        )
+
+        with capture_logs() as entries:
+            _ = await orchestrator.execute_resolution_phase(
+                connector_plays,
+                mock_uow,
+                user_id="test-user",
+                progress_emitter=NullProgressEmitter(),
+            )
+
+        return [e for e in entries if e["event"] == "play_import_chunk"]
+
+    async def test_one_line_per_chunk(self, orchestrator, mock_resolver, mock_uow):
+        lines = await self._flight_lines(
+            orchestrator, mock_resolver, mock_uow, plays=120
+        )
+
+        assert [line["plays"] for line in lines] == [50, 50, 20]
+        assert [line["chunk"] for line in lines] == [0, 1, 2]
+
+    async def test_carries_the_fields_the_analysis_needs(
+        self, orchestrator, mock_resolver, mock_uow
+    ):
+        (line,) = await self._flight_lines(
+            orchestrator, mock_resolver, mock_uow, plays=10
+        )
+
+        assert line.keys() >= {
+            "service",
+            "wall_ms",
+            "db_ms",
+            "db_stmts",
+            "off_db_ms",
+            "rtt_ms",
+            "api_calls",
+            "resolve_ms",
+            "commit_ms",
+            "db_ops",
+        }
+
+    async def test_timings_are_internally_consistent(
+        self, orchestrator, mock_resolver, mock_uow
+    ):
+        (line,) = await self._flight_lines(
+            orchestrator, mock_resolver, mock_uow, plays=10
+        )
+
+        assert line["db_ms"] <= line["wall_ms"]
+        assert line["resolve_ms"] <= line["wall_ms"]
+        assert line["db_stmts"] >= 0
+        assert line["off_db_ms"] == line["wall_ms"] - line["db_ms"]
+
+    async def test_counters_restart_each_chunk(
+        self, orchestrator, mock_resolver, mock_uow
+    ):
+        """Each chunk is its own span — counters are per-chunk, not cumulative."""
+        lines = await self._flight_lines(
+            orchestrator, mock_resolver, mock_uow, plays=120
+        )
+
+        assert all(line["db_stmts"] == lines[0]["db_stmts"] for line in lines)
 
 
 class TestResolutionChunking:

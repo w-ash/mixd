@@ -20,6 +20,8 @@ from src.application.services.play_projection_service import (
 )
 from src.application.use_cases._shared.batch_commit import commit_batch
 from src.config import get_logger
+from src.config.logging import logging_context
+from src.config.telemetry import ChunkProbe, measure_chunk, phase
 from src.domain.entities import ConnectorTrackPlay, OperationResult, TrackPlay
 from src.domain.entities.operations import (
     RESOLUTION_FAILURES_KEY,
@@ -42,13 +44,19 @@ from src.domain.repositories.uow import UnitOfWorkProtocol
 
 logger = get_logger(__name__)
 
-# Resolvers wrap every per-item write in a savepoint, and PostgreSQL caches only
-# 64 subtransaction ids per top-level transaction — they are never released
-# before COMMIT, and past that cap every visibility check falls back to an
-# on-disk SLRU lookup, so throughput collapses partway through a large import.
-# Committing every 50 plays keeps worst-case savepoints-per-transaction under
-# that cliff and bounds crash rework to a single chunk. Chunk size is a
-# transaction-boundary policy, so it is owned here and never by a resolver.
+# What actually bounds this number, measured (v0.10.2.11):
+#   - Crash rework: a killed run loses at most one chunk.
+#   - PostgreSQL's 64-subxid cache. On the happy path a chunk opens ~10-15
+#     savepoints regardless of size — ``persist_bulk_with_item_fallback``
+#     savepoints the *batch*, not the item — so this is not the binding
+#     constraint it was once documented to be. It binds only on the degraded
+#     path, where a poisoned bulk write retries per item; a subxid is released
+#     on rollback but *retained* through commit, so the count there tracks
+#     successes. That path signals ``degraded_persists`` and commits early
+#     instead of being priced in here.
+#   - Bind-parameter ceilings on the multi-VALUES bulk writes downstream.
+# Chunk size is a transaction-boundary policy, so it is owned here, never by
+# a resolver.
 _RESOLUTION_COMMIT_CHUNK_SIZE: Final = 50
 
 
@@ -58,6 +66,57 @@ _RESOLUTION_COMMIT_CHUNK_SIZE: Final = 50
 # detail is in the server logs; the row carries the first N plus a count of the
 # rest.
 _MAX_RECORDED_RESOLUTION_FAILURES: Final = 50
+
+
+# Resolver counts carried on the flight line so a chunk's timings can be read
+# against its shape — a creation-heavy chunk and a reuse-heavy one of the same
+# size cost very different amounts.
+_CHUNK_METRIC_KEYS: Final = (
+    "resolved_tracks",
+    "new_tracks",
+    "reused_tracks",
+    "error_count",
+    "suppressed",
+    "degraded_persists",
+    "redirect_resolved",
+    "fallback_resolved",
+    "isrc_suspect_deferred",
+)
+
+
+def _log_chunk_flight(
+    probe: ChunkProbe,
+    *,
+    service: str,
+    chunk_index: int,
+    plays: int,
+    metrics: ResolutionMetrics,
+) -> None:
+    """Emit the import's per-chunk flight recording.
+
+    This line is the instrument, not scaffolding: ``db_stmts`` and ``rtt_ms``
+    are what turn "slower than designed" into arithmetic, and ``db_ops`` names
+    the owner when they disagree.
+    """
+    logger.info(
+        "play_import_chunk",
+        service=service,
+        chunk=chunk_index,
+        plays=plays,
+        wall_ms=round(probe.wall_ms),
+        db_ms=round(probe.db_ms),
+        db_stmts=probe.statements,
+        off_db_ms=round(probe.wall_ms - probe.db_ms),
+        rtt_ms=round(probe.rtt_ms, 1),
+        api_calls=probe.api_calls,
+        api_ms_sum=round(probe.api_ms_sum),
+        api_ms=round(probe.phase_ms("api")),
+        resolve_ms=round(probe.phase_ms("resolve")),
+        writeback_ms=round(probe.phase_ms("writeback")),
+        commit_ms=round(probe.phase_ms("commit")),
+        db_ops=probe.top_operations(),
+        **{key: metrics.get(key, 0) for key in _CHUNK_METRIC_KEYS},
+    )
 
 
 def _describe_failure(failure: dict[str, str]) -> str:
@@ -250,10 +309,59 @@ class PlayImportOrchestrator:
                     resolver = await self.resolver_factory(service)
                     for offset in range(0, len(plays), _RESOLUTION_COMMIT_CHUNK_SIZE):
                         chunk = plays[offset : offset + _RESOLUTION_COMMIT_CHUNK_SIZE]
-                        outcome = await resolver.resolve_connector_plays(
-                            chunk, uow, user_id=user_id
-                        )
-                        track_plays, metrics = outcome.track_plays, outcome.metrics
+                        chunk_index = offset // _RESOLUTION_COMMIT_CHUNK_SIZE
+                        with logging_context(
+                            import_service=service, import_chunk=chunk_index
+                        ):
+                            async with measure_chunk() as probe:
+                                async with phase("resolve"):
+                                    outcome = await resolver.resolve_connector_plays(
+                                        chunk, uow, user_id=user_id
+                                    )
+                                track_plays = outcome.track_plays
+                                metrics = outcome.metrics
+
+                                # Resolution durability must match track
+                                # durability: a killed run may lose at most one
+                                # chunk of resolutions. The stamp goes into the
+                                # SAME transaction that ``commit_batch`` below
+                                # makes durable, alongside the connector_tracks,
+                                # tracks and mappings this chunk produced.
+                                # Accumulating the run's resolutions for one
+                                # end-of-run write-back is what discarded all
+                                # 15,317 of them when a 54-minute import was
+                                # killed mid-run — every track was durable and
+                                # every play still read as unresolved.
+                                if outcome.resolutions:
+                                    ledger = uow.get_connector_play_repository()
+                                    async with phase("writeback"):
+                                        _ = await ledger.bulk_update_resolution(
+                                            outcome.resolutions,
+                                            resolved_at=datetime.now(UTC),
+                                        )
+                                    resolved_played_at.extend(
+                                        play.played_at
+                                        for play, _ in outcome.resolutions
+                                    )
+
+                                # Strictly between resolver calls: the resolver's
+                                # savepoints are all closed by the time it
+                                # returns, and COMMIT inside a savepoint scope
+                                # would discard the enclosing transaction state.
+                                # Resolver writes are ON CONFLICT upserts, which
+                                # is what makes a re-run over an already-committed
+                                # chunk safe (the commit_batch contract).
+                                async with phase("commit"):
+                                    await commit_batch(uow)
+
+                            _log_chunk_flight(
+                                probe,
+                                service=service,
+                                chunk_index=chunk_index,
+                                plays=len(chunk),
+                                metrics=metrics,
+                            )
+
                         all_track_plays.extend(track_plays)
                         combined_metrics["resolved_plays"] += len(track_plays)
                         combined_metrics["error_count"] += metrics.get("error_count", 0)
@@ -270,34 +378,6 @@ class PlayImportOrchestrator:
                             "isrc_suspect_deferred", 0
                         )
                         failure_log.record(metrics)
-
-                        # Resolution durability must match track durability: a
-                        # killed run may lose at most one chunk of resolutions.
-                        # The stamp goes into the SAME transaction that
-                        # ``commit_batch`` below makes durable, alongside the
-                        # connector_tracks, tracks and mappings this chunk
-                        # produced. Accumulating the run's resolutions for one
-                        # end-of-run write-back is what discarded all 15,317 of
-                        # them when a 54-minute import was killed mid-run —
-                        # every track was durable and every play still read as
-                        # unresolved.
-                        if outcome.resolutions:
-                            ledger = uow.get_connector_play_repository()
-                            _ = await ledger.bulk_update_resolution(
-                                outcome.resolutions, resolved_at=datetime.now(UTC)
-                            )
-                            resolved_played_at.extend(
-                                play.played_at for play, _ in outcome.resolutions
-                            )
-
-                        # Strictly between resolver calls: the resolver's
-                        # per-item savepoints are all closed by the time it
-                        # returns, and COMMIT inside a savepoint scope would
-                        # discard the enclosing transaction state. Resolver
-                        # writes are ON CONFLICT upserts, which is what makes
-                        # a re-run over an already-committed chunk safe (the
-                        # commit_batch contract).
-                        await commit_batch(uow)
 
                         await progress_emitter.emit_progress(
                             create_progress_event(

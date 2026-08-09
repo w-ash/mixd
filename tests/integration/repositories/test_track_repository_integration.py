@@ -4,12 +4,16 @@ from uuid import uuid4
 
 from attrs import evolve
 import pytest
-from sqlalchemy import func, select
+from sqlalchemy import func, select, text
+from sqlalchemy.dialects import postgresql
 
 from src.domain.exceptions import OptimisticLockError
 from src.domain.matching import normalize_for_comparison, strip_parentheticals
 from src.infrastructure.persistence.database.db_models import DBTrack
 from src.infrastructure.persistence.repositories.factories import get_unit_of_work
+from src.infrastructure.persistence.repositories.track.core import (
+    build_title_artist_probe,
+)
 from tests.fixtures import make_track
 
 
@@ -363,6 +367,91 @@ class TestFindTracksByTitleArtist:
 
         assert len(result) == 1
         assert result["duplicate", "same artist"].id == first.id
+
+    async def test_parenthetical_variants_match_both_directions(self, db_session):
+        """The stored and queried titles may each carry the parenthetical."""
+        uow = get_unit_of_work(db_session)
+        track_repo = uow.get_track_repository()
+
+        with_paren = await track_repo.save_track(
+            make_track(title="Sunrise (feat. Nova)", artist="Aster")
+        )
+        without_paren = await track_repo.save_track(
+            make_track(title="Moonset", artist="Borea")
+        )
+
+        result = await track_repo.find_tracks_by_title_artist(
+            [("Sunrise", "Aster"), ("Moonset (feat. Nova)", "Borea")],
+            user_id="default",
+        )
+
+        assert result["sunrise", "aster"].id == with_paren.id
+        assert result["moonset (feat. nova)", "borea"].id == without_paren.id
+
+    async def test_a_track_matching_two_probe_rows_appears_once(self, db_session):
+        """A title whose variants both match must not resolve twice."""
+        uow = get_unit_of_work(db_session)
+        track_repo = uow.get_track_repository()
+
+        saved = await track_repo.save_track(
+            make_track(title="Echo (Reprise)", artist="Cirrus")
+        )
+
+        result = await track_repo.find_tracks_by_title_artist(
+            [("Echo (Reprise)", "Cirrus"), ("Echo", "Cirrus")],
+            user_id="default",
+        )
+
+        # First pair wins; the second finds nothing left to claim.
+        assert result["echo (reprise)", "cirrus"].id == saved.id
+        assert ("echo", "cirrus") not in result
+
+    async def test_two_hundred_pairs_resolve_in_one_query(self, db_session):
+        """The array form takes two binds at any N — no parameter ceiling."""
+        uow = get_unit_of_work(db_session)
+        track_repo = uow.get_track_repository()
+
+        saved = await track_repo.save_track(
+            make_track(title="Needle", artist="Haystack")
+        )
+        pairs = [(f"Filler {n}", f"Artist {n}") for n in range(199)]
+        pairs.append(("Needle", "Haystack"))
+
+        result = await track_repo.find_tracks_by_title_artist(pairs, user_id="default")
+
+        assert result["needle", "haystack"].id == saved.id
+
+    @pytest.mark.slow
+    async def test_probe_uses_the_user_scoped_index_at_scale(self, db_session):
+        """The plan must not degrade into a seq scan as the library grows.
+
+        This is the growth term the v0.10.2.11 audit measured as a declining
+        within-run resolution rate; a seq scan here is that regression.
+        """
+        await db_session.execute(
+            text("""
+                INSERT INTO tracks (
+                    id, user_id, version, title, artists, title_normalized,
+                    artist_normalized, title_stripped, created_at, updated_at
+                )
+                SELECT
+                    gen_random_uuid(), 'default', 1,
+                    'Track ' || n, '[]'::jsonb,
+                    'track' || n, 'artist' || n, 'track' || n, now(), now()
+                FROM generate_series(1, 3000) AS n
+            """)
+        )
+        await db_session.execute(text("ANALYZE tracks"))
+
+        stmt = build_title_artist_probe([("track42", "artist42")], user_id="default")
+        compiled = stmt.compile(
+            dialect=postgresql.dialect(), compile_kwargs={"literal_binds": True}
+        )
+        rows = await db_session.execute(text(f"EXPLAIN {compiled}"))
+        plan = "\n".join(str(row[0]) for row in rows.all())
+
+        assert "Seq Scan on tracks" not in plan
+        assert "ix_tracks_user_normalized_lookup" in plan
 
 
 class TestNormalizedLookup:

@@ -16,6 +16,7 @@ from src.application.use_cases.resolve_match_review import (
 )
 from src.config.constants import MatchMethod
 from src.domain.entities import Artist, ConnectorTrack, Track
+from src.domain.repositories.connector import IsrcCollisionSpec
 from src.infrastructure.persistence.database.db_models import DBMatchReview, DBTrack
 from src.infrastructure.persistence.repositories.factories import get_unit_of_work
 
@@ -148,6 +149,99 @@ class TestQueueIsrcCollisionReview:
             .all()
         )
         assert reviews == ["rejected"]
+
+
+class TestQueueIsrcCollisionReviewsBatch:
+    """The batched form must match the per-item one, dedupe included."""
+
+    async def test_queues_one_review_per_collision(self, db_session: AsyncSession):
+        uow = get_unit_of_work(db_session)
+        owner = await _seed_isrc_owner(uow)
+        second_owner = await uow.get_track_repository().save_track(
+            Track(
+                id=None,
+                title="Silver Rush",
+                artists=[Artist(name="Neon Priest")],
+                album="Debut",
+                duration_ms=200_000,
+                isrc="USNP12400002",
+            )
+        )
+
+        queued = await uow.get_connector_repository().queue_isrc_collision_reviews(
+            [
+                IsrcCollisionSpec(owner, "sp_remaster_001", _REMASTER_DATA),
+                IsrcCollisionSpec(
+                    second_owner,
+                    "sp_remaster_002",
+                    {**_REMASTER_DATA, "isrc": "USNP12400002"},
+                ),
+            ],
+            "spotify",
+            user_id="default",
+        )
+
+        assert queued == 2
+        rows = (
+            (
+                await db_session.execute(
+                    select(DBMatchReview.track_id).where(
+                        DBMatchReview.track_id.in_([owner.id, second_owner.id])
+                    )
+                )
+            )
+            .scalars()
+            .all()
+        )
+        assert set(rows) == {owner.id, second_owner.id}
+
+    async def test_does_not_resurrect_a_rejected_review(self, db_session: AsyncSession):
+        uow = get_unit_of_work(db_session)
+        connector_repo = uow.get_connector_repository()
+        owner = await _seed_isrc_owner(uow)
+
+        collisions = [IsrcCollisionSpec(owner, "sp_remaster_001", _REMASTER_DATA)]
+        assert (
+            await connector_repo.queue_isrc_collision_reviews(
+                collisions, "spotify", user_id="default"
+            )
+            == 1
+        )
+
+        await db_session.execute(
+            update(DBMatchReview)
+            .where(DBMatchReview.track_id == owner.id)
+            .values(status="rejected")
+        )
+        await db_session.flush()
+
+        assert (
+            await connector_repo.queue_isrc_collision_reviews(
+                collisions, "spotify", user_id="default"
+            )
+            == 0
+        )
+        statuses = (
+            (
+                await db_session.execute(
+                    select(DBMatchReview.status).where(
+                        DBMatchReview.track_id == owner.id
+                    )
+                )
+            )
+            .scalars()
+            .all()
+        )
+        assert statuses == ["rejected"]
+
+    async def test_empty_batch_is_a_no_op(self, db_session: AsyncSession):
+        uow = get_unit_of_work(db_session)
+
+        queued = await uow.get_connector_repository().queue_isrc_collision_reviews(
+            [], "spotify", user_id="default"
+        )
+
+        assert queued == 0
 
 
 def _remaster_connector_track(identifier: str = "sp_remaster_001") -> ConnectorTrack:

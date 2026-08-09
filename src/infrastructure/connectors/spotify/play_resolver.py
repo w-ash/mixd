@@ -411,6 +411,9 @@ class SpotifyConnectorPlayResolver:
             "fallback_resolved": canonical_track_metrics["fallback_resolved"],
             "redirect_resolved": canonical_track_metrics["redirect_resolved"],
             "dead_ids_unresolved": canonical_track_metrics["dead_ids_unresolved"],
+            "reused_tracks": canonical_track_metrics["reused_tracks"],
+            "suppressed": canonical_track_metrics["suppressed"],
+            "degraded_persists": canonical_track_metrics["degraded_persists"],
             "isrc_suspect_deferred": len(
                 self._inward_resolver.isrc_suspect_deferred_ids
             ),
@@ -461,6 +464,11 @@ class SpotifyConnectorPlayResolver:
             "dead_ids_unresolved": metrics.failed,
             "redirect_resolved": metrics.redirects,
             "fallback_resolved": metrics.fallbacks,
+            # Carried so a chunk's timings can be read against its shape: a
+            # creation-heavy chunk and a reuse-heavy one cost very differently.
+            "reused_tracks": metrics.reused,
+            "suppressed": metrics.suppressed,
+            "degraded_persists": metrics.degraded_persists,
         }
 
     def _create_empty_metrics(self) -> ResolutionMetrics:

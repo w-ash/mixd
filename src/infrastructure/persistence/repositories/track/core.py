@@ -11,6 +11,7 @@ from sqlalchemy import (
     Select,
     String,
     and_,
+    bindparam,
     cast as sa_cast,
     delete,
     func,
@@ -21,7 +22,7 @@ from sqlalchemy import (
     tuple_,
     update,
 )
-from sqlalchemy.dialects.postgresql import insert as pg_insert
+from sqlalchemy.dialects.postgresql import ARRAY, insert as pg_insert
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import InstrumentedAttribute
 
@@ -80,6 +81,55 @@ def _identity_keys(values: Mapping[str, object]) -> set[tuple[str, str, str]]:
         for name in _IDENTITY_COLUMNS
         if isinstance(value := values.get(name), str) and value
     }
+
+
+def build_title_artist_probe(
+    variants: list[tuple[str, str]], *, user_id: str
+) -> Select[tuple[DBTrack]]:
+    """Canonical-reuse lookup: join ``tracks`` against a probe of title variants.
+
+    ``variants`` are ``(normalized title variant, normalized artist)`` rows,
+    already deduplicated. Both arrays travel as a single bind parameter each,
+    so the statement text is identical at any batch size — one plan-cache
+    entry, one ``pg_stat_statements`` row — and the planner gets join
+    statistics from both sides rather than estimating a large disjunction.
+
+    Module-level so the plan can be asserted on without going through a
+    session.
+    """
+    zipped = func.unnest(
+        bindparam("probe_titles", value=[t for t, _ in variants], type_=ARRAY(String)),
+        bindparam("probe_artists", value=[a for _, a in variants], type_=ARRAY(String)),
+    )
+    # render_derived, not table_valued alone: PostgreSQL needs the derived
+    # column list to name the two unnested arrays.
+    probe = zipped.table_valued("title_variant", "artist_normalized").render_derived(
+        name="probe"
+    )
+
+    return (
+        select(DBTrack)
+        .join_from(
+            probe,
+            DBTrack,
+            and_(
+                # Kept alongside RLS: a bind parameter the planner costs
+                # properly and can drive the index prefix, and the only
+                # tenancy guarantee under a BYPASSRLS role.
+                DBTrack.user_id == user_id,
+                DBTrack.artist_normalized == probe.c.artist_normalized,
+                or_(
+                    DBTrack.title_normalized == probe.c.title_variant,
+                    DBTrack.title_stripped == probe.c.title_variant,
+                ),
+            ),
+        )
+        # A join yields a track once per matching probe row; the OR form it
+        # replaced yielded it once. Without this the duplicate could be claimed
+        # by a second pair, changing which pair a track resolves to.
+        .distinct(DBTrack.id)
+        .order_by(DBTrack.id.asc())
+    )
 
 
 def _empty_facets() -> TrackFacets:
@@ -1389,6 +1439,16 @@ class TrackRepository(BaseRepository[DBTrack, Track]):
         Also matches via parenthetical-stripped form so "Song (feat. X)" ↔ "Song".
         Returns only the first match per pair (oldest track by ID).
 
+        Probes by joining against an unnested array pair rather than OR-ing one
+        condition group per input. The two forms match identically — a pair's
+        four title predicates are exactly ``{normalized, stripped} x
+        {title_normalized, title_stripped}``, so emitting one probe row per
+        distinct title variant covers the same cross product — but this one
+        takes two bind parameters at any batch size instead of 2N, which keeps
+        the statement text (and so its plan-cache entry and pg_stat_statements
+        row) constant, and gives the planner join statistics from both sides
+        instead of a ~250-arm disjunction it must estimate independently.
+
         Args:
             pairs: List of (title, first_artist_name) tuples to search for.
 
@@ -1410,27 +1470,18 @@ class TrackRepository(BaseRepository[DBTrack, Track]):
             for title, _artist in pairs
         ]
 
-        # Build OR conditions: match on normalized title OR stripped title
-        # This enables "Song (feat. X)" in DB to match query "Song" and vice versa
-        conditions = [
-            (
-                (DBTrack.title_normalized == norm_title)
-                | (DBTrack.title_stripped == stripped_title)
-                | (DBTrack.title_normalized == stripped_title)
-                | (DBTrack.title_stripped == norm_title)
-            )
-            & (DBTrack.artist_normalized == norm_artist)
-            for (norm_title, norm_artist), stripped_title in zip(
-                normalized_pairs, stripped_pairs, strict=True
-            )
-        ]
+        # Deduplicated: a chunk replays the same tracks, and the two title
+        # variants coincide whenever a title has no parenthetical.
+        variants: dict[tuple[str, str], None] = {}
+        for (norm_title, norm_artist), stripped_title in zip(
+            normalized_pairs, stripped_pairs, strict=True
+        ):
+            variants[norm_title, norm_artist] = None
+            variants[stripped_title, norm_artist] = None
 
-        stmt = (
-            select(DBTrack)
-            .where(DBTrack.user_id == user_id, or_(*conditions))
-            .order_by(DBTrack.id.asc())
+        result = await self.session.execute(
+            build_title_artist_probe(list(variants), user_id=user_id)
         )
-        result = await self.session.execute(stmt)
         rows = result.scalars().all()
 
         # Build O(1) lookup index: (title_variant, artist_normalized) -> lower_key
@@ -1448,10 +1499,12 @@ class TrackRepository(BaseRepository[DBTrack, Track]):
         matched: dict[tuple[str, str], Track] = {}
         for db_track in rows:
             artist_norm = db_track.artist_normalized or ""
-            for title_val in {
+            # Insertion-ordered, not a set: with a set the winning pair would
+            # depend on PYTHONHASHSEED when the two variants differ.
+            for title_val in dict.fromkeys((
                 db_track.title_normalized or "",
                 db_track.title_stripped or "",
-            }:
+            )):
                 lower_key = lookup_to_lower.get((title_val, artist_norm))
                 if lower_key and lower_key not in matched:
                     matched[lower_key] = await self.mapper.to_domain(db_track)

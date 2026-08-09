@@ -8,6 +8,8 @@ and delegates bulk lookup to the base class.
 import itertools
 from unittest.mock import AsyncMock, MagicMock, call, patch
 
+from attrs import evolve
+
 from src.config import settings
 from src.config.constants import MatchMethod, SpotifyConstants
 from src.domain.repositories.connector import ConnectorMappingSpec
@@ -791,12 +793,13 @@ class TestISRCSuspectGuard:
         assert result[spotify_id] == saved_track
 
         # Review queued against the ISRC owner — not a silent merge
-        connector_repo.queue_isrc_collision_review.assert_called_once()
-        review_call = connector_repo.queue_isrc_collision_review.call_args
-        assert review_call.args[0] == existing_track
+        connector_repo.queue_isrc_collision_reviews.assert_called_once()
+        review_call = connector_repo.queue_isrc_collision_reviews.call_args
+        (collision,) = review_call.args[0]
+        assert collision.owner == existing_track
         assert review_call.args[1] == "spotify"
-        assert review_call.args[2] == spotify_id
-        service_data = review_call.args[3]
+        assert collision.connector_id == spotify_id
+        service_data = collision.service_data
         assert service_data["title"] == "Same Song"
         assert service_data["artist"] == "Same Artist"
         assert service_data["artists"] == ["Same Artist"]
@@ -850,7 +853,7 @@ class TestISRCSuspectGuard:
         assert spotify_id in result
         assert result[spotify_id].id == 42
 
-        connector_repo.queue_isrc_collision_review.assert_not_called()
+        connector_repo.queue_isrc_collision_reviews.assert_not_called()
         specs = _mapping_specs(connector_repo)
         assert any(spec.match_method == MatchMethod.ISRC_MATCH for spec in specs)
         track_repo.save_track.assert_not_called()
@@ -1855,7 +1858,13 @@ class TestBulkAndPerItemPathsAgree:
         _, bulk_metrics, _, bulk_resolver = await self._run(force_per_item=False)
         _, item_metrics, _, item_resolver = await self._run(force_per_item=True)
 
-        assert bulk_metrics == item_metrics
+        # ``degraded_persists`` is the one field that must differ — it exists
+        # to tell the two paths apart. Everything describing the outcome agrees.
+        assert evolve(bulk_metrics, degraded_persists=0) == evolve(
+            item_metrics, degraded_persists=0
+        )
+        assert bulk_metrics.degraded_persists == 0
+        assert item_metrics.degraded_persists == 1
         assert bulk_metrics.created == 3
         assert bulk_metrics.redirects == 1
         assert (

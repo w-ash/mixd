@@ -6,6 +6,20 @@ linked backlog version file. Versioning follows mixd's four-segment
 `major.minor.feature.revision` scheme (`.claude/rules/version-management.md`), not strict
 SemVer. Format inspired by [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [0.10.2.11] — 2026-08-09
+
+**Imports get an instrument, and the two things it was always going to blame get fixed.** A creation-heavy chunk measured ~4.3s against a designed ~1.1s, and the resolution rate fell within a single run (851→543 plays/min) as the library grew. Investigating found the gap was never unattributed — the design's "~22-26 round trips per chunk" counted only one method's own statements, and the real figure is ~68.
+
+- **Every import chunk now logs a `play_import_chunk` line** with wall time, database time, round-trip count, per-phase timings and a per-operation breakdown. It counts at SQLAlchemy's cursor-execute events, so it sees what a repository-level timer cannot: batched multi-row inserts, and each `SAVEPOINT`/`RELEASE` pair. `rtt_ms` on that line is what decides every future tuning question, and this line stays.
+- **The app moved to Fly's `sea` region.** The 26ms round trip was never the connection pooler — it was San Jose to the database in Oregon. Co-locating them takes it to roughly 5-8ms on every one of those ~68 statements per chunk, which is worth more than every code change here combined.
+- **The canonical-reuse lookup no longer grows with your whole library.** It built one condition group per input — about 250 OR'd predicates for a 50-play chunk — across two indexes that didn't lead with the user id, so its cost scaled with the entire table. It now joins against a two-parameter array probe, giving one cached query plan at any batch size, and both indexes were rebuilt user-first. That declining within-run rate was this.
+- **Three round trips per chunk removed outright**: the transaction-begin hook issued two statements where one does (imports open a transaction per chunk), and the primary-election chain looked up connector ids the caller had just finished writing — twice. Suspect-ISRC reviews, previously ~7 statements *each*, are now one batch.
+- **A latent bug fixed before it could bite**: the session factory registered its row-level-security hook without a guard, on an object shared by every factory ever built — a second one would have made every transaction in the app issue that statement twice.
+- Imports now report `reused_tracks`, `suppressed` and `degraded_persists`, so a chunk's timings can be read against its shape, and the slow per-item write path finally says when it engaged.
+- Three docstrings that documented the wrong mechanism — the statement inventory, and two separate claims about PostgreSQL's subtransaction limit — were corrected. They were the reason this work was scoped wrongly in the first place.
+
+→ [details](docs/backlog/v0.10.x.md#post-deploy-revisions)
+
 ## [0.10.2.10] — 2026-08-08
 
 **The upload actually shows its queue.** First real-world use of the multi-file import found the card frozen at the file-picker state while the queue drained fine server-side — two client bugs with one root: the queue view depended on an invalidate-triggered refetch of a query stuck in 404-error state (no queue existed before the first upload), and the file picker's displayed filenames were its own internal state, untouched when the page cleared its copy.

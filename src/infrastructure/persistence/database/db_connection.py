@@ -10,10 +10,12 @@ This module is responsible for:
 
 from collections.abc import AsyncGenerator
 from contextlib import asynccontextmanager
+import time
 
 import orjson
 from psycopg.types.json import set_json_dumps
 from sqlalchemy import event
+from sqlalchemy.engine import Connection, Engine, ExceptionContext
 from sqlalchemy.engine.interfaces import DBAPIConnection
 from sqlalchemy.ext.asyncio import (
     AsyncEngine,
@@ -24,6 +26,7 @@ from sqlalchemy.ext.asyncio import (
 from sqlalchemy.pool import ConnectionPoolEntry
 
 from src.config import get_logger
+from src.config.telemetry import record_statement
 
 logger = get_logger(__name__)
 
@@ -55,6 +58,68 @@ def _set_connection_timeouts(
     cursor.close()
 
 
+# Keyed by connection identity rather than ``conn.info`` so the start stamp
+# stays typed. A connection runs one statement at a time, so a bare int is
+# enough. ``after_cursor_execute`` does not fire on a failed statement, which
+# is why ``handle_error`` clears the entry too — otherwise a raising statement
+# would leave a stamp keyed by an id that is never reused.
+_statement_starts: dict[int, int] = {}
+
+
+def _probe_before_cursor_execute(
+    conn: Connection,
+    _cursor: object,
+    _statement: str,
+    _parameters: object,
+    _context: object,
+    _executemany: bool,
+) -> None:
+    """Stamp the start of one cursor execution."""
+    _statement_starts[id(conn)] = time.perf_counter_ns()
+
+
+def _probe_after_cursor_execute(
+    conn: Connection,
+    _cursor: object,
+    _statement: str,
+    _parameters: object,
+    _context: object,
+    _executemany: bool,
+) -> None:
+    """Record the completed execution against the ambient chunk probe."""
+    started = _statement_starts.pop(id(conn), None)
+    if started is not None:
+        record_statement(time.perf_counter_ns() - started)
+
+
+def _probe_handle_error(context: ExceptionContext) -> None:
+    """Drop the start stamp for a statement that raised."""
+    if context.connection is not None:
+        _ = _statement_starts.pop(id(context.connection), None)
+
+
+_probe_registered = False
+
+
+def register_statement_probe() -> None:
+    """Count and time every cursor execution into the ambient ``ChunkProbe``.
+
+    Registered on the ``Engine`` class, like ``register_live_rows_filter``: one
+    registration covers testcontainers engines too, with no second wiring point.
+    The guard stops repeated ``create_db_engine`` calls double-counting.
+
+    ``COMMIT``/``BEGIN`` go through the DBAPI directly and do not fire here;
+    their cost lands in the enclosing phase's wall time.
+    """
+    global _probe_registered
+    if _probe_registered:
+        return
+    event.listen(Engine, "before_cursor_execute", _probe_before_cursor_execute)
+    event.listen(Engine, "after_cursor_execute", _probe_after_cursor_execute)
+    event.listen(Engine, "handle_error", _probe_handle_error)
+    _probe_registered = True
+
+
 def create_db_engine(connection_string: str | None = None) -> AsyncEngine:
     """Create async SQLAlchemy engine with PostgreSQL connection pooling."""
     # Use connection string from args, or resolve from environment/settings
@@ -76,6 +141,8 @@ def create_db_engine(connection_string: str | None = None) -> AsyncEngine:
     # Set timeouts via pool event instead of connect_args — compatible with
     # Neon's PgBouncer-based connection pooler which rejects startup parameters
     event.listen(engine.sync_engine, "connect", _set_connection_timeouts)
+
+    register_statement_probe()
 
     logger.info("Created database engine")
     return engine
@@ -140,9 +207,14 @@ def create_session_factory(
     # Register RLS context injection on the sync session class underlying
     # the async session — SQLAlchemy events fire on sync internals even in
     # async mode.  Must use sync_session_class, not the async factory itself.
-    event.listen(
-        factory.class_.sync_session_class, "after_begin", set_rls_user_on_begin
-    )
+    #
+    # Guarded because sync_session_class is ``orm.Session`` itself — the same
+    # object for every factory — so a second registration would make every
+    # transaction in the process issue the RLS set_config twice, not scope it
+    # to the new factory. Same hazard as the live-rows filter below.
+    rls_target = factory.class_.sync_session_class
+    if not event.contains(rls_target, "after_begin", set_rls_user_on_begin):
+        event.listen(rls_target, "after_begin", set_rls_user_on_begin)
     # Takes no target: the helper always registers on ``orm.Session`` itself,
     # which every sync_session_class derives from, so its idempotence guard
     # sees the test harness's registration and this one as the same event and

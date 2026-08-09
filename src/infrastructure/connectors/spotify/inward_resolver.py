@@ -31,6 +31,7 @@ from attrs import define, evolve
 
 from src.config import get_logger, settings
 from src.config.constants import MatchMethod, SpotifyConstants
+from src.config.telemetry import phase
 from src.domain.entities import Artist, Track
 from src.domain.entities.shared import JsonValue
 from src.domain.matching.content_digest import DigestSide
@@ -39,7 +40,7 @@ from src.domain.matching.isrc_validation import (
     assess_isrc_match_reliability,
     compute_duration_diff_ms,
 )
-from src.domain.repositories.connector import ConnectorMappingSpec
+from src.domain.repositories.connector import ConnectorMappingSpec, IsrcCollisionSpec
 from src.domain.repositories.resolution import ResolutionDecision
 from src.domain.repositories.uow import UnitOfWorkProtocol
 from src.infrastructure.connectors._shared.inward_track_resolver import (
@@ -322,7 +323,8 @@ class SpotifyInwardResolver(InwardTrackResolver):
         search if fallback hints are available. Ids whose *request* failed are
         excluded from every conclusion below — see ``answered_ids``.
         """
-        fetch = await self._spotify_connector.get_tracks_by_ids(missing_ids)
+        async with phase("api"):
+            fetch = await self._spotify_connector.get_tracks_by_ids(missing_ids)
         spotify_metadata = fetch.tracks
 
         # An id whose chunk request failed has told us nothing, and every
@@ -572,10 +574,15 @@ class SpotifyInwardResolver(InwardTrackResolver):
 
         The bulk attempt collapses what a created track used to cost — 25
         statements for a plain creation and 42 for a relink, counted against a
-        real database — into ~21-26 for the whole chunk, regardless of how
-        many ids are in it. At the measured 26ms Fly→Neon round trip that is
-        the difference between the ~50s a 50-play chunk was spending in the
-        database and well under a second.
+        real database — into a fixed handful for the whole chunk, regardless of
+        how many ids are in it.
+
+        Those numbers count this method's own statements. A chunk's real cost
+        is several times larger, because ``map_tracks_to_connectors`` fans out
+        (and is called more than once per chunk) and every savepoint pair is
+        itself two round trips. The v0.10.2.11 flight recorder
+        (``play_import_chunk``) reports the true per-chunk figure; do not
+        re-derive it from this docstring.
 
         When it fails, the chunk is rewritten one savepoint per id — the same
         bulk write, on a one-element chunk. That is the slow shape, and
@@ -626,19 +633,23 @@ class SpotifyInwardResolver(InwardTrackResolver):
         """
         connector_repo = uow.get_connector_repository()
 
-        # Suspect ISRC collisions stay per-item. Each queues a review against
-        # a *different* owner and runs the matcher over it, so there is no
-        # shared statement to batch into — and one only arises when an ISRC is
-        # already claimed by a recording more than ten seconds different.
-        for write in writes:
-            if write.review is not None:
-                _ = await connector_repo.queue_isrc_collision_review(
-                    write.review.owner,
-                    "spotify",
-                    write.requested_id,
-                    write.review.service_data,
-                    user_id=user_id,
-                )
+        # One batch for the whole chunk. Each review is scored against a
+        # different owner, but the scoring is pure — only the connector-track
+        # ensure, the dedupe probe and the insert touch the database, and those
+        # are shared.
+        collisions = [
+            IsrcCollisionSpec(
+                owner=write.review.owner,
+                connector_id=write.requested_id,
+                service_data=write.review.service_data,
+            )
+            for write in writes
+            if write.review is not None
+        ]
+        if collisions:
+            _ = await connector_repo.queue_isrc_collision_reviews(
+                collisions, "spotify", user_id=user_id
+            )
 
         created = [write for write in writes if write.creates_canonical]
         saved = await uow.get_track_repository().save_tracks([
@@ -818,7 +829,7 @@ class SpotifyInwardResolver(InwardTrackResolver):
                 if found:
                     search_results[dead_id] = found
 
-        async with asyncio.TaskGroup() as tg:
+        async with phase("api"), asyncio.TaskGroup() as tg:
             for did in hinted_ids:
                 _ = tg.create_task(_search_one(did))
 

@@ -15,6 +15,7 @@ from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
 from src.config.constants import BusinessLimits
+from src.config.telemetry import measure_chunk
 from src.infrastructure.persistence.database.db_connection import (
     create_db_engine,
     create_session_factory,
@@ -101,3 +102,14 @@ class TestBulkStatementTimeoutBudget:
             assert await _show_statement_timeout(session) == (
                 _CONNECTION_DEFAULT_AS_SHOWN
             )
+
+    async def test_begin_costs_one_round_trip_with_the_budget_set(
+        self, bulk_sessions: async_sessionmaker[AsyncSession]
+    ) -> None:
+        """Both settings ride one statement — imports open a transaction per chunk."""
+        with statement_timeout_context(BusinessLimits.BULK_IMPORT_STATEMENT_TIMEOUT):
+            async with bulk_sessions() as session:
+                async with measure_chunk() as probe:
+                    _ = await session.execute(text("SELECT 1"))
+
+        assert probe.statements == 2  # one begin statement, then the SELECT

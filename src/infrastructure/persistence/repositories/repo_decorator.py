@@ -26,6 +26,7 @@ from sqlalchemy.exc import (
 )
 
 from src.config import get_logger
+from src.config.telemetry import operation_scope
 from src.domain.exceptions import DomainError, NotFoundError
 
 # Initialize logger
@@ -77,8 +78,8 @@ def db_operation(operation_name: str | None = None):
                     **context,
                 )
 
-                # Call the original function
-                result = await func(*args, **kwargs)
+                with operation_scope(func_name):
+                    result = await func(*args, **kwargs)
 
                 # Log success with timing
                 exec_time = (time.perf_counter() - start_time) * 1000
