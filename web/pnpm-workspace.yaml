@@ -33,8 +33,13 @@ overrides:
   # fast-uri arrives via ajv ← @scalar/openapi-parser (orval) and the MCP SDK
   # that shadcn's CLI depends on. Upper bound is deliberate: ajv declares
   # ^3.0.1, and fast-uri 4.x is out of that range — an unbounded floor would
-  # resolve to 4.x and break the parser.
-  fast-uri: '>=3.1.4 <4'
+  # resolve to 4.x and break the parser. (4.x is now published, so the bound
+  # is load-bearing, not theoretical.)
+  #
+  # Floor raised 3.1.4 → 3.1.5 for GHSA-7p8r-x3mc-p8w7. The floor is what moves
+  # the lockfile: ajv pins whatever satisfies it, so at '>=3.1.4' pnpm keeps
+  # resolving 3.1.4 and `pnpm update` is a no-op. Bump this line, not the lock.
+  fast-uri: '>=3.1.5 <4'
   # @hono/node-server arrives via @modelcontextprotocol/sdk ← shadcn, which is a
   # build dependency despite being a CLI: src/theme.css does
   # `@import "shadcn/tailwind.css"`. The SDK declares ^1.19.9, so this floor
@@ -44,13 +49,25 @@ overrides:
   # vulnerable serve-static path is Windows-only and never invoked — we consume
   # shadcn's stylesheet and `shadcn add`, never the SDK's HTTP transport.
   '@hono/node-server': '>=2.0.5'
-  # NOTE: a `better-auth: '>=1.6.11'` floor (to clear its Dependabot alerts) is
-  # NOT viable yet — @neondatabase/auth@0.4.2-beta (still latest as of
-  # 2026-07-27) exact-pins 1.4.18 and imports `apiKeyClient` from
-  # better-auth/client/plugins, an export removed in 1.6.x, so forcing the
-  # patched line fails the build (MISSING_EXPORT). Those advisories are all
-  # server-side (oidc-provider, mcp/organization plugins, OAuth token
-  # endpoints, admin/SCIM) and unreachable from our client-only usage —
-  # web/src/api/auth.ts calls createAuthClient/getSession against Neon's
-  # hosted auth server. Revisit when Neon ships an SDK on a fixed
-  # better-auth (W8).
+  # NOTE: there is deliberately no `better-auth` floor here, despite its 10 open
+  # Dependabot alerts (one critical). @neondatabase/auth@0.4.2-beta exact-pins
+  # better-auth 1.4.18, and so does @neondatabase/auth-ui@0.2.1-beta via
+  # @daveyplate/better-auth-ui@3.3.9 + @better-auth/passkey@1.4.18 — forcing the
+  # patched line means overriding that whole cascade, and 1.6.x drops the
+  # `apiKeyClient` export auth-ui imports (MISSING_EXPORT at build).
+  #
+  # Upstream has already fixed this: neondatabase/neon-js#198 (merged
+  # 2026-08-07) moves better-auth to 1.6.23 and auth-ui to 3.4.0 on main. It is
+  # UNRELEASED — packages/auth/package.json on main still reads 0.4.2-beta and
+  # the PR's "re-run Stage 2 publish" box is unticked. Trigger to act is a new
+  # @neondatabase/auth on npm, not a date:
+  #   npm view @neondatabase/auth version   # still 0.4.2-beta as of 2026-08-09
+  # then drop the pin and re-run the auth e2e.
+  #
+  # Meanwhile the exposure is already closed where it executes. All 10
+  # advisories are auth-SERVER flaws (oidc-provider, mcp, organization,
+  # admin/SCIM, OAuth token endpoints); we run no better-auth server, and
+  # web/src/api/auth.ts only calls createAuthClient/getSession against Neon's
+  # hosted one — which #198's title confirms is already on 1.6.23. What remains
+  # in our lockfile is stale client-side metadata about someone else's server.
+  # Tracking: neondatabase/neon-js#190 (open, no reply as of 2026-08-09).
