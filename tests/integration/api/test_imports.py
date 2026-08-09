@@ -404,9 +404,10 @@ def _patched_limits(
     max_queued_upload_bytes: int = 500 * 1024 * 1024,
     max_queue_entries: int = 25,
 ):
-    """Patch the route module's BusinessLimits with real ints — a bare
-    MagicMock attribute would make every ``>`` comparison raise."""
-    patcher = patch("src.interface.api.routes.imports.BusinessLimits")
+    """Patch the service module's BusinessLimits with real ints — a bare
+    MagicMock attribute would make every ``>`` comparison raise. (The upload
+    guards moved from the route into ``import_queue.receive_export_upload``.)"""
+    patcher = patch("src.interface.api.services.import_queue.BusinessLimits")
     mock_limits = patcher.start()
     mock_limits.MAX_UPLOAD_BYTES = max_upload_bytes
     mock_limits.MAX_QUEUED_UPLOAD_BYTES = max_queued_upload_bytes

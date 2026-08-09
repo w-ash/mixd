@@ -499,11 +499,16 @@ class TrackRepository(BaseRepository[DBTrack, Track]):
         A row whose identity key is **already claimed** — by an existing
         canonical, or by an earlier row of this same batch — is not new, so it
         is handed to ``save_track``, which owns the upsert-or-defer decision
-        (including the suspect-ISRC guard). That set is empty on the path this
-        exists for: the resolver only reaches creation for ids the mapping
-        lookup and the canonical-reuse pass have both already missed. It is
-        the drift case, not the hot one, so it stays a delegation rather than
-        a second implementation of the guard.
+        (including the suspect-ISRC guard). On the paths this method exists
+        for — the Spotify and Last.fm inward resolvers' chunk persists, its
+        only two callers — that set is expected to be ≈0: creation is only
+        reached for ids their mapping-lookup and canonical-reuse passes both
+        missed. A non-trivial count of NEW rows landing there means the caller
+        is colliding with rows those passes cannot see (the v0.10.2 mistenancy
+        bug routed ~40 rows/chunk this way, at ~8 round trips each), so it is
+        logged as a WARNING naming the caller bug rather than silently
+        absorbed. The delegation itself stays: it is the drift case, not the
+        hot one, and not a second implementation of the guard.
 
         Returns one Track per input, in input order.
         """
@@ -547,6 +552,27 @@ class TrackRepository(BaseRepository[DBTrack, Track]):
                 "updated_at": now,
             })
             row_indexes.append(index)
+
+        # Only NEW rows are a caller bug: the optimistic-locking arm
+        # (version > 0) is deferred by design — UPDATE … WHERE version has no
+        # batch form — so it must not trip the alarm for the insert path.
+        deferred_new = [index for index in deferred if tracks[index].version == 0]
+        if deferred_new:
+            sample_identity_keys = [
+                key
+                for index in deferred_new[:3]
+                for key in sorted(_identity_keys(values_by_index[index]))
+            ][:3]
+            logger.warning(
+                f"save_tracks deferred {len(deferred_new)} of {len(tracks)} new "
+                f"rows to per-item save_track (~8 round trips each): their "
+                f"identity keys are already claimed, so the caller's "
+                f"mapping-lookup/reuse passes are not seeing the rows this "
+                f"batch collides with",
+                deferred_count=len(deferred_new),
+                batch_size=len(tracks),
+                sample_identity_keys=sample_identity_keys,
+            )
 
         saved: dict[int, Track] = {}
         if rows:

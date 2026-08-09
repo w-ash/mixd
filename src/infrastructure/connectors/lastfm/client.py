@@ -13,7 +13,7 @@ Key components:
 import asyncio
 from datetime import datetime
 import hashlib
-from typing import ClassVar, cast, override
+from typing import ClassVar, Final, cast, override
 from urllib.parse import quote as _percent_encode
 
 from attrs import define, field
@@ -41,6 +41,16 @@ from src.infrastructure.connectors.lastfm.models import (
 )
 
 logger = get_logger(__name__).bind(service="lastfm_client")
+
+
+# Last.fm answers "no such track" as service error 6 on track.getInfo /
+# track.getCorrection — the API responded; there is simply nothing to enrich.
+# Any other escape from the retry policy (httpx2.RequestError,
+# httpx2.HTTPStatusError, or a LastFMAPIError whose transient code exhausted
+# its retries / whose auth code failed fast) is a failed CALL, not an answer,
+# and the enrichment reads let it propagate so callers can retry later instead
+# of minting junk from the degraded path (v0.10.2.9 F5).
+TRACK_NOT_FOUND_ERROR_CODE: Final = "6"
 
 
 class LastFMPartialFetchError(RuntimeError):
@@ -401,15 +411,42 @@ class LastFMAPIClient(BaseAPIClient):
     # TRACK INFO API METHODS
     # -------------------------------------------------------------------------
 
+    async def _api_request_or_none_if_not_found(
+        self, method: str, params: dict[str, str]
+    ) -> dict[str, JsonValue] | None:
+        """One Last.fm read where "not found" is an answer, not a failure.
+
+        Error 6 (``TRACK_NOT_FOUND_ERROR_CODE``) degrades to ``None`` — the
+        API answered and has nothing. Every other exception propagates so the
+        retry policy can retry transients and, on exhaustion, the caller sees
+        the failure instead of a content-miss lookalike.
+        """
+        try:
+            return await self._api_request(method, params)
+        except LastFMAPIError as e:
+            if e.status == TRACK_NOT_FOUND_ERROR_CODE:
+                return None
+            raise
+
     async def get_track_info_comprehensive(
         self, artist: str, title: str
     ) -> LastFMTrackInfo | None:
-        """Get comprehensive track info in a single API call."""
+        """Get comprehensive track info in a single API call.
+
+        Returns ``None`` ONLY when the API answered without usable data (track
+        not found, or an unvalidatable body). Transport/outage failures —
+        ``httpx2.RequestError``, ``httpx2.HTTPStatusError``, and
+        ``LastFMAPIError`` codes other than "not found" after the retry policy
+        gives up — RAISE (``suppress=()``): a caller minting data from the
+        degraded path must be able to tell "no such track" from "Last.fm was
+        down" (v0.10.2.9 F5).
+        """
         return await self._api_call(
             "get_lastfm_track_info_comprehensive",
             self._get_track_info_comprehensive_impl,
             artist,
             title,
+            suppress=(),
         )
 
     async def _get_track_info_comprehensive_impl(
@@ -423,7 +460,9 @@ class LastFMAPIClient(BaseAPIClient):
         if self.lastfm_username:
             params["username"] = self.lastfm_username
 
-        data = await self._api_request("track.getInfo", params)
+        data = await self._api_request_or_none_if_not_found("track.getInfo", params)
+        if data is None:
+            return None
         return _validate_track_info(data, has_user_data=bool(self.lastfm_username))
 
     async def get_track_info_comprehensive_by_mbid(
@@ -464,13 +503,16 @@ class LastFMAPIClient(BaseAPIClient):
             ``(corrected_track_name, corrected_artist_name)`` — track name
             first, matching the JSON's ``correction.track.{name, artist.name}``
             nesting order — or ``None`` when Last.fm has no correction on file
-            (the submitted name is already canonical) or the request fails.
+            (the submitted name is already canonical) or answers "not found".
+            Transport/outage failures RAISE, same contract as
+            ``get_track_info_comprehensive``.
         """
         return await self._api_call(
             "get_lastfm_track_correction",
             self._get_track_correction_impl,
             artist,
             track,
+            suppress=(),
         )
 
     async def _get_track_correction_impl(
@@ -480,9 +522,11 @@ class LastFMAPIClient(BaseAPIClient):
         if not self.is_configured:
             return None
 
-        data = await self._api_request(
+        data = await self._api_request_or_none_if_not_found(
             "track.getCorrection", {"artist": artist, "track": track}
         )
+        if data is None:
+            return None
         corrections_node = data.get("corrections")
         if not corrections_node:
             return None

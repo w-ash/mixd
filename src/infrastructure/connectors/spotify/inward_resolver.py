@@ -48,11 +48,14 @@ from src.infrastructure.connectors._shared.inward_track_resolver import (
     TrackResolutionMetrics,
     persist_bulk_with_item_fallback,
 )
-from src.infrastructure.connectors._shared.isrc import normalize_isrc
 from src.infrastructure.connectors.spotify import SpotifyConnector
 from src.infrastructure.connectors.spotify.models import SpotifyTrack
 
-from .utilities import create_track_from_spotify_data, search_and_evaluate_attempt
+from .utilities import (
+    create_track_from_spotify_data,
+    normalized_spotify_isrc,
+    search_and_evaluate_attempt,
+)
 
 logger = get_logger(__name__)
 
@@ -284,17 +287,19 @@ class SpotifyInwardResolver(InwardTrackResolver):
     }
 
     @staticmethod
-    def _canonical_payload(write: _ResolvedWrite) -> Track:
+    def _canonical_payload(write: _ResolvedWrite, *, user_id: str) -> Track:
         """The canonical this write creates, built from the Spotify payload.
 
         Keyed on the *current* id: that is the identifier the new canonical's
         denormalized fast-path column has to carry, even when the id asked
         about was a stale one. A suspect ISRC is stripped here — the owner
         keeps it, and the review decides later whether the two are one
-        recording.
+        recording. ``user_id`` is threaded through to the Track itself:
+        every row this payload becomes is user-scoped, and a payload built
+        without the tenant lands under ``"default"``.
         """
         track_data = create_track_from_spotify_data(
-            write.current_id, write.spotify_track
+            write.current_id, write.spotify_track, user_id=user_id
         )
         if write.review is not None and track_data.isrc:
             track_data = evolve(track_data, isrc=None)
@@ -344,10 +349,9 @@ class SpotifyInwardResolver(InwardTrackResolver):
         # ISRC dedup: collect ISRCs from API results and check for existing canonicals
         isrc_to_spotify_id: dict[str, str] = {}
         for spotify_id, spotify_track in spotify_metadata.items():
-            if spotify_track.external_ids and spotify_track.external_ids.isrc:
-                isrc = normalize_isrc(spotify_track.external_ids.isrc)
-                if isrc:
-                    isrc_to_spotify_id[isrc] = spotify_id
+            isrc = normalized_spotify_isrc(spotify_track)
+            if isrc:
+                isrc_to_spotify_id[isrc] = spotify_id
 
         existing_by_isrc: dict[str, Track] = {}
         if isrc_to_spotify_id:
@@ -509,10 +513,7 @@ class SpotifyInwardResolver(InwardTrackResolver):
         suspect collision to review and create a distinct canonical without
         the contested ISRC, or create a plain new canonical.
         """
-        isrc = None
-        if spotify_track.external_ids and spotify_track.external_ids.isrc:
-            isrc = normalize_isrc(spotify_track.external_ids.isrc)
-
+        isrc = normalized_spotify_isrc(spotify_track)
         existing_track = existing_by_isrc.get(isrc) if isrc else None
         if existing_track is not None and isrc is not None:
             duration_diff_ms = compute_duration_diff_ms(
@@ -641,7 +642,7 @@ class SpotifyInwardResolver(InwardTrackResolver):
 
         created = [write for write in writes if write.creates_canonical]
         saved = await uow.get_track_repository().save_tracks([
-            self._canonical_payload(write) for write in created
+            self._canonical_payload(write, user_id=user_id) for write in created
         ])
         canonicals: dict[str, Track] = {
             write.requested_id: track

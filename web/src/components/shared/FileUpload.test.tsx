@@ -106,6 +106,21 @@ describe("FileUpload", () => {
     expect(screen.getByRole("alert")).toHaveTextContent(/too many files/i);
   });
 
+  it("renders two rows for two same-named files", async () => {
+    // Regression (v0.10.2.9 F7): keying rows by file.name collapsed
+    // same-named files (e.g. two Streaming_History.json from different
+    // folders) into one rendered row via duplicate React keys.
+    const user = userEvent.setup();
+    render(<FileUpload onFilesSelect={vi.fn()} />);
+
+    await user.upload(fileInput(), [
+      jsonFile("Streaming_History.json", "{}"),
+      jsonFile("Streaming_History.json", '{"a":1}'),
+    ]);
+
+    expect(screen.getAllByText(/Streaming_History\.json/)).toHaveLength(2);
+  });
+
   it("disables button when disabled prop is true", () => {
     render(<FileUpload onFilesSelect={vi.fn()} disabled />);
 

@@ -16,8 +16,9 @@ the export drains.
 """
 
 import asyncio
-from collections.abc import Awaitable, Callable
+from collections.abc import Awaitable, Callable, Generator
 import contextlib
+import os
 from pathlib import Path
 import shutil
 import tempfile
@@ -25,9 +26,10 @@ from typing import Final
 from uuid import uuid4
 
 from attrs import define
-from fastapi import HTTPException
+from fastapi import HTTPException, UploadFile
 
 from src.config import get_logger
+from src.config.constants import BusinessLimits
 from src.domain.entities.operation_run import OperationStatus
 from src.interface.api.schemas.imports import QueueEntryStatus
 from src.interface.api.services.background import launch_background
@@ -81,6 +83,35 @@ class ImportQueue:
 # One queue per user. A drained queue stays registered until the next POST
 # replaces it, so a reloaded tab still sees the finished per-file record.
 _queues: dict[str, ImportQueue] = {}
+
+# In-flight upload counter — the busy gate's third signal: while a POST is
+# still streaming files to disk, no queue is registered and no run row exists,
+# so the other two signals both read "idle" and a deploy could land mid-
+# upload. Mutations happen in synchronous stretches of the single-threaded
+# event loop (increment before the stream's first await, decrement in the
+# context manager's ``finally``), so no lock guards the int.
+_streaming_uploads = 0
+
+
+def uploads_streaming() -> int:
+    """How many POSTs are currently streaming upload bytes to disk."""
+    return _streaming_uploads
+
+
+@contextlib.contextmanager
+def streaming_upload() -> Generator[None]:
+    """Mark an upload's streaming phase for the busy gate.
+
+    Held from before ``mkdtemp`` until the queue is registered (or the
+    request fails), so ``/health?busy=true`` never reads "idle" while upload
+    bytes are landing on disk.
+    """
+    global _streaming_uploads
+    _streaming_uploads += 1
+    try:
+        yield
+    finally:
+        _streaming_uploads -= 1
 
 
 def _queue_slot_token(queue_id: str) -> str:
@@ -144,6 +175,109 @@ def start_queue(
     _queues[user_id] = queue
     launch_background(f"import_queue_{queue.queue_id}", lambda: _run_queue(queue))
     return queue
+
+
+async def receive_export_upload(user_id: str, files: list[UploadFile]) -> ImportQueue:
+    """Guard, stream, and start one user's GDPR export upload — the whole POST.
+
+    Owns everything between the route's parse and its serialize: the
+    active-queue 409, the entry-count 422 and declared-size 413 (declared
+    sizes are only a cheap early rejection — the streaming writer re-enforces
+    both caps on real bytes), the tmpdir + capped streaming, refused-start
+    cleanup, and ``start_queue``. Raises ``HTTPException`` directly, the
+    ``sse_operations`` precedent for service-level HTTP errors.
+    """
+    raise_if_queue_active(user_id)
+    if len(files) > BusinessLimits.MAX_QUEUE_ENTRIES:
+        raise HTTPException(
+            status_code=422,
+            detail=f"Too many files ({len(files)}). Maximum is {BusinessLimits.MAX_QUEUE_ENTRIES} per queue.",
+        )
+    declared_total = sum(file.size or 0 for file in files)
+    if declared_total > BusinessLimits.MAX_QUEUED_UPLOAD_BYTES:
+        raise HTTPException(
+            status_code=413,
+            detail=f"Upload too large ({declared_total} bytes total). Maximum is {BusinessLimits.MAX_QUEUED_UPLOAD_BYTES} bytes per queue.",
+        )
+
+    # The busy-gate marker wraps mkdtemp through registration: this is exactly
+    # the window where bytes exist on disk that neither the queue registry nor
+    # any operation_runs row can vouch for.
+    with streaming_upload():
+        tmpdir = Path(tempfile.mkdtemp(prefix=IMPORT_QUEUE_TMPDIR_PREFIX))
+        entries = await _stream_uploads_to_queue_dir(files, tmpdir)
+        try:
+            return start_queue(user_id=user_id, tmpdir=tmpdir, entries=entries)
+        except BaseException:
+            # A refused start (slot 429, or losing the raced 409 re-check)
+            # must not strand the streamed bytes — the startup sweep only runs
+            # on restart, and autostop is off, so this process may live for
+            # weeks.
+            shutil.rmtree(tmpdir, ignore_errors=True)
+            raise
+
+
+async def _stream_uploads_to_queue_dir(
+    files: list[UploadFile], tmpdir: Path
+) -> list[QueueEntry]:
+    """Stream every upload into ``tmpdir`` under server-chosen names.
+
+    Files land as ``{position:03d}.json`` — client filenames are display data,
+    never paths. 64KB chunks keep memory flat, and both caps are enforced on
+    real bytes as they arrive, regardless of what Content-Length claimed: a
+    per-file breach of ``MAX_UPLOAD_BYTES`` or a running-total breach of
+    ``MAX_QUEUED_UPLOAD_BYTES`` removes the whole directory and 413s, so a
+    rejected request leaves nothing on disk.
+    """
+    total_bytes = 0
+    entries: list[QueueEntry] = []
+    try:
+        for position, file in enumerate(files):
+            path = tmpdir / f"{position:03d}.json"
+            total_bytes = await _stream_upload_capped(file, path, total_bytes)
+            entries.append(
+                QueueEntry(
+                    filename=file.filename or f"file-{position + 1}.json",
+                    position=position,
+                    path=path,
+                )
+            )
+    except BaseException:
+        shutil.rmtree(tmpdir, ignore_errors=True)
+        raise
+    return entries
+
+
+def _raise_if_over_upload_caps(file_bytes: int, total_bytes: int) -> None:
+    if file_bytes > BusinessLimits.MAX_UPLOAD_BYTES:
+        raise HTTPException(
+            status_code=413,
+            detail=f"File too large (>{BusinessLimits.MAX_UPLOAD_BYTES} bytes). Maximum is {BusinessLimits.MAX_UPLOAD_BYTES} bytes per file.",
+        )
+    if total_bytes > BusinessLimits.MAX_QUEUED_UPLOAD_BYTES:
+        raise HTTPException(
+            status_code=413,
+            detail=f"Upload too large (>{BusinessLimits.MAX_QUEUED_UPLOAD_BYTES} bytes total). Maximum is {BusinessLimits.MAX_QUEUED_UPLOAD_BYTES} bytes per queue.",
+        )
+
+
+async def _stream_upload_capped(file: UploadFile, path: Path, total_bytes: int) -> int:
+    """Stream one upload to ``path``; return the updated queue-wide byte total.
+
+    Caps are checked before each write, so no byte past either limit lands.
+    """
+    # os.* rather than pathlib for async-safe file I/O (ASYNC240).
+    fd = os.open(str(path), os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600)
+    try:
+        file_bytes = 0
+        while chunk := await file.read(64 * 1024):
+            file_bytes += len(chunk)
+            total_bytes += len(chunk)
+            _raise_if_over_upload_caps(file_bytes, total_bytes)
+            os.write(fd, chunk)
+    finally:
+        os.close(fd)
+    return total_bytes
 
 
 def cancel_pending(user_id: str) -> ImportQueue | None:
@@ -244,11 +378,14 @@ def cleanup_orphaned_queue_dirs() -> None:
     """Remove queue temp dirs no registered queue owns.
 
     Synchronous filesystem walk — run it via ``asyncio.to_thread`` from the
-    lifespan. It runs as an un-awaited startup task while the server is
-    already serving, so an early request CAN have registered a queue before
-    the sweep fires — any dir a registered queue points at is live and must
-    survive; only unregistered prefix-matching dirs are a previous process's
-    leftovers.
+    lifespan. Precondition: no upload may be streaming while it runs — a
+    tmpdir exists from ``mkdtemp`` until ``start_queue`` registers it, and a
+    concurrent sweep would rmtree those in-flight bytes as "orphans". The
+    lifespan enforces this by ordering: the sweep is AWAITED before the app
+    starts serving, so no request can be mid-stream yet. The registered-queue
+    exclusion below stays as belt-and-braces — any dir a registered queue
+    points at is live and must survive; only unregistered prefix-matching
+    dirs are a previous process's leftovers.
     """
     # Resolved on both sides: symlinked temp roots (macOS /tmp → /private/tmp)
     # must not make a live dir look unregistered.

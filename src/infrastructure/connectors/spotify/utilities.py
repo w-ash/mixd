@@ -17,6 +17,7 @@ from src.domain.entities import Artist, Track
 from src.domain.matching.algorithms import select_best_by_title_similarity
 from src.domain.matching.evaluation_service import TrackMatchEvaluationService
 from src.domain.matching.types import MatchResult, RawProviderMatch
+from src.infrastructure.connectors._shared.isrc import normalize_isrc
 from src.infrastructure.connectors.spotify.client import (
     field_filtered_search_query,
     free_text_search_query,
@@ -94,14 +95,31 @@ async def widening_search_passes(
         )
 
 
+def normalized_spotify_isrc(spotify_track: SpotifyTrack) -> str | None:
+    """The track's ISRC in canonical form (hyphens out, uppercased), or None.
+
+    ``external_ids`` always exists (``default_factory``), so the guard belongs
+    on the raw value: ``normalize_isrc`` takes a ``str`` and the field is
+    ``str | None``. The single wrapper every Spotify caller shares — a raw
+    ISRC written anywhere would miss the user-scoped unique key
+    (``uq_tracks_user_isrc``) that normalized readers dedupe against.
+    """
+    raw_isrc = spotify_track.external_ids.isrc
+    return normalize_isrc(raw_isrc) if raw_isrc else None
+
+
 def create_track_from_spotify_data(
-    spotify_id: str, spotify_track: SpotifyTrack
+    spotify_id: str, spotify_track: SpotifyTrack, *, user_id: str
 ) -> Track:
     """Create a Track domain object from Spotify API data.
 
     Args:
         spotify_id: Spotify track ID
         spotify_track: Validated SpotifyTrack Pydantic model
+        user_id: Tenant that owns the created canonical. Keyword-only with no
+            default on purpose: ``Track.user_id`` silently defaults to
+            ``"default"``, and an import path that forgot to pass it here is
+            how 7,852 prod canonicals landed under the wrong tenant.
 
     Returns:
         Track domain object with Spotify connector ID attached
@@ -125,7 +143,6 @@ def create_track_from_spotify_data(
     # Extract optional fields
     album = spotify_track.album.name if spotify_track.album else None
     duration_ms = spotify_track.duration_ms or None
-    isrc = spotify_track.external_ids.isrc
 
     # Create Track object with Spotify connector ID
     return Track(
@@ -133,7 +150,8 @@ def create_track_from_spotify_data(
         artists=artists,
         album=album,
         duration_ms=duration_ms,
-        isrc=isrc,
+        isrc=normalized_spotify_isrc(spotify_track),
+        user_id=user_id,
     ).with_connector_track_id("spotify", spotify_id)
 
 

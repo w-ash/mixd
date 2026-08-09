@@ -70,7 +70,14 @@ jobs:
               break
             fi
             if [ "$(echo "$body" | jq -r '.busy')" != "true" ]; then
-              echo "No import in flight — proceeding with deploy"
+              # `busy` excludes running rows older than the reaper's 12h bound
+              # (REAP_AGE_BOUND) as reaper-dead — surface that exclusion
+              # instead of deploying over it silently.
+              stale=$(echo "$body" | jq -r '.stale_running_operation_runs // 0')
+              if [ "$stale" -gt 0 ]; then
+                echo "::warning::Gate passed while $stale stale running row(s) were excluded as reaper-dead — if an import is genuinely still running past 12h, abort now."
+              fi
+              echo "No import in flight ($body) — proceeding with deploy"
               break
             fi
             if [ "$(date +%s)" -ge "$deadline" ]; then

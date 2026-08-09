@@ -4,6 +4,7 @@ from uuid import uuid4
 
 from attrs import evolve
 import pytest
+from sqlalchemy import func, select
 
 from src.domain.exceptions import OptimisticLockError
 from src.domain.matching import normalize_for_comparison, strip_parentheticals
@@ -479,7 +480,6 @@ class TestNormalizedLookup:
         saved = await track_repo.save_track(track)
 
         # Query raw DB to verify normalized columns
-        from sqlalchemy import select
 
         stmt = select(DBTrack.title_normalized, DBTrack.artist_normalized).where(
             DBTrack.id == saved.id
@@ -546,8 +546,6 @@ class TestParentheticalStripping:
             artist="Artist",
         )
         saved = await track_repo.save_track(track)
-
-        from sqlalchemy import select
 
         stmt = select(DBTrack.title_stripped).where(DBTrack.id == saved.id)
         result = await db_session.execute(stmt)
@@ -773,3 +771,70 @@ class TestSaveTracksBulk:
         track_repo = get_unit_of_work(db_session).get_track_repository()
 
         assert await track_repo.save_tracks([]) == []
+
+    async def test_a_pre_claimed_spotify_id_defers_with_exactly_one_warning(
+        self, db_session, test_user_id, capsys
+    ):
+        """The deferred arm upserts into the owner — never a duplicate row —
+        and announces itself with ONE structured WARNING carrying the count:
+        new rows landing there mean the caller's mapping-lookup/reuse passes
+        are not seeing the rows the batch collides with (v0.10.2.9).
+
+        Asserted via capsys, not caplog: structlog renders straight to
+        stdout here, so stdlib handlers never see the record.
+        """
+        track_repo = get_unit_of_work(db_session).get_track_repository()
+        spotify_id = f"TEST_spotify_{uuid4()}"
+        owner = await track_repo.save_track(
+            make_track(
+                title=f"TEST_Owner_{uuid4()}",
+                user_id=test_user_id,
+                connector_track_identifiers={"spotify": spotify_id},
+            )
+        )
+
+        _ = capsys.readouterr()  # drain setup noise so the count is the call's
+        (saved,) = await track_repo.save_tracks([
+            make_track(
+                title=f"TEST_Incoming_{uuid4()}",
+                user_id=test_user_id,
+                connector_track_identifiers={"spotify": spotify_id},
+            )
+        ])
+        logged = capsys.readouterr().out
+
+        assert saved.id == owner.id
+        rows_claiming_id = (
+            await db_session.execute(
+                select(func.count())
+                .select_from(DBTrack)
+                .where(
+                    DBTrack.user_id == test_user_id,
+                    DBTrack.spotify_id == spotify_id,
+                )
+            )
+        ).scalar_one()
+        assert rows_claiming_id == 1
+
+        assert logged.count("save_tracks deferred") == 1
+        assert "deferred_count=1" in logged
+
+    async def test_a_version_bump_batch_does_not_warn(self, db_session, capsys):
+        """The optimistic-locking arm (version > 0) is deferred by design and
+        must stay out of the alarm."""
+        track_repo = get_unit_of_work(db_session).get_track_repository()
+        saved = await track_repo.save_track(
+            make_track(
+                title=f"TEST_Versioned_{uuid4()}",
+                connector_track_identifiers={"spotify": f"TEST_spotify_{uuid4()}"},
+            )
+        )
+
+        _ = capsys.readouterr()
+        (updated,) = await track_repo.save_tracks([
+            evolve(saved, album=f"TEST_Album_{uuid4()}")
+        ])
+        logged = capsys.readouterr().out
+
+        assert updated.version == saved.version + 1
+        assert "save_tracks deferred" not in logged

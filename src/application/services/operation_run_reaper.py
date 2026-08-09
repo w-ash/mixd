@@ -25,6 +25,8 @@ integer and must never miss a live run behind the reaper's batch cap).
 from datetime import UTC, datetime, timedelta
 from typing import Final
 
+from attrs import define
+
 from src.config import get_logger
 from src.domain.entities.shared import JsonDict
 from src.domain.repositories.uow import UnitOfWorkProtocol
@@ -44,6 +46,13 @@ logger = get_logger(__name__).bind(service="operation_run_reaper")
 #   13-file queue needs no wider bound than one file.
 # The price of having no heartbeat column: a dead run shows as ``error`` only
 # on the first boot that finds it older than this, not the moment it dies.
+# Constraint: this bound doubles as the pre-deploy busy gate's TTL — a
+# ``running`` row older than it stops counting as busy (anti-deadlock: the
+# deploy the gate guards is the restart that would reap the row) and is
+# reported as ``stale_running_operation_runs`` instead, which release.yml
+# surfaces as a warning. Widening or narrowing it changes what the gate
+# ignores, so keep the reaper, the gate, and the release.yml warning reading
+# the same value — this constant is that single value.
 REAP_AGE_BOUND: Final = timedelta(hours=12)
 
 # Bounds one tick's write volume. MAX_CONCURRENT_OPERATIONS is 3, so reaching
@@ -110,26 +119,47 @@ async def reap_dead_runs(
         return len(dead)
 
 
-async def count_running_runs(uow: UnitOfWorkProtocol) -> int:
-    """How many ``running`` rows are live by the reaper's own definition.
+@define(frozen=True)
+class RunningRunCounts:
+    """The busy gate's two windows over ``running`` rows.
+
+    ``live`` rows block a deploy. ``stale`` rows — older than
+    ``REAP_AGE_BOUND`` — are excluded from busy as reaper-dead, but counted
+    so the gate can report the exclusion (and warn) instead of hiding it.
+    """
+
+    live: int
+    stale: int
+
+
+async def count_running_runs(uow: UnitOfWorkProtocol) -> RunningRunCounts:
+    """Both windows over ``running`` rows, by the reaper's own definition.
 
     The DB half of the pre-deploy busy gate — queued-not-started files have no
     row yet and are counted by the in-process queue registry instead. Rows
-    older than ``REAP_AGE_BOUND`` are excluded: the reaper already considers
-    them dead, but it only runs at startup — and the deploy this gate guards
-    is exactly the restart that would reap them. Counting them would let one
-    phantom row block every deploy with nothing able to clear it.
+    older than ``REAP_AGE_BOUND`` are excluded from ``live``: the reaper
+    already considers them dead, but it only runs at startup — and the deploy
+    this gate guards is exactly the restart that would reap them. Counting
+    them as busy would let one phantom row block every deploy with nothing
+    able to clear it. They land in ``stale`` instead — the same repo count
+    with the complementary window — so the gate can surface the tension: a
+    run genuinely still alive past the bound would be deployed over silently
+    if nobody looks.
     """
     cutoff = datetime.now(UTC) - REAP_AGE_BOUND
     async with uow:
         repo = uow.get_operation_run_repository()
-        return await repo.count_running_started_since(cutoff)
+        return RunningRunCounts(
+            live=await repo.count_running_started_since(cutoff),
+            stale=await repo.count_running_started_before(cutoff),
+        )
 
 
 __all__ = [
     "PROCESS_DIED_ERROR_MESSAGE",
     "REAP_AGE_BOUND",
     "REAP_MAX_BATCH",
+    "RunningRunCounts",
     "count_running_runs",
     "reap_dead_runs",
 ]

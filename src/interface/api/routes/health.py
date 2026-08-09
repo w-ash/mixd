@@ -62,21 +62,29 @@ async def _probe_database() -> str | None:
 async def _probe_busy() -> dict[str, bool | int | str]:
     """In-flight-work snapshot for the pre-deploy gate.
 
-    Two halves, because a queued-not-started export file has no
-    ``operation_runs`` row: the count query sees runs that started, the
-    in-process queue registry sees what is still waiting to start. Either one
-    alone reads "idle" at the wrong moment (mid-queue between files, or a run
-    the queue already handed off).
+    Three signals, because each covers a window the others cannot: the count
+    query sees runs that started (``operation_runs`` rows), the in-process
+    queue registry sees export files still waiting to start (no row yet), and
+    the streaming counter sees a POST still writing upload bytes to disk (no
+    queue registered yet either). Any one alone reads "idle" at the wrong
+    moment. ``stale_running_operation_runs`` is reporting, not busyness: rows
+    older than the reaper's 12h bound are excluded from ``busy`` as
+    reaper-dead (see ``count_running_runs``), and release.yml warns when the
+    gate passes with a nonzero stale count.
     """
     from src.application.runner import execute_use_case
     from src.application.services.operation_run_reaper import count_running_runs
-    from src.interface.api.services.import_queue import any_queue_undrained
+    from src.interface.api.services.import_queue import (
+        any_queue_undrained,
+        uploads_streaming,
+    )
 
-    # The queue half is an in-process registry read and cannot fail; only the
-    # DB count needs the guard.
+    # The queue and streaming halves are in-process reads and cannot fail;
+    # only the DB count needs the guard.
     queue_pending = any_queue_undrained()
+    streaming = uploads_streaming()
     try:
-        running = await execute_use_case(count_running_runs)
+        counts = await execute_use_case(count_running_runs)
     except Exception as exc:
         # Two distinct failure modes, two distinct answers. An UNREACHABLE
         # endpoint means the app is not serving, so it cannot be importing —
@@ -95,11 +103,14 @@ async def _probe_busy() -> dict[str, bool | int | str]:
             "busy": True,
             "busy_probe_error": type(exc).__name__,
             "import_queue_pending": queue_pending,
+            "uploads_streaming": streaming,
         }
     return {
-        "busy": running > 0 or queue_pending,
-        "running_operation_runs": running,
+        "busy": counts.live > 0 or queue_pending or streaming > 0,
+        "running_operation_runs": counts.live,
+        "stale_running_operation_runs": counts.stale,
         "import_queue_pending": queue_pending,
+        "uploads_streaming": streaming,
     }
 
 
@@ -112,9 +123,10 @@ async def health_check(deep: bool = False, busy: bool = False) -> JSONResponse:
     interval without defeating Neon's scale-to-zero. It returns 200 whenever the
     process is serving. The deep form adds ``database`` and returns 503 when the
     probe fails, mirroring the pre-v0.10.2 behaviour for manual checks. The busy
-    form adds ``busy`` / ``running_operation_runs`` / ``import_queue_pending``
-    and always returns 200 — busyness is data for the deploy gate, not
-    degradation.
+    form adds ``busy`` / ``running_operation_runs`` /
+    ``stale_running_operation_runs`` / ``import_queue_pending`` /
+    ``uploads_streaming`` and always returns 200 — busyness is data for the
+    deploy gate, not degradation.
     """
     from src.config.settings import settings
 

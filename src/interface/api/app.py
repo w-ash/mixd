@@ -93,17 +93,23 @@ async def lifespan(_app: FastAPI) -> AsyncGenerator[None]:
     manager = get_progress_broker()
     sub_id = await manager.subscribe(subscriber)
 
-    # Run startup tasks in background so the server accepts connections immediately.
-    # On cold starts (Fly machine + Neon DB waking together), blocking here
-    # caused the server to miss Fly.io's health check grace period.
     # Orphaned import-queue dirs (uploads a dead process never drained) are
-    # swept off the ephemeral rootfs here; the sweep is sync filesystem work,
-    # hence the thread.
+    # swept off the ephemeral rootfs BEFORE the app starts serving — awaited
+    # here, not queued with the startup tasks below, so no request can be
+    # streaming a fresh upload (mkdtemp'd but not yet registered) while the
+    # sweep walks the tempdir. A bounded glob+rmtree over local disk, so it
+    # cannot meaningfully eat into Fly's health-check grace period the way
+    # the DB-bound startup tasks would.
     from src.interface.api.services.import_queue import cleanup_orphaned_queue_dirs
 
+    await asyncio.to_thread(cleanup_orphaned_queue_dirs)
+
+    # Run DB-bound startup tasks in background so the server accepts
+    # connections immediately. On cold starts (Fly machine + Neon DB waking
+    # together), blocking here caused the server to miss Fly.io's health
+    # check grace period.
     startup_tasks = [
         asyncio.create_task(_prune_expired_oauth_states()),
-        asyncio.create_task(asyncio.to_thread(cleanup_orphaned_queue_dirs)),
         asyncio.create_task(_reap_dead_operation_runs()),
     ]
 

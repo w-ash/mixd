@@ -4,6 +4,7 @@ from unittest.mock import AsyncMock, patch
 
 import httpx2
 import pytest
+from tenacity import AsyncRetrying, stop_after_attempt
 
 from src.infrastructure.connectors.lastfm.client import LastFMAPIClient, _sign_params
 from src.infrastructure.connectors.lastfm.models import LastFMAPIError
@@ -121,6 +122,12 @@ def _make_client() -> LastFMAPIClient:
         s.credentials.lastfm_username = "test_user"
         s.credentials.lastfm_password = None
         return LastFMAPIClient()
+
+
+def _one_shot_retry_policy() -> AsyncRetrying:
+    """A single-attempt reraising policy — the mocked-settings client's real
+    policy carries MagicMock wait parameters that cannot compute a backoff."""
+    return AsyncRetrying(stop=stop_after_attempt(1), reraise=True)
 
 
 class TestDoubleDecodeWorkaround:
@@ -250,13 +257,47 @@ class TestGetTrackCorrection:
 
         assert result is None
 
-    async def test_api_error_returns_none(self):
-        """LastFMAPIError is suppressed by _api_call, returning None."""
+    async def test_track_not_found_returns_none(self):
+        """Error 6 is an ANSWER (no such track) — degrades to None."""
         client = _make_client()
         mock_api_request = AsyncMock(side_effect=LastFMAPIError(6, "Track not found"))
 
         with patch.object(LastFMAPIClient, "_api_request", mock_api_request):
             result = await client.get_track_correction("Unknown", "Track")
+
+        assert result is None
+
+    async def test_transport_style_api_error_raises(self):
+        """Non-not-found service errors RAISE after the retry policy gives up
+        (v0.10.2.9 F5) — the caller must be able to tell "no such track"
+        (None) from "the call failed" (exception) before minting data."""
+        client = _make_client()
+        client._retry_policy = _one_shot_retry_policy()
+        mock_api_request = AsyncMock(side_effect=LastFMAPIError(11, "Service Offline"))
+
+        with patch.object(LastFMAPIClient, "_api_request", mock_api_request):
+            with pytest.raises(LastFMAPIError, match="Service Offline"):
+                await client.get_track_correction("Unknown", "Track")
+
+    async def test_network_failure_raises_from_get_track_info(self):
+        """httpx2.RequestError propagates from the enrichment read."""
+        client = _make_client()
+        client._retry_policy = _one_shot_retry_policy()
+        mock_api_request = AsyncMock(
+            side_effect=httpx2.ConnectError("connection refused")
+        )
+
+        with patch.object(LastFMAPIClient, "_api_request", mock_api_request):
+            with pytest.raises(httpx2.ConnectError):
+                await client.get_track_info_comprehensive("Radiohead", "Creep")
+
+    async def test_track_not_found_returns_none_from_get_track_info(self):
+        """The getInfo read shares the error-6-is-an-answer contract."""
+        client = _make_client()
+        mock_api_request = AsyncMock(side_effect=LastFMAPIError(6, "Track not found"))
+
+        with patch.object(LastFMAPIClient, "_api_request", mock_api_request):
+            result = await client.get_track_info_comprehensive("Unknown", "Track")
 
         assert result is None
 

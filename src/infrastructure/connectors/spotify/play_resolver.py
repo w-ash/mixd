@@ -5,7 +5,6 @@ and sophisticated duration-based filtering.
 """
 
 from collections.abc import Callable
-from enum import StrEnum
 from statistics import median
 from typing import Final
 from uuid import UUID
@@ -56,11 +55,9 @@ def _median_ms(completed_play_ms: list[int] | None) -> int | None:
     return round(median(completed_play_ms))
 
 
-class SkipReason(StrEnum):
-    """Why a resolved Spotify play was excluded from the accepted set."""
-
-    DURATION = "duration"
-    INCOGNITO = "incognito"
+def _is_incognito(connector_play: ConnectorTrackPlay) -> bool:
+    """Was this play made in a private session, per the export's own flag?"""
+    return bool(connector_play.service_metadata.get("incognito_mode", False))
 
 
 def should_include_spotify_play(
@@ -137,18 +134,54 @@ class SpotifyConnectorPlayResolver:
         user_id: str,
         progress_callback: Callable[[int, int, str], None] | None = None,
     ) -> PlayResolutionOutcome:
-        """Resolve Spotify connector plays with full metadata preservation."""
+        """Resolve Spotify connector plays with full metadata preservation.
+
+        Incognito plays are partitioned out BEFORE resolution: an excluded
+        play must not cost an API fetch or create a canonical track, and an
+        all-incognito chunk never reaches the inward resolver at all. One
+        semantic consequence, deliberate: a play that is both incognito and
+        short counts as ``incognito_excluded`` (pre-v0.10.2.9 it counted as
+        ``duration_excluded``) — the duration rule needs the canonical
+        ``duration_ms`` an excluded play no longer resolves.
+        """
         _ = progress_callback  # Keep for future progress tracking integration
         if not connector_plays:
             return self._empty_outcome()
 
-        # Step 1: Extract unique Spotify track IDs + fallback hints
+        # Step 1: Partition out incognito plays, then extract unique Spotify
+        # track IDs + fallback hints from the eligible ones. Completed-play
+        # evidence still accumulates over the WHOLE chunk: a trackdone
+        # duration from an incognito play is evidence about the track's
+        # length, not about the play's eligibility.
+        eligible = [cp for cp in connector_plays if not _is_incognito(cp)]
+        filtering_stats: ResolutionMetrics = {
+            "raw_plays": len(connector_plays),
+            "accepted_plays": 0,
+            "duration_excluded": 0,
+            "incognito_excluded": len(connector_plays) - len(eligible),
+            "error_count": 0,
+            "resolution_failures": [],
+        }
+
         unique_spotify_ids, fallback_hints = self._extract_ids_and_hints(
-            connector_plays
+            eligible, evidence_plays=connector_plays
         )
         if not unique_spotify_ids:
-            logger.warning("No valid Spotify track IDs found in connector plays")
-            return self._empty_outcome()
+            if eligible:
+                logger.warning("No valid Spotify track IDs found in connector plays")
+            # No inward-resolver call, but the chunk's counts are real —
+            # ``_empty_outcome()`` would zero raw_plays/incognito_excluded
+            # and under-report an excluded-only chunk. Eligible plays that
+            # reached here carry no extractable id (malformed URIs): they are
+            # errors, exactly as the main loop records them — without this
+            # the sums stop reconciling (raw = accepted + excluded + errors).
+            for connector_play in eligible:
+                self._record_resolution_failure(filtering_stats, connector_play, None)
+            return PlayResolutionOutcome(
+                track_plays=[],
+                metrics={**self._create_empty_metrics(), **filtering_stats},
+                resolutions=(),
+            )
 
         # Step 2: Resolve Spotify track IDs to canonical tracks
         (
@@ -161,52 +194,34 @@ class SpotifyConnectorPlayResolver:
         # Step 3: Create TrackPlay objects with Spotify's rich metadata
         track_plays: list[TrackPlay] = []
         resolutions: list[tuple[ConnectorTrackPlay, UUID]] = []
-        filtering_stats: ResolutionMetrics = {
-            "raw_plays": len(connector_plays),
-            "accepted_plays": 0,
-            "duration_excluded": 0,
-            "incognito_excluded": 0,
-            "error_count": 0,
-            "resolution_failures": [],
-        }
 
-        for connector_play in connector_plays:
+        for connector_play in eligible:
             spotify_id = self._extract_spotify_id_from_connector_play(connector_play)
             canonical_track = (
                 canonical_tracks_map.get(spotify_id) if spotify_id else None
             )
 
             if not canonical_track or not canonical_track.id:
-                filtering_stats["error_count"] += 1
-                filtering_stats["resolution_failures"].append({
-                    "track": f"{connector_play.artist_name} - {connector_play.track_name}",
-                    "spotify_id": spotify_id or "",
-                    "reason": "track_resolution_failed",
-                })
-                logger.warning(
-                    f"Track not resolved: {connector_play.artist_name} - {connector_play.track_name}"
+                self._record_resolution_failure(
+                    filtering_stats, connector_play, spotify_id
                 )
                 continue
 
-            skip = self._should_skip(connector_play, canonical_track)
-            if skip is SkipReason.DURATION:
+            if self._duration_excluded(connector_play, canonical_track):
                 filtering_stats["duration_excluded"] += 1
                 duration_info = (
                     f"{canonical_track.duration_ms / 60000:.2f}"
                     if canonical_track.duration_ms
                     else "?"
                 )
-                # A DURATION skip implies ms_played is not None (the guard lives
-                # in _should_skip); `or 0` only satisfies the type checker.
+                # A duration skip implies ms_played is not None (the guard
+                # lives in _duration_excluded); `or 0` only satisfies the
+                # type checker.
                 ms_played = connector_play.ms_played or 0
                 logger.debug(
                     f"Skipped (duration): {connector_play.track_name} - "
                     f"{ms_played / 60000:.2f}/{duration_info}min"
                 )
-                continue
-            if skip is SkipReason.INCOGNITO:
-                filtering_stats["incognito_excluded"] += 1
-                logger.debug(f"Skipped (incognito): {connector_play.track_name}")
                 continue
 
             filtering_stats["accepted_plays"] += 1
@@ -251,15 +266,56 @@ class SpotifyConnectorPlayResolver:
             resolutions=tuple(resolutions),
         )
 
-    def _extract_ids_and_hints(
-        self, connector_plays: list[ConnectorTrackPlay]
-    ) -> tuple[list[str], dict[str, FallbackHint]]:
-        """Extract unique Spotify track IDs + fallback hints in a single pass.
+    @staticmethod
+    def _record_resolution_failure(
+        filtering_stats: ResolutionMetrics,
+        connector_play: ConnectorTrackPlay,
+        spotify_id: str | None,
+    ) -> None:
+        """Count one eligible play that produced no canonical track.
 
-        Names come from the first play in this chunk carrying the id; the
-        length estimate is derived from the run's accumulator rather than from
-        this chunk alone (see ``_accumulate_completed_ms``).
+        The single failure-record shape for both paths that drop an eligible
+        play: an id that resolved to nothing in the main loop, and an id-less
+        play (malformed URI) — including the all-id-less chunk's early
+        return, which previously vanished such plays from the metrics
+        entirely. The orchestrator caps the accumulated list downstream
+        (``_MAX_RECORDED_RESOLUTION_FAILURES``); per-chunk lists stay whole.
         """
+        # .get/.setdefault rather than [] — the TypedDict's keys are
+        # not-required, and this helper sees the dict without the literal
+        # construction the call sites narrow from.
+        filtering_stats["error_count"] = filtering_stats.get("error_count", 0) + 1
+        filtering_stats.setdefault("resolution_failures", []).append({
+            "track": f"{connector_play.artist_name} - {connector_play.track_name}",
+            "spotify_id": spotify_id or "",
+            "reason": "track_resolution_failed",
+        })
+        logger.warning(
+            f"Track not resolved: {connector_play.artist_name} - {connector_play.track_name}"
+        )
+
+    def _extract_ids_and_hints(
+        self,
+        connector_plays: list[ConnectorTrackPlay],
+        *,
+        evidence_plays: list[ConnectorTrackPlay],
+    ) -> tuple[list[str], dict[str, FallbackHint]]:
+        """Extract unique Spotify track IDs + fallback hints.
+
+        Ids and hint names come only from ``connector_plays`` — the eligible
+        plays that may cost a resolution. ``evidence_plays`` is the whole
+        chunk, incognito included, and feeds only the completed-play
+        accumulator: an excluded play must not trigger a fetch, but its
+        trackdone duration is still evidence of the track's length. Names
+        come from the first eligible play in this chunk carrying the id; the
+        length estimate is derived from the run's accumulator rather than
+        from this chunk alone (see ``_accumulate_completed_ms``).
+        """
+        for cp in evidence_plays:
+            sid = self._extract_spotify_id_from_connector_play(cp)
+            if sid:
+                self._accumulate_completed_ms(sid, cp)
+
         unique_ids_set: set[str] = set()
         fallback_hints: dict[str, FallbackHint] = {}
         for cp in connector_plays:
@@ -271,7 +327,6 @@ class SpotifyConnectorPlayResolver:
                 fallback_hints[sid] = FallbackHint(
                     artist_name=cp.artist_name, track_name=cp.track_name
                 )
-            self._accumulate_completed_ms(sid, cp)
 
         return list(unique_ids_set), {
             sid: evolve(
@@ -303,26 +358,23 @@ class SpotifyConnectorPlayResolver:
         if _ran_to_completion(cp) and cp.ms_played:
             self._completed_play_ms_by_id.setdefault(sid, []).append(cp.ms_played)
 
-    def _should_skip(
+    def _duration_excluded(
         self, connector_play: ConnectorTrackPlay, canonical_track: Track
-    ) -> SkipReason | None:
-        """Decide whether a resolved play should be excluded (and why).
+    ) -> bool:
+        """True when the resolved play is too short to count as listened.
 
-        Applies Spotify duration filtering, then the incognito exclusion.
-        Returns ``None`` when the play should be accepted.
+        Runs post-resolution deliberately — unlike the incognito partition —
+        because the 50% rule needs the canonical ``duration_ms``, which only
+        a resolved track carries.
         """
-        if connector_play.ms_played is not None and not should_include_spotify_play(
-            connector_play.ms_played,
-            canonical_track.duration_ms,
-            connector_play.track_name,
-            connector_play.artist_name,
-        ):
-            return SkipReason.DURATION
-
-        if connector_play.service_metadata.get("incognito_mode", False):
-            return SkipReason.INCOGNITO
-
-        return None
+        return connector_play.ms_played is not None and not (
+            should_include_spotify_play(
+                connector_play.ms_played,
+                canonical_track.duration_ms,
+                connector_play.track_name,
+                connector_play.artist_name,
+            )
+        )
 
     def _build_context(
         self, connector_play: ConnectorTrackPlay, spotify_id: str | None

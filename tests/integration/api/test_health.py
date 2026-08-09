@@ -13,6 +13,7 @@ from unittest.mock import AsyncMock, patch
 import httpx2
 
 from src import __version__
+from src.application.services.operation_run_reaper import RunningRunCounts
 
 
 class TestHealthEndpoint:
@@ -98,7 +99,9 @@ class TestBusyProbe:
         body = response.json()
         assert body["busy"] is False
         assert body["running_operation_runs"] == 0
+        assert body["stale_running_operation_runs"] == 0
         assert body["import_queue_pending"] is False
+        assert body["uploads_streaming"] == 0
 
     async def test_shallow_health_omits_busy_fields(
         self, client: httpx2.AsyncClient
@@ -116,13 +119,47 @@ class TestBusyProbe:
         # visible to the app's own engine.
         with patch(
             "src.application.services.operation_run_reaper.count_running_runs",
-            new=AsyncMock(return_value=1),
+            new=AsyncMock(return_value=RunningRunCounts(live=1, stale=0)),
         ):
             response = await client.get("/api/v1/health?busy=true")
 
         body = response.json()
         assert body["busy"] is True
         assert body["running_operation_runs"] == 1
+        assert body["import_queue_pending"] is False
+
+    async def test_stale_rows_are_reported_but_do_not_block(
+        self, client: httpx2.AsyncClient
+    ) -> None:
+        # A running row older than REAP_AGE_BOUND is reaper-dead: excluded
+        # from ``busy`` (anti-deadlock — the deploy is the restart that reaps
+        # it) but surfaced so release.yml can warn instead of hiding it.
+        with patch(
+            "src.application.services.operation_run_reaper.count_running_runs",
+            new=AsyncMock(return_value=RunningRunCounts(live=0, stale=2)),
+        ):
+            response = await client.get("/api/v1/health?busy=true")
+
+        body = response.json()
+        assert body["busy"] is False
+        assert body["running_operation_runs"] == 0
+        assert body["stale_running_operation_runs"] == 2
+
+    async def test_streaming_upload_marks_busy(
+        self, client: httpx2.AsyncClient
+    ) -> None:
+        # The third signal: while a POST is streaming files to disk there is
+        # no queue registered and no run row — only the streaming counter can
+        # stop a deploy landing mid-upload.
+        from src.interface.api.services.import_queue import streaming_upload
+
+        with streaming_upload():
+            response = await client.get("/api/v1/health?busy=true")
+
+        body = response.json()
+        assert body["busy"] is True
+        assert body["uploads_streaming"] == 1
+        assert body["running_operation_runs"] == 0
         assert body["import_queue_pending"] is False
 
     async def test_db_error_reports_busy_with_error_marker(

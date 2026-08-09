@@ -3,7 +3,7 @@
  * Do not edit manually.
  * Mixd
  * Personal music metadata hub
- * OpenAPI spec version: 0.10.2.8
+ * OpenAPI spec version: 0.10.2.9
  */
 import {
   useMutation,
@@ -452,9 +452,8 @@ export const getImportSpotifyHistoryApiV1ImportsSpotifyHistoryPostUrl = () => {
 /**
  * Queue Spotify GDPR export JSON files for one sequential, unattended import.
  *
- * A single file is the degenerate one-entry queue. Declared sizes are only a
- * cheap early rejection — the streaming writer re-enforces both caps on real
- * bytes.
+ * A single file is the degenerate one-entry queue. Guards, capped streaming,
+ * and queue start all live in ``receive_export_upload`` (409/422/413).
  * @summary Import Spotify History
  */
 export const importSpotifyHistoryApiV1ImportsSpotifyHistoryPost = async (bodyImportSpotifyHistoryApiV1ImportsSpotifyHistoryPost: BodyImportSpotifyHistoryApiV1ImportsSpotifyHistoryPost, options?: Parameters<typeof customFetch>[1]): Promise<importSpotifyHistoryApiV1ImportsSpotifyHistoryPostResponse> => {

@@ -464,3 +464,49 @@ class TestCountRunningStartedSince:
             )
             == 0
         )
+
+
+class TestCountRunningStartedBefore:
+    """The stale half: the rows the busy gate excludes as reaper-dead.
+
+    The complementary window to ``count_running_started_since`` — together
+    they partition every ``running`` row at the same cutoff, so the gate can
+    report what it excluded (``stale_running_operation_runs``) instead of
+    silently ignoring a possibly-live 12h+ run.
+    """
+
+    async def test_partitions_running_rows_with_since_at_the_same_cutoff(
+        self, db_session: AsyncSession
+    ) -> None:
+        repo = OperationRunRepository(db_session)
+        now = datetime.now(UTC)
+        cutoff = now - timedelta(hours=12)
+        # One live, one stale, one fresh-but-terminal (never counted).
+        await repo.create(
+            make_operation_run(user_id="alice", started_at=now - timedelta(minutes=30))
+        )
+        await repo.create(
+            make_operation_run(user_id="bob", started_at=now - timedelta(hours=13))
+        )
+        await repo.create(
+            make_operation_run(
+                user_id="alice",
+                status="complete",
+                started_at=now - timedelta(hours=14),
+                ended_at=now,
+            )
+        )
+
+        assert await repo.count_running_started_before(cutoff) == 1
+        assert await repo.count_running_started_since(cutoff) == 1
+
+    async def test_row_started_exactly_at_cutoff_is_not_stale(
+        self, db_session: AsyncSession
+    ) -> None:
+        # Exactly REAP_AGE_BOUND old belongs to the live window (>=), so the
+        # strict < here keeps the partition airtight — no double count.
+        repo = OperationRunRepository(db_session)
+        cutoff = datetime.now(UTC) - timedelta(hours=12)
+        await repo.create(make_operation_run(user_id="alice", started_at=cutoff))
+
+        assert await repo.count_running_started_before(cutoff) == 0

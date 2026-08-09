@@ -11,6 +11,9 @@ import pytest
 
 from src.config.constants import MatchMethod, SpotifyConstants
 from src.domain.entities import ConnectorTrackPlay, TrackPlay
+from src.infrastructure.connectors._shared.inward_track_resolver import (
+    TrackResolutionMetrics,
+)
 from src.infrastructure.connectors.spotify.client import (
     SpotifyTracksFetch,
     field_filtered_search_query,
@@ -70,6 +73,16 @@ def _make_connector_play(
         import_source="spotify_export",
         import_batch_id="test-batch",
     )
+
+
+def _ids_and_hints(resolver, plays):
+    """Call the extraction seam the way an all-eligible chunk does.
+
+    The same list is both the eligible set and the evidence set — the split
+    only matters when a chunk carries incognito plays (see the pre-filter
+    tests).
+    """
+    return resolver._extract_ids_and_hints(plays, evidence_plays=plays)
 
 
 class TestShouldIncludeSpotifyPlay:
@@ -383,6 +396,72 @@ class TestResolverTrackResolution:
 
         assert plays == []
 
+    async def test_all_malformed_uri_chunk_counts_every_play_as_an_error(self):
+        """v0.10.2.9 F6: id-less ELIGIBLE plays are errors, not silence.
+
+        The early-return branch must record them exactly like the main loop
+        (same failure-record shape) so the chunk's sums reconcile:
+        raw = accepted + duration_excluded + incognito_excluded + errors.
+        """
+        connector = MagicMock()
+        resolver = SpotifyConnectorPlayResolver(spotify_connector=connector)
+
+        plays = [
+            _make_connector_play(
+                track_name=f"Track {n}",
+                artist_name=f"Artist {n}",
+                track_uri="invalid:uri:format",
+            )
+            for n in range(3)
+        ]
+        uow = MagicMock()
+        attach_resolution_recorder(uow)
+
+        outcome = await resolver.resolve_connector_plays(
+            plays, uow, user_id="test-user"
+        )
+        metrics = outcome.metrics
+
+        assert outcome.track_plays == []
+        assert metrics["raw_plays"] == 3
+        assert metrics["error_count"] == 3
+        failures = metrics["resolution_failures"]
+        assert len(failures) == 3
+        # Identical record shape to the main loop's unresolved-track records.
+        assert failures[0] == {
+            "track": "Artist 0 - Track 0",
+            "spotify_id": "",
+            "reason": "track_resolution_failed",
+        }
+        assert metrics["raw_plays"] == (
+            metrics["accepted_plays"]
+            + metrics["duration_excluded"]
+            + metrics["incognito_excluded"]
+            + metrics["error_count"]
+        )
+
+    async def test_malformed_uri_incognito_play_stays_incognito_excluded(self):
+        """An incognito play is partitioned out BEFORE id extraction — it must
+        not be double-counted as an error by the early-return branch."""
+        connector = MagicMock()
+        resolver = SpotifyConnectorPlayResolver(spotify_connector=connector)
+
+        plays = [
+            _make_connector_play(track_uri="invalid:uri:format"),
+            _make_connector_play(track_uri="invalid:uri:format", incognito=True),
+        ]
+        uow = MagicMock()
+        attach_resolution_recorder(uow)
+
+        metrics = (
+            await resolver.resolve_connector_plays(plays, uow, user_id="test-user")
+        ).metrics
+
+        assert metrics["raw_plays"] == 2
+        assert metrics["incognito_excluded"] == 1
+        assert metrics["error_count"] == 1
+        assert len(metrics["resolution_failures"]) == 1
+
 
 class TestFallbackHintDurationEstimate:
     """The export has no track length; completed plays are the stand-in.
@@ -397,7 +476,7 @@ class TestFallbackHintDurationEstimate:
 
     def _hint(self, plays: list[ConnectorTrackPlay]):
         resolver = SpotifyConnectorPlayResolver(spotify_connector=AsyncMock())
-        _ids, hints = resolver._extract_ids_and_hints(plays)
+        _ids, hints = _ids_and_hints(resolver, plays)
         return hints["4iV5W9uYEdYUVa79Axb7Rh"]
 
     def test_a_single_completed_play_is_its_own_median(self):
@@ -460,10 +539,13 @@ class TestFallbackHintDurationEstimate:
         other_uri = "spotify:track:5rHtvcQXTiZbjPGYAOMQMP"
         resolver = SpotifyConnectorPlayResolver(spotify_connector=AsyncMock())
 
-        _ids, hints = resolver._extract_ids_and_hints([
-            _make_connector_play(ms_played=216_000),
-            _make_connector_play(ms_played=400_000, track_uri=other_uri),
-        ])
+        _ids, hints = _ids_and_hints(
+            resolver,
+            [
+                _make_connector_play(ms_played=216_000),
+                _make_connector_play(ms_played=400_000, track_uri=other_uri),
+            ],
+        )
 
         assert hints["4iV5W9uYEdYUVa79Axb7Rh"].completed_play_ms_estimate == 216_000
         assert hints["5rHtvcQXTiZbjPGYAOMQMP"].completed_play_ms_estimate == 400_000
@@ -482,13 +564,19 @@ class TestDurationEstimateAccumulatesAcrossChunks:
     def test_the_median_spans_every_chunk_seen_so_far(self):
         resolver = SpotifyConnectorPlayResolver(spotify_connector=AsyncMock())
 
-        _ids, first = resolver._extract_ids_and_hints([
-            _make_connector_play(ms_played=210_000),
-        ])
-        _ids, second = resolver._extract_ids_and_hints([
-            _make_connector_play(ms_played=214_000),
-            _make_connector_play(ms_played=218_000),
-        ])
+        _ids, first = _ids_and_hints(
+            resolver,
+            [
+                _make_connector_play(ms_played=210_000),
+            ],
+        )
+        _ids, second = _ids_and_hints(
+            resolver,
+            [
+                _make_connector_play(ms_played=214_000),
+                _make_connector_play(ms_played=218_000),
+            ],
+        )
 
         assert first["4iV5W9uYEdYUVa79Axb7Rh"].completed_play_ms_estimate == 210_000
         # 210k/214k/218k — the earlier chunk's play is still evidence.
@@ -498,26 +586,38 @@ class TestDurationEstimateAccumulatesAcrossChunks:
         """The chunk holding a dead id often holds none of its finished plays."""
         resolver = SpotifyConnectorPlayResolver(spotify_connector=AsyncMock())
 
-        _ids, _first = resolver._extract_ids_and_hints([
-            _make_connector_play(ms_played=216_000),
-        ])
-        _ids, second = resolver._extract_ids_and_hints([
-            _make_connector_play(ms_played=30_000, reason_end="fwdbtn"),
-        ])
+        _ids, _first = _ids_and_hints(
+            resolver,
+            [
+                _make_connector_play(ms_played=216_000),
+            ],
+        )
+        _ids, second = _ids_and_hints(
+            resolver,
+            [
+                _make_connector_play(ms_played=30_000, reason_end="fwdbtn"),
+            ],
+        )
 
         assert second["4iV5W9uYEdYUVa79Axb7Rh"].completed_play_ms_estimate == 216_000
 
     def test_the_accumulator_belongs_to_one_run_only(self):
         """A second import gets a fresh resolver, and a fresh accumulator."""
         first = SpotifyConnectorPlayResolver(spotify_connector=AsyncMock())
-        _ids, _hints = first._extract_ids_and_hints([
-            _make_connector_play(ms_played=216_000),
-        ])
+        _ids, _hints = _ids_and_hints(
+            first,
+            [
+                _make_connector_play(ms_played=216_000),
+            ],
+        )
 
         second = SpotifyConnectorPlayResolver(spotify_connector=AsyncMock())
-        _ids, hints = second._extract_ids_and_hints([
-            _make_connector_play(ms_played=30_000, reason_end="fwdbtn"),
-        ])
+        _ids, hints = _ids_and_hints(
+            second,
+            [
+                _make_connector_play(ms_played=30_000, reason_end="fwdbtn"),
+            ],
+        )
 
         assert hints["4iV5W9uYEdYUVa79Axb7Rh"].completed_play_ms_estimate is None
 
@@ -735,3 +835,99 @@ class TestResolverMetrics:
         assert metrics["accepted_plays"] == 1
         assert metrics["duration_excluded"] == 1
         assert metrics["incognito_excluded"] == 1
+
+
+class TestIncognitoPreFilter:
+    """Incognito plays are partitioned out BEFORE resolution (v0.10.2.9).
+
+    An excluded play must not cost an API fetch or create a canonical track,
+    and an excluded-only chunk must still report its real counts — the
+    orchestrator sums them across chunks.
+    """
+
+    URI_A = "spotify:track:4iV5W9uYEdYUVa79Axb7Rh"
+    URI_B = "spotify:track:5rHtvcQXTiZbjPGYAOMQMP"
+
+    def _resolver_with_inward_mock(
+        self, tracks_map=None
+    ) -> tuple[SpotifyConnectorPlayResolver, AsyncMock]:
+        resolver = SpotifyConnectorPlayResolver(spotify_connector=MagicMock())
+        inward = AsyncMock()
+        inward.resolve_to_canonical_tracks.return_value = (
+            tracks_map or {},
+            TrackResolutionMetrics(existing=len(tracks_map or {})),
+        )
+        inward.get_resolution_method.return_value = MatchMethod.PLAY_RESOLVER
+        inward.isrc_suspect_deferred_ids = set()
+        resolver._inward_resolver = inward
+        return resolver, inward
+
+    async def test_an_all_incognito_chunk_never_reaches_the_inward_resolver(self):
+        resolver, inward = self._resolver_with_inward_mock()
+        plays = [
+            _make_connector_play(incognito=True, ms_played=300000),
+            _make_connector_play(incognito=True, ms_played=250000),
+        ]
+
+        outcome = await resolver.resolve_connector_plays(
+            plays, uow=MagicMock(), user_id="test-user"
+        )
+
+        inward.resolve_to_canonical_tracks.assert_not_awaited()
+        assert outcome.track_plays == []
+        # Real counts, not _empty_outcome()'s zeros.
+        assert outcome.metrics["raw_plays"] == 2
+        assert outcome.metrics["incognito_excluded"] == 2
+        assert outcome.metrics["accepted_plays"] == 0
+
+    async def test_a_mixed_chunk_resolves_only_the_eligible_ids(self):
+        canonical = make_track(duration_ms=300000)
+        resolver, inward = self._resolver_with_inward_mock(
+            tracks_map={"4iV5W9uYEdYUVa79Axb7Rh": canonical}
+        )
+        plays = [
+            _make_connector_play(ms_played=300000, track_uri=self.URI_A),
+            _make_connector_play(
+                incognito=True, ms_played=300000, track_uri=self.URI_B
+            ),
+        ]
+
+        outcome = await resolver.resolve_connector_plays(
+            plays, uow=MagicMock(), user_id="test-user"
+        )
+
+        requested_ids = inward.resolve_to_canonical_tracks.await_args.args[0]
+        assert requested_ids == ["4iV5W9uYEdYUVa79Axb7Rh"]
+        hints = inward.resolve_to_canonical_tracks.await_args.kwargs["fallback_hints"]
+        assert set(hints) == {"4iV5W9uYEdYUVa79Axb7Rh"}
+        assert outcome.metrics["incognito_excluded"] == 1
+        assert outcome.metrics["accepted_plays"] == 1
+
+    async def test_an_incognito_short_play_counts_as_incognito_excluded(self):
+        """Semantics pin: incognito wins over duration now — the duration rule
+        needs a canonical duration_ms an excluded play never resolves.
+        (Pre-v0.10.2.9 the same play counted as duration_excluded.)"""
+        resolver, inward = self._resolver_with_inward_mock()
+        play = _make_connector_play(incognito=True, ms_played=5000)
+
+        outcome = await resolver.resolve_connector_plays(
+            [play], uow=MagicMock(), user_id="test-user"
+        )
+
+        inward.resolve_to_canonical_tracks.assert_not_awaited()
+        assert outcome.metrics["incognito_excluded"] == 1
+        assert outcome.metrics["duration_excluded"] == 0
+
+    def test_an_incognito_trackdone_play_still_contributes_length_evidence(self):
+        """The partition excludes the play, not its evidence: a completed
+        incognito play still says how long the track runs."""
+        resolver = SpotifyConnectorPlayResolver(spotify_connector=AsyncMock())
+        eligible_skip = _make_connector_play(ms_played=30_000, reason_end="fwdbtn")
+        incognito_completed = _make_connector_play(incognito=True, ms_played=216_000)
+
+        _ids, hints = resolver._extract_ids_and_hints(
+            [eligible_skip],
+            evidence_plays=[eligible_skip, incognito_completed],
+        )
+
+        assert hints["4iV5W9uYEdYUVa79Axb7Rh"].completed_play_ms_estimate == 216_000

@@ -28,6 +28,7 @@ from src.infrastructure.connectors.spotify.models import (
 from src.infrastructure.connectors.spotify.utilities import (
     SpotifySearchMatch,
     create_track_from_spotify_data,
+    normalized_spotify_isrc,
     search_and_evaluate_attempt,
     widening_search_passes,
 )
@@ -47,7 +48,9 @@ class TestCreateTrackFromSpotifyData:
             external_ids=SpotifyExternalIds(isrc="USRC12345678"),
         )
 
-        track = create_track_from_spotify_data("abc123", spotify_track)
+        track = create_track_from_spotify_data(
+            "abc123", spotify_track, user_id="tenant-a"
+        )
 
         assert track.title == "Test Song"
         assert track.artists == [Artist(name="Test Artist")]
@@ -55,6 +58,37 @@ class TestCreateTrackFromSpotifyData:
         assert track.duration_ms == 240000
         assert track.isrc == "USRC12345678"
         assert track.connector_track_identifiers.get("spotify") == "abc123"
+
+    def test_the_created_track_carries_the_callers_tenant(self):
+        """user_id is keyword-only with no default — Track's silent
+        "default" fallback is exactly the mistenancy this pins against."""
+        spotify_track = SpotifyTrack(
+            id="abc123",
+            name="Test Song",
+            artists=[SpotifyArtist(name="Test Artist")],
+        )
+
+        track = create_track_from_spotify_data(
+            "abc123", spotify_track, user_id="tenant-a"
+        )
+
+        assert track.user_id == "tenant-a"
+
+    def test_a_hyphenated_lowercase_isrc_is_normalized(self):
+        """Raw provider ISRCs must land in the canonical form the user-scoped
+        unique key (uq_tracks_user_isrc) dedupes against."""
+        spotify_track = SpotifyTrack(
+            id="abc123",
+            name="Test Song",
+            artists=[SpotifyArtist(name="Test Artist")],
+            external_ids=SpotifyExternalIds(isrc="us-rc1-23-45678"),
+        )
+
+        track = create_track_from_spotify_data(
+            "abc123", spotify_track, user_id="tenant-a"
+        )
+
+        assert track.isrc == "USRC12345678"
 
     def test_multiple_artists(self):
         spotify_track = SpotifyTrack(
@@ -66,7 +100,9 @@ class TestCreateTrackFromSpotifyData:
             ],
         )
 
-        track = create_track_from_spotify_data("abc123", spotify_track)
+        track = create_track_from_spotify_data(
+            "abc123", spotify_track, user_id="tenant-a"
+        )
 
         assert len(track.artists) == 2
         assert track.artists[0].name == "Artist A"
@@ -80,7 +116,9 @@ class TestCreateTrackFromSpotifyData:
             album=None,
         )
 
-        track = create_track_from_spotify_data("abc123", spotify_track)
+        track = create_track_from_spotify_data(
+            "abc123", spotify_track, user_id="tenant-a"
+        )
 
         assert track.album is None
 
@@ -92,7 +130,9 @@ class TestCreateTrackFromSpotifyData:
             duration_ms=0,
         )
 
-        track = create_track_from_spotify_data("abc123", spotify_track)
+        track = create_track_from_spotify_data(
+            "abc123", spotify_track, user_id="tenant-a"
+        )
 
         assert track.duration_ms is None
 
@@ -103,9 +143,43 @@ class TestCreateTrackFromSpotifyData:
             artists=[SpotifyArtist(name="Artist")],
         )
 
-        track = create_track_from_spotify_data("abc123", spotify_track)
+        track = create_track_from_spotify_data(
+            "abc123", spotify_track, user_id="tenant-a"
+        )
 
         assert track.isrc is None
+
+
+class TestNormalizedSpotifyIsrc:
+    """The one wrapper every Spotify caller shares for ISRC normalization."""
+
+    def _track_with_isrc(self, isrc: str | None) -> SpotifyTrack:
+        return SpotifyTrack(
+            id="abc123",
+            name="Song",
+            artists=[SpotifyArtist(name="Artist")],
+            external_ids=SpotifyExternalIds(isrc=isrc),
+        )
+
+    def test_hyphens_removed_and_uppercased(self):
+        assert (
+            normalized_spotify_isrc(self._track_with_isrc("us-rc1-23-45678"))
+            == "USRC12345678"
+        )
+
+    def test_missing_isrc_is_none(self):
+        assert normalized_spotify_isrc(self._track_with_isrc(None)) is None
+
+    def test_defaulted_external_ids_is_none(self):
+        """external_ids has a default_factory, so the guard is on the value."""
+        track = SpotifyTrack(
+            id="abc123", name="Song", artists=[SpotifyArtist(name="Artist")]
+        )
+
+        assert normalized_spotify_isrc(track) is None
+
+    def test_malformed_isrc_is_none(self):
+        assert normalized_spotify_isrc(self._track_with_isrc("NOT AN ISRC")) is None
 
 
 class TestCreateTrackFromSpotifyDataValidation:
@@ -119,7 +193,7 @@ class TestCreateTrackFromSpotifyDataValidation:
         )
 
         with pytest.raises(ValueError, match="Missing track title"):
-            create_track_from_spotify_data("abc123", spotify_track)
+            create_track_from_spotify_data("abc123", spotify_track, user_id="tenant-a")
 
     def test_no_artists_raises(self):
         spotify_track = SpotifyTrack(
@@ -129,7 +203,7 @@ class TestCreateTrackFromSpotifyDataValidation:
         )
 
         with pytest.raises(ValueError, match="Missing artists"):
-            create_track_from_spotify_data("abc123", spotify_track)
+            create_track_from_spotify_data("abc123", spotify_track, user_id="tenant-a")
 
     def test_artists_with_empty_names_raises(self):
         spotify_track = SpotifyTrack(
@@ -139,7 +213,7 @@ class TestCreateTrackFromSpotifyDataValidation:
         )
 
         with pytest.raises(ValueError, match="No valid artist names"):
-            create_track_from_spotify_data("abc123", spotify_track)
+            create_track_from_spotify_data("abc123", spotify_track, user_id="tenant-a")
 
     def test_skips_empty_artist_names(self):
         spotify_track = SpotifyTrack(
@@ -148,7 +222,9 @@ class TestCreateTrackFromSpotifyDataValidation:
             artists=[SpotifyArtist(name=""), SpotifyArtist(name="Valid")],
         )
 
-        track = create_track_from_spotify_data("abc123", spotify_track)
+        track = create_track_from_spotify_data(
+            "abc123", spotify_track, user_id="tenant-a"
+        )
 
         assert len(track.artists) == 1
         assert track.artists[0].name == "Valid"

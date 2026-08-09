@@ -6,6 +6,27 @@ linked backlog version file. Versioning follows mixd's four-segment
 `major.minor.feature.revision` scheme (`.claude/rules/version-management.md`), not strict
 SemVer. Format inspired by [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [0.10.2.9] — 2026-08-08
+
+**Your imported history now belongs to you — and imports run in minutes, not hours.** The 2014-file re-import took 78 minutes and delivered tracks the app couldn't show: every canonical track the Spotify import created was silently written under the local-dev `default` tenant instead of your user (one missing argument, `create_track_from_spotify_data` never set `user_id`; the owner role's BYPASSRLS let the write through). One bug, two faces:
+
+- **Integrity**: 7,852 mistenanted tracks on prod; 12,313 of the batch's plays resolved onto tracks your own row-level-security-scoped reads can't see. Fixed by threading the tenant through the resolver's creation path (keyword-only, no default — a caller that forgets fails loudly), and repaired by a reset-and-resolve script: null the affected plays' resolution pointers *first* (their track FK is ON DELETE CASCADE — delete-first would take the raw ledger with it), delete the mistenanted tracks, re-upload once under fixed code. The pre-existing 457-track poller-era residue is deliberately untouched (v0.10.3 audit's scope).
+- **Performance**: user-scoped lookups never saw prior chunks' tracks, so every chunk re-created ~40 — and the identity-claim probe (scoped to the row's own wrong tenant) *did* see them, routing ~40 rows/chunk onto a silent per-item write path at ~8 round-trips each: the measured ~9s per 50-play chunk. Fixed, a creation-heavy chunk is ~1s and repeat chunks hit the mapping fast path in ~200ms — a 15k file in ~3–5 minutes, the remaining GDPR files in minutes each.
+- **The silent path now announces itself**: `save_tracks` logs one warning per chunk when new rows fall back to per-item writes — its docstring claimed that set was empty in practice, and nothing would have said otherwise.
+- **Excluded plays no longer cost anything**: incognito (private-session) plays are filtered before track resolution, so a chunk of them no longer fetches and creates ~47 tracks it then discards. Attribution note: a play both incognito and too-short now counts as `incognito_excluded` (privacy exclusion is categorical).
+- ISRCs are stored normalized (uppercase, hyphen-free) — the raw form written before could never match the probes that search for it.
+- The regression is now structurally caught: a real-Postgres test imports under a *non-default* tenant and asserts created tracks carry it and the second chunk hits the fast path — the assertion that would have failed all along.
+
+A high-effort adversarial review of this wave confirmed ten findings, nine fixed before ship (the tenth — removing `Track.user_id`'s silent default entity-wide — is a scheduled follow-up in `unscheduled.md` § Tenancy hardening):
+
+- **The repair script's pre-delete guard now sees every tenant the CASCADE sees**: one tenant-unpredicated still-pointing count refuses the delete and names any foreign tenants found — per-tenant predicates alone would have let a third tenant's raw ledger be cascade-deleted silently.
+- **The startup orphan sweep runs to completion before the server accepts requests** — it could previously delete an upload directory mid-stream (files register with the queue only after streaming finishes).
+- **The deploy busy gate closes its two blind windows**: an upload still streaming now counts as busy, and when the gate passes while stale >12h `running` rows were excluded as reaper-dead, the workflow says so instead of passing silently.
+- **A Last.fm outage no longer mints permanent junk tracks**: the client's blanket error-suppression is overridden on the enrichment calls, so transport failures fail the identifier retryably; only a genuine "no such track" (error 6) degrades to raw names.
+- Metrics honesty (an all-malformed-URI chunk reports its failures instead of reading clean), duplicate-filename upload rows render correctly, the upload route handler is back inside the 5–10-line rule, and the hand-rolled batching helper is replaced by `itertools.batched`.
+
+→ [details](docs/backlog/v0.10.x.md#post-deploy-revisions)
+
 ## [0.10.2.8] — 2026-08-08
 
 **A run that dies with its process now says so — and a deploy can no longer kill an import mid-run.** v0.10.2.5's shutdown hook covers kills the process observes (SIGTERM → drain → honest `error`); this closes the two it cannot: the unobservable kill (SIGKILL, OOM, machine loss) that leaves a phantom `running` row forever, and the self-inflicted one — a deploy replacing the machine while an import is in flight.

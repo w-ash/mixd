@@ -33,6 +33,8 @@ from src.interface.api.services.import_queue import (
     cancel_pending,
     cleanup_orphaned_queue_dirs,
     start_queue,
+    streaming_upload,
+    uploads_streaming,
 )
 
 
@@ -297,6 +299,29 @@ class TestAnyQueueUndrained:
         assert any_queue_undrained() is False
 
 
+class TestStreamingUploadCounter:
+    """The busy gate's third signal: a POST mid-stream has neither a
+    registered queue nor a run row, so only this counter can report it."""
+
+    def test_probe_signal_is_busy_while_the_context_manager_is_held(self):
+        assert uploads_streaming() == 0
+        with streaming_upload():
+            assert uploads_streaming() == 1
+        assert uploads_streaming() == 0
+
+    def test_concurrent_uploads_stack(self):
+        with streaming_upload(), streaming_upload():
+            assert uploads_streaming() == 2
+        assert uploads_streaming() == 0
+
+    def test_a_failing_upload_still_decrements(self):
+        # The 413/422/429 paths all raise out of the streaming phase; a stuck
+        # counter would report busy forever and block every future deploy.
+        with pytest.raises(RuntimeError), streaming_upload():
+            raise RuntimeError("stream blew up")
+        assert uploads_streaming() == 0
+
+
 class TestCancelPending:
     async def test_cancels_and_unlinks_only_unstarted_entries(self, tmp_path):
         entries = _entries(tmp_path, 3)
@@ -340,9 +365,10 @@ class TestCleanupOrphanedQueueDirs:
         assert prefix_file.exists()
 
     def test_registered_queue_dir_survives_the_sweep(self, tmp_path, monkeypatch):
-        # The sweep runs as an un-awaited startup task while the server already
-        # serves, so an early request CAN have registered a queue before it
-        # fires — rmtree'ing that dir would destroy a live queue's files.
+        # Belt-and-braces behind the lifespan ordering (the sweep is awaited
+        # before the app serves, so no queue can exist yet): if a caller ever
+        # runs the sweep beside live traffic again, a registered queue's dir
+        # must still survive — rmtree'ing it would destroy the queue's files.
         monkeypatch.setattr(import_queue.tempfile, "gettempdir", lambda: str(tmp_path))
         live = tmp_path / f"{IMPORT_QUEUE_TMPDIR_PREFIX}live"
         live.mkdir()

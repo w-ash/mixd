@@ -1893,3 +1893,56 @@ class TestChunkBulkPersistIsOneRoundTripGroup:
         connector_repo.map_track_to_connector.assert_not_called()
         # One savepoint for the chunk, not one per id.
         assert uow.savepoint.call_count == 1
+
+
+class TestCanonicalPayloadTenancy:
+    """Every canonical payload the resolver persists carries the caller's tenant.
+
+    Pins the v0.10.2.9 fix: a payload built without ``user_id`` falls back to
+    Track's silent ``"default"`` and mistenants every import-created canonical
+    — on both persist arms, since the fallback search shares the same
+    ``_canonical_payload`` seam as the direct import.
+    """
+
+    async def test_direct_import_payloads_carry_the_tenant(self):
+        connector = AsyncMock()
+        connector.get_tracks_by_ids.return_value = SpotifyTracksFetch(
+            tracks={
+                "id1": make_spotify_track("id1", "Song A"),
+                "id2": make_spotify_track("id2", "Song B"),
+            }
+        )
+        resolver = SpotifyInwardResolver(spotify_connector=connector)
+        uow, track_repo, _ = _make_uow_with_repos()
+
+        _ = await resolver.resolve_to_canonical_tracks(
+            ["id1", "id2"], uow, user_id="TENANT_A"
+        )
+
+        saved = track_repo.save_tracks.call_args.args[0]
+        assert len(saved) == 2
+        assert {track.user_id for track in saved} == {"TENANT_A"}
+
+    async def test_fallback_search_payloads_carry_the_tenant(self):
+        dead_id = "dead_id_000000000000000"
+        connector = AsyncMock()
+        connector.get_tracks_by_ids.return_value = SpotifyTracksFetch()
+        connector.search_track.return_value = [
+            make_spotify_track("found_id_00000000000000", "My Song"),
+        ]
+        resolver = SpotifyInwardResolver(spotify_connector=connector)
+        uow, track_repo, _ = _make_uow_with_repos()
+
+        hints = {dead_id: FallbackHint(artist_name="Artist", track_name="My Song")}
+        result, _metrics = await resolver.resolve_to_canonical_tracks(
+            [dead_id], uow, fallback_hints=hints, user_id="TENANT_A"
+        )
+
+        assert dead_id in result
+        saved = [
+            track
+            for save_call in track_repo.save_tracks.call_args_list
+            for track in save_call.args[0]
+        ]
+        assert saved
+        assert {track.user_id for track in saved} == {"TENANT_A"}

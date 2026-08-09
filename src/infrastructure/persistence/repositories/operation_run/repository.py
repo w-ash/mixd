@@ -4,7 +4,7 @@ from collections.abc import Sequence
 from datetime import datetime
 from uuid import UUID
 
-from sqlalchemy import and_, func, or_, select, update
+from sqlalchemy import ColumnElement, and_, func, or_, select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.config import get_logger
@@ -233,13 +233,25 @@ class OperationRunRepository(BaseRepository[DBOperationRun, OperationRun]):
         wastes the round-trip. Cross-user / BYPASSRLS posture as
         ``list_running_started_before``.
         """
+        return await self._count_running(self.model_class.started_at >= cutoff)
+
+    @db_operation("count_running_operation_runs_started_before")
+    async def count_running_started_before(self, cutoff: datetime) -> int:
+        """All-user count of ``running`` rows with ``started_at < cutoff``.
+
+        The complementary window to ``count_running_started_since`` — the
+        rows the busy gate EXCLUDES as reaper-dead, counted so the gate can
+        report what it excluded instead of silently ignoring it. Same
+        cross-user / BYPASSRLS posture.
+        """
+        return await self._count_running(self.model_class.started_at < cutoff)
+
+    async def _count_running(self, started_at_predicate: ColumnElement[bool]) -> int:
+        """One counting shape for both ``started_at`` windows (DRY)."""
         stmt = (
             select(func.count())
             .select_from(self.model_class)
-            .where(
-                self.model_class.status == "running",
-                self.model_class.started_at >= cutoff,
-            )
+            .where(self.model_class.status == "running", started_at_predicate)
         )
         result = await self.session.execute(stmt)
         return result.scalar_one()

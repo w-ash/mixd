@@ -72,6 +72,7 @@ class BaseAPIClient:
         operation: str,
         impl: Callable[..., Awaitable[T]],
         *args: object,
+        suppress: tuple[type[BaseException], ...] | None = None,
     ) -> T | None:
         """Execute API call with rate limiting, retry policy, context, and suppression.
 
@@ -81,14 +82,21 @@ class BaseAPIClient:
         Pacing wraps ``impl`` rather than the whole retry loop, so tenacity takes a
         token per attempt — retries are paced, not exempt from pacing. Services
         without a configured ``rate_limit`` get the unwrapped ``impl``.
+
+        ``suppress`` overrides the class-level ``_SUPPRESS_ERRORS`` for this one
+        call; ``None`` keeps the class default. Pass ``()`` when the caller must
+        see retry-exhausted transport failures instead of a ``None`` that is
+        indistinguishable from "the API answered with nothing" — the Last.fm
+        enrichment reads depend on that distinction (v0.10.2.9 F5).
         """
         limiter = get_connector_rate_limiter(self.service_name)
         attempt = impl if limiter is None else _paced(limiter, impl)
+        suppressed_types = self._SUPPRESS_ERRORS if suppress is None else suppress
         with logging_context(operation=operation):
             try:
                 return await self._retry_policy(attempt, *args)
             except Exception as exc:
-                if isinstance(exc, self._SUPPRESS_ERRORS):
+                if isinstance(exc, suppressed_types):
                     return None
                 raise
 

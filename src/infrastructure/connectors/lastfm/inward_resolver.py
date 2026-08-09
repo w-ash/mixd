@@ -8,8 +8,11 @@ A. **Concurrent API enrichment** — track.getInfo (with track.getCorrection as
    fallback) per identifier, concurrently under
    ``settings.api.lastfm.concurrency``; the shared ConnectorRateLimiter on
    ``_api_call`` paces the actual request starts. Pure API — nothing is
-   written. Any enrichment failure degrades that identifier to a raw-name
-   probe instead of failing it.
+   written. A CONTENT miss (the API answered without usable enrichment)
+   degrades that identifier to a raw-name probe; a TRANSPORT failure (the
+   call itself failed after the retry policy gave up) fails the identifier
+   instead — minting a canonical from an outage would be permanent junk the
+   next import can never heal (v0.10.2.9 F5).
 B. **Sequential cross-discovery** — ``CrossDiscoveryProvider.discover`` per
    probe, sequential because it takes the (non-concurrency-safe) uow and may
    write ISRC-collision reviews. Each call runs under its own savepoint so a
@@ -38,6 +41,7 @@ from collections.abc import Mapping, Sequence
 from typing import override
 
 from attrs import define, evolve
+from pydantic import ValidationError
 
 from src.config import get_logger, settings
 from src.config.constants import MatchMethod
@@ -73,8 +77,9 @@ class _EnrichedProbe:
 
     ``probe`` is an UNSAVED in-memory Track — nothing is persisted until
     Phase C decides the whole chunk. The corrected pair mints the PRIMARY
-    connector identifier; when enrichment fails entirely it degrades to the
-    raw parsed pair (accepted residual — see ``_build_enriched_probe``).
+    connector identifier; when the API answers with no correction it degrades
+    to the raw parsed pair (accepted residual — see ``_build_enriched_probe``;
+    a transport failure never reaches this type — the identifier fails).
     """
 
     identifier: str
@@ -233,9 +238,14 @@ class LastfmInwardResolver(InwardTrackResolver):
         concurrency; actual request pacing stays with the shared
         ConnectorRateLimiter on ``_api_call``. Task bodies catch every
         exception — a TaskGroup cancels siblings on escape, and one bad
-        identifier must not cost the chunk — degrading to a raw-name probe.
-        Results are returned in ``missing_ids`` order, not completion order:
-        downstream planning and persistence must be deterministic.
+        identifier must not cost the chunk — but what the catch DOES differs:
+        an unparseable identifier or a transport failure marks that identifier
+        failed (absent from the returned list, so it skips Phases B/C and the
+        base class counts it in the failed metric — the play stays unresolved
+        and the next import retries enrichment), while content misses never
+        raise at all (``_build_enriched_probe`` degrades them to a raw-name
+        probe). Results are returned in ``missing_ids`` order, not completion
+        order: downstream planning and persistence must be deterministic.
         """
         semaphore = asyncio.Semaphore(settings.api.lastfm.concurrency)
         enriched_by_id: dict[str, _EnrichedProbe] = {}
@@ -259,17 +269,24 @@ class LastfmInwardResolver(InwardTrackResolver):
                         artist_name, track_name, user_id=user_id
                     )
                 except Exception as e:
+                    # Transport failure: the Last.fm client raises
+                    # httpx2.RequestError / httpx2.HTTPStatusError /
+                    # LastFMAPIError (non-"not found" codes) after its retry
+                    # policy gives up — a content miss comes back as None,
+                    # never an exception. Minting a canonical from the raw
+                    # names here is what turned an outage into permanent junk
+                    # canonicals: mark the identifier failed instead (absent
+                    # from the results, counted failed by the base class) so
+                    # the play stays unresolved and the next import retries.
+                    # Caught in the task body so one failure cannot cancel
+                    # the TaskGroup's sibling enrichments.
                     logger.warning(
-                        f"Enrichment failed for {artist_name} - {track_name}; "
-                        f"degrading to the raw-name probe: {e}",
+                        f"Enrichment transport failure for {artist_name} - "
+                        f"{track_name}; identifier fails and will be retried "
+                        f"on the next import: {e}",
                         exc_info=True,
                     )
-                    probe = Track(
-                        title=track_name,
-                        artists=[Artist(name=artist_name)],
-                        user_id=user_id,
-                    )
-                    corrected_artist, corrected_title = artist_name, track_name
+                    return
             enriched_by_id[identifier] = _EnrichedProbe(
                 identifier=identifier,
                 raw_artist=artist_name,
@@ -527,12 +544,13 @@ class LastfmInwardResolver(InwardTrackResolver):
         ``corrected_artist``/``corrected_title`` mint the PRIMARY connector
         identifier. track.getInfo runs with ``autocorrect=1``, so a successful
         response's ``lastfm_artist_name``/``lastfm_title`` already ARE the
-        corrected pair — free. When getInfo fails or returns nothing,
-        ``track.getCorrection`` is tried as a fallback; if that ALSO
-        fails/returns nothing, the corrected pair degrades to the raw
-        ``(artist_name, track_name)`` — an accepted residual (the mint still
-        proceeds; at worst a future correctly-spelled import creates a
-        second, dedup-eligible mapping).
+        corrected pair — free. When getInfo ANSWERS with nothing usable
+        (not-found, or an unvalidatable body), ``track.getCorrection`` is
+        tried as a fallback; if that also answers with nothing, the corrected
+        pair degrades to the raw ``(artist_name, track_name)`` — an accepted
+        residual (the mint still proceeds; at worst a future correctly-spelled
+        import creates a second, dedup-eligible mapping). Transport failures
+        from either call RAISE instead of degrading — see ``_enrich_one``.
 
         The probe's ``title``/``artists`` are built from the CORRECTED pair,
         not the parsed identifier parts: identifiers are lowercased
@@ -546,9 +564,15 @@ class LastfmInwardResolver(InwardTrackResolver):
             info = await self._lastfm_client.get_track_info_comprehensive(
                 artist_name, track_name
             )
-        except Exception as e:
+        except ValidationError as e:
+            # The API answered 200 with a body that failed model validation —
+            # a content problem, so the degrade path below still applies.
+            # Transport failures (network / HTTP / retry-exhausted service
+            # errors) propagate to ``_enrich_one``, which fails the
+            # identifier instead of minting from the degraded path.
             logger.debug(
-                f"track.getInfo enrichment failed for {artist_name} - {track_name}: {e}"
+                f"track.getInfo returned an unvalidatable body for "
+                f"{artist_name} - {track_name}: {e}"
             )
             info = None
 
@@ -595,22 +619,15 @@ class LastfmInwardResolver(InwardTrackResolver):
         """Fallback correction lookup, used only when track.getInfo yields nothing.
 
         track.getCorrection returns Last.fm's autocorrected (title, artist)
-        pair. When it is unavailable — no result, or the call itself fails —
-        degrades to the raw names, an accepted residual (see
-        ``_build_enriched_probe``). The call failure is caught HERE, not left
-        to escape: enrichment runs inside a TaskGroup, where an escaped
-        exception cancels every sibling identifier's enrichment.
+        pair. When the API answers with no correction on file, degrades to
+        the raw names, an accepted residual (see ``_build_enriched_probe``).
+        A transport failure raises — an outage mid-fallback must fail the
+        identifier (``_enrich_one`` catches it inside the task body, so the
+        TaskGroup's siblings are unaffected), never mint from raw names.
         """
-        try:
-            correction = await self._lastfm_client.get_track_correction(
-                artist_name, track_name
-            )
-        except Exception as e:
-            logger.debug(
-                f"track.getCorrection failed for {artist_name} - {track_name}: {e}; "
-                "minting from raw normalized names"
-            )
-            return artist_name, track_name
+        correction = await self._lastfm_client.get_track_correction(
+            artist_name, track_name
+        )
 
         if correction is None:
             logger.debug(

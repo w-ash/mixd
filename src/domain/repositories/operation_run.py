@@ -123,3 +123,14 @@ class OperationRunRepositoryProtocol(Protocol):
         :meth:`list_running_started_before`.
         """
         ...
+
+    def count_running_started_before(self, cutoff: datetime) -> Awaitable[int]:
+        """How many rows are still ``running`` with ``started_at < cutoff`` — all users.
+
+        The complementary window to :meth:`count_running_started_since`: the
+        busy gate excludes these rows as reaper-dead (the deploy it guards is
+        the restart that reaps them), and this count is what lets the gate
+        report the exclusion — ``stale_running_operation_runs`` in the health
+        probe — instead of hiding it. Same cross-user/BYPASSRLS posture.
+        """
+        ...

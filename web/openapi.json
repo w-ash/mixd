@@ -3,7 +3,7 @@
   "info": {
     "title": "Mixd",
     "description": "Personal music metadata hub",
-    "version": "0.10.2.8"
+    "version": "0.10.2.9"
   },
   "paths": {
     "/api/v1/connectors/{service}/auth-url": {
@@ -357,7 +357,7 @@
           "health"
         ],
         "summary": "Health Check",
-        "description": "Report process liveness; ``?deep=true`` probes the DB, ``?busy=true``\nreports in-flight work.\n\nThe shallow form never touches Postgres, so it is safe to call on a short\ninterval without defeating Neon's scale-to-zero. It returns 200 whenever the\nprocess is serving. The deep form adds ``database`` and returns 503 when the\nprobe fails, mirroring the pre-v0.10.2 behaviour for manual checks. The busy\nform adds ``busy`` / ``running_operation_runs`` / ``import_queue_pending``\nand always returns 200 \u2014 busyness is data for the deploy gate, not\ndegradation.",
+        "description": "Report process liveness; ``?deep=true`` probes the DB, ``?busy=true``\nreports in-flight work.\n\nThe shallow form never touches Postgres, so it is safe to call on a short\ninterval without defeating Neon's scale-to-zero. It returns 200 whenever the\nprocess is serving. The deep form adds ``database`` and returns 503 when the\nprobe fails, mirroring the pre-v0.10.2 behaviour for manual checks. The busy\nform adds ``busy`` / ``running_operation_runs`` /\n``stale_running_operation_runs`` / ``import_queue_pending`` /\n``uploads_streaming`` and always returns 200 \u2014 busyness is data for the\ndeploy gate, not degradation.",
         "operationId": "health_check_api_v1_health_get",
         "parameters": [
           {
@@ -3888,7 +3888,7 @@
           "imports"
         ],
         "summary": "Import Spotify History",
-        "description": "Queue Spotify GDPR export JSON files for one sequential, unattended import.\n\nA single file is the degenerate one-entry queue. Declared sizes are only a\ncheap early rejection \u2014 the streaming writer re-enforces both caps on real\nbytes.",
+        "description": "Queue Spotify GDPR export JSON files for one sequential, unattended import.\n\nA single file is the degenerate one-entry queue. Guards, capped streaming,\nand queue start all live in ``receive_export_upload`` (409/422/413).",
         "operationId": "import_spotify_history_api_v1_imports_spotify_history_post",
         "requestBody": {
           "content": {

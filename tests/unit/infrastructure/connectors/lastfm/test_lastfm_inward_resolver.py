@@ -12,6 +12,8 @@ fallback on bulk failure).
 import asyncio
 from unittest.mock import AsyncMock, MagicMock, patch
 
+import httpx2
+
 from src.config import settings
 from src.config.constants import MatchMethod
 from src.domain.entities import Track
@@ -720,10 +722,12 @@ class TestConcurrentEnrichment:
             "CC",
         ]
 
-    async def test_one_failed_enrichment_degrades_without_cancelling_siblings(self):
+    async def test_one_failed_enrichment_fails_without_cancelling_siblings(self):
         """An exception escaping the probe builder is caught in the task body —
         a TaskGroup would otherwise cancel every sibling enrichment — and the
-        identifier degrades to a raw-name probe instead of failing."""
+        identifier FAILS instead of degrading (v0.10.2.9 F5: content misses
+        return ``None`` and never raise, so any raise is a transport-shaped
+        failure that must not mint a canonical from raw names)."""
         real_build = LastfmInwardResolver._build_enriched_probe
 
         async def _explosive_build(self, artist_name, track_name, *, user_id):
@@ -748,15 +752,16 @@ class TestConcurrentEnrichment:
                 user_id="test-user",
             )
 
-        assert metrics.created == 2
-        assert metrics.failed == 0
-        # The degraded identifier minted from its raw names.
+        assert metrics.created == 1
+        assert metrics.failed == 1
+        assert "good artist::good track" in result
+        assert "bad artist::bad track" not in result
+        # No canonical was minted from the failed identifier's raw names.
         saved_titles = [
             c.args[0].title
             for c in uow.get_track_repository().save_track.call_args_list
         ]
-        assert "bad track" in saved_titles
-        assert "Good Track" in saved_titles
+        assert saved_titles == ["Good Track"]
 
 
 class TestCreationFailureIsolation:
@@ -857,3 +862,108 @@ class TestChunkBulkPersistIsOneRoundTripGroup:
         connector_repo.map_track_to_connector.assert_not_called()
         # One savepoint for the chunk, not one per identifier.
         assert uow.savepoint.call_count == 1
+
+
+class TestCanonicalPayloadTenancy:
+    """Mirror of the Spotify resolver's tenancy pin (v0.10.2.9).
+
+    Every probe handed to ``save_tracks`` must carry the caller's tenant —
+    a probe built without ``user_id`` falls back to Track's silent
+    ``"default"`` and mistenants the created canonical.
+    """
+
+    async def test_saved_probes_carry_the_tenant(self):
+        lastfm_client = AsyncMock()
+        lastfm_client.get_track_info_comprehensive.return_value = _track_info()
+
+        resolver = LastfmInwardResolver(lastfm_client=lastfm_client)
+        uow = _make_uow()
+
+        _ = await resolver._create_tracks_batch(
+            ["Radiohead::Creep"], uow, user_id="TENANT_A"
+        )
+
+        saved = [
+            track
+            for save_call in uow.get_track_repository().save_tracks.call_args_list
+            for track in save_call.args[0]
+        ]
+        assert saved
+        assert {track.user_id for track in saved} == {"TENANT_A"}
+
+
+class TestTransportFailureDoesNotMintCanonicals:
+    """v0.10.2.9 F5: an outage must not mint permanent junk canonicals.
+
+    The client raises (httpx2 errors, retry-exhausted LastFMAPIError) for
+    TRANSPORT failures and returns ``None`` only for content misses. A raised
+    failure marks the identifier failed — absent from results and persist,
+    counted in the failed metric — so the play stays unresolved and the next
+    import retries enrichment. A content miss still degrades to the raw-name
+    probe (pinned in TestCanonicalDisplayCasing).
+    """
+
+    async def test_transport_failure_fails_the_identifier_without_a_probe(self):
+        lastfm_client = AsyncMock()
+        lastfm_client.get_track_info_comprehensive.side_effect = httpx2.ConnectError(
+            "connection refused"
+        )
+
+        resolver = LastfmInwardResolver(lastfm_client=lastfm_client)
+        uow = _make_uow()
+
+        result, metrics = await resolver.resolve_to_canonical_tracks(
+            ["radiohead::creep"], uow, user_id="test-user"
+        )
+
+        assert result == {}
+        assert metrics.failed == 1
+        assert metrics.created == 0
+        uow.get_track_repository().save_track.assert_not_called()
+        assert _mapping_specs(uow) == []
+
+    async def test_transport_failure_in_correction_fallback_also_fails(self):
+        # getInfo answered "nothing" (content), then the outage hit the
+        # correction fallback — the identifier must still fail, not mint
+        # from raw names.
+        lastfm_client = AsyncMock()
+        lastfm_client.get_track_info_comprehensive.return_value = None
+        lastfm_client.get_track_correction.side_effect = httpx2.ConnectError("outage")
+
+        resolver = LastfmInwardResolver(lastfm_client=lastfm_client)
+        uow = _make_uow()
+
+        result, metrics = await resolver.resolve_to_canonical_tracks(
+            ["radiohead::creep"], uow, user_id="test-user"
+        )
+
+        assert result == {}
+        assert metrics.failed == 1
+        uow.get_track_repository().save_track.assert_not_called()
+
+    async def test_sibling_identifiers_survive_one_transport_failure(self):
+        # Caught in the task body: the TaskGroup must not cancel siblings,
+        # and the healthy identifier's canonical is still created.
+        async def _get_info(artist, title):
+            if artist == "bad artist":
+                raise httpx2.ConnectError("outage")
+            return _track_info(
+                lastfm_artist_name="Good Artist", lastfm_title="Good Track"
+            )
+
+        lastfm_client = AsyncMock()
+        lastfm_client.get_track_info_comprehensive.side_effect = _get_info
+
+        resolver = LastfmInwardResolver(lastfm_client=lastfm_client)
+        uow = _make_uow(saved_track=make_track(id=7))
+
+        result, metrics = await resolver.resolve_to_canonical_tracks(
+            ["bad artist::bad track", "good artist::good track"],
+            uow,
+            user_id="test-user",
+        )
+
+        assert "good artist::good track" in result
+        assert "bad artist::bad track" not in result
+        assert metrics.created == 1
+        assert metrics.failed == 1

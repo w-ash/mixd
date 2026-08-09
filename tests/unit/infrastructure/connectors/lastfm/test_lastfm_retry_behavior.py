@@ -103,15 +103,21 @@ class TestLastFMRetryBehavior:
             )
 
     async def test_maximum_retry_exhaustion(self, fast_retry_client):
-        """Temporary errors exhaust all retries then return None."""
+        """Temporary errors exhaust all retries then RAISE (v0.10.2.9 F5).
+
+        The enrichment read passes ``suppress=()``: a retry-exhausted outage
+        must stay visible to the caller, never collapse into the ``None``
+        that means "track not found" — that collapse is what let an outage
+        mint permanent junk canonicals.
+        """
         mock_api = AsyncMock(
             side_effect=LastFMAPIError("11", "Service Offline - Always fails")
         )
 
         with patch.object(LastFMAPIClient, "_api_request", mock_api):
-            result = await fast_retry_client.get_track_info_comprehensive(
-                "Test Artist", "Test Track"
-            )
+            with pytest.raises(LastFMAPIError, match="Service Offline"):
+                await fast_retry_client.get_track_info_comprehensive(
+                    "Test Artist", "Test Track"
+                )
 
-        assert result is None
         assert mock_api.call_count >= 3

@@ -5,15 +5,9 @@ launches the import as a background task, and immediately returns the
 operation_id so the client can subscribe to progress via SSE.
 """
 
-import os
-from pathlib import Path
-import shutil
-import tempfile
-
 from fastapi import APIRouter, Depends, HTTPException, UploadFile
 
 from src.config import get_logger
-from src.config.constants import BusinessLimits
 from src.domain.repositories.play import RECENTLY_PLAYED_SCOPE
 from src.interface.api.deps import (
     get_current_user_id,
@@ -30,12 +24,10 @@ from src.interface.api.schemas.imports import (
     OperationStartedResponse,
 )
 from src.interface.api.services.import_queue import (
-    IMPORT_QUEUE_TMPDIR_PREFIX,
     QueueEntry,
     cancel_pending,
     get_queue,
-    raise_if_queue_active,
-    start_queue,
+    receive_export_upload,
 )
 from src.interface.api.services.progress import OperationBoundEmitter
 from src.interface.api.services.sse_operations import launch_sse_operation
@@ -163,69 +155,6 @@ async def export_lastfm_likes(
     )
 
 
-async def _stream_uploads_to_queue_dir(
-    files: list[UploadFile], tmpdir: Path
-) -> list[QueueEntry]:
-    """Stream every upload into ``tmpdir`` under server-chosen names.
-
-    Files land as ``{position:03d}.json`` — client filenames are display data,
-    never paths. 64KB chunks keep memory flat, and both caps are enforced on
-    real bytes as they arrive, regardless of what Content-Length claimed: a
-    per-file breach of ``MAX_UPLOAD_BYTES`` or a running-total breach of
-    ``MAX_QUEUED_UPLOAD_BYTES`` removes the whole directory and 413s, so a
-    rejected request leaves nothing on disk.
-    """
-    total_bytes = 0
-    entries: list[QueueEntry] = []
-    try:
-        for position, file in enumerate(files):
-            path = tmpdir / f"{position:03d}.json"
-            total_bytes = await _stream_upload_capped(file, path, total_bytes)
-            entries.append(
-                QueueEntry(
-                    filename=file.filename or f"file-{position + 1}.json",
-                    position=position,
-                    path=path,
-                )
-            )
-    except BaseException:
-        shutil.rmtree(tmpdir, ignore_errors=True)
-        raise
-    return entries
-
-
-def _raise_if_over_upload_caps(file_bytes: int, total_bytes: int) -> None:
-    if file_bytes > BusinessLimits.MAX_UPLOAD_BYTES:
-        raise HTTPException(
-            status_code=413,
-            detail=f"File too large (>{BusinessLimits.MAX_UPLOAD_BYTES} bytes). Maximum is {BusinessLimits.MAX_UPLOAD_BYTES} bytes per file.",
-        )
-    if total_bytes > BusinessLimits.MAX_QUEUED_UPLOAD_BYTES:
-        raise HTTPException(
-            status_code=413,
-            detail=f"Upload too large (>{BusinessLimits.MAX_QUEUED_UPLOAD_BYTES} bytes total). Maximum is {BusinessLimits.MAX_QUEUED_UPLOAD_BYTES} bytes per queue.",
-        )
-
-
-async def _stream_upload_capped(file: UploadFile, path: Path, total_bytes: int) -> int:
-    """Stream one upload to ``path``; return the updated queue-wide byte total.
-
-    Caps are checked before each write, so no byte past either limit lands.
-    """
-    # os.* rather than pathlib for async-safe file I/O (ASYNC240).
-    fd = os.open(str(path), os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600)
-    try:
-        file_bytes = 0
-        while chunk := await file.read(64 * 1024):
-            file_bytes += len(chunk)
-            total_bytes += len(chunk)
-            _raise_if_over_upload_caps(file_bytes, total_bytes)
-            os.write(fd, chunk)
-    finally:
-        os.close(fd)
-    return total_bytes
-
-
 def _queue_response(queue_id: str, entries: list[QueueEntry]) -> ImportQueueResponse:
     return ImportQueueResponse.model_validate(
         {"queue_id": queue_id, "entries": entries}, from_attributes=True
@@ -239,33 +168,10 @@ async def import_spotify_history(
 ) -> ImportQueueResponse:
     """Queue Spotify GDPR export JSON files for one sequential, unattended import.
 
-    A single file is the degenerate one-entry queue. Declared sizes are only a
-    cheap early rejection — the streaming writer re-enforces both caps on real
-    bytes.
+    A single file is the degenerate one-entry queue. Guards, capped streaming,
+    and queue start all live in ``receive_export_upload`` (409/422/413).
     """
-    raise_if_queue_active(user_id)
-    if len(files) > BusinessLimits.MAX_QUEUE_ENTRIES:
-        raise HTTPException(
-            status_code=422,
-            detail=f"Too many files ({len(files)}). Maximum is {BusinessLimits.MAX_QUEUE_ENTRIES} per queue.",
-        )
-    declared_total = sum(file.size or 0 for file in files)
-    if declared_total > BusinessLimits.MAX_QUEUED_UPLOAD_BYTES:
-        raise HTTPException(
-            status_code=413,
-            detail=f"Upload too large ({declared_total} bytes total). Maximum is {BusinessLimits.MAX_QUEUED_UPLOAD_BYTES} bytes per queue.",
-        )
-
-    tmpdir = Path(tempfile.mkdtemp(prefix=IMPORT_QUEUE_TMPDIR_PREFIX))
-    entries = await _stream_uploads_to_queue_dir(files, tmpdir)
-    try:
-        queue = start_queue(user_id=user_id, tmpdir=tmpdir, entries=entries)
-    except BaseException:
-        # A refused start (slot 429, or losing the raced 409 re-check) must not
-        # strand the streamed bytes — the startup sweep only runs on restart,
-        # and autostop is off, so this process may live for weeks.
-        shutil.rmtree(tmpdir, ignore_errors=True)
-        raise
+    queue = await receive_export_upload(user_id, files)
     return _queue_response(queue.queue_id, queue.entries)
 
 

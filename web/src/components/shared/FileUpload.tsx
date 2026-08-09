@@ -32,7 +32,13 @@ export function FileUpload({
   disabled = false,
 }: FileUploadProps) {
   const inputRef = useRef<HTMLInputElement>(null);
-  const [selectedFiles, setSelectedFiles] = useState<File[]>([]);
+  // Each file carries its selection position as the row key: the selection is
+  // replaced atomically (never spliced), so the position is stable — and two
+  // same-named files must not collide the way file.name keys did, which
+  // rendered duplicates as one row.
+  const [selectedFiles, setSelectedFiles] = useState<
+    { position: number; file: File }[]
+  >([]);
   const [error, setError] = useState<string | null>(null);
   const [isDragging, setIsDragging] = useState(false);
 
@@ -64,7 +70,7 @@ export function FileUpload({
         return;
       }
 
-      setSelectedFiles(files);
+      setSelectedFiles(files.map((file, position) => ({ position, file })));
       onFilesSelect(files);
     },
     [maxFiles, maxSize, maxTotalSize, onFilesSelect],
@@ -120,9 +126,9 @@ export function FileUpload({
       {selectedFiles.length > 0 && !error ? (
         <div className="flex flex-col items-center gap-1.5">
           <ul className="max-h-40 w-full overflow-y-auto">
-            {selectedFiles.map((file) => (
+            {selectedFiles.map(({ position, file }) => (
               <li
-                key={file.name}
+                key={position}
                 className="truncate text-xs text-text-muted font-mono"
               >
                 {file.name}{" "}
