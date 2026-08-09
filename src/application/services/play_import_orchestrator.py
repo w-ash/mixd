@@ -325,7 +325,7 @@ class PlayImportOrchestrator:
         } | dict.fromkeys(_RUN_METRIC_KEYS, 0)
 
         async with tracked_operation(
-            progress_emitter, "Resolving plays to canonical tracks"
+            progress_emitter, "Resolving plays to canonical tracks", phase="match"
         ) as operation_id:
             # Resolve plays per service using registry-provided resolvers
             for service, plays in [
@@ -428,7 +428,9 @@ class PlayImportOrchestrator:
                 # only the failure path changes).
                 async with (
                     tracked_operation(
-                        progress_emitter, "Projecting plays onto canonical history"
+                        progress_emitter,
+                        "Projecting plays onto canonical history",
+                        phase="save",
                     ) as projection_operation_id,
                     uow,
                 ):

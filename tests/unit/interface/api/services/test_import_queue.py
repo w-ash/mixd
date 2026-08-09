@@ -13,7 +13,9 @@ seam whose captured ``on_terminal`` callbacks drive the drain deterministically.
 """
 
 import asyncio
+import contextlib
 from pathlib import Path
+import time
 from unittest.mock import AsyncMock, patch
 from uuid import uuid4
 
@@ -84,7 +86,7 @@ class TestQueueDrainOrder:
     async def test_next_entry_launches_only_on_previous_terminal(self, tmp_path):
         launcher = _CapturedLaunch()
         with patch.object(import_queue, "launch_sse_operation", launcher):
-            queue = start_queue(
+            queue = await start_queue(
                 user_id="u1", tmpdir=tmp_path, entries=_entries(tmp_path, 3)
             )
             await _yield_loop()
@@ -96,15 +98,15 @@ class TestQueueDrainOrder:
             assert queue.entries[0].run_id is not None
             assert queue.entries[1].status == "queued"
 
-            launcher.terminals[0]("complete")
+            launcher.terminals[0]("complete", None)
             await _yield_loop()
             assert len(launcher.calls) == 2
             assert queue.entries[0].status == "complete"
             assert queue.entries[1].status == "running"
 
-            launcher.terminals[1]("complete")
+            launcher.terminals[1]("complete", None)
             await _yield_loop()
-            launcher.terminals[2]("complete")
+            launcher.terminals[2]("complete", None)
             await _yield_loop()
 
         assert [e.status for e in queue.entries] == ["complete"] * 3
@@ -113,20 +115,20 @@ class TestQueueDrainOrder:
     async def test_failed_entry_does_not_stop_the_queue(self, tmp_path):
         launcher = _CapturedLaunch()
         with patch.object(import_queue, "launch_sse_operation", launcher):
-            queue = start_queue(
+            queue = await start_queue(
                 user_id="u1", tmpdir=tmp_path, entries=_entries(tmp_path, 3)
             )
             await _yield_loop()
-            launcher.terminals[0]("error")
+            launcher.terminals[0]("error", None)
             await _yield_loop()
 
             # The failure is recorded and the remainder still runs.
             assert queue.entries[0].status == "error"
             assert len(launcher.calls) == 2
 
-            launcher.terminals[1]("partial")
+            launcher.terminals[1]("partial", None)
             await _yield_loop()
-            launcher.terminals[2]("complete")
+            launcher.terminals[2]("complete", None)
             await _yield_loop()
 
         assert [e.status for e in queue.entries] == ["error", "partial", "complete"]
@@ -136,9 +138,11 @@ class TestQueueDrainOrder:
         tmpdir.mkdir()
         launcher = _CapturedLaunch()
         with patch.object(import_queue, "launch_sse_operation", launcher):
-            _ = start_queue(user_id="u1", tmpdir=tmpdir, entries=_entries(tmpdir, 1))
+            _ = await start_queue(
+                user_id="u1", tmpdir=tmpdir, entries=_entries(tmpdir, 1)
+            )
             await _yield_loop()
-            launcher.terminals[0]("complete")
+            launcher.terminals[0]("complete", None)
             await _yield_loop()
 
         assert not tmpdir.exists()
@@ -156,13 +160,13 @@ class TestQueueDrainOrder:
 
         entries = _entries(tmp_path, 2)
         with patch.object(import_queue, "launch_sse_operation", flaky_launch):
-            queue = start_queue(user_id="u1", tmpdir=tmp_path, entries=entries)
+            queue = await start_queue(user_id="u1", tmpdir=tmp_path, entries=entries)
             await _yield_loop()
 
             assert queue.entries[0].status == "error"
             assert not entries[0].path.exists()
 
-            terminals[0]("complete")
+            terminals[0]("complete", None)
             await _yield_loop()
 
         assert queue.entries[1].status == "complete"
@@ -172,7 +176,7 @@ class TestOneSlotInvariant:
     async def test_whole_queue_holds_exactly_one_slot(self, tmp_path):
         launcher = _CapturedLaunch()
         with patch.object(import_queue, "launch_sse_operation", launcher):
-            queue = start_queue(
+            queue = await start_queue(
                 user_id="u1", tmpdir=tmp_path, entries=_entries(tmp_path, 13)
             )
             await _yield_loop()
@@ -182,7 +186,7 @@ class TestOneSlotInvariant:
             for index in range(4):
                 assert sse_operations._active_operations == {token}
                 assert launcher.calls[index]["occupies_slot"] is False
-                launcher.terminals[index]("complete")
+                launcher.terminals[index]("complete", None)
                 await _yield_loop()
 
             # An unrelated import launched mid-queue is NOT rejected: with the
@@ -204,7 +208,7 @@ class TestOneSlotInvariant:
             await sse_operations.get_operation_registry().unregister(operation_id)
 
             for index in range(4, 13):
-                launcher.terminals[index]("complete")
+                launcher.terminals[index]("complete", None)
                 await _yield_loop()
 
         # Drain released the queue's own token.
@@ -215,7 +219,9 @@ class TestOneSlotInvariant:
             sse_operations._active_operations.add(f"other-{taken}")
 
         with pytest.raises(HTTPException) as exc_info:
-            start_queue(user_id="u1", tmpdir=tmp_path, entries=_entries(tmp_path, 1))
+            await start_queue(
+                user_id="u1", tmpdir=tmp_path, entries=_entries(tmp_path, 1)
+            )
 
         assert exc_info.value.status_code == 429
         # A rejected queue is not registered — the user can retry immediately.
@@ -226,16 +232,16 @@ class TestQueueRegistry:
     async def test_active_predecessor_makes_start_queue_409(self, tmp_path):
         launcher = _CapturedLaunch()
         with patch.object(import_queue, "launch_sse_operation", launcher):
-            _ = start_queue(
+            _ = await start_queue(
                 user_id="u1", tmpdir=tmp_path, entries=_entries(tmp_path, 1)
             )
             await _yield_loop()
 
             with pytest.raises(HTTPException) as exc_info:
-                start_queue(user_id="u1", tmpdir=tmp_path, entries=[])
+                await start_queue(user_id="u1", tmpdir=tmp_path, entries=[])
             assert exc_info.value.status_code == 409
 
-            launcher.terminals[0]("complete")
+            launcher.terminals[0]("complete", None)
             await _yield_loop()
 
     async def test_drained_predecessor_is_replaced(self, tmp_path):
@@ -243,6 +249,7 @@ class TestQueueRegistry:
             queue_id="old",
             user_id="u1",
             tmpdir=tmp_path,
+            operation_id="queue-op-old",
             entries=[
                 QueueEntry(
                     filename="a.json",
@@ -256,12 +263,12 @@ class TestQueueRegistry:
 
         launcher = _CapturedLaunch()
         with patch.object(import_queue, "launch_sse_operation", launcher):
-            replacement = start_queue(
+            replacement = await start_queue(
                 user_id="u1", tmpdir=tmp_path, entries=_entries(tmp_path, 1)
             )
             await _yield_loop()
             assert import_queue.get_queue("u1") is replacement
-            launcher.terminals[0]("complete")
+            launcher.terminals[0]("complete", None)
             await _yield_loop()
 
 
@@ -275,6 +282,7 @@ class TestAnyQueueUndrained:
             queue_id="q1",
             user_id="u1",
             tmpdir=tmp_path,
+            operation_id="queue-op",
             entries=[
                 QueueEntry(
                     filename="a.json",
@@ -327,7 +335,11 @@ class TestCancelPending:
         entries = _entries(tmp_path, 3)
         entries[0].status = "running"
         import_queue._queues["u1"] = ImportQueue(
-            queue_id="q", user_id="u1", tmpdir=tmp_path, entries=entries
+            queue_id="q",
+            user_id="u1",
+            tmpdir=tmp_path,
+            operation_id="queue-op",
+            entries=entries,
         )
 
         queue = cancel_pending("u1")
@@ -379,6 +391,7 @@ class TestCleanupOrphanedQueueDirs:
             queue_id="q1",
             user_id="u1",
             tmpdir=live,
+            operation_id="queue-op",
             entries=[QueueEntry(filename="a.json", position=0, path=live / "000.json")],
         )
 
@@ -387,3 +400,286 @@ class TestCleanupOrphanedQueueDirs:
         assert live.exists()
         assert (live / "000.json").exists()
         assert not orphan.exists()
+
+
+class TestDrainAsOneOperation:
+    """The whole export is one operation, so a watcher attaches once.
+
+    Per-file streams come and go as the drain advances; a client keyed to them
+    is between streams every time a file changes, which is a blank view at
+    exactly the moment someone checks back.
+    """
+
+    async def test_the_drain_is_streamable_before_the_first_file_starts(self, tmp_path):
+        # The POST hands back this id, so a client that attaches immediately
+        # must not race the background task into a 404.
+        launcher = _CapturedLaunch()
+        with patch.object(import_queue, "launch_sse_operation", launcher):
+            queue = await start_queue(
+                user_id="u1", tmpdir=tmp_path, entries=_entries(tmp_path, 2)
+            )
+            registry = sse_operations.get_operation_registry()
+            assert await registry.get_queue(queue.operation_id) is not None
+
+            await _yield_loop()
+            launcher.terminals[0]("complete", None)
+            await _yield_loop()
+            launcher.terminals[1]("complete", None)
+            await _yield_loop()
+
+    async def test_every_file_is_parented_to_the_drain(self, tmp_path):
+        launcher = _CapturedLaunch()
+        with patch.object(import_queue, "launch_sse_operation", launcher):
+            queue = await start_queue(
+                user_id="u1", tmpdir=tmp_path, entries=_entries(tmp_path, 2)
+            )
+            await _yield_loop()
+            launcher.terminals[0]("complete", None)
+            await _yield_loop()
+            launcher.terminals[1]("complete", None)
+            await _yield_loop()
+
+        parents = [call["parent_operation_id"] for call in launcher.calls]
+        assert parents == [queue.operation_id, queue.operation_id]
+
+
+class TestQueuePositionReporting:
+    """Overall position is counted in FILES, and only on terminal transitions.
+
+    Blending it with the running file's own percentage is what makes a batch bar
+    rewind when one file finishes and the next starts from zero. Counting
+    settled entries makes it monotonic by construction, which is the property
+    that lets someone trust it at a glance after twenty minutes away.
+    """
+
+    @staticmethod
+    def _recording_broker() -> tuple[AsyncMock, list]:
+        events: list = []
+        broker = AsyncMock()
+
+        async def _emit(event: object) -> None:
+            events.append(event)
+
+        broker.emit_progress = _emit
+        return broker, events
+
+    async def test_position_is_monotonic_and_counts_settled_files(self, tmp_path):
+        broker, events = self._recording_broker()
+        launcher = _CapturedLaunch()
+        with (
+            patch.object(import_queue, "launch_sse_operation", launcher),
+            patch.object(import_queue, "get_progress_broker", return_value=broker),
+        ):
+            await start_queue(
+                user_id="u1", tmpdir=tmp_path, entries=_entries(tmp_path, 3)
+            )
+            await _yield_loop()
+            # A failed file still moves the export forward — it is settled.
+            launcher.terminals[0]("error", {"error_message": "malformed"})
+            await _yield_loop()
+            launcher.terminals[1]("complete", None)
+            await _yield_loop()
+            launcher.terminals[2]("complete", None)
+            await _yield_loop()
+
+        currents = [event.current for event in events]
+        assert currents == sorted(currents)
+        assert currents[0] == 0
+        assert currents[-1] == 3
+        assert {event.total for event in events} == {3}
+
+    async def test_the_running_file_is_named_in_the_message(self, tmp_path):
+        broker, events = self._recording_broker()
+        launcher = _CapturedLaunch()
+        with (
+            patch.object(import_queue, "launch_sse_operation", launcher),
+            patch.object(import_queue, "get_progress_broker", return_value=broker),
+        ):
+            await start_queue(
+                user_id="u1", tmpdir=tmp_path, entries=_entries(tmp_path, 2)
+            )
+            await _yield_loop()
+            launcher.terminals[0]("complete", None)
+            await _yield_loop()
+            launcher.terminals[1]("complete", None)
+            await _yield_loop()
+
+        assert events[0].message == "File 1 of 2 — file-0.json"
+        assert events[1].message == "File 2 of 2 — file-1.json"
+        assert events[-1].message == "Imported 2 of 2 files"
+
+    async def test_a_broker_failure_never_stops_the_drain(self, tmp_path):
+        broker = AsyncMock()
+        broker.emit_progress.side_effect = RuntimeError("tracking is down")
+        launcher = _CapturedLaunch()
+        with (
+            patch.object(import_queue, "launch_sse_operation", launcher),
+            patch.object(import_queue, "get_progress_broker", return_value=broker),
+        ):
+            queue = await start_queue(
+                user_id="u1", tmpdir=tmp_path, entries=_entries(tmp_path, 2)
+            )
+            await _yield_loop()
+            launcher.terminals[0]("complete", None)
+            await _yield_loop()
+            launcher.terminals[1]("complete", None)
+            await _yield_loop()
+
+        assert [e.status for e in queue.entries] == ["complete", "complete"]
+
+
+class TestSettledEntryRecord:
+    """A finished file keeps its numbers on the queue.
+
+    They arrive on that file's own stream, which closes moments later — so
+    without this, someone reloading an hour into a thirteen-file export sees
+    thirteen status words and none of the counts they are actually after.
+    """
+
+    async def test_terminal_counts_and_timestamps_land_on_the_entry(self, tmp_path):
+        launcher = _CapturedLaunch()
+        with patch.object(import_queue, "launch_sse_operation", launcher):
+            queue = await start_queue(
+                user_id="u1", tmpdir=tmp_path, entries=_entries(tmp_path, 1)
+            )
+            await _yield_loop()
+            entry = queue.entries[0]
+            assert entry.started_at is not None
+            assert entry.settled_at is None
+
+            launcher.terminals[0]("partial", {"track_plays": 14208, "errors": 3})
+            await _yield_loop()
+
+        assert entry.counts == {"track_plays": 14208, "errors": 3}
+        assert entry.settled_at is not None
+        assert entry.settled_at >= entry.started_at
+
+    async def test_a_cancelled_entry_is_stamped_too(self, tmp_path):
+        entries = _entries(tmp_path, 2)
+        entries[0].status = "running"
+        import_queue._queues["u1"] = ImportQueue(
+            queue_id="q",
+            user_id="u1",
+            tmpdir=tmp_path,
+            operation_id="queue-op",
+            entries=entries,
+        )
+
+        queue = cancel_pending("u1")
+
+        assert queue is not None
+        assert queue.entries[1].settled_at is not None
+        # The running one is untouched — it settles on its own terms.
+        assert queue.entries[0].settled_at is None
+
+
+class TestDrainCleanupSurvivesCancellation:
+    """Shutdown must not cost a concurrency slot or leave bytes on disk.
+
+    The drain's ``finally`` runs with the cancellation still pending, so it is
+    re-delivered at the first ``await`` in the block — anything sequenced after
+    one may never run. The slot is the expensive one: nothing reaps
+    ``_active_operations``, so a leaked token costs a third of the cap until the
+    process restarts.
+    """
+
+    async def test_a_cancelled_drain_releases_its_slot_and_sweeps_its_dir(
+        self, tmp_path
+    ):
+        from src.interface.api.services.background import _background_tasks
+
+        tmpdir = tmp_path / "queue-dir"
+        tmpdir.mkdir()
+        launcher = _CapturedLaunch()
+        with patch.object(import_queue, "launch_sse_operation", launcher):
+            queue = await start_queue(
+                user_id="u1", tmpdir=tmpdir, entries=_entries(tmpdir, 2)
+            )
+            await _yield_loop()
+            token = import_queue._queue_slot_token(queue.queue_id)
+            assert token in sse_operations._active_operations
+
+            drain = next(
+                task
+                for task in _background_tasks
+                if task.get_name() == f"import_queue_{queue.queue_id}"
+            )
+            drain.cancel()
+            with contextlib.suppress(asyncio.CancelledError):
+                await drain
+
+        assert drain.cancelled()
+        assert sse_operations._active_operations == set()
+        assert not tmpdir.exists()
+
+    async def test_a_cancelled_drain_does_not_sit_out_the_sse_read_window(
+        self, tmp_path
+    ):
+        # The window exists for a live client; there is none during a shutdown,
+        # and the whole drain shares one budget with every other task.
+        from src.interface.api.services.background import _background_tasks
+
+        launcher = _CapturedLaunch()
+        with patch.object(import_queue, "launch_sse_operation", launcher):
+            queue = await start_queue(
+                user_id="u1", tmpdir=tmp_path, entries=_entries(tmp_path, 1)
+            )
+            await _yield_loop()
+            drain = next(
+                task
+                for task in _background_tasks
+                if task.get_name() == f"import_queue_{queue.queue_id}"
+            )
+            drain.cancel()
+            started = time.monotonic()
+            with contextlib.suppress(asyncio.CancelledError):
+                await drain
+
+        assert time.monotonic() - started < 1.0
+
+
+class TestRefusedStartLeavesNothingBehind:
+    async def test_a_429_registers_no_stream(self, tmp_path):
+        # The registry has no sweeper: an operation registered before a refused
+        # claim would sit there, unreadable and unclosed, for the process's life.
+        registry = sse_operations.get_operation_registry()
+        before = set(registry._queues)
+        for taken in range(sse_operations.SSEConstants.MAX_CONCURRENT_OPERATIONS):
+            sse_operations._active_operations.add(f"other-{taken}")
+
+        with pytest.raises(HTTPException):
+            await start_queue(
+                user_id="u1", tmpdir=tmp_path, entries=_entries(tmp_path, 1)
+            )
+
+        assert set(registry._queues) == before
+
+    async def test_the_active_check_and_the_claim_are_one_atomic_step(self, tmp_path):
+        # Two POSTs land in the same loop turn — the caller has already awaited
+        # its way through streaming megabytes, so this is a real race. An await
+        # between the check and the registry insert would let both through, and
+        # the loser's drain would run untracked: holding a slot and a temp dir
+        # nothing can see, cancel, or sweep.
+        launcher = _CapturedLaunch()
+        with patch.object(import_queue, "launch_sse_operation", launcher):
+            first, second = await asyncio.gather(
+                start_queue(
+                    user_id="u1", tmpdir=tmp_path, entries=_entries(tmp_path, 1)
+                ),
+                start_queue(
+                    user_id="u1", tmpdir=tmp_path, entries=_entries(tmp_path, 1)
+                ),
+                return_exceptions=True,
+            )
+            outcomes = [first, second]
+            started = [q for q in outcomes if isinstance(q, ImportQueue)]
+            refused = [e for e in outcomes if isinstance(e, HTTPException)]
+            assert len(started) == 1
+            assert len(refused) == 1
+            assert refused[0].status_code == 409
+            assert import_queue.get_queue("u1") is started[0]
+
+            await _yield_loop()
+            for terminal in launcher.terminals:
+                terminal("complete", None)
+            await _yield_loop()

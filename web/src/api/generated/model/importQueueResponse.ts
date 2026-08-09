@@ -3,14 +3,21 @@
  * Do not edit manually.
  * Mixd
  * Personal music metadata hub
- * OpenAPI spec version: 0.10.2.12
+ * OpenAPI spec version: 0.10.2.13
  */
 import type { ImportQueueEntrySchema } from './importQueueEntrySchema.ts';
 
 /**
  * The user's current import queue, in upload order.
+ *
+ * ``operation_id`` is the drain's SSE handle — one id for the whole export,
+ * with each file a sub-operation of it, so the client attaches once instead of
+ * re-attaching per entry. Unregistered after the drain's grace period, so a
+ * late re-attach 404s and reads this response instead.
  */
 export interface ImportQueueResponse {
   queue_id: string;
+  operation_id: string;
+  started_at: string;
   entries: ImportQueueEntrySchema[];
 }

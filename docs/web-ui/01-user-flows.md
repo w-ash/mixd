@@ -547,18 +547,21 @@ No confirmation dialog — removal is **optimistic with an Undo snackbar** (the 
 
 2. User selects/drops files and clicks **Upload & Import**.
    - Frontend sends `POST /imports/spotify/history` as `multipart/form-data` with all files (single file = one-entry queue).
-   - Returns the queue: `{ queue_id, entries: [{ filename, position, status, operation_id, run_id }] }` — all entries `queued`, ids null until each starts.
+   - Returns the queue: `{ queue_id, operation_id, started_at, entries: [...] }`. Each entry carries `filename`, `position`, `status`, `size_bytes`, `started_at`/`settled_at`, `counts`, and the `operation_id`/`run_id` that appear once it starts.
 
-3. A server-side queue drains the files one at a time, in order. The card lists every file with a status chip (`queued` → `running` → `complete`/`partial`/`error`/`cancelled`); the running entry's `operation_id` feeds the live SSE progress view. A failed file never stops the queue. A reloaded tab re-attaches via the queue endpoint.
+3. A server-side queue drains the files one at a time, in order. **The drain is a single operation** — `operation_id` is stable for the whole export, and the client attaches to it once rather than re-attaching per file. Each file streams as a sub-operation of it (`sub_operation_started` → `sub_progress` → `sub_operation_completed` carrying that file's counts). A failed file never stops the queue.
 
-4. On completion: each file is its own run in Import History with counts and issues. **Cancel remaining** drops not-yet-started entries; the running file finishes.
+4. The card shows a manifest: overall position counted in **files** (`Importing 4 of 13`, advancing only as a file settles, so it never rewinds), a hedged batch estimate once two files have settled, and a per-file row each. Failed rows pin to the top with their reason; the running row expands to an `Ingest → Resolve → Project` step strip plus its live bar; settled rows collapse to plays and duration; waiting rows show queue position and estimated start. The header stays neutral while draining and becomes a receipt at the end.
+
+5. A reloaded tab re-attaches via the queue endpoint, which carries per-file counts and timings — so the view restores whether or not the stream is still alive. Each file is its own run in Import History. **Cancel remaining** drops not-yet-started entries; the running file finishes.
 
 **Backend calls**:
 | Step | Endpoint | Use Case | Status |
 |------|----------|----------|--------|
 | 2 | `POST /imports/spotify/history` (`files: list`) | queue sequencer → `ImportPlayHistoryUseCase` (file variant) per entry | ✅ Implemented (v0.10.2.6) |
-| 3 | `GET /imports/spotify/history/queue` | in-process queue registry | ✅ Implemented (v0.10.2.6) |
-| 4 | `DELETE /imports/spotify/history/queue` | cancel not-yet-started entries | ✅ Implemented (v0.10.2.6) |
+| 3 | `GET /operations/{queue operation_id}/progress` | drain SSE stream; files as sub-operations | ✅ Implemented (v0.10.2.13) |
+| 4 | `GET /imports/spotify/history/queue` | in-process queue registry; restore source | ✅ Implemented (v0.10.2.6, enriched v0.10.2.13) |
+| 5 | `DELETE /imports/spotify/history/queue` | cancel not-yet-started entries | ✅ Implemented (v0.10.2.6) |
 
 **Edge cases**:
 - Wrong file format: the file's run records `error` with its reason; the queue continues with the next file.

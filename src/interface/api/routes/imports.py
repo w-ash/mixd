@@ -24,7 +24,7 @@ from src.interface.api.schemas.imports import (
     OperationStartedResponse,
 )
 from src.interface.api.services.import_queue import (
-    QueueEntry,
+    ImportQueue,
     cancel_pending,
     get_queue,
     receive_export_upload,
@@ -155,10 +155,8 @@ async def export_lastfm_likes(
     )
 
 
-def _queue_response(queue_id: str, entries: list[QueueEntry]) -> ImportQueueResponse:
-    return ImportQueueResponse.model_validate(
-        {"queue_id": queue_id, "entries": entries}, from_attributes=True
-    )
+def _queue_response(queue: ImportQueue) -> ImportQueueResponse:
+    return ImportQueueResponse.model_validate(queue, from_attributes=True)
 
 
 @router.post("/spotify/history")
@@ -172,7 +170,7 @@ async def import_spotify_history(
     and queue start all live in ``receive_export_upload`` (409/422/413).
     """
     queue = await receive_export_upload(user_id, files)
-    return _queue_response(queue.queue_id, queue.entries)
+    return _queue_response(queue)
 
 
 @router.get("/spotify/history/queue")
@@ -183,7 +181,7 @@ async def get_spotify_history_queue(
     queue = get_queue(user_id)
     if queue is None:
         raise HTTPException(status_code=404, detail="No import queue")
-    return _queue_response(queue.queue_id, queue.entries)
+    return _queue_response(queue)
 
 
 @router.delete("/spotify/history/queue")
@@ -194,7 +192,7 @@ async def cancel_spotify_history_queue(
     queue = cancel_pending(user_id)
     if queue is None:
         raise HTTPException(status_code=404, detail="No import queue")
-    return _queue_response(queue.queue_id, queue.entries)
+    return _queue_response(queue)
 
 
 # ---------------------------------------------------------------------------

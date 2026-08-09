@@ -3,7 +3,7 @@
  * Do not edit manually.
  * Mixd
  * Personal music metadata hub
- * OpenAPI spec version: 0.10.2.12
+ * OpenAPI spec version: 0.10.2.13
  */
 import type { ListTracksApiV1TracksGetTagMode } from './listTracksApiV1TracksGetTagMode.ts';
 import type { TrackSortBy } from './trackSortBy.ts';

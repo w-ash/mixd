@@ -33,7 +33,12 @@ cd "$(dirname "$0")/.."
 # scripts/unreject_mapping_candidate.py as the repository method's caller, so it now has
 # an in-src call site vulture can see — confirmed by running `vulture src/ alembic/`
 # (no whitelist) before removing the entry, per this file's own standing precedent.
-BASE_WHITELIST=76
+# 76 → 78 at v0.10.2.13: size_bytes / settled_at on the import-queue entry. Both are
+# written in src/ and serialized out of the queue endpoint, but every reader is in
+# web/src/lib/import-queue.ts — outside vulture's paths — so it sees write-only
+# attributes. Whitelisting is the honest fix: they are load-bearing for the queue view's
+# estimate and per-file durations, and the alternative is an artificial Python reader.
+BASE_WHITELIST=78
 BASE_NOQA=13
 BASE_TYPE_IGNORE=0
 BASE_PYRIGHT_IGNORE=18

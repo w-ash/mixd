@@ -96,6 +96,7 @@ function record(
     operationId: "op-sub",
     connectorPlaylistIdentifier: null,
     playlistName: null,
+    counts: null,
     outcome: null,
     resolved: null,
     unresolved: null,
@@ -394,6 +395,7 @@ describe("ImportPlaylistsConfirmDialog", () => {
         total: 2,
         subOperation: {
           operationId: "sub-1",
+          itemOperationId: "sub-1",
           description: "Chill Vibes",
           current: 50,
           total: 100,

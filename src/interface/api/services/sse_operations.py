@@ -19,6 +19,10 @@ Reusable primitives:
 - ``acquire_operation_slot`` / ``release_operation_slot`` — durable claim on
   one of the shared concurrency slots, for callers (the import queue) whose
   slot outlives any single operation.
+- ``safe_start_operation`` / ``safe_complete_operation`` — open and close an
+  operation on the broker without letting a progress-tracking failure break the
+  work being observed. Used here for each request operation, and by the import
+  queue for the drain operation it owns directly.
 """
 
 import asyncio
@@ -179,7 +183,8 @@ async def run_sse_operation(
     user_id: str | None = None,
     description: str = "Operation",
     occupies_slot: bool = True,
-    on_terminal: Callable[[OperationStatus], None] | None = None,
+    parent_operation_id: str | None = None,
+    on_terminal: Callable[[OperationStatus, JsonDict | None], None] | None = None,
 ) -> None:
     """Run a use-case coroutine with full SSE lifecycle cleanup.
 
@@ -213,11 +218,15 @@ async def run_sse_operation(
     entirely — the caller's own token (the import queue's) already holds the
     slot this run executes inside.
 
-    ``on_terminal`` is a plain sync callable invoked with the final status on
-    EVERY path — clean return, soft failure, uncaught exception, and
-    cancellation — after the audit finalize and terminal event push, and before
-    the SSE grace period. It is what lets a sequencer start the next run the
-    moment this one is truly settled instead of waiting out the grace window.
+    ``parent_operation_id`` makes this run a sub-operation of a longer-lived one
+    (the import queue's drain), so it also routes onto that parent's stream. The
+    run keeps its own stream either way — parenting adds a reader, never moves one.
+
+    ``on_terminal`` is a plain sync callable invoked with the final status and
+    counts on EVERY path — clean return, soft failure, uncaught exception, and
+    cancellation — after the audit finalize and terminal push, before the SSE
+    grace period. It lets a sequencer advance the moment this run settles rather
+    than waiting out the window, and keep its numbers once its stream closes.
     """
     if occupies_slot:
         _active_operations.add(operation_id)
@@ -225,7 +234,7 @@ async def run_sse_operation(
     # to, so the `started` event fires before the use case runs and the use case's
     # own operations route as its children (sub_* events). Best-effort — progress
     # tracking must never break the operation it observes.
-    await _safe_start_parent(operation_id, description)
+    await safe_start_operation(operation_id, description, parent_operation_id)
     status: OperationStatus = "complete"
     counts: JsonDict | None = None
     issues: list[JsonDict] = []
@@ -266,13 +275,13 @@ async def run_sse_operation(
                 issues=issues,
             )
         await _push_terminal_event(operation_id, status, counts, run_id)
-        await _safe_complete_parent(operation_id, status)
+        await safe_complete_operation(operation_id, status)
         if occupies_slot:
             release_operation_slot(operation_id)
         if on_terminal is not None:
             # The callback must not be able to break the SSE teardown below it.
             try:
-                on_terminal(status)
+                on_terminal(status, counts)
             except Exception:
                 logger.error(
                     "on_terminal callback failed",
@@ -344,11 +353,26 @@ async def _finalize_run_shielded(
         )
 
 
-async def _safe_start_parent(operation_id: str, description: str) -> None:
-    """Start the request (parent) operation; swallow any tracking error."""
+async def safe_start_operation(
+    operation_id: str, description: str, parent_operation_id: str | None = None
+) -> None:
+    """Start the request (parent) operation; swallow any tracking error.
+
+    ``parent_operation_id`` nests it under a longer-lived operation, which the
+    subscriber then announces as a sub-operation on that stream.
+    """
+    metadata: JsonDict = (
+        {"parent_operation_id": parent_operation_id}
+        if parent_operation_id is not None
+        else {}
+    )
     try:
         await get_progress_broker().start_operation(
-            ProgressOperation(operation_id=operation_id, description=description)
+            ProgressOperation(
+                operation_id=operation_id,
+                description=description,
+                metadata=metadata,
+            )
         )
     except Exception:
         logger.warning(
@@ -358,7 +382,7 @@ async def _safe_start_parent(operation_id: str, description: str) -> None:
         )
 
 
-async def _safe_complete_parent(operation_id: str, status: OperationStatus) -> None:
+async def safe_complete_operation(operation_id: str, status: OperationStatus) -> None:
     """Complete the request op so the coordinator evicts it; swallow tracking errors.
 
     The live terminal SSE event is already pushed by ``_push_terminal_event`` — the
@@ -393,27 +417,48 @@ async def _push_terminal_event(
     data so the toast can render the real per-operation numbers (``track_plays``,
     ``imported``, ``errors``, …). Best-effort: if the queue is already gone the run
     still finalized via the audit row.
+
+    The same terminal also reaches every registered ancestor as
+    ``sub_operation_completed`` with the counts attached: by then the parent is
+    usually the only reader left, and it is the surface still showing that item.
     """
     registry = get_operation_registry()
-    queue = await registry.get_queue(operation_id)
-    if queue is None:
-        return
     event_type = (
         WorkflowConstants.SSE_EVENT_ERROR
         if status == "error"
         else WorkflowConstants.SSE_EVENT_COMPLETE
     )
     final_status = "failed" if status == "error" else "completed"
-    await queue.put(
-        build_terminal_event(
-            "evt_final",
-            event_type,
-            operation_id,
-            final_status,
-            run_id=run_id,
-            counts=counts or {},
+
+    queue = await registry.get_queue(operation_id)
+    if queue is not None:
+        await queue.put(
+            build_terminal_event(
+                "evt_final",
+                event_type,
+                operation_id,
+                final_status,
+                run_id=run_id,
+                counts=counts or {},
+            )
         )
-    )
+
+    for target in await registry.ancestor_streams(operation_id):
+        # The ancestor's stream continues past this child, so its ids stay on the
+        # shared sequence rather than borrowing the resume-skipped ``evt_final``.
+        event_id = await registry.next_event_id(target.stream_operation_id)
+        await target.queue.put(
+            build_terminal_event(
+                event_id,
+                WorkflowConstants.SSE_EVENT_SUB_OPERATION_COMPLETED,
+                operation_id,
+                final_status,
+                run_id=run_id,
+                counts=counts or {},
+                parent_operation_id=target.stream_operation_id,
+                item_operation_id=target.item_operation_id,
+            )
+        )
 
 
 async def launch_sse_operation(
@@ -425,7 +470,8 @@ async def launch_sse_operation(
     request_params: JsonDict | None = None,
     initiated_by: str = "manual",
     occupies_slot: bool = True,
-    on_terminal: Callable[[OperationStatus], None] | None = None,
+    parent_operation_id: str | None = None,
+    on_terminal: Callable[[OperationStatus, JsonDict | None], None] | None = None,
 ) -> OperationStartedResponse:
     """Run the standard kickoff → background → return-202 shape.
 
@@ -447,9 +493,9 @@ async def launch_sse_operation(
     existing callers are unaffected; the chat→launcher wiring passes "assistant"
     for AI-agent-initiated background operations.
 
-    ``occupies_slot`` and ``on_terminal`` thread through to
-    ``prepare_sse_operation_with_emitter`` / ``run_sse_operation`` — see their
-    docstrings. Defaults preserve every pre-queue call site.
+    ``occupies_slot``, ``parent_operation_id`` and ``on_terminal`` thread
+    through to ``prepare_sse_operation_with_emitter`` / ``run_sse_operation`` —
+    see their docstrings. Defaults preserve every pre-queue call site.
     """
     operation_id, run_id, emitter = await prepare_sse_operation_with_emitter(
         user_id=user_id,
@@ -473,6 +519,7 @@ async def launch_sse_operation(
             user_id=user_id,
             description=description,
             occupies_slot=occupies_slot,
+            parent_operation_id=parent_operation_id,
             on_terminal=on_terminal,
         ),
     )

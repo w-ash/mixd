@@ -591,6 +591,153 @@ describe("useOperationProgress", () => {
     close();
   });
 
+  // ─── Depth: an item's row owns everything happening under it ──
+  //
+  // A drain streams its files as sub-operations, and each file streams its own
+  // phases underneath. The server tags every event with the generation the
+  // reader renders as a row (`item_operation_id`), so the client never has to
+  // reconstruct the tree — and a phase two levels down still lands on the file
+  // it belongs to rather than opening a row of its own.
+
+  it("attributes a nested phase's progress to the item that owns it", async () => {
+    mockSSEWithEvents([
+      {
+        event: "started",
+        data: JSON.stringify({
+          total: 2,
+          description: "Import Spotify Export",
+        }),
+      },
+      {
+        event: "sub_operation_started",
+        data: JSON.stringify({
+          operation_id: "file-1",
+          item_operation_id: "file-1",
+          description: "Import Spotify History",
+        }),
+      },
+      {
+        event: "sub_progress",
+        data: JSON.stringify({
+          operation_id: "resolve-1",
+          item_operation_id: "file-1",
+          current: 812,
+          total: 1204,
+          message: "Resolved 812/1204 plays (spotify)",
+          completion_percentage: 67.4,
+          phase: "match",
+        }),
+      },
+    ]);
+
+    const { result } = renderHook(() => useOperationProgress("drain-op"), {
+      wrapper: createWrapper(),
+    });
+
+    await waitFor(() => {
+      // One row, keyed to the file — not two, and not keyed to the phase.
+      expect(
+        Object.keys(result.current.progress?.subOperationHistory ?? {}),
+      ).toEqual(["file-1"]);
+    });
+    expect(result.current.progress?.subOperationHistory["file-1"]).toEqual(
+      expect.objectContaining({ operationId: "file-1", phase: "match" }),
+    );
+  });
+
+  it("keeps a settled item's counts once its own stream has closed", async () => {
+    // These arrive exactly once, on the parent's stream. The item's own stream
+    // closes moments later, so there is no second chance to read them.
+    const { close } = mockSSEOpenStream([
+      {
+        event: "started",
+        data: JSON.stringify({
+          total: 2,
+          description: "Import Spotify Export",
+        }),
+      },
+      {
+        event: "sub_operation_started",
+        data: JSON.stringify({
+          operation_id: "file-1",
+          item_operation_id: "file-1",
+          description: "Import Spotify History",
+        }),
+      },
+      {
+        event: "sub_operation_completed",
+        data: JSON.stringify({
+          operation_id: "file-1",
+          item_operation_id: "file-1",
+          final_status: "completed",
+          counts: { track_plays: 14208 },
+        }),
+      },
+    ]);
+
+    const { result } = renderHook(() => useOperationProgress("drain-op"), {
+      wrapper: createWrapper(),
+    });
+
+    await waitFor(() => {
+      expect(result.current.progress?.subOperationHistory["file-1"]).toEqual(
+        expect.objectContaining({
+          outcome: "succeeded",
+          counts: { track_plays: 14208 },
+        }),
+      );
+    });
+    close();
+  });
+
+  it("a phase finishing does not clear the item still running above it", async () => {
+    // Otherwise the live row blanks between ingest and resolve — the same
+    // between-things gap, one level down.
+    const { close } = mockSSEOpenStream([
+      {
+        event: "started",
+        data: JSON.stringify({
+          total: 2,
+          description: "Import Spotify Export",
+        }),
+      },
+      {
+        event: "sub_operation_started",
+        data: JSON.stringify({
+          operation_id: "ingest-1",
+          item_operation_id: "file-1",
+          description: "Ingesting",
+          phase: "fetch",
+        }),
+      },
+      {
+        event: "sub_operation_completed",
+        data: JSON.stringify({
+          operation_id: "ingest-1",
+          item_operation_id: "file-1",
+          final_status: "completed",
+        }),
+      },
+    ]);
+
+    const { result } = renderHook(() => useOperationProgress("drain-op"), {
+      wrapper: createWrapper(),
+    });
+
+    await waitFor(() => {
+      expect(result.current.progress?.status).toBe("running");
+    });
+    expect(result.current.progress?.subOperation).not.toBeNull();
+    // And crucially the ROW is not concluded: a phase signs off with the same
+    // `final_status: "completed"` a finished file does, so recording it as the
+    // row's verdict would check off file 1 the moment its ingest ends — and
+    // wipe the counts a later terminal would have carried.
+    expect(
+      result.current.progress?.subOperationHistory["file-1"]?.outcome ?? null,
+    ).toBeNull();
+    close();
+  });
+
   // ─── Recovery: the durable row outlives the stream ────────────
   //
   // Prod incident: the machine running a long import was stopped mid-run. The

@@ -47,6 +47,26 @@ def _reset_import_queue_state():
 
 
 @pytest.fixture
+async def _sse_subscriber_wired():
+    """Subscribe the SSE subscriber to the broker for the duration of a test.
+
+    ``ASGITransport`` never runs the app lifespan, so the wiring that app
+    startup does is absent here — without it a stream only ever receives the
+    events pushed to its queue directly, and every broker-routed event (the
+    whole ``started``/``sub_*`` vocabulary) is silently missing.
+    """
+    from src.application.services.progress_broker import get_progress_broker
+    from src.interface.api.services.progress import SSEProgressSubscriber
+
+    broker = get_progress_broker()
+    sub_id = await broker.subscribe(SSEProgressSubscriber(get_operation_registry()))
+    try:
+        yield
+    finally:
+        await broker.unsubscribe(sub_id)
+
+
+@pytest.fixture
 def _drain_import_queues_for_real(client, monkeypatch):
     """Opt this test out of the conftest ``launch_background`` stub so the
     queue actually drains, and zero the SSE grace period so each entry's run
@@ -603,6 +623,121 @@ class TestSpotifyHistoryQueueDrain:
         for row in rows.values():
             assert row["status"] == "complete"
             assert isinstance(row["counts"], dict)
+
+    @pytest.mark.usefixtures("_sse_subscriber_wired")
+    async def test_one_stream_covers_the_whole_export(self, client: httpx2.AsyncClient):
+        """The export streams as ONE operation, files as its sub-operations.
+
+        This is the property the per-file streams could not provide: a client
+        keyed to whichever file is running has to re-attach at every handover,
+        and is attached to nothing in between — which is a blank view at
+        exactly the moment someone checks back on a half-hour import.
+        """
+        response = await client.post(
+            "/api/v1/imports/spotify/history",
+            files=_multipart([
+                ("first.json", json.dumps([]).encode()),
+                ("second.json", json.dumps([]).encode()),
+            ]),
+        )
+        assert response.status_code == 200
+        drain_operation_id = response.json()["operation_id"]
+
+        # Attach the way a client does: to the id the POST returned, before any
+        # file has started, and never again.
+        stream = await get_operation_registry().get_queue(drain_operation_id)
+        assert stream is not None
+
+        data = await _poll_queue_until_drained(client)
+        await _settle_background_tasks()
+
+        events = []
+        while not stream.empty():
+            event = stream.get_nowait()
+            if event is SSE_SENTINEL:
+                break
+            events.append(event)
+
+        kinds = [e["event"] for e in events]
+        assert kinds[0] == "started"
+        assert kinds[-1] == "complete"
+
+        # An item event names the generation the reader renders as a row. For a
+        # file that is the file itself; for a phase running inside it, the walk
+        # still attributes the event to the file. That is what lets one row own
+        # everything happening under it without the client rebuilding the tree.
+        def _rows(event_type: str) -> list[dict]:
+            return [
+                e["data"]
+                for e in events
+                if e["event"] == event_type
+                and e["data"]["item_operation_id"] == e["data"]["operation_id"]
+            ]
+
+        assert len(_rows("sub_operation_started")) == 2
+        assert len(_rows("sub_operation_completed")) == 2
+
+        # Each file opens before it closes, and closes before the next opens —
+        # the strict handover the queue's whole design rests on.
+        file_ids = {d["operation_id"] for d in _rows("sub_operation_started")}
+        lifecycle = [
+            e["event"]
+            for e in events
+            if e["event"].startswith("sub_operation_")
+            and e["data"]["operation_id"] in file_ids
+            and e["data"]["item_operation_id"] == e["data"]["operation_id"]
+        ]
+        assert lifecycle == [
+            "sub_operation_started",
+            "sub_operation_completed",
+            "sub_operation_started",
+            "sub_operation_completed",
+        ]
+
+        # A finished file carries its own numbers on the drain's stream, so the
+        # row keeps them once that file's own stream has closed.
+        for data in _rows("sub_operation_completed"):
+            assert data["final_status"] == "completed"
+            assert isinstance(data["counts"], dict)
+
+        # The phases inside a file are attributed to it, and say which phase
+        # they are — the difference between "still going" and "resolving".
+        phases = {
+            e["data"]["phase"]
+            for e in events
+            if e["event"] == "sub_operation_started"
+            and e["data"]["item_operation_id"] != e["data"]["operation_id"]
+        }
+        assert "fetch" in phases
+
+        # Overall position is counted in files and never rewinds.
+        positions = [e["data"]["current"] for e in events if e["event"] == "progress"]
+        assert positions == sorted(positions)
+        assert positions[-1] == 2
+        assert events[-1]["data"]["counts"] == {"files": 2, "files_complete": 2}
+
+    async def test_queue_entries_carry_sizes_and_settled_counts(
+        self, client: httpx2.AsyncClient
+    ):
+        """A reload an hour in must show what each file actually imported."""
+        body = json.dumps([]).encode()
+        response = await client.post(
+            "/api/v1/imports/spotify/history",
+            files=_multipart([("first.json", body), ("second.json", body * 3)]),
+        )
+        assert response.status_code == 200
+
+        data = await _poll_queue_until_drained(client)
+        await _settle_background_tasks()
+
+        # Sizes are the real bytes written, recorded at upload — a client
+        # weighting "time left" by work needs them, and a GDPR export's files
+        # differ several-fold.
+        assert [e["size_bytes"] for e in data["entries"]] == [len(body), len(body) * 3]
+        for entry in data["entries"]:
+            assert entry["started_at"] is not None
+            assert entry["settled_at"] is not None
+            assert isinstance(entry["counts"], dict)
 
     async def test_failing_entry_records_error_and_queue_continues(
         self, client: httpx2.AsyncClient, tmp_path, monkeypatch

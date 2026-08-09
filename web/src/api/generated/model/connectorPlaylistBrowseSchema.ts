@@ -3,7 +3,7 @@
  * Do not edit manually.
  * Mixd
  * Personal music metadata hub
- * OpenAPI spec version: 0.10.2.12
+ * OpenAPI spec version: 0.10.2.13
  */
 import type { ActiveAssignmentSchema } from './activeAssignmentSchema.ts';
 import type { ConnectorPlaylistBrowseSchemaImportStatus } from './connectorPlaylistBrowseSchemaImportStatus.ts';

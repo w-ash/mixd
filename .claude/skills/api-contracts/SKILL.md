@@ -38,16 +38,25 @@ Base URL: `/api/v1`. All IDs — entities and operations — are UUID strings.
 `GET /operations/{id}/progress` (`text/event-stream` — stubbed to an empty schema in `web/openapi.json` by `scripts/export_openapi.py`, so this section is the reference):
 
 ```
-id: 42
-event: progress
-data: {"operation_id":"uuid","status":"RUNNING","current":150,"total":5000,"message":"Importing plays...","metadata":{}}
+id: evt_1
+event: started
+data: {"operation_id":"uuid","description":"Import Spotify History","total":5000,"status":"running"}
 
-id: 43
+id: evt_42
+event: progress
+data: {"operation_id":"uuid","current":150,"total":5000,"message":"Importing plays...","status":"running","completion_percentage":3.0,"items_per_second":null,"eta_seconds":null}
+
+id: evt_final
 event: complete
-data: {"operation_id":"uuid","status":"COMPLETED","current":5000,"total":5000,"message":"Import complete","result":{...}}
+data: {"operation_id":"uuid","final_status":"completed","run_id":"uuid","track_plays":5000,"duplicates":12,"errors":0}
 ```
 
-Event types: `progress`, `complete`, `error`, `cancelled`. Supports `Last-Event-ID` reconnection. On stream end, the frontend reconciles via REST (v0.8.8 pattern).
+Event ids are per-operation counters (`evt_<n>`), except the terminal `evt_final` and the workflow route's one-shot `evt_accept` — both deliberately unmatched by the `^evt_\d+$` resume filter.
+
+Event types — the authority is `WorkflowConstants.SSE_EVENT_*` in `src/config/constants.py`:
+`run_accepted`, `node_status`, `started`, `progress`, `sub_operation_started`, `sub_progress`, `sub_operation_completed`, `complete`, `error`, `preview_complete`. There is **no `cancelled` event**: a cancelled run arrives as `error` carrying `CANCELLED_ERROR_MESSAGE`, and a `partial` run arrives as `complete` with a non-zero `errors` count — the SSE terminal vocabulary is only `complete`/`error`, and the finer distinction lives on the durable `operation_runs` row.
+
+Nesting: a use case's own operations are reparented to the request operation via `parent_operation_id` metadata and route as `sub_*` events on the parent's stream; `run_sse_operation` owns the terminal event and counts, not the subscriber. Supports `Last-Event-ID` reconnection. On stream end, the frontend reconciles via REST (v0.8.8 pattern).
 
 ## Object shapes
 

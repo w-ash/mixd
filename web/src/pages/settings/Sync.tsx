@@ -36,11 +36,11 @@ import {
 } from "#/components/shared/DatabaseUnavailable";
 import { FileUpload } from "#/components/shared/FileUpload";
 import { OperationProgress } from "#/components/shared/OperationProgress";
-import { RunStatusBadge } from "#/components/shared/RunStatusBadge";
 import { ScheduleCard } from "#/components/shared/ScheduleCard";
 import { SectionHeader } from "#/components/shared/SectionHeader";
 import { Button } from "#/components/ui/button";
 import { Switch } from "#/components/ui/switch";
+import type { OperationProgress as OperationProgressState } from "#/hooks/useOperationProgress";
 import { useOperationProgress } from "#/hooks/useOperationProgress";
 import { useSyncScheduleController } from "#/hooks/useScheduleController";
 import { formatDateTime } from "#/lib/format";
@@ -53,6 +53,7 @@ import {
   toasts,
 } from "#/lib/toasts";
 import { cn } from "#/lib/utils";
+import { ImportQueueManifest } from "#/pages/settings/ImportQueueManifest";
 
 /** Query keys to invalidate when an import operation completes. */
 const CHECKPOINT_KEYS = [
@@ -127,6 +128,11 @@ interface OperationCardProps {
    * finished file advances the chips without waiting for the next poll. */
   invalidateKeys?: readonly (readonly unknown[])[];
   children?: React.ReactNode;
+  /** Card body needing the live progress the card is already subscribed to —
+   * a second `useOperationProgress` on the same id opens a second stream. */
+  renderDetail?: (progress: OperationProgressState | null) => React.ReactNode;
+  /** Suppress the card's own bar when the detail renders one for the same work. */
+  hideProgressBar?: boolean;
 }
 
 function OperationCard({
@@ -146,6 +152,8 @@ function OperationCard({
   pollingService,
   invalidateKeys = CHECKPOINT_KEYS,
   children,
+  renderDetail,
+  hideProgressBar = false,
 }: OperationCardProps) {
   const { progress, isActive } = useOperationProgress(operationId, {
     invalidateKeys,
@@ -213,7 +221,11 @@ function OperationCard({
 
       {children && <div className="mt-3">{children}</div>}
 
-      {progress && <OperationProgress progress={progress} className="mt-3" />}
+      {renderDetail?.(progress)}
+
+      {progress && !hideProgressBar && (
+        <OperationProgress progress={progress} className="mt-3" />
+      )}
 
       {syncTarget && <SyncScheduleField targetId={syncTarget} />}
 
@@ -661,8 +673,16 @@ function SpotifyHistoryImport() {
     });
   const queue = queueData?.status === 200 ? queueData.data : null;
   const queueActive = queue != null && !queue.entries.every(isSettledEntry);
-  const runningEntry =
-    queue?.entries.find((entry) => entry.status === "running") ?? null;
+
+  // Each file is a real run, so the global watcher would announce all thirteen.
+  // An export is one piece of work, and its result is the manifest below.
+  useEffect(() => {
+    for (const entry of queue?.entries ?? []) {
+      if (entry.run_id != null && isSettledEntry(entry)) {
+        claimRunToast(entry.run_id);
+      }
+    }
+  }, [queue]);
 
   const cancelMutation =
     useCancelSpotifyHistoryQueueApiV1ImportsSpotifyHistoryQueueDelete({
@@ -711,8 +731,13 @@ function SpotifyHistoryImport() {
       // ("spotify","plays") checkpoint now tracks the API poll cursor and is
       // shown on the Recent Plays card instead.
       checkpoint={undefined}
-      operationId={runningEntry?.operation_id ?? null}
-      runId={runningEntry?.run_id ?? null}
+      // ONE id for the whole export: deriving it from the running file meant
+      // re-attaching at every handover, attached to nothing in between. Dropped
+      // once the queue settles, or the card waits forever on a retired stream
+      // and refuses the next upload.
+      operationId={queueActive ? (queue?.operation_id ?? null) : null}
+      // The drain writes no audit row; the durable record is one per file.
+      runId={null}
       operationType="import_spotify_history"
       isPending={mutation.isPending}
       onTrigger={trigger}
@@ -723,6 +748,17 @@ function SpotifyHistoryImport() {
           : "Import"
       }
       invalidateKeys={[...CHECKPOINT_KEYS, queueQueryKey]}
+      hideProgressBar
+      renderDetail={(progress) =>
+        queue != null && queue.entries.length > 0 ? (
+          <ImportQueueManifest
+            entries={queue.entries}
+            subOperation={progress?.subOperation ?? null}
+            onCancelRemaining={() => cancelMutation.mutate()}
+            cancelDisabled={cancelMutation.isPending}
+          />
+        ) : null
+      }
     >
       <FileUpload
         // Remount when a queue (re)starts: FileUpload owns its selected-file
@@ -733,37 +769,6 @@ function SpotifyHistoryImport() {
         onFilesSelect={setSelectedFiles}
         disabled={mutation.isPending || queueActive}
       />
-      {queue != null && queue.entries.length > 0 && (
-        <div className="mt-3">
-          <div className="flex items-center justify-between gap-2">
-            <p className="font-display text-xs text-text-muted">Import queue</p>
-            {queue.entries.some((entry) => entry.status === "queued") && (
-              <Button
-                type="button"
-                variant="ghost"
-                size="sm"
-                disabled={cancelMutation.isPending}
-                onClick={() => cancelMutation.mutate()}
-              >
-                Cancel remaining
-              </Button>
-            )}
-          </div>
-          <ul className="mt-1 space-y-1">
-            {queue.entries.map((entry) => (
-              <li
-                key={entry.position}
-                className="flex items-center justify-between gap-2"
-              >
-                <span className="truncate font-mono text-xs text-text-muted">
-                  {entry.filename}
-                </span>
-                <RunStatusBadge status={entry.status} />
-              </li>
-            ))}
-          </ul>
-        </div>
-      )}
       <details className="mt-2 text-xs text-text-faint">
         <summary className="cursor-pointer hover:text-text-muted">
           How to get your data export

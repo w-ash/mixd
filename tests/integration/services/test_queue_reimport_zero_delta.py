@@ -112,7 +112,7 @@ async def _delete_user_rows(user_id: str) -> None:
 
 async def _drain_queue_pass(user_id: str, tmpdir: Path, export: Path) -> None:
     """One POST-equivalent: start the queue with one entry, wait until drained."""
-    queue = start_queue(
+    queue = await start_queue(
         user_id=user_id,
         tmpdir=tmpdir,
         entries=[QueueEntry(filename=export.name, position=0, path=export)],

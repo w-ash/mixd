@@ -119,3 +119,12 @@ reset_play_refresh_flight  # src/application/services/play_freshness.py — test
 # — was deleted rather than kept as a second, redundant caller.)
 get_supersession_chain  # mapping history walk — tests + the v0.14.0 Manual Mapping UI
 events_for_mapping  # "why does my library believe this" reader — tests + v0.14.0 UI
+
+# --- v0.10.2.13 import-queue view: response fields read only by the web client ---
+# Both are set in src/ and serialized out by `ImportQueueResponse.model_validate(...,
+# from_attributes=True)`; their only readers are in web/src/lib/import-queue.ts, which
+# vulture cannot see. They are load-bearing there — `size_bytes` weights the "time left"
+# estimate and `settled_at` is half of every per-file duration. Deleting either would
+# silently blank the queue view.
+size_bytes  # QueueEntry + ImportQueueEntrySchema — per-file bytes, weights the estimate
+settled_at  # QueueEntry + ImportQueueEntrySchema — per-file duration, batch-rate input

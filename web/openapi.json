@@ -3,7 +3,7 @@
   "info": {
     "title": "Mixd",
     "description": "Personal music metadata hub",
-    "version": "0.10.2.12"
+    "version": "0.10.2.13"
   },
   "paths": {
     "/api/v1/connectors/{service}/auth-url": {
@@ -6333,6 +6333,45 @@
               }
             ],
             "title": "Run Id"
+          },
+          "size_bytes": {
+            "type": "integer",
+            "title": "Size Bytes",
+            "default": 0
+          },
+          "started_at": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "date-time"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Started At"
+          },
+          "settled_at": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "date-time"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Settled At"
+          },
+          "counts": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/JsonDict"
+              },
+              {
+                "type": "null"
+              }
+            ]
           }
         },
         "type": "object",
@@ -6342,13 +6381,22 @@
           "status"
         ],
         "title": "ImportQueueEntrySchema",
-        "description": "One file's place in a Spotify GDPR import queue.\n\n``operation_id``/``run_id`` are null until the entry starts \u2014 a queued file\nhas no ``operation_runs`` row yet; the ids appear via the queue GET as the\nsequencer reaches it."
+        "description": "One file's place in a Spotify GDPR import queue.\n\n``operation_id``/``run_id`` are null until the entry starts \u2014 a queued file\nhas no ``operation_runs`` row yet; the ids appear via the queue GET as the\nsequencer reaches it.\n\nEverything past ``run_id`` exists so this endpoint can restore the view a\ndropped stream was painting: ``counts`` outlives a settled file's own\nstream, and ``size_bytes`` plus the timestamps are what an estimate needs.\nNo summary object \u2014 every roll-up is one pass over these entries, and a\nserver-side copy would be a second source of truth for the same facts."
       },
       "ImportQueueResponse": {
         "properties": {
           "queue_id": {
             "type": "string",
             "title": "Queue Id"
+          },
+          "operation_id": {
+            "type": "string",
+            "title": "Operation Id"
+          },
+          "started_at": {
+            "type": "string",
+            "format": "date-time",
+            "title": "Started At"
           },
           "entries": {
             "items": {
@@ -6361,10 +6409,12 @@
         "type": "object",
         "required": [
           "queue_id",
+          "operation_id",
+          "started_at",
           "entries"
         ],
         "title": "ImportQueueResponse",
-        "description": "The user's current import queue, in upload order."
+        "description": "The user's current import queue, in upload order.\n\n``operation_id`` is the drain's SSE handle \u2014 one id for the whole export,\nwith each file a sub-operation of it, so the client attaches once instead of\nre-attaching per entry. Unregistered after the drain's grace period, so a\nlate re-attach 404s and reads this response instead."
       },
       "ImportSpotifyLikesRequest": {
         "properties": {

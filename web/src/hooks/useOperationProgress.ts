@@ -22,6 +22,9 @@ export type SubOperationOutcome = "succeeded" | "skipped_unchanged" | "failed";
 
 export interface SubOperationProgress {
   operationId: string;
+  /** The row this belongs to — see `subOpKey`. Equals `operationId` for a
+   * direct child, otherwise the ancestor row. */
+  itemOperationId: string | null;
   description: string;
   current: number;
   total: number | null;
@@ -44,6 +47,9 @@ export interface SubOperationRecord {
   errorMessage: string | null;
   phase: string | null;
   canonicalPlaylistId: string | null;
+  /** Counts from this item's terminal event, when it is itself a run (an
+   * import queue's per-file operations are). Null otherwise. */
+  counts: Record<string, unknown> | null;
 }
 
 export interface OperationProgress {
@@ -101,14 +107,20 @@ const DEFAULT_PROGRESS: Omit<
   subOperation: null,
 };
 
-/** Key a sub-op by connector_playlist_identifier when present (stable across
- * the fetch → resolve → done phases), falling back to operation_id when the
- * event carries no identifier. */
+/** Key a sub-op to the row that owns it.
+ *
+ * `connector_playlist_identifier` wins where it exists — stable across a
+ * playlist's phases and what the playlist surfaces already look up by.
+ * Otherwise `item_operation_id`, which the server sets to the ancestor that is
+ * the direct child of the stream being read, so an event from a phase two
+ * levels down still lands on its file's row. `operation_id` is the fallback.
+ */
 function subOpKey(
   connectorPlaylistIdentifier: string | null,
+  itemOperationId: string | null,
   operationId: string,
 ): string {
-  return connectorPlaylistIdentifier ?? operationId;
+  return connectorPlaylistIdentifier ?? itemOperationId ?? operationId;
 }
 
 /** Statuses that can still change — anything the run hasn't concluded from. */
@@ -310,14 +322,17 @@ export function useOperationProgress(
         case SSE_EVENT.SUB_OPERATION_STARTED: {
           const cid = (d.connector_playlist_identifier as string) ?? null;
           const opId = (d.operation_id as string) ?? "";
+          const itemId = (d.item_operation_id as string) ?? null;
           const name = (d.playlist_name as string) ?? null;
           setProgress((prev) => {
             if (!prev) return prev;
-            const key = subOpKey(cid, opId);
+            const key = subOpKey(cid, itemId, opId);
+            const existingRecord = prev.subOperationHistory[key];
             return {
               ...prev,
               subOperation: {
                 operationId: opId,
+                itemOperationId: itemId,
                 description: (d.description as string) ?? "",
                 current: 0,
                 total: (d.total as number) ?? null,
@@ -330,15 +345,18 @@ export function useOperationProgress(
               subOperationHistory: {
                 ...prev.subOperationHistory,
                 [key]: {
-                  operationId: opId,
+                  operationId: itemId ?? opId,
                   connectorPlaylistIdentifier: cid,
-                  playlistName: name,
-                  outcome: null,
-                  resolved: null,
-                  unresolved: null,
-                  errorMessage: null,
-                  phase: (d.phase as string) ?? null,
-                  canonicalPlaylistId: null,
+                  playlistName: name ?? existingRecord?.playlistName ?? null,
+                  // A nested phase starting is not the row restarting.
+                  outcome: existingRecord?.outcome ?? null,
+                  resolved: existingRecord?.resolved ?? null,
+                  unresolved: existingRecord?.unresolved ?? null,
+                  errorMessage: existingRecord?.errorMessage ?? null,
+                  phase: (d.phase as string) ?? existingRecord?.phase ?? null,
+                  canonicalPlaylistId:
+                    existingRecord?.canonicalPlaylistId ?? null,
+                  counts: existingRecord?.counts ?? null,
                 },
               },
             };
@@ -349,11 +367,12 @@ export function useOperationProgress(
         case SSE_EVENT.SUB_PROGRESS: {
           const cid = (d.connector_playlist_identifier as string) ?? null;
           const opId = (d.operation_id as string) ?? "";
+          const itemId = (d.item_operation_id as string) ?? null;
           const name = (d.playlist_name as string) ?? null;
           const outcome = (d.outcome as SubOperationOutcome | null) ?? null;
           setProgress((prev) => {
             if (!prev) return prev;
-            const key = subOpKey(cid, opId);
+            const key = subOpKey(cid, itemId, opId);
             const existingRecord = prev.subOperationHistory[key];
             // Update live sub-op display if this event is for the active one.
             const sub = prev.subOperation;
@@ -378,7 +397,7 @@ export function useOperationProgress(
               subOperationHistory: {
                 ...prev.subOperationHistory,
                 [key]: {
-                  operationId: opId,
+                  operationId: itemId ?? opId,
                   connectorPlaylistIdentifier:
                     cid ?? existingRecord?.connectorPlaylistIdentifier ?? null,
                   playlistName: name ?? existingRecord?.playlistName ?? null,
@@ -401,6 +420,7 @@ export function useOperationProgress(
                     (d.canonical_playlist_id as string | null) ??
                     existingRecord?.canonicalPlaylistId ??
                     null,
+                  counts: existingRecord?.counts ?? null,
                 },
               },
             };
@@ -408,11 +428,53 @@ export function useOperationProgress(
           break;
         }
 
-        case SSE_EVENT.SUB_OPERATION_COMPLETED:
-          setProgress((prev) =>
-            prev ? { ...prev, subOperation: null } : prev,
-          );
+        case SSE_EVENT.SUB_OPERATION_COMPLETED: {
+          const opId = (d.operation_id as string) ?? "";
+          const itemId = (d.item_operation_id as string) ?? null;
+          // An item that is itself a run signs off with counts, and this is
+          // the only place they arrive — its own stream closes moments later.
+          const finalStatus = (d.final_status as string) ?? null;
+          const counts = (d.counts as Record<string, unknown>) ?? null;
+          setProgress((prev) => {
+            if (!prev) return prev;
+            // A phase inside a row finishes with the same `completed` a row
+            // does; only the item id separates them. Recording it would check
+            // the row off — and wipe its counts — while it is still running.
+            if (itemId !== null && itemId !== opId) return prev;
+            if (finalStatus === null) {
+              return { ...prev, subOperation: null };
+            }
+            const key = subOpKey(null, itemId, opId);
+            const existing = prev.subOperationHistory[key];
+            return {
+              ...prev,
+              subOperation: null,
+              subOperationHistory: {
+                ...prev.subOperationHistory,
+                [key]: {
+                  operationId: itemId ?? opId,
+                  connectorPlaylistIdentifier:
+                    existing?.connectorPlaylistIdentifier ?? null,
+                  playlistName: existing?.playlistName ?? null,
+                  outcome:
+                    finalStatus === "failed"
+                      ? ("failed" as const)
+                      : ("succeeded" as const),
+                  resolved: existing?.resolved ?? null,
+                  unresolved: existing?.unresolved ?? null,
+                  errorMessage:
+                    (counts?.error_message as string | undefined) ??
+                    existing?.errorMessage ??
+                    null,
+                  phase: existing?.phase ?? null,
+                  canonicalPlaylistId: existing?.canonicalPlaylistId ?? null,
+                  counts,
+                },
+              },
+            };
+          });
           break;
+        }
       }
     },
   });

@@ -439,26 +439,44 @@ class TestRunSseOperationCancellation:
             await registry.unregister(op_id)
 
 
+class _TerminalRecorder:
+    """Captures every ``on_terminal`` call as ``(status, counts)``."""
+
+    def __init__(self) -> None:
+        self.calls: list[tuple[str, dict[str, object] | None]] = []
+
+    def __call__(self, status: str, counts: dict[str, object] | None) -> None:
+        self.calls.append((status, counts))
+
+    @property
+    def statuses(self) -> list[str]:
+        return [status for status, _counts in self.calls]
+
+
 class TestOnTerminalCallback:
     """``on_terminal`` is the sequencer's advance signal: it must fire with the
-    final status on every path — clean, soft failure, uncaught exception, and
-    cancellation — and before the SSE grace period, or a queued export would
-    wait out 30s of grace per file."""
+    final status AND the run's counts on every path — clean, soft failure,
+    uncaught exception, and cancellation — and before the SSE grace period, or
+    a queued export would wait out 30s of grace per file.
+
+    The counts are what let a sequencer keep a finished item's real numbers:
+    they arrive on that run's own stream, which closes moments later, so a
+    parent surface has no other chance to read them."""
 
     async def test_fires_with_complete_on_clean_result(self, captured_finalize):
-        seen: list[str] = []
+        seen = _TerminalRecorder()
 
         async def coro() -> OperationResult:
             return OperationResult(operation_name="Import")
 
         await sse_operations.run_sse_operation(
-            _op_id(), coro(), run_id=uuid4(), user_id="u1", on_terminal=seen.append
+            _op_id(), coro(), run_id=uuid4(), user_id="u1", on_terminal=seen
         )
 
-        assert seen == ["complete"]
+        assert seen.statuses == ["complete"]
 
     async def test_fires_with_error_on_soft_failure(self, captured_finalize):
-        seen: list[str] = []
+        seen = _TerminalRecorder()
         result = OperationResult(operation_name="Import")
         result.summary_metrics.add("errors", 1, "Errors", significance=1)
         result.metadata["error"] = "bad file"
@@ -467,27 +485,30 @@ class TestOnTerminalCallback:
             return result
 
         await sse_operations.run_sse_operation(
-            _op_id(), coro(), run_id=uuid4(), user_id="u1", on_terminal=seen.append
+            _op_id(), coro(), run_id=uuid4(), user_id="u1", on_terminal=seen
         )
 
-        assert seen == ["error"]
+        assert seen.statuses == ["error"]
+        # The counts ride along, not just the verdict.
+        assert (seen.calls[0][1] or {}).get("errors") == 1
 
     async def test_fires_with_error_on_uncaught_exception(self, captured_finalize):
-        seen: list[str] = []
+        seen = _TerminalRecorder()
 
         async def coro() -> None:
             raise RuntimeError("boom")
 
         await sse_operations.run_sse_operation(
-            _op_id(), coro(), run_id=uuid4(), user_id="u1", on_terminal=seen.append
+            _op_id(), coro(), run_id=uuid4(), user_id="u1", on_terminal=seen
         )
 
-        assert seen == ["error"]
+        assert seen.statuses == ["error"]
+        assert (seen.calls[0][1] or {}).get("error_message") == "boom"
 
     async def test_fires_on_cancellation_and_cancellation_still_propagates(
         self, captured_finalize
     ):
-        seen: list[str] = []
+        seen = _TerminalRecorder()
         entered = asyncio.Event()
 
         async def coro() -> None:
@@ -496,7 +517,7 @@ class TestOnTerminalCallback:
 
         task = asyncio.create_task(
             sse_operations.run_sse_operation(
-                _op_id(), coro(), run_id=uuid4(), user_id="u1", on_terminal=seen.append
+                _op_id(), coro(), run_id=uuid4(), user_id="u1", on_terminal=seen
             )
         )
         await entered.wait()
@@ -504,7 +525,7 @@ class TestOnTerminalCallback:
         with pytest.raises(asyncio.CancelledError):
             await task
 
-        assert seen == ["error"]
+        assert seen.statuses == ["error"]
 
     async def test_fires_before_the_sse_grace_period(self):
         # The sequencer must be able to start the next entry the moment this
@@ -530,13 +551,13 @@ class TestOnTerminalCallback:
                 coro(),
                 run_id=uuid4(),
                 user_id="u1",
-                on_terminal=lambda _status: order.append("terminal"),
+                on_terminal=lambda _status, _counts: order.append("terminal"),
             )
 
         assert order == ["terminal", "grace"]
 
     async def test_callback_failure_does_not_break_teardown(self, captured_finalize):
-        def explode(_status: str) -> None:
+        def explode(_status: str, _counts: dict[str, object] | None) -> None:
             raise RuntimeError("observer broke")
 
         async def coro() -> OperationResult:
@@ -665,6 +686,7 @@ class TestLaunchSseOperationThreadsResult:
             user_id: str | None = None,
             description: str = "Operation",
             occupies_slot: bool = True,
+            parent_operation_id: str | None = None,
             on_terminal: object = None,
         ) -> None:
             seen_result.append(await coro)

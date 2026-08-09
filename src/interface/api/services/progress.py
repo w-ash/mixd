@@ -12,7 +12,7 @@ import asyncio
 from typing import Final, override
 from uuid import UUID
 
-from attrs import define, field
+from attrs import define
 
 from src.config import get_logger
 from src.config.constants import WorkflowConstants
@@ -69,8 +69,7 @@ class OperationBoundEmitter(ProgressEmitter):
         """The request (parent) operation id this emitter parents children to.
 
         Exposed so a multi-level flow (connector-playlist import) can parent its
-        per-item sub-operations directly to the request op — the SSE subscriber
-        routes only one level, so the request op must be the single parent.
+        per-item sub-operations directly to the request op.
         """
         return self._operation_id
 
@@ -86,9 +85,8 @@ class OperationBoundEmitter(ProgressEmitter):
 
     @override
     async def start_operation(self, operation: ProgressOperation) -> str:
-        # Already parented (e.g. an explicit sub-op) — forward untouched so we
-        # never overwrite a deliberate parent or create a child-of-child the
-        # single-level SSE subscriber can't route.
+        # Already parented (e.g. an explicit sub-op) — forward untouched rather
+        # than overwrite a deliberate parent.
         if operation.metadata.get("parent_operation_id"):
             return await self._delegate.start_operation(operation)
         child = operation.with_metadata(parent_operation_id=self._operation_id)
@@ -110,22 +108,44 @@ class OperationBoundEmitter(ProgressEmitter):
 # ---------------------------------------------------------------------------
 
 
+@define(frozen=True, slots=True)
+class AncestorStream:
+    """One registered stream an event should also appear on.
+
+    ``item_operation_id`` is the operation directly beneath
+    ``stream_operation_id`` — "which row does this belong to". A drain watching
+    thirteen files gets the file's id even for an event two levels down, so the
+    client never reconstructs the tree.
+    """
+
+    queue: asyncio.Queue[object]
+    stream_operation_id: str
+    item_operation_id: str
+
+
 class SSEOperationRegistry:
     """Maps operation_id → asyncio.Queue for SSE event delivery.
 
+    Also owns the operation tree (child → parent edges) and the per-stream
+    event-id counters: both are routing state with two producers
+    (``SSEProgressSubscriber`` and ``sse_operations``), so they live where both
+    already reach.
+
     Thread-safe via asyncio.Lock. The queue is the rendezvous point between
-    background tasks (producers via SSEProgressSubscriber) and SSE endpoint
-    generators (consumers).
+    background tasks (producers) and SSE endpoint generators (consumers).
     """
 
     def __init__(self) -> None:
         self._queues: dict[str, asyncio.Queue[object]] = {}
+        self._parents: dict[str, str] = {}
+        self._event_counters: dict[str, int] = {}
         self._lock = asyncio.Lock()
 
     async def register(self, operation_id: str) -> asyncio.Queue[object]:
         async with self._lock:
             queue: asyncio.Queue[object] = asyncio.Queue()
             self._queues[operation_id] = queue
+            self._event_counters[operation_id] = 0
             logger.debug("SSE queue registered", operation_id=operation_id)
             return queue
 
@@ -136,8 +156,62 @@ class SSEOperationRegistry:
     async def unregister(self, operation_id: str) -> None:
         async with self._lock:
             removed = self._queues.pop(operation_id, None)
+            _ = self._event_counters.pop(operation_id, None)
+            _ = self._parents.pop(operation_id, None)
             if removed is not None:
                 logger.debug("SSE queue unregistered", operation_id=operation_id)
+
+    async def record_parent(self, operation_id: str, parent_operation_id: str) -> None:
+        """Remember one child → parent edge.
+
+        Recorded even when the parent is unregistered — it is still the link a
+        grandchild walks through to reach a stream above it.
+        """
+        async with self._lock:
+            self._parents[operation_id] = parent_operation_id
+
+    async def forget_parent(self, operation_id: str) -> None:
+        async with self._lock:
+            _ = self._parents.pop(operation_id, None)
+
+    async def ancestor_streams(self, operation_id: str) -> list[AncestorStream]:
+        """Every registered ancestor stream, nearest first.
+
+        Fan-out rather than nearest-only: a queued file belongs on its own
+        stream *and* on the drain's, and neither consumer should depend on who
+        else is listening. ``seen`` bounds the walk, since parent ids are
+        caller-supplied metadata and a cycle must not hang the loop.
+        """
+        async with self._lock:
+            targets: list[AncestorStream] = []
+            seen = {operation_id}
+            child = operation_id
+            while (parent := self._parents.get(child)) is not None:
+                if parent in seen:
+                    break
+                seen.add(parent)
+                queue = self._queues.get(parent)
+                if queue is not None:
+                    targets.append(
+                        AncestorStream(
+                            queue=queue,
+                            stream_operation_id=parent,
+                            item_operation_id=child,
+                        )
+                    )
+                child = parent
+            return targets
+
+    async def next_event_id(self, stream_operation_id: str) -> str:
+        """The next ``evt_<n>`` for one stream.
+
+        Central because ``Last-Event-ID`` resume filters on the number: with two
+        producers writing one stream, locally-kept counters would collide.
+        """
+        async with self._lock:
+            count = self._event_counters.get(stream_operation_id, 0) + 1
+            self._event_counters[stream_operation_id] = count
+            return f"evt_{count}"
 
 
 # ---------------------------------------------------------------------------
@@ -149,160 +223,150 @@ class SSEOperationRegistry:
 class SSEProgressSubscriber:
     """Routes progress events into per-operation SSE queues.
 
-    Subscribed once to ProgressBroker at app startup.  When events
-    arrive, looks up the operation_id in the registry and puts structured
-    SSE event dicts into the matching queue.  Unknown operation_ids are
-    silently ignored (the operation may not have come from the web UI).
+    Subscribed once to ProgressBroker at app startup. An operation's events go
+    to its own registered stream (as ``started``/``progress``) *and* to every
+    registered ancestor's stream (as ``sub_*``). Unknown operation_ids are
+    silently ignored — the operation may not have come from the web UI.
+
+    Routing walks the whole chain, not just one level: a queued file's phase
+    sits two below the drain, and the drain is the surface that wants to render
+    where that file has got to.
     """
 
     _registry: SSEOperationRegistry
-    _event_counters: dict[str, int] = field(factory=dict)
-    _sub_op_parents: dict[str, str] = field(factory=dict)  # sub_op_id → parent_op_id
 
     async def on_operation_started(self, operation: ProgressOperation) -> None:
         parent_id = operation.metadata.get("parent_operation_id")
-
-        # Sub-operations route to the parent's queue
         if isinstance(parent_id, str):
-            queue = await self._registry.get_queue(parent_id)
-            if queue is None:
-                return
+            # Before any delivery decision: an unregistered parent is still a
+            # load-bearing edge for its own children.
+            await self._registry.record_parent(operation.operation_id, parent_id)
 
-            # Track sub-operation → parent mapping for later routing
-            self._sub_op_parents[operation.operation_id] = parent_id
-
-            # Use parent's event counter for consistent sequencing
-            event_id = self._next_event_id(parent_id)
-            await queue.put({
-                "id": event_id,
-                "event": WorkflowConstants.SSE_EVENT_SUB_OPERATION_STARTED,
-                "data": {
+        own_queue = await self._registry.get_queue(operation.operation_id)
+        if own_queue is not None:
+            await self._put(
+                own_queue,
+                operation.operation_id,
+                WorkflowConstants.SSE_EVENT_STARTED,
+                {
                     "operation_id": operation.operation_id,
-                    "parent_operation_id": parent_id,
                     "description": operation.description,
                     "total": operation.total_items,
-                    "phase": operation.metadata.get("phase"),
-                    "node_type": operation.metadata.get("node_type"),
-                    "connector_playlist_identifier": operation.metadata.get(
-                        "connector_playlist_identifier"
-                    ),
-                    "playlist_name": operation.metadata.get("playlist_name"),
                     "status": operation.status.value,
                 },
-            })
-            return
+            )
 
-        queue = await self._registry.get_queue(operation.operation_id)
-        if queue is None:
-            return
-
-        self._event_counters[operation.operation_id] = 0
-        event_id = self._next_event_id(operation.operation_id)
-
-        await queue.put({
-            "id": event_id,
-            "event": WorkflowConstants.SSE_EVENT_STARTED,
-            "data": {
+        await self._fan_out(
+            operation.operation_id,
+            WorkflowConstants.SSE_EVENT_SUB_OPERATION_STARTED,
+            {
                 "operation_id": operation.operation_id,
                 "description": operation.description,
                 "total": operation.total_items,
+                "phase": operation.metadata.get("phase"),
+                "node_type": operation.metadata.get("node_type"),
+                "connector_playlist_identifier": operation.metadata.get(
+                    "connector_playlist_identifier"
+                ),
+                "playlist_name": operation.metadata.get("playlist_name"),
                 "status": operation.status.value,
             },
-        })
+        )
 
     async def on_progress_event(self, event: ProgressEvent) -> None:
-        # Try direct queue first (normal operations)
-        queue = await self._registry.get_queue(event.operation_id)
-
-        if queue is None:
-            # Check if this is a sub-operation — look up parent via tracked mapping
-            parent_id = self._sub_op_parents.get(event.operation_id)
-            if parent_id:
-                queue = await self._registry.get_queue(parent_id)
-                if queue is not None:
-                    event_id = self._next_event_id(parent_id)
-                    sub_metadata = event.metadata or {}
-                    await queue.put({
-                        "id": event_id,
-                        "event": WorkflowConstants.SSE_EVENT_SUB_PROGRESS,
-                        "data": {
-                            "operation_id": event.operation_id,
-                            "parent_operation_id": parent_id,
-                            "current": event.current,
-                            "total": event.total,
-                            "message": event.message,
-                            "status": event.status.value,
-                            "completion_percentage": event.completion_percentage,
-                            "phase": sub_metadata.get("phase"),
-                            "outcome": sub_metadata.get("outcome"),
-                            "resolved": sub_metadata.get("resolved"),
-                            "unresolved": sub_metadata.get("unresolved"),
-                            "canonical_playlist_id": sub_metadata.get(
-                                "canonical_playlist_id"
-                            ),
-                            "connector_playlist_identifier": sub_metadata.get(
-                                "connector_playlist_identifier"
-                            ),
-                            "playlist_name": sub_metadata.get("playlist_name"),
-                            "error_message": sub_metadata.get("error_message"),
-                        },
-                    })
-            return
-
-        event_id = self._next_event_id(event.operation_id)
         metadata = event.metadata or {}
 
-        await queue.put({
-            "id": event_id,
-            "event": WorkflowConstants.SSE_EVENT_PROGRESS,
-            "data": {
+        own_queue = await self._registry.get_queue(event.operation_id)
+        if own_queue is not None:
+            await self._put(
+                own_queue,
+                event.operation_id,
+                WorkflowConstants.SSE_EVENT_PROGRESS,
+                {
+                    "operation_id": event.operation_id,
+                    "current": event.current,
+                    "total": event.total,
+                    "message": event.message,
+                    "status": event.status.value,
+                    "completion_percentage": event.completion_percentage,
+                    "items_per_second": metadata.get("items_per_second"),
+                    "eta_seconds": metadata.get("eta_seconds"),
+                },
+            )
+
+        await self._fan_out(
+            event.operation_id,
+            WorkflowConstants.SSE_EVENT_SUB_PROGRESS,
+            {
                 "operation_id": event.operation_id,
                 "current": event.current,
                 "total": event.total,
                 "message": event.message,
                 "status": event.status.value,
                 "completion_percentage": event.completion_percentage,
-                "items_per_second": metadata.get("items_per_second"),
-                "eta_seconds": metadata.get("eta_seconds"),
+                "phase": metadata.get("phase"),
+                "outcome": metadata.get("outcome"),
+                "resolved": metadata.get("resolved"),
+                "unresolved": metadata.get("unresolved"),
+                "canonical_playlist_id": metadata.get("canonical_playlist_id"),
+                "connector_playlist_identifier": metadata.get(
+                    "connector_playlist_identifier"
+                ),
+                "playlist_name": metadata.get("playlist_name"),
+                "error_message": metadata.get("error_message"),
             },
-        })
+        )
 
     async def on_operation_completed(
         self, operation_id: str, final_status: OperationStatus
     ) -> None:
-        queue = await self._registry.get_queue(operation_id)
+        """Announce an unregistered sub-operation's end; drop its tree edge.
 
-        if queue is None:
-            # A sub-operation completing — route to the parent queue. No sentinel:
-            # only the top-level operation closes the stream.
-            parent_id = self._sub_op_parents.pop(operation_id, None)
-            if parent_id:
-                parent_queue = await self._registry.get_queue(parent_id)
-                if parent_queue is not None:
-                    event_id = self._next_event_id(parent_id)
-                    await parent_queue.put({
-                        "id": event_id,
-                        "event": WorkflowConstants.SSE_EVENT_SUB_OPERATION_COMPLETED,
-                        "data": {
-                            "operation_id": operation_id,
-                            "parent_operation_id": parent_id,
-                            "final_status": final_status.value,
-                        },
-                    })
-            return
+        A registered operation's terminal belongs to the SSE seam, which has the
+        counts this does not; announcing it here too would double the event and
+        strip them off the copy. The edge drops either way — nothing else
+        unregisters an operation that never had a stream.
+        """
+        if await self._registry.get_queue(operation_id) is None:
+            # No sentinel: only the top-level operation closes a stream.
+            await self._fan_out(
+                operation_id,
+                WorkflowConstants.SSE_EVENT_SUB_OPERATION_COMPLETED,
+                {
+                    "operation_id": operation_id,
+                    "final_status": final_status.value,
+                },
+            )
+        await self._registry.forget_parent(operation_id)
 
-        # Top-level (registered) operation: the SSE seam owns the terminal event +
-        # sentinel. ``run_sse_operation`` pushes ``build_terminal_event`` with the
-        # ``OperationResult`` status + counts (the workflow/preview path does
-        # the same directly) and ``finalize_sse_operation`` pushes the sentinel.
-        # Emitting them here too would double the terminal event and counts-less it.
-        # The subscriber only cleans up its per-op counter.
-        self._event_counters.pop(operation_id, None)
+    async def _fan_out(
+        self, operation_id: str, event_type: str, data: dict[str, object]
+    ) -> None:
+        """Deliver one event to every registered ancestor stream."""
+        for target in await self._registry.ancestor_streams(operation_id):
+            await self._put(
+                target.queue,
+                target.stream_operation_id,
+                event_type,
+                {
+                    **data,
+                    # The stream's owner, which is what this has always meant to
+                    # a consumer — so single-level payloads stay byte-identical
+                    # and ``item_operation_id`` carries the extra generation.
+                    "parent_operation_id": target.stream_operation_id,
+                    "item_operation_id": target.item_operation_id,
+                },
+            )
 
-    def _next_event_id(self, operation_id: str) -> str:
-        count = self._event_counters.get(operation_id, 0) + 1
-        self._event_counters[operation_id] = count
-        return f"evt_{count}"
+    async def _put(
+        self,
+        queue: asyncio.Queue[object],
+        stream_operation_id: str,
+        event_type: str,
+        data: dict[str, object],
+    ) -> None:
+        event_id = await self._registry.next_event_id(stream_operation_id)
+        await queue.put({"id": event_id, "event": event_type, "data": data})
 
 
 # ---------------------------------------------------------------------------

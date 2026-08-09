@@ -119,6 +119,7 @@ describe("OperationProgress", () => {
         progress={makeProgress({
           subOperation: {
             operationId: "sub-1",
+            itemOperationId: "sub-1",
             description: "Fetching metadata",
             current: 25,
             total: 50,
@@ -142,6 +143,7 @@ describe("OperationProgress", () => {
         progress={makeProgress({
           subOperation: {
             operationId: "sub-1",
+            itemOperationId: "sub-1",
             description: "Fetching playlist",
             current: 0,
             total: null,

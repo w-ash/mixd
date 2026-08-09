@@ -6,6 +6,7 @@ from typing import Literal
 from pydantic import BaseModel, ConfigDict
 
 from src.domain.entities.operation_run import OperationStatus
+from src.domain.entities.shared import JsonDict
 
 # A queue entry's vocabulary is the run vocabulary plus the one pre-run state.
 # Defined here (not in the queue service) so the wire schema and the in-memory
@@ -72,6 +73,12 @@ class ImportQueueEntrySchema(BaseModel):
     ``operation_id``/``run_id`` are null until the entry starts — a queued file
     has no ``operation_runs`` row yet; the ids appear via the queue GET as the
     sequencer reaches it.
+
+    Everything past ``run_id`` exists so this endpoint can restore the view a
+    dropped stream was painting: ``counts`` outlives a settled file's own
+    stream, and ``size_bytes`` plus the timestamps are what an estimate needs.
+    No summary object — every roll-up is one pass over these entries, and a
+    server-side copy would be a second source of truth for the same facts.
     """
 
     model_config = ConfigDict(from_attributes=True)
@@ -81,14 +88,30 @@ class ImportQueueEntrySchema(BaseModel):
     status: QueueEntryStatus
     operation_id: str | None = None
     run_id: str | None = None
+    # Real bytes written, so an estimate can weight by work rather than file
+    # count — a GDPR export's files vary several-fold.
+    size_bytes: int = 0
+    started_at: datetime | None = None
+    settled_at: datetime | None = None
+    # The run's ``summary_metrics`` (``track_plays``, ``duplicates``,
+    # ``errors``, …), or ``{"error_message": ...}`` on a failure.
+    counts: JsonDict | None = None
 
 
 class ImportQueueResponse(BaseModel):
-    """The user's current import queue, in upload order."""
+    """The user's current import queue, in upload order.
+
+    ``operation_id`` is the drain's SSE handle — one id for the whole export,
+    with each file a sub-operation of it, so the client attaches once instead of
+    re-attaching per entry. Unregistered after the drain's grace period, so a
+    late re-attach 404s and reads this response instead.
+    """
 
     model_config = ConfigDict(from_attributes=True)
 
     queue_id: str
+    operation_id: str
+    started_at: datetime
     entries: list[ImportQueueEntrySchema]
 
 

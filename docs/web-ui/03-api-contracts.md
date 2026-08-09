@@ -777,12 +777,25 @@ POST   /imports/lastfm/history
 
 ```
 POST   /imports/spotify/history
-       body: multipart/form-data (single JSON file, max 100 MB)
-       → { operation_id: str }
+       body: multipart/form-data, files: UploadFile[] (whole GDPR export in one request)
+       → ImportQueueResponse { queue_id, operation_id, started_at, entries }
+
+GET    /imports/spotify/history/queue
+       → ImportQueueResponse   (404 when no queue exists)
+
+DELETE /imports/spotify/history/queue
+       → ImportQueueResponse   (cancels not-yet-started entries only)
+
+ImportQueueEntry { filename, position, status, operation_id?, run_id?,
+                   size_bytes, started_at?, settled_at?, counts? }
+status: "queued" | "running" | "complete" | "partial" | "error" | "cancelled"
 ```
-- **Use case**: `ImportPlayHistoryUseCase` (file variant via `run_import()`)
-- **Status**: ✅ Implemented (v0.3.1)
-- **Note**: Returns `413` if file exceeds 100 MB. File is saved to temp location and cleaned up after processing.
+- **Use case**: server-side queue sequencer (`interface/api/services/import_queue.py`) → `ImportPlayHistoryUseCase` (file variant via `run_import()`) once per entry
+- **Status**: ✅ Implemented (v0.10.2.6) — clean break from the v0.3.1 single-file form; a single file is a one-entry queue
+- **Queue semantics**: entries drain strictly in upload order, one at a time; a failed entry never stops the rest. `operation_id`/`run_id` are `null` until an entry starts (a queued file has no `operation_runs` row yet), and the running entry's `operation_id` is what the SSE progress stream attaches to. Each entry is its own run in Import History. A reloaded tab re-attaches via the `GET`.
+- **Caps**: 100 MB per file, 500 MB and 25 files per queue — enforced on real bytes while streaming, so an oversize request rejects (`413`/`422`) before any entry starts. A second `POST` while a queue is draining returns `409`.
+
+- **Streaming (v0.10.2.13)**: `operation_id` is the **drain's** SSE handle — one id for the whole export, valid until the drain settles (plus the read window), after which the stream 404s and this endpoint is the restore source. Files stream as sub-operations of it: `sub_operation_started` → `sub_progress` → `sub_operation_completed` (carrying that file's `counts`), and the drain's own `progress` counts settled **files**. Every sub-event carries `item_operation_id` naming the file it belongs to, so a phase nested inside a file still attributes to that file's row.
 
 ```
 POST   /imports/spotify/likes

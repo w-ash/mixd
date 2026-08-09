@@ -13,11 +13,18 @@ launches each entry via the shared ``launch_sse_operation`` with
 import time in the shared write path, so parallel files buy contention, not
 throughput) and one-slot so a Last.fm import or workflow can still run while
 the export drains.
+
+The drain is itself an operation and the files are its sub-operations, so the
+export has ONE ``operation_id`` for its whole life: a client attaches once
+rather than re-attaching per file and seeing nothing in between. Reusing the
+sub-operation plumbing (``parent_operation_id`` → ``SSEProgressSubscriber``)
+means the drain needs no stream vocabulary or endpoint of its own.
 """
 
 import asyncio
 from collections.abc import Awaitable, Callable, Generator
 import contextlib
+from datetime import UTC, datetime
 import os
 from pathlib import Path
 import shutil
@@ -25,19 +32,31 @@ import tempfile
 from typing import Final
 from uuid import uuid4
 
-from attrs import define
+from attrs import define, field
 from fastapi import HTTPException, UploadFile
 
+from src.application.services.progress_broker import get_progress_broker
 from src.config import get_logger
-from src.config.constants import BusinessLimits
+from src.config.constants import BusinessLimits, WorkflowConstants
 from src.domain.entities.operation_run import OperationStatus
+from src.domain.entities.progress import create_progress_event
+from src.domain.entities.shared import JsonDict
 from src.interface.api.schemas.imports import QueueEntryStatus
-from src.interface.api.services.background import launch_background
-from src.interface.api.services.progress import OperationBoundEmitter
+from src.interface.api.services.background import (
+    finalize_sse_operation,
+    launch_background,
+)
+from src.interface.api.services.progress import (
+    OperationBoundEmitter,
+    get_operation_registry,
+)
 from src.interface.api.services.sse_operations import (
     acquire_operation_slot,
+    build_terminal_event,
     launch_sse_operation,
     release_operation_slot,
+    safe_complete_operation,
+    safe_start_operation,
 )
 
 logger = get_logger(__name__).bind(service="import_queue")
@@ -51,33 +70,56 @@ IMPORT_QUEUE_TMPDIR_PREFIX: Final = "mixd-import-queue-"
 class QueueEntry:
     """One uploaded file's place in the drain order.
 
-    Mutable on purpose: the sequencer advances ``status`` and fills
-    ``operation_id``/``run_id`` as the entry starts. All mutations happen in
-    synchronous stretches of the single-threaded event loop, so no lock guards
-    them.
+    Mutable on purpose: the sequencer advances ``status`` and fills the rest as
+    the entry starts and settles. All mutations happen in synchronous stretches
+    of the single-threaded event loop, so no lock guards them.
+
+    ``counts`` and the timestamps serve the queue endpoint, not the sequencer:
+    a file's own stream closes moments after it settles, so this is the only
+    place its numbers survive for a client that reloads later.
     """
 
     filename: str
     position: int
     path: Path
+    size_bytes: int = 0
     status: QueueEntryStatus = "queued"
     operation_id: str | None = None
     run_id: str | None = None
+    started_at: datetime | None = None
+    settled_at: datetime | None = None
+    counts: JsonDict | None = None
+
+    @property
+    def is_settled(self) -> bool:
+        """True once this entry can no longer change — its status is terminal."""
+        return self.status not in ("queued", "running")
 
 
 @define(slots=True)
 class ImportQueue:
-    """A user's queued GDPR export: one temp dir, ordered entries."""
+    """A user's queued GDPR export: one temp dir, ordered entries.
+
+    ``operation_id`` is the drain's own SSE handle — the parent operation whose
+    sub-operations are the files. Minted before the first file starts and valid
+    until the whole export settles.
+    """
 
     queue_id: str
     user_id: str
     tmpdir: Path
     entries: list[QueueEntry]
+    operation_id: str
+    started_at: datetime = field(factory=lambda: datetime.now(UTC))
 
     @property
     def is_drained(self) -> bool:
         """True once no entry can still run — every status is terminal."""
-        return all(e.status not in ("queued", "running") for e in self.entries)
+        return all(e.is_settled for e in self.entries)
+
+    @property
+    def settled_count(self) -> int:
+        return sum(1 for e in self.entries if e.is_settled)
 
 
 # One queue per user. A drained queue stays registered until the next POST
@@ -157,7 +199,7 @@ def raise_if_queue_active(user_id: str) -> None:
         )
 
 
-def start_queue(
+async def start_queue(
     *, user_id: str, tmpdir: Path, entries: list[QueueEntry]
 ) -> ImportQueue:
     """Register and start draining a freshly uploaded queue.
@@ -166,13 +208,32 @@ def start_queue(
     to the route) and replaces only a drained predecessor. The drain task goes
     through ``launch_background`` so ``cancel_all_background_tasks`` settles it
     at shutdown.
+
+    The 409 re-check, the slot claim and the registry insert must stay one
+    synchronous stretch: the caller has already awaited its way through
+    streaming megabytes, so a concurrent POST is real, and an await between
+    check and set would let both through — the loser's drain then holds a slot
+    and a temp dir nothing can see or sweep. Registration waits until the claim
+    is won so a refused claim leaves no orphan stream.
+
+    The stream is registered here, not in ``_run_queue``, so the id the POST
+    returns is already streamable rather than racing the background task.
+
+    No ``operation_runs`` row is written for the drain: the durable record is
+    one row per file, the granularity a user retries and inspects at.
     """
     raise_if_queue_active(user_id)
     queue = ImportQueue(
-        queue_id=str(uuid4()), user_id=user_id, tmpdir=tmpdir, entries=entries
+        queue_id=str(uuid4()),
+        user_id=user_id,
+        tmpdir=tmpdir,
+        entries=entries,
+        operation_id=str(uuid4()),
     )
     acquire_operation_slot(_queue_slot_token(queue.queue_id))
     _queues[user_id] = queue
+
+    _ = await get_operation_registry().register(queue.operation_id)
     launch_background(f"import_queue_{queue.queue_id}", lambda: _run_queue(queue))
     return queue
 
@@ -207,7 +268,7 @@ async def receive_export_upload(user_id: str, files: list[UploadFile]) -> Import
         tmpdir = Path(tempfile.mkdtemp(prefix=IMPORT_QUEUE_TMPDIR_PREFIX))
         entries = await _stream_uploads_to_queue_dir(files, tmpdir)
         try:
-            return start_queue(user_id=user_id, tmpdir=tmpdir, entries=entries)
+            return await start_queue(user_id=user_id, tmpdir=tmpdir, entries=entries)
         except BaseException:
             # A refused start (slot 429, or losing the raced 409 re-check)
             # must not strand the streamed bytes — the startup sweep only runs
@@ -234,12 +295,14 @@ async def _stream_uploads_to_queue_dir(
     try:
         for position, file in enumerate(files):
             path = tmpdir / f"{position:03d}.json"
-            total_bytes = await _stream_upload_capped(file, path, total_bytes)
+            file_bytes = await _stream_upload_capped(file, path, total_bytes)
+            total_bytes += file_bytes
             entries.append(
                 QueueEntry(
                     filename=file.filename or f"file-{position + 1}.json",
                     position=position,
                     path=path,
+                    size_bytes=file_bytes,
                 )
             )
     except BaseException:
@@ -261,8 +324,15 @@ def _raise_if_over_upload_caps(file_bytes: int, total_bytes: int) -> None:
         )
 
 
-async def _stream_upload_capped(file: UploadFile, path: Path, total_bytes: int) -> int:
-    """Stream one upload to ``path``; return the updated queue-wide byte total.
+async def _stream_upload_capped(
+    file: UploadFile, path: Path, preceding_bytes: int
+) -> int:
+    """Stream one upload to ``path``; return the bytes THIS file contributed.
+
+    ``preceding_bytes`` is what the queue already holds, so the whole-queue cap
+    is still checked against the running total. The per-file return is what
+    lets the caller size each entry — a "time left" estimate weighted by work
+    needs it, since a GDPR export's files differ several-fold.
 
     Caps are checked before each write, so no byte past either limit lands.
     """
@@ -272,12 +342,11 @@ async def _stream_upload_capped(file: UploadFile, path: Path, total_bytes: int) 
         file_bytes = 0
         while chunk := await file.read(64 * 1024):
             file_bytes += len(chunk)
-            total_bytes += len(chunk)
-            _raise_if_over_upload_caps(file_bytes, total_bytes)
+            _raise_if_over_upload_caps(file_bytes, preceding_bytes + file_bytes)
             os.write(fd, chunk)
     finally:
         os.close(fd)
-    return total_bytes
+    return file_bytes
 
 
 def cancel_pending(user_id: str) -> ImportQueue | None:
@@ -289,9 +358,11 @@ def cancel_pending(user_id: str) -> ImportQueue | None:
     queue = _queues.get(user_id)
     if queue is None:
         return None
+    now = datetime.now(UTC)
     for entry in queue.entries:
         if entry.status == "queued":
             entry.status = "cancelled"
+            entry.settled_at = now
             _unlink_quietly(entry.path)
     return queue
 
@@ -302,53 +373,166 @@ async def _run_queue(queue: ImportQueue) -> None:
     A failed entry records its terminal status and the loop CONTINUES — the
     export is independent slices of one history, so halting on a bad file
     would hand back both the babysitting problem and a half-imported history.
+
+    The drain runs as an operation in its own right, so one stream covers the
+    whole export: each file announces itself on it as a sub-operation, and the
+    loop reports overall position between files.
     """
+    await safe_start_operation(queue.operation_id, "Import Spotify Export")
+    cancellation: asyncio.CancelledError | None = None
     try:
-        for entry in queue.entries:
-            # DELETE may have cancelled entries while a predecessor ran.
-            if entry.status != "queued":
-                continue
-            entry.status = "running"
-            settled = asyncio.Event()
-
-            def _record_terminal(
-                status: OperationStatus,
-                *,
-                _entry: QueueEntry = entry,
-                _settled: asyncio.Event = settled,
-            ) -> None:
-                _entry.status = status
-                _settled.set()
-
-            try:
-                started = await launch_sse_operation(
-                    user_id=queue.user_id,
-                    operation_type="import_spotify_history",
-                    coro_factory=_spotify_file_import(queue.user_id, entry.path),
-                    occupies_slot=False,
-                    on_terminal=_record_terminal,
-                )
-            except Exception:
-                # A kickoff failure (audit-row write, registry) has no run to
-                # report through — record it here or the entry (and the queue)
-                # would read as running forever.
-                logger.error(
-                    "Failed to launch queued import",
-                    queue_id=queue.queue_id,
-                    filename=entry.filename,
-                    exc_info=True,
-                )
-                entry.status = "error"
-                _unlink_quietly(entry.path)
-                continue
-            entry.operation_id = started.operation_id
-            entry.run_id = started.run_id
-            await settled.wait()
+        await _drain_entries(queue)
+    except asyncio.CancelledError as exc:
+        # Re-raised after cleanup so the task still ends cancelled, and recorded
+        # so the drain reports `error` rather than a false success (v0.10.2.5).
+        cancellation = exc
     finally:
+        status: OperationStatus = (
+            "error"
+            if cancellation is not None or _every_entry_failed(queue)
+            else "complete"
+        )
+        # Before any await: a second cancellation is delivered at the next
+        # suspension point, and nothing reaps a leaked slot.
         release_operation_slot(_queue_slot_token(queue.queue_id))
         # Entry files are unlinked as their runs terminate; this sweeps the
         # directory itself (and, on cancellation mid-drain, whatever remains).
         shutil.rmtree(queue.tmpdir, ignore_errors=True)
+        await _emit_queue_position(queue, None)
+        await _push_drain_terminal(queue, status)
+        await safe_complete_operation(queue.operation_id, status)
+        # Last: this holds the task open for the SSE read window, and past it a
+        # re-attach 404s onto the queue endpoint's equivalent record. A cancelled
+        # drain skips the window — no client is reading, and 30s here would eat
+        # the shared shutdown budget.
+        await finalize_sse_operation(
+            queue.operation_id,
+            grace_period_seconds=0.0 if cancellation is not None else None,
+        )
+    if cancellation is not None:
+        raise cancellation
+
+
+async def _drain_entries(queue: ImportQueue) -> None:
+    """Run each still-queued entry to its terminal, in order."""
+    for entry in queue.entries:
+        # DELETE may have cancelled entries while a predecessor ran.
+        if entry.status != "queued":
+            continue
+        entry.status = "running"
+        entry.started_at = datetime.now(UTC)
+        await _emit_queue_position(queue, entry)
+        settled = asyncio.Event()
+
+        def _record_terminal(
+            status: OperationStatus,
+            counts: JsonDict | None,
+            *,
+            _entry: QueueEntry = entry,
+            _settled: asyncio.Event = settled,
+        ) -> None:
+            _entry.status = status
+            _entry.counts = counts
+            _entry.settled_at = datetime.now(UTC)
+            _settled.set()
+
+        try:
+            started = await launch_sse_operation(
+                user_id=queue.user_id,
+                operation_type="import_spotify_history",
+                coro_factory=_spotify_file_import(queue.user_id, entry.path),
+                occupies_slot=False,
+                parent_operation_id=queue.operation_id,
+                on_terminal=_record_terminal,
+            )
+        except Exception:
+            # A kickoff failure has no run to report through, so the entry would
+            # read as running forever without this.
+            logger.error(
+                "Failed to launch queued import",
+                queue_id=queue.queue_id,
+                filename=entry.filename,
+                exc_info=True,
+            )
+            entry.status = "error"
+            entry.settled_at = datetime.now(UTC)
+            _unlink_quietly(entry.path)
+            continue
+        entry.operation_id = started.operation_id
+        entry.run_id = started.run_id
+        await settled.wait()
+
+
+async def _push_drain_terminal(queue: ImportQueue, status: OperationStatus) -> None:
+    """Close the export with a verdict and a per-status tally.
+
+    Written here, not by the subscriber, which sees the lifecycle but not the
+    outcome. The tally stays per-status because "12 of 13 imported, 1 failed"
+    is the part a user acts on.
+    """
+    registry = get_operation_registry()
+    sse_queue = await registry.get_queue(queue.operation_id)
+    if sse_queue is None:
+        return
+    tally: dict[str, int] = {"files": len(queue.entries)}
+    for entry in queue.entries:
+        key = f"files_{entry.status}"
+        tally[key] = tally.get(key, 0) + 1
+    await sse_queue.put(
+        build_terminal_event(
+            "evt_final",
+            WorkflowConstants.SSE_EVENT_ERROR
+            if status == "error"
+            else WorkflowConstants.SSE_EVENT_COMPLETE,
+            queue.operation_id,
+            "failed" if status == "error" else "completed",
+            # Same ``counts`` slot a single run's terminal uses, so a client
+            # reads an export's outcome through the code path it already has.
+            counts=tally,
+        )
+    )
+
+
+def _every_entry_failed(queue: ImportQueue) -> bool:
+    """True when nothing in the export got through.
+
+    The only case the drain reports as ``error``: one bad file out of thirteen
+    is a result to read, not a failed export.
+    """
+    return all(entry.status == "error" for entry in queue.entries)
+
+
+async def _emit_queue_position(queue: ImportQueue, entry: QueueEntry | None) -> None:
+    """Report how far through the export the drain is.
+
+    Counted in settled *files*, which makes it monotonic by construction: a
+    figure blended with the running file's own percentage rewinds every time
+    the queue advances. Fine-grained movement belongs to the running file.
+    """
+    settled = queue.settled_count
+    total = len(queue.entries)
+    message = (
+        f"File {min(settled + 1, total)} of {total} — {entry.filename}"
+        if entry is not None
+        else f"Imported {settled} of {total} files"
+    )
+    try:
+        await get_progress_broker().emit_progress(
+            create_progress_event(
+                operation_id=queue.operation_id,
+                current=settled,
+                total=total,
+                message=message,
+            )
+        )
+    except Exception:
+        # Progress tracking must never break the drain it observes — the same
+        # rule ``safe_start_operation`` follows on either side of this loop.
+        logger.warning(
+            "Failed to emit queue progress (continuing)",
+            queue_id=queue.queue_id,
+            exc_info=True,
+        )
 
 
 def _spotify_file_import(

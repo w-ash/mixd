@@ -282,7 +282,13 @@ describe("Sync page", () => {
     );
 
     await new Promise((r) => setTimeout(r, 20));
-    expect(mockRunCompleted).not.toHaveBeenCalled();
+    // Scoped to this run: the shared progress mock is returned to every card on
+    // the page, and the export card legitimately announces its own drain.
+    expect(
+      mockRunCompleted.mock.calls.filter(
+        ([call]) => (call as { runId?: string }).runId === "run-2",
+      ),
+    ).toHaveLength(0);
   });
 });
 
@@ -294,10 +300,21 @@ type QueueEntry = {
   status: string;
   operation_id: string | null;
   run_id: string | null;
+  size_bytes?: number;
+  started_at?: string;
+  settled_at?: string;
+  counts?: Record<string, unknown>;
 };
 
 function queueJson(entries: QueueEntry[]) {
-  return { queue_id: "queue-1", entries };
+  return {
+    queue_id: "queue-1",
+    // One id for the whole export — the card attaches to this and never to a
+    // per-file id, which is what removes the gap between files.
+    operation_id: "drain-op",
+    started_at: "2026-08-09T10:00:00Z",
+    entries,
+  };
 }
 
 function useQueueHandler(...states: QueueEntry[][]) {
@@ -314,7 +331,7 @@ function useQueueHandler(...states: QueueEntry[][]) {
 }
 
 describe("Spotify history import queue", () => {
-  it("rebuilds the per-file chip list from the queue endpoint after a reload", async () => {
+  it("rebuilds the per-file rows from the queue endpoint after a reload", async () => {
     // No POST happens in this test: the mounted page finding a mid-drain
     // queue on the server IS the reload re-attach.
     setupCheckpointsMock();
@@ -346,17 +363,24 @@ describe("Spotify history import queue", () => {
     expect(await screen.findByText("history-2019.json")).toBeInTheDocument();
     expect(screen.getByText("history-2020.json")).toBeInTheDocument();
     expect(screen.getByText("history-2021.json")).toBeInTheDocument();
-    expect(screen.getByText("Complete")).toBeInTheDocument();
-    expect(screen.getByText("Running")).toBeInTheDocument();
-    expect(screen.getByText("Queued")).toBeInTheDocument();
+    expect(screen.getByText("Importing 2 of 3 files")).toBeInTheDocument();
+    expect(screen.getByLabelText("Complete")).toBeInTheDocument();
+    expect(screen.getByLabelText("Running")).toBeInTheDocument();
+    expect(screen.getByLabelText("Queued")).toBeInTheDocument();
 
-    // The card re-attached its progress stream to the RUNNING entry's id.
+    // The card attached to the DRAIN, not to whichever file is running. A
+    // per-file id would have to be swapped at each handover, and the card is
+    // attached to nothing while that happens.
     await waitFor(() => {
-      expect(seenOperationIds).toContain("op-b");
+      expect(seenOperationIds).toContain("drain-op");
     });
+    expect(seenOperationIds).not.toContain("op-b");
   });
 
-  it("a terminal event advances the next chip via refetch", async () => {
+  it("keeps one stream and one monotonic count as the queue advances", async () => {
+    // The regression this whole design exists for: the old card derived its
+    // stream id from whichever file was running, so every advance reset it to
+    // null and blanked the view. Here the id must never change.
     setupCheckpointsMock();
     useQueueHandler(
       [
@@ -395,19 +419,81 @@ describe("Spotify history import queue", () => {
     renderWithProviders(<Sync />);
 
     expect(await screen.findByText("a.json")).toBeInTheDocument();
-    expect(screen.getByText("Running")).toBeInTheDocument();
-    expect(screen.getByText("Queued")).toBeInTheDocument();
+    expect(screen.getByText("Importing 1 of 2 files")).toBeInTheDocument();
 
-    // The poll picks up the server's new state: the failed file shows its
-    // error chip and the queue visibly continues with the next file running.
+    // The poll picks up the server's new state: the failed file says so, the
+    // queue visibly continues, and the count moves forward rather than back.
     await waitFor(
       () => {
-        expect(screen.getByText("Error")).toBeInTheDocument();
-        expect(screen.getByText("Running")).toBeInTheDocument();
+        expect(screen.getByText(/Failed/)).toBeInTheDocument();
+        expect(screen.getByText("Importing 2 of 2 files")).toBeInTheDocument();
       },
       { timeout: 4000 },
     );
-    expect(screen.queryByText("Queued")).not.toBeInTheDocument();
+
+    // A failure mid-drain does not turn the header into a verdict — eight more
+    // files could still be on their way through.
+    expect(screen.getByText(/1 failed/)).toBeInTheDocument();
+    // One id, start to finish. No re-attach, so no gap.
+    expect(new Set(seenOperationIds.filter(Boolean))).toEqual(
+      new Set(["drain-op"]),
+    );
+  });
+
+  it("tells a waiting file where it is in the line", async () => {
+    // A bare "Queued" chip looks the same at minute 0 and minute 25.
+    setupCheckpointsMock();
+    useQueueHandler([
+      {
+        filename: "a.json",
+        position: 0,
+        status: "complete",
+        operation_id: "op-a",
+        run_id: "run-a",
+        size_bytes: 1000,
+        started_at: "2026-08-09T10:00:00Z",
+        settled_at: "2026-08-09T10:01:00Z",
+        counts: { track_plays: 1200 },
+      },
+      {
+        filename: "b.json",
+        position: 1,
+        status: "complete",
+        operation_id: "op-b",
+        run_id: "run-b",
+        size_bytes: 1000,
+        started_at: "2026-08-09T10:01:00Z",
+        settled_at: "2026-08-09T10:02:00Z",
+        counts: { track_plays: 800 },
+      },
+      {
+        filename: "c.json",
+        position: 2,
+        status: "running",
+        operation_id: "op-c",
+        run_id: "run-c",
+        size_bytes: 1000,
+        started_at: "2026-08-09T10:02:00Z",
+      },
+      {
+        filename: "d.json",
+        position: 3,
+        status: "queued",
+        operation_id: null,
+        run_id: null,
+        size_bytes: 1000,
+      },
+    ]);
+    renderWithProviders(<Sync />);
+
+    expect(await screen.findByText("d.json")).toBeInTheDocument();
+    // Two settled minutes over 2000 bytes ⇒ one minute per 1000-byte file, so
+    // the queued file starts once the running one is through.
+    expect(
+      screen.getByText(/Queued · #1 · starts in ~1 min/),
+    ).toBeInTheDocument();
+    // A settled file keeps the numbers its own stream carried away.
+    expect(screen.getByText(/1,200 plays/)).toBeInTheDocument();
   });
 
   it("Cancel remaining sends the DELETE for not-yet-started files", async () => {
@@ -455,7 +541,7 @@ describe("Spotify history import queue", () => {
     renderWithProviders(<Sync />);
 
     await userEvent.click(
-      await screen.findByRole("button", { name: /cancel remaining/i }),
+      await screen.findByRole("button", { name: /cancel 1 remaining file/i }),
     );
 
     await waitFor(() => {

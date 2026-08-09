@@ -3,8 +3,9 @@
  * Do not edit manually.
  * Mixd
  * Personal music metadata hub
- * OpenAPI spec version: 0.10.2.12
+ * OpenAPI spec version: 0.10.2.13
  */
+import type { JsonDict } from './jsonDict.ts';
 import type { QueueEntryStatus } from './queueEntryStatus.ts';
 
 /**
@@ -13,6 +14,12 @@ import type { QueueEntryStatus } from './queueEntryStatus.ts';
  * ``operation_id``/``run_id`` are null until the entry starts — a queued file
  * has no ``operation_runs`` row yet; the ids appear via the queue GET as the
  * sequencer reaches it.
+ *
+ * Everything past ``run_id`` exists so this endpoint can restore the view a
+ * dropped stream was painting: ``counts`` outlives a settled file's own
+ * stream, and ``size_bytes`` plus the timestamps are what an estimate needs.
+ * No summary object — every roll-up is one pass over these entries, and a
+ * server-side copy would be a second source of truth for the same facts.
  */
 export interface ImportQueueEntrySchema {
   filename: string;
@@ -20,4 +27,8 @@ export interface ImportQueueEntrySchema {
   status: QueueEntryStatus;
   operation_id?: string | null;
   run_id?: string | null;
+  size_bytes?: number;
+  started_at?: string | null;
+  settled_at?: string | null;
+  counts?: JsonDict | null;
 }

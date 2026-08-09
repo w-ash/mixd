@@ -325,14 +325,19 @@ def create_progress_event(
 
 
 @asynccontextmanager
-async def tracked_operation(emitter: ProgressEmitter, description: str):
+async def tracked_operation(
+    emitter: ProgressEmitter, description: str, **metadata: JsonValue
+):
     """Context manager that wraps the start/complete lifecycle of a progress operation.
 
     Calls start_operation on entry, complete_operation(COMPLETED) on success,
     and complete_operation(FAILED) + re-raise on exception. Yields the operation_id
     for progress event emission within the block.
+
+    ``metadata`` matches ``create_progress_operation``'s — pass ``phase=`` so a
+    surface watching the parent can name the stage, not just report movement.
     """
-    operation = ProgressOperation(description=description)
+    operation = ProgressOperation(description=description, metadata=metadata)
     operation_id = await emitter.start_operation(operation)
     try:
         yield operation_id

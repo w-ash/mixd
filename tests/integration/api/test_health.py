@@ -193,6 +193,7 @@ class TestBusyProbe:
             queue_id="q1",
             user_id="u1",
             tmpdir=Path("/nonexistent"),
+            operation_id="queue-op",
             entries=[
                 QueueEntry(
                     filename="f.json",

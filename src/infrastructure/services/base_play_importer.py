@@ -173,6 +173,9 @@ class BasePlayImporter[TRawData, TParams: PlayImportParams](ABC):
         operation = ProgressOperation(
             description=f"{self.operation_name} - Import play data using {self.__class__.__name__}",
             total_items=None,  # Unknown until we fetch data
+            # Lets a surface watching the run name the stage. Resolution and
+            # projection tag themselves "match" and "save" the same way.
+            metadata={"phase": "fetch"},
         )
         operation_id = await progress_emitter.start_operation(operation)
 

@@ -365,3 +365,142 @@ class TestSSEProgressSubscriberSubOperations:
 
         # No sentinel should be placed (only parent completion sends sentinel)
         assert parent_queue.empty()
+
+
+# ---------------------------------------------------------------------------
+# SSEProgressSubscriber — depth beyond one level
+# ---------------------------------------------------------------------------
+
+
+class TestSSEProgressSubscriberDepth:
+    """A generation below a sub-operation must still reach the streams above it.
+
+    Routing used to stop at the immediate parent, so a run nested two deep — a
+    queued export file's *resolve* phase, under the file, under the drain —
+    reached the file's stream and nowhere else. The drain is exactly the surface
+    that wants to say "file 4 of 13 is resolving", so the generation carrying
+    that fact was invisible to its only interested reader.
+    """
+
+    @staticmethod
+    def _child(operation_id: str, parent: str, **metadata: object) -> ProgressOperation:
+        return ProgressOperation(
+            operation_id=operation_id,
+            description=operation_id,
+            status=OperationStatus.RUNNING,
+            metadata={"parent_operation_id": parent, **metadata},
+        )
+
+    @staticmethod
+    def _drain(queue) -> list[dict]:
+        events = []
+        while not queue.empty():
+            events.append(queue.get_nowait())
+        return events
+
+    async def test_a_registered_child_appears_on_its_own_stream_and_its_parents(self):
+        registry = SSEOperationRegistry()
+        subscriber = SSEProgressSubscriber(registry)
+        drain_queue = await registry.register("drain")
+        file_queue = await registry.register("file-1")
+
+        await subscriber.on_operation_started(self._child("file-1", "drain"))
+
+        # Its own stream sees the ordinary top-level `started`...
+        assert [e["event"] for e in self._drain(file_queue)] == ["started"]
+        # ...and the drain sees the same run as one of its items.
+        [announced] = self._drain(drain_queue)
+        assert announced["event"] == "sub_operation_started"
+        assert announced["data"]["operation_id"] == "file-1"
+        assert announced["data"]["item_operation_id"] == "file-1"
+
+    async def test_grandchild_progress_reaches_both_streams_named_correctly(self):
+        registry = SSEOperationRegistry()
+        subscriber = SSEProgressSubscriber(registry)
+        drain_queue = await registry.register("drain")
+        file_queue = await registry.register("file-1")
+
+        await subscriber.on_operation_started(self._child("file-1", "drain"))
+        await subscriber.on_operation_started(
+            self._child("resolve-1", "file-1", phase="match")
+        )
+        _ = self._drain(drain_queue), self._drain(file_queue)
+
+        await subscriber.on_progress_event(
+            create_progress_event("resolve-1", current=812, total=1204, message="…")
+        )
+
+        [on_file] = self._drain(file_queue)
+        [on_drain] = self._drain(drain_queue)
+        assert on_file["event"] == on_drain["event"] == "sub_progress"
+        assert on_file["data"]["current"] == on_drain["data"]["current"] == 812
+
+        # The phase names itself as the item on the file's stream — but on the
+        # drain's, the item is the FILE. That is what lets one row own the
+        # progress without the client rebuilding the tree from parent ids.
+        assert on_file["data"]["item_operation_id"] == "resolve-1"
+        assert on_drain["data"]["item_operation_id"] == "file-1"
+
+    async def test_an_unregistered_middle_generation_is_walked_through(self):
+        # Nothing registers a phase operation's own stream, so the drain can
+        # only ever see a phase by walking past it.
+        registry = SSEOperationRegistry()
+        subscriber = SSEProgressSubscriber(registry)
+        drain_queue = await registry.register("drain")
+
+        await subscriber.on_operation_started(self._child("file-1", "drain"))
+        await subscriber.on_operation_started(self._child("resolve-1", "file-1"))
+        _ = self._drain(drain_queue)
+
+        await subscriber.on_progress_event(
+            create_progress_event("resolve-1", current=5, total=10, message="…")
+        )
+
+        [event] = self._drain(drain_queue)
+        assert event["data"]["operation_id"] == "resolve-1"
+        assert event["data"]["item_operation_id"] == "file-1"
+
+    async def test_ids_stay_on_one_monotonic_sequence_per_stream(self):
+        # Last-Event-ID resume filters on the number, so two producers writing
+        # to one stream must never restart or interleave its ids.
+        registry = SSEOperationRegistry()
+        subscriber = SSEProgressSubscriber(registry)
+        drain_queue = await registry.register("drain")
+        await registry.register("file-1")
+
+        await subscriber.on_operation_started(self._child("file-1", "drain"))
+        await subscriber.on_operation_started(self._child("resolve-1", "file-1"))
+        await subscriber.on_progress_event(
+            create_progress_event("resolve-1", current=1, total=2, message="…")
+        )
+        await subscriber.on_operation_completed("resolve-1", OperationStatus.COMPLETED)
+
+        ids = [e["id"] for e in self._drain(drain_queue)]
+        assert ids == ["evt_1", "evt_2", "evt_3", "evt_4"]
+
+    async def test_a_cycle_in_the_chain_does_not_hang_the_walk(self):
+        # Parent ids arrive as caller-supplied metadata; a bad one must cost an
+        # event, not the event loop.
+        registry = SSEOperationRegistry()
+        subscriber = SSEProgressSubscriber(registry)
+        queue = await registry.register("a")
+
+        await subscriber.on_operation_started(self._child("b", "a"))
+        await subscriber.on_operation_started(self._child("a", "b"))
+
+        await subscriber.on_progress_event(
+            create_progress_event("b", current=1, total=2, message="…")
+        )
+        assert not queue.empty()
+
+    async def test_completing_an_unregistered_op_drops_its_edge(self):
+        # Nothing unregisters an operation that never had a stream, so without
+        # this the tree would grow for the life of the process.
+        registry = SSEOperationRegistry()
+        subscriber = SSEProgressSubscriber(registry)
+        _ = await registry.register("drain")
+
+        await subscriber.on_operation_started(self._child("phase-1", "drain"))
+        await subscriber.on_operation_completed("phase-1", OperationStatus.COMPLETED)
+
+        assert await registry.ancestor_streams("phase-1") == []

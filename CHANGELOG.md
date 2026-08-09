@@ -6,6 +6,21 @@ linked backlog version file. Versioning follows mixd's four-segment
 `major.minor.feature.revision` scheme (`.claude/rules/version-management.md`), not strict
 SemVer. Format inspired by [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [0.10.2.13] — 2026-08-09
+
+**Check back on a running export and it tells you where it is.** Hand mixd thirteen streaming-history files and the queue drained them correctly, but the view of it went blank at exactly the moment you'd look — every time it moved to the next file. Status was reaching the browser over two uncoordinated channels: live progress attached to whichever file was running, and a separate two-second poll for which file that was. The page derived one from the other, so between files it was attached to nothing.
+
+- **The export is now one thing, not thirteen.** The drain is a single operation with the files as its parts, so the page attaches once at upload and stays attached to the end. There is no hand-off to be caught in the middle of, which also fixes the vanished progress bar, the last file's result being wiped the instant it finished, dropped completion notices, and several seconds of "Connecting…" at every file boundary.
+- **Overall progress is counted in files and only ever goes forward.** `Importing 4 of 13` advances when a file finishes and never blends in the running file's own percentage — the blend is what made it slide backwards each time the queue advanced. Time remaining appears once two files have finished, weighted by size rather than by count, since an export's files differ several-fold.
+- **A file that is waiting says how long it will be waiting.** `Queued · #7 · starts in ~14 min`, rather than the same grey "Queued" it would have shown twenty-five minutes earlier.
+- **A finished file keeps its numbers.** Plays imported and time taken now survive on the row — previously they arrived on a channel the page had already left, so a reload showed thirteen status words and none of the results. A reload mid-export restores the whole view, stream or no stream.
+- **A failure is legible without being alarming.** The bad file moves to the top of the list with its reason; the rest of the export carries on and the header stays neutral until it has actually finished, because red at minute six of thirty reads as "the whole thing died".
+- **The running file shows which stage it is in** — ingest, resolve, project — instead of a bar that only says something is happening. One export announces itself once when it is done, not once per file.
+
+Under the hood this reuses the sub-operation machinery playlist imports already run on, so it needed no new endpoint and no new event types; progress routing simply learned to walk more than one level, which also fixes silently-dropped nesting in workflow runs. Follow-up review caught and fixed four issues in the same day, including a concurrency race and a cancelled export sitting out a 30-second window during shutdown.
+
+→ [details](docs/backlog/v0.10.x.md#post-deploy-revisions)
+
 ## [0.10.2.12] — 2026-08-09
 
 **Your most-played music stops failing to import.** The 2026-08-09 runs refused 55 plays with `track_resolution_failed` on Radiohead, Oasis, New Order and the Vince Guaraldi Christmas canon, and reported them as dead Spotify ids. Asking Spotify about all 47 of them settled it: **none are dead.** Forty are relinks — Spotify pointing an old id at a current one — and seven are simply alive. The search fallback that was supposed to rescue "dead" ids was never reachable, and never ran.

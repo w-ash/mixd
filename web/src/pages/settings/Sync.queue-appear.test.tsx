@@ -55,6 +55,8 @@ describe("Spotify Data Export queue appearance", () => {
         }
         return HttpResponse.json({
           queue_id: "q-1",
+          operation_id: "drain-op",
+          started_at: "2026-08-09T10:00:00Z",
           entries: entries("running", "queued"),
         });
       }),
@@ -62,6 +64,8 @@ describe("Spotify Data Export queue appearance", () => {
         queueExists = true;
         return HttpResponse.json({
           queue_id: "q-1",
+          operation_id: "drain-op",
+          started_at: "2026-08-09T10:00:00Z",
           entries: entries("queued", "queued"),
         });
       }),
@@ -87,7 +91,7 @@ describe("Spotify Data Export queue appearance", () => {
 
     await waitFor(
       () => {
-        expect(screen.getByText("Import queue")).toBeInTheDocument();
+        expect(screen.getByLabelText("Import queue")).toBeInTheDocument();
       },
       { timeout: 4000 },
     );
