@@ -682,6 +682,12 @@ function SpotifyHistoryImport() {
         onSuccess: (res) => {
           if (res.status === 200) {
             setSelectedFiles([]);
+            // Seed the queue cache from the POST response (same envelope the
+            // GET returns) so the queue section renders immediately — the
+            // pre-upload query sits in 404-error state, and depending on an
+            // invalidate-triggered refetch to recover it proved fragile in
+            // the live app. The invalidation still follows for freshness.
+            queryClient.setQueryData(queueQueryKey, res);
             void queryClient.invalidateQueries({ queryKey: queueQueryKey });
           } else {
             toasts.message("Failed to queue Spotify history import", {
@@ -719,6 +725,10 @@ function SpotifyHistoryImport() {
       invalidateKeys={[...CHECKPOINT_KEYS, queueQueryKey]}
     >
       <FileUpload
+        // Remount when a queue (re)starts: FileUpload owns its selected-file
+        // display, so the parent clearing its copy after a successful upload
+        // leaves stale filenames on screen otherwise.
+        key={queue?.queue_id ?? "no-queue"}
         accept=".json"
         onFilesSelect={setSelectedFiles}
         disabled={mutation.isPending || queueActive}

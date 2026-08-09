@@ -6,6 +6,16 @@ linked backlog version file. Versioning follows mixd's four-segment
 `major.minor.feature.revision` scheme (`.claude/rules/version-management.md`), not strict
 SemVer. Format inspired by [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [0.10.2.10] — 2026-08-08
+
+**The upload actually shows its queue.** First real-world use of the multi-file import found the card frozen at the file-picker state while the queue drained fine server-side — two client bugs with one root: the queue view depended on an invalidate-triggered refetch of a query stuck in 404-error state (no queue existed before the first upload), and the file picker's displayed filenames were its own internal state, untouched when the page cleared its copy.
+
+- The upload response now seeds the queue query cache directly (it is the same envelope the GET returns), so the per-file chips render the moment the POST succeeds; the invalidation still follows for freshness.
+- The file picker remounts when a queue starts, clearing the stale filename list.
+- The regression test exercises the true first-upload sequence (404 → upload → queue visible, picker reset) — the generated API mocks' always-200 default had hidden it.
+
+→ [details](docs/backlog/v0.10.x.md#post-deploy-revisions)
+
 ## [0.10.2.9] — 2026-08-08
 
 **Your imported history now belongs to you — and imports run in minutes, not hours.** The 2014-file re-import took 78 minutes and delivered tracks the app couldn't show: every canonical track the Spotify import created was silently written under the local-dev `default` tenant instead of your user (one missing argument, `create_track_from_spotify_data` never set `user_id`; the owner role's BYPASSRLS let the write through). One bug, two faces:
