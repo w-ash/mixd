@@ -15,10 +15,10 @@ reasons — an end-time observation's normalized start shifts back by up to its
 chunk: the one whose core contains its earliest member's normalized start. That
 ownership rule is batch-boundary invariance operationalized.
 
-Two entry points, same diff-apply body: ``project_range`` tiles a contiguous
-span (the rebuild), ``project_observed_days`` chunks only the days a batch's
-plays fall in (or near) — a sparse batch must not pay for the empty years
-between its oldest and newest play.
+Two entry points, same diff-apply body: ``project_full_history`` chunks the
+days the resolved ledger actually touches (the rebuild), and
+``project_observed_days`` chunks only the days a batch's plays fall in (or
+near) — neither pays for the empty years a sparse history straddles.
 """
 
 from collections.abc import Iterable, Mapping, Sequence
@@ -120,16 +120,6 @@ PROJECTION_STAT_LABELS: Mapping[str, str] = {
 }
 
 
-def _contiguous_chunk_cores(start: datetime, end: datetime) -> list[_ChunkCore]:
-    """Tile ``[start, end)`` with ``_CHUNK``-long cores — the rebuild's span."""
-    cores: list[_ChunkCore] = []
-    cursor = start
-    while cursor < end:
-        cores.append((cursor, min(cursor + _CHUNK, end)))
-        cursor += _CHUNK
-    return cores
-
-
 def observed_day_cores(played_at: Iterable[datetime]) -> list[_ChunkCore]:
     """Calendar-day cores covering every group these observations can anchor.
 
@@ -217,36 +207,59 @@ def _differs(existing: TrackPlay, play: ProjectedPlay) -> bool:
 class PlayProjectionService:
     """Applies the deterministic ledger projection to canonical plays."""
 
-    async def project_range(
+    async def project_full_history(
         self,
         uow: UnitOfWorkProtocol,
         *,
         user_id: str,
-        start: datetime,
-        end: datetime,
         dry_run: bool = False,
         progress_emitter: ProgressEmitter | None = None,
         operation_id: str | None = None,
         claimed_play_ids: set[UUID] | None = None,
-    ) -> dict[str, int]:
-        """Project the ledger over [start, end) and diff-apply per day-chunk.
+    ) -> dict[str, int] | None:
+        """Project every day the resolved ledger touches — the rebuild's entry.
+
+        One ``SELECT DISTINCT`` of active days replaces tiling the span
+        between the ledger's bounds: one stray 2011 row in an otherwise
+        recent history would otherwise cost ~5,000 empty day-chunks of round
+        trips. Returns ``None`` when the ledger holds no resolved rows, so
+        the caller can tell "nothing to rebuild" from a projection that ran
+        and changed nothing.
+
+        Each active day is bracketed by both its midnight-adjacent moments
+        (``time.min`` and ``time.max``) before :func:`observed_day_cores`, so
+        every raw ``played_at`` in the day lies between the two and the
+        cores' ``_ANCHOR_REACH`` reach-back covers every anchor any of them
+        can hold. The span edges need no extra padding — the argument the
+        contiguous tiling used to make: every anchor is some member's own
+        normalized start, and the reach-back already exceeds the
+        normalization clamp plus the pairing spread, so no group can anchor
+        earlier than the earliest generated core.
 
         ``dry_run`` computes the full diff (stats identical to a real run)
-        without touching the database — no writes are issued at all.
-        ``claimed_play_ids``, when provided, accumulates every canonical play
-        id the projection targets (adopted, linked, or merged) so a dry-run
-        caller can simulate reconciliation against the would-be state.
-
-        Use this only when every day in the span is genuinely of interest (the
-        full-history rebuild). A batch writer wants
-        :meth:`project_observed_days`, which skips the days it never touched.
+        without touching the database; ``claimed_play_ids`` accumulates every
+        canonical play id the projection targets so a dry-run caller can
+        simulate reconciliation against the would-be state.
         """
-        if start >= end:
-            return dict.fromkeys(_STAT_KEYS, 0)
+        active_days = (
+            await uow.get_connector_play_repository().get_resolved_played_at_days(
+                user_id=user_id
+            )
+        )
+        if not active_days:
+            return None
 
+        day_brackets = [
+            moment
+            for day in active_days
+            for moment in (
+                datetime.combine(day, time.min, UTC),
+                datetime.combine(day, time.max, UTC),
+            )
+        ]
         return await self._apply_chunks(
             uow,
-            _contiguous_chunk_cores(start, end),
+            observed_day_cores(day_brackets),
             user_id=user_id,
             dry_run=dry_run,
             progress_emitter=progress_emitter,
@@ -268,11 +281,11 @@ class PlayProjectionService:
         """Project only the calendar days these observations fall in (or near).
 
         The batch writer's entry point: identical diff-apply semantics to
-        :meth:`project_range`, but the chunks come from the plays themselves, so
-        a sparse batch costs chunks proportional to the days it touched rather
-        than to the span it happens to straddle. See :func:`observed_day_cores`
-        for the ownership invariant and why a play claims more days than the
-        one its own timestamp names.
+        :meth:`project_full_history`, but the chunks come from the plays
+        themselves, so a sparse batch costs chunks proportional to the days it
+        touched rather than to the span it happens to straddle. See
+        :func:`observed_day_cores` for the ownership invariant and why a play
+        claims more days than the one its own timestamp names.
         """
         return await self._apply_chunks(
             uow,
@@ -539,28 +552,3 @@ class PlayProjectionService:
             )
 
         return stats
-
-    async def full_range(
-        self, uow: UnitOfWorkProtocol, *, user_id: str
-    ) -> tuple[datetime, datetime] | None:
-        """The [start, end) window covering every resolved ledger row.
-
-        Rebuild's helper: derives the projection span from the ledger itself.
-
-        ``PROJECTION_FETCH_MARGIN`` — not ``_ANCHOR_REACH`` — is the right
-        padding here, and the difference is not an oversight. Every anchor is
-        some member's own normalized start, so no anchor can precede the
-        earliest raw ``played_at`` by more than the normalization clamp; the
-        pairing spread moves which member holds the anchor, never the minimum
-        over all of them. The contiguous tiling therefore has no off-by-tolerance
-        gap at either span edge.
-        """
-        bounds = (
-            await uow.get_connector_play_repository().get_resolved_played_at_bounds(
-                user_id=user_id
-            )
-        )
-        if bounds is None:
-            return None
-        low, high = bounds
-        return (low - PROJECTION_FETCH_MARGIN, high + PROJECTION_FETCH_MARGIN)

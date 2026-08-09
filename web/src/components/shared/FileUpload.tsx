@@ -3,64 +3,93 @@ import { useCallback, useRef, useState } from "react";
 import { Button } from "#/components/ui/button";
 import { cn } from "#/lib/utils";
 
-const MAX_FILE_SIZE = 100 * 1024 * 1024; // 100MB
+// Client-side mirrors of the server caps (BusinessLimits.MAX_UPLOAD_BYTES /
+// MAX_QUEUED_UPLOAD_BYTES / MAX_QUEUE_ENTRIES) — a friendlier rejection than
+// uploading 500MB just to receive the server's 413.
+const MAX_FILE_SIZE = 100 * 1024 * 1024; // 100MB per file
+const MAX_TOTAL_SIZE = 500 * 1024 * 1024; // 500MB per selection
+const MAX_FILES = 25;
 
 interface FileUploadProps {
   accept?: string;
   maxSize?: number;
-  onFileSelect: (file: File) => void;
+  maxTotalSize?: number;
+  maxFiles?: number;
+  onFilesSelect: (files: File[]) => void;
   disabled?: boolean;
+}
+
+function mb(bytes: number): string {
+  return `${(bytes / 1024 / 1024).toFixed(1)}MB`;
 }
 
 export function FileUpload({
   accept = ".json",
   maxSize = MAX_FILE_SIZE,
-  onFileSelect,
+  maxTotalSize = MAX_TOTAL_SIZE,
+  maxFiles = MAX_FILES,
+  onFilesSelect,
   disabled = false,
 }: FileUploadProps) {
   const inputRef = useRef<HTMLInputElement>(null);
-  const [selectedFile, setSelectedFile] = useState<File | null>(null);
+  const [selectedFiles, setSelectedFiles] = useState<File[]>([]);
   const [error, setError] = useState<string | null>(null);
   const [isDragging, setIsDragging] = useState(false);
 
-  const processFile = useCallback(
-    (file: File) => {
+  const processFiles = useCallback(
+    (files: File[]) => {
       setError(null);
+      const reject = (message: string) => {
+        setError(message);
+        setSelectedFiles([]);
+        onFilesSelect([]);
+      };
 
-      if (file.size > maxSize) {
-        setError(
-          `File too large (${(file.size / 1024 / 1024).toFixed(1)}MB). Maximum: ${(maxSize / 1024 / 1024).toFixed(0)}MB.`,
+      if (files.length > maxFiles) {
+        reject(`Too many files (${files.length}). Maximum: ${maxFiles}.`);
+        return;
+      }
+      const oversized = files.find((file) => file.size > maxSize);
+      if (oversized) {
+        reject(
+          `File too large: ${oversized.name} (${mb(oversized.size)}). Maximum: ${mb(maxSize)} per file.`,
         );
-        setSelectedFile(null);
+        return;
+      }
+      const totalSize = files.reduce((sum, file) => sum + file.size, 0);
+      if (totalSize > maxTotalSize) {
+        reject(
+          `Selection too large (${mb(totalSize)}). Maximum: ${mb(maxTotalSize)} in total.`,
+        );
         return;
       }
 
-      setSelectedFile(file);
-      onFileSelect(file);
+      setSelectedFiles(files);
+      onFilesSelect(files);
     },
-    [maxSize, onFileSelect],
+    [maxFiles, maxSize, maxTotalSize, onFilesSelect],
   );
 
   const handleChange = useCallback(
     (e: React.ChangeEvent<HTMLInputElement>) => {
-      const file = e.target.files?.[0];
-      if (file) processFile(file);
+      const files = Array.from(e.target.files ?? []);
+      if (files.length > 0) processFiles(files);
     },
-    [processFile],
+    [processFiles],
   );
 
   const handleDrop = useCallback(
     (e: React.DragEvent) => {
       e.preventDefault();
       setIsDragging(false);
-      const file = e.dataTransfer.files[0];
-      if (file) processFile(file);
+      const files = Array.from(e.dataTransfer.files);
+      if (files.length > 0) processFiles(files);
     },
-    [processFile],
+    [processFiles],
   );
 
   return (
-    // biome-ignore lint/a11y/noStaticElementInteractions: drop zone uses native drag events; keyboard path is the Choose file button inside
+    // biome-ignore lint/a11y/noStaticElementInteractions: drop zone uses native drag events; keyboard path is the Choose files button inside
     <div
       className={cn(
         "rounded-lg border border-dashed p-4 text-center transition-colors",
@@ -81,20 +110,26 @@ export function FileUpload({
         ref={inputRef}
         type="file"
         accept={accept}
+        multiple
         onChange={handleChange}
         disabled={disabled}
         className="hidden"
-        aria-label="Upload file"
+        aria-label="Upload files"
       />
 
-      {selectedFile && !error ? (
-        <div className="flex items-center justify-center gap-2">
-          <p className="text-xs text-text-muted font-mono">
-            {selectedFile.name}{" "}
-            <span className="text-text-faint">
-              ({(selectedFile.size / 1024 / 1024).toFixed(1)}MB)
-            </span>
-          </p>
+      {selectedFiles.length > 0 && !error ? (
+        <div className="flex flex-col items-center gap-1.5">
+          <ul className="max-h-40 w-full overflow-y-auto">
+            {selectedFiles.map((file) => (
+              <li
+                key={file.name}
+                className="truncate text-xs text-text-muted font-mono"
+              >
+                {file.name}{" "}
+                <span className="text-text-faint">({mb(file.size)})</span>
+              </li>
+            ))}
+          </ul>
           <Button
             type="button"
             variant="ghost"
@@ -116,7 +151,7 @@ export function FileUpload({
               disabled={disabled}
               onClick={() => inputRef.current?.click()}
             >
-              Choose file
+              Choose files
             </Button>
             <p className="mt-1.5 text-xs text-text-faint">or drag and drop</p>
           </div>

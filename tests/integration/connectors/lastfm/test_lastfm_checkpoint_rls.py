@@ -45,9 +45,9 @@ from src.infrastructure.persistence.repositories.sync import SyncCheckpointRepos
 _RLS_ROLE = "rls_probe"
 _RLS_PASSWORD = "rls_probe_pw"
 _TABLE = "sync_checkpoints"
-# The day loop persists each day's plays before committing its cursor, so the
-# probe role needs the ledger too — the write under test is the checkpoint, but
-# it no longer happens alone.
+# The window loop persists each window's plays before committing its cursor, so
+# the probe role needs the ledger too — the write under test is the checkpoint,
+# but it no longer happens alone.
 _LEDGER_TABLE = "connector_plays"
 _MIXD_USER = "mixd-user-rls-probe"
 _LASTFM_ACCOUNT = "lastfm_account_rls_probe"
@@ -135,11 +135,13 @@ async def rls_sessions(
 
 
 class _RecordingImporter(LastfmPlayImporter):
-    """Importer whose per-day fetch is stubbed and records the days requested.
+    """Importer whose window fetch is stubbed and records the days it covers.
 
     Subclassed rather than monkeypatched so the real ``_fetch_data`` →
     ``_resolve_checkpoint`` → ``_fetch_date_range_strategy`` →
-    ``_save_day_checkpoint`` path runs untouched; only the HTTP call is replaced.
+    ``_save_window_checkpoint`` path runs untouched; only the HTTP call is
+    replaced. Days — not windows — are recorded, so the assertions stay at
+    the granularity the checkpoint semantics are stated in.
     """
 
     fetched: list[date]
@@ -149,23 +151,27 @@ class _RecordingImporter(LastfmPlayImporter):
         self.fetched = []
 
     @override
-    async def _fetch_day_records(
+    async def _fetch_window_records(
         self,
         username: str,
-        day_start: datetime,
-        day_end: datetime,
-        current_date: date,
+        window_start: datetime,
+        window_end: datetime,
     ) -> list[PlayRecord]:
-        _ = username, day_start, day_end
-        self.fetched.append(current_date)
-        return [
-            PlayRecord(
-                artist_name="Test Artist",
-                track_name="Test Track",
-                played_at=datetime.combine(current_date, time(12, 0), UTC),
-                service="lastfm",
+        _ = username
+        records: list[PlayRecord] = []
+        day = window_start.date()
+        while day <= window_end.date():
+            self.fetched.append(day)
+            records.append(
+                PlayRecord(
+                    artist_name="Test Artist",
+                    track_name="Test Track",
+                    played_at=datetime.combine(day, time(12, 0), UTC),
+                    service="lastfm",
+                )
             )
-        ]
+            day += timedelta(days=1)
+        return records
 
 
 class TestCheckpointRls:
@@ -201,10 +207,11 @@ class TestCheckpointRls:
     ) -> None:
         """The second run starts at the checkpoint day, not the 30-day default.
 
-        Run 1 imports an explicit three-day window, committing a checkpoint per
-        day. Run 2 asks for no dates at all: if the checkpoint round-tripped it
-        re-processes the last completed day and catches up to today; if it did
-        not, ``_determine_date_range`` falls back to ``now - 30 days``.
+        Run 1 imports an explicit three-day range, committing its window's
+        checkpoint. Run 2 asks for no dates at all: if the checkpoint
+        round-tripped it re-processes the last completed day and catches up to
+        today; if it did not, ``_determine_date_range`` falls back to
+        ``now - 30 days``.
         """
         today = datetime.now(UTC).date()
         window_start = today - timedelta(days=5)
@@ -242,11 +249,11 @@ class TestCheckpointRls:
 
         with user_context(_MIXD_USER):
             async with rls_sessions() as session:
-                await _RecordingImporter()._save_day_checkpoint(
+                await _RecordingImporter()._save_window_checkpoint(
                     user_id=_MIXD_USER,
                     account="the_old_account",
                     completed_date=stale_day,
-                    day_end=datetime.combine(stale_day, time.max, UTC),
+                    window_end=datetime.combine(stale_day, time.max, UTC),
                     uow=get_unit_of_work(session),
                 )
                 await session.commit()

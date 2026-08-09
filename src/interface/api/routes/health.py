@@ -12,6 +12,13 @@ Postgres?") are different questions; conflating them is what made the probe
 expensive. The default answers the first. Pass ``?deep=true`` to also answer the
 second — for manual diagnostics, not for an automated probe on a timer.
 
+``?busy=true`` answers a third question — "is an import in flight?" — for the
+pre-deploy gate in ``.github/workflows/release.yml`` (every Fly deploy strategy
+replaces machines and would kill a run mid-import). It costs one count query,
+so like ``deep`` it is for on-demand callers, never a probe on a timer. This
+endpoint is auth-exempt (``_EXEMPT_API_PATHS``), which is precisely what lets
+CI call it: the response is a boolean and two counts, no user data.
+
 **Do not point Fly's check at the deep form.** Beyond the cost, a DB-dependent
 *liveness* probe is actively harmful: Postgres is external, so during a Neon
 outage every machine fails its check at once and Fly restarts them in a loop
@@ -52,14 +59,62 @@ async def _probe_database() -> str | None:
     return None
 
 
+async def _probe_busy() -> dict[str, bool | int | str]:
+    """In-flight-work snapshot for the pre-deploy gate.
+
+    Two halves, because a queued-not-started export file has no
+    ``operation_runs`` row: the count query sees runs that started, the
+    in-process queue registry sees what is still waiting to start. Either one
+    alone reads "idle" at the wrong moment (mid-queue between files, or a run
+    the queue already handed off).
+    """
+    from src.application.runner import execute_use_case
+    from src.application.services.operation_run_reaper import count_running_runs
+    from src.interface.api.services.import_queue import any_queue_undrained
+
+    # The queue half is an in-process registry read and cannot fail; only the
+    # DB count needs the guard.
+    queue_pending = any_queue_undrained()
+    try:
+        running = await execute_use_case(count_running_runs)
+    except Exception as exc:
+        # Two distinct failure modes, two distinct answers. An UNREACHABLE
+        # endpoint means the app is not serving, so it cannot be importing —
+        # release.yml's ``|| true`` fails open on that, correctly. A SERVING
+        # app whose count query errors proves nothing about in-flight work, so
+        # a 500 here — which the workflow's ``-f`` also reads as "unreachable"
+        # — would deploy over a live import. Fail closed instead: report busy,
+        # let the gate retry on its 30s cadence, and let a persistent DB
+        # outage surface at the 30-minute deadline with the gate's message.
+        logger.warning(
+            "Busy probe: run count query failed — reporting busy (fail-closed)",
+            error=str(exc),
+            error_type=type(exc).__name__,
+        )
+        return {
+            "busy": True,
+            "busy_probe_error": type(exc).__name__,
+            "import_queue_pending": queue_pending,
+        }
+    return {
+        "busy": running > 0 or queue_pending,
+        "running_operation_runs": running,
+        "import_queue_pending": queue_pending,
+    }
+
+
 @router.get("/health")
-async def health_check(deep: bool = False) -> JSONResponse:
-    """Report process liveness; with ``?deep=true``, also probe the database.
+async def health_check(deep: bool = False, busy: bool = False) -> JSONResponse:
+    """Report process liveness; ``?deep=true`` probes the DB, ``?busy=true``
+    reports in-flight work.
 
     The shallow form never touches Postgres, so it is safe to call on a short
     interval without defeating Neon's scale-to-zero. It returns 200 whenever the
     process is serving. The deep form adds ``database`` and returns 503 when the
-    probe fails, mirroring the pre-v0.10.2 behaviour for manual checks.
+    probe fails, mirroring the pre-v0.10.2 behaviour for manual checks. The busy
+    form adds ``busy`` / ``running_operation_runs`` / ``import_queue_pending``
+    and always returns 200 — busyness is data for the deploy gate, not
+    degradation.
     """
     from src.config.settings import settings
 
@@ -71,11 +126,14 @@ async def health_check(deep: bool = False) -> JSONResponse:
         settings.credentials.anthropic_api_key.get_secret_value()
     )
 
-    content: dict[str, str | bool] = {
+    content: dict[str, str | bool | int] = {
         "status": "ok",
         "version": __version__,
         "server_anthropic_key_configured": server_anthropic_key_configured,
     }
+
+    if busy:
+        content.update(await _probe_busy())
 
     if not deep:
         return JSONResponse(content=content, status_code=200)

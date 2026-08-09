@@ -24,7 +24,7 @@ instantly via the bulk lookup fast path (no API call needed).
 """
 
 import asyncio
-from collections.abc import Mapping, Set as AbstractSet
+from collections.abc import Mapping, Sequence, Set as AbstractSet
 from typing import ClassVar, Final, override
 
 from attrs import define, evolve
@@ -46,6 +46,7 @@ from src.infrastructure.connectors._shared.inward_track_resolver import (
     InwardTrackResolver,
     ReuseMetadata,
     TrackResolutionMetrics,
+    persist_bulk_with_item_fallback,
 )
 from src.infrastructure.connectors._shared.isrc import normalize_isrc
 from src.infrastructure.connectors.spotify import SpotifyConnector
@@ -584,29 +585,33 @@ class SpotifyInwardResolver(InwardTrackResolver):
         Returns the resolved tracks and the ids whose write was rolled back —
         never absent ids, which the caller classifies separately.
         """
-        if not writes:
-            return {}, set()
 
-        try:
-            async with uow.savepoint():
-                resolved = await self._persist_writes_bulk(writes, uow, user_id=user_id)
-        except Exception as e:
-            logger.warning(
-                f"Bulk persist of {len(writes)} resolved Spotify tracks failed — "
-                f"retrying one savepoint per id: {e}",
-                exc_info=True,
+        def _log_failed_write(write: _ResolvedWrite, e: Exception) -> None:
+            logger.error(
+                f"Failed to create track for {write.requested_id}: {e}",
+                exc_info=e,
             )
-        else:
-            # Only now: the tracker sets describe rows, and until the savepoint
-            # has released, the rows they describe may still be discarded.
-            self._remember_provenance(writes)
-            return resolved, set()
 
-        return await self._persist_writes_per_item(writes, uow, user_id=user_id)
+        # ``on_persisted`` fires only after a savepoint releases: the tracker
+        # sets describe rows, and until then the rows they describe may still
+        # be discarded — a surviving entry would inflate ``metrics.redirects``
+        # and make ``get_resolution_method`` report SPOTIFY_REDIRECT for a
+        # track that ended up search-fallback-resolved.
+        return await persist_bulk_with_item_fallback(
+            writes,
+            uow,
+            persist=lambda chunk: self._persist_writes_bulk(
+                chunk, uow, user_id=user_id
+            ),
+            write_key=lambda write: write.requested_id,
+            describe="resolved Spotify tracks",
+            on_persisted=self._remember_provenance,
+            on_item_failure=_log_failed_write,
+        )
 
     async def _persist_writes_bulk(
         self,
-        writes: list[_ResolvedWrite],
+        writes: Sequence[_ResolvedWrite],
         uow: UnitOfWorkProtocol,
         *,
         user_id: str,
@@ -662,7 +667,7 @@ class SpotifyInwardResolver(InwardTrackResolver):
 
     @staticmethod
     def _mapping_batch(
-        writes: list[_ResolvedWrite],
+        writes: Sequence[_ResolvedWrite],
         canonicals: Mapping[str, Track],
     ) -> list[ConnectorMappingSpec]:
         """Every mapping the chunk owes, each saying whether it holds primacy.
@@ -704,55 +709,7 @@ class SpotifyInwardResolver(InwardTrackResolver):
                 )
         return specs
 
-    async def _persist_writes_per_item(
-        self,
-        writes: list[_ResolvedWrite],
-        uow: UnitOfWorkProtocol,
-        *,
-        user_id: str,
-    ) -> tuple[dict[str, Track], set[str]]:
-        """Rewrite a chunk one savepoint at a time, so one bad id costs one id.
-
-        The isolating path (the v0.10.2.2 InFailedSqlTransaction cascade): a
-        failed write rolls back alone instead of aborting the transaction for
-        every remaining id — and for the backoff clearing the caller runs
-        afterwards on the same uow.
-
-        Isolation is the *only* thing this adds. What gets written is
-        ``_persist_writes_bulk`` on a one-element chunk — a single write is the
-        degenerate case of a batch, not a second implementation of it — so the
-        fast path and the isolating path cannot drift into storing different
-        rows for the same ``_ResolvedWrite``.
-        """
-        resolved: dict[str, Track] = {}
-        failed_ids: set[str] = set()
-        for write in writes:
-            try:
-                async with uow.savepoint():
-                    persisted = await self._persist_writes_bulk(
-                        [write], uow, user_id=user_id
-                    )
-            except Exception as e:
-                failed_ids.add(write.requested_id)
-                logger.error(
-                    f"Failed to create track for {write.requested_id}: {e}",
-                    exc_info=True,
-                )
-            else:
-                # Provenance stays on the far side of the savepoint here for
-                # the same reason it does in ``_persist_writes``: until the
-                # savepoint releases, the rows these sets describe may still be
-                # discarded, and a surviving entry would inflate
-                # ``metrics.redirects`` and make ``get_resolution_method``
-                # report SPOTIFY_REDIRECT for a track that ended up
-                # search-fallback-resolved. No id can be recorded twice — the
-                # outer bulk attempt records nothing unless it wholly
-                # succeeded, and this loop visits each write once.
-                self._remember_provenance([write])
-                resolved.update(persisted)
-        return resolved, failed_ids
-
-    def _remember_provenance(self, writes: list[_ResolvedWrite]) -> None:
+    def _remember_provenance(self, writes: Sequence[_ResolvedWrite]) -> None:
         """Record which ids were relinked or ISRC-deferred, after the write landed.
 
         Called once per savepoint that released: over the whole chunk on the

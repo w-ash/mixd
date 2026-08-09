@@ -29,7 +29,6 @@ from tests.fixtures import make_track
 
 _FIRST = datetime(2024, 3, 9, 21, 4, 0, tzinfo=UTC)
 _MS = 187_000
-_WINDOW = (_FIRST - timedelta(days=1), _FIRST + timedelta(days=2))
 
 
 def _export_rows(user_id: str) -> list[ConnectorTrackPlay]:
@@ -64,8 +63,8 @@ async def _import_cycle(
     _ = await connector_repo.bulk_update_resolution(
         [(row, track_id) for row in rows], resolved_at=datetime.now(UTC)
     )
-    stats = await PlayProjectionService().project_range(
-        uow, user_id=user_id, start=_WINDOW[0], end=_WINDOW[1]
+    stats = await PlayProjectionService().project_observed_days(
+        uow, user_id=user_id, played_at=[row.played_at for row in rows]
     )
     return inserted, duplicates, stats
 

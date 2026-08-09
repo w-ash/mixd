@@ -265,7 +265,7 @@ Let the user know what's ready and how to deploy when they choose to:
 2. Pushes the commit and tag to origin together
 3. The `v*` tag triggers `.github/workflows/release.yml`, which runs two jobs:
    - **GitHub Release**: publishes the tag's `CHANGELOG.md` section as the release notes (fails if the entry from Step 3c is missing)
-   - **Deploy to Fly.io**: `flyctl deploy --remote-only` with `BUILD_HASH=$GITHUB_SHA`
+   - **Deploy to Fly.io**: first **waits for in-flight imports** — the job polls `/api/v1/health?busy=true` every 30s (up to 30 min) and holds the deploy while an import run or a queued export file is in flight, because a deploy replaces the machine and would kill the run; after 30 min it fails with a clear message (wait for the import or cancel it, then re-run the workflow). Once idle: `flyctl deploy --remote-only` with `BUILD_HASH=$GITHUB_SHA`
 4. Polls for the exact workflow run matching the pushed commit (up to 60s), then streams it via `gh run watch`
 5. Fly.io runs `alembic upgrade head` as the release command (before switching traffic)
 6. Health check at `/api/v1/health` gates the traffic cutover

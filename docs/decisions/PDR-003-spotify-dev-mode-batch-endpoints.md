@@ -40,3 +40,4 @@ All Spotify program-terms rows are perishable — `re-verify` on read.
 ## History
 
 - 2026-08-08 — Opened during v0.10.2.4 (batched-lookup fast path shipped; live probe confirmed availability; audit flagged the postponement as the only architectural threat to batch-first).
+- 2026-08-08 — v0.10.2.8: trigger (b) instrumentation is live — the batch client (`spotify/client.py`, `_get_tracks_batch_impl`) now logs a distinct error naming this PDR on any 403 from `GET /tracks?ids=`, so the trigger is observable in prod logs rather than folded into the anonymous `unanswered` bucket.

@@ -30,6 +30,25 @@ logger = get_logger(__name__)
 _WEB_DIST = Path(__file__).resolve().parents[3] / "web" / "dist"
 
 
+async def _reap_dead_operation_runs() -> None:
+    """Finalize runs a dead process left durably ``running`` (v0.10.2.8).
+
+    Interface merely wires the tick; the staleness rule, age bound, and the
+    deliberate absence of a heartbeat column live in
+    ``application/services/operation_run_reaper.py``. Data access goes through
+    ``execute_use_case`` like any other lifespan row work.
+    """
+    try:
+        from src.application.runner import execute_use_case
+        from src.application.services.operation_run_reaper import reap_dead_runs
+
+        reaped = await execute_use_case(reap_dead_runs)
+        if reaped:
+            logger.warning("Reaped operation runs from a dead process", count=reaped)
+    except Exception as e:
+        logger.warning("Failed to reap dead operation runs", error=str(e))
+
+
 async def _prune_expired_oauth_states() -> None:
     """Delete expired OAuth CSRF state rows that weren't consumed within their TTL."""
     try:
@@ -77,8 +96,15 @@ async def lifespan(_app: FastAPI) -> AsyncGenerator[None]:
     # Run startup tasks in background so the server accepts connections immediately.
     # On cold starts (Fly machine + Neon DB waking together), blocking here
     # caused the server to miss Fly.io's health check grace period.
+    # Orphaned import-queue dirs (uploads a dead process never drained) are
+    # swept off the ephemeral rootfs here; the sweep is sync filesystem work,
+    # hence the thread.
+    from src.interface.api.services.import_queue import cleanup_orphaned_queue_dirs
+
     startup_tasks = [
         asyncio.create_task(_prune_expired_oauth_states()),
+        asyncio.create_task(asyncio.to_thread(cleanup_orphaned_queue_dirs)),
+        asyncio.create_task(_reap_dead_operation_runs()),
     ]
 
     # Long-lived sweeper that marks stalled workflow_runs rows as failed.

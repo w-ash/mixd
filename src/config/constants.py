@@ -63,6 +63,12 @@ class BusinessLimits:
 
     # Import processing
     MAX_UPLOAD_BYTES: Final = 100 * 1024 * 1024  # 100 MB
+    # Whole-queue bounds for the multi-file GDPR upload. The deploy target is a
+    # shared-cpu-2x / 1GB machine with no mounted volume, so every queued file
+    # sits on the ephemeral rootfs until its turn — these caps bound that
+    # footprint. Starting points per the v0.10.2.6 spec; revisit with usage.
+    MAX_QUEUED_UPLOAD_BYTES: Final = 500 * 1024 * 1024  # 500 MB
+    MAX_QUEUE_ENTRIES: Final = 25
     DUPLICATE_RATE_EARLY_STOP: Final = 0.8
     # Statement budget for bulk import/rebuild statements; OLTP keeps the 30s
     # connection default set in ``db_connection._set_connection_timeouts``.

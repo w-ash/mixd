@@ -373,4 +373,4 @@ class TestCopyBulkInsertTenancy:
         window = (_EPOCH, _EPOCH + timedelta(days=1))
         assert len(await repo.find_resolved_in_window(*window, user_id=USER_A)) == 4
         assert await repo.find_resolved_in_window(*window, user_id=USER_B) == []
-        assert await repo.get_resolved_played_at_bounds(user_id=USER_B) is None
+        assert await repo.get_resolved_played_at_days(user_id=USER_B) == []

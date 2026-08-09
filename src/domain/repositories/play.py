@@ -4,7 +4,7 @@ Split from the former monolithic ``interfaces.py``.
 """
 
 from collections.abc import Awaitable, Callable, Iterable, Mapping, Sequence
-from datetime import datetime
+from datetime import date, datetime
 from pathlib import Path
 from typing import TYPE_CHECKING, Final, Literal, Protocol, TypedDict
 from uuid import UUID
@@ -286,10 +286,14 @@ class ConnectorPlayRepositoryProtocol(Protocol):
         """
         ...
 
-    def get_resolved_played_at_bounds(
-        self, *, user_id: str
-    ) -> Awaitable[tuple[datetime, datetime] | None]:
-        """(min, max) ``played_at`` across a user's resolved ledger rows."""
+    def get_resolved_played_at_days(self, *, user_id: str) -> Awaitable[list[date]]:
+        """Ascending distinct UTC calendar days holding ≥1 resolved ledger row.
+
+        The full-history projection's pre-query: a multi-year history with
+        sparse listening projects only the days that hold observations, so
+        the day list — not a (min, max) span to tile — is what the rebuild
+        needs. Empty when the user has no resolved rows.
+        """
         ...
 
     def find_resolved_in_window(

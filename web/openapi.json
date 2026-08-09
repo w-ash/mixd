@@ -3,7 +3,7 @@
   "info": {
     "title": "Mixd",
     "description": "Personal music metadata hub",
-    "version": "0.10.2.5"
+    "version": "0.10.2.8"
   },
   "paths": {
     "/api/v1/connectors/{service}/auth-url": {
@@ -357,7 +357,7 @@
           "health"
         ],
         "summary": "Health Check",
-        "description": "Report process liveness; with ``?deep=true``, also probe the database.\n\nThe shallow form never touches Postgres, so it is safe to call on a short\ninterval without defeating Neon's scale-to-zero. It returns 200 whenever the\nprocess is serving. The deep form adds ``database`` and returns 503 when the\nprobe fails, mirroring the pre-v0.10.2 behaviour for manual checks.",
+        "description": "Report process liveness; ``?deep=true`` probes the DB, ``?busy=true``\nreports in-flight work.\n\nThe shallow form never touches Postgres, so it is safe to call on a short\ninterval without defeating Neon's scale-to-zero. It returns 200 whenever the\nprocess is serving. The deep form adds ``database`` and returns 503 when the\nprobe fails, mirroring the pre-v0.10.2 behaviour for manual checks. The busy\nform adds ``busy`` / ``running_operation_runs`` / ``import_queue_pending``\nand always returns 200 \u2014 busyness is data for the deploy gate, not\ndegradation.",
         "operationId": "health_check_api_v1_health_get",
         "parameters": [
           {
@@ -368,6 +368,16 @@
               "type": "boolean",
               "default": false,
               "title": "Deep"
+            }
+          },
+          {
+            "name": "busy",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "boolean",
+              "default": false,
+              "title": "Busy"
             }
           }
         ],
@@ -3878,7 +3888,7 @@
           "imports"
         ],
         "summary": "Import Spotify History",
-        "description": "Import Spotify listening history from a GDPR data export JSON file.",
+        "description": "Queue Spotify GDPR export JSON files for one sequential, unattended import.\n\nA single file is the degenerate one-entry queue. Declared sizes are only a\ncheap early rejection \u2014 the streaming writer re-enforces both caps on real\nbytes.",
         "operationId": "import_spotify_history_api_v1_imports_spotify_history_post",
         "requestBody": {
           "content": {
@@ -3896,7 +3906,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/OperationStartedResponse"
+                  "$ref": "#/components/schemas/ImportQueueResponse"
                 }
               }
             }
@@ -3907,6 +3917,48 @@
               "application/json": {
                 "schema": {
                   "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/imports/spotify/history/queue": {
+      "get": {
+        "tags": [
+          "imports"
+        ],
+        "summary": "Get Spotify History Queue",
+        "description": "The user's current import queue, so a reloaded tab re-attaches to it.",
+        "operationId": "get_spotify_history_queue_api_v1_imports_spotify_history_queue_get",
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ImportQueueResponse"
+                }
+              }
+            }
+          }
+        }
+      },
+      "delete": {
+        "tags": [
+          "imports"
+        ],
+        "summary": "Cancel Spotify History Queue",
+        "description": "Cancel the queue's not-yet-started entries; the running one finishes.",
+        "operationId": "cancel_spotify_history_queue_api_v1_imports_spotify_history_queue_delete",
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ImportQueueResponse"
                 }
               }
             }
@@ -5043,15 +5095,18 @@
       },
       "Body_import_spotify_history_api_v1_imports_spotify_history_post": {
         "properties": {
-          "file": {
-            "type": "string",
-            "contentMediaType": "application/octet-stream",
-            "title": "File"
+          "files": {
+            "items": {
+              "type": "string",
+              "contentMediaType": "application/octet-stream"
+            },
+            "type": "array",
+            "title": "Files"
           }
         },
         "type": "object",
         "required": [
-          "file"
+          "files"
         ],
         "title": "Body_import_spotify_history_api_v1_imports_spotify_history_post"
       },
@@ -6243,6 +6298,73 @@
         "type": "object",
         "title": "ImportLastfmHistoryRequest",
         "description": "Request body for triggering a Last.fm history import."
+      },
+      "ImportQueueEntrySchema": {
+        "properties": {
+          "filename": {
+            "type": "string",
+            "title": "Filename"
+          },
+          "position": {
+            "type": "integer",
+            "title": "Position"
+          },
+          "status": {
+            "$ref": "#/components/schemas/QueueEntryStatus"
+          },
+          "operation_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Operation Id"
+          },
+          "run_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Run Id"
+          }
+        },
+        "type": "object",
+        "required": [
+          "filename",
+          "position",
+          "status"
+        ],
+        "title": "ImportQueueEntrySchema",
+        "description": "One file's place in a Spotify GDPR import queue.\n\n``operation_id``/``run_id`` are null until the entry starts \u2014 a queued file\nhas no ``operation_runs`` row yet; the ids appear via the queue GET as the\nsequencer reaches it."
+      },
+      "ImportQueueResponse": {
+        "properties": {
+          "queue_id": {
+            "type": "string",
+            "title": "Queue Id"
+          },
+          "entries": {
+            "items": {
+              "$ref": "#/components/schemas/ImportQueueEntrySchema"
+            },
+            "type": "array",
+            "title": "Entries"
+          }
+        },
+        "type": "object",
+        "required": [
+          "queue_id",
+          "entries"
+        ],
+        "title": "ImportQueueResponse",
+        "description": "The user's current import queue, in upload order."
       },
       "ImportSpotifyLikesRequest": {
         "properties": {
@@ -8044,6 +8166,17 @@
           "operation_id"
         ],
         "title": "PreviewStartedResponse"
+      },
+      "QueueEntryStatus": {
+        "anyOf": [
+          {
+            "type": "string",
+            "const": "queued"
+          },
+          {
+            "$ref": "#/components/schemas/OperationStatus"
+          }
+        ]
       },
       "RelinkMappingRequest": {
         "properties": {

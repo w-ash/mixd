@@ -4,7 +4,7 @@ from collections.abc import Sequence
 from datetime import datetime
 from uuid import UUID
 
-from sqlalchemy import and_, or_, select, update
+from sqlalchemy import and_, func, or_, select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.config import get_logger
@@ -196,6 +196,53 @@ class OperationRunRepository(BaseRepository[DBOperationRun, OperationRun]):
             last = runs[-1]
             next_page_key = (last.started_at, last.id)
         return runs, next_page_key
+
+    @db_operation("list_running_operation_runs_started_before")
+    async def list_running_started_before(
+        self,
+        cutoff: datetime,
+        *,
+        limit: int,
+    ) -> list[OperationRun]:
+        """All-user ``running`` rows started before ``cutoff``, oldest first.
+
+        Cross-user by design (no ``user_id`` predicate) — see the protocol
+        docstring for the reaper/busy-gate rationale and the BYPASSRLS
+        dependency. Oldest-first so a capped batch reaps the longest-dead
+        rows before the freshest ones.
+        """
+        stmt = (
+            select(self.model_class)
+            .where(
+                self.model_class.status == "running",
+                self.model_class.started_at < cutoff,
+            )
+            .order_by(self.model_class.started_at.asc())
+            .limit(limit)
+        )
+        result = await self.session.execute(stmt)
+        return [await OperationRunMapper.to_domain(r) for r in result.scalars().all()]
+
+    @db_operation("count_running_operation_runs_started_since")
+    async def count_running_started_since(self, cutoff: datetime) -> int:
+        """All-user count of ``running`` rows with ``started_at >= cutoff``.
+
+        A SQL ``count(*)``, not a fetch-and-count: the busy gate needs one
+        integer covering every live run, and hydrating capped batches to
+        produce it both truncates (a live run past the cap goes uncounted) and
+        wastes the round-trip. Cross-user / BYPASSRLS posture as
+        ``list_running_started_before``.
+        """
+        stmt = (
+            select(func.count())
+            .select_from(self.model_class)
+            .where(
+                self.model_class.status == "running",
+                self.model_class.started_at >= cutoff,
+            )
+        )
+        result = await self.session.execute(stmt)
+        return result.scalar_one()
 
 
 __all__ = ["OperationRunRepository"]

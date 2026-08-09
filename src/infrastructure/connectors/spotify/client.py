@@ -12,6 +12,7 @@ Key components:
 
 import asyncio
 from collections.abc import Awaitable, Callable
+from http import HTTPStatus
 from typing import ClassVar, cast, override
 
 from attrs import define, field
@@ -305,6 +306,18 @@ class SpotifyAPIClient(BaseAPIClient):
             "/tracks",
             params={"ids": ",".join(track_ids), "market": self.market},
         )
+        if response.status_code == HTTPStatus.FORBIDDEN:
+            # PDR-003 decide-by trigger (b): a 403 on the batch /tracks?ids=
+            # endpoint is the signature of Spotify's postponed dev-mode
+            # batch-endpoint restriction taking effect, and the PDR requires it
+            # to be distinguishable in prod logs from ordinary request failures
+            # (which land in ``unanswered`` anonymously).
+            logger.error(
+                "Spotify batch GET /tracks?ids= returned 403 — dev-mode "
+                "batch-endpoint restriction may be in effect; see PDR-003 "
+                "(docs/decisions/PDR-003-spotify-dev-mode-batch-endpoints.md)",
+                requested=len(track_ids),
+            )
         _ = response.raise_for_status()
         return parse_json_response(response)
 

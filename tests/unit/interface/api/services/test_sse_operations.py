@@ -17,8 +17,10 @@ from collections.abc import Awaitable, Callable
 from unittest.mock import AsyncMock, MagicMock, patch
 from uuid import UUID, uuid4
 
+from fastapi import HTTPException
 import pytest
 
+from src.config.constants import SSEConstants
 from src.domain.entities.operations import OperationResult
 from src.interface.api.services import sse_operations
 from src.interface.api.services.progress import (
@@ -437,6 +439,207 @@ class TestRunSseOperationCancellation:
             await registry.unregister(op_id)
 
 
+class TestOnTerminalCallback:
+    """``on_terminal`` is the sequencer's advance signal: it must fire with the
+    final status on every path — clean, soft failure, uncaught exception, and
+    cancellation — and before the SSE grace period, or a queued export would
+    wait out 30s of grace per file."""
+
+    async def test_fires_with_complete_on_clean_result(self, captured_finalize):
+        seen: list[str] = []
+
+        async def coro() -> OperationResult:
+            return OperationResult(operation_name="Import")
+
+        await sse_operations.run_sse_operation(
+            _op_id(), coro(), run_id=uuid4(), user_id="u1", on_terminal=seen.append
+        )
+
+        assert seen == ["complete"]
+
+    async def test_fires_with_error_on_soft_failure(self, captured_finalize):
+        seen: list[str] = []
+        result = OperationResult(operation_name="Import")
+        result.summary_metrics.add("errors", 1, "Errors", significance=1)
+        result.metadata["error"] = "bad file"
+
+        async def coro() -> OperationResult:
+            return result
+
+        await sse_operations.run_sse_operation(
+            _op_id(), coro(), run_id=uuid4(), user_id="u1", on_terminal=seen.append
+        )
+
+        assert seen == ["error"]
+
+    async def test_fires_with_error_on_uncaught_exception(self, captured_finalize):
+        seen: list[str] = []
+
+        async def coro() -> None:
+            raise RuntimeError("boom")
+
+        await sse_operations.run_sse_operation(
+            _op_id(), coro(), run_id=uuid4(), user_id="u1", on_terminal=seen.append
+        )
+
+        assert seen == ["error"]
+
+    async def test_fires_on_cancellation_and_cancellation_still_propagates(
+        self, captured_finalize
+    ):
+        seen: list[str] = []
+        entered = asyncio.Event()
+
+        async def coro() -> None:
+            entered.set()
+            await asyncio.Event().wait()
+
+        task = asyncio.create_task(
+            sse_operations.run_sse_operation(
+                _op_id(), coro(), run_id=uuid4(), user_id="u1", on_terminal=seen.append
+            )
+        )
+        await entered.wait()
+        task.cancel()
+        with pytest.raises(asyncio.CancelledError):
+            await task
+
+        assert seen == ["error"]
+
+    async def test_fires_before_the_sse_grace_period(self):
+        # The sequencer must be able to start the next entry the moment this
+        # one settles — not after finalize_sse_operation's 30s read window.
+        order: list[str] = []
+
+        async def fake_finalize_sse(
+            _operation_id: str, *, grace_period_seconds: float | None = None
+        ) -> None:
+            order.append("grace")
+
+        async def coro() -> OperationResult:
+            return OperationResult(operation_name="Import")
+
+        with (
+            patch.object(sse_operations, "finalize_run", new=AsyncMock()),
+            patch.object(
+                sse_operations, "finalize_sse_operation", new=fake_finalize_sse
+            ),
+        ):
+            await sse_operations.run_sse_operation(
+                _op_id(),
+                coro(),
+                run_id=uuid4(),
+                user_id="u1",
+                on_terminal=lambda _status: order.append("terminal"),
+            )
+
+        assert order == ["terminal", "grace"]
+
+    async def test_callback_failure_does_not_break_teardown(self, captured_finalize):
+        def explode(_status: str) -> None:
+            raise RuntimeError("observer broke")
+
+        async def coro() -> OperationResult:
+            return OperationResult(operation_name="Import")
+
+        # Must not raise: the callback is an observer, not a lifecycle owner.
+        await sse_operations.run_sse_operation(
+            _op_id(), coro(), run_id=uuid4(), user_id="u1", on_terminal=explode
+        )
+
+
+class TestOccupiesSlot:
+    """``occupies_slot=False`` keeps a run out of ``_active_operations``: the
+    caller's own token (the import queue's) already charges the shared cap."""
+
+    async def test_false_never_touches_the_active_set(self, captured_finalize):
+        op_id = _op_id()
+        sampled: list[bool] = []
+
+        async def coro() -> OperationResult:
+            sampled.append(op_id in sse_operations._active_operations)
+            return OperationResult(operation_name="Import")
+
+        await sse_operations.run_sse_operation(
+            op_id, coro(), run_id=uuid4(), user_id="u1", occupies_slot=False
+        )
+
+        assert sampled == [False]
+        assert op_id not in sse_operations._active_operations
+
+    async def test_default_still_brackets_the_run_with_the_slot(
+        self, captured_finalize
+    ):
+        op_id = _op_id()
+        sampled: list[bool] = []
+
+        async def coro() -> OperationResult:
+            sampled.append(op_id in sse_operations._active_operations)
+            return OperationResult(operation_name="Import")
+
+        await sse_operations.run_sse_operation(
+            op_id, coro(), run_id=uuid4(), user_id="u1"
+        )
+
+        assert sampled == [True]
+        assert op_id not in sse_operations._active_operations
+
+    async def test_prepare_skips_the_429_check_when_not_occupying(self):
+        taken = [f"held-{n}" for n in range(SSEConstants.MAX_CONCURRENT_OPERATIONS)]
+        sse_operations._active_operations.update(taken)
+        try:
+            with (
+                patch.object(
+                    sse_operations, "start_run", new=AsyncMock(return_value=uuid4())
+                ),
+                patch.object(sse_operations, "get_progress_broker", new=MagicMock()),
+            ):
+                # Default path: full set → 429.
+                with pytest.raises(HTTPException) as exc_info:
+                    await sse_operations.prepare_sse_operation_with_emitter(
+                        user_id="u1", operation_type="import_spotify_history"
+                    )
+                assert exc_info.value.status_code == 429
+
+                # Slot-exempt path: same full set, no rejection.
+                (
+                    operation_id,
+                    _run_id,
+                    _emitter,
+                ) = await sse_operations.prepare_sse_operation_with_emitter(
+                    user_id="u1",
+                    operation_type="import_spotify_history",
+                    occupies_slot=False,
+                )
+            await get_operation_registry().unregister(operation_id)
+        finally:
+            for token in taken:
+                sse_operations._active_operations.discard(token)
+
+
+class TestOperationSlotPair:
+    """acquire/release are the durable-claim primitives the queue holds its
+    drain-long token through; the 429 they raise is the same one prepare uses."""
+
+    def test_acquire_adds_and_release_removes(self):
+        sse_operations.acquire_operation_slot("queue_x")
+        assert "queue_x" in sse_operations._active_operations
+        sse_operations.release_operation_slot("queue_x")
+        assert "queue_x" not in sse_operations._active_operations
+
+    def test_acquire_raises_429_at_capacity(self):
+        taken = [f"held-{n}" for n in range(SSEConstants.MAX_CONCURRENT_OPERATIONS)]
+        sse_operations._active_operations.update(taken)
+        try:
+            with pytest.raises(HTTPException) as exc_info:
+                sse_operations.acquire_operation_slot("one-too-many")
+            assert exc_info.value.status_code == 429
+            assert "one-too-many" not in sse_operations._active_operations
+        finally:
+            for token in taken:
+                sse_operations._active_operations.discard(token)
+
+
 class TestLaunchSseOperationThreadsResult:
     """launch_sse_operation must thread the factory's RETURNED result into
     run_sse_operation — the dropped-result bug where every route factory was
@@ -461,6 +664,8 @@ class TestLaunchSseOperationThreadsResult:
             run_id: UUID | None = None,
             user_id: str | None = None,
             description: str = "Operation",
+            occupies_slot: bool = True,
+            on_terminal: object = None,
         ) -> None:
             seen_result.append(await coro)
 

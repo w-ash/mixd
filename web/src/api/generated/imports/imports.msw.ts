@@ -3,7 +3,7 @@
  * Do not edit manually.
  * Mixd
  * Personal music metadata hub
- * OpenAPI spec version: 0.10.2.5
+ * OpenAPI spec version: 0.10.2.8
  */
 import {
   HttpResponse,
@@ -15,19 +15,22 @@ import type {
 
 import type {
   CheckpointStatusSchema,
+  ImportQueueResponse,
   OperationStartedResponse
 } from '../model';
 
 import {
+  getCancelSpotifyHistoryQueueApiV1ImportsSpotifyHistoryQueueDeleteResponseMock,
   getExportLastfmLikesApiV1ImportsLastfmLikesPostResponseMock,
   getGetCheckpointsApiV1ImportsCheckpointsGetResponseMock,
+  getGetSpotifyHistoryQueueApiV1ImportsSpotifyHistoryQueueGetResponseMock,
   getImportLastfmHistoryApiV1ImportsLastfmHistoryPostResponseMock,
   getImportSpotifyHistoryApiV1ImportsSpotifyHistoryPostResponseMock,
   getImportSpotifyLikesApiV1ImportsSpotifyLikesPostResponseMock,
   getImportSpotifyRecentApiV1ImportsSpotifyRecentPostResponseMock
 } from './imports.faker.ts';
 
-export { getImportLastfmHistoryApiV1ImportsLastfmHistoryPostResponseMock, getImportSpotifyRecentApiV1ImportsSpotifyRecentPostResponseMock, getImportSpotifyLikesApiV1ImportsSpotifyLikesPostResponseMock, getExportLastfmLikesApiV1ImportsLastfmLikesPostResponseMock, getImportSpotifyHistoryApiV1ImportsSpotifyHistoryPostResponseMock, getGetCheckpointsApiV1ImportsCheckpointsGetResponseMock } from './imports.faker.ts';
+export { getImportLastfmHistoryApiV1ImportsLastfmHistoryPostResponseMock, getImportSpotifyRecentApiV1ImportsSpotifyRecentPostResponseMock, getImportSpotifyLikesApiV1ImportsSpotifyLikesPostResponseMock, getExportLastfmLikesApiV1ImportsLastfmLikesPostResponseMock, getImportSpotifyHistoryApiV1ImportsSpotifyHistoryPostResponseMock, getGetSpotifyHistoryQueueApiV1ImportsSpotifyHistoryQueueGetResponseMock, getCancelSpotifyHistoryQueueApiV1ImportsSpotifyHistoryQueueDeleteResponseMock, getGetCheckpointsApiV1ImportsCheckpointsGetResponseMock } from './imports.faker.ts';
 
 
 export const getImportLastfmHistoryApiV1ImportsLastfmHistoryPostMockHandler = (overrideResponse?: OperationStartedResponse | ((info: Parameters<Parameters<typeof http.post>[1]>[0]) => Promise<OperationStartedResponse> | OperationStartedResponse), options?: RequestHandlerOptions) => {
@@ -78,13 +81,37 @@ export const getExportLastfmLikesApiV1ImportsLastfmLikesPostMockHandler = (overr
   }, options)
 }
 
-export const getImportSpotifyHistoryApiV1ImportsSpotifyHistoryPostMockHandler = (overrideResponse?: OperationStartedResponse | ((info: Parameters<Parameters<typeof http.post>[1]>[0]) => Promise<OperationStartedResponse> | OperationStartedResponse), options?: RequestHandlerOptions) => {
+export const getImportSpotifyHistoryApiV1ImportsSpotifyHistoryPostMockHandler = (overrideResponse?: ImportQueueResponse | ((info: Parameters<Parameters<typeof http.post>[1]>[0]) => Promise<ImportQueueResponse> | ImportQueueResponse), options?: RequestHandlerOptions) => {
   return http.post('*/api/v1/imports/spotify/history', async (info: Parameters<Parameters<typeof http.post>[1]>[0]) => {
 
 
     return HttpResponse.json(overrideResponse !== undefined
     ? (typeof overrideResponse === "function" ? await overrideResponse(info) : overrideResponse)
     : getImportSpotifyHistoryApiV1ImportsSpotifyHistoryPostResponseMock(),
+      { status: 200
+      })
+  }, options)
+}
+
+export const getGetSpotifyHistoryQueueApiV1ImportsSpotifyHistoryQueueGetMockHandler = (overrideResponse?: ImportQueueResponse | ((info: Parameters<Parameters<typeof http.get>[1]>[0]) => Promise<ImportQueueResponse> | ImportQueueResponse), options?: RequestHandlerOptions) => {
+  return http.get('*/api/v1/imports/spotify/history/queue', async (info: Parameters<Parameters<typeof http.get>[1]>[0]) => {
+
+
+    return HttpResponse.json(overrideResponse !== undefined
+    ? (typeof overrideResponse === "function" ? await overrideResponse(info) : overrideResponse)
+    : getGetSpotifyHistoryQueueApiV1ImportsSpotifyHistoryQueueGetResponseMock(),
+      { status: 200
+      })
+  }, options)
+}
+
+export const getCancelSpotifyHistoryQueueApiV1ImportsSpotifyHistoryQueueDeleteMockHandler = (overrideResponse?: ImportQueueResponse | ((info: Parameters<Parameters<typeof http.delete>[1]>[0]) => Promise<ImportQueueResponse> | ImportQueueResponse), options?: RequestHandlerOptions) => {
+  return http.delete('*/api/v1/imports/spotify/history/queue', async (info: Parameters<Parameters<typeof http.delete>[1]>[0]) => {
+
+
+    return HttpResponse.json(overrideResponse !== undefined
+    ? (typeof overrideResponse === "function" ? await overrideResponse(info) : overrideResponse)
+    : getCancelSpotifyHistoryQueueApiV1ImportsSpotifyHistoryQueueDeleteResponseMock(),
       { status: 200
       })
   }, options)
@@ -107,5 +134,7 @@ export const getImportsMock = () => [
   getImportSpotifyLikesApiV1ImportsSpotifyLikesPostMockHandler(),
   getExportLastfmLikesApiV1ImportsLastfmLikesPostMockHandler(),
   getImportSpotifyHistoryApiV1ImportsSpotifyHistoryPostMockHandler(),
+  getGetSpotifyHistoryQueueApiV1ImportsSpotifyHistoryQueueGetMockHandler(),
+  getCancelSpotifyHistoryQueueApiV1ImportsSpotifyHistoryQueueDeleteMockHandler(),
   getGetCheckpointsApiV1ImportsCheckpointsGetMockHandler()
 ]

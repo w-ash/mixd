@@ -3,14 +3,18 @@
  * Do not edit manually.
  * Mixd
  * Personal music metadata hub
- * OpenAPI spec version: 0.10.2.5
+ * OpenAPI spec version: 0.10.2.8
  */
 import {
   faker
 } from '@faker-js/faker';
 
+import {
+  OperationStatus
+} from '../model';
 import type {
   CheckpointStatusSchema,
+  ImportQueueResponse,
   OperationStartedResponse
 } from '../model';
 
@@ -23,7 +27,11 @@ export const getImportSpotifyLikesApiV1ImportsSpotifyLikesPostResponseMock = (ov
 
 export const getExportLastfmLikesApiV1ImportsLastfmLikesPostResponseMock = (overrideResponse: Partial<Extract<OperationStartedResponse, object>> = {}): OperationStartedResponse => ({operation_id: faker.string.alpha({length: {min: 10, max: 20}}), run_id: faker.helpers.arrayElement([faker.helpers.arrayElement([faker.string.alpha({length: {min: 10, max: 20}}),null,]), undefined]), ...overrideResponse})
 
-export const getImportSpotifyHistoryApiV1ImportsSpotifyHistoryPostResponseMock = (overrideResponse: Partial<Extract<OperationStartedResponse, object>> = {}): OperationStartedResponse => ({operation_id: faker.string.alpha({length: {min: 10, max: 20}}), run_id: faker.helpers.arrayElement([faker.helpers.arrayElement([faker.string.alpha({length: {min: 10, max: 20}}),null,]), undefined]), ...overrideResponse})
+export const getImportSpotifyHistoryApiV1ImportsSpotifyHistoryPostResponseMock = (overrideResponse: Partial<Extract<ImportQueueResponse, object>> = {}): ImportQueueResponse => ({queue_id: faker.string.alpha({length: {min: 10, max: 20}}), entries: Array.from({ length: faker.number.int({min: 1, max: 10}) }, (_, i) => i + 1).map(() => ({filename: faker.string.alpha({length: {min: 10, max: 20}}), position: faker.number.int(), status: faker.helpers.arrayElement(["queued",faker.helpers.arrayElement(Object.values(OperationStatus)),]), operation_id: faker.helpers.arrayElement([faker.helpers.arrayElement([faker.string.alpha({length: {min: 10, max: 20}}),null,]), undefined]), run_id: faker.helpers.arrayElement([faker.helpers.arrayElement([faker.string.alpha({length: {min: 10, max: 20}}),null,]), undefined])})), ...overrideResponse})
+
+export const getGetSpotifyHistoryQueueApiV1ImportsSpotifyHistoryQueueGetResponseMock = (overrideResponse: Partial<Extract<ImportQueueResponse, object>> = {}): ImportQueueResponse => ({queue_id: faker.string.alpha({length: {min: 10, max: 20}}), entries: Array.from({ length: faker.number.int({min: 1, max: 10}) }, (_, i) => i + 1).map(() => ({filename: faker.string.alpha({length: {min: 10, max: 20}}), position: faker.number.int(), status: faker.helpers.arrayElement(["queued",faker.helpers.arrayElement(Object.values(OperationStatus)),]), operation_id: faker.helpers.arrayElement([faker.helpers.arrayElement([faker.string.alpha({length: {min: 10, max: 20}}),null,]), undefined]), run_id: faker.helpers.arrayElement([faker.helpers.arrayElement([faker.string.alpha({length: {min: 10, max: 20}}),null,]), undefined])})), ...overrideResponse})
+
+export const getCancelSpotifyHistoryQueueApiV1ImportsSpotifyHistoryQueueDeleteResponseMock = (overrideResponse: Partial<Extract<ImportQueueResponse, object>> = {}): ImportQueueResponse => ({queue_id: faker.string.alpha({length: {min: 10, max: 20}}), entries: Array.from({ length: faker.number.int({min: 1, max: 10}) }, (_, i) => i + 1).map(() => ({filename: faker.string.alpha({length: {min: 10, max: 20}}), position: faker.number.int(), status: faker.helpers.arrayElement(["queued",faker.helpers.arrayElement(Object.values(OperationStatus)),]), operation_id: faker.helpers.arrayElement([faker.helpers.arrayElement([faker.string.alpha({length: {min: 10, max: 20}}),null,]), undefined]), run_id: faker.helpers.arrayElement([faker.helpers.arrayElement([faker.string.alpha({length: {min: 10, max: 20}}),null,]), undefined])})), ...overrideResponse})
 
 export const getGetCheckpointsApiV1ImportsCheckpointsGetResponseMock = (): CheckpointStatusSchema[] => (Array.from({ length: faker.number.int({min: 1, max: 10}) }, (_, i) => i + 1).map(() => ({service: faker.string.alpha({length: {min: 10, max: 20}}), entity_type: faker.string.alpha({length: {min: 10, max: 20}}), last_sync_timestamp: faker.helpers.arrayElement([faker.helpers.arrayElement([faker.date.past().toISOString().slice(0, 19) + 'Z',null,]), undefined]), has_previous_sync: faker.datatype.boolean(), local_count: faker.helpers.arrayElement([faker.helpers.arrayElement([faker.number.int(),null,]), undefined]), remote_total: faker.helpers.arrayElement([faker.helpers.arrayElement([faker.number.int(),null,]), undefined]), last_polled_at: faker.helpers.arrayElement([faker.helpers.arrayElement([faker.date.past().toISOString().slice(0, 19) + 'Z',null,]), undefined]), effective_interval_seconds: faker.helpers.arrayElement([faker.helpers.arrayElement([faker.number.int(),null,]), undefined]), poll_health: faker.helpers.arrayElement([faker.helpers.arrayElement([faker.helpers.arrayElement(['healthy','overdue'] as const),null,]), undefined]), possible_gap: faker.datatype.boolean()})))
 

@@ -11,6 +11,14 @@ const STATUS_CONFIG: Record<
     className: "bg-text-faint/15 text-text-faint",
     icon: <Clock className="size-2.5" />,
   },
+  // Import-queue vocabulary: a file waiting its turn in the upload queue. It
+  // has no run yet (no operation_runs row until it starts), so it sits muted
+  // rather than borrowing any run status tone.
+  queued: {
+    label: "Queued",
+    className: "bg-text-faint/15 text-text-faint",
+    icon: <Clock className="size-2.5" />,
+  },
   running: {
     label: "Running",
     className: "bg-primary/15 text-primary",

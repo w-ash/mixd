@@ -89,29 +89,27 @@ class RebuildPlayHistoryUseCase:
                 progress_emitter, "Rebuilding play history from the ledger"
             ) as operation_id,
         ):
-            span = await service.full_range(uow, user_id=command.user_id)
-            if span is None:
-                logger.info(
-                    "No resolved ledger rows — nothing to rebuild",
-                    user_id=command.user_id,
-                )
-                return self._build_result({}, operation_name, command.dry_run)
-
-            start, end = span
             # Dry run: collect the play ids the projection would claim so
             # reconciliation can be simulated against the would-be state
             # instead of the current (membership-less) one.
             claimed: set[UUID] | None = set() if command.dry_run else None
-            stats = await service.project_range(
+            stats = await service.project_full_history(
                 uow,
                 user_id=command.user_id,
-                start=start,
-                end=end,
                 dry_run=command.dry_run,
                 progress_emitter=progress_emitter,
                 operation_id=operation_id,
                 claimed_play_ids=claimed,
             )
+            # None = the ledger holds no resolved rows at all — nothing to
+            # rebuild, and reconciliation would only delete plays a future
+            # first import is about to re-derive.
+            if stats is None:
+                logger.info(
+                    "No resolved ledger rows — nothing to rebuild",
+                    user_id=command.user_id,
+                )
+                return self._build_result({}, operation_name, command.dry_run)
 
             # Reconciliation: canonical rows no observation backs are not part
             # of the projection. Dry run reports them; a real run removes them.

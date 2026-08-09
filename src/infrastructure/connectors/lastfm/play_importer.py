@@ -1,11 +1,12 @@
 """Last.fm-specific play importer implementing connector-only ingestion.
 
-Contains all Last.fm import logic: token-first account resolution, daily
+Contains all Last.fm import logic: token-first account resolution, windowed
 chunking, checkpoint management, and boundary-respecting date ranges.
 """
 
 from datetime import UTC, date, datetime, time, timedelta
-from typing import override
+import math
+from typing import Final, override
 
 from attrs import evolve
 
@@ -29,10 +30,22 @@ from src.infrastructure.connectors._shared.token_storage import (
     TokenStorage,
     get_token_storage,
 )
+from src.infrastructure.connectors.lastfm.client import LastFMPartialFetchError
 from src.infrastructure.connectors.lastfm.connector import LastFMConnector
 from src.infrastructure.services.base_play_importer import BasePlayImporter
 
 logger = get_logger(__name__)
+
+# How many calendar days one user.getRecentTracks fetch spans. Seven days is
+# truncation headroom, not an API shape: the API takes arbitrary from/to
+# bounds at 200/page, and one fetch is capped at FULL_HISTORY_LIMIT (10,000)
+# records — a typical dense day is ≤200 scrobbles, so 7x200 leaves ~7x
+# headroom before a window could truncate (and a window that hits the cap is
+# re-fetched one day at a time). It lives HERE, not in config/constants: the
+# window is this
+# importer's fetch-strategy tunable — the crash-loss granularity of its
+# write-then-checkpoint loop — not a property of the Last.fm API.
+_IMPORT_WINDOW_DAYS: Final = 7
 
 # The cursor records the last completed day AND the Last.fm account it belongs
 # to, separated by "@" (never legal in a Last.fm username, so the split is
@@ -55,23 +68,23 @@ def _decode_cursor(cursor: str) -> tuple[str, str | None]:
 class LastfmPlayImporter(
     BasePlayImporter[ConnectorTrackPlay, LastfmImportParams], PlayImporterProtocol
 ):
-    """Last.fm play importer with daily chunking and checkpoint logic.
+    """Last.fm play importer with windowed chunking and checkpoint logic.
 
     Implements PlayImporterProtocol for use with the generic
     PlayImportOrchestrator. Ingests connector plays only; canonical resolution
     is the resolver's job (two-phase import).
 
     The pipeline's ``TRawData`` is ``ConnectorTrackPlay``, not ``PlayRecord``:
-    the day loop converts each day's scrobbles the moment they land and drops
-    the raw records, so a multi-year import never accumulates the whole span
-    twice. :meth:`_process_data` is therefore a pass-through.
+    the window loop converts each window's scrobbles the moment they land and
+    drops the raw records, so a multi-year import never accumulates the whole
+    span twice. :meth:`_process_data` is therefore a pass-through.
 
-    The day loop also persists each day before checkpointing it, so the
+    The window loop also persists each window before checkpointing it, so the
     run-end save has nothing left to write — see
     ``persists_plays_during_fetch``.
     """
 
-    # The day loop owns both the writes and the resume cursor, and keeps the
+    # The window loop owns both the writes and the resume cursor, and keeps the
     # cursor behind the writes; the base class must not re-save the span.
     persists_plays_during_fetch = True
 
@@ -123,7 +136,7 @@ class LastfmPlayImporter(
             )
 
         # Resolve the Last.fm account ONCE, token-first, and pass the concrete
-        # name down so the per-day fetch + checkpoint never fall back to env for
+        # name down so the per-window fetch + checkpoint never fall back to env for
         # a web user (the cross-tenant leak). Raises LastfmAuthRequiredError if
         # nothing resolves (web user with no connected account and no env).
         resolved_username = await self._resolve_username(params.username, user_id)
@@ -226,7 +239,7 @@ class LastfmPlayImporter(
         2. Incremental: no dates (checkpoint-bounded, last run to now)
 
         Returns ledger rows rather than raw scrobbles — conversion happens per
-        day inside the chunking loop (see :meth:`_fetch_date_range_strategy`).
+        window inside the chunking loop (see :meth:`_fetch_date_range_strategy`).
         """
         username = self._require_resolved_username(params)
 
@@ -243,7 +256,7 @@ class LastfmPlayImporter(
 
         logger.info(f"📡 Unified Last.fm import: {effective_from} to {effective_to}")
 
-        # Single code path - always use daily chunking
+        # Single code path - always use windowed chunking
         return await self._fetch_date_range_strategy(
             from_date=effective_from,
             to_date=effective_to,
@@ -359,25 +372,27 @@ class LastfmPlayImporter(
         explicit_range: bool = False,
         operation_id: str | None = None,
     ) -> list[ConnectorTrackPlay]:
-        """Download scrobbles using smart daily chunking.
+        """Download scrobbles in ``_IMPORT_WINDOW_DAYS``-day windows.
 
-        Most users listen to <200 tracks/day, so daily chunks are optimal;
-        the Last.fm client paginates within a day when needed.
+        One ``user.getRecentTracks`` call (paginated at 200/page by the
+        client) covers a whole window instead of a single day — the API takes
+        arbitrary from/to bounds, so per-day calls were a mixd convention
+        costing a full-history import thousands of round trips.
 
-        Each day is converted to ledger rows before the next one is fetched, so
-        only the accumulated ``ConnectorTrackPlay`` list survives the loop — a
-        full-history import (up to 50,000 plays) never holds the raw scrobbles
-        for the whole span on top of it. Each day is also persisted and its
-        resume cursor committed together, in that order, so the cursor can
-        never point past rows that were never written.
+        Each window is converted to ledger rows before the next one is
+        fetched, so only the accumulated ``ConnectorTrackPlay`` list survives
+        the loop — a full-history import (up to 50,000 plays) never holds the
+        raw scrobbles for the whole span on top of it. Each window is also
+        persisted and its resume cursor committed together, in that order, so
+        the cursor can never point past rows that were never written.
 
         Args:
-            user_id: The mixd user the per-day checkpoints are keyed on, and the
-                tenancy stamped onto each day's ledger rows.
+            user_id: The mixd user the per-window checkpoints are keyed on, and
+                the tenancy stamped onto each window's ledger rows.
             username: The resolved Last.fm account the plays are fetched from.
-            batch_id: The import batch each day's rows are tagged with.
+            batch_id: The import batch each window's rows are tagged with.
             import_timestamp: When the import started — shared by every row so
-                the batch has one timestamp, not one per day of the loop.
+                the batch has one timestamp, not one per window of the loop.
             uow: Required, with no default, because this loop IS the persistence
                 path: ``persists_plays_during_fetch`` is unconditionally True on
                 this importer, so the base class skips the run-end save. A
@@ -390,7 +405,8 @@ class LastfmPlayImporter(
             operation_id: Optional operation ID for progress event emission.
         """
         logger.info(
-            f"📡 Fetching tracks with daily chunking: from_date={from_date}, to_date={to_date}, user={username}"
+            f"📡 Fetching tracks with {_IMPORT_WINDOW_DAYS}-day windows: "
+            f"from_date={from_date}, to_date={to_date}, user={username}"
         )
 
         # Adjust start date based on checkpoint for incremental imports
@@ -399,6 +415,7 @@ class LastfmPlayImporter(
         )
         end_date = to_date.date()
         total_days = (end_date - start_date).days + 1
+        total_windows = math.ceil(total_days / _IMPORT_WINDOW_DAYS)
 
         # If we're already caught up, return empty
         if start_date > end_date:
@@ -409,107 +426,117 @@ class LastfmPlayImporter(
             return []
 
         all_connector_plays: list[ConnectorTrackPlay] = []
-        days_processed = 0
+        windows_processed = 0
         batch_commit = getattr(uow, "commit_batch", None)
 
-        # Process each day chronologically (oldest → newest)
-        current_date = start_date
-        while current_date <= end_date:
-            days_processed += 1
+        # Process each window chronologically (oldest → newest)
+        window_start_date = start_date
+        while window_start_date <= end_date:
+            windows_processed += 1
+            window_end_date = min(
+                window_start_date + timedelta(days=_IMPORT_WINDOW_DAYS - 1), end_date
+            )
 
-            # Define day boundaries in UTC, respecting the original time
-            # boundaries on the first/last day if more restrictive
-            day_start = datetime.combine(current_date, time.min, UTC)
-            day_end = datetime.combine(current_date, time.max, UTC)
+            # Window boundaries in UTC, respecting the original time
+            # boundaries on the first/last window if more restrictive —
+            # exactly as the day boundaries used to clamp.
+            window_start = datetime.combine(window_start_date, time.min, UTC)
+            window_end = datetime.combine(window_end_date, time.max, UTC)
             effective_start = (
-                max(day_start, from_date) if current_date == start_date else day_start
+                max(window_start, from_date)
+                if window_start_date == start_date
+                else window_start
             )
             effective_end = (
-                min(day_end, to_date) if current_date == end_date else day_end
+                min(window_end, to_date) if window_end_date == end_date else window_end
             )
 
-            day_records = await self._fetch_day_records(
+            window_records = await self._fetch_window_records(
                 username=username,
-                day_start=effective_start,
-                day_end=effective_end,
-                current_date=current_date,
+                window_start=effective_start,
+                window_end=effective_end,
             )
 
-            self._warn_if_outside_bounds(
-                day_records, current_date, effective_start, effective_end
-            )
+            self._warn_if_outside_bounds(window_records, effective_start, effective_end)
 
-            # Convert now and let the day's raw records go: this is the only
-            # place the two representations of a day coexist, and the loop is
-            # already committing per day, so nothing downstream needs them.
-            day_plays = self._to_connector_plays(
-                day_records,
+            # Convert now and let the window's raw records go: this is the
+            # only place the two representations of a window coexist, and the
+            # loop is already committing per window, so nothing downstream
+            # needs them.
+            window_plays = self._to_connector_plays(
+                window_records,
                 user_id=user_id,
                 batch_id=batch_id,
                 import_timestamp=import_timestamp,
             )
-            all_connector_plays.extend(day_plays)
+            all_connector_plays.extend(window_plays)
 
             if progress_emitter and operation_id:
                 await progress_emitter.emit_progress(
                     create_progress_event(
                         operation_id=operation_id,
-                        current=days_processed,
-                        total=total_days,
-                        message=f"Fetched {len(all_connector_plays)} plays ({days_processed}/{total_days} days)",
+                        current=windows_processed,
+                        total=total_windows,
+                        message=(
+                            f"Fetched {len(all_connector_plays)} plays "
+                            f"({windows_processed}/{total_windows} windows)"
+                        ),
                     )
                 )
 
             # Invariant: the checkpoint never leads the persisted plays.
             #
-            # The day's rows are written first and its cursor second, inside
+            # The window's rows are written first and its cursor second, inside
             # one transaction that the commit below makes durable as a unit —
             # so a crash anywhere leaves the cursor at or behind the last
-            # written day, and the resumed run re-fetches from there. That is
-            # what "at most one day lost on crash" costs. Persisting the whole
-            # span only at the end of the run (as this loop used to) meant a
-            # crash at day 300 of 5,100 left a day-300 cursor with ZERO rows
-            # written, and days 1-299 were silently skipped forever.
+            # written window, and the resumed run re-fetches from there. That
+            # is what "at most one window lost on crash" costs. Persisting the
+            # whole span only at the end of the run (as this loop once did)
+            # meant a crash at day 300 of 5,100 left a day-300 cursor with
+            # ZERO rows written, and days 1-299 were silently skipped forever.
+            # A partial window can never reach here: the client raises on a
+            # failed page instead of returning a truncated span.
             #
             # Unconditional: ``uow`` is required precisely so this write can
             # never be skipped while the base class also skips the run-end save.
-            _ = await self._persist_fetched_chunk(day_plays, uow, user_id=user_id)
-            await self._save_day_checkpoint(
+            _ = await self._persist_fetched_chunk(window_plays, uow, user_id=user_id)
+            await self._save_window_checkpoint(
                 user_id=user_id,
                 account=username,
-                completed_date=current_date,
-                day_end=effective_end,
+                completed_date=window_end_date,
+                window_end=effective_end,
                 uow=uow,
             )
             if batch_commit is not None:
                 await batch_commit()
 
-            current_date += timedelta(days=1)
+            window_start_date = window_end_date + timedelta(days=1)
 
         logger.info(
-            f"📡 Daily chunking complete: {len(all_connector_plays)} records across {days_processed} days"
+            f"📡 Windowed chunking complete: {len(all_connector_plays)} records "
+            f"across {windows_processed} windows"
         )
 
         if checkpoint:
             logger.info(
-                f"📋 Incremental import complete: processed {days_processed} new days since {checkpoint.cursor}"
+                f"📋 Incremental import complete: processed {windows_processed} new windows since {checkpoint.cursor}"
             )
         else:
             logger.info(
-                f"📋 Full import complete: processed {days_processed} days total"
+                f"📋 Full import complete: processed {windows_processed} windows total"
             )
 
         return all_connector_plays
 
     @staticmethod
     def _to_connector_plays(
-        day_records: list[PlayRecord],
+        window_records: list[PlayRecord],
         *,
         user_id: str,
         batch_id: str,
         import_timestamp: datetime,
     ) -> list[ConnectorTrackPlay]:
-        """Build one day's ledger rows, tenancy stamped at construction."""
+        """Build one window's ledger rows, tenancy stamped at construction."""
         return [
             ConnectorTrackPlay(
                 service="lastfm",
@@ -526,7 +553,7 @@ class LastfmPlayImporter(
                 import_source="lastfm_api",
                 import_batch_id=batch_id,
             )
-            for play_record in day_records
+            for play_record in window_records
         ]
 
     @staticmethod
@@ -538,7 +565,8 @@ class LastfmPlayImporter(
     ) -> date:
         """Pick the chunking start date: checkpoint resume vs. requested start.
 
-        Resuming always re-processes the checkpoint day to catch new plays.
+        Resuming always re-processes the checkpoint day (the last completed
+        window's final day) to catch new plays.
         When ``explicit_range`` is True the caller explicitly requested this
         range, so the checkpoint never overrides it (historical fetches work
         even when the checkpoint is ahead).
@@ -564,60 +592,127 @@ class LastfmPlayImporter(
 
     @staticmethod
     def _warn_if_outside_bounds(
-        day_records: list[PlayRecord],
-        current_date: date,
+        window_records: list[PlayRecord],
         effective_start: datetime,
         effective_end: datetime,
     ) -> None:
-        """Warn when fetched timestamps violate the day's boundary contract."""
-        if not day_records:
+        """Warn when fetched timestamps violate the window's boundary contract."""
+        if not window_records:
             return
-        day_timestamps = [r.played_at for r in day_records]
-        min_ts = min(day_timestamps)
-        max_ts = max(day_timestamps)
+        window_timestamps = [r.played_at for r in window_records]
+        min_ts = min(window_timestamps)
+        max_ts = max(window_timestamps)
         if min_ts < effective_start or max_ts > effective_end:
             logger.warning(
-                f"Day {current_date}: timestamps outside expected range! "
-                f"Expected {effective_start} to {effective_end}, got {min_ts} to {max_ts}"
+                f"Window {effective_start.date()}..{effective_end.date()}: timestamps "
+                f"outside expected range! Expected {effective_start} to "
+                f"{effective_end}, got {min_ts} to {max_ts}"
             )
 
-    async def _fetch_day_records(
+    async def _fetch_window_records(
         self,
         username: str,
-        day_start: datetime,
-        day_end: datetime,
-        current_date: date,
+        window_start: datetime,
+        window_end: datetime,
     ) -> list[PlayRecord]:
-        """Fetch all plays for a single calendar day using pagination."""
-        logger.debug(f"Fetching day {current_date}: start={day_start}, end={day_end}")
+        """Fetch all plays for one window using pagination.
+
+        Raises ``LastFMPartialFetchError`` (from the client) when a page fails
+        mid-pagination — a partial window must fail the run, never checkpoint.
+        A window that hits the fetch ceiling is re-fetched one day at a time;
+        a single day that still hits it raises the same error.
+        """
+        logger.debug(f"Fetching window: start={window_start}, end={window_end}")
         records = await self.lastfm_connector.get_recent_tracks(
             username=username,
             limit=LastFMConstants.FULL_HISTORY_LIMIT,  # pagination handles it
-            from_time=day_start,
-            to_time=day_end,
+            from_time=window_start,
+            to_time=window_end,
         )
-        logger.info(f"Day {current_date}: {len(records)} plays")
+        if len(records) >= LastFMConstants.FULL_HISTORY_LIMIT:
+            # A ceiling-size result is truncated (or indistinguishable from
+            # truncated), and the API serves newest-first — the dropped records
+            # are the window's OLDEST. Persisting this window would checkpoint
+            # past them, and the forward-only cursor never revisits a completed
+            # window, so they would be lost forever. Subdivide instead of warn:
+            # re-fetch the same span through this same path at the degenerate
+            # one-day window, so dense accounts stay importable. The
+            # persist→checkpoint→commit invariant is untouched — every
+            # subdivided fetch returns into the window's record list before the
+            # window's single checkpoint advances. A single day that still
+            # ceilings raises: 10,000 plays in one day is beyond any real
+            # account, and an honest failure beats silently dropping its tail.
+            if window_start.date() == window_end.date():
+                raise LastFMPartialFetchError(
+                    f"day {window_start.date()} hit the "
+                    f"{LastFMConstants.FULL_HISTORY_LIMIT}-record fetch ceiling "
+                    "even as a one-day window; refusing to persist a truncated "
+                    "day"
+                )
+            return await self._refetch_window_by_day(
+                username=username,
+                window_start=window_start,
+                window_end=window_end,
+            )
+        logger.info(
+            f"Window {window_start.date()}..{window_end.date()}: {len(records)} plays"
+        )
         return records
 
-    async def _save_day_checkpoint(
+    async def _refetch_window_by_day(
+        self,
+        *,
+        username: str,
+        window_start: datetime,
+        window_end: datetime,
+    ) -> list[PlayRecord]:
+        """Re-fetch a ceiling-hit window as one-day windows via the same path.
+
+        Each day goes back through :meth:`_fetch_window_records` — the one-day
+        window is the degenerate case of the windowed fetch, not a second
+        implementation — so a day that itself ceilings raises there.
+        """
+        logger.warning(
+            f"Window {window_start.date()}..{window_end.date()} hit the "
+            f"{LastFMConstants.FULL_HISTORY_LIMIT}-record fetch ceiling — "
+            f"re-fetching one day at a time",
+            window_start=window_start.isoformat(),
+            window_end=window_end.isoformat(),
+        )
+        records: list[PlayRecord] = []
+        day = window_start.date()
+        while day <= window_end.date():
+            day_start = max(datetime.combine(day, time.min, UTC), window_start)
+            day_end = min(datetime.combine(day, time.max, UTC), window_end)
+            records.extend(
+                await self._fetch_window_records(
+                    username=username,
+                    window_start=day_start,
+                    window_end=day_end,
+                )
+            )
+            day += timedelta(days=1)
+        return records
+
+    async def _save_window_checkpoint(
         self,
         *,
         user_id: str,
         account: str,
         completed_date: date,
-        day_end: datetime,
+        window_end: datetime,
         uow: UnitOfWorkProtocol,
     ) -> None:
-        """Save checkpoint after successfully processing a day.
+        """Save checkpoint after successfully persisting a window.
 
         Args:
             user_id: The mixd user the checkpoint belongs to. ``sync_checkpoints``
                 is FORCE-RLS'd on this column, so it is the only key a write can
                 use — anything else is rejected by the ``user_isolation`` policy.
-            account: The Last.fm account the day was fetched from, recorded in
+            account: The Last.fm account the window was fetched from, recorded in
                 the cursor so a later account switch is detectable.
-            completed_date: The date that was just completed
-            day_end: End timestamp of the completed day
+            completed_date: The window's last calendar day (the resume cursor).
+            window_end: End timestamp of the completed window.
             uow: UnitOfWork for database operations with proper transaction context
         """
         try:
@@ -625,7 +720,7 @@ class LastfmPlayImporter(
                 user_id=user_id,
                 service="lastfm",
                 entity_type="plays",
-                last_timestamp=day_end,
+                last_timestamp=window_end,
                 cursor=_encode_cursor(completed_date, account),
             )
 
@@ -659,10 +754,10 @@ class LastfmPlayImporter(
         batch_id: str,
         import_timestamp: datetime,
     ) -> list[ConnectorTrackPlay]:
-        """Pass through: the day loop already built these rows as it fetched.
+        """Pass through: the window loop already built these rows as it fetched.
 
-        Conversion moved into :meth:`_to_connector_plays`, called per calendar
-        day, so the span-wide raw list this step used to consume no longer
+        Conversion moved into :meth:`_to_connector_plays`, called per fetch
+        window, so the span-wide raw list this step used to consume no longer
         exists. Everything it would stamp here — tenancy, batch, timestamp — is
         set at construction there.
         """
@@ -704,4 +799,4 @@ class LastfmPlayImporter(
         *,
         user_id: str,
     ) -> None:
-        """No-op: Last.fm checkpoints are saved per day in _save_day_checkpoint."""
+        """No-op: Last.fm checkpoints are saved per window in _save_window_checkpoint."""

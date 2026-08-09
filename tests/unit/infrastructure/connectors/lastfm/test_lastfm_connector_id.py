@@ -30,14 +30,33 @@ def _make_uow(
 
     track_repo = uow.get_track_repository()
     track_repo.save_track.return_value = default_track
+
+    # The chunk-bulk persist saves a whole chunk in one call; route it
+    # through save_track so payload-sensitive tests configure one seam.
+    async def _save_tracks(tracks):
+        return [await track_repo.save_track(track) for track in tracks]
+
+    track_repo.save_tracks.side_effect = _save_tracks
     # Canonical Reuse: default to no title+artist matches
     track_repo.find_tracks_by_title_artist.return_value = {}
 
     connector_repo = uow.get_connector_repository()
     connector_repo.find_tracks_by_connectors.return_value = existing_tracks or {}
-    connector_repo.map_track_to_connector.return_value = default_track
+    connector_repo.map_tracks_to_connectors.side_effect = lambda specs: [
+        spec.track for spec in specs
+    ]
 
     return uow
+
+
+def _lastfm_connector_ids(uow) -> list[str]:
+    """Connector ids of every lastfm mapping the chunk-bulk persist asked for."""
+    return [
+        spec.connector_id
+        for c in uow.get_connector_repository().map_tracks_to_connectors.call_args_list
+        for spec in c.args[0]
+        if spec.connector == "lastfm"
+    ]
 
 
 class TestLastfmIdentifierNormalization:
@@ -89,9 +108,7 @@ class TestInwardResolverUsesCompositeFormat:
         )
 
         # The connector mapping uses the composite, never the URL.
-        map_calls = uow.get_connector_repository().map_track_to_connector.call_args_list
-        lastfm_calls = [c for c in map_calls if c.args[1] == "lastfm"]
-        connector_ids = [c.args[2] for c in lastfm_calls]
+        connector_ids = _lastfm_connector_ids(uow)
         assert connector_ids == [make_lastfm_identifier("Radiohead", "Creep")]
         assert lastfm_url not in connector_ids
 
@@ -124,10 +141,9 @@ class TestInwardResolverUsesCompositeFormat:
             ["radiohead::creep"], uow, user_id="test-user"
         )
 
-        map_calls = uow.get_connector_repository().map_track_to_connector.call_args_list
-        lastfm_calls = [c for c in map_calls if c.args[1] == "lastfm"]
-        connector_ids = [c.args[2] for c in lastfm_calls]
-        assert connector_ids == [make_lastfm_identifier("radiohead", "creep")]
+        assert _lastfm_connector_ids(uow) == [
+            make_lastfm_identifier("radiohead", "creep")
+        ]
         lastfm_client.get_track_correction.assert_not_called()
 
     async def test_getinfo_fails_and_no_correction_falls_back_to_raw_names(self):
@@ -153,10 +169,9 @@ class TestInwardResolverUsesCompositeFormat:
         )
 
         lastfm_client.get_track_correction.assert_called_once_with("radiohead", "creep")
-        map_calls = uow.get_connector_repository().map_track_to_connector.call_args_list
-        lastfm_calls = [c for c in map_calls if c.args[1] == "lastfm"]
-        connector_ids = [c.args[2] for c in lastfm_calls]
-        assert connector_ids == [make_lastfm_identifier("radiohead", "creep")]
+        assert _lastfm_connector_ids(uow) == [
+            make_lastfm_identifier("radiohead", "creep")
+        ]
 
     async def test_bulk_lookup_finds_existing_url_tracks(self):
         """Mapping lookup should find tracks stored with artist::title dedup key."""

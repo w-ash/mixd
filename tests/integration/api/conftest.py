@@ -20,6 +20,7 @@ from src.infrastructure.persistence.database.db_connection import (
 from src.infrastructure.persistence.unit_of_work import DatabaseUnitOfWork
 from src.interface.api.app import create_app
 import src.interface.api.routes.workflows as _workflows_mod
+import src.interface.api.services.import_queue as _import_queue_mod
 import src.interface.api.services.sse_operations as _sse_operations_mod
 import src.interface.api.services.workflow_execution as _workflow_execution_mod
 
@@ -39,8 +40,11 @@ def _stub_launch_background(*modules: Any) -> Generator[None]:
     The seam-level helper ``launch_sse_operation`` in ``sse_operations``
     fronts the imports / connectors / playlist-assignments / playlist-sync
     routes, so stubbing there covers them all at once. ``workflows`` (preview
-    kickoff) and ``workflow_execution`` (run kickoff, via ``launch_workflow_run``)
-    are the remaining direct callers and each need their own stub.
+    kickoff), ``workflow_execution`` (run kickoff, via ``launch_workflow_run``)
+    and ``import_queue`` (the queue drain task) are the remaining direct
+    callers and each need their own stub. Tests that need the import queue to
+    actually drain restore the real function on the relevant modules — see
+    ``_drain_import_queues_for_real`` in ``test_imports.py``.
     """
     originals = [(m, m.launch_background) for m in modules]
     for m, _ in originals:
@@ -148,7 +152,10 @@ async def client(
         await _truncate_all_tables()
 
         with _stub_launch_background(
-            _sse_operations_mod, _workflows_mod, _workflow_execution_mod
+            _sse_operations_mod,
+            _workflows_mod,
+            _workflow_execution_mod,
+            _import_queue_mod,
         ):
             app = create_app()
             transport = httpx2.ASGITransport(app=app)

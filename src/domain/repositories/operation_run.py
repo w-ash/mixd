@@ -87,3 +87,39 @@ class OperationRunRepositoryProtocol(Protocol):
         single lifecycle state (e.g. ``"running"`` for operation-awareness).
         """
         ...
+
+    def list_running_started_before(
+        self,
+        cutoff: datetime,
+        *,
+        limit: int,
+    ) -> Awaitable[list[OperationRun]]:
+        """Rows still ``running`` whose ``started_at`` precedes ``cutoff`` — all users.
+
+        The one cross-user read on this table: the startup reaper
+        (``operation_run_reaper``) and the pre-deploy busy gate ask a
+        process-level question ("is anything in flight on this machine?"),
+        not a tenant one. ``cutoff = now`` is the degenerate case meaning
+        "every running row", which is how the busy gate counts in-flight
+        work with the same query the reaper filters by age.
+
+        Requires the connection role to bypass RLS (Neon's owner role has
+        BYPASSRLS — migration 035 documents that posture): under a future
+        non-bypass role this query would silently see only the ambient
+        ``app.user_id``'s rows.
+        """
+        ...
+
+    def count_running_started_since(self, cutoff: datetime) -> Awaitable[int]:
+        """How many rows are still ``running`` with ``started_at >= cutoff`` — all users.
+
+        The busy gate's half of the running-rows pair: a SQL ``count(*)`` with
+        the age bound in the predicate, because the gate needs one integer and
+        must see EVERY live run — a fetch-then-filter through
+        :meth:`list_running_started_before` is capped by its ``limit``, so
+        enough stale rows could truncate a live run out of the count and let a
+        deploy land mid-import. The reaper keeps the list method (it needs the
+        rows to finalize). Same cross-user/BYPASSRLS posture as
+        :meth:`list_running_started_before`.
+        """
+        ...

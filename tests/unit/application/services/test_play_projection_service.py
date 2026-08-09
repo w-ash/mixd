@@ -22,7 +22,6 @@ from src.application.services.play_projection_service import (
     MAX_ANCHOR_PULL_BACK,
     PROJECTION_FETCH_MARGIN,
     PlayProjectionService,
-    _contiguous_chunk_cores,
     observed_day_cores,
 )
 from src.domain.entities import ConnectorTrackPlay, PlaySource, TrackPlay
@@ -121,12 +120,7 @@ def _wire_windowed_uow(entries: list[ConnectorTrackPlay]):
 
 
 async def _project_day(service: PlayProjectionService, uow) -> dict[str, int]:
-    return await service.project_range(
-        uow,
-        user_id=_USER,
-        start=_BASE - timedelta(hours=6),
-        end=_BASE + timedelta(hours=18),
-    )
+    return await service.project_observed_days(uow, user_id=_USER, played_at=[_BASE])
 
 
 class TestIdenticalTupleClaim:
@@ -140,11 +134,8 @@ class TestIdenticalTupleClaim:
         twin_b = _scrobble(played_at=_BASE, title="striptease")
         uow, plays_repo = _wire_uow(entries=[twin_a, twin_b])
 
-        stats = await PlayProjectionService().project_range(
-            uow,
-            user_id=_USER,
-            start=_BASE - timedelta(hours=6),
-            end=_BASE + timedelta(hours=18),
+        stats = await PlayProjectionService().project_observed_days(
+            uow, user_id=_USER, played_at=[_BASE]
         )
 
         inserted = plays_repo.bulk_insert_plays.await_args.args[0]
@@ -245,13 +236,12 @@ class TestObservedDayCores:
         ]
 
     def test_the_span_between_sparse_dates_is_thousands_of_chunks(self):
-        """What tiling the span (the pre-fix orchestrator) actually asked for."""
-        span = _contiguous_chunk_cores(
-            datetime(2011, 3, 5, 14, 0, tzinfo=UTC) - PROJECTION_FETCH_MARGIN,
-            datetime(2026, 7, 20, 9, 0, tzinfo=UTC) + PROJECTION_FETCH_MARGIN,
-        )
+        """What tiling the span (the deleted contiguous path) actually asked
+        for: one day-chunk per day between the margin-padded bounds."""
+        start = datetime(2011, 3, 5, 14, 0, tzinfo=UTC) - PROJECTION_FETCH_MARGIN
+        end = datetime(2026, 7, 20, 9, 0, tzinfo=UTC) + PROJECTION_FETCH_MARGIN
 
-        assert len(span) > 5_000
+        assert (end - start) / timedelta(days=1) > 5_000
 
     def test_contiguous_dates_still_tile_every_day(self):
         cores = observed_day_cores([
@@ -455,3 +445,91 @@ class TestProjectObservedDays:
         assert stats["groups_created"] == 1
         inserted = plays_repo.bulk_insert_plays.await_args.args[0]
         assert [play.played_at for play in inserted] == [_BASE]
+
+
+class TestProjectFullHistory:
+    """The rebuild's entry point: active days from one query, not span tiling."""
+
+    @staticmethod
+    def _wire_full_history(entries: list[ConnectorTrackPlay]):
+        """Windowed ledger wiring plus the active-days pre-query, derived from
+        the same entries so the two stay consistent by construction."""
+        uow, plays_repo = _wire_windowed_uow(entries)
+        uow.get_connector_play_repository().get_resolved_played_at_days.return_value = (
+            sorted({entry.played_at.astimezone(UTC).date() for entry in entries})
+        )
+        return uow, plays_repo
+
+    @pytest.mark.asyncio
+    async def test_sparse_history_touches_only_active_day_windows(self):
+        """Two plays 15 years apart cost 4 chunk fetches (each active day plus
+        its reach-back neighbour), never the ~5,600 of the span between."""
+        entries = [
+            _scrobble(played_at=datetime(2011, 3, 5, 14, 0, tzinfo=UTC)),
+            _scrobble(played_at=datetime(2026, 7, 20, 9, 0, tzinfo=UTC)),
+        ]
+        uow, plays_repo = self._wire_full_history(entries)
+
+        stats = await PlayProjectionService().project_full_history(uow, user_id=_USER)
+
+        assert stats is not None
+        assert stats["groups_created"] == 2
+        fetches = uow.get_connector_play_repository().find_resolved_in_window
+        # A chunk fetches its core padded by the anchor reach on both sides —
+        # recover the core day from the fetch start.
+        reach = PROJECTION_FETCH_MARGIN + MAX_ANCHOR_PULL_BACK
+        fetched_days = sorted(
+            (c.args[0] + reach).date() for c in fetches.await_args_list
+        )
+        # Each active day is bracketed, so its reach-back neighbour is also
+        # visited — and nothing else is.
+        assert fetched_days == [
+            date(2011, 3, 4),
+            date(2011, 3, 5),
+            date(2026, 7, 19),
+            date(2026, 7, 20),
+        ]
+
+    @pytest.mark.asyncio
+    async def test_diff_applies_identically_to_observed_days(self):
+        """Same ledger, same outcome — only where the day list comes from
+        differs (the DISTINCT query vs the batch's own timestamps)."""
+        entries = [
+            _scrobble(played_at=_BASE),
+            _export(ended_at=_BASE + timedelta(seconds=2), ms_played=201_000),
+        ]
+
+        full_uow, full_plays = self._wire_full_history(entries)
+        full_stats = await PlayProjectionService().project_full_history(
+            full_uow, user_id=_USER
+        )
+
+        observed_uow, observed_plays = _wire_windowed_uow(entries)
+        observed_stats = await PlayProjectionService().project_observed_days(
+            observed_uow,
+            user_id=_USER,
+            played_at=[entry.played_at for entry in entries],
+        )
+
+        assert full_stats == observed_stats
+        full_inserted = [
+            play.played_at
+            for c in full_plays.bulk_insert_plays.await_args_list
+            for play in c.args[0]
+        ]
+        observed_inserted = [
+            play.played_at
+            for c in observed_plays.bulk_insert_plays.await_args_list
+            for play in c.args[0]
+        ]
+        assert full_inserted == observed_inserted
+
+    @pytest.mark.asyncio
+    async def test_empty_ledger_returns_none_and_fetches_nothing(self):
+        uow, _plays_repo = self._wire_full_history([])
+
+        stats = await PlayProjectionService().project_full_history(uow, user_id=_USER)
+
+        assert stats is None
+        fetches = uow.get_connector_play_repository().find_resolved_in_window
+        fetches.assert_not_awaited()

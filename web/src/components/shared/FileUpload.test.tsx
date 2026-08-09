@@ -4,64 +4,113 @@ import { describe, expect, it, vi } from "vitest";
 
 import { FileUpload } from "./FileUpload";
 
+function fileInput(): HTMLInputElement {
+  return document.querySelector('input[type="file"]') as HTMLInputElement;
+}
+
+function jsonFile(name: string, content = "{}"): File {
+  return new File([content], name, { type: "application/json" });
+}
+
 describe("FileUpload", () => {
-  it("renders choose file button", () => {
-    render(<FileUpload onFileSelect={vi.fn()} />);
+  it("renders choose files button", () => {
+    render(<FileUpload onFilesSelect={vi.fn()} />);
 
     expect(
-      screen.getByRole("button", { name: /choose file/i }),
+      screen.getByRole("button", { name: /choose files/i }),
     ).toBeInTheDocument();
   });
 
-  it("calls onFileSelect when a file is chosen", async () => {
-    const onFileSelect = vi.fn();
-    const user = userEvent.setup();
-    render(<FileUpload onFileSelect={onFileSelect} />);
+  it("accepts multiple files", () => {
+    render(<FileUpload onFilesSelect={vi.fn()} />);
 
-    const file = new File(["{}"], "data.json", { type: "application/json" });
-    const input = document.querySelector(
-      'input[type="file"]',
-    ) as HTMLInputElement;
-    await user.upload(input, file);
-
-    expect(onFileSelect).toHaveBeenCalledWith(file);
+    expect(fileInput()).toHaveAttribute("multiple");
   });
 
-  it("shows selected filename after selection", async () => {
+  it("calls onFilesSelect with every chosen file", async () => {
+    const onFilesSelect = vi.fn();
     const user = userEvent.setup();
-    render(<FileUpload onFileSelect={vi.fn()} />);
+    render(<FileUpload onFilesSelect={onFilesSelect} />);
 
-    const file = new File(["{}"], "history.json", {
-      type: "application/json",
-    });
-    const input = document.querySelector(
-      'input[type="file"]',
-    ) as HTMLInputElement;
-    await user.upload(input, file);
+    const files = [jsonFile("part-1.json"), jsonFile("part-2.json")];
+    await user.upload(fileInput(), files);
 
+    expect(onFilesSelect).toHaveBeenCalledWith(files);
+  });
+
+  it("lists every chosen filename after selection", async () => {
+    const user = userEvent.setup();
+    render(<FileUpload onFilesSelect={vi.fn()} />);
+
+    await user.upload(fileInput(), [
+      jsonFile("history-2019.json"),
+      jsonFile("history-2020.json"),
+    ]);
+
+    expect(screen.getByText(/history-2019\.json/)).toBeInTheDocument();
+    expect(screen.getByText(/history-2020\.json/)).toBeInTheDocument();
+  });
+
+  it("a single file is the degenerate case", async () => {
+    const onFilesSelect = vi.fn();
+    const user = userEvent.setup();
+    render(<FileUpload onFilesSelect={onFilesSelect} />);
+
+    const file = jsonFile("history.json");
+    await user.upload(fileInput(), file);
+
+    expect(onFilesSelect).toHaveBeenCalledWith([file]);
     expect(screen.getByText(/history\.json/)).toBeInTheDocument();
   });
 
-  it("shows error for oversized files", async () => {
+  it("rejects an oversized file, naming it", async () => {
+    const onFilesSelect = vi.fn();
     const user = userEvent.setup();
-    render(<FileUpload onFileSelect={vi.fn()} maxSize={100} />);
+    render(<FileUpload onFilesSelect={onFilesSelect} maxSize={100} />);
 
-    // Create a file larger than 100 bytes
-    const content = "x".repeat(200);
-    const file = new File([content], "big.json", {
-      type: "application/json",
-    });
-    const input = document.querySelector(
-      'input[type="file"]',
-    ) as HTMLInputElement;
-    await user.upload(input, file);
+    await user.upload(fileInput(), [
+      jsonFile("small.json"),
+      jsonFile("big.json", "x".repeat(200)),
+    ]);
 
-    expect(screen.getByRole("alert")).toHaveTextContent(/file too large/i);
+    const alert = screen.getByRole("alert");
+    expect(alert).toHaveTextContent(/file too large/i);
+    expect(alert).toHaveTextContent(/big\.json/);
+    expect(onFilesSelect).toHaveBeenCalledWith([]);
+  });
+
+  it("rejects when the selection exceeds the aggregate size cap", async () => {
+    const user = userEvent.setup();
+    render(
+      <FileUpload onFilesSelect={vi.fn()} maxSize={100} maxTotalSize={150} />,
+    );
+
+    await user.upload(fileInput(), [
+      jsonFile("a.json", "x".repeat(90)),
+      jsonFile("b.json", "y".repeat(90)),
+    ]);
+
+    expect(screen.getByRole("alert")).toHaveTextContent(/selection too large/i);
+  });
+
+  it("rejects when more files are chosen than the count cap", async () => {
+    const user = userEvent.setup();
+    render(<FileUpload onFilesSelect={vi.fn()} maxFiles={2} />);
+
+    await user.upload(fileInput(), [
+      jsonFile("a.json"),
+      jsonFile("b.json"),
+      jsonFile("c.json"),
+    ]);
+
+    expect(screen.getByRole("alert")).toHaveTextContent(/too many files/i);
   });
 
   it("disables button when disabled prop is true", () => {
-    render(<FileUpload onFileSelect={vi.fn()} disabled />);
+    render(<FileUpload onFilesSelect={vi.fn()} disabled />);
 
-    expect(screen.getByRole("button", { name: /choose file/i })).toBeDisabled();
+    expect(
+      screen.getByRole("button", { name: /choose files/i }),
+    ).toBeDisabled();
   });
 });

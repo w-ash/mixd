@@ -328,3 +328,139 @@ class TestListForUser:
         assert page1_ids.isdisjoint(page2_ids)
         assert len(page1) == 2
         assert len(page2) == 2
+
+
+class TestListRunningStartedBefore:
+    """The reaper/busy-gate query: cross-user, running-only, cutoff-bounded."""
+
+    async def test_returns_only_running_rows_older_than_cutoff(
+        self, db_session: AsyncSession
+    ) -> None:
+        repo = OperationRunRepository(db_session)
+        now = datetime.now(UTC)
+        stale = await repo.create(
+            make_operation_run(user_id="alice", started_at=now - timedelta(hours=13))
+        )
+        # Fresh running row: still inside the bound, must survive.
+        await repo.create(
+            make_operation_run(user_id="alice", started_at=now - timedelta(minutes=5))
+        )
+        # Terminal row older than the cutoff: not running, must survive.
+        await repo.create(
+            make_operation_run(
+                user_id="alice",
+                status="error",
+                started_at=now - timedelta(hours=20),
+                ended_at=now - timedelta(hours=19),
+            )
+        )
+
+        rows = await repo.list_running_started_before(
+            now - timedelta(hours=12), limit=10
+        )
+
+        assert [r.id for r in rows] == [stale.id]
+
+    async def test_crosses_user_boundaries(self, db_session: AsyncSession) -> None:
+        # Deliberately NOT user-scoped: the reaper and the deploy busy gate ask
+        # about the whole process, and rows carry their own user_id for the
+        # per-row finalize writes.
+        repo = OperationRunRepository(db_session)
+        now = datetime.now(UTC)
+        for user_id in ("alice", "bob"):
+            await repo.create(
+                make_operation_run(
+                    user_id=user_id, started_at=now - timedelta(hours=13)
+                )
+            )
+
+        rows = await repo.list_running_started_before(now, limit=10)
+
+        assert {r.user_id for r in rows} == {"alice", "bob"}
+
+    async def test_cutoff_now_counts_every_running_row(
+        self, db_session: AsyncSession
+    ) -> None:
+        # The busy gate's degenerate case: a run started seconds ago counts.
+        repo = OperationRunRepository(db_session)
+        await repo.create(make_operation_run(user_id="alice"))
+
+        rows = await repo.list_running_started_before(datetime.now(UTC), limit=10)
+
+        assert len(rows) == 1
+
+    async def test_oldest_first_within_limit(self, db_session: AsyncSession) -> None:
+        repo = OperationRunRepository(db_session)
+        now = datetime.now(UTC)
+        oldest = await repo.create(
+            make_operation_run(user_id="alice", started_at=now - timedelta(hours=30))
+        )
+        await repo.create(
+            make_operation_run(user_id="alice", started_at=now - timedelta(hours=13))
+        )
+
+        rows = await repo.list_running_started_before(
+            now - timedelta(hours=12), limit=1
+        )
+
+        assert [r.id for r in rows] == [oldest.id]
+
+
+class TestCountRunningStartedSince:
+    """The busy gate's count: running-only, cross-user, age bound in SQL.
+
+    A SQL ``count(*)`` with no batch cap — the fetch-then-filter it replaced
+    was bounded by the reaper's ``limit``, so enough stale rows could truncate
+    a live run out of the count and let a deploy land mid-import.
+    """
+
+    async def test_counts_only_running_rows_since_cutoff(
+        self, db_session: AsyncSession
+    ) -> None:
+        repo = OperationRunRepository(db_session)
+        now = datetime.now(UTC)
+        # Live cross-user runs: both counted.
+        await repo.create(
+            make_operation_run(user_id="alice", started_at=now - timedelta(minutes=30))
+        )
+        await repo.create(
+            make_operation_run(user_id="bob", started_at=now - timedelta(minutes=5))
+        )
+        # Phantom older than the cutoff: excluded by the SQL predicate.
+        await repo.create(
+            make_operation_run(user_id="alice", started_at=now - timedelta(hours=13))
+        )
+        # Fresh but terminal: not running, excluded.
+        await repo.create(
+            make_operation_run(
+                user_id="alice",
+                status="complete",
+                started_at=now - timedelta(minutes=1),
+                ended_at=now,
+            )
+        )
+
+        count = await repo.count_running_started_since(now - timedelta(hours=12))
+
+        assert count == 2
+
+    async def test_row_started_exactly_at_cutoff_counts(
+        self, db_session: AsyncSession
+    ) -> None:
+        # The bound is inclusive (>=): a run exactly REAP_AGE_BOUND old is
+        # still the gate's problem, not yet the reaper's.
+        repo = OperationRunRepository(db_session)
+        cutoff = datetime.now(UTC) - timedelta(hours=12)
+        await repo.create(make_operation_run(user_id="alice", started_at=cutoff))
+
+        assert await repo.count_running_started_since(cutoff) == 1
+
+    async def test_empty_table_counts_zero(self, db_session: AsyncSession) -> None:
+        repo = OperationRunRepository(db_session)
+
+        assert (
+            await repo.count_running_started_since(
+                datetime.now(UTC) - timedelta(hours=12)
+            )
+            == 0
+        )

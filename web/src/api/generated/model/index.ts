@@ -3,7 +3,7 @@
  * Do not edit manually.
  * Mixd
  * Personal music metadata hub
- * OpenAPI spec version: 0.10.2.5
+ * OpenAPI spec version: 0.10.2.8
  */
 
 export * from './activeAssignmentSchema.ts';
@@ -70,6 +70,8 @@ export * from './importConnectorPlaylistsRequest.ts';
 export * from './importConnectorPlaylistsRequestSyncDirection.ts';
 export * from './importLastfmHistoryRequest.ts';
 export * from './importLastfmHistoryRequestMode.ts';
+export * from './importQueueEntrySchema.ts';
+export * from './importQueueResponse.ts';
 export * from './importSpotifyLikesRequest.ts';
 export * from './importSpotifyRecentRequest.ts';
 export * from './jsonDict.ts';
@@ -127,6 +129,7 @@ export * from './playSummarySchema.ts';
 export * from './preferenceState.ts';
 export * from './previewPlaylistSyncApiV1PlaylistsPlaylistIdLinksLinkIdSyncPreviewGetParams.ts';
 export * from './previewStartedResponse.ts';
+export * from './queueEntryStatus.ts';
 export * from './relinkMappingRequest.ts';
 export * from './removeEntriesRequest.ts';
 export * from './renameTagRequest.ts';

@@ -21,9 +21,9 @@ _BASE = datetime(2024, 11, 5, 9, 0, 0, tzinfo=UTC)
 _USER = "default"
 
 
-def _wire_uow(*, bounds, unsourced=None):
+def _wire_uow(*, active_days, unsourced=None):
     connector_repo = AsyncMock()
-    connector_repo.get_resolved_played_at_bounds.return_value = bounds
+    connector_repo.get_resolved_played_at_days.return_value = active_days
     connector_repo.find_resolved_in_window.return_value = []
     plays_repo = AsyncMock()
     plays_repo.find_unsourced_play_ids.return_value = unsourced or []
@@ -35,7 +35,9 @@ def _wire_uow(*, bounds, unsourced=None):
 class TestRebuildPlayHistory:
     @pytest.mark.asyncio
     async def test_empty_ledger_short_circuits(self):
-        uow, plays_repo = _wire_uow(bounds=None)
+        """No active days → nothing to rebuild, and reconciliation never runs
+        (it would delete plays a first import is about to re-derive)."""
+        uow, plays_repo = _wire_uow(active_days=[])
 
         result = await RebuildPlayHistoryUseCase().execute(
             RebuildPlayHistoryCommand(user_id=_USER), uow
@@ -48,7 +50,7 @@ class TestRebuildPlayHistory:
     @pytest.mark.asyncio
     async def test_real_run_deletes_unsourced_plays(self):
         stray_ids = [uuid4(), uuid4()]
-        uow, plays_repo = _wire_uow(bounds=(_BASE, _BASE), unsourced=stray_ids)
+        uow, plays_repo = _wire_uow(active_days=[_BASE.date()], unsourced=stray_ids)
 
         result = await RebuildPlayHistoryUseCase().execute(
             RebuildPlayHistoryCommand(user_id=_USER), uow
@@ -63,7 +65,7 @@ class TestRebuildPlayHistory:
     @pytest.mark.asyncio
     async def test_dry_run_reports_without_writing(self):
         stray_ids = [uuid4()]
-        uow, plays_repo = _wire_uow(bounds=(_BASE, _BASE), unsourced=stray_ids)
+        uow, plays_repo = _wire_uow(active_days=[_BASE.date()], unsourced=stray_ids)
 
         result = await RebuildPlayHistoryUseCase().execute(
             RebuildPlayHistoryCommand(user_id=_USER, dry_run=True), uow

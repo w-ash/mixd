@@ -17,15 +17,20 @@ import {
 import { Sync } from "./Sync";
 
 // Drive the SSE stream deterministically: the terminal event is what fires the
-// completion toast, and there is no live stream in jsdom.
+// completion toast, and there is no live stream in jsdom. Operation ids are
+// recorded so tests can assert which id a card attached its stream to.
 let mockProgress: OperationProgress | null = null;
+const seenOperationIds: (string | null)[] = [];
 vi.mock("#/hooks/useOperationProgress", () => ({
-  useOperationProgress: () => ({
-    progress: mockProgress,
-    isActive: false,
-    isConnected: false,
-    error: null,
-  }),
+  useOperationProgress: (operationId: string | null) => {
+    seenOperationIds.push(operationId);
+    return {
+      progress: mockProgress,
+      isActive: false,
+      isConnected: false,
+      error: null,
+    };
+  },
 }));
 
 const mockRunCompleted = vi.fn();
@@ -43,6 +48,7 @@ vi.mock("#/lib/toasts", async () => {
 
 beforeEach(() => {
   mockProgress = null;
+  seenOperationIds.length = 0;
   mockRunCompleted.mockReset();
   __resetRunToastLedger();
 });
@@ -277,5 +283,183 @@ describe("Sync page", () => {
 
     await new Promise((r) => setTimeout(r, 20));
     expect(mockRunCompleted).not.toHaveBeenCalled();
+  });
+});
+
+// ─── Spotify GDPR import queue ──────────────────────────────────
+
+type QueueEntry = {
+  filename: string;
+  position: number;
+  status: string;
+  operation_id: string | null;
+  run_id: string | null;
+};
+
+function queueJson(entries: QueueEntry[]) {
+  return { queue_id: "queue-1", entries };
+}
+
+function useQueueHandler(...states: QueueEntry[][]) {
+  // Serve each state once, then repeat the last — the component's poll is the
+  // only thing that advances it, so chip movement is provably refetch-driven.
+  let call = 0;
+  server.use(
+    http.get("*/api/v1/imports/spotify/history/queue", () => {
+      const state = states[Math.min(call, states.length - 1)];
+      call += 1;
+      return HttpResponse.json(queueJson(state));
+    }),
+  );
+}
+
+describe("Spotify history import queue", () => {
+  it("rebuilds the per-file chip list from the queue endpoint after a reload", async () => {
+    // No POST happens in this test: the mounted page finding a mid-drain
+    // queue on the server IS the reload re-attach.
+    setupCheckpointsMock();
+    useQueueHandler([
+      {
+        filename: "history-2019.json",
+        position: 0,
+        status: "complete",
+        operation_id: "op-a",
+        run_id: "run-a",
+      },
+      {
+        filename: "history-2020.json",
+        position: 1,
+        status: "running",
+        operation_id: "op-b",
+        run_id: "run-b",
+      },
+      {
+        filename: "history-2021.json",
+        position: 2,
+        status: "queued",
+        operation_id: null,
+        run_id: null,
+      },
+    ]);
+    renderWithProviders(<Sync />);
+
+    expect(await screen.findByText("history-2019.json")).toBeInTheDocument();
+    expect(screen.getByText("history-2020.json")).toBeInTheDocument();
+    expect(screen.getByText("history-2021.json")).toBeInTheDocument();
+    expect(screen.getByText("Complete")).toBeInTheDocument();
+    expect(screen.getByText("Running")).toBeInTheDocument();
+    expect(screen.getByText("Queued")).toBeInTheDocument();
+
+    // The card re-attached its progress stream to the RUNNING entry's id.
+    await waitFor(() => {
+      expect(seenOperationIds).toContain("op-b");
+    });
+  });
+
+  it("a terminal event advances the next chip via refetch", async () => {
+    setupCheckpointsMock();
+    useQueueHandler(
+      [
+        {
+          filename: "a.json",
+          position: 0,
+          status: "running",
+          operation_id: "op-a",
+          run_id: "run-a",
+        },
+        {
+          filename: "b.json",
+          position: 1,
+          status: "queued",
+          operation_id: null,
+          run_id: null,
+        },
+      ],
+      [
+        {
+          filename: "a.json",
+          position: 0,
+          status: "error",
+          operation_id: "op-a",
+          run_id: "run-a",
+        },
+        {
+          filename: "b.json",
+          position: 1,
+          status: "running",
+          operation_id: "op-b",
+          run_id: "run-b",
+        },
+      ],
+    );
+    renderWithProviders(<Sync />);
+
+    expect(await screen.findByText("a.json")).toBeInTheDocument();
+    expect(screen.getByText("Running")).toBeInTheDocument();
+    expect(screen.getByText("Queued")).toBeInTheDocument();
+
+    // The poll picks up the server's new state: the failed file shows its
+    // error chip and the queue visibly continues with the next file running.
+    await waitFor(
+      () => {
+        expect(screen.getByText("Error")).toBeInTheDocument();
+        expect(screen.getByText("Running")).toBeInTheDocument();
+      },
+      { timeout: 4000 },
+    );
+    expect(screen.queryByText("Queued")).not.toBeInTheDocument();
+  });
+
+  it("Cancel remaining sends the DELETE for not-yet-started files", async () => {
+    setupCheckpointsMock();
+    useQueueHandler([
+      {
+        filename: "a.json",
+        position: 0,
+        status: "running",
+        operation_id: "op-a",
+        run_id: "run-a",
+      },
+      {
+        filename: "b.json",
+        position: 1,
+        status: "queued",
+        operation_id: null,
+        run_id: null,
+      },
+    ]);
+    const deleteCalls: number[] = [];
+    server.use(
+      http.delete("*/api/v1/imports/spotify/history/queue", () => {
+        deleteCalls.push(1);
+        return HttpResponse.json(
+          queueJson([
+            {
+              filename: "a.json",
+              position: 0,
+              status: "running",
+              operation_id: "op-a",
+              run_id: "run-a",
+            },
+            {
+              filename: "b.json",
+              position: 1,
+              status: "cancelled",
+              operation_id: null,
+              run_id: null,
+            },
+          ]),
+        );
+      }),
+    );
+    renderWithProviders(<Sync />);
+
+    await userEvent.click(
+      await screen.findByRole("button", { name: /cancel remaining/i }),
+    );
+
+    await waitFor(() => {
+      expect(deleteCalls).toHaveLength(1);
+    });
   });
 });

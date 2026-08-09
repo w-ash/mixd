@@ -22,7 +22,6 @@ from tests.fixtures import make_track
 
 _START = datetime(2024, 11, 5, 9, 15, 0, tzinfo=UTC)
 _MS = 201_000
-_WINDOW = (_START - timedelta(days=1), _START + timedelta(days=1))
 
 
 def _scrobble(user_id: str, *, title: str = "Striptease") -> ConnectorTrackPlay:
@@ -107,8 +106,8 @@ class TestProjectionPipeline:
         scrobble, export = _scrobble(user_id), _export(user_id)
         await _seed_resolved(uow, user_id, [scrobble, export], track.id)
 
-        stats = await PlayProjectionService().project_range(
-            uow, user_id=user_id, start=_WINDOW[0], end=_WINDOW[1]
+        stats = await PlayProjectionService().project_observed_days(
+            uow, user_id=user_id, played_at=[scrobble.played_at, export.played_at]
         )
 
         assert stats["groups_created"] == 1
@@ -141,13 +140,13 @@ class TestProjectionPipeline:
         )
 
         service = PlayProjectionService()
-        _ = await service.project_range(
-            uow, user_id=user_id, start=_WINDOW[0], end=_WINDOW[1]
+        _ = await service.project_observed_days(
+            uow, user_id=user_id, played_at=[_START]
         )
         plays_before, sources_before = await _canonical_state(db_session, user_id)
 
-        stats = await service.project_range(
-            uow, user_id=user_id, start=_WINDOW[0], end=_WINDOW[1]
+        stats = await service.project_observed_days(
+            uow, user_id=user_id, played_at=[_START]
         )
 
         assert stats["groups_unchanged"] == 1
@@ -176,8 +175,8 @@ class TestProjectionPipeline:
 
         scrobble = _scrobble(user_id)
         await _seed_resolved(uow, user_id, [scrobble], track.id)
-        _ = await service.project_range(
-            uow, user_id=user_id, start=_WINDOW[0], end=_WINDOW[1]
+        _ = await service.project_observed_days(
+            uow, user_id=user_id, played_at=[scrobble.played_at]
         )
         plays, _sources = await _canonical_state(db_session, user_id)
         assert len(plays) == 1
@@ -187,8 +186,8 @@ class TestProjectionPipeline:
 
         export = _export(user_id)
         await _seed_resolved(uow, user_id, [export], track.id)
-        stats = await service.project_range(
-            uow, user_id=user_id, start=_WINDOW[0], end=_WINDOW[1]
+        stats = await service.project_observed_days(
+            uow, user_id=user_id, played_at=[export.played_at]
         )
 
         assert stats["groups_updated"] == 1
@@ -251,8 +250,8 @@ class TestProjectionPipeline:
         ])
         await uow.commit()
 
-        stats = await PlayProjectionService().project_range(
-            uow, user_id=user_id, start=_WINDOW[0], end=_WINDOW[1]
+        stats = await PlayProjectionService().project_observed_days(
+            uow, user_id=user_id, played_at=[scrobble.played_at, export.played_at]
         )
 
         assert stats["groups_merged"] == 1

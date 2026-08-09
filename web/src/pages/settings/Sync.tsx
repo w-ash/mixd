@@ -11,8 +11,11 @@ import {
 } from "#/api/generated/connectors/connectors";
 import {
   getGetCheckpointsApiV1ImportsCheckpointsGetQueryKey,
+  getGetSpotifyHistoryQueueApiV1ImportsSpotifyHistoryQueueGetQueryKey,
+  useCancelSpotifyHistoryQueueApiV1ImportsSpotifyHistoryQueueDelete,
   useExportLastfmLikesApiV1ImportsLastfmLikesPost,
   useGetCheckpointsApiV1ImportsCheckpointsGet,
+  useGetSpotifyHistoryQueueApiV1ImportsSpotifyHistoryQueueGet,
   useImportLastfmHistoryApiV1ImportsLastfmHistoryPost,
   useImportSpotifyHistoryApiV1ImportsSpotifyHistoryPost,
   useImportSpotifyLikesApiV1ImportsSpotifyLikesPost,
@@ -21,6 +24,7 @@ import {
 import type {
   CheckpointStatusSchema,
   ImportLastfmHistoryRequestMode,
+  ImportQueueEntrySchema,
   OperationStartedResponse,
 } from "#/api/generated/model";
 import { STALE } from "#/api/query-client";
@@ -32,6 +36,7 @@ import {
 } from "#/components/shared/DatabaseUnavailable";
 import { FileUpload } from "#/components/shared/FileUpload";
 import { OperationProgress } from "#/components/shared/OperationProgress";
+import { RunStatusBadge } from "#/components/shared/RunStatusBadge";
 import { ScheduleCard } from "#/components/shared/ScheduleCard";
 import { SectionHeader } from "#/components/shared/SectionHeader";
 import { Button } from "#/components/ui/button";
@@ -117,6 +122,10 @@ interface OperationCardProps {
   /** Self-managed poll target (`spotify:plays`). Shows a read-only cadence plus
    * an on/off switch instead of the editable picker — see `PlayPollingField`. */
   pollingService?: string;
+  /** Query keys refreshed when the running operation reaches a terminal event.
+   * Defaults to the checkpoints; the queue card adds its queue query so a
+   * finished file advances the chips without waiting for the next poll. */
+  invalidateKeys?: readonly (readonly unknown[])[];
   children?: React.ReactNode;
 }
 
@@ -135,10 +144,11 @@ function OperationCard({
   triggerDisabled,
   syncTarget,
   pollingService,
+  invalidateKeys = CHECKPOINT_KEYS,
   children,
 }: OperationCardProps) {
   const { progress, isActive } = useOperationProgress(operationId, {
-    invalidateKeys: CHECKPOINT_KEYS,
+    invalidateKeys,
   });
   const navigate = useNavigate();
   const toastedForOpIdRef = useRef<string | null>(null);
@@ -623,21 +633,66 @@ function SpotifyRecentImport({
   );
 }
 
+/** A queue entry that can still run — "queued" or "running". */
+function isSettledEntry(entry: ImportQueueEntrySchema): boolean {
+  return entry.status !== "queued" && entry.status !== "running";
+}
+
 function SpotifyHistoryImport() {
-  const [operationId, setOperationId] = useState<string | null>(null);
-  const [runId, setRunId] = useState<string | null>(null);
-  const [selectedFile, setSelectedFile] = useState<File | null>(null);
+  const queryClient = useQueryClient();
+  const [selectedFiles, setSelectedFiles] = useState<File[]>([]);
   const mutation = useImportSpotifyHistoryApiV1ImportsSpotifyHistoryPost();
+  const queueQueryKey =
+    getGetSpotifyHistoryQueueApiV1ImportsSpotifyHistoryQueueGetQueryKey();
+
+  // The queue lives on the server; this query is how a reloaded tab re-attaches
+  // to a drain in progress. Polling while any entry is non-terminal is what
+  // advances the per-file chips; a fully drained (or absent, 404) queue stops it.
+  const { data: queueData } =
+    useGetSpotifyHistoryQueueApiV1ImportsSpotifyHistoryQueueGet({
+      query: {
+        retry: false,
+        refetchInterval: (query) => {
+          const res = query.state.data;
+          if (res?.status !== 200) return false;
+          return res.data.entries.every(isSettledEntry) ? false : 2000;
+        },
+      },
+    });
+  const queue = queueData?.status === 200 ? queueData.data : null;
+  const queueActive = queue != null && !queue.entries.every(isSettledEntry);
+  const runningEntry =
+    queue?.entries.find((entry) => entry.status === "running") ?? null;
+
+  const cancelMutation =
+    useCancelSpotifyHistoryQueueApiV1ImportsSpotifyHistoryQueueDelete({
+      mutation: {
+        onSuccess: () => {
+          void queryClient.invalidateQueries({ queryKey: queueQueryKey });
+        },
+        meta: { errorLabel: "Failed to cancel queued files" },
+      },
+    });
 
   const trigger = () => {
-    if (!selectedFile) return;
+    if (selectedFiles.length === 0) return;
     mutation.mutate(
-      { data: { file: selectedFile } },
-      makeOperationCallbacks(
-        "Spotify history import",
-        setOperationId,
-        setRunId,
-      ),
+      { data: { files: selectedFiles } },
+      {
+        onSuccess: (res) => {
+          if (res.status === 200) {
+            setSelectedFiles([]);
+            void queryClient.invalidateQueries({ queryKey: queueQueryKey });
+          } else {
+            toasts.message("Failed to queue Spotify history import", {
+              description: `Unexpected response (${res.status})`,
+            });
+          }
+        },
+        onError: (error: unknown) => {
+          toasts.error("Failed to queue Spotify history import", error);
+        },
+      },
     );
   };
 
@@ -645,30 +700,67 @@ function SpotifyHistoryImport() {
     <OperationCard
       connector="spotify"
       title="Spotify Data Export"
-      description="Upload the streaming history JSON from your Spotify privacy data download."
+      description="Upload the streaming history JSON files from your Spotify privacy data download — the whole export at once."
       // No checkpoint: a file upload has no resume position. The
       // ("spotify","plays") checkpoint now tracks the API poll cursor and is
       // shown on the Recent Plays card instead.
       checkpoint={undefined}
-      operationId={operationId}
-      runId={runId}
+      operationId={runningEntry?.operation_id ?? null}
+      runId={runningEntry?.run_id ?? null}
       operationType="import_spotify_history"
       isPending={mutation.isPending}
       onTrigger={trigger}
-      triggerDisabled={!selectedFile}
+      triggerDisabled={selectedFiles.length === 0 || queueActive}
+      triggerLabel={
+        selectedFiles.length > 1
+          ? `Import ${selectedFiles.length} files`
+          : "Import"
+      }
+      invalidateKeys={[...CHECKPOINT_KEYS, queueQueryKey]}
     >
       <FileUpload
         accept=".json"
-        onFileSelect={setSelectedFile}
-        disabled={mutation.isPending}
+        onFilesSelect={setSelectedFiles}
+        disabled={mutation.isPending || queueActive}
       />
+      {queue != null && queue.entries.length > 0 && (
+        <div className="mt-3">
+          <div className="flex items-center justify-between gap-2">
+            <p className="font-display text-xs text-text-muted">Import queue</p>
+            {queue.entries.some((entry) => entry.status === "queued") && (
+              <Button
+                type="button"
+                variant="ghost"
+                size="sm"
+                disabled={cancelMutation.isPending}
+                onClick={() => cancelMutation.mutate()}
+              >
+                Cancel remaining
+              </Button>
+            )}
+          </div>
+          <ul className="mt-1 space-y-1">
+            {queue.entries.map((entry) => (
+              <li
+                key={entry.position}
+                className="flex items-center justify-between gap-2"
+              >
+                <span className="truncate font-mono text-xs text-text-muted">
+                  {entry.filename}
+                </span>
+                <RunStatusBadge status={entry.status} />
+              </li>
+            ))}
+          </ul>
+        </div>
+      )}
       <details className="mt-2 text-xs text-text-faint">
         <summary className="cursor-pointer hover:text-text-muted">
           How to get your data export
         </summary>
         <p className="mt-1 pl-3 border-l border-border">
           Go to spotify.com/account/privacy &rarr; Request your data &rarr;
-          Upload the streaming history JSON file here.
+          Upload every streaming history JSON file here in one go.
         </p>
       </details>
     </OperationCard>

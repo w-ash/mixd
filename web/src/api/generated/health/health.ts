@@ -3,7 +3,7 @@
  * Do not edit manually.
  * Mixd
  * Personal music metadata hub
- * OpenAPI spec version: 0.10.2.5
+ * OpenAPI spec version: 0.10.2.8
  */
 import {
   useQuery
@@ -82,12 +82,16 @@ export const getHealthCheckApiV1HealthGetUrl = (params?: HealthCheckApiV1HealthG
 }
 
 /**
- * Report process liveness; with ``?deep=true``, also probe the database.
+ * Report process liveness; ``?deep=true`` probes the DB, ``?busy=true``
+ * reports in-flight work.
  *
  * The shallow form never touches Postgres, so it is safe to call on a short
  * interval without defeating Neon's scale-to-zero. It returns 200 whenever the
  * process is serving. The deep form adds ``database`` and returns 503 when the
- * probe fails, mirroring the pre-v0.10.2 behaviour for manual checks.
+ * probe fails, mirroring the pre-v0.10.2 behaviour for manual checks. The busy
+ * form adds ``busy`` / ``running_operation_runs`` / ``import_queue_pending``
+ * and always returns 200 — busyness is data for the deploy gate, not
+ * degradation.
  * @summary Health Check
  */
 export const healthCheckApiV1HealthGet = async (params?: HealthCheckApiV1HealthGetParams, options?: Parameters<typeof customFetch>[1]): Promise<healthCheckApiV1HealthGetResponse> => {

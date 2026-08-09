@@ -1,21 +1,27 @@
-"""Unit tests for LastfmPlayImporter date range calculation and incremental commits.
+"""Unit tests for LastfmPlayImporter windowed fetching and incremental commits.
 
-Also covers the per-day conversion introduced when the day loop stopped
-accumulating a span-wide raw-record list: each day's scrobbles become
-``ConnectorTrackPlay`` rows as they land, tenancy stamped at construction.
+The fetch loop pulls ``_IMPORT_WINDOW_DAYS``-day windows (one paginated
+``user.getRecentTracks`` call each) and persists each window's rows before
+committing its resume cursor — the checkpoint-never-leads-persisted-data
+invariant, now at window granularity: a crash loses at most one window and
+zero persisted rows.
 """
 
-from datetime import UTC, datetime, timedelta
+from datetime import UTC, date, datetime, timedelta
 from typing import ClassVar
 from unittest.mock import AsyncMock, Mock, patch
 
 import pytest
 
-from src.config.constants import BusinessLimits
+from src.config.constants import BusinessLimits, LastFMConstants
 from src.domain.entities import ConnectorTrackPlay, SyncCheckpoint
 from src.domain.exceptions import LastfmAuthRequiredError
 from src.domain.repositories.play import LastfmImportParams
-from src.infrastructure.connectors.lastfm.play_importer import LastfmPlayImporter
+from src.infrastructure.connectors.lastfm.client import LastFMPartialFetchError
+from src.infrastructure.connectors.lastfm.play_importer import (
+    _IMPORT_WINDOW_DAYS,
+    LastfmPlayImporter,
+)
 
 _BATCH_ID = "test-batch"
 _IMPORT_TS = datetime(2024, 6, 1, 9, 0, tzinfo=UTC)
@@ -45,55 +51,67 @@ def _make_play_record(ts: datetime):
     )
 
 
-def _fake_fetch_day(
+def _window_days(window_start: datetime, window_end: datetime) -> list[date]:
+    days: list[date] = []
+    day = window_start.date()
+    while day <= window_end.date():
+        days.append(day)
+        day += timedelta(days=1)
+    return days
+
+
+def _fake_fetch_window(
     records_per_day: int = 1, *, empty_days: frozenset[int] = frozenset()
 ):
-    """Return a fake _fetch_day_records side-effect producing N records per day.
+    """Fake ``_fetch_window_records`` producing N records for each day it spans.
 
     ``empty_days`` names days-of-month that scrobbled nothing — the realistic
-    gap in any long history, and the case the per-day conversion must skip
-    without disturbing checkpoints or counts.
+    gap in any long history, and the case the conversion must skip without
+    disturbing checkpoints or counts.
     """
 
-    async def _inner(*, username, day_start, day_end, current_date):
-        if current_date.day in empty_days:
-            return []
-        mid = datetime.combine(current_date, datetime.min.time()).replace(
-            hour=12, tzinfo=UTC
-        )
-        # One minute apart, so a day's records are distinct rows under the
-        # ledger's dedup constraint — identical timestamps would collapse into
-        # one stored row and muddle what "imported" means.
-        return [
-            _make_play_record(mid + timedelta(minutes=index))
-            for index in range(records_per_day)
-        ]
+    async def _inner(*, username, window_start, window_end):
+        records = []
+        for day in _window_days(window_start, window_end):
+            if day.day in empty_days:
+                continue
+            mid = datetime.combine(day, datetime.min.time()).replace(
+                hour=12, tzinfo=UTC
+            )
+            # One minute apart, so a day's records are distinct rows under the
+            # ledger's dedup constraint — identical timestamps would collapse
+            # into one stored row and muddle what "imported" means.
+            records.extend(
+                _make_play_record(mid + timedelta(minutes=index))
+                for index in range(records_per_day)
+            )
+        return records
 
     return _inner
 
 
-def _crashing_fetch_day(crash_on_day: int, records_per_day: int = 2):
-    """Like ``_fake_fetch_day`` but blows up when it reaches ``crash_on_day``.
+def _crashing_fetch_window(crash_on_day: int, records_per_day: int = 2):
+    """Like ``_fake_fetch_window`` but blows up on the window spanning that day.
 
-    Stands in for the machine restart / API outage the checkpoint exists for.
+    Stands in for the machine restart / API outage — or the client's own
+    partial-page ``LastFMPartialFetchError`` — that the checkpoint exists for.
     """
-    healthy = _fake_fetch_day(records_per_day)
+    healthy = _fake_fetch_window(records_per_day)
 
-    async def _inner(*, username, day_start, day_end, current_date):
-        if current_date.day == crash_on_day:
+    async def _inner(*, username, window_start, window_end):
+        if any(
+            day.day == crash_on_day for day in _window_days(window_start, window_end)
+        ):
             raise RuntimeError(f"Last.fm went away on day {crash_on_day}")
         return await healthy(
-            username=username,
-            day_start=day_start,
-            day_end=day_end,
-            current_date=current_date,
+            username=username, window_start=window_start, window_end=window_end
         )
 
     return _inner
 
 
 def _persisted_plays(uow):
-    """Every ledger row handed to the repository, across all per-day calls."""
+    """Every ledger row handed to the repository, across all per-window calls."""
     insert = uow.get_connector_play_repository().bulk_insert_connector_plays
     return [play for call in insert.await_args_list for play in call.args[0]]
 
@@ -113,8 +131,8 @@ def _ledger_backed_uow(stored: set | None = None):
     """Mock UoW whose ledger insert honours the ON CONFLICT dedup constraint.
 
     Returns ``(uow, stored)``. Seed ``stored`` to stage a crash-resume, where
-    the re-fetched cursor day's rows are no-ops — the only setup in which the
-    reported import counts can be caught lying.
+    the re-fetched cursor window's rows are no-ops — the only setup in which
+    the reported import counts can be caught lying.
     """
     from tests.fixtures.mocks import make_mock_uow
 
@@ -211,15 +229,17 @@ class TestDateRangeCalculation:
         assert end.date() == datetime.now(UTC).date()
 
 
-class TestIncrementalCommit:
-    """Verify commit_batch() is called per day in _fetch_date_range_strategy."""
+class TestWindowedFetching:
+    """Window arithmetic: fetch calls, clamped bounds, per-window commits."""
 
-    async def test_commit_batch_called_per_day(self, importer, mock_uow):
-        """3 days of records -> commit_batch called 3 times."""
+    async def test_span_inside_one_window_fetches_and_commits_once(
+        self, importer, mock_uow
+    ):
+        """3 days fit one 7-day window: one fetch, one commit, all records."""
         from_date = datetime(2024, 1, 1, tzinfo=UTC)
         to_date = datetime(2024, 1, 3, 23, 59, 59, tzinfo=UTC)
 
-        importer._fetch_day_records = AsyncMock(side_effect=_fake_fetch_day(2))
+        importer._fetch_window_records = AsyncMock(side_effect=_fake_fetch_window(2))
 
         records = await importer._fetch_date_range_strategy(
             from_date=from_date,
@@ -232,9 +252,45 @@ class TestIncrementalCommit:
         )
 
         assert len(records) == 6  # 3 days * 2 records
-        assert mock_uow.commit_batch.await_count == 3
+        assert importer._fetch_window_records.await_count == 1
+        assert mock_uow.commit_batch.await_count == 1
 
-    async def test_day_checkpoints_are_keyed_on_the_mixd_user(self, importer, mock_uow):
+    async def test_ten_day_range_makes_exactly_two_clamped_fetches(
+        self, importer, mock_uow
+    ):
+        """10 days at window=7 → two fetches; first/last clamp to the range."""
+        assert _IMPORT_WINDOW_DAYS == 7  # the arithmetic below assumes it
+        from_date = datetime(2024, 1, 1, 8, 30, tzinfo=UTC)
+        to_date = datetime(2024, 1, 10, 21, 15, tzinfo=UTC)
+
+        importer._fetch_window_records = AsyncMock(side_effect=_fake_fetch_window(1))
+
+        records = await importer._fetch_date_range_strategy(
+            from_date=from_date,
+            to_date=to_date,
+            user_id="mixd-user-1",
+            username="test_user",
+            batch_id=_BATCH_ID,
+            import_timestamp=_IMPORT_TS,
+            uow=mock_uow,
+        )
+
+        assert len(records) == 10
+        calls = importer._fetch_window_records.await_args_list
+        assert len(calls) == 2
+        # First window starts at the requested from_date, not midnight.
+        assert calls[0].kwargs["window_start"] == from_date
+        assert calls[0].kwargs["window_end"] == datetime(
+            2024, 1, 7, 23, 59, 59, 999999, tzinfo=UTC
+        )
+        # Last window ends at the requested to_date, not end-of-day.
+        assert calls[1].kwargs["window_start"] == datetime(2024, 1, 8, tzinfo=UTC)
+        assert calls[1].kwargs["window_end"] == to_date
+        assert mock_uow.commit_batch.await_count == 2
+
+    async def test_window_checkpoints_are_keyed_on_the_mixd_user(
+        self, importer, mock_uow
+    ):
         """The checkpoint's ``user_id`` is the mixd user, never the Last.fm account.
 
         ``sync_checkpoints`` is FORCE-RLS'd on ``user_id``, so an account-keyed
@@ -243,7 +299,7 @@ class TestIncrementalCommit:
         tests/integration/connectors/lastfm/test_lastfm_checkpoint_rls.py — this
         just pins the key at the call site.
         """
-        importer._fetch_day_records = AsyncMock(side_effect=_fake_fetch_day(1))
+        importer._fetch_window_records = AsyncMock(side_effect=_fake_fetch_window(1))
 
         _ = await importer._fetch_date_range_strategy(
             from_date=datetime(2024, 1, 1, tzinfo=UTC),
@@ -280,16 +336,144 @@ class TestIncrementalCommit:
                 import_timestamp=_IMPORT_TS,
             )
 
+    async def test_window_under_the_ceiling_fetches_once(self, importer):
+        """A normal window is one fetch — subdivision only triggers at the cap."""
+        records = [_make_play_record(datetime(2024, 1, 1, 12, 0, tzinfo=UTC))]
+        importer.lastfm_connector.get_recent_tracks = AsyncMock(return_value=records)
 
-class TestPerDayConversion:
-    """The day loop yields ledger rows, not a span-wide list of raw scrobbles.
+        fetched = await importer._fetch_window_records(
+            username="test_user",
+            window_start=datetime(2024, 1, 1, tzinfo=UTC),
+            window_end=datetime(2024, 1, 7, 23, 59, 59, tzinfo=UTC),
+        )
 
-    Conversion happens as each day lands so a multi-year import never holds the
-    raw records for the whole span on top of the connector plays.
+        assert fetched == records
+        assert importer.lastfm_connector.get_recent_tracks.await_count == 1
+
+
+class TestCeilingWindowSubdivision:
+    """A ceiling-hit window re-fetches per day instead of persisting truncation.
+
+    The API returns newest-first truncated at ``FULL_HISTORY_LIMIT``, so the
+    dropped records are the window's OLDEST — and the forward-only cursor never
+    revisits a checkpointed window. Subdivision (the degenerate one-day window,
+    same fetch path) keeps dense accounts importable; a single day that still
+    ceilings raises rather than persisting a truncated day.
     """
 
-    async def test_day_records_become_stamped_connector_plays(self, importer, mock_uow):
-        importer._fetch_day_records = AsyncMock(side_effect=_fake_fetch_day(2))
+    @staticmethod
+    def _ceiling_then_daily_fetch(records_per_day: int):
+        """Multi-day spans come back ceiling-size; one-day spans return real rows."""
+
+        async def _fetch(*, username, limit, from_time, to_time):
+            if from_time.date() == to_time.date():
+                mid = datetime.combine(from_time.date(), datetime.min.time()).replace(
+                    hour=12, tzinfo=UTC
+                )
+                return [
+                    _make_play_record(mid + timedelta(minutes=index))
+                    for index in range(records_per_day)
+                ]
+            return [_make_play_record(from_time)] * LastFMConstants.FULL_HISTORY_LIMIT
+
+        return AsyncMock(side_effect=_fetch)
+
+    async def test_ceiling_window_refetches_per_day_with_clamped_bounds(self, importer):
+        """The window fetch ceilings, then each day is fetched with bounds
+        clamped to the original window's edges — no day outside it, no gap."""
+        importer.lastfm_connector.get_recent_tracks = self._ceiling_then_daily_fetch(2)
+        window_start = datetime(2024, 1, 1, 8, 30, tzinfo=UTC)
+        window_end = datetime(2024, 1, 3, 21, 15, tzinfo=UTC)
+
+        records = await importer._fetch_window_records(
+            username="test_user", window_start=window_start, window_end=window_end
+        )
+
+        assert len(records) == 6  # 3 days * 2, the full re-fetched window
+        calls = importer.lastfm_connector.get_recent_tracks.await_args_list
+        spans = [(call.kwargs["from_time"], call.kwargs["to_time"]) for call in calls]
+        assert spans == [
+            (window_start, window_end),  # the original whole-window fetch
+            (window_start, datetime(2024, 1, 1, 23, 59, 59, 999999, tzinfo=UTC)),
+            (
+                datetime(2024, 1, 2, tzinfo=UTC),
+                datetime(2024, 1, 2, 23, 59, 59, 999999, tzinfo=UTC),
+            ),
+            (datetime(2024, 1, 3, tzinfo=UTC), window_end),
+        ]
+
+    async def test_subdivided_window_persists_every_day_and_checkpoints_once(
+        self, importer, mock_uow
+    ):
+        """Through the strategy loop: the subdivided fetches all land in the
+        window's persist, and the window still commits exactly once."""
+        importer.lastfm_connector.get_recent_tracks = self._ceiling_then_daily_fetch(1)
+
+        plays = await importer._fetch_date_range_strategy(
+            from_date=datetime(2024, 1, 1, tzinfo=UTC),
+            to_date=datetime(2024, 1, 3, 23, 59, 59, tzinfo=UTC),
+            user_id="mixd-user-1",
+            username="test_user",
+            batch_id=_BATCH_ID,
+            import_timestamp=_IMPORT_TS,
+            uow=mock_uow,
+        )
+
+        assert len(plays) == 3
+        assert {
+            play.played_at.date().isoformat() for play in _persisted_plays(mock_uow)
+        } == {"2024-01-01", "2024-01-02", "2024-01-03"}
+        assert mock_uow.commit_batch.await_count == 1
+
+    async def test_single_day_ceiling_raises(self, importer):
+        importer.lastfm_connector.get_recent_tracks = AsyncMock(
+            return_value=[_make_play_record(datetime(2024, 1, 1, 12, 0, tzinfo=UTC))]
+            * LastFMConstants.FULL_HISTORY_LIMIT
+        )
+
+        with pytest.raises(LastFMPartialFetchError, match="ceiling"):
+            _ = await importer._fetch_window_records(
+                username="test_user",
+                window_start=datetime(2024, 1, 1, tzinfo=UTC),
+                window_end=datetime(2024, 1, 1, 23, 59, 59, tzinfo=UTC),
+            )
+
+    async def test_no_checkpoint_advances_past_a_ceiling_raise(
+        self, importer, journalling_uow
+    ):
+        """Window ceilings, its first subdivided day ceilings too — the raise
+        must leave neither rows nor cursor for that window."""
+        uow, journal = journalling_uow
+        importer.lastfm_connector.get_recent_tracks = AsyncMock(
+            return_value=[_make_play_record(datetime(2024, 1, 1, 12, 0, tzinfo=UTC))]
+            * LastFMConstants.FULL_HISTORY_LIMIT
+        )
+
+        with pytest.raises(LastFMPartialFetchError):
+            _ = await importer._fetch_date_range_strategy(
+                from_date=datetime(2024, 1, 1, tzinfo=UTC),
+                to_date=datetime(2024, 1, 3, 23, 59, 59, tzinfo=UTC),
+                user_id="mixd-user-1",
+                username="test_user",
+                batch_id=_BATCH_ID,
+                import_timestamp=_IMPORT_TS,
+                uow=uow,
+            )
+
+        assert journal == []
+
+
+class TestPerWindowConversion:
+    """The window loop yields ledger rows, not a span-wide list of raw scrobbles.
+
+    Conversion happens as each window lands so a multi-year import never holds
+    the raw records for the whole span on top of the connector plays.
+    """
+
+    async def test_window_records_become_stamped_connector_plays(
+        self, importer, mock_uow
+    ):
+        importer._fetch_window_records = AsyncMock(side_effect=_fake_fetch_window(2))
 
         plays = await importer._fetch_date_range_strategy(
             from_date=datetime(2024, 1, 1, tzinfo=UTC),
@@ -308,15 +492,15 @@ class TestPerDayConversion:
         assert {play.user_id for play in plays} == {"mixd-user-1"}
         assert {play.import_batch_id for play in plays} == {_BATCH_ID}
         assert {play.import_source for play in plays} == {"lastfm_api"}
-        # One timestamp for the batch, not one per day of a multi-year loop.
+        # One timestamp for the batch, not one per window of a multi-year loop.
         assert {play.import_timestamp for play in plays} == {_IMPORT_TS}
 
-    async def test_empty_day_mid_range_still_checkpoints_and_commits(
+    async def test_empty_day_mid_window_still_checkpoints_and_commits(
         self, importer, mock_uow
     ):
         """A silent day contributes nothing but must not stall the loop."""
-        importer._fetch_day_records = AsyncMock(
-            side_effect=_fake_fetch_day(1, empty_days=frozenset({2}))
+        importer._fetch_window_records = AsyncMock(
+            side_effect=_fake_fetch_window(1, empty_days=frozenset({2}))
         )
 
         plays = await importer._fetch_date_range_strategy(
@@ -330,13 +514,13 @@ class TestPerDayConversion:
         )
 
         assert len(plays) == 2  # days 1 and 3
-        assert mock_uow.commit_batch.await_count == 3
+        assert mock_uow.commit_batch.await_count == 1
         saved = mock_uow.get_checkpoint_repository().save_sync_checkpoint
         assert saved.await_args.args[0].cursor == "2024-01-03@test_user"
 
     async def test_range_with_no_plays_at_all_returns_empty(self, importer, mock_uow):
-        importer._fetch_day_records = AsyncMock(
-            side_effect=_fake_fetch_day(0, empty_days=frozenset({1, 2}))
+        importer._fetch_window_records = AsyncMock(
+            side_effect=_fake_fetch_window(0, empty_days=frozenset({1, 2}))
         )
 
         plays = await importer._fetch_date_range_strategy(
@@ -350,21 +534,21 @@ class TestPerDayConversion:
         )
 
         assert plays == []
-        assert mock_uow.commit_batch.await_count == 2
+        assert mock_uow.commit_batch.await_count == 1
 
 
 class TestImportPlaysTotals:
-    """End-to-end reported totals for the multi-day path, plus ledger tenancy."""
+    """End-to-end reported totals for the multi-window path, plus ledger tenancy."""
 
     @staticmethod
     def _importer(side_effect):
-        """Importer whose account resolves from env and whose days are faked."""
+        """Importer whose account resolves from env and whose windows are faked."""
         connector = Mock()
         connector.lastfm_username = "test_user"
         storage = AsyncMock()
         storage.load_token.return_value = None
         importer = LastfmPlayImporter(lastfm_connector=connector, token_storage=storage)
-        importer._fetch_day_records = AsyncMock(side_effect=side_effect)
+        importer._fetch_window_records = AsyncMock(side_effect=side_effect)
         return importer
 
     @staticmethod
@@ -377,7 +561,7 @@ class TestImportPlaysTotals:
         )
 
     async def test_multi_day_totals_and_tenancy(self, mock_uow):
-        importer = self._importer(_fake_fetch_day(2))
+        importer = self._importer(_fake_fetch_window(2))
 
         result, plays = await importer.import_plays(
             mock_uow, self._params(), user_id="mixd-user-1"
@@ -389,7 +573,7 @@ class TestImportPlaysTotals:
         assert {play.user_id for play in plays} == {"mixd-user-1"}
 
         # The rows actually handed to the repository carry the tenancy too —
-        # connector_plays is RLS-scoped on user_id. Persistence is per day now
+        # connector_plays is RLS-scoped on user_id. Persistence is per window
         # (the checkpoint invariant), so the span is the union of those calls.
         assert [play.user_id for play in _persisted_plays(mock_uow)] == (
             ["mixd-user-1"] * 6
@@ -397,7 +581,9 @@ class TestImportPlaysTotals:
 
     async def test_empty_span_reports_zeros_without_saving(self, mock_uow):
         """No scrobbles anywhere in the range: the empty-data path, not a crash."""
-        importer = self._importer(_fake_fetch_day(0, empty_days=frozenset({1, 2, 3})))
+        importer = self._importer(
+            _fake_fetch_window(0, empty_days=frozenset({1, 2, 3}))
+        )
 
         result, plays = await importer.import_plays(
             mock_uow, self._params(), user_id="mixd-user-1"
@@ -413,15 +599,18 @@ class TestImportPlaysTotals:
 class TestCheckpointDurabilityInvariant:
     """The resume cursor may never point past rows that were never written.
 
-    The day loop used to commit a cursor per day while the plays were persisted
-    once, after the whole span: a crash at day 300 of a 5,100-day full-history
+    The loop once committed a cursor per chunk while the plays were persisted
+    only after the whole span: a crash at day 300 of a 5,100-day full-history
     import left a day-300 cursor with ZERO rows in the ledger, and the resumed
-    run started at day 300 — days 1-299 were lost silently and forever.
+    run started at day 300 — days 1-299 were lost silently and forever. The
+    same invariant now holds per window: rows first, cursor second, one
+    durable commit per window.
     """
 
+    # Three 7-day windows: Jan 1-7, Jan 8-14, Jan 15-21.
     _SPAN: ClassVar[dict[str, object]] = {
         "from_date": datetime(2024, 1, 1, tzinfo=UTC),
-        "to_date": datetime(2024, 1, 5, 23, 59, 59, tzinfo=UTC),
+        "to_date": datetime(2024, 1, 21, 23, 59, 59, tzinfo=UTC),
         "user_id": "mixd-user-1",
         "username": "test_user",
         "batch_id": _BATCH_ID,
@@ -431,37 +620,41 @@ class TestCheckpointDurabilityInvariant:
     async def test_checkpoint_never_leads_persisted_plays(
         self, importer, journalling_uow
     ):
-        """Crash on day 4: cursor and rows advanced in lockstep, rows first."""
+        """Crash in window 2: window 1 persisted then checkpointed; nothing of
+        window 2 — neither rows nor cursor — ever landed."""
         uow, journal = journalling_uow
-        importer._fetch_day_records = AsyncMock(side_effect=_crashing_fetch_day(4))
+        importer._fetch_window_records = AsyncMock(
+            side_effect=_crashing_fetch_window(10)
+        )
 
         with pytest.raises(RuntimeError):
             _ = await importer._fetch_date_range_strategy(uow=uow, **self._SPAN)
 
         assert journal == [
-            ("persist", "2024-01-01"),
-            ("checkpoint", "2024-01-01"),
-            ("persist", "2024-01-02"),
-            ("checkpoint", "2024-01-02"),
-            ("persist", "2024-01-03"),
-            ("checkpoint", "2024-01-03"),
+            *(("persist", f"2024-01-0{d}") for d in range(1, 8)),
+            ("checkpoint", "2024-01-07"),
         ]
 
-    async def test_resume_after_crash_loses_no_day_and_re_fetches_only_the_cursor_day(
+    async def test_resume_after_crash_loses_no_window_and_refetches_only_the_cursor_window(
         self, importer, journalling_uow
     ):
-        """The two runs together cover the span, overlapping only on the cursor day."""
+        """The two runs together cover the span, overlapping only from the
+        cursor day forward — the resumed run re-fetches the cursor day (late
+        scrobbles) and everything after, never the already-durable windows."""
         uow, journal = journalling_uow
-        importer._fetch_day_records = AsyncMock(side_effect=_crashing_fetch_day(4))
+        importer._fetch_window_records = AsyncMock(
+            side_effect=_crashing_fetch_window(10)
+        )
 
         with pytest.raises(RuntimeError):
             _ = await importer._fetch_date_range_strategy(uow=uow, **self._SPAN)
 
         before = {day for kind, day in journal if kind == "persist"}
         cursor = [day for kind, day in journal if kind == "checkpoint"][-1]
+        assert cursor == "2024-01-07"
 
         journal.clear()
-        importer._fetch_day_records = AsyncMock(side_effect=_fake_fetch_day(2))
+        importer._fetch_window_records = AsyncMock(side_effect=_fake_fetch_window(2))
         _ = await importer._fetch_date_range_strategy(
             checkpoint=SyncCheckpoint(
                 user_id="mixd-user-1",
@@ -475,13 +668,15 @@ class TestCheckpointDurabilityInvariant:
         )
 
         after = {day for kind, day in journal if kind == "persist"}
-        assert before | after == {f"2024-01-0{d}" for d in range(1, 6)}
+        full_span = {f"2024-01-{d:02d}" for d in range(1, 22)}
+        assert before | after == full_span
         # The cursor day is always re-processed to catch late scrobbles; the
-        # ledger's ON CONFLICT dedupe is what makes that free.
-        assert before & after == {"2024-01-03"}
+        # ledger's ON CONFLICT dedupe is what makes that free. Only IT
+        # overlaps: the resumed windows start there, not at the span start.
+        assert before & after == {"2024-01-07"}
 
     async def test_clean_run_persists_every_row_exactly_once(self, mock_uow):
-        """Per-day persistence writes what the run-end save used to, no more.
+        """Per-window persistence writes what the run-end save used to, no more.
 
         With the rows already durable the base pipeline must skip its own save
         — otherwise a full-history import re-streams the entire span for zero
@@ -492,7 +687,7 @@ class TestCheckpointDurabilityInvariant:
         storage = AsyncMock()
         storage.load_token.return_value = None
         importer = LastfmPlayImporter(lastfm_connector=connector, token_storage=storage)
-        importer._fetch_day_records = AsyncMock(side_effect=_fake_fetch_day(2))
+        importer._fetch_window_records = AsyncMock(side_effect=_fake_fetch_window(2))
 
         result, plays = await importer.import_plays(
             mock_uow,
@@ -513,8 +708,8 @@ class TestReportedCountsAreLedgerTruth:
 
     ``persists_plays_during_fetch`` skips the run-end save, and the run-end
     result used to fabricate ``(len(track_plays), 0)`` in its place. On a
-    crash-resume the re-fetched cursor day is ON CONFLICT no-ops, so those rows
-    were reported as freshly imported when nothing was written at all.
+    crash-resume the re-fetched cursor window is ON CONFLICT no-ops, so those
+    rows were reported as freshly imported when nothing was written at all.
     """
 
     @staticmethod
@@ -524,7 +719,7 @@ class TestReportedCountsAreLedgerTruth:
         storage = AsyncMock()
         storage.load_token.return_value = None
         importer = LastfmPlayImporter(lastfm_connector=connector, token_storage=storage)
-        importer._fetch_day_records = AsyncMock(side_effect=_fake_fetch_day(2))
+        importer._fetch_window_records = AsyncMock(side_effect=_fake_fetch_window(2))
         return importer
 
     @staticmethod
@@ -546,10 +741,10 @@ class TestReportedCountsAreLedgerTruth:
         # The metric is only emitted when non-zero — nothing was re-written.
         assert not result.summary_metrics.get("duplicates")
 
-    async def test_resume_reports_the_re_fetched_day_as_duplicates(self):
-        """Days 1-2 already landed; the resumed run re-fetches day 1 and adds 3.
+    async def test_resume_reports_the_re_fetched_days_as_duplicates(self):
+        """Days 1-2 already landed; the explicit-range re-run fetches days 1-3.
 
-        The re-fetched day contributes duplicates, never imports — the whole
+        The re-fetched days contribute duplicates, never imports — the whole
         point of the ON CONFLICT write is that re-running is free, and the
         statistics have to say so.
         """
@@ -559,7 +754,7 @@ class TestReportedCountsAreLedgerTruth:
         )
         assert len(stored) == len(first_run_plays) == 4
 
-        # Resume: the cursor day (day 2) is always re-processed, day 3 is new.
+        # Explicit range re-fetches days 1-3 in one window; day 3 is new.
         result, plays = await self._importer().import_plays(
             uow, self._params(3), user_id="mixd-user-1"
         )
@@ -573,7 +768,7 @@ class TestCheckpointAccountTag:
     """The cursor's account tag guards against resuming another account's position.
 
     The row is keyed on the mixd user, and nothing clears it when the connected
-    Last.fm account changes — so the account the days were fetched for rides
+    Last.fm account changes — so the account the windows were fetched for rides
     along in the cursor.
     """
 
@@ -628,14 +823,14 @@ class TestCheckpointAccountTag:
 
 
 class TestProgressEmission:
-    """Verify per-day progress events in _fetch_date_range_strategy."""
+    """Verify per-window progress events in _fetch_date_range_strategy."""
 
-    async def test_emit_progress_called_per_day(self, importer, mock_uow):
-        """3 days of records -> emit_progress called 3 times with increasing counts."""
+    async def test_emit_progress_called_per_window(self, importer, mock_uow):
+        """10 days → 2 windows → 2 events with increasing counts."""
         from_date = datetime(2024, 1, 1, tzinfo=UTC)
-        to_date = datetime(2024, 1, 3, 23, 59, 59, tzinfo=UTC)
+        to_date = datetime(2024, 1, 10, 23, 59, 59, tzinfo=UTC)
 
-        importer._fetch_day_records = AsyncMock(side_effect=_fake_fetch_day(1))
+        importer._fetch_window_records = AsyncMock(side_effect=_fake_fetch_window(1))
 
         emitter = AsyncMock()
         emitter.emit_progress = AsyncMock()
@@ -652,18 +847,19 @@ class TestProgressEmission:
             uow=mock_uow,
         )
 
-        assert emitter.emit_progress.await_count == 3
-        # Verify monotonically increasing current values
+        assert emitter.emit_progress.await_count == 2
+        # Verify monotonically increasing current values and honest totals.
         calls = emitter.emit_progress.call_args_list
         currents = [call.args[0].current for call in calls]
-        assert currents == [1, 2, 3]
+        assert currents == [1, 2]
+        assert {call.args[0].total for call in calls} == {2}
 
     async def test_no_progress_without_emitter(self, importer, mock_uow):
         """Without progress_emitter, no emit_progress calls."""
         from_date = datetime(2024, 1, 1, tzinfo=UTC)
         to_date = datetime(2024, 1, 1, 23, 59, 59, tzinfo=UTC)
 
-        importer._fetch_day_records = AsyncMock(side_effect=_fake_fetch_day(1))
+        importer._fetch_window_records = AsyncMock(side_effect=_fake_fetch_window(1))
 
         # No progress_emitter passed — should not raise
         records = await importer._fetch_date_range_strategy(
@@ -676,6 +872,40 @@ class TestProgressEmission:
             uow=mock_uow,
         )
         assert len(records) == 1
+
+
+class TestPartialWindowNeverCheckpoints:
+    """A partial fetch fails the window instead of checkpointing a hole.
+
+    The client raises ``LastFMPartialFetchError`` on a failed page (pinned in
+    test_lastfm_client_partial_fetch.py); here the importer contract: the
+    error propagates, and neither rows nor cursor land for that window.
+    """
+
+    async def test_partial_fetch_propagates_and_saves_nothing(
+        self, importer, journalling_uow
+    ):
+        from src.infrastructure.connectors.lastfm.client import (
+            LastFMPartialFetchError,
+        )
+
+        uow, journal = journalling_uow
+        importer.lastfm_connector.get_recent_tracks = AsyncMock(
+            side_effect=LastFMPartialFetchError("page 3/9 failed after retries")
+        )
+
+        with pytest.raises(LastFMPartialFetchError):
+            _ = await importer._fetch_date_range_strategy(
+                from_date=datetime(2024, 1, 1, tzinfo=UTC),
+                to_date=datetime(2024, 1, 3, 23, 59, 59, tzinfo=UTC),
+                user_id="mixd-user-1",
+                username="test_user",
+                batch_id=_BATCH_ID,
+                import_timestamp=_IMPORT_TS,
+                uow=uow,
+            )
+
+        assert journal == []
 
 
 class TestUsernameResolution:

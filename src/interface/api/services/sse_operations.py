@@ -16,6 +16,9 @@ Reusable primitives:
   for routes that follow the standard kickoff → background → return-202
   shape. Pass an emitter-taking coroutine factory; the helper handles
   the rest.
+- ``acquire_operation_slot`` / ``release_operation_slot`` — durable claim on
+  one of the shared concurrency slots, for callers (the import queue) whose
+  slot outlives any single operation.
 """
 
 import asyncio
@@ -80,6 +83,37 @@ _AUDIT_WRITE_GRACE_SECONDS: Final = 2.0
 _CANCELLED_GRACE_PERIOD_SECONDS: Final = 0.0
 
 
+def _at_slot_capacity() -> bool:
+    return len(_active_operations) >= SSEConstants.MAX_CONCURRENT_OPERATIONS
+
+
+def _slot_capacity_exceeded() -> HTTPException:
+    return HTTPException(
+        status_code=429,
+        detail="Too many concurrent operations. Please wait for a running operation to finish.",
+        headers={"Retry-After": str(SSEConstants.GRACE_PERIOD_SECONDS)},
+    )
+
+
+def acquire_operation_slot(token: str) -> None:
+    """Claim one of the shared concurrency slots under ``token``.
+
+    Raises the shared ``HTTPException(429)`` when every slot is held. The claim
+    is durable: the caller owns the matching ``release_operation_slot`` call.
+    Used by long-lived holders (the import queue claims one slot for its whole
+    drain); a single SSE operation's slot is still managed by
+    ``run_sse_operation`` itself, whose add/discard brackets the task lifetime.
+    """
+    if _at_slot_capacity():
+        raise _slot_capacity_exceeded()
+    _active_operations.add(token)
+
+
+def release_operation_slot(token: str) -> None:
+    """Release a slot claimed via ``acquire_operation_slot``."""
+    _active_operations.discard(token)
+
+
 async def prepare_sse_operation() -> tuple[str, asyncio.Queue[object]]:
     """Generate an operation_id, register an SSE queue, and return both.
 
@@ -98,6 +132,7 @@ async def prepare_sse_operation_with_emitter(
     operation_type: str,
     request_params: JsonDict | None = None,
     initiated_by: str = "manual",
+    occupies_slot: bool = True,
 ) -> tuple[str, UUID, OperationBoundEmitter]:
     """Pre-generate operation_id, register SSE queue, build a bound emitter,
     and write the ``OperationRun`` audit row at kickoff.
@@ -106,16 +141,16 @@ async def prepare_sse_operation_with_emitter(
     reached, checked *before* allocating any resources so the registry
     never accumulates orphan queues or audit rows on rejection.
 
+    ``occupies_slot=False`` skips the capacity check entirely: the caller
+    already holds a slot of its own (the import queue's drain token) and this
+    operation runs inside it, so counting it again would double-charge the cap.
+
     Returns ``(operation_id, run_id, emitter)``. The run_id should be
     threaded through to ``run_sse_operation`` so the row gets finalized
     on terminal events.
     """
-    if len(_active_operations) >= SSEConstants.MAX_CONCURRENT_OPERATIONS:
-        raise HTTPException(
-            status_code=429,
-            detail="Too many concurrent operations. Please wait for a running operation to finish.",
-            headers={"Retry-After": str(SSEConstants.GRACE_PERIOD_SECONDS)},
-        )
+    if occupies_slot and _at_slot_capacity():
+        raise _slot_capacity_exceeded()
     # Mint the operation_id first (without registering the queue), write the
     # audit row WITH it, then register the queue. This preserves the "audit row
     # before queue" guarantee (a failed audit-write leaves no orphan queue)
@@ -143,6 +178,8 @@ async def run_sse_operation(
     run_id: UUID | None = None,
     user_id: str | None = None,
     description: str = "Operation",
+    occupies_slot: bool = True,
+    on_terminal: Callable[[OperationStatus], None] | None = None,
 ) -> None:
     """Run a use-case coroutine with full SSE lifecycle cleanup.
 
@@ -171,8 +208,19 @@ async def run_sse_operation(
     A cancellation (server shutdown/restart) is recorded as ``error`` with the
     ``CANCELLED_*`` messages and then re-raised, so the task ends cancelled. The
     audit write is shielded — see ``_finalize_run_shielded``.
+
+    ``occupies_slot=False`` keeps this operation out of ``_active_operations``
+    entirely — the caller's own token (the import queue's) already holds the
+    slot this run executes inside.
+
+    ``on_terminal`` is a plain sync callable invoked with the final status on
+    EVERY path — clean return, soft failure, uncaught exception, and
+    cancellation — after the audit finalize and terminal event push, and before
+    the SSE grace period. It is what lets a sequencer start the next run the
+    moment this one is truly settled instead of waiting out the grace window.
     """
-    _active_operations.add(operation_id)
+    if occupies_slot:
+        _active_operations.add(operation_id)
     # Own the request operation: it is the top-level op the SSE client is attached
     # to, so the `started` event fires before the use case runs and the use case's
     # own operations route as its children (sub_* events). Best-effort — progress
@@ -219,7 +267,18 @@ async def run_sse_operation(
             )
         await _push_terminal_event(operation_id, status, counts, run_id)
         await _safe_complete_parent(operation_id, status)
-        _active_operations.discard(operation_id)
+        if occupies_slot:
+            release_operation_slot(operation_id)
+        if on_terminal is not None:
+            # The callback must not be able to break the SSE teardown below it.
+            try:
+                on_terminal(status)
+            except Exception:
+                logger.error(
+                    "on_terminal callback failed",
+                    operation_id=operation_id,
+                    exc_info=True,
+                )
         await finalize_sse_operation(
             operation_id,
             grace_period_seconds=(
@@ -365,6 +424,8 @@ async def launch_sse_operation(
     name_prefix: str = "import",
     request_params: JsonDict | None = None,
     initiated_by: str = "manual",
+    occupies_slot: bool = True,
+    on_terminal: Callable[[OperationStatus], None] | None = None,
 ) -> OperationStartedResponse:
     """Run the standard kickoff → background → return-202 shape.
 
@@ -385,12 +446,17 @@ async def launch_sse_operation(
     ``initiated_by`` attributes the run in the log — defaults to "manual" so all
     existing callers are unaffected; the chat→launcher wiring passes "assistant"
     for AI-agent-initiated background operations.
+
+    ``occupies_slot`` and ``on_terminal`` thread through to
+    ``prepare_sse_operation_with_emitter`` / ``run_sse_operation`` — see their
+    docstrings. Defaults preserve every pre-queue call site.
     """
     operation_id, run_id, emitter = await prepare_sse_operation_with_emitter(
         user_id=user_id,
         operation_type=operation_type,
         request_params=request_params,
         initiated_by=initiated_by,
+        occupies_slot=occupies_slot,
     )
     # Human-readable parent-op description (e.g. "import_lastfm_history" →
     # "Import Lastfm History") for the top-level `started` event.
@@ -406,6 +472,8 @@ async def launch_sse_operation(
             run_id=run_id,
             user_id=user_id,
             description=description,
+            occupies_slot=occupies_slot,
+            on_terminal=on_terminal,
         ),
     )
     return OperationStartedResponse(operation_id=operation_id, run_id=str(run_id))

@@ -7,6 +7,7 @@ operation_id so the client can subscribe to progress via SSE.
 
 import os
 from pathlib import Path
+import shutil
 import tempfile
 
 from fastapi import APIRouter, Depends, HTTPException, UploadFile
@@ -23,9 +24,18 @@ from src.interface.api.schemas.imports import (
     CheckpointStatusSchema,
     ExportLastfmLikesRequest,
     ImportLastfmHistoryRequest,
+    ImportQueueResponse,
     ImportSpotifyLikesRequest,
     ImportSpotifyRecentRequest,
     OperationStartedResponse,
+)
+from src.interface.api.services.import_queue import (
+    IMPORT_QUEUE_TMPDIR_PREFIX,
+    QueueEntry,
+    cancel_pending,
+    get_queue,
+    raise_if_queue_active,
+    start_queue,
 )
 from src.interface.api.services.progress import OperationBoundEmitter
 from src.interface.api.services.sse_operations import launch_sse_operation
@@ -153,75 +163,132 @@ async def export_lastfm_likes(
     )
 
 
-async def _stream_upload_to_fd(file: UploadFile, fd: int) -> bool:
-    """Stream an upload to ``fd`` in 64KB chunks; return True if size limit exceeded.
+async def _stream_uploads_to_queue_dir(
+    files: list[UploadFile], tmpdir: Path
+) -> list[QueueEntry]:
+    """Stream every upload into ``tmpdir`` under server-chosen names.
 
-    Stops writing as soon as the byte count passes ``MAX_UPLOAD_BYTES`` so an
-    oversized upload never lands on disk in full.
+    Files land as ``{position:03d}.json`` — client filenames are display data,
+    never paths. 64KB chunks keep memory flat, and both caps are enforced on
+    real bytes as they arrive, regardless of what Content-Length claimed: a
+    per-file breach of ``MAX_UPLOAD_BYTES`` or a running-total breach of
+    ``MAX_QUEUED_UPLOAD_BYTES`` removes the whole directory and 413s, so a
+    rejected request leaves nothing on disk.
     """
-    bytes_written = 0
-    while chunk := await file.read(64 * 1024):
-        bytes_written += len(chunk)
-        if bytes_written > BusinessLimits.MAX_UPLOAD_BYTES:
-            return True
-        os.write(fd, chunk)
-    return False
+    total_bytes = 0
+    entries: list[QueueEntry] = []
+    try:
+        for position, file in enumerate(files):
+            path = tmpdir / f"{position:03d}.json"
+            total_bytes = await _stream_upload_capped(file, path, total_bytes)
+            entries.append(
+                QueueEntry(
+                    filename=file.filename or f"file-{position + 1}.json",
+                    position=position,
+                    path=path,
+                )
+            )
+    except BaseException:
+        shutil.rmtree(tmpdir, ignore_errors=True)
+        raise
+    return entries
+
+
+def _raise_if_over_upload_caps(file_bytes: int, total_bytes: int) -> None:
+    if file_bytes > BusinessLimits.MAX_UPLOAD_BYTES:
+        raise HTTPException(
+            status_code=413,
+            detail=f"File too large (>{BusinessLimits.MAX_UPLOAD_BYTES} bytes). Maximum is {BusinessLimits.MAX_UPLOAD_BYTES} bytes per file.",
+        )
+    if total_bytes > BusinessLimits.MAX_QUEUED_UPLOAD_BYTES:
+        raise HTTPException(
+            status_code=413,
+            detail=f"Upload too large (>{BusinessLimits.MAX_QUEUED_UPLOAD_BYTES} bytes total). Maximum is {BusinessLimits.MAX_QUEUED_UPLOAD_BYTES} bytes per queue.",
+        )
+
+
+async def _stream_upload_capped(file: UploadFile, path: Path, total_bytes: int) -> int:
+    """Stream one upload to ``path``; return the updated queue-wide byte total.
+
+    Caps are checked before each write, so no byte past either limit lands.
+    """
+    # os.* rather than pathlib for async-safe file I/O (ASYNC240).
+    fd = os.open(str(path), os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600)
+    try:
+        file_bytes = 0
+        while chunk := await file.read(64 * 1024):
+            file_bytes += len(chunk)
+            total_bytes += len(chunk)
+            _raise_if_over_upload_caps(file_bytes, total_bytes)
+            os.write(fd, chunk)
+    finally:
+        os.close(fd)
+    return total_bytes
+
+
+def _queue_response(queue_id: str, entries: list[QueueEntry]) -> ImportQueueResponse:
+    return ImportQueueResponse.model_validate(
+        {"queue_id": queue_id, "entries": entries}, from_attributes=True
+    )
 
 
 @router.post("/spotify/history")
 async def import_spotify_history(
-    file: UploadFile,
+    files: list[UploadFile],
     user_id: str = Depends(get_current_user_id),
-) -> OperationStartedResponse:
-    """Import Spotify listening history from a GDPR data export JSON file."""
-    if file.size and file.size > BusinessLimits.MAX_UPLOAD_BYTES:
+) -> ImportQueueResponse:
+    """Queue Spotify GDPR export JSON files for one sequential, unattended import.
+
+    A single file is the degenerate one-entry queue. Declared sizes are only a
+    cheap early rejection — the streaming writer re-enforces both caps on real
+    bytes.
+    """
+    raise_if_queue_active(user_id)
+    if len(files) > BusinessLimits.MAX_QUEUE_ENTRIES:
+        raise HTTPException(
+            status_code=422,
+            detail=f"Too many files ({len(files)}). Maximum is {BusinessLimits.MAX_QUEUE_ENTRIES} per queue.",
+        )
+    declared_total = sum(file.size or 0 for file in files)
+    if declared_total > BusinessLimits.MAX_QUEUED_UPLOAD_BYTES:
         raise HTTPException(
             status_code=413,
-            detail=f"File too large ({file.size} bytes). Maximum is {BusinessLimits.MAX_UPLOAD_BYTES} bytes.",
+            detail=f"Upload too large ({declared_total} bytes total). Maximum is {BusinessLimits.MAX_QUEUED_UPLOAD_BYTES} bytes per queue.",
         )
 
-    # Save uploaded file to temp location with server-side byte counting.
-    # Streaming 64KB chunks avoids loading the entire file into memory and
-    # enforces the size limit regardless of what Content-Length claims.
-    # Using os.* instead of pathlib for async-safe file I/O (ASYNC240).
-    fd, temp_name = tempfile.mkstemp(suffix=".json")
+    tmpdir = Path(tempfile.mkdtemp(prefix=IMPORT_QUEUE_TMPDIR_PREFIX))
+    entries = await _stream_uploads_to_queue_dir(files, tmpdir)
     try:
-        oversized = await _stream_upload_to_fd(file, fd)
+        queue = start_queue(user_id=user_id, tmpdir=tmpdir, entries=entries)
     except BaseException:
-        os.close(fd)
-        os.unlink(temp_name)  # ruff:ignore[os-unlink] — os.unlink is async-safe, pathlib is not (ASYNC240)
+        # A refused start (slot 429, or losing the raced 409 re-check) must not
+        # strand the streamed bytes — the startup sweep only runs on restart,
+        # and autostop is off, so this process may live for weeks.
+        shutil.rmtree(tmpdir, ignore_errors=True)
         raise
-    else:
-        os.close(fd)
+    return _queue_response(queue.queue_id, queue.entries)
 
-    if oversized:
-        os.unlink(temp_name)  # ruff:ignore[os-unlink] — os.unlink is async-safe, pathlib is not (ASYNC240)
-        raise HTTPException(
-            status_code=413,
-            detail=f"File too large (>{BusinessLimits.MAX_UPLOAD_BYTES} bytes). Maximum is {BusinessLimits.MAX_UPLOAD_BYTES} bytes.",
-        )
 
-    temp_path = Path(temp_name)
+@router.get("/spotify/history/queue")
+async def get_spotify_history_queue(
+    user_id: str = Depends(get_current_user_id),
+) -> ImportQueueResponse:
+    """The user's current import queue, so a reloaded tab re-attaches to it."""
+    queue = get_queue(user_id)
+    if queue is None:
+        raise HTTPException(status_code=404, detail="No import queue")
+    return _queue_response(queue.queue_id, queue.entries)
 
-    async def _import(emitter: OperationBoundEmitter) -> object:
-        from src.application.use_cases.import_play_history import run_import
 
-        try:
-            return await run_import(
-                user_id=user_id,
-                service="spotify",
-                mode="file",
-                file_path=temp_path,
-                progress_emitter=emitter,
-            )
-        finally:
-            os.unlink(temp_name)  # ruff:ignore[os-unlink] — os.unlink is async-safe, pathlib is not (ASYNC240)
-
-    return await launch_sse_operation(
-        user_id=user_id,
-        operation_type="import_spotify_history",
-        coro_factory=_import,
-    )
+@router.delete("/spotify/history/queue")
+async def cancel_spotify_history_queue(
+    user_id: str = Depends(get_current_user_id),
+) -> ImportQueueResponse:
+    """Cancel the queue's not-yet-started entries; the running one finishes."""
+    queue = cancel_pending(user_id)
+    if queue is None:
+        raise HTTPException(status_code=404, detail="No import queue")
+    return _queue_response(queue.queue_id, queue.entries)
 
 
 # ---------------------------------------------------------------------------

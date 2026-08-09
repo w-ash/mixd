@@ -5,6 +5,13 @@ from typing import Literal
 
 from pydantic import BaseModel, ConfigDict
 
+from src.domain.entities.operation_run import OperationStatus
+
+# A queue entry's vocabulary is the run vocabulary plus the one pre-run state.
+# Defined here (not in the queue service) so the wire schema and the in-memory
+# entry share a single definition without a schemas → services import cycle.
+type QueueEntryStatus = Literal["queued"] | OperationStatus
+
 
 class ImportLastfmHistoryRequest(BaseModel):
     """Request body for triggering a Last.fm history import."""
@@ -57,6 +64,32 @@ class OperationStartedResponse(BaseModel):
 
     operation_id: str
     run_id: str | None = None
+
+
+class ImportQueueEntrySchema(BaseModel):
+    """One file's place in a Spotify GDPR import queue.
+
+    ``operation_id``/``run_id`` are null until the entry starts — a queued file
+    has no ``operation_runs`` row yet; the ids appear via the queue GET as the
+    sequencer reaches it.
+    """
+
+    model_config = ConfigDict(from_attributes=True)
+
+    filename: str
+    position: int
+    status: QueueEntryStatus
+    operation_id: str | None = None
+    run_id: str | None = None
+
+
+class ImportQueueResponse(BaseModel):
+    """The user's current import queue, in upload order."""
+
+    model_config = ConfigDict(from_attributes=True)
+
+    queue_id: str
+    entries: list[ImportQueueEntrySchema]
 
 
 class CheckpointStatusSchema(BaseModel):

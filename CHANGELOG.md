@@ -6,24 +6,37 @@ linked backlog version file. Versioning follows mixd's four-segment
 `major.minor.feature.revision` scheme (`.claude/rules/version-management.md`), not strict
 SemVer. Format inspired by [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
-## [0.10.2.4] — 2026-08-08
+## [0.10.2.8] — 2026-08-08
 
-**The remaining imports run in a fraction of the time — and the Last.fm import can no longer lose data.** The first sizable GDPR file took ~21 minutes; live measurement on prod showed 80% was database round-trips creating new tracks (~45 sequential statements × 26ms each) and most of the rest was one-at-a-time Spotify probes. Extrapolated to the full 200k-record set, that was many hours. This release attacks both, plus three correctness finds from the same audit.
+**A run that dies with its process now says so — and a deploy can no longer kill an import mid-run.** v0.10.2.5's shutdown hook covers kills the process observes (SIGTERM → drain → honest `error`); this closes the two it cannot: the unobservable kill (SIGKILL, OOM, machine loss) that leaves a phantom `running` row forever, and the self-inflicted one — a deploy replacing the machine while an import is in flight.
 
-- **Batch track lookups**: `GET /v1/tracks?ids=` (verified live against this app — the Feb-2026 dev-mode restriction doesn't bind) replaces per-id probes: ~46k requests become ~920, preserving redirect detection via requested-vs-returned id correlation.
-- **Bulk track creation**: new tracks persist per-chunk through the batched write path the likes import already uses, with automatic fallback to the per-item savepoint loop if a chunk's bulk write fails — the isolation guarantees stay, the ~50s-per-chunk DB tail goes.
-- **Rate limit raised to 12 req/s with a shared 429 brake**: a rate-limited response now pauses the whole bucket for the server's stated window instead of only the one call that saw it.
-- **Last.fm checkpoint integrity (fixed before the full-history import)**: the day loop checkpointed ahead of persistence — a crash mid-history would silently lose everything fetched before it while resuming past it. Plays now persist before their checkpoint advances ("checkpoint never leads persisted data").
-- **Projection fixes**: progress events during the projection tail were all silently dropped (non-monotonic against the resolution phase's counter — frozen bar + warning storm); projection now scopes to days that actually contain resolutions, so one stray decade-old play can no longer trigger a 14-year empty-day sweep.
-- Also: the redundant per-mapping existence check is gone (~one round trip per created track), and dead-ID duration evidence accumulates across chunks so the wrong-version veto keeps its strength on large files.
+- **Startup liveness reaper**: any `operation_runs` row still `running` when the process boots and older than a 12-hour bound is marked `error` with a "process died" issue naming how long ago it started and that re-running is safe (re-imports are idempotent). No schema change — the heartbeat-column shape workflow runs use is deliberately deferred until unattended runs outgrow the startup-only guarantee.
+- **Pre-deploy busy gate**: the release workflow polls the public `GET /health?busy=true` (active runs *plus* queued-not-started export files, which have no run row yet) every 30s for up to 30 minutes before `flyctl deploy`, then refuses with a clear message. Fail-open only when the app is unreachable — a down app can't be running an import and must never block its own fix — but fail-closed (`busy: true` with an error marker) when a serving app's probe errors, so a database blip can't wave a deploy through over a live import. The gate ignores rows past the reaper's own bound (those are dead by definition, and the deploy's restart is exactly what reaps them), counts via a bare SQL `count(*)` that can't be truncated behind the reaper's batch cap, and both queries get a partial index on running rows.
+- **PDR-003 instrumentation rides along**: a 403 on the batch `/tracks?ids=` endpoint now logs distinctly (naming the PDR) instead of folding into the anonymous unanswered bucket — the watch trigger for Spotify's postponed dev-mode batch-endpoint removal is now observable.
 
-A high-effort adversarial review of this wave confirmed ten findings; all fixed before ship:
+→ [details](docs/backlog/v0.10.x.md#post-deploy-revisions)
 
-- **A failed batch request can't condemn its tracks.** The batch fetch now distinguishes *unanswered* (chunk request failed) from *dead* (Spotify said null) — previously one transient failure classified ~50 live tracks as dead, wrote month-long backoff, and cached wrong search-substituted mappings. Unanswered ids are simply retried next import.
-- **The 429 brake is bounded and honest**: the pause is capped by the same per-service bound the retry sleep uses, the bucket restarts *empty* after a pause (resuming paced instead of releasing a synchronized burst into the window the server just closed), and pause extensions landing mid-sleep are honored.
-- **Projection ownership is airtight**: day-scoping now reaches back far enough to own groups whose anchor a cross-channel neighbor pulled across midnight (a class a full rebuild could not heal — the chunk fetch window had the same off-by-tolerance gap and both now share one derived `_ANCHOR_REACH` constant), and day derivation is explicitly UTC.
-- **Checkpoint-resume metrics tell the truth**: real inserted/duplicate counts flow from the ledger's ON CONFLICT through per-day persistence to the run summary — a resumed run reports its re-fetched rows as duplicates, not imports. The `uow`-less call shape that would have silently skipped persistence is no longer expressible.
-- **One way to do each thing** (the review's DRY mandate): the per-item persist fallback is literally bulk-of-one per savepoint (~150-line second write path deleted), primary election is a single stack (primacy is a flag on the mapping spec — the parallel promotion list is gone), and the single-track fetch is the degenerate case of the batch call.
+## [0.10.2.7] — 2026-08-08
+
+**The full Last.fm history import drops from a measured 4–6 hours to well under one.** The 2026-08 batch audit found nearly all of the cost was single-item work smuggled into batch contexts — one API call and ~45 sequential statements per track, one fetch per calendar day across a decade. Every seam already had a batch counterpart in the codebase; this release routes the Last.fm path through them.
+
+- **Concurrent enrichment, planned writes, bulk persist**: the per-identifier getInfo→discover→write loop becomes three phases — API enrichment runs concurrently under the existing 4.5/s limiter, resolution decisions are planned as pure values, and each chunk persists via one bulk `save_tracks` + one `map_tracks_to_connectors` (the Spotify resolver's proven shape, now shared).
+- **One persistence skeleton for every tolerated write loop**: savepoint-bulk with per-item fallback — where per-item is literally the bulk call on a one-element chunk — extracted to a single helper used by the Spotify resolver, the Last.fm resolver, and the canonical-reuse batch. Three hand-copies were the alternative.
+- **7-day fetch windows**: one `user.getRecentTracks` call per calendar day was a mixd convention, not an API shape — the API takes arbitrary bounds at 200/page. Windows keep the v0.10.2.4 invariant verbatim (persist, then checkpoint, then commit — a crash loses at most one window and zero persisted rows).
+- **A partial fetch now raises instead of silently truncating**: previously a failed page mid-pagination returned the rows gathered so far — indistinguishable from a quiet week, and the importer would checkpoint past the gap, losing the tail of the window forever. Review hardening closed the two remaining bypasses: a page failing response validation raises too (it used to end pagination as an empty success), and a window hitting the 10,000-record fetch ceiling subdivides into per-day fetches instead of warning and dropping its oldest records (a single day still ceilinging raises — that is no real account).
+- **Rebuild projects only active days**: one `SELECT DISTINCT` of days holding resolved plays replaces tiling every empty day between the ledger's bounds — one stray 2011 row no longer costs ~5,000 empty-day round trips. The span-tiling path and its bounds query are deleted outright.
+
+→ [details](docs/backlog/v0.10.x.md#post-deploy-revisions)
+
+## [0.10.2.6] — 2026-08-08
+
+**Hand mixd the whole GDPR export at once and walk away.** A Spotify export arrives as 13 streaming-history files, and until now the only way in was one at a time — pick, upload, watch, repeat: an evening of babysitting a progress bar. Now the upload takes them all, a server-side queue drains them one by one, and you come back to a per-file record of what landed.
+
+- **The queue lives on the server, not the browser tab** — it survives reloads, sleeping laptops, and dropped connections. A reloaded tab re-attaches to the running file's live progress and the finished files' records.
+- **Sequential by design, one concurrency slot for the whole drain**: parallel files would contend for the same write path (v0.10.2.4 measured ~80% of import time there) and race to create the same tracks. The queue occupies exactly one of the three operation slots start to finish, so a Last.fm import or workflow still runs alongside.
+- **A failed file never stops the queue**: its run records status and issues like any other (each file is an ordinary run in Import History with its own counts), the queue moves on, and recovery is re-queueing one file — re-imports are zero-delta, so re-queueing anything you're unsure about costs nothing.
+- **Bounded and honest about durability**: 25 files / 500MB per queue (the machine has no volume — queued uploads sit on ephemeral disk and die with a machine restart, alongside the queue that points at them; finished runs stand in Import History either way). Oversize rejects before anything lands; orphaned upload directories are swept at startup.
+- **Cancel remaining** drops not-yet-started files; the running one finishes on its own terms.
 
 → [details](docs/backlog/v0.10.x.md#post-deploy-revisions)
 
@@ -51,6 +64,27 @@ Follow-ups scheduled in-series: multi-file import queue (v0.10.2.6), batch-first
 - **Web** (10 packages) plus pnpm 11.5.2 → 11.20.0 and Playwright 1.61.1 → 1.62.1, each moved across every pin at once (`packageManager`, `Dockerfile`, `ci.yml`, e2e docs). Baselines regenerated in the new Playwright image came back pixel-identical — which incidentally proves `elkjs` 0.12 lays the workflow graphs out exactly as 0.11 did.
 - **GitHub Actions**: checkout / setup-node / upload-artifact v7, pnpm/action-setup v6, build-push v7, buildx v4. `setup-uv` v7 → **v9.0.0**, pinned to the full version because it stopped publishing major tags at v8.0.0 as a supply-chain measure — the usual `@v9` shorthand would have failed CI at "Unable to resolve action". Its one breaking change (`prune-cache` now defaults to false) raises Actions cache usage.
 - Held back deliberately: `orval` 8.24.0 (published hours before the sweep, inside pnpm's `minimumReleaseAge` cooldown) and `pydantic-core` 2.48.0 (pydantic exact-pins 2.46.4).
+
+→ [details](docs/backlog/v0.10.x.md#post-deploy-revisions)
+
+## [0.10.2.4] — 2026-08-08
+
+**The remaining imports run in a fraction of the time — and the Last.fm import can no longer lose data.** The first sizable GDPR file took ~21 minutes; live measurement on prod showed 80% was database round-trips creating new tracks (~45 sequential statements × 26ms each) and most of the rest was one-at-a-time Spotify probes. Extrapolated to the full 200k-record set, that was many hours. This release attacks both, plus three correctness finds from the same audit.
+
+- **Batch track lookups**: `GET /v1/tracks?ids=` (verified live against this app — the Feb-2026 dev-mode restriction doesn't bind) replaces per-id probes: ~46k requests become ~920, preserving redirect detection via requested-vs-returned id correlation.
+- **Bulk track creation**: new tracks persist per-chunk through the batched write path the likes import already uses, with automatic fallback to the per-item savepoint loop if a chunk's bulk write fails — the isolation guarantees stay, the ~50s-per-chunk DB tail goes.
+- **Rate limit raised to 12 req/s with a shared 429 brake**: a rate-limited response now pauses the whole bucket for the server's stated window instead of only the one call that saw it.
+- **Last.fm checkpoint integrity (fixed before the full-history import)**: the day loop checkpointed ahead of persistence — a crash mid-history would silently lose everything fetched before it while resuming past it. Plays now persist before their checkpoint advances ("checkpoint never leads persisted data").
+- **Projection fixes**: progress events during the projection tail were all silently dropped (non-monotonic against the resolution phase's counter — frozen bar + warning storm); projection now scopes to days that actually contain resolutions, so one stray decade-old play can no longer trigger a 14-year empty-day sweep.
+- Also: the redundant per-mapping existence check is gone (~one round trip per created track), and dead-ID duration evidence accumulates across chunks so the wrong-version veto keeps its strength on large files.
+
+A high-effort adversarial review of this wave confirmed ten findings; all fixed before ship:
+
+- **A failed batch request can't condemn its tracks.** The batch fetch now distinguishes *unanswered* (chunk request failed) from *dead* (Spotify said null) — previously one transient failure classified ~50 live tracks as dead, wrote month-long backoff, and cached wrong search-substituted mappings. Unanswered ids are simply retried next import.
+- **The 429 brake is bounded and honest**: the pause is capped by the same per-service bound the retry sleep uses, the bucket restarts *empty* after a pause (resuming paced instead of releasing a synchronized burst into the window the server just closed), and pause extensions landing mid-sleep are honored.
+- **Projection ownership is airtight**: day-scoping now reaches back far enough to own groups whose anchor a cross-channel neighbor pulled across midnight (a class a full rebuild could not heal — the chunk fetch window had the same off-by-tolerance gap and both now share one derived `_ANCHOR_REACH` constant), and day derivation is explicitly UTC.
+- **Checkpoint-resume metrics tell the truth**: real inserted/duplicate counts flow from the ledger's ON CONFLICT through per-day persistence to the run summary — a resumed run reports its re-fetched rows as duplicates, not imports. The `uow`-less call shape that would have silently skipped persistence is no longer expressible.
+- **One way to do each thing** (the review's DRY mandate): the per-item persist fallback is literally bulk-of-one per savepoint (~150-line second write path deleted), primary election is a single stack (primacy is a flag on the mapping spec — the parallel promotion list is gone), and the single-track fetch is the degenerate case of the batch call.
 
 → [details](docs/backlog/v0.10.x.md#post-deploy-revisions)
 

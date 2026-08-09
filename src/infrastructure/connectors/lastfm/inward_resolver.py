@@ -1,20 +1,28 @@
 """Last.fm-specific inward track resolver.
 
 Resolves Last.fm track identifiers (artist::title) to canonical tracks using
-the shared InwardTrackResolver pattern. Each missing track is processed
-sequentially because Last.fm's track.getInfo API is per-track.
+the shared InwardTrackResolver pattern. Creation runs in three phases per
+chunk of missing identifiers:
 
-Flow per missing track (reuse-before-create):
-1. Enrich via track.getInfo (duration, album, MBID) into an in-memory
-   probe Track — NOTHING is saved yet. track.getInfo runs with
-   ``autocorrect=1``, so a successful response also carries Last.fm's
-   CORRECTED artist/title names for free. When getInfo fails or returns
-   nothing, track.getCorrection is tried as a one-shot fallback.
-2. Ask the ``CrossDiscoveryProvider`` whether an existing canonical should
-   absorb this recording. On reuse, map the Last.fm identifier(s) onto that
-   canonical and stop — no skeletal canonical is ever created.
-3. Otherwise build the canonical ONCE, fully enriched, save it, create the
-   Last.fm connector mapping(s), then apply any new Spotify mapping + backfill.
+A. **Concurrent API enrichment** — track.getInfo (with track.getCorrection as
+   fallback) per identifier, concurrently under
+   ``settings.api.lastfm.concurrency``; the shared ConnectorRateLimiter on
+   ``_api_call`` paces the actual request starts. Pure API — nothing is
+   written. Any enrichment failure degrades that identifier to a raw-name
+   probe instead of failing it.
+B. **Sequential cross-discovery** — ``CrossDiscoveryProvider.discover`` per
+   probe, sequential because it takes the (non-concurrency-safe) uow and may
+   write ISRC-collision reviews. Each call runs under its own savepoint so a
+   swallowed mid-transaction SQL failure rolls back alone; a failed discovery
+   degrades to ``Nothing()`` and the identifier proceeds to creation.
+C. **Pure plan + chunk persist** — every identifier's writes are decided into
+   a frozen ``_LastfmResolvedWrite`` (mappings evaluated, enrichment folded),
+   then the whole chunk persists through one ``save_tracks`` and one
+   ``map_tracks_to_connectors``, savepoint-bulk with per-item fallback.
+
+Reuse-before-create still holds: when discovery resolves to an existing
+canonical, the plan maps the Last.fm identifier(s) onto it and no skeletal
+canonical is ever created.
 
 Identifier invariant: every Last.fm connector_track_identifier is
 ``make_lastfm_identifier(artist, title)``, minted PRIMARILY from the
@@ -25,11 +33,13 @@ still hits the fast connector-mapping lookup. Correction only ever runs when
 creating a NEW connector track — never per-play.
 """
 
+import asyncio
+from collections.abc import Mapping, Sequence
 from typing import override
 
-from attrs import evolve
+from attrs import define, evolve
 
-from src.config import get_logger
+from src.config import get_logger, settings
 from src.config.constants import MatchMethod
 from src.domain.entities import Artist, Track
 from src.domain.matching.evaluation_service import TrackMatchEvaluationService
@@ -41,10 +51,12 @@ from src.domain.matching.protocols import (
     ReuseExisting,
 )
 from src.domain.matching.types import RawProviderMatch
+from src.domain.repositories.connector import ConnectorMappingSpec
 from src.domain.repositories.uow import UnitOfWorkProtocol
 from src.infrastructure.connectors._shared.inward_track_resolver import (
     InwardTrackResolver,
     ReuseMetadata,
+    persist_bulk_with_item_fallback,
 )
 from src.infrastructure.connectors.lastfm.client import LastFMAPIClient
 from src.infrastructure.connectors.lastfm.identifiers import (
@@ -55,12 +67,86 @@ from src.infrastructure.connectors.lastfm.identifiers import (
 logger = get_logger(__name__)
 
 
+@define(frozen=True, slots=True)
+class _EnrichedProbe:
+    """Phase A's output for one identifier: names resolved, probe built.
+
+    ``probe`` is an UNSAVED in-memory Track — nothing is persisted until
+    Phase C decides the whole chunk. The corrected pair mints the PRIMARY
+    connector identifier; when enrichment fails entirely it degrades to the
+    raw parsed pair (accepted residual — see ``_build_enriched_probe``).
+    """
+
+    identifier: str
+    raw_artist: str
+    raw_title: str
+    corrected_artist: str
+    corrected_title: str
+    probe: Track
+
+
+@define(frozen=True, slots=True)
+class _PlannedLastfmMapping:
+    """One Last.fm connector mapping, evaluated before anything is written.
+
+    Confidence and evidence come from ``evaluate_single_match`` over the probe
+    (or the reused canonical) at plan time — pure, so the persist step builds
+    no payload of its own.
+    """
+
+    connector_id: str
+    match_method: str
+    primary: bool
+    confidence: int
+    confidence_evidence: dict[str, object] | None
+    artist_name: str
+    track_name: str
+
+
+@define(frozen=True, slots=True)
+class _PlannedSpotifyMapping:
+    """The cross-discovered Spotify mapping an identifier owes, if any.
+
+    One shape for both discovery outcomes: ``NewMapping`` (a match for the
+    brand-new canonical) and ``ReuseExisting`` with a ``spotify_id`` (the
+    ISRC-collision path found a Spotify id that belongs on the owner).
+    """
+
+    spotify_id: str
+    match_method: str
+    confidence: int
+    metadata: dict[str, object]
+    confidence_evidence: dict[str, object] | None
+
+
+@define(frozen=True, slots=True)
+class _LastfmResolvedWrite:
+    """One identifier's persist, decided before anything is written.
+
+    ``probe`` carries any ``NewMapping`` enrichment folded in via evolve, so
+    the canonical is inserted whole — there is no version-0 re-save that would
+    INSERT a duplicate (the enrichment-orphan defect). ``reuse_track`` set
+    means no canonical is created: the mappings land on the existing one.
+    """
+
+    identifier: str
+    probe: Track
+    reuse_track: Track | None
+    lastfm_mappings: tuple[_PlannedLastfmMapping, ...]
+    spotify_mapping: _PlannedSpotifyMapping | None
+
+    @property
+    def creates_canonical(self) -> bool:
+        return self.reuse_track is None
+
+
 class LastfmInwardResolver(InwardTrackResolver):
     """Resolves Last.fm artist::title identifiers → canonical tracks.
 
-    Sequential per-track processing (inherent to Last.fm's API).
-    Optionally attempts cross-service discovery (e.g. Spotify) for each
-    new track via the ``CrossDiscoveryProvider`` protocol.
+    API enrichment runs concurrently under the configured limiter; database
+    writes are planned per chunk and persisted through the batch primitives.
+    Optionally attempts cross-service discovery (e.g. Spotify) for each new
+    track via the ``CrossDiscoveryProvider`` protocol.
     """
 
     _lastfm_client: LastFMAPIClient
@@ -108,114 +194,316 @@ class LastfmInwardResolver(InwardTrackResolver):
     ) -> dict[str, Track]:
         """Create canonical tracks for missing Last.fm identifiers.
 
-        Sequential because track.getInfo and Spotify search are per-track.
+        Phase A enriches every identifier concurrently (pure API), Phase B
+        runs cross-discovery sequentially (it holds the uow), Phase C plans
+        each identifier's writes pure and persists the chunk through the
+        batch primitives. Chunks arrive at most ~50 identifiers wide (the
+        orchestrator's resolution commit chunking), so no further chunking
+        happens here.
         """
-        result: dict[str, Track] = {}
+        probes = await self._enrich_probes(missing_ids, user_id=user_id)
 
-        for identifier in missing_ids:
-            # Savepoint so one failed track creation rolls back alone instead
-            # of aborting the transaction for every remaining identifier (the
-            # v0.10.2.2 InFailedSqlTransaction cascade).
+        writes: list[_LastfmResolvedWrite] = []
+        for enriched in probes:
+            outcome = await self._discover_outcome(enriched, uow, user_id=user_id)
+            writes.append(self._plan_write(enriched, outcome))
+
+        def _log_failed_write(write: _LastfmResolvedWrite, e: Exception) -> None:
+            logger.error(
+                f"Failed to create canonical track for {write.identifier}: {e}",
+                exc_info=e,
+            )
+
+        resolved, _failed_ids = await persist_bulk_with_item_fallback(
+            writes,
+            uow,
+            persist=lambda chunk: self._persist_writes_bulk(chunk, uow),
+            write_key=lambda write: write.identifier,
+            describe="resolved Last.fm tracks",
+            on_item_failure=_log_failed_write,
+        )
+        return resolved
+
+    async def _enrich_probes(
+        self, missing_ids: Sequence[str], *, user_id: str
+    ) -> list[_EnrichedProbe]:
+        """Phase A: enrich every identifier concurrently under the limiter.
+
+        The semaphore bounds in-flight coroutines to the configured
+        concurrency; actual request pacing stays with the shared
+        ConnectorRateLimiter on ``_api_call``. Task bodies catch every
+        exception — a TaskGroup cancels siblings on escape, and one bad
+        identifier must not cost the chunk — degrading to a raw-name probe.
+        Results are returned in ``missing_ids`` order, not completion order:
+        downstream planning and persistence must be deterministic.
+        """
+        semaphore = asyncio.Semaphore(settings.api.lastfm.concurrency)
+        enriched_by_id: dict[str, _EnrichedProbe] = {}
+
+        async def _enrich_one(identifier: str) -> None:
             try:
-                async with uow.savepoint():
-                    await self._resolve_one_identifier(
-                        identifier, result, uow, user_id=user_id
+                artist_name, track_name = parse_lastfm_identifier(identifier)
+            except ValueError as e:
+                # Unmintable identifier: no probe can be built, so the
+                # identifier is skipped (counted failed by the base class)
+                # instead of cancelling the TaskGroup's sibling enrichments.
+                logger.error(f"Skipping unparseable Last.fm identifier: {e}")
+                return
+            async with semaphore:
+                try:
+                    (
+                        probe,
+                        corrected_artist,
+                        corrected_title,
+                    ) = await self._build_enriched_probe(
+                        artist_name, track_name, user_id=user_id
                     )
-            except Exception as e:
-                # The helper mutates ``result`` before its later writes can
-                # fail; drop any entry whose row the savepoint just discarded.
-                _ = result.pop(identifier, None)
-                logger.error(
-                    f"Failed to create canonical track for {identifier}: {e}",
-                    exc_info=True,
-                )
+                except Exception as e:
+                    logger.warning(
+                        f"Enrichment failed for {artist_name} - {track_name}; "
+                        f"degrading to the raw-name probe: {e}",
+                        exc_info=True,
+                    )
+                    probe = Track(
+                        title=track_name,
+                        artists=[Artist(name=artist_name)],
+                        user_id=user_id,
+                    )
+                    corrected_artist, corrected_title = artist_name, track_name
+            enriched_by_id[identifier] = _EnrichedProbe(
+                identifier=identifier,
+                raw_artist=artist_name,
+                raw_title=track_name,
+                corrected_artist=corrected_artist,
+                corrected_title=corrected_title,
+                probe=probe,
+            )
 
-        return result
+        async with asyncio.TaskGroup() as tg:
+            for identifier in missing_ids:
+                _ = tg.create_task(_enrich_one(identifier))
 
-    async def _resolve_one_identifier(
+        return [
+            enriched_by_id[identifier]
+            for identifier in missing_ids
+            if identifier in enriched_by_id
+        ]
+
+    async def _discover_outcome(
         self,
-        identifier: str,
-        result: dict[str, Track],
+        enriched: _EnrichedProbe,
         uow: UnitOfWorkProtocol,
         *,
         user_id: str,
-    ) -> None:
-        """Resolve a single Last.fm identifier into a canonical track.
+    ) -> DiscoveryOutcome:
+        """Phase B: one sequential cross-discovery call, savepoint-isolated.
 
-        Reuse-before-create: enrich into an in-memory probe, ask cross-discovery
-        whether an existing canonical should absorb this recording, and only
-        build + save a new canonical when it should not. On success the resolved
-        track is stored in ``result`` keyed by ``identifier``.
+        Sequential because ``discover`` takes the uow (not concurrency-safe)
+        and may write ISRC-collision reviews. The savepoint preserves the
+        isolation the old per-identifier savepoint gave those writes: a SQL
+        failure swallowed mid-discovery rolls back alone instead of aborting
+        the chunk's transaction. A failed discovery is not a failed
+        identifier — it degrades to ``Nothing()`` and creation proceeds.
         """
-        artist_name, track_name = parse_lastfm_identifier(identifier)
-
-        # Step 1: Enrich via track.getInfo — data in hand, NO track saved yet.
-        probe, corrected_artist, corrected_title = await self._build_enriched_probe(
-            artist_name, track_name, user_id=user_id
-        )
-
-        # Step 2: Reuse-before-create. Cross-discovery may resolve to an existing
-        # canonical, in which case NO skeletal row is ever written.
-        outcome: DiscoveryOutcome = Nothing()
-        if self._cross_discovery:
-            outcome = await self._cross_discovery.discover(
-                probe, artist_name, track_name, uow, user_id=user_id
+        if not self._cross_discovery:
+            return Nothing()
+        try:
+            async with uow.savepoint():
+                return await self._cross_discovery.discover(
+                    enriched.probe,
+                    enriched.raw_artist,
+                    enriched.raw_title,
+                    uow,
+                    user_id=user_id,
+                )
+        except Exception as e:
+            logger.warning(
+                f"Cross-discovery failed for {enriched.raw_artist} - "
+                f"{enriched.raw_title}; proceeding without it: {e}",
+                exc_info=True,
             )
+            return Nothing()
+
+    def _plan_write(
+        self, enriched: _EnrichedProbe, outcome: DiscoveryOutcome
+    ) -> _LastfmResolvedWrite:
+        """Phase C's decide step: everything this identifier persists. Pure.
+
+        Folds ``NewMapping`` enrichment into the probe BEFORE the single save
+        so the enriched row is inserted whole, and evaluates every Last.fm
+        mapping's confidence here so the persist step only writes.
+        """
+        probe = enriched.probe
+        reuse_track: Track | None = None
+        spotify_mapping: _PlannedSpotifyMapping | None = None
 
         if isinstance(outcome, ReuseExisting):
-            await self._map_lastfm_identifiers(
-                outcome.track,
-                artist_name,
-                track_name,
-                corrected_artist,
-                corrected_title,
-                uow,
-            )
+            reuse_track = outcome.track
             if outcome.spotify_id:
-                _ = await uow.get_connector_repository().map_track_to_connector(
-                    outcome.track,
-                    "spotify",
-                    outcome.spotify_id,
-                    outcome.match_method,
+                spotify_mapping = _PlannedSpotifyMapping(
+                    spotify_id=outcome.spotify_id,
+                    match_method=outcome.match_method,
                     confidence=outcome.confidence,
                     metadata=outcome.metadata,
                     confidence_evidence=outcome.confidence_evidence,
                 )
-            result[identifier] = outcome.track
             logger.info(
                 f"Cross-discovery reused canonical {outcome.track.id} for "
-                f"lastfm:{artist_name} - {track_name}"
+                f"lastfm:{enriched.raw_artist} - {enriched.raw_title}"
             )
-            return
-
-        # Step 3: No reuse — build the canonical ONCE, fully enriched. Folding the
-        # Spotify backfill in BEFORE the single save means the enriched row is
-        # inserted whole; there is no version-0 re-save that would INSERT a
-        # duplicate (the enrichment-orphan defect).
-        if isinstance(outcome, NewMapping):
+        elif isinstance(outcome, NewMapping):
             probe = evolve(
                 probe,
                 album=probe.album or outcome.album,
                 duration_ms=probe.duration_ms or outcome.duration_ms,
                 isrc=probe.isrc or outcome.isrc,
             )
-
-        canonical = await uow.get_track_repository().save_track(probe)
-        await self._map_lastfm_identifiers(
-            canonical, artist_name, track_name, corrected_artist, corrected_title, uow
-        )
-        result[identifier] = canonical
-
-        if isinstance(outcome, NewMapping):
-            _ = await uow.get_connector_repository().map_track_to_connector(
-                canonical,
-                "spotify",
-                outcome.spotify_id,
-                outcome.match_method,
+            spotify_mapping = _PlannedSpotifyMapping(
+                spotify_id=outcome.spotify_id,
+                match_method=outcome.match_method,
                 confidence=outcome.confidence,
                 metadata=outcome.metadata,
                 confidence_evidence=outcome.confidence_evidence,
             )
+
+        # Evaluate against what the mappings will actually attach to: the
+        # reused canonical when there is one, the (enriched) probe otherwise.
+        evaluation_target = reuse_track if reuse_track is not None else probe
+
+        primary = self._plan_lastfm_mapping(
+            evaluation_target,
+            enriched.corrected_artist,
+            enriched.corrected_title,
+            MatchMethod.LASTFM_IMPORT,
+            primary=True,
+        )
+        mappings = [primary]
+        raw_id = make_lastfm_identifier(enriched.raw_artist, enriched.raw_title)
+        if raw_id != primary.connector_id:
+            # The raw alias is a lookup convenience, not the canonical
+            # provenance: ``primary=False`` so it never demotes the corrected
+            # LASTFM_IMPORT primary (v0.8.18 FM1b provenance).
+            mappings.append(
+                self._plan_lastfm_mapping(
+                    evaluation_target,
+                    enriched.raw_artist,
+                    enriched.raw_title,
+                    MatchMethod.LASTFM_RAW_ALIAS,
+                    primary=False,
+                )
+            )
+
+        return _LastfmResolvedWrite(
+            identifier=enriched.identifier,
+            probe=probe,
+            reuse_track=reuse_track,
+            lastfm_mappings=tuple(mappings),
+            spotify_mapping=spotify_mapping,
+        )
+
+    def _plan_lastfm_mapping(
+        self,
+        track: Track,
+        artist_name: str,
+        track_name: str,
+        match_method: str,
+        *,
+        primary: bool,
+    ) -> _PlannedLastfmMapping:
+        """Evaluate one Last.fm mapping's confidence. Pure — no I/O."""
+        connector_id = make_lastfm_identifier(artist_name, track_name)
+        raw_match = RawProviderMatch(
+            connector_id=connector_id,
+            match_method=MatchMethod.ARTIST_TITLE,
+            service_data={
+                "title": track_name,
+                "artist": artist_name,
+                "duration_ms": None,
+            },
+        )
+        match_result = self._match_evaluation_service.evaluate_single_match(
+            track, raw_match, self.connector_name
+        )
+        return _PlannedLastfmMapping(
+            connector_id=connector_id,
+            match_method=match_method,
+            primary=primary,
+            confidence=match_result.confidence,
+            confidence_evidence=match_result.evidence_dict,
+            artist_name=artist_name,
+            track_name=track_name,
+        )
+
+    async def _persist_writes_bulk(
+        self,
+        writes: Sequence[_LastfmResolvedWrite],
+        uow: UnitOfWorkProtocol,
+    ) -> dict[str, Track]:
+        """Write every resolution in the chunk through the batch primitives.
+
+        Two statement groups for the whole chunk: one INSERT for the new
+        canonicals (``save_tracks``, input order preserved) and one mapping
+        assertion carrying corrected-primary, raw-alias and cross-discovered
+        Spotify mappings together.
+        """
+        created = [write for write in writes if write.creates_canonical]
+        saved = await uow.get_track_repository().save_tracks([
+            write.probe for write in created
+        ])
+        canonicals: dict[str, Track] = {
+            write.identifier: track for write, track in zip(created, saved, strict=True)
+        }
+        canonicals.update({
+            write.identifier: write.reuse_track
+            for write in writes
+            if write.reuse_track is not None
+        })
+
+        _ = await uow.get_connector_repository().map_tracks_to_connectors(
+            self._mapping_batch(writes, canonicals)
+        )
+        return canonicals
+
+    @staticmethod
+    def _mapping_batch(
+        writes: Sequence[_LastfmResolvedWrite],
+        canonicals: Mapping[str, Track],
+    ) -> list[ConnectorMappingSpec]:
+        """Every mapping the chunk owes, each saying whether it holds primacy."""
+        specs: list[ConnectorMappingSpec] = []
+        for write in writes:
+            track = canonicals[write.identifier]
+            specs.extend(
+                ConnectorMappingSpec(
+                    track=track,
+                    connector="lastfm",
+                    connector_id=planned.connector_id,
+                    match_method=planned.match_method,
+                    confidence=planned.confidence,
+                    metadata={
+                        "artist_name": planned.artist_name,
+                        "track_name": planned.track_name,
+                    },
+                    confidence_evidence=planned.confidence_evidence,
+                    primary=planned.primary,
+                )
+                for planned in write.lastfm_mappings
+            )
+            if write.spotify_mapping is not None:
+                spotify = write.spotify_mapping
+                specs.append(
+                    ConnectorMappingSpec(
+                        track=track,
+                        connector="spotify",
+                        connector_id=spotify.spotify_id,
+                        match_method=spotify.match_method,
+                        confidence=spotify.confidence,
+                        metadata=spotify.metadata,
+                        confidence_evidence=spotify.confidence_evidence,
+                        primary=True,
+                    )
+                )
+        return specs
 
     async def _build_enriched_probe(
         self,
@@ -229,24 +517,22 @@ class LastfmInwardResolver(InwardTrackResolver):
         Returns ``(probe, corrected_artist, corrected_title)``. The probe
         carries title/artist plus any album and duration from Last.fm's
         track.getInfo response. No database write happens here — the probe is
-        only saved by the caller if cross-discovery does not reuse an existing
-        canonical.
+        only saved if cross-discovery does not reuse an existing canonical.
 
         Last.fm's getInfo MBID is intentionally NOT attached as a musicbrainz
         identity key — Last.fm returns an untrusted *track* MBID from its own
         matching (not a recording MBID), so identity is resolved via ISRC /
         ListenBrainz / fuzzy instead (FM1d). See the inline note below.
 
-        ``corrected_artist``/``corrected_title`` are the Last.fm-CORRECTED
-        names used by the caller to mint the PRIMARY connector identifier
-        (see ``_map_lastfm_identifiers``). track.getInfo runs with
-        ``autocorrect=1``, so a successful response's ``lastfm_artist_name``/
-        ``lastfm_title`` already ARE the corrected pair — free. When getInfo
-        fails or returns nothing, ``track.getCorrection`` is tried as a
-        fallback; if that ALSO fails/returns nothing, the corrected pair
-        degrades to the raw ``(artist_name, track_name)`` — an accepted
-        residual (the mint still proceeds; at worst a future correctly-spelled
-        import creates a second, dedup-eligible mapping).
+        ``corrected_artist``/``corrected_title`` mint the PRIMARY connector
+        identifier. track.getInfo runs with ``autocorrect=1``, so a successful
+        response's ``lastfm_artist_name``/``lastfm_title`` already ARE the
+        corrected pair — free. When getInfo fails or returns nothing,
+        ``track.getCorrection`` is tried as a fallback; if that ALSO
+        fails/returns nothing, the corrected pair degrades to the raw
+        ``(artist_name, track_name)`` — an accepted residual (the mint still
+        proceeds; at worst a future correctly-spelled import creates a
+        second, dedup-eligible mapping).
 
         The probe's ``title``/``artists`` are built from the CORRECTED pair,
         not the parsed identifier parts: identifiers are lowercased
@@ -309,12 +595,23 @@ class LastfmInwardResolver(InwardTrackResolver):
         """Fallback correction lookup, used only when track.getInfo yields nothing.
 
         track.getCorrection returns Last.fm's autocorrected (title, artist)
-        pair. When it too is unavailable, degrades to the raw names — an
-        accepted residual; see ``_build_enriched_probe``.
+        pair. When it is unavailable — no result, or the call itself fails —
+        degrades to the raw names, an accepted residual (see
+        ``_build_enriched_probe``). The call failure is caught HERE, not left
+        to escape: enrichment runs inside a TaskGroup, where an escaped
+        exception cancels every sibling identifier's enrichment.
         """
-        correction = await self._lastfm_client.get_track_correction(
-            artist_name, track_name
-        )
+        try:
+            correction = await self._lastfm_client.get_track_correction(
+                artist_name, track_name
+            )
+        except Exception as e:
+            logger.debug(
+                f"track.getCorrection failed for {artist_name} - {track_name}: {e}; "
+                "minting from raw normalized names"
+            )
+            return artist_name, track_name
+
         if correction is None:
             logger.debug(
                 f"No track.getCorrection result for {artist_name} - {track_name}; "
@@ -324,93 +621,3 @@ class LastfmInwardResolver(InwardTrackResolver):
 
         corrected_title, corrected_artist = correction
         return corrected_artist, corrected_title
-
-    async def _map_lastfm_identifiers(
-        self,
-        track: Track,
-        raw_artist: str,
-        raw_title: str,
-        corrected_artist: str,
-        corrected_title: str,
-        uow: UnitOfWorkProtocol,
-    ) -> None:
-        """Map the Last.fm identifier(s) onto ``track``.
-
-        Mints the PRIMARY mapping on the Last.fm-CORRECTED artist::title
-        composite (``MatchMethod.LASTFM_IMPORT``) — the connector identifier
-        invariant every Last.fm mint site now shares. When the corrected
-        composite differs from the raw one (autocorrect fixed a typo or
-        miscapitalization), ALSO mints a SECONDARY mapping on the raw
-        composite (``MatchMethod.LASTFM_RAW_ALIAS``) so a future import
-        carrying the same raw (uncorrected) spelling still hits the fast
-        connector-mapping lookup instead of re-running getInfo/getCorrection.
-
-        The raw alias is minted with ``auto_set_primary=False`` — it is a
-        lookup convenience, not the canonical provenance. Without this it would
-        be the *last* writer and its ``ensure_primary_mapping`` would demote the
-        corrected ``LASTFM_IMPORT`` primary, so the fast-path provenance would
-        report the raw alias ("Secondary Cache") instead of the real import.
-        """
-        primary_id = make_lastfm_identifier(corrected_artist, corrected_title)
-        await self._create_lastfm_mapping(
-            track,
-            corrected_artist,
-            corrected_title,
-            primary_id,
-            uow,
-            match_method=MatchMethod.LASTFM_IMPORT,
-        )
-
-        raw_id = make_lastfm_identifier(raw_artist, raw_title)
-        if raw_id != primary_id:
-            await self._create_lastfm_mapping(
-                track,
-                raw_artist,
-                raw_title,
-                raw_id,
-                uow,
-                match_method=MatchMethod.LASTFM_RAW_ALIAS,
-                auto_set_primary=False,
-            )
-
-    async def _create_lastfm_mapping(
-        self,
-        track: Track,
-        artist_name: str,
-        track_name: str,
-        connector_id: str,
-        uow: UnitOfWorkProtocol,
-        *,
-        match_method: str,
-        auto_set_primary: bool = True,
-    ) -> None:
-        """Create a Last.fm connector mapping with domain-calculated confidence.
-
-        ``auto_set_primary=False`` mints the mapping without promoting it to the
-        connector's primary — used for the raw-alias mapping so it never demotes
-        the corrected import primary (v0.8.18 FM1b provenance).
-        """
-        raw_match = RawProviderMatch(
-            connector_id=connector_id,
-            match_method=MatchMethod.ARTIST_TITLE,
-            service_data={
-                "title": track_name,
-                "artist": artist_name,
-                "duration_ms": None,
-            },
-        )
-
-        match_result = self._match_evaluation_service.evaluate_single_match(
-            track, raw_match, self.connector_name
-        )
-
-        _ = await uow.get_connector_repository().map_track_to_connector(
-            track,
-            self.connector_name,
-            connector_id,
-            match_method,
-            confidence=match_result.confidence,
-            metadata={"artist_name": artist_name, "track_name": track_name},
-            confidence_evidence=match_result.evidence_dict,
-            auto_set_primary=auto_set_primary,
-        )

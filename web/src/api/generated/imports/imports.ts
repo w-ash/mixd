@@ -3,7 +3,7 @@
  * Do not edit manually.
  * Mixd
  * Personal music metadata hub
- * OpenAPI spec version: 0.10.2.5
+ * OpenAPI spec version: 0.10.2.8
  */
 import {
   useMutation,
@@ -30,6 +30,7 @@ import type {
   ExportLastfmLikesRequest,
   HTTPValidationError,
   ImportLastfmHistoryRequest,
+  ImportQueueResponse,
   ImportSpotifyLikesRequest,
   ImportSpotifyRecentRequest,
   OperationStartedResponse
@@ -422,7 +423,7 @@ export const useExportLastfmLikesApiV1ImportsLastfmLikesPost = <TError = HTTPVal
       return useMutation(getExportLastfmLikesApiV1ImportsLastfmLikesPostMutationOptions(options), queryClient);
     }
     export type importSpotifyHistoryApiV1ImportsSpotifyHistoryPostResponse200 = {
-  data: OperationStartedResponse
+  data: ImportQueueResponse
   status: 200
 }
 
@@ -449,12 +450,16 @@ export const getImportSpotifyHistoryApiV1ImportsSpotifyHistoryPostUrl = () => {
 }
 
 /**
- * Import Spotify listening history from a GDPR data export JSON file.
+ * Queue Spotify GDPR export JSON files for one sequential, unattended import.
+ *
+ * A single file is the degenerate one-entry queue. Declared sizes are only a
+ * cheap early rejection — the streaming writer re-enforces both caps on real
+ * bytes.
  * @summary Import Spotify History
  */
 export const importSpotifyHistoryApiV1ImportsSpotifyHistoryPost = async (bodyImportSpotifyHistoryApiV1ImportsSpotifyHistoryPost: BodyImportSpotifyHistoryApiV1ImportsSpotifyHistoryPost, options?: Parameters<typeof customFetch>[1]): Promise<importSpotifyHistoryApiV1ImportsSpotifyHistoryPostResponse> => {
     const formData = new FormData();
-formData.append(`file`, bodyImportSpotifyHistoryApiV1ImportsSpotifyHistoryPost.file);
+bodyImportSpotifyHistoryApiV1ImportsSpotifyHistoryPost.files.forEach(value => formData.append(`files`, value));
 
   return customFetch<importSpotifyHistoryApiV1ImportsSpotifyHistoryPostResponse>(getImportSpotifyHistoryApiV1ImportsSpotifyHistoryPostUrl(),
   {
@@ -512,6 +517,202 @@ export const useImportSpotifyHistoryApiV1ImportsSpotifyHistoryPost = <TError = H
         TContext
       > => {
       return useMutation(getImportSpotifyHistoryApiV1ImportsSpotifyHistoryPostMutationOptions(options), queryClient);
+    }
+    export type getSpotifyHistoryQueueApiV1ImportsSpotifyHistoryQueueGetResponse200 = {
+  data: ImportQueueResponse
+  status: 200
+}
+
+export type getSpotifyHistoryQueueApiV1ImportsSpotifyHistoryQueueGetResponseSuccess = (getSpotifyHistoryQueueApiV1ImportsSpotifyHistoryQueueGetResponse200) & {
+  headers: Headers;
+};
+;
+
+export type getSpotifyHistoryQueueApiV1ImportsSpotifyHistoryQueueGetResponse = (getSpotifyHistoryQueueApiV1ImportsSpotifyHistoryQueueGetResponseSuccess)
+
+export const getGetSpotifyHistoryQueueApiV1ImportsSpotifyHistoryQueueGetUrl = () => {
+
+
+
+
+  return `/api/v1/imports/spotify/history/queue`
+}
+
+/**
+ * The user's current import queue, so a reloaded tab re-attaches to it.
+ * @summary Get Spotify History Queue
+ */
+export const getSpotifyHistoryQueueApiV1ImportsSpotifyHistoryQueueGet = async ( options?: Parameters<typeof customFetch>[1]): Promise<getSpotifyHistoryQueueApiV1ImportsSpotifyHistoryQueueGetResponse> => {
+
+  return customFetch<getSpotifyHistoryQueueApiV1ImportsSpotifyHistoryQueueGetResponse>(getGetSpotifyHistoryQueueApiV1ImportsSpotifyHistoryQueueGetUrl(),
+  {
+    ...options,
+    method: 'GET'
+
+
+  }
+);}
+
+
+
+
+
+export const getGetSpotifyHistoryQueueApiV1ImportsSpotifyHistoryQueueGetQueryKey = () => {
+    return [
+    `/api/v1/imports/spotify/history/queue`
+    ] as const;
+    }
+
+
+export const getGetSpotifyHistoryQueueApiV1ImportsSpotifyHistoryQueueGetQueryOptions = <TData = Awaited<ReturnType<typeof getSpotifyHistoryQueueApiV1ImportsSpotifyHistoryQueueGet>>, TError = unknown>( options?: { query?:Partial<UseQueryOptions<Awaited<ReturnType<typeof getSpotifyHistoryQueueApiV1ImportsSpotifyHistoryQueueGet>>, TError, TData>>, request?: SecondParameter<typeof customFetch>}
+) => {
+
+const {query: queryOptions, request: requestOptions} = options ?? {};
+
+  const queryKey =  queryOptions?.queryKey ?? getGetSpotifyHistoryQueueApiV1ImportsSpotifyHistoryQueueGetQueryKey();
+
+
+
+    const queryFn: QueryFunction<Awaited<ReturnType<typeof getSpotifyHistoryQueueApiV1ImportsSpotifyHistoryQueueGet>>> = ({ signal }) => getSpotifyHistoryQueueApiV1ImportsSpotifyHistoryQueueGet({ signal, ...requestOptions });
+
+
+
+
+
+   return  { queryKey, queryFn, ...queryOptions} as UseQueryOptions<Awaited<ReturnType<typeof getSpotifyHistoryQueueApiV1ImportsSpotifyHistoryQueueGet>>, TError, TData> & { queryKey: DataTag<QueryKey, TData, TError> }
+}
+
+export type GetSpotifyHistoryQueueApiV1ImportsSpotifyHistoryQueueGetQueryResult = NonNullable<Awaited<ReturnType<typeof getSpotifyHistoryQueueApiV1ImportsSpotifyHistoryQueueGet>>>
+export type GetSpotifyHistoryQueueApiV1ImportsSpotifyHistoryQueueGetQueryError = unknown
+
+
+export function useGetSpotifyHistoryQueueApiV1ImportsSpotifyHistoryQueueGet<TData = Awaited<ReturnType<typeof getSpotifyHistoryQueueApiV1ImportsSpotifyHistoryQueueGet>>, TError = unknown>(
+  options: { query:Partial<UseQueryOptions<Awaited<ReturnType<typeof getSpotifyHistoryQueueApiV1ImportsSpotifyHistoryQueueGet>>, TError, TData>> & Pick<
+        DefinedInitialDataOptions<
+          Awaited<ReturnType<typeof getSpotifyHistoryQueueApiV1ImportsSpotifyHistoryQueueGet>>,
+          TError,
+          Awaited<ReturnType<typeof getSpotifyHistoryQueueApiV1ImportsSpotifyHistoryQueueGet>>
+        > , 'initialData'
+      >, request?: SecondParameter<typeof customFetch>}
+ , queryClient?: QueryClient
+  ):  DefinedUseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> }
+export function useGetSpotifyHistoryQueueApiV1ImportsSpotifyHistoryQueueGet<TData = Awaited<ReturnType<typeof getSpotifyHistoryQueueApiV1ImportsSpotifyHistoryQueueGet>>, TError = unknown>(
+  options?: { query?:Partial<UseQueryOptions<Awaited<ReturnType<typeof getSpotifyHistoryQueueApiV1ImportsSpotifyHistoryQueueGet>>, TError, TData>> & Pick<
+        UndefinedInitialDataOptions<
+          Awaited<ReturnType<typeof getSpotifyHistoryQueueApiV1ImportsSpotifyHistoryQueueGet>>,
+          TError,
+          Awaited<ReturnType<typeof getSpotifyHistoryQueueApiV1ImportsSpotifyHistoryQueueGet>>
+        > , 'initialData'
+      >, request?: SecondParameter<typeof customFetch>}
+ , queryClient?: QueryClient
+  ):  UseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> }
+export function useGetSpotifyHistoryQueueApiV1ImportsSpotifyHistoryQueueGet<TData = Awaited<ReturnType<typeof getSpotifyHistoryQueueApiV1ImportsSpotifyHistoryQueueGet>>, TError = unknown>(
+  options?: { query?:Partial<UseQueryOptions<Awaited<ReturnType<typeof getSpotifyHistoryQueueApiV1ImportsSpotifyHistoryQueueGet>>, TError, TData>>, request?: SecondParameter<typeof customFetch>}
+ , queryClient?: QueryClient
+  ):  UseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> }
+/**
+ * @summary Get Spotify History Queue
+ */
+
+export function useGetSpotifyHistoryQueueApiV1ImportsSpotifyHistoryQueueGet<TData = Awaited<ReturnType<typeof getSpotifyHistoryQueueApiV1ImportsSpotifyHistoryQueueGet>>, TError = unknown>(
+  options?: { query?:Partial<UseQueryOptions<Awaited<ReturnType<typeof getSpotifyHistoryQueueApiV1ImportsSpotifyHistoryQueueGet>>, TError, TData>>, request?: SecondParameter<typeof customFetch>}
+ , queryClient?: QueryClient
+ ):  UseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> } {
+
+  const queryOptions = getGetSpotifyHistoryQueueApiV1ImportsSpotifyHistoryQueueGetQueryOptions(options)
+
+  const query = useQuery(queryOptions, queryClient) as  UseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> };
+
+  return withQueryKey(query, queryOptions.queryKey);
+}
+
+
+
+
+
+
+export type cancelSpotifyHistoryQueueApiV1ImportsSpotifyHistoryQueueDeleteResponse200 = {
+  data: ImportQueueResponse
+  status: 200
+}
+
+export type cancelSpotifyHistoryQueueApiV1ImportsSpotifyHistoryQueueDeleteResponseSuccess = (cancelSpotifyHistoryQueueApiV1ImportsSpotifyHistoryQueueDeleteResponse200) & {
+  headers: Headers;
+};
+;
+
+export type cancelSpotifyHistoryQueueApiV1ImportsSpotifyHistoryQueueDeleteResponse = (cancelSpotifyHistoryQueueApiV1ImportsSpotifyHistoryQueueDeleteResponseSuccess)
+
+export const getCancelSpotifyHistoryQueueApiV1ImportsSpotifyHistoryQueueDeleteUrl = () => {
+
+
+
+
+  return `/api/v1/imports/spotify/history/queue`
+}
+
+/**
+ * Cancel the queue's not-yet-started entries; the running one finishes.
+ * @summary Cancel Spotify History Queue
+ */
+export const cancelSpotifyHistoryQueueApiV1ImportsSpotifyHistoryQueueDelete = async ( options?: Parameters<typeof customFetch>[1]): Promise<cancelSpotifyHistoryQueueApiV1ImportsSpotifyHistoryQueueDeleteResponse> => {
+
+  return customFetch<cancelSpotifyHistoryQueueApiV1ImportsSpotifyHistoryQueueDeleteResponse>(getCancelSpotifyHistoryQueueApiV1ImportsSpotifyHistoryQueueDeleteUrl(),
+  {
+    ...options,
+    method: 'DELETE'
+
+
+  }
+);}
+
+
+
+
+
+export const getCancelSpotifyHistoryQueueApiV1ImportsSpotifyHistoryQueueDeleteMutationOptions = <TError = unknown,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof cancelSpotifyHistoryQueueApiV1ImportsSpotifyHistoryQueueDelete>>, TError,void, TContext>, request?: SecondParameter<typeof customFetch>}
+): UseMutationOptions<Awaited<ReturnType<typeof cancelSpotifyHistoryQueueApiV1ImportsSpotifyHistoryQueueDelete>>, TError,void, TContext> => {
+
+const mutationKey = ['cancelSpotifyHistoryQueueApiV1ImportsSpotifyHistoryQueueDelete'];
+const {mutation: mutationOptions, request: requestOptions} = options ?
+      options.mutation && 'mutationKey' in options.mutation && options.mutation.mutationKey ?
+      options
+      : {...options, mutation: {...options.mutation, mutationKey}}
+      : {mutation: { mutationKey, }, request: undefined};
+
+
+
+
+      const mutationFn: MutationFunction<Awaited<ReturnType<typeof cancelSpotifyHistoryQueueApiV1ImportsSpotifyHistoryQueueDelete>>, void> = () => {
+
+
+          return  cancelSpotifyHistoryQueueApiV1ImportsSpotifyHistoryQueueDelete(requestOptions)
+        }
+
+
+
+
+
+
+  return  { mutationFn, ...mutationOptions }}
+
+    export type CancelSpotifyHistoryQueueApiV1ImportsSpotifyHistoryQueueDeleteMutationResult = NonNullable<Awaited<ReturnType<typeof cancelSpotifyHistoryQueueApiV1ImportsSpotifyHistoryQueueDelete>>>
+
+    export type CancelSpotifyHistoryQueueApiV1ImportsSpotifyHistoryQueueDeleteMutationError = unknown
+
+    /**
+ * @summary Cancel Spotify History Queue
+ */
+export const useCancelSpotifyHistoryQueueApiV1ImportsSpotifyHistoryQueueDelete = <TError = unknown,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof cancelSpotifyHistoryQueueApiV1ImportsSpotifyHistoryQueueDelete>>, TError,void, TContext>, request?: SecondParameter<typeof customFetch>}
+ , queryClient?: QueryClient): UseMutationResult<
+        Awaited<ReturnType<typeof cancelSpotifyHistoryQueueApiV1ImportsSpotifyHistoryQueueDelete>>,
+        TError,
+        void,
+        TContext
+      > => {
+      return useMutation(getCancelSpotifyHistoryQueueApiV1ImportsSpotifyHistoryQueueDeleteMutationOptions(options), queryClient);
     }
     export type getCheckpointsApiV1ImportsCheckpointsGetResponse200 = {
   data: CheckpointStatusSchema[]

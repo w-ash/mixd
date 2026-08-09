@@ -6,11 +6,13 @@ Both Spotify and Last.fm resolvers follow a three-step pipeline:
 3. **Track Creation**: Batch-create new tracks for remaining unresolved IDs
 
 This base class captures that shared pattern while letting subclasses define
-connector-specific creation logic (Spotify batches API calls, Last.fm is sequential)
-and metadata extraction for canonical reuse (via the _extract_reuse_metadata hook).
+connector-specific creation logic (Spotify batches ids per API call, Last.fm
+enriches per-track calls concurrently) and metadata extraction for canonical
+reuse (via the _extract_reuse_metadata hook).
 """
 
 from abc import ABC, abstractmethod
+from collections.abc import Awaitable, Callable, Mapping, Sequence
 from typing import NamedTuple
 
 from attrs import define
@@ -20,10 +22,73 @@ from src.config.constants import MatchMethod
 from src.domain.entities import Track
 from src.domain.matching.evaluation_service import TrackMatchEvaluationService
 from src.domain.matching.types import RawProviderMatch
+from src.domain.repositories.connector import ConnectorMappingSpec
 from src.domain.repositories.resolution import ResolutionDecision
 from src.domain.repositories.uow import UnitOfWorkProtocol
 
 logger = get_logger(__name__)
+
+
+async def persist_bulk_with_item_fallback[TWrite, TKey, TPersisted](
+    writes: Sequence[TWrite],
+    uow: UnitOfWorkProtocol,
+    *,
+    persist: Callable[[Sequence[TWrite]], Awaitable[Mapping[TKey, TPersisted]]],
+    write_key: Callable[[TWrite], TKey],
+    describe: str,
+    on_persisted: Callable[[Sequence[TWrite]], None] | None = None,
+    on_item_failure: Callable[[TWrite, Exception], None] | None = None,
+) -> tuple[dict[TKey, TPersisted], set[TKey]]:
+    """Savepoint-bulk a chunk of planned writes, one savepoint per item on failure.
+
+    The one skeleton every tolerated write loop persists through — Spotify's
+    resolved-track chunks, Last.fm's, and the canonical-reuse mapping batch.
+    The bulk statements are all-or-nothing, so a single poisoned row would
+    otherwise cost the chunk; the per-item retry costs it only the item that
+    is actually bad, and per-item IS ``persist`` on a one-element chunk — a
+    single write stays the degenerate case of a batch, so the fast path and
+    the isolating path cannot drift into storing different rows.
+
+    ``on_persisted`` runs only after its savepoint has released — until then
+    the rows any in-memory bookkeeping would describe may still be discarded.
+    ``on_item_failure`` owns the per-item log line (callers differ on level
+    and wording); the failed key is collected here regardless.
+
+    Returns:
+        (persisted map, keys whose write was rolled back).
+    """
+    if not writes:
+        return {}, set()
+
+    try:
+        async with uow.savepoint():
+            persisted = dict(await persist(writes))
+    except Exception as e:
+        logger.warning(
+            f"Bulk persist of {len(writes)} {describe} failed — "
+            f"retrying one savepoint per item: {e}",
+            exc_info=True,
+        )
+    else:
+        if on_persisted is not None:
+            on_persisted(writes)
+        return persisted, set()
+
+    resolved: dict[TKey, TPersisted] = {}
+    failed_keys: set[TKey] = set()
+    for write in writes:
+        try:
+            async with uow.savepoint():
+                persisted = dict(await persist([write]))
+        except Exception as e:
+            failed_keys.add(write_key(write))
+            if on_item_failure is not None:
+                on_item_failure(write, e)
+        else:
+            if on_persisted is not None:
+                on_persisted([write])
+            resolved.update(persisted)
+    return resolved, failed_keys
 
 
 @define(frozen=True)
@@ -63,6 +128,21 @@ class ReuseMetadata(NamedTuple):
     title: str
     connector_id: str
     lookup_pair: tuple[str, str]  # (title_lower, artist_lower) for DB search
+
+
+@define(frozen=True, slots=True)
+class _AcceptedReuse:
+    """One evaluated-and-accepted reuse, decided before anything is written.
+
+    ``candidate`` is the pre-mapping canonical the caller resolves to —
+    deliberately not the track ``map_tracks_to_connectors`` hands back, which
+    carries the new connector id folded in; resolution semantics predate the
+    mapping write and must not change with it.
+    """
+
+    identifier: str
+    candidate: Track
+    spec: ConnectorMappingSpec
 
 
 class InwardTrackResolver(ABC):
@@ -166,8 +246,9 @@ class InwardTrackResolver(ABC):
         if not candidates:
             return {}
 
-        # Evaluate each candidate through the matching system
-        result: dict[str, Track] = {}
+        # Evaluate each candidate through the matching system — pure, no
+        # writes. Accepted mappings accumulate into one batch persisted below.
+        accepted: list[_AcceptedReuse] = []
         refusal_events: list[ResolutionDecision] = []
         for identifier in missing_ids:
             meta = id_to_meta.get(identifier)
@@ -229,33 +310,63 @@ class InwardTrackResolver(ABC):
                 )
                 continue
 
-            # Savepoint so a failed mapping write rolls back alone instead of
-            # aborting the transaction for every remaining item in the loop.
-            try:
-                async with uow.savepoint():
-                    await uow.get_connector_repository().map_track_to_connector(
-                        candidate,
-                        self.connector_name,
-                        meta.connector_id,
-                        MatchMethod.CANONICAL_REUSE,
+            accepted.append(
+                _AcceptedReuse(
+                    identifier=identifier,
+                    candidate=candidate,
+                    # ``primary=True`` is the single-mapping call's
+                    # ``auto_set_primary`` default this batch replaces —
+                    # ``map_track_to_connector`` is a one-spec call to
+                    # ``map_tracks_to_connectors`` with exactly this flag.
+                    spec=ConnectorMappingSpec(
+                        track=candidate,
+                        connector=self.connector_name,
+                        connector_id=meta.connector_id,
+                        match_method=MatchMethod.CANONICAL_REUSE,
                         confidence=match_result.confidence,
-                        metadata={"artist_name": meta.artist, "track_name": meta.title},
+                        metadata={
+                            "artist_name": meta.artist,
+                            "track_name": meta.title,
+                        },
                         confidence_evidence=match_result.evidence_dict,
-                    )
-                result[identifier] = candidate
-                logger.info(
-                    f"Reused canonical track {candidate.id} for {self.connector_name}:{meta.connector_id} "
-                    f"(confidence: {match_result.confidence})"
+                        primary=True,
+                    ),
                 )
-            except Exception as e:
-                # The matcher just said an existing canonical holds this
-                # recording, so creating one instead would duplicate it — the
-                # failure is recorded here and the identifier is kept out of
-                # step 3 (see ``resolve_to_canonical_tracks``).
-                self._reuse_failed_ids.add(identifier)
-                logger.warning(
-                    f"Failed to create reuse mapping for {identifier}: {e}",
-                    exc_info=True,
+            )
+
+        async def _persist_reuse_mappings(
+            chunk: Sequence[_AcceptedReuse],
+        ) -> dict[str, Track]:
+            _ = await uow.get_connector_repository().map_tracks_to_connectors([
+                item.spec for item in chunk
+            ])
+            return {item.identifier: item.candidate for item in chunk}
+
+        def _log_failed_reuse(item: _AcceptedReuse, e: Exception) -> None:
+            # The matcher just said an existing canonical holds this
+            # recording, so creating one instead would duplicate it — the
+            # failure is recorded and the identifier is kept out of step 3
+            # (see ``resolve_to_canonical_tracks``).
+            logger.warning(
+                f"Failed to create reuse mapping for {item.identifier}: {e}",
+                exc_info=e,
+            )
+
+        result, failed_ids = await persist_bulk_with_item_fallback(
+            accepted,
+            uow,
+            persist=_persist_reuse_mappings,
+            write_key=lambda item: item.identifier,
+            describe=f"{self.connector_name} canonical-reuse mappings",
+            on_item_failure=_log_failed_reuse,
+        )
+        self._reuse_failed_ids.update(failed_ids)
+        for item in accepted:
+            if item.identifier in result:
+                logger.info(
+                    f"Reused canonical track {item.candidate.id} for "
+                    f"{self.connector_name}:{item.spec.connector_id} "
+                    f"(confidence: {item.spec.confidence})"
                 )
 
         # Events only — this gate does not write to the negative cache.

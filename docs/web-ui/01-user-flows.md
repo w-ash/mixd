@@ -546,23 +546,26 @@ No confirmation dialog — removal is **optimistic with an Undo snackbar** (the 
    - Shows file list with names and sizes after selection
 
 2. User selects/drops files and clicks **Upload & Import**.
-   - Frontend sends `POST /imports/spotify/history` as `multipart/form-data` with all files.
-   - Returns `{ operation_id: "..." }`.
+   - Frontend sends `POST /imports/spotify/history` as `multipart/form-data` with all files (single file = one-entry queue).
+   - Returns the queue: `{ queue_id, entries: [{ filename, position, status, operation_id, run_id }] }` — all entries `queued`, ids null until each starts.
 
-3. Progress view identical to Last.fm import (SSE stream).
-   - Message: "Processing file 2 of 3: StreamingHistory_music_1.json"
+3. A server-side queue drains the files one at a time, in order. The card lists every file with a status chip (`queued` → `running` → `complete`/`partial`/`error`/`cancelled`); the running entry's `operation_id` feeds the live SSE progress view. A failed file never stops the queue. A reloaded tab re-attaches via the queue endpoint.
 
-4. On completion: summary with play counts, file-level breakdown.
+4. On completion: each file is its own run in Import History with counts and issues. **Cancel remaining** drops not-yet-started entries; the running file finishes.
 
 **Backend calls**:
 | Step | Endpoint | Use Case | Status |
 |------|----------|----------|--------|
-| 2 | `POST /imports/spotify/history` | `ImportPlayHistoryUseCase` (file variant) | ✅ Implemented (v0.3.1) |
+| 2 | `POST /imports/spotify/history` (`files: list`) | queue sequencer → `ImportPlayHistoryUseCase` (file variant) per entry | ✅ Implemented (v0.10.2.6) |
+| 3 | `GET /imports/spotify/history/queue` | in-process queue registry | ✅ Implemented (v0.10.2.6) |
+| 4 | `DELETE /imports/spotify/history/queue` | cancel not-yet-started entries | ✅ Implemented (v0.10.2.6) |
 
 **Edge cases**:
-- Wrong file format: Backend validates JSON structure. Returns `400` with "Invalid file format. Expected Spotify streaming history JSON."
-- Very large files (>100MB total): Show upload progress bar before import progress begins.
-- Partial file set: User uploads only some history files. Backend processes what's given. Duplicates handled on re-upload.
+- Wrong file format: the file's run records `error` with its reason; the queue continues with the next file.
+- Caps: 100MB per file, 500MB / 25 files per queue — enforced on real bytes while streaming; an oversize request rejects before any entry starts.
+- Partial file set: user uploads only some history files. Backend processes what's given; re-uploads are zero-delta, so re-queueing anything is safe.
+- A second upload while a queue is draining returns `409 QUEUE_ACTIVE`.
+- Queue durability is bounded by the machine: uploads sit on ephemeral disk, so a machine restart loses queued-not-started files (finished runs stand in Import History; the user re-uploads the remainder).
 
 ---
 

@@ -2,11 +2,13 @@
 
 Verifies the basic health probe returns expected status and version, that the
 default probe never touches the database (Neon scale-to-zero — see the module
-docstring on the route), that ``?deep=true`` does, and that the error middleware
-handles unexpected errors correctly.
+docstring on the route), that ``?deep=true`` does, that ``?busy=true`` reports
+in-flight work for the pre-deploy gate, and that the error middleware handles
+unexpected errors correctly.
 """
 
-from unittest.mock import patch
+from pathlib import Path
+from unittest.mock import AsyncMock, patch
 
 import httpx2
 
@@ -77,6 +79,100 @@ class TestHealthDoesNotWakeTheDatabase:
         assert body["status"] == "degraded"
         assert body["database"] == "unavailable"
         assert body["database_error"] == "Database unavailable"
+
+
+class TestBusyProbe:
+    """``?busy=true`` reports in-flight work for release.yml's deploy gate.
+
+    Both halves matter: started runs live in ``operation_runs``, but a
+    queued-not-started export file has no row — only the in-process queue
+    registry knows about it.
+    """
+
+    async def test_idle_system_reports_not_busy(
+        self, client: httpx2.AsyncClient
+    ) -> None:
+        response = await client.get("/api/v1/health?busy=true")
+
+        assert response.status_code == 200
+        body = response.json()
+        assert body["busy"] is False
+        assert body["running_operation_runs"] == 0
+        assert body["import_queue_pending"] is False
+
+    async def test_shallow_health_omits_busy_fields(
+        self, client: httpx2.AsyncClient
+    ) -> None:
+        body = (await client.get("/api/v1/health")).json()
+
+        assert "busy" not in body
+        assert "running_operation_runs" not in body
+
+    async def test_running_operation_run_marks_busy(
+        self, client: httpx2.AsyncClient
+    ) -> None:
+        # ``_probe_busy`` imports the counter at call time, so patching the
+        # source module intercepts the DB half without needing a committed row
+        # visible to the app's own engine.
+        with patch(
+            "src.application.services.operation_run_reaper.count_running_runs",
+            new=AsyncMock(return_value=1),
+        ):
+            response = await client.get("/api/v1/health?busy=true")
+
+        body = response.json()
+        assert body["busy"] is True
+        assert body["running_operation_runs"] == 1
+        assert body["import_queue_pending"] is False
+
+    async def test_db_error_reports_busy_with_error_marker(
+        self, client: httpx2.AsyncClient
+    ) -> None:
+        # Fail-closed: a SERVING app whose count query errors proves nothing
+        # about in-flight work. A 500 here reads as "unreachable" to
+        # release.yml's ``curl -fsS ... || true`` and would deploy over a live
+        # import — so the probe answers 200 busy=true and lets the gate retry.
+        with patch(
+            "src.application.services.operation_run_reaper.count_running_runs",
+            new=AsyncMock(side_effect=TimeoutError("connection pool exhausted")),
+        ):
+            response = await client.get("/api/v1/health?busy=true")
+
+        assert response.status_code == 200
+        body = response.json()
+        assert body["busy"] is True
+        assert body["busy_probe_error"] == "TimeoutError"
+        assert body["import_queue_pending"] is False
+        # The count is unknown, not zero — reporting 0 would contradict busy.
+        assert "running_operation_runs" not in body
+
+    async def test_pending_queue_entry_marks_busy(
+        self, client: httpx2.AsyncClient
+    ) -> None:
+        from src.interface.api.services import import_queue
+        from src.interface.api.services.import_queue import ImportQueue, QueueEntry
+
+        import_queue._queues["u1"] = ImportQueue(
+            queue_id="q1",
+            user_id="u1",
+            tmpdir=Path("/nonexistent"),
+            entries=[
+                QueueEntry(
+                    filename="f.json",
+                    position=0,
+                    path=Path("/nonexistent/f.json"),
+                )
+            ],
+        )
+        try:
+            response = await client.get("/api/v1/health?busy=true")
+        finally:
+            _ = import_queue._queues.pop("u1", None)
+
+        body = response.json()
+        assert body["busy"] is True
+        assert body["running_operation_runs"] == 0
+        assert body["import_queue_pending"] is True
 
 
 class TestErrorHandling:

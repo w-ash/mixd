@@ -43,6 +43,16 @@ from src.infrastructure.connectors.lastfm.models import (
 logger = get_logger(__name__).bind(service="lastfm_client")
 
 
+class LastFMPartialFetchError(RuntimeError):
+    """A recent-tracks page failed mid-pagination; the fetched span is incomplete.
+
+    Raised instead of returning the rows gathered so far: a partial span is
+    indistinguishable from a complete quiet one to the caller, and the play
+    importer checkpoints past what it receives — a swallowed page failure
+    would silently lose the rest of the window forever.
+    """
+
+
 # -------------------------------------------------------------------------
 # SIGNATURE HELPER
 # -------------------------------------------------------------------------
@@ -524,8 +534,9 @@ class LastFMAPIClient(BaseAPIClient):
         """Get recent tracks from Last.fm user.getRecentTracks API.
 
         Fetches multiple pages as needed to satisfy the requested total limit.
-        Each page is individually retried on failure; a single-page failure
-        stops iteration but returns all tracks gathered so far.
+        Each page is individually retried on failure; a page that still fails
+        raises :class:`LastFMPartialFetchError` rather than returning a
+        silently partial span.
 
         Args:
             username: Last.fm username (defaults to configured username)
@@ -559,7 +570,16 @@ class LastFMAPIClient(BaseAPIClient):
                 to_time,
             )
             if result is None:
-                break
+                # A suppressed page failure mid-pagination. Returning the rows
+                # gathered so far would hand the importer a silently partial
+                # span — which it would then checkpoint past, losing the tail
+                # of the window forever. The gap must surface as a failure the
+                # caller can retry, not as a short list it cannot tell apart
+                # from a quiet week.
+                raise LastFMPartialFetchError(
+                    f"user.getRecentTracks page {page}/{total_pages} failed after "
+                    f"retries with {len(all_tracks)} rows already fetched"
+                )
 
             tracks, total_pages = result
             all_tracks.extend(tracks)
@@ -591,13 +611,26 @@ class LastFMAPIClient(BaseAPIClient):
 
         data = await self._api_request("user.getRecentTracks", params)
 
-        try:
-            page_data = LastFMRecentTracksPage.model_validate(
-                data.get("recenttracks", {})
+        # A body with no recenttracks node is an unexpected shape, not an empty
+        # page (a genuinely empty page still carries the node with zero tracks):
+        # defaulting it to {} validated into an empty page and ended pagination
+        # as success — the same silent truncation as the ValidationError below.
+        node = data.get("recenttracks")
+        if node is None:
+            raise LastFMPartialFetchError(
+                f"user.getRecentTracks page {page} returned no recenttracks node"
             )
+
+        try:
+            page_data = LastFMRecentTracksPage.model_validate(node)
         except ValidationError as e:
-            logger.warning(f"Unexpected Last.fm response shape on page {page}: {e}")
-            return [], 1
+            # An unparseable page is a FAILED page, never an empty-success one:
+            # returning ([], 1) here collapsed total_pages and ended pagination,
+            # so the caller received pages 1..N-1 as a complete fetch — and the
+            # importer checkpointed past the unfetched tail, losing it forever.
+            raise LastFMPartialFetchError(
+                f"user.getRecentTracks page {page} failed validation: {e}"
+            ) from e
 
         return page_data.playable_tracks, page_data.total_pages
 

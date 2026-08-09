@@ -1,8 +1,8 @@
 """Repository for connector play operations."""
 
 from collections.abc import Iterable, Iterator, Mapping, Sequence
-from datetime import UTC, datetime
-from typing import Final, cast
+from datetime import UTC, date, datetime
+from typing import Final
 from uuid import UUID
 
 import sqlalchemy as sa
@@ -174,23 +174,29 @@ class ConnectorTrackPlayRepository(BaseRepository[DBConnectorPlay, ConnectorTrac
 
         return (inserted, duplicate_count)
 
-    @db_operation("get_resolved_played_at_bounds")
-    async def get_resolved_played_at_bounds(
-        self, *, user_id: str
-    ) -> tuple[datetime, datetime] | None:
-        """(min, max) ``played_at`` across a user's resolved ledger rows."""
-        stmt = sa.select(
-            sa.func.min(DBConnectorPlay.played_at),
-            sa.func.max(DBConnectorPlay.played_at),
-        ).where(
-            DBConnectorPlay.user_id == user_id,
-            DBConnectorPlay.resolved_track_id.is_not(None),
+    @db_operation("get_resolved_played_at_days")
+    async def get_resolved_played_at_days(self, *, user_id: str) -> list[date]:
+        """Ascending distinct UTC calendar days holding ≥1 resolved ledger row.
+
+        Days are read in UTC explicitly (``timezone('UTC', played_at)`` before
+        the date cast) — the projection's day-chunks are UTC midnights, and a
+        session-timezone-dependent date would name days whose chunks are never
+        generated.
+        """
+        played_day = sa.cast(
+            sa.func.timezone("UTC", DBConnectorPlay.played_at), sa.Date
         )
-        row = (await self.session.execute(stmt)).one()
-        low, high = cast("tuple[datetime | None, datetime | None]", tuple(row))
-        if low is None or high is None:
-            return None
-        return (low, high)
+        stmt = (
+            sa
+            .select(played_day)
+            .where(
+                DBConnectorPlay.user_id == user_id,
+                DBConnectorPlay.resolved_track_id.is_not(None),
+            )
+            .distinct()
+            .order_by(played_day)
+        )
+        return list((await self.session.execute(stmt)).scalars().all())
 
     @db_operation("find_resolved_in_window")
     async def find_resolved_in_window(

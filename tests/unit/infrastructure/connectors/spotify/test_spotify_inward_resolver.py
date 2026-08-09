@@ -519,8 +519,6 @@ class TestCanonicalReuse:
         track_repo.find_tracks_by_title_artist.return_value = {
             ("my song", "artist"): existing_track,
         }
-        connector_repo.map_track_to_connector.return_value = existing_track
-
         hints = {"sp_id_1": FallbackHint(artist_name="Artist", track_name="My Song")}
         result, metrics = await resolver.resolve_to_canonical_tracks(
             ["sp_id_1"],
@@ -534,12 +532,15 @@ class TestCanonicalReuse:
         assert metrics.reused == 1
         assert metrics.created == 0
 
-        # Verify mapping was created with CANONICAL_REUSE method
-        map_calls = connector_repo.map_track_to_connector.call_args_list
-        assert len(map_calls) == 1
-        assert map_calls[0].args[1] == "spotify"
-        assert map_calls[0].args[2] == "sp_id_1"
-        assert map_calls[0].args[3] == MatchMethod.CANONICAL_REUSE
+        # Verify mapping was created with CANONICAL_REUSE method — one spec in
+        # the batched mapping call, holding primacy (the single-mapping call's
+        # auto_set_primary default, expressed as the spec's flag).
+        specs = _mapping_specs(connector_repo)
+        assert len(specs) == 1
+        assert specs[0].connector == "spotify"
+        assert specs[0].connector_id == "sp_id_1"
+        assert specs[0].match_method == MatchMethod.CANONICAL_REUSE
+        assert specs[0].primary is True
 
     async def test_no_reuse_without_hints(self):
         """Without fallback hints, canonical reuse should not find any candidates."""
@@ -587,7 +588,7 @@ class TestCanonicalReuse:
         assert "sp_id_1" not in result
         assert metrics.reused == 0
         # No mapping should be created
-        connector_repo.map_track_to_connector.assert_not_called()
+        assert _mapping_specs(connector_repo) == []
 
     async def test_reuse_plus_direct_import_combined(self):
         """Canonical reuse and track creation work together."""

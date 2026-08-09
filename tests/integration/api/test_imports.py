@@ -1,21 +1,96 @@
 """Integration tests for import, checkpoint, and SSE operation endpoints.
 
-Tests request validation, response shapes, checkpoint retrieval, and
-Server-Sent Event streaming through the real FastAPI app with an
-isolated test database.
+Tests request validation, response shapes, checkpoint retrieval, the Spotify
+GDPR import queue (v0.10.2.6), and Server-Sent Event streaming through the
+real FastAPI app with an isolated test database.
 """
 
+import asyncio
 import json
+from pathlib import Path
+import shutil
+import tempfile
+import time
 from unittest.mock import AsyncMock, patch
 
 import httpx2
 import pytest
 
+from src.config.constants import SSEConstants
 from src.infrastructure.connectors._shared.token_storage import StoredToken
+from src.interface.api.services import (
+    import_queue as import_queue_mod,
+    sse_operations as sse_operations_mod,
+)
+from src.interface.api.services.background import (
+    _background_tasks,
+    launch_background as real_launch_background,
+)
+from src.interface.api.services.import_queue import IMPORT_QUEUE_TMPDIR_PREFIX
 from src.interface.api.services.progress import (
     SSE_SENTINEL,
     get_operation_registry,
 )
+from src.interface.api.services.sse_operations import release_operation_slot
+
+
+@pytest.fixture(autouse=True)
+def _reset_import_queue_state():
+    """The queue registry and its slot tokens are module-global in-process
+    state; with the conftest's launch stub a queue never drains itself, so
+    every test must leave the registry (and any held slot) empty."""
+    yield
+    for queue in list(import_queue_mod._queues.values()):
+        release_operation_slot(import_queue_mod._queue_slot_token(queue.queue_id))
+        shutil.rmtree(queue.tmpdir, ignore_errors=True)
+    import_queue_mod._queues.clear()
+
+
+@pytest.fixture
+def _drain_import_queues_for_real(client, monkeypatch):
+    """Opt this test out of the conftest ``launch_background`` stub so the
+    queue actually drains, and zero the SSE grace period so each entry's run
+    task settles inside the test instead of sleeping out its read window."""
+    monkeypatch.setattr(sse_operations_mod, "launch_background", real_launch_background)
+    monkeypatch.setattr(import_queue_mod, "launch_background", real_launch_background)
+    monkeypatch.setattr(SSEConstants, "GRACE_PERIOD_SECONDS", 0)
+
+
+def _multipart(
+    files: list[tuple[str, bytes]],
+) -> list[tuple[str, tuple[str, bytes, str]]]:
+    return [("files", (name, content, "application/json")) for name, content in files]
+
+
+def _queue_tmpdirs() -> set[str]:
+    return {
+        str(p)
+        for p in Path(tempfile.gettempdir()).glob(f"{IMPORT_QUEUE_TMPDIR_PREFIX}*")
+    }
+
+
+async def _poll_queue_until_drained(
+    client: httpx2.AsyncClient, timeout_seconds: float = 30.0
+) -> dict:
+    deadline = time.monotonic() + timeout_seconds
+    while time.monotonic() < deadline:
+        response = await client.get("/api/v1/imports/spotify/history/queue")
+        assert response.status_code == 200
+        data = response.json()
+        if all(e["status"] not in ("queued", "running") for e in data["entries"]):
+            return data
+        await asyncio.sleep(0.05)
+    raise AssertionError("import queue did not drain within the timeout")
+
+
+async def _settle_background_tasks(timeout_seconds: float = 10.0) -> None:
+    """Wait for the drain + per-run tasks so nothing outlives the test loop."""
+    deadline = time.monotonic() + timeout_seconds
+    while time.monotonic() < deadline:
+        if not _background_tasks:
+            return
+        await asyncio.sleep(0.02)
+    raise AssertionError("background tasks did not settle within the timeout")
 
 
 def _connected_storage() -> AsyncMock:
@@ -318,45 +393,240 @@ class TestConnectorConnectPreflight:
         with self._disconnected():
             response = await client.post(
                 "/api/v1/imports/spotify/history",
-                files={
-                    "file": (
-                        "history.json",
-                        json.dumps([]).encode(),
-                        "application/json",
-                    )
-                },
+                files=_multipart([("history.json", json.dumps([]).encode())]),
             )
         assert response.status_code == 200
 
 
-class TestSpotifyHistoryUploadSize:
-    """Server-side upload size enforcement rejects oversized files."""
+def _patched_limits(
+    *,
+    max_upload_bytes: int = 100 * 1024 * 1024,
+    max_queued_upload_bytes: int = 500 * 1024 * 1024,
+    max_queue_entries: int = 25,
+):
+    """Patch the route module's BusinessLimits with real ints — a bare
+    MagicMock attribute would make every ``>`` comparison raise."""
+    patcher = patch("src.interface.api.routes.imports.BusinessLimits")
+    mock_limits = patcher.start()
+    mock_limits.MAX_UPLOAD_BYTES = max_upload_bytes
+    mock_limits.MAX_QUEUED_UPLOAD_BYTES = max_queued_upload_bytes
+    mock_limits.MAX_QUEUE_ENTRIES = max_queue_entries
+    return patcher
 
-    async def test_oversized_upload_returns_413(
-        self, client: httpx2.AsyncClient
+
+class TestSpotifyHistoryUploadCaps:
+    """Server-side upload caps reject oversize requests with nothing on disk."""
+
+    async def test_oversized_file_413s_and_nothing_lands(
+        self, client: httpx2.AsyncClient, tmp_path, monkeypatch
     ) -> None:
-        """Files exceeding MAX_UPLOAD_BYTES are rejected mid-stream."""
-
-        with patch("src.interface.api.routes.imports.BusinessLimits") as mock_limits:
-            mock_limits.MAX_UPLOAD_BYTES = 1024  # 1 KB limit for test
-            content = b"x" * 2048  # 2 KB — exceeds patched limit
+        # Pin this test's queue dirs to a private tempdir: /tmp is shared with
+        # concurrent xdist workers, so a global glob would race their queues.
+        monkeypatch.setattr(tempfile, "tempdir", str(tmp_path))
+        patcher = _patched_limits(max_upload_bytes=1024)
+        try:
             response = await client.post(
                 "/api/v1/imports/spotify/history",
-                files={"file": ("history.json", content, "application/json")},
+                files=_multipart([("history.json", b"x" * 2048)]),
             )
-            assert response.status_code == 413
+        finally:
+            patcher.stop()
 
-    async def test_upload_within_limit_succeeds(
+        assert response.status_code == 413
+        # The rejected request left no queue dir and started no queue.
+        assert _queue_tmpdirs() == set()
+        assert (
+            await client.get("/api/v1/imports/spotify/history/queue")
+        ).status_code == 404
+
+    async def test_total_cap_rejects_before_any_entry_starts(
+        self, client: httpx2.AsyncClient, tmp_path, monkeypatch
+    ) -> None:
+        monkeypatch.setattr(tempfile, "tempdir", str(tmp_path))
+        patcher = _patched_limits(max_queued_upload_bytes=3 * 1024)
+        try:
+            response = await client.post(
+                "/api/v1/imports/spotify/history",
+                files=_multipart([("a.json", b"x" * 2048), ("b.json", b"y" * 2048)]),
+            )
+        finally:
+            patcher.stop()
+
+        assert response.status_code == 413
+        assert _queue_tmpdirs() == set()
+        assert (
+            await client.get("/api/v1/imports/spotify/history/queue")
+        ).status_code == 404
+
+    async def test_too_many_files_422s(self, client: httpx2.AsyncClient) -> None:
+        patcher = _patched_limits(max_queue_entries=2)
+        try:
+            response = await client.post(
+                "/api/v1/imports/spotify/history",
+                files=_multipart([
+                    ("a.json", b"[]"),
+                    ("b.json", b"[]"),
+                    ("c.json", b"[]"),
+                ]),
+            )
+        finally:
+            patcher.stop()
+
+        assert response.status_code == 422
+
+    async def test_upload_within_limits_returns_queued_entries(
         self, client: httpx2.AsyncClient
     ) -> None:
-        """A file within size limits is accepted and returns an operation_id."""
-        content = json.dumps([]).encode()
         response = await client.post(
             "/api/v1/imports/spotify/history",
-            files={"file": ("history.json", content, "application/json")},
+            files=_multipart([("history.json", json.dumps([]).encode())]),
         )
         assert response.status_code == 200
-        assert "operation_id" in response.json()
+        data = response.json()
+        assert data["queue_id"]
+        assert [e["status"] for e in data["entries"]] == ["queued"]
+        assert data["entries"][0]["filename"] == "history.json"
+        # No operation exists yet: ids appear via the queue GET as entries start.
+        assert data["entries"][0]["operation_id"] is None
+        assert data["entries"][0]["run_id"] is None
+
+
+class TestSpotifyHistoryQueueContract:
+    """Queue endpoints' request/response contract (launcher stubbed — the
+    queue holds still, so pre-drain states are observable)."""
+
+    async def test_get_queue_404s_when_none_exists(self, client: httpx2.AsyncClient):
+        response = await client.get("/api/v1/imports/spotify/history/queue")
+        assert response.status_code == 404
+
+    async def test_delete_404s_when_none_exists(self, client: httpx2.AsyncClient):
+        response = await client.delete("/api/v1/imports/spotify/history/queue")
+        assert response.status_code == 404
+
+    async def test_get_returns_the_posted_queue(self, client: httpx2.AsyncClient):
+        posted = await client.post(
+            "/api/v1/imports/spotify/history",
+            files=_multipart([("a.json", b"[]"), ("b.json", b"[]")]),
+        )
+        assert posted.status_code == 200
+
+        fetched = await client.get("/api/v1/imports/spotify/history/queue")
+        assert fetched.status_code == 200
+        data = fetched.json()
+        assert data["queue_id"] == posted.json()["queue_id"]
+        assert [e["filename"] for e in data["entries"]] == ["a.json", "b.json"]
+        assert [e["position"] for e in data["entries"]] == [0, 1]
+
+    async def test_second_post_while_active_409s(self, client: httpx2.AsyncClient):
+        first = await client.post(
+            "/api/v1/imports/spotify/history",
+            files=_multipart([("a.json", b"[]")]),
+        )
+        assert first.status_code == 200
+
+        second = await client.post(
+            "/api/v1/imports/spotify/history",
+            files=_multipart([("b.json", b"[]")]),
+        )
+        assert second.status_code == 409
+
+    async def test_delete_cancels_pending_and_unlinks_their_files(
+        self, client: httpx2.AsyncClient
+    ):
+        posted = await client.post(
+            "/api/v1/imports/spotify/history",
+            files=_multipart([("a.json", b"[]"), ("b.json", b"[]")]),
+        )
+        assert posted.status_code == 200
+        queue = import_queue_mod.get_queue("default")
+        assert queue is not None
+        assert all(entry.path.exists() for entry in queue.entries)
+
+        deleted = await client.delete("/api/v1/imports/spotify/history/queue")
+
+        assert deleted.status_code == 200
+        assert [e["status"] for e in deleted.json()["entries"]] == [
+            "cancelled",
+            "cancelled",
+        ]
+        assert not any(entry.path.exists() for entry in queue.entries)
+
+        # A cancelled (drained) queue no longer blocks a new upload.
+        replacement = await client.post(
+            "/api/v1/imports/spotify/history",
+            files=_multipart([("c.json", b"[]")]),
+        )
+        assert replacement.status_code == 200
+        assert replacement.json()["queue_id"] != posted.json()["queue_id"]
+
+
+class TestSpotifyHistoryQueueDrain:
+    """End-to-end queue drain through the real launcher and database."""
+
+    @pytest.fixture(autouse=True)
+    def _real_drain(self, _drain_import_queues_for_real):
+        pass
+
+    async def test_multi_file_upload_writes_one_run_per_file(
+        self, client: httpx2.AsyncClient
+    ):
+        response = await client.post(
+            "/api/v1/imports/spotify/history",
+            files=_multipart([
+                ("first.json", json.dumps([]).encode()),
+                ("second.json", json.dumps([]).encode()),
+            ]),
+        )
+        assert response.status_code == 200
+
+        data = await _poll_queue_until_drained(client)
+        await _settle_background_tasks()
+
+        assert [e["status"] for e in data["entries"]] == ["complete", "complete"]
+        run_ids = [e["run_id"] for e in data["entries"]]
+        operation_ids = [e["operation_id"] for e in data["entries"]]
+        assert None not in run_ids
+        assert len(set(run_ids)) == 2
+        assert None not in operation_ids
+        assert len(set(operation_ids)) == 2
+
+        # One audit row per file, each carrying its own counts.
+        runs = await client.get("/api/v1/operation-runs")
+        assert runs.status_code == 200
+        rows = {
+            row["id"]: row
+            for row in runs.json()["data"]
+            if row["operation_type"] == "import_spotify_history"
+        }
+        assert set(rows) == set(run_ids)
+        for row in rows.values():
+            assert row["status"] == "complete"
+            assert isinstance(row["counts"], dict)
+
+    async def test_failing_entry_records_error_and_queue_continues(
+        self, client: httpx2.AsyncClient, tmp_path, monkeypatch
+    ):
+        monkeypatch.setattr(tempfile, "tempdir", str(tmp_path))
+        response = await client.post(
+            "/api/v1/imports/spotify/history",
+            files=_multipart([
+                ("good-1.json", json.dumps([]).encode()),
+                ("broken.json", b"this is not json"),
+                ("good-2.json", json.dumps([]).encode()),
+            ]),
+        )
+        assert response.status_code == 200
+
+        data = await _poll_queue_until_drained(client)
+        await _settle_background_tasks()
+
+        statuses = [e["status"] for e in data["entries"]]
+        assert statuses[1] == "error"
+        assert statuses[0] == "complete"
+        assert statuses[2] == "complete"
+        # Every temp file — the failing one's included — and the queue dir
+        # itself are gone once the drain finishes.
+        assert _queue_tmpdirs() == set()
 
 
 class TestCheckpointEndpoints:

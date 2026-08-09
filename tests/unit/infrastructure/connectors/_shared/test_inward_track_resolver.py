@@ -120,6 +120,100 @@ def _make_reuse_uow(candidates: dict[tuple[str, str], Track]) -> MagicMock:
     return uow
 
 
+class TestPersistBulkWithItemFallback:
+    """The shared savepoint-bulk-then-per-item skeleton, tested once.
+
+    Its three consumers (Spotify persist, Last.fm persist, canonical reuse)
+    pin their own payloads; this pins the skeleton's contract — savepoint
+    counts, fallback isolation, and the hooks' timing.
+    """
+
+    @staticmethod
+    def _uow():
+        from tests.fixtures.mocks import make_mock_uow
+
+        return make_mock_uow()
+
+    @staticmethod
+    def _persist(poisoned: set[str]):
+        async def _inner(chunk):
+            for item in chunk:
+                if item in poisoned:
+                    raise RuntimeError(f"poisoned: {item}")
+            return {item: item.upper() for item in chunk}
+
+        return _inner
+
+    async def test_bulk_success_takes_one_savepoint_and_fires_hooks_once(self):
+        from src.infrastructure.connectors._shared.inward_track_resolver import (
+            persist_bulk_with_item_fallback,
+        )
+
+        uow = self._uow()
+        persisted_chunks: list[list[str]] = []
+
+        resolved, failed = await persist_bulk_with_item_fallback(
+            ["a", "b"],
+            uow,
+            persist=self._persist(set()),
+            write_key=lambda item: item,
+            describe="test writes",
+            on_persisted=lambda chunk: persisted_chunks.append(list(chunk)),
+        )
+
+        assert resolved == {"a": "A", "b": "B"}
+        assert failed == set()
+        assert uow.savepoint.call_count == 1
+        # The hook fires once, for the whole chunk, after its savepoint.
+        assert persisted_chunks == [["a", "b"]]
+
+    async def test_poisoned_item_costs_only_itself(self):
+        from src.infrastructure.connectors._shared.inward_track_resolver import (
+            persist_bulk_with_item_fallback,
+        )
+
+        uow = self._uow()
+        persisted_chunks: list[list[str]] = []
+        item_failures: list[str] = []
+
+        resolved, failed = await persist_bulk_with_item_fallback(
+            ["a", "bad", "c"],
+            uow,
+            persist=self._persist({"bad"}),
+            write_key=lambda item: item,
+            describe="test writes",
+            on_persisted=lambda chunk: persisted_chunks.append(list(chunk)),
+            on_item_failure=lambda item, _e: item_failures.append(item),
+        )
+
+        assert resolved == {"a": "A", "c": "C"}
+        assert failed == {"bad"}
+        # One savepoint for the failed bulk attempt, then one per item.
+        assert uow.savepoint.call_count == 4
+        # The hook fires per surviving item — never for the poisoned one, and
+        # never for the discarded bulk attempt.
+        assert persisted_chunks == [["a"], ["c"]]
+        assert item_failures == ["bad"]
+
+    async def test_empty_writes_touch_nothing(self):
+        from src.infrastructure.connectors._shared.inward_track_resolver import (
+            persist_bulk_with_item_fallback,
+        )
+
+        uow = self._uow()
+
+        resolved, failed = await persist_bulk_with_item_fallback(
+            [],
+            uow,
+            persist=self._persist(set()),
+            write_key=lambda item: item,
+            describe="test writes",
+        )
+
+        assert (resolved, failed) == ({}, set())
+        assert uow.savepoint.call_count == 0
+
+
 class TestReuseWriteFailure:
     """A reuse mapping the savepoint rolled back must not become a new canonical.
 
@@ -132,7 +226,7 @@ class TestReuseWriteFailure:
     async def test_failed_reuse_mapping_is_kept_out_of_creation(self):
         candidate = make_track(42, title="My Song", artist="Artist")
         uow = _make_reuse_uow({("my song", "artist"): candidate})
-        uow.get_connector_repository().map_track_to_connector.side_effect = (
+        uow.get_connector_repository().map_tracks_to_connectors.side_effect = (
             RuntimeError("duplicate key value violates unique constraint")
         )
 
@@ -151,7 +245,7 @@ class TestReuseWriteFailure:
         """Only the failed identifier is withheld — the rest of the pass runs."""
         candidate = make_track(42, title="My Song", artist="Artist")
         uow = _make_reuse_uow({("my song", "artist"): candidate})
-        uow.get_connector_repository().map_track_to_connector.side_effect = (
+        uow.get_connector_repository().map_tracks_to_connectors.side_effect = (
             RuntimeError("boom")
         )
 
@@ -171,14 +265,14 @@ class TestReuseWriteFailure:
         candidate = make_track(42, title="My Song", artist="Artist")
         uow = _make_reuse_uow({("my song", "artist"): candidate})
         connector_repo = uow.get_connector_repository()
-        connector_repo.map_track_to_connector.side_effect = RuntimeError("boom")
+        connector_repo.map_tracks_to_connectors.side_effect = RuntimeError("boom")
 
         resolver = ReuseHintResolver({"id_a": ("Artist", "My Song")})
         _ = await resolver.resolve_to_canonical_tracks(
             ["id_a"], uow, user_id="test-user"
         )
 
-        connector_repo.map_track_to_connector.side_effect = None
+        connector_repo.map_tracks_to_connectors.side_effect = None
         uow.get_track_repository().find_tracks_by_title_artist.return_value = {}
         result, metrics = await resolver.resolve_to_canonical_tracks(
             ["id_a"], uow, user_id="test-user"
