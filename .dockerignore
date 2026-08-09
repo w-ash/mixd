@@ -1,47 +1,56 @@
-# Version control & IDE
-.git
-.github
-.claude
-.obsidian
-.vscode
+# Allowlist: ignore everything, then re-include only what the Dockerfile COPYs.
+# Matching is filepath.Match against the full relative path, so a directory rule
+# never matches the files inside it -- every directory needs both `dir` and `dir/**`.
+# Last match wins, so re-exclusions must come after the re-include that covered them.
+*
 
-# Python caches & build artifacts
-__pycache__
-*.py[cod]
-*.egg-info
-dist/
-build/
-htmlcov/
-.ruff_cache
-.pytest_cache
-.coverage
+# --- Python build inputs (stages: python-builder, runtime) ---
+!Dockerfile
+!pyproject.toml
+!uv.lock
+!alembic.ini
+!src
+!src/**
+!alembic
+!alembic/**
 
-# Node (rebuilt in container)
-node_modules/
-web/node_modules/
-web/dist/
+# --- Frontend build inputs (stage: node-builder does `COPY web/ ./`) ---
+!web
+!web/**
 
-# Data & logs (ephemeral in container)
-data/
-*.log
-*.db
+# Dev-only trees inside web/ that `tsc && vite build` never reads.
+# tsconfig.json is `include: ["src"]`, so none of this is typechecked.
+web/node_modules
+web/node_modules/**
+web/dist
+web/dist/**
+web/e2e
+web/e2e/**
+# ...except e2e/fixtures (28K): web/src/test/*-fixtures.test.ts import from it, and
+# those tests sit under tsconfig's `include: ["src"]`, so `tsc` follows the import
+# out of src/ and fails the build without it. The bulk -- __audit__ (6.4M) and
+# __screenshots__ (1.1M) -- stays excluded.
+!web/e2e/fixtures
+!web/e2e/fixtures/**
+web/data
+web/data/**
+web/playwright-report
+web/playwright-report/**
+web/test-results
+web/test-results/**
+web/.claude
+web/.claude/**
+web/knip.json
+web/openapi.json
+web/orval.config.ts
+web/playwright.config.ts
+web/playwright-auth.config.ts
+web/playwright-audit.config.ts
+web/.coverage
+web/**/*.log
 
-# Secrets & local config
-.env
-.env.*
-!.env.example
-.spotify_cache
-
-# Not needed at runtime
-infra/
-docs/
-tests/
-scripts/
-.DS_Store
-vulture_whitelist.py
-CHANGELOG.md
-DEPLOYMENT.md
-
-# Root dev orchestration (not used in container)
-package.json
-pnpm-lock.yaml
+# --- Junk that would otherwise ride along inside the allowlisted trees ---
+**/__pycache__
+**/__pycache__/**
+**/*.py[cod]
+**/.DS_Store
