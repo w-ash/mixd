@@ -1,5 +1,6 @@
 """Unit tests for environment hardening: get_database_url, ServerConfig, startup warnings."""
 
+from pathlib import Path
 from unittest.mock import patch
 
 from pydantic import ValidationError
@@ -8,6 +9,7 @@ import structlog
 
 from src.config.settings import (
     ServerConfig,
+    Settings,
     get_database_url,
     log_startup_warnings,
     settings,
@@ -72,6 +74,40 @@ class TestGetDatabaseUrl:
             # Empty environ falls through to settings, so pin that empty too.
             with patch.object(settings.database, "url", ""):
                 assert get_database_url() == expected
+
+
+class TestFlatEnvPrecedence:
+    """Flat keys resolve shell > .env.local > .env.
+
+    Worth pinning because .env.local points at production on a developer
+    machine: an export that loses to it silently redirects a command meant to
+    be local.
+    """
+
+    DOTENV_URL = "postgresql+psycopg://dotenv-host/dotenv_db"
+    SHELL_URL = "postgresql+psycopg://localhost:5432/mixd"
+
+    @staticmethod
+    def _dotenv(tmp_path: Path) -> Path:
+        path = tmp_path / ".env.test"
+        _ = path.write_text(f"DATABASE_URL={TestFlatEnvPrecedence.DOTENV_URL}\n")
+        return path
+
+    def test_shell_export_wins(self, tmp_path: Path):
+        with patch.dict("os.environ", {"DATABASE_URL": self.SHELL_URL}):
+            resolved = Settings(_env_file=self._dotenv(tmp_path)).database.url
+        assert resolved == self.SHELL_URL
+
+    def test_dotenv_used_when_shell_unset(self, tmp_path: Path):
+        with patch.dict("os.environ", {}, clear=True):
+            resolved = Settings(_env_file=self._dotenv(tmp_path)).database.url
+        assert resolved == self.DOTENV_URL
+
+    def test_empty_shell_export_falls_back_to_dotenv(self, tmp_path: Path):
+        # env_ignore_empty=True: `FOO=` means unset, not "override with empty".
+        with patch.dict("os.environ", {"DATABASE_URL": ""}):
+            resolved = Settings(_env_file=self._dotenv(tmp_path)).database.url
+        assert resolved == self.DOTENV_URL
 
 
 class TestServerConfig:

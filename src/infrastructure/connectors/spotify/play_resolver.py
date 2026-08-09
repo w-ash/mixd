@@ -414,6 +414,7 @@ class SpotifyConnectorPlayResolver:
             "reused_tracks": canonical_track_metrics["reused_tracks"],
             "suppressed": canonical_track_metrics["suppressed"],
             "degraded_persists": canonical_track_metrics["degraded_persists"],
+            "write_failed": canonical_track_metrics["write_failed"],
             "isrc_suspect_deferred": len(
                 self._inward_resolver.isrc_suspect_deferred_ids
             ),
@@ -469,6 +470,7 @@ class SpotifyConnectorPlayResolver:
             "reused_tracks": metrics.reused,
             "suppressed": metrics.suppressed,
             "degraded_persists": metrics.degraded_persists,
+            "write_failed": metrics.write_failed,
         }
 
     def _create_empty_metrics(self) -> ResolutionMetrics:

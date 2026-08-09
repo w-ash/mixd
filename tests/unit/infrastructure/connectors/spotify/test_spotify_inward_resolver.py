@@ -255,6 +255,113 @@ class TestRedirectDetection:
         assert track_id not in resolver.redirect_resolved_ids
 
 
+class TestRelinkOntoHeldCanonical:
+    """A relink whose current id is already held resolves onto that canonical.
+
+    Spotify relinks a stale export id onto a remaster the library commonly
+    already holds from the live-sync path, and the two carry *different* ISRCs
+    — the payload names the original recording, the held canonical the
+    remaster. Reuse therefore keys on the current id, which is the provider's
+    own assertion of identity, rather than on the ISRC alone.
+    """
+
+    OLD_ID = "old_stale_id_0000000000"
+    NEW_ID = "new_canonical_id_000000"
+
+    @staticmethod
+    def _connector_relinking(*pairs: tuple[str, str]):
+        """A connector answering each requested id with its current one."""
+        connector = AsyncMock()
+        connector.get_tracks_by_ids.return_value = SpotifyTracksFetch(
+            tracks={
+                requested: make_spotify_track(
+                    current,
+                    "Karma Police",
+                    external_ids=SpotifyExternalIds(isrc="GBAYE9701368"),
+                )
+                for requested, current in pairs
+            }
+        )
+        return connector
+
+    @staticmethod
+    def _uow_holding(owners: dict[str, object]):
+        """A UoW whose connector lookup holds ``owners`` and nothing else."""
+        uow, track_repo, connector_repo = _make_uow_with_repos()
+        # The scenario's premise: the payload's ISRC names the original
+        # recording, so the ISRC arm finds nothing and only the current id can.
+        track_repo.find_tracks_by_isrcs.return_value = {}
+
+        async def _find(connections, *, user_id):
+            _ = user_id
+            return {
+                (connector, cid): owners[cid]
+                for connector, cid in connections
+                if cid in owners
+            }
+
+        connector_repo.find_tracks_by_connectors.side_effect = _find
+        return uow, track_repo, connector_repo
+
+    async def test_reuses_the_held_canonical_instead_of_creating_one(self):
+        owner = make_track(7, title="Karma Police - Remastered")
+        resolver = SpotifyInwardResolver(
+            spotify_connector=self._connector_relinking((self.OLD_ID, self.NEW_ID))
+        )
+        uow, track_repo, _ = self._uow_holding({self.NEW_ID: owner})
+
+        result, metrics = await resolver.resolve_to_canonical_tracks(
+            [self.OLD_ID], uow, user_id="test-user"
+        )
+
+        assert result[self.OLD_ID].id == owner.id
+        track_repo.save_track.assert_not_called()
+        # Spotify asserted the relink, so it is a redirect however it resolved.
+        assert metrics.redirects == 1
+
+    async def test_the_stale_mapping_never_takes_primacy(self):
+        # The current id's live-sync mapping is the one that describes the
+        # track; promoting the stale id would demote it and flap the
+        # denormalized spotify_id fast path.
+        owner = make_track(7, title="Karma Police - Remastered")
+        resolver = SpotifyInwardResolver(
+            spotify_connector=self._connector_relinking((self.OLD_ID, self.NEW_ID))
+        )
+        uow, _, connector_repo = self._uow_holding({self.NEW_ID: owner})
+
+        await resolver.resolve_to_canonical_tracks(
+            [self.OLD_ID], uow, user_id="test-user"
+        )
+
+        assert _promoted_ids(connector_repo) == []
+        assert [spec.connector_id for spec in _mapping_specs(connector_repo)] == [
+            self.OLD_ID
+        ]
+
+    async def test_two_stale_ids_sharing_one_current_id_both_resolve(self):
+        # One chunk can carry several stale ids relinking to the same track.
+        # Each contributes one mapping spec for its own id and none for the
+        # shared current one, or the batch insert violates
+        # uq_track_mappings_live_connector on the duplicate.
+        other_old = "other_stale_id_0000000"
+        owner = make_track(7, title="Wonderwall (Remastered)")
+        resolver = SpotifyInwardResolver(
+            spotify_connector=self._connector_relinking(
+                (self.OLD_ID, self.NEW_ID), (other_old, self.NEW_ID)
+            )
+        )
+        uow, _, connector_repo = self._uow_holding({self.NEW_ID: owner})
+
+        result, _metrics = await resolver.resolve_to_canonical_tracks(
+            [self.OLD_ID, other_old], uow, user_id="test-user"
+        )
+
+        assert {self.OLD_ID, other_old} <= result.keys()
+        assert sorted(spec.connector_id for spec in _mapping_specs(connector_repo)) == (
+            sorted([self.OLD_ID, other_old])
+        )
+
+
 class TestFallbackSearch:
     """Fallback search resolves dead Spotify IDs via artist+title search."""
 
@@ -976,9 +1083,11 @@ class TestWriteFailureIsolation:
         assert "bad_id" not in result
         assert metrics.created == 1
         assert metrics.failed == 1
+        assert metrics.write_failed == 1
         # One savepoint for the failed bulk attempt, then one per id for the
-        # retry — the isolation itself.
-        assert uow.savepoint.call_count == 3
+        # retry — the isolation itself — and a fourth around the write-failure
+        # event, so recording the diagnostic cannot widen the failure.
+        assert uow.savepoint.call_count == 4
 
     async def test_a_failed_write_is_never_substituted_by_search(self):
         """A live id whose write failed must not be answered with another track."""
@@ -1026,6 +1135,34 @@ class TestWriteFailureIsolation:
 
         recorder.remember_no_match.assert_not_awaited()
         recorder.clear_negatives.assert_not_awaited()
+
+    async def test_a_failed_write_leaves_an_event_behind(self):
+        """No mapping and no negative survive it, so the event is the only trace.
+
+        Without one, a chunk the database refused is indistinguishable from a
+        batch of dead identifiers in everything the run records.
+        """
+        connector = AsyncMock()
+        connector.get_tracks_by_ids.return_value = SpotifyTracksFetch(
+            tracks={"bad_id": make_spotify_track("bad_id", "My Song")}
+        )
+
+        resolver = SpotifyInwardResolver(spotify_connector=connector)
+        uow, _, connector_repo = _make_uow_with_repos()
+        recorder = attach_resolution_recorder(uow)
+        _poison_one_id(connector_repo, "bad_id")
+
+        _ = await resolver.resolve_to_canonical_tracks(
+            ["bad_id"], uow, user_id="test-user"
+        )
+
+        recorded = [
+            decision
+            for c in recorder.record.await_args_list
+            for decision in c.args[0]
+            if decision.event_type == "write_failed"
+        ]
+        assert [d.payload["requested_id"] for d in recorded] == ["bad_id"]
 
     async def test_tracker_sets_are_cleaned_when_the_savepoint_rolls_back(self):
         """The DB rows vanish on rollback; the in-memory entries must too.
@@ -1128,8 +1265,9 @@ class TestFallbackSaveFailureIsolation:
         assert result == {good_id: found}
         assert resolver.fallback_resolved_ids == {good_id}
         assert metrics.failed == 1
-        # One savepoint for the failed bulk attempt, then one per id.
-        assert uow.savepoint.call_count == 3
+        # One savepoint for the failed bulk attempt, then one per id, then one
+        # around the write-failure event a rescue's refused write also earns.
+        assert uow.savepoint.call_count == 4
 
 
 class TestUnansweredIsNotDeath:

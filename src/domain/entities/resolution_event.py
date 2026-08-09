@@ -42,6 +42,13 @@ type ResolutionEventType = Literal[
     "no_match",
     "superseded",
     "substituted",
+    # The provider answered for this id, but persisting the answer failed and
+    # its savepoint rolled back. Its own type rather than a flavour of
+    # ``rejected``: nothing judged the id, and a write failure is the one
+    # outcome that leaves no other trace — no mapping, and no negative, since
+    # backing off an id the provider vouched for would suppress a retry that
+    # should happen.
+    "write_failed",
     "verified",
     "manual_override",
     "unrejected",

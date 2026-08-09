@@ -81,6 +81,38 @@ _CHUNK_METRIC_KEYS: Final = (
     "redirect_resolved",
     "fallback_resolved",
     "isrc_suspect_deferred",
+    "write_failed",
+)
+
+# The resolver counts a run's metadata carries, summed over its chunks. Every
+# per-chunk counter belongs here too: one that the flight line reports and the
+# run record drops is readable only while the machine's logs survive, and a
+# run-level zero for a key that is merely absent reads as evidence of health.
+_RUN_METRIC_KEYS: Final = (
+    "error_count",
+    "fallback_resolved",
+    "redirect_resolved",
+    "dead_ids_unresolved",
+    "isrc_suspect_deferred",
+    "reused_tracks",
+    "suppressed",
+    "degraded_persists",
+    "write_failed",
+)
+
+# The subset of the above the run record labels, in display order. ``write_failed``
+# sits beside ``dead_ids_unresolved`` because it is the half of it that means
+# "ask again", and reading one without the other is what turned a chunk of
+# refused writes into a diagnosis of dead identifiers.
+_RESOLUTION_SUMMARY_METRICS: Final[tuple[tuple[str, str, int], ...]] = (
+    ("fallback_resolved", "Resolved via Search Fallback", 5),
+    ("redirect_resolved", "Resolved via Spotify Redirect", 6),
+    ("dead_ids_unresolved", "Dead IDs Unresolved", 7),
+    ("write_failed", "Writes Rolled Back — Retry Next Import", 8),
+    ("isrc_suspect_deferred", "ISRC Suspect — Deferred to Review", 9),
+    ("suppressed", "Skipped — Inside Backoff Window", 10),
+    ("reused_tracks", "Reused Existing Canonicals", 11),
+    ("degraded_persists", "Chunks Written One Row at a Time", 12),
 )
 
 
@@ -290,12 +322,7 @@ class PlayImportOrchestrator:
         combined_metrics = {
             "total_plays": len(connector_plays),
             "resolved_plays": 0,
-            "error_count": 0,
-            "fallback_resolved": 0,
-            "redirect_resolved": 0,
-            "dead_ids_unresolved": 0,
-            "isrc_suspect_deferred": 0,
-        }
+        } | dict.fromkeys(_RUN_METRIC_KEYS, 0)
 
         async with tracked_operation(
             progress_emitter, "Resolving plays to canonical tracks"
@@ -364,19 +391,8 @@ class PlayImportOrchestrator:
 
                         all_track_plays.extend(track_plays)
                         combined_metrics["resolved_plays"] += len(track_plays)
-                        combined_metrics["error_count"] += metrics.get("error_count", 0)
-                        combined_metrics["fallback_resolved"] += metrics.get(
-                            "fallback_resolved", 0
-                        )
-                        combined_metrics["redirect_resolved"] += metrics.get(
-                            "redirect_resolved", 0
-                        )
-                        combined_metrics["dead_ids_unresolved"] += metrics.get(
-                            "dead_ids_unresolved", 0
-                        )
-                        combined_metrics["isrc_suspect_deferred"] += metrics.get(
-                            "isrc_suspect_deferred", 0
-                        )
+                        for key in _RUN_METRIC_KEYS:
+                            combined_metrics[key] += metrics.get(key, 0)
                         failure_log.record(metrics)
 
                         await progress_emitter.emit_progress(
@@ -477,39 +493,14 @@ class PlayImportOrchestrator:
                 result.metadata["first_failure"] = exemplar
             failure_log.write_to(result.metadata)
 
-        fallback_resolved = combined_metrics["fallback_resolved"]
-        redirect_resolved = combined_metrics["redirect_resolved"]
-        dead_ids_unresolved = combined_metrics["dead_ids_unresolved"]
-        isrc_suspect_deferred = combined_metrics["isrc_suspect_deferred"]
-
-        if fallback_resolved > 0:
-            result.summary_metrics.add(
-                "fallback_resolved",
-                fallback_resolved,
-                "Resolved via Search Fallback",
-                significance=5,
-            )
-        if redirect_resolved > 0:
-            result.summary_metrics.add(
-                "redirect_resolved",
-                redirect_resolved,
-                "Resolved via Spotify Redirect",
-                significance=6,
-            )
-        if dead_ids_unresolved > 0:
-            result.summary_metrics.add(
-                "dead_ids_unresolved",
-                dead_ids_unresolved,
-                "Dead IDs Unresolved",
-                significance=7,
-            )
-        if isrc_suspect_deferred > 0:
-            result.summary_metrics.add(
-                "isrc_suspect_deferred",
-                isrc_suspect_deferred,
-                "ISRC Suspect — Deferred to Review",
-                significance=8,
-            )
+        # Only ``to_counts()`` — summary metrics — reaches the run record, so a
+        # counter that stops here is readable only in the machine's logs. Zero
+        # is left off rather than recorded: a clean run says nothing, and the
+        # absence of a row is not evidence about a run that never had the key.
+        for key, label, significance in _RESOLUTION_SUMMARY_METRICS:
+            value = combined_metrics[key]
+            if value > 0:
+                result.summary_metrics.add(key, value, label, significance=significance)
 
         return result
 

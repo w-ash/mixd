@@ -6,6 +6,19 @@ linked backlog version file. Versioning follows mixd's four-segment
 `major.minor.feature.revision` scheme (`.claude/rules/version-management.md`), not strict
 SemVer. Format inspired by [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [0.10.2.12] — 2026-08-09
+
+**Your most-played music stops failing to import.** The 2026-08-09 runs refused 55 plays with `track_resolution_failed` on Radiohead, Oasis, New Order and the Vince Guaraldi Christmas canon, and reported them as dead Spotify ids. Asking Spotify about all 47 of them settled it: **none are dead.** Forty are relinks — Spotify pointing an old id at a current one — and seven are simply alive. The search fallback that was supposed to rescue "dead" ids was never reachable, and never ran.
+
+- **A relink now resolves onto the track your library already holds.** Spotify relinks a 2011 export id onto a remaster, and your library usually already has that remaster from the live sync — under a *different* ISRC, because the payload names the original recording and the canonical names the remaster. Reuse only ever checked the ISRC, so it missed a pairing Spotify had stated outright, tried to create a second canonical on an id already taken, and the write was refused. Reuse now checks the current id first: the provider's own assertion of identity outranks an ISRC match. Your 2011 plays and today's plays land on one track.
+- **Two old ids relinking to the same track no longer poison the chunk.** Both `Wonderwall` ids point at the same remaster, as do both `Let Down` ids. Each emitted its own mapping row for the shared id, which the live-mapping constraint rejects — taking the whole chunk's bulk write with it, including every unrelated track in it. One mapping per id now.
+- **A write the database refused stops looking like a dead identifier.** It left no mapping, no negative-cache row and no distinct count, so it was invisible in everything the run recorded — which is why this took a live API probe to diagnose rather than a query. Failed writes now record a `write_failed` event and report their own count, kept apart from genuinely unresolvable ids because the two want opposite responses: one is a retry, the other is a dead identifier.
+- **The import run record stops dropping four of its own counters.** `suppressed`, `reused_tracks`, `degraded_persists` and the new `write_failed` were measured per chunk and logged, then discarded before the run was saved — so they were readable only while that machine's logs survived, and a run-level zero for a key that was merely absent read as evidence of health.
+- **Exporting `DATABASE_URL` to point a command at your local database now works.** `.env.local` holds the production connection string and auto-loads for every command, so the documented way to run a script safely is to export first. That export was ignored: settings read dotenv content before the shell environment, inverting its own documented precedence, and a script you believed was local resolved to production. Found because the reproduction for this fix would otherwise have written canonical tracks and mappings to the live database.
+- Verified read-only against production: 39 of the 47 failures are relinks onto a canonical already held, and resolve through the new path.
+
+→ [details](docs/backlog/v0.10.x.md#post-deploy-revisions)
+
 ## [0.10.2.11] — 2026-08-09
 
 **Imports get an instrument, and the two things it was always going to blame get fixed.** A creation-heavy chunk measured ~4.3s against a designed ~1.1s, and the resolution rate fell within a single run (851→543 plays/min) as the library grew. Investigating found the gap was never unattributed — the design's "~22-26 round trips per chunk" counted only one method's own statements, and the real figure is ~68.

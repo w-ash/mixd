@@ -134,6 +134,7 @@ class ResolutionMetrics(TypedDict, total=False):
     reused_tracks: int
     suppressed: int
     degraded_persists: int
+    write_failed: int
 
 
 @define(frozen=True, slots=True)

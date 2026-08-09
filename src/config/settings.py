@@ -748,9 +748,9 @@ class Settings(BaseSettings):
         by field name with env_nested_delimiter. This means flat env vars from
         the OS (e.g., on Fly.io where there are no .env files) would be missed.
 
-        To handle both sources, we also read from os.environ for any flat keys
-        not already present in the data dict. JSON strings (e.g., '["url"]')
-        are parsed so that complex types (list, dict) validate correctly.
+        Both sources are therefore read, with ``os.environ`` taking precedence.
+        JSON strings (e.g., '["url"]') are parsed so that complex types (list,
+        dict) validate correctly.
         """
         import json
         import os
@@ -761,12 +761,15 @@ class Settings(BaseSettings):
         transformed: dict[str, dict[str, object]] = {}
 
         for env_key, (group, field_key) in cls._FLAT_ENV_ROUTES.items():
-            # Check data dict first (.env file content), then OS environment
-            if env_key in env_data:
-                value = env_data.pop(env_key)
-            elif (os_value := os.environ.get(env_key.upper())) is not None:
-                value = os_value
-            else:
+            # os.environ first, dotenv ``data`` only as fallback: the eager load
+            # at the top of this module merges the dotenv stack into os.environ
+            # *under* the shell, making it the only source that carries the full
+            # shell > .env.local > .env precedence.
+            dotenv_value = env_data.pop(env_key, None)
+            os_value = os.environ.get(env_key.upper())
+            # `or`, not `is not None`: env_ignore_empty treats `FOO=` as unset.
+            value: object | None = os_value or dotenv_value
+            if not value:
                 continue
 
             # Parse JSON strings for complex types (lists, dicts)

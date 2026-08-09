@@ -3,7 +3,7 @@
  * Do not edit manually.
  * Mixd
  * Personal music metadata hub
- * OpenAPI spec version: 0.10.2.11
+ * OpenAPI spec version: 0.10.2.12
  */
 import type { Capability } from './capability.ts';
 import type { ConnectorAuthError } from './connectorAuthError.ts';

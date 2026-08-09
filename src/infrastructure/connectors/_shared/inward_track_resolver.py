@@ -139,6 +139,13 @@ class TrackResolutionMetrics:
     nor successes — nothing was attempted — so they get their own bucket rather
     than inflating ``failed``, which would read as a rising error rate exactly
     as the cache started doing its job.
+
+    ``write_failed`` breaks ``failed`` down rather than adding to it: it counts
+    the ids the provider *did* answer for whose persist was rolled back, as
+    against the ones it could not account for. The two want opposite responses
+    — one is a retry, the other is a dead identifier — and a single count
+    cannot tell them apart, which is what made a chunk-persist failure read as
+    a library full of dead ids.
     """
 
     existing: int = 0
@@ -149,6 +156,7 @@ class TrackResolutionMetrics:
     fallbacks: int = 0
     suppressed: int = 0
     degraded_persists: int = 0
+    write_failed: int = 0
 
     @property
     def total(self) -> int:

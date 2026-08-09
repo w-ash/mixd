@@ -135,9 +135,15 @@ class _ResolvedWrite:
     spotify_track: SpotifyTrack
     match_method: str
     confidence: int
-    # ISRC dedup: an existing canonical already holds this recording, so
-    # nothing new is created — only a mapping onto it.
+    # An existing canonical already holds this recording, so nothing new is
+    # created — only a mapping onto it.
     reuse_track: Track | None = None
+    # Does the mapping this write asserts describe the track, or only alias it?
+    # A creation and an ISRC reuse describe the id they map and claim primacy;
+    # a reuse found via the *current* id does not, because the canonical
+    # already carries a primary mapping on that id and the requested one is a
+    # stale alias for it.
+    primary: bool = True
     # Suspect collision: the ISRC is claimed by an owner whose duration
     # disagrees, so a review is queued and the contested ISRC withheld.
     review: _IsrcCollisionReview | None = None
@@ -164,10 +170,13 @@ class _ResolvedWrite:
         The fallback path also returns a track whose id differs from the one
         asked about, but that is *our* substitution, not Spotify's assertion
         of identity, and counting it as a redirect would report a rescue as a
-        relink in both the metrics and the play context.
+        relink in both the metrics and the play context. Whether the relink
+        went on to create a canonical or reuse one is immaterial: the provider
+        asserted the same thing either way.
         """
         return (
-            self.match_method == MatchMethod.DIRECT_IMPORT
+            self.match_method
+            in (MatchMethod.DIRECT_IMPORT, MatchMethod.DIRECT_IMPORT_STALE_ID)
             and self.requested_id_is_stale
         )
 
@@ -187,6 +196,7 @@ class SpotifyInwardResolver(InwardTrackResolver):
     _fallback_resolved_ids: set[str]
     _redirect_resolved_ids: set[str]
     _isrc_suspect_deferred_ids: set[str]
+    _write_failed_ids: set[str]
 
     def __init__(
         self,
@@ -199,6 +209,7 @@ class SpotifyInwardResolver(InwardTrackResolver):
         self._fallback_resolved_ids = set()
         self._redirect_resolved_ids = set()
         self._isrc_suspect_deferred_ids = set()
+        self._write_failed_ids = set()
 
     @property
     def fallback_resolved_ids(self) -> set[str]:
@@ -252,6 +263,7 @@ class SpotifyInwardResolver(InwardTrackResolver):
         self._fallback_resolved_ids = set()
         self._redirect_resolved_ids = set()
         self._isrc_suspect_deferred_ids = set()
+        self._write_failed_ids = set()
         tracks, metrics = await super().resolve_to_canonical_tracks(
             connector_ids, uow, user_id=user_id
         )
@@ -262,6 +274,7 @@ class SpotifyInwardResolver(InwardTrackResolver):
             metrics,
             redirects=len(self._redirect_resolved_ids),
             fallbacks=len(self._fallback_resolved_ids),
+            write_failed=len(self._write_failed_ids),
         )
         return tracks, metrics
 
@@ -361,14 +374,23 @@ class SpotifyInwardResolver(InwardTrackResolver):
                 list(isrc_to_spotify_id.keys()), user_id=user_id
             )
 
+        existing_by_current_id = await self._canonicals_holding_current_ids(
+            answered_ids, spotify_metadata, uow, user_id=user_id
+        )
+
         writes = [
             self._plan_direct_write(
-                spotify_id, spotify_metadata[spotify_id], existing_by_isrc
+                spotify_id,
+                spotify_metadata[spotify_id],
+                existing_by_isrc,
+                existing_by_current_id,
             )
             for spotify_id in answered_ids
             if spotify_id in spotify_metadata
         ]
         result, failed_ids = await self._persist_writes(writes, uow, user_id=user_id)
+        if failed_ids:
+            await self._note_write_failures(failed_ids, uow, user_id=user_id)
 
         absent_ids = self._absent_from(answered_ids, spotify_metadata)
         if absent_ids:
@@ -404,6 +426,48 @@ class SpotifyInwardResolver(InwardTrackResolver):
             )
 
         return result
+
+    async def _note_write_failures(
+        self, failed_ids: AbstractSet[str], uow: UnitOfWorkProtocol, *, user_id: str
+    ) -> None:
+        """Leave a durable trace for ids the provider answered but we could not store.
+
+        An event, never a ``no_match`` negative. The backoff clock exists for
+        ids the provider cannot account for; this id it vouched for, and
+        suppressing the next attempt would turn a transient write failure into
+        a permanent hole. The event is what makes these countable — until one
+        existed, a rolled-back chunk was indistinguishable from a batch of dead
+        identifiers in every metric the run recorded.
+        """
+        self._write_failed_ids.update(failed_ids)
+        recorder = uow.get_resolution_recorder()
+        # Savepointed, because this runs *after* a write the database already
+        # refused: the diagnostic must not be able to widen one rejected id
+        # into a rejected chunk, and an unisolated failure here would abort the
+        # transaction the absent-id bookkeeping below still has to use.
+        try:
+            async with uow.savepoint():
+                connector_tracks = await recorder.connector_track_ids(
+                    sorted(failed_ids), connector_name="spotify"
+                )
+                _ = await recorder.record(
+                    [
+                        ResolutionDecision(
+                            event_type="write_failed",
+                            connector_name="spotify",
+                            connector_track_id=connector_tracks.get(spotify_id),
+                            payload={"requested_id": spotify_id},
+                        )
+                        for spotify_id in sorted(failed_ids)
+                    ],
+                    user_id=user_id,
+                )
+        except Exception as e:
+            logger.warning(
+                f"Could not record write-failure events for "
+                f"{len(failed_ids)} Spotify ids: {e}",
+                exc_info=True,
+            )
 
     async def _note_absent_ids(
         self, absent_ids: list[str], uow: UnitOfWorkProtocol, *, user_id: str
@@ -502,19 +566,67 @@ class SpotifyInwardResolver(InwardTrackResolver):
             artists=(hint.artist_name,) if hint else (),
         )
 
+    async def _canonicals_holding_current_ids(
+        self,
+        answered_ids: list[str],
+        spotify_metadata: Mapping[str, SpotifyTrack],
+        uow: UnitOfWorkProtocol,
+        *,
+        user_id: str,
+    ) -> dict[str, Track]:
+        """Canonicals already mapped to the ids the provider calls current.
+
+        Only a relink can be found here. An id whose current id is itself was
+        asked about by the mapping lookup and would have resolved there, so
+        reaching this method at all means the requested id is unmapped — and
+        the id being probed is a different one.
+        """
+        current_ids = {
+            track.id
+            for spotify_id in answered_ids
+            if (track := spotify_metadata.get(spotify_id)) is not None
+            and track.id
+            and track.id != spotify_id
+        }
+        if not current_ids:
+            return {}
+        held = await uow.get_connector_repository().find_tracks_by_connectors(
+            [("spotify", current_id) for current_id in sorted(current_ids)],
+            user_id=user_id,
+        )
+        return {current_id: track for (_, current_id), track in held.items()}
+
     @staticmethod
     def _plan_direct_write(
         spotify_id: str,
         spotify_track: SpotifyTrack,
         existing_by_isrc: dict[str, Track],
+        existing_by_current_id: Mapping[str, Track],
     ) -> _ResolvedWrite:
         """Decide what one API-answered id should persist as. Pure — no I/O.
 
-        Three outcomes, exactly as the per-item resolver used to take them
-        inline: reuse the canonical that already owns this ISRC, defer a
-        suspect collision to review and create a distinct canonical without
-        the contested ISRC, or create a plain new canonical.
+        Four outcomes: alias the requested id onto the canonical that already
+        holds the id Spotify relinked it to, reuse the canonical that owns this
+        ISRC, defer a suspect collision to review and create a distinct
+        canonical without the contested ISRC, or create a plain new canonical.
+
+        The relink arm is first because the current id is the provider's own
+        assertion of identity, which outranks an ISRC match. It also outranks
+        an ISRC *miss*: a relink onto a remaster carries the original
+        recording's ISRC while the canonical holding it carries the remaster's,
+        so the ISRC arm cannot see a pairing Spotify has stated outright.
         """
+        relink_owner = existing_by_current_id.get(spotify_track.id or spotify_id)
+        if relink_owner is not None:
+            return _ResolvedWrite(
+                requested_id=spotify_id,
+                spotify_track=spotify_track,
+                match_method=MatchMethod.DIRECT_IMPORT_STALE_ID,
+                confidence=100,
+                reuse_track=relink_owner,
+                primary=False,
+            )
+
         isrc = normalized_spotify_isrc(spotify_track)
         existing_track = existing_by_isrc.get(isrc) if isrc else None
         if existing_track is not None and isrc is not None:
@@ -684,14 +796,28 @@ class SpotifyInwardResolver(InwardTrackResolver):
     ) -> list[ConnectorMappingSpec]:
         """Every mapping the chunk owes, each saying whether it holds primacy.
 
-        Primary mappings and ISRC-reuse mappings take primacy; a relink's
-        stale-id mapping deliberately does not — it exists to make the old id
-        resolve from cache, not to describe the track.
+        Creation and ISRC-reuse mappings take primacy; a relink's stale-id
+        mapping deliberately does not — it exists to make the old id resolve
+        from cache, not to describe the track.
+
+        One spec per connector id. Two ids in a chunk can relink to the same
+        current id, and both then name it — `uq_track_mappings_live_connector`
+        admits one live mapping per (user, connector track, connector), so a
+        second spec for an id already claimed is a constraint violation that
+        costs the whole chunk its bulk write.
         """
         specs: list[ConnectorMappingSpec] = []
+        claimed: set[str] = set()
+
+        def claim(spec: ConnectorMappingSpec) -> None:
+            if spec.connector_id in claimed:
+                return
+            claimed.add(spec.connector_id)
+            specs.append(spec)
+
         for write in writes:
             track = canonicals[write.requested_id]
-            specs.append(
+            claim(
                 ConnectorMappingSpec(
                     track=track,
                     connector="spotify",
@@ -703,12 +829,12 @@ class SpotifyInwardResolver(InwardTrackResolver):
                     match_method=write.match_method,
                     confidence=write.confidence,
                     metadata=write.spotify_track.model_dump(),
-                    primary=True,
+                    primary=write.primary,
                 )
             )
 
             if write.reuse_track is None and write.requested_id_is_stale:
-                specs.append(
+                claim(
                     ConnectorMappingSpec(
                         track=track,
                         connector="spotify",
@@ -835,7 +961,7 @@ class SpotifyInwardResolver(InwardTrackResolver):
 
         # Step 2: DB writes (the session is not concurrency-safe, so these are
         # sequential regardless — batching them is what makes them cheap).
-        result, _failed_ids = await self._persist_writes(
+        result, failed_ids = await self._persist_writes(
             [
                 _ResolvedWrite(
                     requested_id=dead_id,
@@ -848,6 +974,8 @@ class SpotifyInwardResolver(InwardTrackResolver):
             uow,
             user_id=user_id,
         )
+        if failed_ids:
+            await self._note_write_failures(failed_ids, uow, user_id=user_id)
         for dead_id in result:
             search_result = search_results[dead_id]
             logger.info(

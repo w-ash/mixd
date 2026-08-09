@@ -387,6 +387,37 @@ class TestSpotifyResolutionMetricsPropagation:
         assert counts["dead_ids_unresolved"] == 1
         assert counts["isrc_suspect_deferred"] == 4
 
+    async def test_run_record_carries_every_per_chunk_counter(
+        self, orchestrator, mock_resolver, mock_uow
+    ):
+        """A counter the chunk log reports and the run record drops is readable
+        only while the machine's logs live — and reads as zero once they don't."""
+        connector_plays = [_make_connector_play()]
+        mock_resolver.resolve_connector_plays.return_value = PlayResolutionOutcome(
+            track_plays=[_make_resolved_track_play()],
+            metrics={
+                "error_count": 0,
+                "suppressed": 5,
+                "reused_tracks": 6,
+                "degraded_persists": 7,
+                "write_failed": 8,
+            },
+            resolutions=(),
+        )
+
+        result = await orchestrator.execute_resolution_phase(
+            connector_plays,
+            mock_uow,
+            user_id="test-user",
+            progress_emitter=NullProgressEmitter(),
+        )
+
+        counts = result.to_counts()
+        assert counts["suppressed"] == 5
+        assert counts["reused_tracks"] == 6
+        assert counts["degraded_persists"] == 7
+        assert counts["write_failed"] == 8
+
     async def test_two_phase_import_final_result_carries_spotify_counts(
         self, orchestrator, mock_resolver, mock_uow, mock_importer
     ):
