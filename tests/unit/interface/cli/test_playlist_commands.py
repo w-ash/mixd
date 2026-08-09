@@ -29,6 +29,7 @@ from src.application.use_cases.refresh_connector_playlists import (
 )
 from src.domain.entities.playlist_link import SyncDirection
 from src.interface.cli.app import app
+from tests.fixtures import plain
 
 runner = CliRunner()
 
@@ -480,7 +481,7 @@ class TestSyncLinkOutput:
     def test_shows_unmatched_when_present(self) -> None:
         result = self._invoke(self._result(unmatched=3))
         assert result.exit_code == 0, result.output
-        assert "3 unmatched" in result.output
+        assert "3 unmatched" in plain(result.output)
         assert "Traceback" not in result.output
 
     def test_omits_unmatched_when_zero(self) -> None:
@@ -583,7 +584,7 @@ class TestSyncConfirm:
         assert result.exit_code == 1
         assert "Destructive Sync" in result.output
         assert "40" in result.output
-        assert "--confirm" in result.output  # the re-run hint
+        assert "--confirm" in plain(result.output)  # the re-run hint
         assert "Traceback" not in result.output
 
 
@@ -623,7 +624,7 @@ class TestSyncPreviewRender:
         result = self._invoke(self._preview(flagged=True), [str(uuid4())])
         assert result.exit_code == 0, result.output
         assert "remove 40 of 50" in result.output
-        assert "--confirm" in result.output
+        assert "--confirm" in plain(result.output)
 
 
 class TestRepair:
@@ -659,7 +660,7 @@ class TestRepair:
     def test_reports_repaired_and_remaining(self) -> None:
         result = self._invoke(repaired=3, still_unresolved=2)
         assert result.exit_code == 0, result.output
-        assert "Repaired 3" in result.output
+        assert "Repaired 3" in plain(result.output)
         assert "2 still unresolved" in result.output
 
 
@@ -724,4 +725,4 @@ class TestRemoveTracksPartialMatch:
         assert "Absent Song" in result.output
         assert "skipped" in result.output.lower()
         # ...while the matched removal still reports success.
-        assert "Removed 1 track" in result.output
+        assert "Removed 1 track" in plain(result.output)

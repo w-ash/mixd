@@ -13,6 +13,7 @@ import pytest
 from typer.testing import CliRunner
 
 from src.interface.cli.app import app
+from tests.fixtures import plain
 
 pytestmark = pytest.mark.unit
 
@@ -26,7 +27,7 @@ class TestSyncSchedule:
                 app, ["sync", "schedule", "lastfm:plays", "--daily", "--at", "02:00"]
             )
         assert result.exit_code == 0, result.output
-        assert "Traceback" not in result.output
+        assert "Traceback" not in plain(result.output)
         spec = m_run.call_args.args[0]
         assert spec.sync_target == "lastfm:plays"
         assert spec.daily is True
@@ -37,12 +38,12 @@ class TestSyncSchedule:
             app, ["sync", "schedule", "bogus:thing", "--daily", "--at", "02:00"]
         )
         assert result.exit_code == 2  # typer.BadParameter
-        assert "Traceback" not in result.output
+        assert "Traceback" not in plain(result.output)
 
     def test_missing_target_without_list_errors(self) -> None:
         result = runner.invoke(app, ["sync", "schedule"])
         assert result.exit_code == 2
-        assert "Traceback" not in result.output
+        assert "Traceback" not in plain(result.output)
 
     def test_list_renders_table(self) -> None:
         with patch("src.interface.cli.sync_commands._list_schedules") as m_list:
@@ -60,19 +61,19 @@ class TestScheduleValidationRules:
             app, ["sync", "schedule", "lastfm:plays", "--daily", "--remove"]
         )
         assert result.exit_code == 2
-        assert "only one" in result.output
+        assert "only one" in plain(result.output)
 
     def test_cadence_requires_at(self) -> None:
         result = runner.invoke(app, ["sync", "schedule", "lastfm:plays", "--daily"])
         assert result.exit_code == 2
-        assert "--at" in result.output
+        assert "--at" in plain(result.output)
 
     def test_bad_time_format_rejected(self) -> None:
         result = runner.invoke(
             app, ["sync", "schedule", "lastfm:plays", "--daily", "--at", "25:99"]
         )
         assert result.exit_code == 2
-        assert "Traceback" not in result.output
+        assert "Traceback" not in plain(result.output)
 
 
 class TestWorkflowSchedule:

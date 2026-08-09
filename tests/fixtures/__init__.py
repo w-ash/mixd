@@ -5,6 +5,7 @@ Import from here for convenience::
     from tests.fixtures import make_track, make_mock_uow
 """
 
+from tests.fixtures.cli_output import plain
 from tests.fixtures.db_seeds import (
     seed_db_connector_playlist,
     seed_db_connector_track,
@@ -98,6 +99,7 @@ __all__ = [
     "make_workflow",
     "make_workflow_def",
     "nonexistent_id",
+    "plain",
     "seed_db_connector_playlist",
     "seed_db_connector_track",
     "seed_db_track",
