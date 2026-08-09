@@ -1,6 +1,8 @@
 """Unit tests for environment hardening: get_database_url, ServerConfig, startup warnings."""
 
+import os
 from pathlib import Path
+from typing import cast
 from unittest.mock import patch
 
 from pydantic import ValidationError
@@ -108,6 +110,41 @@ class TestFlatEnvPrecedence:
         with patch.dict("os.environ", {"DATABASE_URL": ""}):
             resolved = Settings(_env_file=self._dotenv(tmp_path)).database.url
         assert resolved == self.DOTENV_URL
+
+
+class TestFlatKeysDoNotClobberNestedSiblings:
+    """A flat key sets its own field, never its whole config group.
+
+    Took prod down at v0.10.2.13: flat ``FILE_LOG_LEVEL`` rebuilt the `logging`
+    group and discarded the image's nested ``LOGGING__LOG_FILE``. Driven through
+    the validator because this repo's ``.env`` defines flat ``LOG_FILE``, which
+    masks the bug locally by winning the very race being pinned.
+    """
+
+    NESTED_LOG_FILE = "/app/data/mixd.log"
+
+    def _transform(self, group_data: dict[str, object]) -> dict[str, object]:
+        with patch.dict("os.environ", {"FILE_LOG_LEVEL": "INFO"}):
+            os.environ.pop("LOG_FILE", None)  # Fly has no .env, so it is unset
+            result = Settings.transform_flat_env_vars({"logging": group_data})
+        assert isinstance(result, dict)
+        logging_group = result["logging"]
+        assert isinstance(logging_group, dict)
+        return cast("dict[str, object]", logging_group)
+
+    def test_a_flat_key_keeps_its_nested_siblings(self):
+        merged = self._transform({"log_file": self.NESTED_LOG_FILE})
+        assert merged["file_level"] == "INFO"
+        assert merged["log_file"] == self.NESTED_LOG_FILE
+
+    def test_a_flat_key_still_wins_its_own_field(self):
+        # Precedence for the field the flat key names is unchanged.
+        merged = self._transform({"file_level": "DEBUG"})
+        assert merged["file_level"] == "INFO"
+
+    def test_a_group_with_no_nested_values_is_unaffected(self):
+        merged = self._transform({})
+        assert merged["file_level"] == "INFO"
 
 
 class TestServerConfig:

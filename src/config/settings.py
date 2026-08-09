@@ -779,7 +779,20 @@ class Settings(BaseSettings):
 
             transformed.setdefault(group, {})[field_key or env_key] = value
 
-        env_data.update(transformed)
+        # Merge per field, never per group. `env_data[group]` already holds
+        # whatever pydantic-settings parsed from the nested `GROUP__FIELD` form,
+        # so replacing the group wholesale drops every nested field no flat route
+        # happens to mention. That is what took prod down at v0.10.2.13: one flat
+        # `FILE_LOG_LEVEL` rebuilt the `logging` group and discarded the image's
+        # `LOGGING__LOG_FILE`, sending the log file to a read-only directory.
+        # A flat key still wins for its own field — it is the more specific
+        # source — but only for that field.
+        for group, values in transformed.items():
+            existing = env_data.get(group)
+            if isinstance(existing, dict):
+                cast("dict[str, object]", existing).update(values)
+            else:
+                env_data[group] = values
         return env_data
 
 

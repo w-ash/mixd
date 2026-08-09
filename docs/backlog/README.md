@@ -1,12 +1,13 @@
 # Project Mixd — Planning
 
-**Current Version**: 0.10.2.13
+**Current Version**: 0.10.2.14
 **Next**: finish the v0.10.2.x import-hardening train — run the remaining GDPR files through the new queue and the full Last.fm history import (v0.10.2.6–2.8 shipped 2026-08-08 as one deploy; entries in [v0.10.x.md](v0.10.x.md#post-deploy-revisions)) — then v0.10.3 Post-import data integrity audit — agent-driven adversarial verification of the first at-scale prod imports (duplicate plays, missed merges, identity twins; the checklist is a floor, the agent extends it) ([details](v0.10.x.md#v0103-post-import-data-integrity-audit)). Follow-up pool: the PLR0913/0917 flip decision ([spoke 26](fable-sweep/26-ratchet-closeout.md)), and the still-gated candidates (**MCP spec/SDK drift check — now unblocked**, the stable-v2 bump landed here; model/effort cost re-eval before Sonnet 5 intro pricing ends 2026-08-31; demand-gated conversation persistence, memory tool, subagent fan-out, chat-voices toggle).
 
 ## Shipped — current cycle (v0.9.x–v0.10.x)
 
 Canonical release log: [CHANGELOG.md](../../CHANGELOG.md) (all ships, full entries). This narrative keeps one line per ship for the current + previous minor cycle only; older lines are pruned at cycle close.
 
+- **v0.10.2.14** (2026-08-09) — Fixes the outage the previous release surfaced: a flat environment variable was rebuilding its whole config group and discarding the nested settings around it, which sent the log file to a directory the app can't write and killed startup. [changelog](../../CHANGELOG.md#010214--2026-08-09)
 - **v0.10.2.13** (2026-08-09) — Check back on a running export and it tells you where it is: one live view of the whole drain, counted in files and never sliding backwards, with each file's plays and duration kept on its row, waiting files showing when their turn comes, and a failure that stays legible without turning the whole export red. [changelog](../../CHANGELOG.md#010213--2026-08-09)
 - **v0.10.2.12** (2026-08-09) — Relinked Spotify ids resolve onto the track your library already holds, so the imports stop failing on your most-played music. The 55 "dead ids" weren't dead: 40 of 47 were relinks, and reuse only checked the ISRC — which a remaster never shares with its original. Failed writes now say so instead of passing for dead identifiers, four dropped counters reach the run record, and an exported `DATABASE_URL` finally beats `.env.local`. [changelog](../../CHANGELOG.md#010212--2026-08-09)
 - **v0.10.2.11** (2026-08-09) — Every import chunk now logs what it actually cost (round trips, per-phase timings, per-operation breakdown), the canonical-reuse lookup stops scaling with the whole library, and three round trips per chunk are gone. Measured the database round trip at 24.5ms and proved it a floor: Fly retired its Pacific Northwest region, so statement count is the only remaining lever. [changelog](../../CHANGELOG.md#010211--2026-08-09)

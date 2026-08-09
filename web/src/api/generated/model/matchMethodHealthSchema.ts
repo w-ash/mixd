@@ -3,7 +3,7 @@
  * Do not edit manually.
  * Mixd
  * Personal music metadata hub
- * OpenAPI spec version: 0.10.2.13
+ * OpenAPI spec version: 0.10.2.14
  */
 import type { MatchingDriftSchema } from './matchingDriftSchema.ts';
 import type { MethodHealthStatSchema } from './methodHealthStatSchema.ts';

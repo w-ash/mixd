@@ -6,6 +6,16 @@ linked backlog version file. Versioning follows mixd's four-segment
 `major.minor.feature.revision` scheme (`.claude/rules/version-management.md`), not strict
 SemVer. Format inspired by [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [0.10.2.14] — 2026-08-09
+
+**Fixes the outage the previous release surfaced.** mixd.me stopped responding after the v0.10.2.13 deploy: the app was crashing at startup trying to open its log file in a directory it has no permission to write.
+
+- **A flat environment variable no longer wipes the settings around it.** Flat keys (`FILE_LOG_LEVEL`) and nested ones (`LOGGING__LOG_FILE`) both feed the same config group, and the merge replaced the group rather than the one field — so the container's log-file path was discarded and fell back to a relative default under a directory owned by root. The merge is now per field; a flat key still wins the field it names.
+- **Two earlier changes had to meet for this to fire**: the flat log-level was added to the deploy config in v0.10.2.11, and v0.10.2.12 made flat keys read the process environment (previously they came only from `.env` files, which the deployed container has none of). It is invisible on a development machine, where `.env` sets the flat log path and wins the same race.
+- Pinned by a test that drives the settings validator directly — going through the normal settings load lets this repo's own `.env` mask the bug.
+
+→ [details](docs/backlog/v0.10.x.md#post-deploy-revisions)
+
 ## [0.10.2.13] — 2026-08-09
 
 **Check back on a running export and it tells you where it is.** Hand mixd thirteen streaming-history files and the queue drained them correctly, but the view of it went blank at exactly the moment you'd look — every time it moved to the next file. Status was reaching the browser over two uncoordinated channels: live progress attached to whichever file was running, and a separate two-second poll for which file that was. The page derived one from the other, so between files it was attached to nothing.
