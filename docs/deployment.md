@@ -159,7 +159,7 @@ fly secrets unset KEY               # Remove a secret
 ### Monitoring
 
 ```bash
-fly logs                            # Tail production logs
+fly logs                            # Tail production logs (buffer ≈ 100 lines — sample fast after incidents, evidence rots in minutes)
 fly status                          # Machine state and health
 fly ssh console                     # SSH into the running machine
 ```

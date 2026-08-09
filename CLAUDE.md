@@ -40,6 +40,8 @@ Layer-specific rules auto-load from `.claude/rules/` when editing matching files
 
 Docker must be running — tests use testcontainers PostgreSQL.
 
+⚠️ **`.env.local`'s DATABASE_URL points at PROD and auto-loads for every command** — a "local" `mixd` invocation or ad-hoc script hits the production database unless you export `DATABASE_URL='postgresql+psycopg://mixd:mixd@localhost:5432/mixd'` first. Plain `uv run pytest` is safe (testcontainers). `mixd whoami` shows which DB/user a CLI invocation resolves to.
+
 ```bash
 # Development
 uv run pytest                    # Fast tests (<1min)

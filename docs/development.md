@@ -3,6 +3,8 @@
 ## Getting Started
 
 ### Setup
+
+> ⚠️ `.env.local` carries the **production** DATABASE_URL and is auto-loaded by every command. Export the local URL (`postgresql+psycopg://mixd:mixd@localhost:5432/mixd`) before running any `mixd` command or script you mean to be local, and run `alembic upgrade head` against local Docker PG before smoke tests — it drifts behind on migrations. `mixd whoami` confirms the resolved target.
 ```bash
 git clone <repository-url> && cd mixd
 uv sync
