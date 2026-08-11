@@ -204,6 +204,40 @@ class PlayRecord:
     raw_data: Mapping[str, JsonValue] = field(factory=empty_json_map)
 
 
+type PlayExclusionReason = Literal["too_short", "incognito", "unresolved"]
+"""Why a ledger observation was left out of canonical play history.
+
+A service export is an event log, not a list of listens: it records every time
+the player started audio, including thousands of one-second skips. Resolution
+therefore drops most rows on purpose, and until this vocabulary existed it
+recorded that decision by *declining to write* the track id it had already
+found — so a deliberate skip and a genuine identification failure were
+indistinguishable afterwards.
+
+- ``too_short`` — the track was identified; the play did not meet the listen
+  threshold (a skip, a preview, a few seconds of a track).
+- ``incognito`` — a private session, where the user asked the service not to
+  record their listening.
+- ``unresolved`` — the track genuinely could not be identified.
+
+Only ``unresolved`` implies the track id is unknown; the other two accompany a
+track that resolved perfectly well. Explanatory only: ``resolved_track_id``
+stays the projection's predicate, since an unprocessed row carries no reason
+either and must also stay out.
+"""
+
+PLAY_EXCLUSION_REASONS: Final[frozenset[str]] = frozenset({
+    "too_short",
+    "incognito",
+    "unresolved",
+})
+"""Runtime membership test for :data:`PlayExclusionReason`.
+
+Kept adjacent to the type so the two are edited together — a ``Literal``'s
+members are not reachable at runtime through a supported API.
+"""
+
+
 @define(frozen=True, slots=True)
 class ConnectorTrackPlay:
     """Raw play data from external music services before resolution to canonical tracks.
@@ -244,6 +278,8 @@ class ConnectorTrackPlay:
     resolved_at: datetime | None = field(
         default=None, validator=validate_timezone_aware
     )
+    # Why this observation is absent from canonical history; None = it counts.
+    exclusion_reason: PlayExclusionReason | None = None
 
     # Database persistence
     id: UUID = field(factory=uuid7)

@@ -966,6 +966,337 @@ class TestISRCSuspectGuard:
         track_repo.save_track.assert_not_called()
 
 
+class TestIdentityReuseBeforeCreation:
+    """A release that already has a canonical must not spawn a second one.
+
+    A remaster never shares its original's ISRC, so the ISRC arm cannot see the
+    pairing; the shared reuse step upstream probes with the *export's* names,
+    which can spell the title differently or not carry it at all. What is left
+    is the provider's own metadata, checked against the canonicals that exist.
+    """
+
+    def _fetch(self, tracks):
+        connector = AsyncMock()
+        connector.get_tracks_by_ids.return_value = SpotifyTracksFetch(tracks=tracks)
+        return connector
+
+    async def test_a_remaster_with_its_own_isrc_reuses_the_original_canonical(self):
+        original = make_track(
+            42,
+            title="Orgullecida",
+            artist="Buena Vista Social Club",
+            isrc="GBBGU9701150",
+            duration_ms=198_200,
+        )
+        remaster_id = "remaster_spotify_id_01"
+        connector = self._fetch({
+            remaster_id: make_spotify_track(
+                remaster_id,
+                "Orgullecida",
+                "Buena Vista Social Club",
+                duration_ms=203_306,  # 5.1s off — the same recording, remastered
+                external_ids=SpotifyExternalIds(isrc="GBBGU0880009"),
+            )
+        })
+
+        resolver = SpotifyInwardResolver(spotify_connector=connector)
+        uow, track_repo, connector_repo = _make_uow_with_repos()
+        track_repo.find_tracks_by_isrcs.return_value = {}
+        track_repo.find_tracks_by_title_artist.return_value = {
+            ("orgullecida", "buena vista social club"): original
+        }
+
+        result, metrics = await resolver.resolve_to_canonical_tracks(
+            [remaster_id], uow, user_id="test-user"
+        )
+
+        assert result[remaster_id].id == original.id
+        track_repo.save_track.assert_not_called()
+        (spec,) = _mapping_specs(connector_repo)
+        assert spec.connector_id == remaster_id
+        assert spec.match_method == MatchMethod.CANONICAL_REUSE
+        assert spec.track.id == original.id
+        assert metrics.failed == 0
+
+    async def test_a_different_recording_of_the_same_name_still_gets_a_canonical(self):
+        """A 232s gap is a different edit, whatever the artist and title say."""
+        short_edit = make_track(
+            42,
+            title="The Line - Solomun Remix - Kristian's Vote",
+            artist="Âme",
+            isrc="NLF711913921",
+            duration_ms=216_000,
+        )
+        long_id = "long_version_spotify_id"
+        connector = self._fetch({
+            long_id: make_spotify_track(
+                long_id,
+                "The Line - Solomun Remix - Kristian's Vote",
+                "Âme",
+                duration_ms=448_200,
+                external_ids=SpotifyExternalIds(isrc="DEEC31810096"),
+            )
+        })
+
+        resolver = SpotifyInwardResolver(spotify_connector=connector)
+        uow, track_repo, connector_repo = _make_uow_with_repos()
+        track_repo.find_tracks_by_isrcs.return_value = {}
+        track_repo.find_tracks_by_title_artist.return_value = {
+            (
+                "the line - solomun remix - kristian's vote",
+                "âme",
+            ): short_edit
+        }
+
+        result, _ = await resolver.resolve_to_canonical_tracks(
+            [long_id], uow, user_id="test-user"
+        )
+
+        assert result[long_id].id != short_edit.id
+        track_repo.save_track.assert_called_once()
+        (spec,) = _mapping_specs(connector_repo)
+        assert spec.match_method == MatchMethod.DIRECT_IMPORT
+
+    async def test_a_remix_matched_only_by_parenthetical_stripping_is_refused(self):
+        """The probe proposes candidates loosely; reuse decides on the full name.
+
+        "Ice Ice Baby (Wunderbros Dubstep Remix)" comes back for a probe of
+        "Ice Ice Baby", and the two are close enough in length that the
+        duration guard alone would wave it through.
+        """
+        original = make_track(
+            42,
+            title="Ice Ice Baby",
+            artist="Vanilla Ice",
+            isrc="USA560845821",
+            duration_ms=254_466,
+        )
+        remix_id = "dubstep_remix_spotify_id"
+        connector = self._fetch({
+            remix_id: make_spotify_track(
+                remix_id,
+                "Ice Ice Baby (Wunderbros Dubstep Remix)",
+                "Vanilla Ice",
+                duration_ms=248_695,
+                external_ids=SpotifyExternalIds(isrc="USA2P1400012"),
+            )
+        })
+
+        resolver = SpotifyInwardResolver(spotify_connector=connector)
+        uow, track_repo, connector_repo = _make_uow_with_repos()
+        track_repo.find_tracks_by_isrcs.return_value = {}
+        track_repo.find_tracks_by_title_artist.return_value = {
+            ("ice ice baby (wunderbros dubstep remix)", "vanilla ice"): original
+        }
+
+        result, _ = await resolver.resolve_to_canonical_tracks(
+            [remix_id], uow, user_id="test-user"
+        )
+
+        assert result[remix_id].id != original.id
+        track_repo.save_track.assert_called_once()
+
+    async def test_a_canonical_of_unknown_length_is_never_reused_on_names_alone(self):
+        skeletal = make_track(
+            42, title="Garden", artist="TEED", isrc=None, duration_ms=None
+        )
+        spotify_id = "garden_spotify_id_0001"
+        connector = self._fetch({
+            spotify_id: make_spotify_track(
+                spotify_id, "Garden", "TEED", duration_ms=275_779
+            )
+        })
+
+        resolver = SpotifyInwardResolver(spotify_connector=connector)
+        uow, track_repo, _ = _make_uow_with_repos()
+        track_repo.find_tracks_by_isrcs.return_value = {}
+        track_repo.find_tracks_by_title_artist.return_value = {
+            ("garden", "teed"): skeletal
+        }
+
+        result, _ = await resolver.resolve_to_canonical_tracks(
+            [spotify_id], uow, user_id="test-user"
+        )
+
+        assert result[spotify_id].id != skeletal.id
+        track_repo.save_track.assert_called_once()
+
+    async def test_two_pressings_in_one_chunk_share_the_first_ones_canonical(self):
+        """Neither id can find the other by lookup — neither exists yet."""
+        first, second = "pressing_1997_id_0001", "pressing_2008_id_0001"
+        connector = self._fetch({
+            first: make_spotify_track(
+                first,
+                "Buffalo Stance",
+                "Robyn",
+                duration_ms=307_546,
+                external_ids=SpotifyExternalIds(isrc="GBUM72200696"),
+            ),
+            second: make_spotify_track(
+                second,
+                "Buffalo Stance",
+                "Robyn",
+                duration_ms=307_546,
+                external_ids=SpotifyExternalIds(isrc="GBUM72201255"),
+            ),
+        })
+
+        resolver = SpotifyInwardResolver(spotify_connector=connector)
+        uow, track_repo, connector_repo = _make_uow_with_repos()
+        track_repo.find_tracks_by_isrcs.return_value = {}
+        saved = make_track(7, title="Buffalo Stance", artist="Robyn")
+        track_repo.save_track.return_value = saved
+
+        result, _ = await resolver.resolve_to_canonical_tracks(
+            [first, second], uow, user_id="test-user"
+        )
+
+        assert result[first].id == result[second].id == saved.id
+        track_repo.save_track.assert_called_once()
+        # Which of the two leads is chunk order, and chunk order is a set — the
+        # invariant is that exactly one creates and the other reuses it.
+        methods = {
+            spec.connector_id: spec.match_method
+            for spec in _mapping_specs(connector_repo)
+        }
+        assert sorted(methods) == sorted([first, second])
+        assert sorted(methods.values()) == sorted([
+            MatchMethod.CANONICAL_REUSE,
+            MatchMethod.DIRECT_IMPORT,
+        ])
+
+    async def test_two_masters_of_different_lengths_each_keep_their_canonical(self):
+        first, second = "master_1997_id_00001", "master_2008_id_00001"
+        connector = self._fetch({
+            first: make_spotify_track(
+                first, "Chan Chan", "Buena Vista Social Club", duration_ms=257_213
+            ),
+            second: make_spotify_track(
+                second, "Chan Chan", "Buena Vista Social Club", duration_ms=285_506
+            ),
+        })
+
+        resolver = SpotifyInwardResolver(spotify_connector=connector)
+        uow, track_repo, _ = _make_uow_with_repos()
+        track_repo.find_tracks_by_isrcs.return_value = {}
+        track_repo.save_track.side_effect = [make_track(1), make_track(2)]
+
+        result, metrics = await resolver.resolve_to_canonical_tracks(
+            [first, second], uow, user_id="test-user"
+        )
+
+        assert result[first].id != result[second].id
+        assert track_repo.save_track.call_count == 2
+        assert metrics.created == 2
+
+    async def test_a_follower_is_deferred_when_its_leaders_write_is_rolled_back(self):
+        """Creating one for it instead would write the duplicate this prevents."""
+        leader, follower = "leader_id_0000000001", "follower_id_000000001"
+        connector = self._fetch({
+            leader: make_spotify_track(
+                leader, "Try It Over", "Yujen", duration_ms=220_357
+            ),
+            follower: make_spotify_track(
+                follower, "Try It Over", "Yujen", duration_ms=221_000
+            ),
+        })
+
+        resolver = SpotifyInwardResolver(spotify_connector=connector)
+        uow, track_repo, connector_repo = _make_uow_with_repos()
+        track_repo.find_tracks_by_isrcs.return_value = {}
+
+        # Whichever of the two leads is the one that creates — poison that write.
+        async def _refuse_the_creation(specs, **_kwargs):
+            if any(spec.match_method == MatchMethod.DIRECT_IMPORT for spec in specs):
+                raise RuntimeError("deadlock detected")
+            return [spec.track for spec in specs]
+
+        connector_repo.map_tracks_to_connectors.side_effect = _refuse_the_creation
+
+        result, metrics = await resolver.resolve_to_canonical_tracks(
+            [leader, follower], uow, user_id="test-user"
+        )
+
+        assert result == {}
+        assert metrics.created == 0
+        assert metrics.failed == 2
+        assert metrics.write_failed == 2
+
+    async def test_a_suspect_isrc_collision_is_never_folded_away(self):
+        """The review decides whether the two are one recording — not this pass."""
+        owner = make_track(
+            42,
+            title="Same Song",
+            artist="Same Artist",
+            isrc="USRC17000001",
+            duration_ms=200_000,
+        )
+        suspect_id = "suspect_isrc_id_00001"
+        connector = self._fetch({
+            suspect_id: make_spotify_track(
+                suspect_id,
+                "Same Song",
+                "Same Artist",
+                duration_ms=260_000,
+                external_ids=SpotifyExternalIds(isrc="USRC17000001"),
+            )
+        })
+
+        resolver = SpotifyInwardResolver(spotify_connector=connector)
+        uow, track_repo, connector_repo = _make_uow_with_repos()
+        track_repo.find_tracks_by_isrcs.return_value = {"USRC17000001": owner}
+        # A third canonical the names would otherwise reuse.
+        track_repo.find_tracks_by_title_artist.return_value = {
+            ("same song", "same artist"): make_track(
+                43, title="Same Song", artist="Same Artist", duration_ms=259_000
+            )
+        }
+
+        result, _ = await resolver.resolve_to_canonical_tracks(
+            [suspect_id], uow, user_id="test-user"
+        )
+
+        connector_repo.queue_isrc_collision_reviews.assert_called_once()
+        track_repo.save_track.assert_called_once()
+        assert result[suspect_id].id not in {42, 43}
+
+    async def test_a_relink_still_records_its_substitution(self):
+        """A stale requested id keeps the redirect shape: dual mapping and event."""
+        requested, current = "old_spotify_id_00001", "new_spotify_id_00001"
+        connector = self._fetch({
+            requested: make_spotify_track(
+                current, "Star Guitar", "The Chemical Brothers", duration_ms=387_173
+            )
+        })
+
+        resolver = SpotifyInwardResolver(spotify_connector=connector)
+        uow, track_repo, connector_repo = _make_uow_with_repos()
+        track_repo.find_tracks_by_isrcs.return_value = {}
+        track_repo.find_tracks_by_title_artist.return_value = {
+            ("star guitar", "the chemical brothers"): make_track(
+                42,
+                title="Star Guitar",
+                artist="The Chemical Brothers",
+                duration_ms=387_173,
+            )
+        }
+
+        result, metrics = await resolver.resolve_to_canonical_tracks(
+            [requested], uow, user_id="test-user"
+        )
+
+        assert metrics.redirects == 1
+        assert result[requested].id != 42
+        methods = {
+            spec.connector_id: spec.match_method
+            for spec in _mapping_specs(connector_repo)
+        }
+        assert methods == {
+            current: MatchMethod.DIRECT_IMPORT,
+            requested: MatchMethod.DIRECT_IMPORT_STALE_ID,
+        }
+
+
 class TestFallbackDoesNotClearItsOwnBackoff:
     """A stand-in found by search is not an answer about the id that was asked."""
 

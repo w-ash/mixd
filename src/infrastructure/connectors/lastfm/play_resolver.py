@@ -11,7 +11,12 @@ from collections.abc import Callable
 from uuid import UUID
 
 from src.config import get_logger
-from src.domain.entities import ConnectorTrackPlay, Track, TrackPlay
+from src.domain.entities import (
+    ConnectorTrackPlay,
+    PlayExclusionReason,
+    Track,
+    TrackPlay,
+)
 from src.domain.entities.shared import JsonValue
 from src.domain.matching.play_projection import build_play_context
 from src.domain.matching.protocols import CrossDiscoveryProvider
@@ -80,6 +85,9 @@ class LastfmConnectorPlayResolver:
         # Step 2: Create TrackPlay objects with Last.fm metadata preservation
         track_plays: list[TrackPlay] = []
         resolutions: list[tuple[ConnectorTrackPlay, UUID]] = []
+        # Last.fm carries no ms_played and no private-session flag, so its only
+        # exclusion is a genuine failure to identify the track.
+        exclusions: list[tuple[ConnectorTrackPlay, PlayExclusionReason]] = []
         filtering_stats: ResolutionMetrics = {
             "raw_plays": len(connector_plays),
             "accepted_plays": 0,
@@ -99,6 +107,7 @@ class LastfmConnectorPlayResolver:
                 logger.warning(
                     f"Track not resolved: {connector_play.artist_name} - {connector_play.track_name}"
                 )
+                exclusions.append((connector_play, "unresolved"))
                 continue
 
             filtering_stats["accepted_plays"] += 1
@@ -139,6 +148,7 @@ class LastfmConnectorPlayResolver:
             track_plays=track_plays,
             metrics=lastfm_metrics,
             resolutions=tuple(resolutions),
+            exclusions=tuple(exclusions),
         )
 
     async def _resolve_plays_to_canonical_tracks(

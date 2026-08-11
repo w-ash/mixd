@@ -182,6 +182,62 @@ class TestResolverFiltering:
         assert len(plays) == 0
         assert metrics["duration_excluded"] == 1
 
+    async def test_incognito_play_records_incognito_reason(
+        self, resolver_with_existing_tracks
+    ):
+        """The ledger must be able to tell a private session from a failure."""
+        resolver, uow = resolver_with_existing_tracks
+        play = _make_connector_play(incognito=True, ms_played=300000)
+
+        outcome = await resolver.resolve_connector_plays(
+            [play], uow, user_id="test-user"
+        )
+
+        assert outcome.exclusions == ((play, "incognito"),)
+
+    async def test_duration_excluded_play_records_too_short_not_unresolved(
+        self, resolver_with_existing_tracks
+    ):
+        """The track resolved fine — only the listen threshold rejected it.
+
+        This is the distinction the reason column exists for: a skip and an
+        identification failure were previously both a NULL resolved_track_id.
+        """
+        resolver, uow = resolver_with_existing_tracks
+        play = _make_connector_play(ms_played=30000)  # 30s of a 5-minute track
+
+        outcome = await resolver.resolve_connector_plays(
+            [play], uow, user_id="test-user"
+        )
+
+        assert outcome.exclusions == ((play, "too_short"),)
+
+    async def test_unidentifiable_play_records_unresolved_reason(
+        self, resolver_with_existing_tracks
+    ):
+        """A play carrying no extractable id is the one genuine failure class."""
+        resolver, uow = resolver_with_existing_tracks
+        play = _make_connector_play(track_uri="invalid:uri:format", ms_played=300000)
+
+        outcome = await resolver.resolve_connector_plays(
+            [play], uow, user_id="test-user"
+        )
+
+        assert outcome.exclusions == ((play, "unresolved"),)
+
+    async def test_accepted_play_records_no_exclusion(
+        self, resolver_with_existing_tracks
+    ):
+        """A counted play must carry no reason — that is the column's NULL."""
+        resolver, uow = resolver_with_existing_tracks
+        play = _make_connector_play(ms_played=300000)
+
+        outcome = await resolver.resolve_connector_plays(
+            [play], uow, user_id="test-user"
+        )
+
+        assert outcome.exclusions == ()
+
     async def test_accepted_play_produces_track_play(
         self, resolver_with_existing_tracks
     ):

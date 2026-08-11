@@ -128,3 +128,17 @@ events_for_mapping  # "why does my library believe this" reader — tests + v0.1
 # silently blank the queue view.
 size_bytes  # QueueEntry + ImportQueueEntrySchema — per-file bytes, weights the estimate
 settled_at  # QueueEntry + ImportQueueEntrySchema — per-file duration, batch-rate input
+
+# --- v0.10.3: ResolutionMetrics keys reached only through string constants ---
+# All four are written by the Spotify resolver's _assemble_metrics and read in
+# play_import_orchestrator via `combined_metrics[key]`, where `key` comes from
+# _RUN_METRIC_KEYS / _CARRIED_RESOLUTION_METRICS. They were visible to vulture
+# only by accident: _combine_phase_results used to bind one local per metric,
+# and v0.10.3 replaced those hand-written blocks with a single table-driven
+# loop — the DRY fix that stopped a counter reaching the run record at all.
+# Whitelisting is the honest trade: the alternative is reinstating four dead
+# locals purely so a tool can see a name it cannot resolve through a str key.
+fallback_resolved  # ResolutionMetrics — read via _CARRIED_RESOLUTION_METRICS
+redirect_resolved  # ResolutionMetrics — read via _CARRIED_RESOLUTION_METRICS
+dead_ids_unresolved  # ResolutionMetrics — read via _CARRIED_RESOLUTION_METRICS
+isrc_suspect_deferred  # ResolutionMetrics — read via _CARRIED_RESOLUTION_METRICS

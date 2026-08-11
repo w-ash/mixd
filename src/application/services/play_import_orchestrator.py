@@ -76,6 +76,8 @@ _CHUNK_METRIC_KEYS: Final = (
     "new_tracks",
     "reused_tracks",
     "error_count",
+    "duration_excluded",
+    "incognito_excluded",
     "suppressed",
     "degraded_persists",
     "redirect_resolved",
@@ -90,6 +92,8 @@ _CHUNK_METRIC_KEYS: Final = (
 # run-level zero for a key that is merely absent reads as evidence of health.
 _RUN_METRIC_KEYS: Final = (
     "error_count",
+    "duration_excluded",
+    "incognito_excluded",
     "fallback_resolved",
     "redirect_resolved",
     "dead_ids_unresolved",
@@ -105,6 +109,12 @@ _RUN_METRIC_KEYS: Final = (
 # "ask again", and reading one without the other is what turned a chunk of
 # refused writes into a diagnosis of dead identifiers.
 _RESOLUTION_SUMMARY_METRICS: Final[tuple[tuple[str, str, int], ...]] = (
+    # The breakdown behind "Filtered", sharing its significance so the two sort
+    # together. A service export is an event log, so discarding a third of it is
+    # normal — but that is only reassuring if the user can see the discards are
+    # skips and private sessions rather than tracks mixd failed to identify.
+    ("duration_excluded", "Skipped — Too Short to Count", 3),
+    ("incognito_excluded", "Skipped — Private Session", 3),
     ("fallback_resolved", "Resolved via Search Fallback", 5),
     ("redirect_resolved", "Resolved via Spotify Redirect", 6),
     ("dead_ids_unresolved", "Dead IDs Unresolved", 7),
@@ -113,6 +123,19 @@ _RESOLUTION_SUMMARY_METRICS: Final[tuple[tuple[str, str, int], ...]] = (
     ("suppressed", "Skipped — Inside Backoff Window", 10),
     ("reused_tracks", "Reused Existing Canonicals", 11),
     ("degraded_persists", "Chunks Written One Row at a Time", 12),
+)
+
+# Resolution-phase counters the terminal combined result re-publishes, in its
+# own display order. The combined result is what ``operation_runs.counts`` is
+# built from, so a counter missing here never reaches the user's run record no
+# matter how faithfully the resolution phase counted it.
+_CARRIED_RESOLUTION_METRICS: Final[tuple[tuple[str, str, int], ...]] = (
+    ("duration_excluded", "Skipped — Too Short to Count", 4),
+    ("incognito_excluded", "Skipped — Private Session", 4),
+    ("fallback_resolved", "Resolved via Search Fallback", 7),
+    ("redirect_resolved", "Resolved via Spotify Redirect", 8),
+    ("dead_ids_unresolved", "Dead IDs Unresolved", 9),
+    ("isrc_suspect_deferred", "ISRC Suspect — Deferred to Review", 10),
 )
 
 
@@ -359,12 +382,20 @@ class PlayImportOrchestrator:
                                 # 15,317 of them when a 54-minute import was
                                 # killed mid-run — every track was durable and
                                 # every play still read as unresolved.
-                                if outcome.resolutions:
+                                # Exclusions ride the same transaction for the
+                                # same reason: a row that reads as excluded but
+                                # carries no reason is indistinguishable from
+                                # one that failed to resolve, which is exactly
+                                # the ambiguity the reason column removes.
+                                if outcome.resolutions or outcome.exclusions:
                                     ledger = uow.get_connector_play_repository()
                                     async with phase("writeback"):
                                         _ = await ledger.bulk_update_resolution(
                                             outcome.resolutions,
                                             resolved_at=datetime.now(UTC),
+                                        )
+                                        _ = await ledger.bulk_update_exclusions(
+                                            outcome.exclusions
                                         )
                                     resolved_played_at.extend(
                                         play.played_at
@@ -562,14 +593,6 @@ class PlayImportOrchestrator:
         resolved = resolution_result.summary_metrics.get("resolved")
         resolution_filtered = resolution_result.summary_metrics.get("filtered")
         resolution_errors = resolution_result.summary_metrics.get("errors")
-        fallback_resolved = resolution_result.summary_metrics.get("fallback_resolved")
-        redirect_resolved = resolution_result.summary_metrics.get("redirect_resolved")
-        dead_ids_unresolved = resolution_result.summary_metrics.get(
-            "dead_ids_unresolved"
-        )
-        isrc_suspect_deferred = resolution_result.summary_metrics.get(
-            "isrc_suspect_deferred"
-        )
 
         total_errors = int(ingestion_errors + resolution_errors)
 
@@ -627,33 +650,15 @@ class PlayImportOrchestrator:
                 significance=6,
             )
 
-        if fallback_resolved > 0:
-            result.summary_metrics.add(
-                "fallback_resolved",
-                int(fallback_resolved),
-                "Resolved via Search Fallback",
-                significance=7,
-            )
-        if redirect_resolved > 0:
-            result.summary_metrics.add(
-                "redirect_resolved",
-                int(redirect_resolved),
-                "Resolved via Spotify Redirect",
-                significance=8,
-            )
-        if dead_ids_unresolved > 0:
-            result.summary_metrics.add(
-                "dead_ids_unresolved",
-                int(dead_ids_unresolved),
-                "Dead IDs Unresolved",
-                significance=9,
-            )
-        if isrc_suspect_deferred > 0:
-            result.summary_metrics.add(
-                "isrc_suspect_deferred",
-                int(isrc_suspect_deferred),
-                "ISRC Suspect — Deferred to Review",
-                significance=10,
-            )
+        # Table-driven rather than a block per metric: the resolution phase and
+        # the combined result each used to name their counters independently,
+        # so a counter added to one was silently absent from the other — which
+        # is how the skip breakdown reached the logs but never the run record.
+        for key, label, significance in _CARRIED_RESOLUTION_METRICS:
+            value = resolution_result.summary_metrics.get(key)
+            if value > 0:
+                result.summary_metrics.add(
+                    key, int(value), label, significance=significance
+                )
 
         return result

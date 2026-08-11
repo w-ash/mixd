@@ -6,6 +6,20 @@ linked backlog version file. Versioning follows mixd's four-segment
 `major.minor.feature.revision` scheme (`.claude/rules/version-management.md`), not strict
 SemVer. Format inspired by [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [0.10.3] — 2026-08-10
+
+**Your listening history has been audited against itself, and it holds up.** The first at-scale import — fifteen years of Spotify history plus Last.fm — was checked adversarially: end-to-start normalization re-derived exactly across 132,199 plays, zero dropped observations, zero orphaned plays, zero duplicate canonical rows. Nine defects were found around the edges, and the ones that mattered are fixed.
+
+- **Your history knows why a play didn't count.** 80,209 ledger rows had no canonical play and looked identical whether they were deliberate skips or tracks mixd failed to identify. Every one now records its reason — 79,659 skips, 499 private sessions, 51 genuine failures — and an import that discards a third of a file says so at the time instead of leaving it to be discovered a year later.
+- **Spotify's live API was stamping the wrong end of a play.** Its timestamps mark where a play *ended*, not where it began, so live-polled plays landed a full track-length away from the export's and Last.fm's view of the same listen and never merged. Calibration confirmed it three independent ways; the correction rides as ledger data through the existing normalization seam, never as a synthetic listening time.
+- **Duplicate rows in Spotify's own export no longer double-count.** The export ships the same listen twice with timestamps a second apart; mixd already caught the exact duplicates and now catches the jittered ones, with a bound that makes a false collapse arithmetically impossible rather than merely unlikely.
+- **A remaster no longer splits into a second track.** Canonical reuse checked ISRC, which a remaster never shares with its original, so releases of one song spawned twins — 55 groups of them, still growing. Reuse now consults the identity it already has, with a duration guard so genuinely different recordings still get their own entry.
+- **Retired identity history can no longer be deleted out from under its own audit log**, and the listen threshold is documented as the deliberate Last.fm-parity rule it is — with its one intentional divergence, so a short track played start to finish still counts.
+- Two findings dissolved under scrutiny rather than being fixed: a "lost listening session" was 28 private-session plays working exactly as designed, and six "split" listens turned out to be one tenancy bug wearing an identity costume.
+- The audit harness is re-runnable (`scripts/audit_play_integrity.py`, five checks) so the next import and the next connector get measured, not assumed.
+
+→ [details](docs/backlog/v0.10.x.md#v0103-post-import-data-integrity-audit) · [findings](docs/backlog/v0.10.3-audit-findings.md)
+
 ## [0.10.2.14] — 2026-08-09
 
 **Fixes the outage the previous release surfaced.** mixd.me stopped responding after the v0.10.2.13 deploy: the app was crashing at startup trying to open its log file in a directory it has no permission to write.

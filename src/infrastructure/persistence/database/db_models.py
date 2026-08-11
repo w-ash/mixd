@@ -800,6 +800,13 @@ class DBConnectorPlay(BaseEntity):
     resolved_at: Mapped[datetime | None] = mapped_column(
         DateTime(timezone=True),
     )
+    # Why a row with no resolved_track_id is absent from canonical history.
+    # Explanatory only — resolved_track_id remains the projection's predicate,
+    # because an unprocessed row is also reason-less and must stay out. The
+    # export is an event log, so most excluded rows are skips whose track
+    # resolved perfectly well; without this column that is indistinguishable
+    # from a resolution failure. See PlayExclusionReason for the vocabulary.
+    exclusion_reason: Mapped[str | None] = mapped_column(String(16))
 
     # Import tracking
     import_timestamp: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))

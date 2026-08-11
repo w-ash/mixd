@@ -2,7 +2,7 @@
 
 from collections.abc import Iterable, Iterator, Mapping, Sequence
 from datetime import UTC, date, datetime
-from typing import Final
+from typing import Final, cast
 from uuid import UUID
 
 import sqlalchemy as sa
@@ -10,7 +10,12 @@ from sqlalchemy.dialects.postgresql import UUID as PGUUID
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.config import get_logger
-from src.domain.entities import ConnectorTrackPlay, ensure_utc
+from src.domain.entities import (
+    PLAY_EXCLUSION_REASONS,
+    ConnectorTrackPlay,
+    PlayExclusionReason,
+    ensure_utc,
+)
 from src.infrastructure.persistence.database.db_models import DBConnectorPlay
 from src.infrastructure.persistence.repositories._shared.copy_insert import (
     CopyRow,
@@ -23,6 +28,19 @@ from src.infrastructure.persistence.repositories.base_repo import (
 from src.infrastructure.persistence.repositories.repo_decorator import db_operation
 
 logger = get_logger(__name__)
+
+
+def _as_exclusion_reason(stored: str | None) -> PlayExclusionReason | None:
+    """Narrow the stored string back to the domain vocabulary.
+
+    An unrecognised value reads as "no recorded reason" rather than raising:
+    the column is explanatory, so a stale reason from an older writer must
+    never break a projection read.
+    """
+    if stored in PLAY_EXCLUSION_REASONS:
+        return cast("PlayExclusionReason", stored)
+    return None
+
 
 # Bounded VALUES-list size for the resolution write-back UPDATE — a full
 # Last.fm history import resolves 50k+ plays in one Phase 2 pass.
@@ -42,6 +60,7 @@ _COPY_COLUMNS: Final[tuple[str, ...]] = (
     "import_batch_id",
     "resolved_track_id",
     "resolved_at",
+    "exclusion_reason",
     "created_at",
     "updated_at",
 )
@@ -123,6 +142,7 @@ class ConnectorTrackPlayRepository(BaseRepository[DBConnectorPlay, ConnectorTrac
                 play.import_batch_id,
                 play.resolved_track_id,
                 ensure_utc(play.resolved_at),
+                play.exclusion_reason,
                 now,
                 now,
             )
@@ -260,6 +280,7 @@ class ConnectorTrackPlayRepository(BaseRepository[DBConnectorPlay, ConnectorTrac
             import_batch_id=row.import_batch_id,
             resolved_track_id=row.resolved_track_id,
             resolved_at=row.resolved_at,
+            exclusion_reason=_as_exclusion_reason(row.exclusion_reason),
             id=row.id,
         )
 
@@ -272,67 +293,120 @@ class ConnectorTrackPlayRepository(BaseRepository[DBConnectorPlay, ConnectorTrac
     ) -> int:
         """Persist canonical resolution onto ledger rows.
 
-        Matches by the ledger natural key rather than entity id: on re-imports
-        the stored duplicate keeps its original id while the in-memory entity
-        carries a fresh one, so an id-keyed UPDATE would silently miss every
-        such row (and could never heal a previously failed resolution).
-        ``ms_played`` compares with IS NOT DISTINCT FROM — Last.fm rows are
-        NULL there, matching the NULLS NOT DISTINCT dedup constraint.
+        Returns:
+            Number of ledger rows updated.
+        """
+        total = await self._bulk_update_by_natural_key(
+            resolutions,
+            payload_column="resolved_track_id",
+            payload_type=PGUUID(as_uuid=True),
+            # Clearing the reason keeps the two columns from contradicting each
+            # other when a re-import heals a row that previously failed: a row
+            # cannot be both counted and excluded.
+            extra_values={"resolved_at": resolved_at, "exclusion_reason": None},
+        )
+        logger.info(f"Wrote back resolution for {total} ledger rows")
+        return total
+
+    @db_operation("bulk_update_exclusions")
+    async def bulk_update_exclusions(
+        self,
+        exclusions: Sequence[tuple[ConnectorTrackPlay, PlayExclusionReason]],
+    ) -> int:
+        """Persist why each observation was left out of canonical history.
+
+        Explanatory only — ``resolved_track_id`` stays NULL and remains the
+        projection's predicate. Written in the same chunk transaction as the
+        resolutions so the two never disagree: a row that reads as excluded
+        but carries no reason is the ambiguity this column exists to remove.
+
+        Skips rows that already carry a resolution, so the write can never
+        produce the contradiction its counterpart guards against from the other
+        side — a row inside the canonical projection that also reads as
+        excluded. Such a row can exist (a play resolved under older policy and
+        excluded under current policy); leaving it alone keeps this column
+        explanatory, because clearing the resolution here would silently change
+        which plays count, which is the user's call and not a write-back's.
 
         Returns:
             Number of ledger rows updated.
         """
-        if not resolutions:
+        return await self._bulk_update_by_natural_key(
+            exclusions,
+            payload_column="exclusion_reason",
+            payload_type=sa.String(),
+            extra_where=(DBConnectorPlay.resolved_track_id.is_(None),),
+        )
+
+    async def _bulk_update_by_natural_key(
+        self,
+        updates: Sequence[tuple[ConnectorTrackPlay, object]],
+        *,
+        payload_column: str,
+        # Union rather than a TypeVar: TypeEngine is invariant, so a single
+        # parameter cannot accept both the UUID and str payloads the two
+        # callers need. Widen this when a third payload type appears.
+        payload_type: sa.types.TypeEngine[UUID] | sa.types.TypeEngine[str],
+        extra_values: Mapping[str, object] | None = None,
+        extra_where: tuple[sa.ColumnElement[bool], ...] = (),
+    ) -> int:
+        """Batched UPDATE keyed on the ledger natural key, not entity id.
+
+        On re-imports the stored duplicate keeps its original id while the
+        in-memory entity carries a fresh one, so an id-keyed UPDATE would
+        silently miss every such row (and could never heal a previously failed
+        write). ``ms_played`` compares with IS NOT DISTINCT FROM — Last.fm rows
+        are NULL there, matching the NULLS NOT DISTINCT dedup constraint.
+        """
+        if not updates:
             return 0
 
         total = 0
-        for batch_start in range(0, len(resolutions), _RESOLUTION_BATCH_SIZE):
-            batch = resolutions[batch_start : batch_start + _RESOLUTION_BATCH_SIZE]
-            values_rows = [
-                {
-                    "user_id": play.user_id,
-                    "connector_name": play.connector_name,
-                    "connector_track_identifier": play.connector_track_identifier,
-                    "played_at": ensure_utc(play.played_at),
-                    "ms_played": play.ms_played,
-                    "resolved_track_id": track_id,
-                }
-                for play, track_id in batch
-            ]
-            resolution_values = sa.values(
+        for batch_start in range(0, len(updates), _RESOLUTION_BATCH_SIZE):
+            batch = updates[batch_start : batch_start + _RESOLUTION_BATCH_SIZE]
+            update_values = sa.values(
                 sa.column("user_id", sa.String()),
                 sa.column("connector_name", sa.String()),
                 sa.column("connector_track_identifier", sa.String()),
                 sa.column("played_at", sa.DateTime(timezone=True)),
                 sa.column("ms_played", sa.Integer()),
-                sa.column("resolved_track_id", PGUUID(as_uuid=True)),
-                name="resolution_values",
-            ).data([tuple(row.values()) for row in values_rows])
+                sa.column(payload_column, payload_type),
+                name="update_values",
+            ).data([
+                (
+                    play.user_id,
+                    play.connector_name,
+                    play.connector_track_identifier,
+                    ensure_utc(play.played_at),
+                    play.ms_played,
+                    payload,
+                )
+                for play, payload in batch
+            ])
+            # Subscript rather than getattr: ColumnCollection.__getitem__ is
+            # typed, so the string-keyed lookup needs no reflection suppression.
+            payload_value = update_values.c[payload_column]
 
             stmt = (
                 sa
                 .update(DBConnectorPlay)
                 .where(
-                    DBConnectorPlay.user_id == resolution_values.c.user_id,
-                    DBConnectorPlay.connector_name
-                    == resolution_values.c.connector_name,
+                    DBConnectorPlay.user_id == update_values.c.user_id,
+                    DBConnectorPlay.connector_name == update_values.c.connector_name,
                     DBConnectorPlay.connector_track_identifier
-                    == resolution_values.c.connector_track_identifier,
-                    DBConnectorPlay.played_at == resolution_values.c.played_at,
+                    == update_values.c.connector_track_identifier,
+                    DBConnectorPlay.played_at == update_values.c.played_at,
                     # Explicit cast: a batch whose ms_played values are all
                     # NULL gives PG no type to infer for the VALUES column
                     # (bare NULL defaults to text → "integer = text").
                     DBConnectorPlay.ms_played.is_not_distinct_from(
-                        sa.cast(resolution_values.c.ms_played, sa.Integer())
+                        sa.cast(update_values.c.ms_played, sa.Integer())
                     ),
+                    *extra_where,
                 )
-                .values(
-                    resolved_track_id=resolution_values.c.resolved_track_id,
-                    resolved_at=resolved_at,
-                )
+                .values({payload_column: payload_value, **(extra_values or {})})
             )
             result = await self.session.execute(stmt)
             total += rows_affected(result)
 
-        logger.info(f"Wrote back resolution for {total} ledger rows")
         return total

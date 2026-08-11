@@ -14,10 +14,14 @@ API are two observers of the same listen, exactly like a Last.fm scrobble is.
 ``CHANNEL_SPECS`` is the multi-service seam: a future channel (Apple Music,
 ListenBrainz) is one registry entry, no new merge code.
 
-Timestamp semantics differ by channel (Spotify export stamps the END of a
-play; Last.fm stamps the START) — comparison and the surviving ``played_at``
+Timestamp semantics differ by channel (both Spotify channels stamp the END of
+a play; Last.fm stamps the START) — comparison and the surviving ``played_at``
 both use the normalized start time (findings §3: end - ms_played aligns
-sources to ±5s for 80% of true pairs; unnormalized, 92% would miss).
+sources to ±5s for 80% of true pairs; unnormalized, 92% would miss). How far
+back an end stamp sits from its start is *ledger data*, never a per-channel
+branch: an observation carries its own listened ``ms_played`` or, when its
+channel cannot observe one, a shift its importer derived
+(:data:`START_SHIFT_MS_KEY`).
 """
 
 from collections import defaultdict
@@ -47,6 +51,27 @@ CROSS_CHANNEL_TOLERANCE_FALLBACK_SECONDS: Final = 180.0
 # sleep/ambient tracks in GDPR exports run 8h+; unclamped, such a row's group
 # would be owned by no chunk and silently never projected).
 MAX_NORMALIZED_START_SHIFT: Final = timedelta(hours=6)
+
+# Ledger key naming how far back an observation's ``played_at`` sits from the
+# start of the play, in milliseconds. It is the seam for an end-stamping
+# channel that cannot observe listened time: the importer derives the shift
+# from its payload and writes it as data, so the projection needs no branch for
+# that channel (v0.10.3 C1 — the Spotify recently-played API stamps the END and
+# reports no ``ms_played``, leaving every observation a track-length adrift).
+# Never a stand-in for ``ms_played`` itself: survivorship takes the first
+# non-null ``ms_played``, so a derived duration written there would corrupt
+# listening-time statistics the moment it won a merge.
+START_SHIFT_MS_KEY: Final = "start_shift_ms"
+
+# Same-channel duplicate window (v0.10.3 C2). Spotify's export emits a play
+# twice with timestamps 1-3s apart and byte-identical ``ms_played`` — 435 such
+# pairs in the reference corpus, invisible to both the ledger's ON CONFLICT key
+# and the exact-instant collapse because ``played_at`` differs. Sized from the
+# observed jitter band; the *safety* argument is the ``ms_played`` bound in
+# :func:`_one_observation` rather than this constant.
+SAME_CHANNEL_JITTER_SECONDS: Final = 3.0
+
+_MS_PER_SECOND: Final = 1000
 
 # Spotify URI shape ("spotify:track:<22-char id>") — inlined here because the
 # domain kernel cannot import config constants.
@@ -93,6 +118,7 @@ _SPOTIFY_API_KNOWN_KEYS: Final = (
     "duration_ms",
     "context_type",
     "context_uri",
+    START_SHIFT_MS_KEY,
 )
 
 # Matches the resolvers' persisted marker; kept for context-shape continuity.
@@ -200,8 +226,10 @@ def _spotify_api_context(entry: ConnectorTrackPlay) -> dict[str, JsonValue]:
         "spotify_track_id": spotify_id,
         "context_type": md.get("context_type"),
         "context_uri": md.get("context_uri"),
-        # Carried for the pending START-vs-END calibration (v0.10.1 B7); never
-        # a stand-in for ms_played, which stays null on this channel.
+        # The track's length, which is what the API observes in place of a
+        # listened duration; never a stand-in for ms_played, which stays null
+        # on this channel. Its derived END→START shift is ledger data
+        # (START_SHIFT_MS_KEY), read by normalization rather than rendered here.
         "duration_ms": md.get("duration_ms"),
         "resolution_method": _SPOTIFY_RESOLUTION_METHOD,
         "architecture_version": _ARCHITECTURE_VERSION,
@@ -243,9 +271,10 @@ class ChannelSpec:
             (shuffle, skip reasons) the recently-played API never sees, so a
             per-service builder would hand API plays an export-shaped context
             full of nulls.
-        tolerance_override: Pairing tolerance forced by this channel (e.g.
-            ``spotify_api`` stays at the wide fallback until its start-vs-end
-            semantics are calibrated — v0.10.1).
+        tolerance_override: Pairing tolerance forced by this channel, for one
+            whose timestamp semantics are declared but not yet calibrated. No
+            channel sets it today; it is the seam a newly registered one uses
+            to err toward merging until its own calibration lands.
     """
 
     name: str
@@ -275,12 +304,17 @@ CHANNEL_SPECS: Final[Mapping[tuple[str, str], ChannelSpec]] = {
         service="spotify",
         import_source="spotify_api",
         priority=1,
-        time_semantics="start",
+        # Calibrated 2026-08 (v0.10.3 C1): median lastfm-minus-api offset
+        # -205.8s against a 219.7s median track length, 90/90 nearest pairs
+        # one-directional. The channel reports no ms_played, so its shift back
+        # to the start rides on START_SHIFT_MS_KEY; an observation without one
+        # (a partial play, or a row written before calibration) normalizes to
+        # its raw stamp and pairs at the wide fallback tolerance.
+        time_semantics="end",
+        # Below the export's: that channel's start is derived from an *observed*
+        # listened duration, this one's from the track's nominal length.
         timestamp_quality=1,
         context_builder=_spotify_api_context,
-        # Uncalibrated start-vs-end semantics until the v0.10.1 first-poll
-        # calibration — wide tolerance so pairing errs toward merging.
-        tolerance_override=CROSS_CHANNEL_TOLERANCE_FALLBACK_SECONDS,
     ),
     ("mixd", "manual"): ChannelSpec(
         name="mixd",
@@ -326,18 +360,39 @@ def channel_for(entry: ConnectorTrackPlay) -> ChannelSpec:
     return spec
 
 
-def normalized_start_time(entry: ConnectorTrackPlay, spec: ChannelSpec) -> datetime:
-    """An observation's played_at normalized to the START of the play.
+def start_shift(entry: ConnectorTrackPlay, spec: ChannelSpec) -> timedelta | None:
+    """How far back this observation's ``played_at`` sits from the play's start.
 
-    End-time channels subtract ``ms_played`` (clamped to
-    ``MAX_NORMALIZED_START_SHIFT`` so the shift can never exceed the chunk
-    fetch margin); without it the raw timestamp stands (and pairing widens to
-    the fallback tolerance).
+    Zero on a start-stamping channel. On an end-stamping one it is the
+    observation's own listened ``ms_played`` — or, when its channel cannot
+    observe one, the shift its importer derived and wrote to the ledger
+    (:data:`START_SHIFT_MS_KEY`). Observed beats derived: a listened duration
+    is what actually elapsed, a derived shift only what could have.
+
+    ``None`` means "this end stamp cannot be normalized" — the caller keeps the
+    raw timestamp and widens pairing to the fallback tolerance. Clamped to
+    ``MAX_NORMALIZED_START_SHIFT`` so the shift can never exceed the chunk fetch
+    margin.
     """
-    if spec.time_semantics == "end" and entry.ms_played:
-        shift = min(timedelta(milliseconds=entry.ms_played), MAX_NORMALIZED_START_SHIFT)
-        return entry.played_at - shift
-    return entry.played_at
+    if spec.time_semantics == "start":
+        return timedelta(0)
+    shift_ms = entry.ms_played or _derived_shift_ms(entry)
+    if not shift_ms:
+        return None
+    return min(timedelta(milliseconds=shift_ms), MAX_NORMALIZED_START_SHIFT)
+
+
+def _derived_shift_ms(entry: ConnectorTrackPlay) -> int | None:
+    """The importer-derived END→START shift on this observation, if it has one."""
+    value = entry.service_metadata.get(START_SHIFT_MS_KEY)
+    if isinstance(value, bool) or not isinstance(value, int) or value <= 0:
+        return None
+    return value
+
+
+def normalized_start_time(entry: ConnectorTrackPlay, spec: ChannelSpec) -> datetime:
+    """An observation's played_at normalized to the START of the play."""
+    return entry.played_at - (start_shift(entry, spec) or timedelta(0))
 
 
 def _pair_tolerance(
@@ -354,8 +409,11 @@ def _pair_tolerance(
     ]
     if overrides:
         return max(overrides)
+    # An end stamp that could not be normalized still sits a play-length from
+    # its start, so the pair only gets the tight window when both sides were
+    # normalizable.
     for entry, spec in ((a, a_spec), (b, b_spec)):
-        if spec.time_semantics == "end" and not entry.ms_played:
+        if start_shift(entry, spec) is None:
             return CROSS_CHANNEL_TOLERANCE_FALLBACK_SECONDS
     return CROSS_CHANNEL_TOLERANCE_SECONDS
 
@@ -380,8 +438,8 @@ class PlayGroup:
     ``members`` are the per-channel representatives (at most one per channel —
     the grouping invariant) sorted by (priority, id); survivorship reads them.
     ``absorbed`` are same-channel duplicate observations collapsed into a
-    member (identical (channel, played_at, identifier), differing ms_played —
-    findings §7); they contribute ledger membership but never field values.
+    member (:func:`_one_observation`); they contribute ledger membership but
+    never field values.
     """
 
     members: tuple[ConnectorTrackPlay, ...]
@@ -457,36 +515,100 @@ class _UnionFind:
         return True
 
 
+def _one_observation(a: ConnectorTrackPlay, b: ConnectorTrackPlay) -> bool:
+    """Are these two records of one track on one channel the same observation?
+
+    Two rules, unioned:
+
+    * **Same instant** — identical ``played_at``, whatever ``ms_played`` says
+      (findings §7: 266 such pairs inside the GDPR export defeat the ledger's
+      ON CONFLICT key, which includes ``ms_played``).
+    * **Jittered** — byte-identical ``ms_played`` a few seconds apart (v0.10.3
+      C2). Spotify's export writes these upstream; the ledger sees two rows and
+      counts the listen twice.
+
+    The second rule cannot swallow a genuine repeat: two real plays of one
+    track run back to back, so their end stamps sit at least the second play's
+    listened duration apart — and with the two durations identical, that is
+    ``ms_played`` itself. Bounding the window by ``ms_played`` therefore makes
+    a genuine pair unreachable by arithmetic rather than by luck, and keeps the
+    rule off channels that report no listened time at all.
+
+    It also cannot swallow the segments of an interrupted listen: those differ
+    in ``ms_played``, which is exactly what distinguishes them (v0.10.3 C9).
+    """
+    delta = abs((a.played_at - b.played_at).total_seconds())
+    if delta == 0:
+        return True
+    if a.ms_played != b.ms_played or not a.ms_played:
+        return False
+    return delta <= min(SAME_CHANNEL_JITTER_SECONDS, a.ms_played / _MS_PER_SECOND)
+
+
+def _duplicate_clusters(
+    bucket: Sequence[ConnectorTrackPlay],
+) -> list[list[ConnectorTrackPlay]]:
+    """Partition one (user, channel, track) bucket into single observations.
+
+    ``bucket`` is ordered by (played_at, id), so the forward scan can stop at
+    the jitter window. The partition is the transitive closure of
+    :func:`_one_observation` — an equivalence relation, hence independent of
+    input order, which is what keeps the collapse convergent.
+    """
+    parent = list(range(len(bucket)))
+
+    def find(i: int) -> int:
+        while parent[i] != i:
+            parent[i] = parent[parent[i]]
+            i = parent[i]
+        return i
+
+    for i, left in enumerate(bucket):
+        for j in range(i + 1, len(bucket)):
+            right = bucket[j]
+            if (
+                right.played_at - left.played_at
+            ).total_seconds() > SAME_CHANNEL_JITTER_SECONDS:
+                break
+            if _one_observation(left, right):
+                roots = (find(i), find(j))
+                parent[max(roots)] = min(roots)
+
+    clusters: dict[int, list[ConnectorTrackPlay]] = defaultdict(list)
+    for i, entry in enumerate(bucket):
+        clusters[find(i)].append(entry)
+    return list(clusters.values())
+
+
 def _collapse_same_channel(
     entries: Sequence[ConnectorTrackPlay],
 ) -> tuple[list[ConnectorTrackPlay], dict[UUID, list[ConnectorTrackPlay]], int]:
     """Collapse same-channel observations of one listen into a representative.
 
-    Identical (user, channel, played_at, identifier) with differing ms_played
-    are ONE observation (findings §7: 266 such pairs inside the GDPR export
-    defeat the ON CONFLICT key). The max-ms_played record represents; ties
-    break on lowest id. Returns (representatives, absorbed-by-representative,
-    collapsed-count).
+    See :func:`_one_observation` for what counts as one observation. The
+    max-ms_played record represents (it saw the most of the play); ties break
+    on the earliest stamp, then lowest id. Returns (representatives,
+    absorbed-by-representative, collapsed-count).
     """
-    by_observation: dict[tuple[str, str, datetime, str], list[ConnectorTrackPlay]] = (
-        defaultdict(list)
-    )
+    buckets: dict[tuple[str, str, str], list[ConnectorTrackPlay]] = defaultdict(list)
     for entry in entries:
         spec = channel_for(entry)
-        by_observation[
-            entry.user_id, spec.name, entry.played_at, entry.connector_track_identifier
-        ].append(entry)
+        buckets[entry.user_id, spec.name, entry.connector_track_identifier].append(
+            entry
+        )
 
     representatives: list[ConnectorTrackPlay] = []
     absorbed: dict[UUID, list[ConnectorTrackPlay]] = {}
     collapsed = 0
-    for group in by_observation.values():
-        group.sort(key=lambda e: (-(e.ms_played or 0), e.id))
-        representative, *rest = group
-        representatives.append(representative)
-        if rest:
-            absorbed[representative.id] = rest
-            collapsed += len(rest)
+    for bucket in buckets.values():
+        bucket.sort(key=lambda e: (e.played_at, e.id))
+        for cluster in _duplicate_clusters(bucket):
+            cluster.sort(key=lambda e: (-(e.ms_played or 0), e.played_at, e.id))
+            representative, *rest = cluster
+            representatives.append(representative)
+            if rest:
+                absorbed[representative.id] = rest
+                collapsed += len(rest)
     # Deterministic order regardless of input permutation.
     representatives.sort(key=lambda e: (e.played_at, e.id))
     return representatives, absorbed, collapsed
@@ -500,8 +622,8 @@ def group_ledger_entries(
     Deterministic in the entry *set* — any permutation or batch partition of
     the same observations yields identical groups. Steps:
 
-    1. Same-channel collapse (identical (channel, ts, identifier) → one
-       observation, max ms_played).
+    1. Same-channel collapse (one channel's duplicate records of one track →
+       one observation, max ms_played — :func:`_one_observation`).
     2. Candidate pairs: cross-channel observations that resolved to the same
        canonical track — or whose exact-normalized artist::title matches (the
        resolution-divergence bridge, findings §5b) — within the pair's

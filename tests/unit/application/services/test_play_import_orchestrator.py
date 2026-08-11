@@ -454,6 +454,41 @@ class TestSpotifyResolutionMetricsPropagation:
         assert counts["dead_ids_unresolved"] == 1
         assert counts["isrc_suspect_deferred"] == 4
 
+    async def test_run_record_breaks_skips_out_of_the_filtered_total(
+        self, orchestrator, mock_resolver, mock_uow, mock_importer
+    ):
+        """A big "Filtered" number is only reassuring with its reason attached.
+
+        An export is an event log, so most rows are skips — the run record has
+        to say that, or a normal import looks like a mass identification
+        failure.
+        """
+        connector_plays = [_make_connector_play()]
+        mock_importer.import_plays.return_value = (
+            _make_ingestion_result(imported=1, raw_plays=1, duplicates=0),
+            connector_plays,
+        )
+        mock_resolver.resolve_connector_plays.return_value = PlayResolutionOutcome(
+            track_plays=[_make_resolved_track_play()],
+            metrics={
+                "error_count": 0,
+                "duration_excluded": 42,
+                "incognito_excluded": 7,
+            },
+            resolutions=(),
+        )
+
+        result = await orchestrator.import_plays_two_phase(
+            mock_importer,
+            mock_uow,
+            user_id="test-user",
+            params=SpotifyImportParams(file_path=Path("/fake/path.json")),
+        )
+
+        counts = result.to_counts()
+        assert counts["duration_excluded"] == 42
+        assert counts["incognito_excluded"] == 7
+
     def test_zero_counts_omitted_from_summary_metrics(self, orchestrator):
         """Counters at zero should not clutter summary_metrics (matches the
         existing filtered/errors conditional-add convention)."""

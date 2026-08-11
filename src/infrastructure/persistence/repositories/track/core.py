@@ -32,7 +32,7 @@ from src.domain.entities import Track
 from src.domain.entities.preference import PREFERENCE_ORDER
 from src.domain.entities.sourced_metadata import SOURCE_PRIORITY
 from src.domain.entities.track_mapping import SupersessionReason
-from src.domain.exceptions import OptimisticLockError
+from src.domain.exceptions import DomainError, OptimisticLockError
 from src.domain.matching import normalize_for_comparison, strip_parentheticals
 from src.domain.matching.isrc_validation import (
     assess_isrc_match_reliability,
@@ -51,6 +51,7 @@ from src.infrastructure.persistence.database.db_models import (
     DBTrackTag,
 )
 from src.infrastructure.persistence.database.live_rows import (
+    INCLUDE_SUPERSEDED,
     expire_mapping_identity,
     live_only,
 )
@@ -332,6 +333,36 @@ class _MergeMetricCounts(NamedTuple):
 
     conflicts_resolved: int
     metrics_moved: int
+
+
+class MappingHistoryLossError(DomainError):
+    """Raised when deleting a track would cascade away mapping history.
+
+    ``track_mappings.track_id`` is ``ON DELETE CASCADE``, so every ``DELETE FROM
+    tracks`` is also a mapping delete — and mappings have been append-only since
+    migration 044. A retired row is not spare data: it is the artifact a
+    ``superseded`` event names, and ``resolution_events`` is keyed by value with
+    no FK, so the log survives a cascade that takes the row it describes. That
+    combination is what production hit — an event recording a superseding
+    mapping id that no longer resolves to anything.
+
+    A caller that genuinely means to remove the track moves its mappings
+    somewhere first (what ``merge_mappings_to_track`` does) or retires them
+    deliberately. There is no "delete the history too" affordance, because the
+    history is the one thing a deletion cannot restore.
+    """
+
+    def __init__(self, track_id: UUID, mapping_ids: Sequence[UUID]) -> None:
+        shown = ", ".join(str(mapping_id) for mapping_id in mapping_ids[:5])
+        elided = len(mapping_ids) - 5
+        suffix = f" (+{elided} more)" if elided > 0 else ""
+        super().__init__(
+            f"Refusing to delete track {track_id}: {len(mapping_ids)} mapping(s) "
+            f"still point at it and would be cascade-deleted — {shown}{suffix}. "
+            "Move or retire them first."
+        )
+        self.track_id = track_id
+        self.mapping_ids = tuple(mapping_ids)
 
 
 class TrackRepository(BaseRepository[DBTrack, Track]):
@@ -1422,9 +1453,48 @@ class TrackRepository(BaseRepository[DBTrack, Track]):
 
     @db_operation("hard_delete_track")
     async def hard_delete_track(self, track_id: UUID) -> None:
-        """Permanently delete a track record from the database."""
+        """Permanently delete a track — refused while any mapping still points at it.
+
+        The delete does not stop at ``tracks``: ``track_mappings.track_id`` is
+        ``ON DELETE CASCADE``, so this statement silently removes every mapping
+        row on the track, retired ones included. Since 044 those rows are
+        append-only history, and ``resolution_events`` references them *by
+        value* — no FK, nothing to cascade, nothing to complain. A cascade
+        therefore leaves the log describing a decision whose artifact is gone,
+        which is exactly the state production reached.
+
+        So the check is "any mapping at all", not "any superseded mapping": a
+        live row is a future predecessor, and by the time an event names it the
+        track is long deleted. The one caller that legitimately deletes a track
+        (:class:`~src.infrastructure.services.track_merge_service.TrackMergeService`)
+        moves every mapping — live and retired — onto the winner first, so the
+        guard is silent on the happy path and only speaks when something is
+        about to take history with it.
+
+        Raises:
+            MappingHistoryLossError: When mappings would be cascade-deleted.
+        """
+        stranded = await self._mappings_on_track(track_id)
+        if stranded:
+            raise MappingHistoryLossError(track_id, stranded)
         await self.session.execute(delete(DBTrack).where(DBTrack.id == track_id))
         logger.debug(f"Hard deleted track: {track_id}")
+
+    async def _mappings_on_track(self, track_id: UUID) -> list[UUID]:
+        """Every mapping id a delete of this track would cascade away.
+
+        Deliberately unscoped by tenant and ``include_superseded``: the cascade
+        the FK performs is neither user-scoped nor live-scoped, so a guard that
+        saw less than the cascade does would wave through the rows most worth
+        keeping — another tenant's mapping on the same track, or the retired
+        row an event already names.
+        """
+        result = await self.session.execute(
+            select(DBTrackMapping.id)
+            .where(DBTrackMapping.track_id == track_id)
+            .execution_options(**{INCLUDE_SUPERSEDED: True})
+        )
+        return list(result.scalars().all())
 
     # ── Lookup queries ───────────────────────────────────────────────
 

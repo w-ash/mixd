@@ -12,7 +12,12 @@ from uuid import UUID
 from attrs import evolve
 
 from src.config import get_logger, settings
-from src.domain.entities import ConnectorTrackPlay, Track, TrackPlay
+from src.domain.entities import (
+    ConnectorTrackPlay,
+    PlayExclusionReason,
+    Track,
+    TrackPlay,
+)
 from src.domain.entities.shared import JsonValue
 from src.domain.matching.play_projection import (
     build_play_context,
@@ -71,6 +76,22 @@ def should_include_spotify_play(
     Spotify duration filtering rules:
     - Rule 1: All plays >= 4 minutes are always included
     - Rule 2: For plays < 4 minutes, use 50% threshold for tracks < 8 minutes
+
+    That is Last.fm's own scrobble rule, and the parity is load-bearing rather
+    than coincidental: it is very likely why the two channels converge on the
+    same listens at all. Loosening it here would count plays Last.fm never
+    scrobbles, manufacturing single-channel plays that read as merge failures
+    in every future audit — so treat the two numbers as one shared definition,
+    not as a Spotify setting that happens to match.
+
+    One divergence, deliberate: Last.fm refuses to scrobble any track under 30
+    seconds and this rule has no such floor, so a short interlude played start
+    to finish counts (120 plays across 71 tracks in the production corpus).
+    A fully-played track is a listen whatever its length, and erring generous
+    is right for a product about owning your own listening data. Those plays
+    can never have a Last.fm twin, so the audit reports them as a structural
+    blind spot rather than as pairing misses — ``audit_play_integrity.py
+    --check short_track_blind_spot``.
     """
     # Get configuration with type-safe defaults
     threshold_ms = settings.import_settings.play_threshold_ms
@@ -153,12 +174,21 @@ class SpotifyConnectorPlayResolver:
         # evidence still accumulates over the WHOLE chunk: a trackdone
         # duration from an incognito play is evidence about the track's
         # length, not about the play's eligibility.
-        eligible = [cp for cp in connector_plays if not _is_incognito(cp)]
+        eligible: list[ConnectorTrackPlay] = []
+        # Every play dropped below records why, so the ledger can distinguish
+        # a deliberate skip from a failure to identify the track.
+        exclusions: list[tuple[ConnectorTrackPlay, PlayExclusionReason]] = []
+        for connector_play in connector_plays:
+            if _is_incognito(connector_play):
+                exclusions.append((connector_play, "incognito"))
+            else:
+                eligible.append(connector_play)
+
         filtering_stats: ResolutionMetrics = {
             "raw_plays": len(connector_plays),
             "accepted_plays": 0,
             "duration_excluded": 0,
-            "incognito_excluded": len(connector_plays) - len(eligible),
+            "incognito_excluded": len(exclusions),
             "error_count": 0,
             "resolution_failures": [],
         }
@@ -177,10 +207,12 @@ class SpotifyConnectorPlayResolver:
             # the sums stop reconciling (raw = accepted + excluded + errors).
             for connector_play in eligible:
                 self._record_resolution_failure(filtering_stats, connector_play, None)
+                exclusions.append((connector_play, "unresolved"))
             return PlayResolutionOutcome(
                 track_plays=[],
                 metrics={**self._create_empty_metrics(), **filtering_stats},
                 resolutions=(),
+                exclusions=tuple(exclusions),
             )
 
         # Step 2: Resolve Spotify track IDs to canonical tracks
@@ -205,10 +237,12 @@ class SpotifyConnectorPlayResolver:
                 self._record_resolution_failure(
                     filtering_stats, connector_play, spotify_id
                 )
+                exclusions.append((connector_play, "unresolved"))
                 continue
 
             if self._duration_excluded(connector_play, canonical_track):
                 filtering_stats["duration_excluded"] += 1
+                exclusions.append((connector_play, "too_short"))
                 duration_info = (
                     f"{canonical_track.duration_ms / 60000:.2f}"
                     if canonical_track.duration_ms
@@ -264,6 +298,7 @@ class SpotifyConnectorPlayResolver:
             track_plays=track_plays,
             metrics=spotify_metrics,
             resolutions=tuple(resolutions),
+            exclusions=tuple(exclusions),
         )
 
     @staticmethod

@@ -150,3 +150,112 @@ class TestBulkUpdateResolution:
             )
         ).scalar_one()
         assert row.user_id == "TEST_user_x"
+
+
+class TestBulkUpdateExclusions:
+    async def test_reason_round_trips_by_natural_key(self, db_session):
+        """Re-import entities carry fresh ids, so the write must match on the key."""
+        uow = get_unit_of_work(db_session)
+        connector_repo = uow.get_connector_play_repository()
+
+        stored = _scrobble(track_name="TEST_ExclusionReasonTrack")
+        inserted, _ = await connector_repo.bulk_insert_connector_plays([stored])
+        assert inserted == 1
+
+        reimported = _scrobble(track_name="TEST_ExclusionReasonTrack")
+        assert reimported.id != stored.id
+
+        updated = await connector_repo.bulk_update_exclusions([
+            (reimported, "unresolved")
+        ])
+        assert updated == 1
+
+        row = (
+            await db_session.execute(
+                sa.select(DBConnectorPlay).where(
+                    DBConnectorPlay.connector_track_identifier
+                    == stored.connector_track_identifier
+                )
+            )
+        ).scalar_one()
+        assert row.exclusion_reason == "unresolved"
+        # Explanatory only: the projection's predicate must be untouched.
+        assert row.resolved_track_id is None
+
+    async def test_an_already_resolved_row_never_gains_a_reason(self, db_session):
+        """The contradiction guard, from the side resolution does not cover.
+
+        A resolved row is inside the canonical projection, so stamping it
+        excluded would make it read as both counted and skipped. Older policy
+        could resolve a play that current policy excludes, so this is
+        reachable — and the row is left alone rather than un-resolved, because
+        changing which plays count is not a write-back's call.
+        """
+        uow = get_unit_of_work(db_session)
+        connector_repo = uow.get_connector_play_repository()
+        track_repo = uow.get_track_repository()
+
+        saved_track = await track_repo.save_track(
+            make_track(
+                title="TEST_AlreadyResolvedTrack",
+                artist="TEST_WriteBackArtist",
+                connector_track_identifiers={},
+            )
+        )
+
+        play = _scrobble(track_name="TEST_AlreadyResolvedTrack")
+        _ = await connector_repo.bulk_insert_connector_plays([play])
+        _ = await connector_repo.bulk_update_resolution(
+            [(play, saved_track.id)], resolved_at=datetime.now(UTC)
+        )
+
+        updated = await connector_repo.bulk_update_exclusions([(play, "incognito")])
+        assert updated == 0
+
+        row = (
+            await db_session.execute(
+                sa.select(DBConnectorPlay).where(
+                    DBConnectorPlay.connector_track_identifier
+                    == play.connector_track_identifier
+                )
+            )
+        ).scalar_one()
+        assert row.resolved_track_id == saved_track.id
+        assert row.exclusion_reason is None
+
+    async def test_resolution_clears_a_previously_recorded_reason(self, db_session):
+        """A re-import that finally resolves a row must not leave it excluded.
+
+        Otherwise the row reads as both counted and skipped, which is the
+        contradiction the reason column exists to prevent.
+        """
+        uow = get_unit_of_work(db_session)
+        connector_repo = uow.get_connector_play_repository()
+        track_repo = uow.get_track_repository()
+
+        saved_track = await track_repo.save_track(
+            make_track(
+                title="TEST_HealedTrack",
+                artist="TEST_WriteBackArtist",
+                connector_track_identifiers={},
+            )
+        )
+
+        play = _scrobble(track_name="TEST_HealedTrack")
+        _ = await connector_repo.bulk_insert_connector_plays([play])
+        _ = await connector_repo.bulk_update_exclusions([(play, "unresolved")])
+
+        _ = await connector_repo.bulk_update_resolution(
+            [(play, saved_track.id)], resolved_at=datetime.now(UTC)
+        )
+
+        row = (
+            await db_session.execute(
+                sa.select(DBConnectorPlay).where(
+                    DBConnectorPlay.connector_track_identifier
+                    == play.connector_track_identifier
+                )
+            )
+        ).scalar_one()
+        assert row.resolved_track_id == saved_track.id
+        assert row.exclusion_reason is None

@@ -38,7 +38,13 @@ cd "$(dirname "$0")/.."
 # web/src/lib/import-queue.ts — outside vulture's paths — so it sees write-only
 # attributes. Whitelisting is the honest fix: they are load-bearing for the queue view's
 # estimate and per-file durations, and the alternative is an artificial Python reader.
-BASE_WHITELIST=78
+# 78 → 82 at v0.10.3: the four ResolutionMetrics counters. v0.10.3 collapsed
+# _combine_phase_results' per-metric `if x > 0: add(...)` blocks into one table-driven
+# loop, because maintaining the resolution phase's counter names and the combined
+# result's separately is exactly how the skip breakdown reached the logs but never the
+# run record. The names now live only as strings in _RUN_METRIC_KEYS /
+# _CARRIED_RESOLUTION_METRICS, which vulture cannot follow into a TypedDict key.
+BASE_WHITELIST=82
 BASE_NOQA=13
 BASE_TYPE_IGNORE=0
 BASE_PYRIGHT_IGNORE=18

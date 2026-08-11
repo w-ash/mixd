@@ -14,6 +14,7 @@ from attrs import define
 from src.domain.entities import (
     ConnectorTrackPlay,
     OperationResult,
+    PlayExclusionReason,
     PlaySource,
     TrackPlay,
 )
@@ -148,11 +149,18 @@ class PlayResolutionOutcome:
     (duration/incognito filters) are absent: their ledger rows keep
     ``resolved_track_id IS NULL``, which is what keeps them outside the
     canonical-play projection.
+
+    ``exclusions`` says *why* each of those absent plays is absent. Without it
+    the ledger records a deliberate skip and a genuine identification failure
+    identically, and a service export is mostly skips — so the difference is
+    the difference between "working as designed" and "losing data". Persisted
+    alongside the resolutions; explanatory only, never a projection input.
     """
 
     track_plays: list[TrackPlay]
     metrics: ResolutionMetrics
     resolutions: tuple[tuple[ConnectorTrackPlay, UUID], ...]
+    exclusions: tuple[tuple[ConnectorTrackPlay, PlayExclusionReason], ...] = ()
 
 
 class PlaysRepositoryProtocol(Protocol):
@@ -328,6 +336,22 @@ class ConnectorPlayRepositoryProtocol(Protocol):
         conflict-skipped re-import rows keep their original stored ids, and
         natural-key matching lets a re-import heal rows whose first resolution
         attempt failed.
+
+        Returns:
+            Number of ledger rows updated.
+        """
+        ...
+
+    def bulk_update_exclusions(
+        self,
+        exclusions: Sequence[tuple[ConnectorTrackPlay, PlayExclusionReason]],
+    ) -> Awaitable[int]:
+        """Persist why each observation was left out of canonical history.
+
+        Same natural-key matching as ``bulk_update_resolution``, and written in
+        the same transaction. Explanatory only: ``resolved_track_id`` stays the
+        projection's predicate, so recording a reason never changes which plays
+        count — it only makes the existing answer readable.
 
         Returns:
             Number of ledger rows updated.

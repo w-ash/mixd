@@ -15,8 +15,10 @@ from .connector import (
 # Integrity monitoring
 from .integrity import CheckStatus, IntegrityCheckResult, IntegrityReport
 from .operations import (
+    PLAY_EXCLUSION_REASONS,
     ConnectorTrackPlay,
     OperationResult,
+    PlayExclusionReason,
     PlayRecord,
     PlaySource,
     PollHealth,
@@ -93,6 +95,7 @@ from .workflow import WorkflowDef, WorkflowTaskDef
 __all__ = [
     "DB_PSEUDO_CONNECTOR",
     "MAX_TAG_LENGTH",
+    "PLAY_EXCLUSION_REASONS",
     "PREFERENCE_ORDER",
     "SOURCE_PRIORITY",
     "Artist",
@@ -115,6 +118,7 @@ __all__ = [
     "MetadataSource",
     "MetricValue",
     "OperationResult",
+    "PlayExclusionReason",
     "PlayRecord",
     "PlaySource",
     "Playlist",

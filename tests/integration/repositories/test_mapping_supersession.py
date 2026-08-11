@@ -32,6 +32,10 @@ from src.infrastructure.persistence.repositories.track.connector import (
     TrackConnectorRepository,
     TrackMappingRepository,
 )
+from src.infrastructure.persistence.repositories.track.core import (
+    MappingHistoryLossError,
+    TrackRepository,
+)
 
 _USER = "default"
 
@@ -44,6 +48,11 @@ def mapping_repo(db_session: AsyncSession) -> TrackMappingRepository:
 @pytest.fixture
 def connector_repo(db_session: AsyncSession) -> TrackConnectorRepository:
     return TrackConnectorRepository(db_session)
+
+
+@pytest.fixture
+def track_repo(db_session: AsyncSession) -> TrackRepository:
+    return TrackRepository(db_session)
 
 
 async def _make_track(db_session: AsyncSession, title: str = "Track") -> UUID:
@@ -910,3 +919,113 @@ class TestEvidenceIsDriftNotDecision:
         assert len(live) == 1
         assert retired[0].confidence_evidence == {"final_score": 70.0}
         assert live[0].confidence_evidence == {"final_score": 95.0}
+
+
+class TestCascadeCannotOutliveTheLog:
+    """A track delete must not take mapping history with it.
+
+    Production reached the state this class forbids: ``resolution_events`` held
+    a ``superseded`` event naming a superseding mapping id that
+    ``track_mappings`` no longer had. ``resolution_events`` references mappings
+    by value, so the ``ON DELETE CASCADE`` from ``tracks`` removed the artifact
+    and left the log describing it.
+    """
+
+    async def test_a_track_holding_a_live_mapping_refuses_to_be_deleted(
+        self,
+        db_session: AsyncSession,
+        mapping_repo: TrackMappingRepository,
+        track_repo: TrackRepository,
+    ):
+        """A live mapping is a future predecessor, so it is guarded from the start."""
+        track_id = await _make_track(db_session)
+        ct_id = await _make_connector_track(db_session)
+        await mapping_repo.assert_mappings([_row(track_id, ct_id)])
+
+        with pytest.raises(MappingHistoryLossError) as caught:
+            await track_repo.hard_delete_track(track_id)
+
+        assert caught.value.track_id == track_id
+        assert len(caught.value.mapping_ids) == 1
+        assert await _track_rows(db_session, track_id), "the mapping is still there"
+
+    async def test_a_track_holding_retired_history_refuses_to_be_deleted(
+        self,
+        db_session: AsyncSession,
+        mapping_repo: TrackMappingRepository,
+        track_repo: TrackRepository,
+    ):
+        """The exact production shape: an event's predecessor is a retired row."""
+        track_id = await _make_track(db_session)
+        ct_id = await _make_connector_track(db_session)
+        await mapping_repo.assert_mappings([_row(track_id, ct_id, confidence=70)])
+        outcome = await mapping_repo.assert_mappings([
+            _row(track_id, ct_id, confidence=95)
+        ])
+        assert len(outcome.superseded) == 1
+
+        with pytest.raises(MappingHistoryLossError) as caught:
+            await track_repo.hard_delete_track(track_id)
+
+        # Both the retired row and its successor — the guard counts the cascade,
+        # which is neither live-scoped nor tenant-scoped.
+        assert len(caught.value.mapping_ids) == 2
+        assert len(await _track_rows(db_session, track_id)) == 2
+
+    async def test_another_tenants_mapping_is_guarded_too(
+        self,
+        db_session: AsyncSession,
+        mapping_repo: TrackMappingRepository,
+        track_repo: TrackRepository,
+    ):
+        """The FK cascade ignores ``user_id``, so the guard must not honour it.
+
+        PDR-002 records the Neon owner role as BYPASSRLS, so a tenant-scoped
+        guard would not merely mis-count — it would wave through exactly the
+        rows the deleting tenant has no standing to destroy.
+        """
+        track_id = await _make_track(db_session)
+        ct_id = await _make_connector_track(db_session)
+        await mapping_repo.assert_mappings([
+            {**_row(track_id, ct_id), "user_id": "someone-else"}
+        ])
+
+        with pytest.raises(MappingHistoryLossError):
+            await track_repo.hard_delete_track(track_id)
+
+    async def test_a_track_with_no_mappings_still_deletes(
+        self, db_session: AsyncSession, track_repo: TrackRepository
+    ):
+        """The guard is about history, not about deletion — an empty track goes."""
+        track_id = await _make_track(db_session)
+
+        await track_repo.hard_delete_track(track_id)
+
+        result = await db_session.execute(
+            select(DBTrack.id).where(DBTrack.id == track_id)
+        )
+        assert result.scalar_one_or_none() is None
+
+    async def test_a_merge_still_deletes_its_loser(
+        self,
+        db_session: AsyncSession,
+        mapping_repo: TrackMappingRepository,
+        track_repo: TrackRepository,
+    ):
+        """The one legitimate caller moves every mapping off first, so it passes.
+
+        Without this, the guard would read as "tracks can no longer be merged"
+        rather than "history cannot be cascaded away".
+        """
+        winner = await _make_track(db_session, "Winner")
+        loser = await _make_track(db_session, "Loser")
+        ct_id = await _make_connector_track(db_session)
+        await mapping_repo.assert_mappings([_row(loser, ct_id, confidence=70)])
+        _ = await mapping_repo.assert_mappings([_row(loser, ct_id, confidence=95)])
+
+        _ = await track_repo.merge_mappings_to_track(loser, winner)
+        await track_repo.hard_delete_track(loser)
+
+        assert len(await _track_rows(db_session, winner)) == 2, (
+            "both the retired row and its successor survived on the winner"
+        )

@@ -20,6 +20,7 @@ from src.domain.entities import ConnectorTrackPlay, OperationResult
 from src.domain.entities.progress import ProgressEmitter
 from src.domain.entities.shared import JsonValue
 from src.domain.exceptions import SpotifyAuthRequiredError
+from src.domain.matching.play_projection import START_SHIFT_MS_KEY
 from src.domain.repositories.play import (
     RECENTLY_PLAYED_SCOPE,
     PlayImporterProtocol,
@@ -37,6 +38,16 @@ logger = get_logger(__name__).bind(service="spotify_recently_played")
 
 _IMPORT_SOURCE = "spotify_api"
 _MS_PER_SECOND = 1000
+
+# How far a play's wall-clock room may sit from the track's length and still
+# count as a complete play (v0.10.3 C1). Both directions matter: short of the
+# length is a truncated play, long of it is a gap before playback started, and
+# in either case the track's duration is not this play's END→START shift. Sized
+# to cover Spotify's 12s maximum crossfade plus stamp jitter — inside the
+# projection's 30s pairing tolerance, so a stamp at the edge of the band still
+# pairs. Against the calibration corpus it admits 106 of 161 consecutive plays,
+# 81 of them within a second of exact.
+_FULL_PLAY_TOLERANCE_MS = 15_000
 
 
 def _to_ms_epoch(moment: datetime) -> int:
@@ -202,49 +213,103 @@ class SpotifyRecentlyPlayedImporter(
         batch_id: str,
         import_timestamp: datetime,
     ) -> list[ConnectorTrackPlay]:
-        """Convert history items to ledger rows on the ``spotify_api`` channel."""
-        return [
-            ConnectorTrackPlay(
-                artist_name=self._primary_artist(item),
-                track_name=item.track.name,
-                played_at=item.played_at,
-                service="spotify",
-                user_id=user_id,
-                album_name=item.track.album.name if item.track.album else None,
-                # The API reports no listening duration. Survivorship takes the
-                # first non-null ms_played, so a synthetic stand-in (e.g. the
-                # track duration) would win merges and corrupt listening-time
-                # stats — leave it null and let the export fill it in later.
-                ms_played=None,
-                service_metadata=self._service_metadata(item),
-                import_timestamp=import_timestamp,
-                import_source=_IMPORT_SOURCE,
-                import_batch_id=batch_id,
+        """Convert history items to ledger rows on the ``spotify_api`` channel.
+
+        Walked in play order because each entry's END→START shift is read off
+        the one before it (see :meth:`_derived_start_shift_ms`).
+        """
+        ordered = sorted(raw_data, key=lambda item: item.played_at)
+        previous: SpotifyPlayHistoryItem | None = None
+        plays: list[ConnectorTrackPlay] = []
+        for item in ordered:
+            plays.append(
+                ConnectorTrackPlay(
+                    artist_name=self._primary_artist(item),
+                    track_name=item.track.name,
+                    played_at=item.played_at,
+                    service="spotify",
+                    user_id=user_id,
+                    album_name=item.track.album.name if item.track.album else None,
+                    # The API reports no listening duration. Survivorship takes
+                    # the first non-null ms_played, so a synthetic stand-in
+                    # (e.g. the track duration) would win merges and corrupt
+                    # listening-time stats — leave it null and let the export
+                    # fill it in later.
+                    ms_played=None,
+                    service_metadata=self._service_metadata(item, previous=previous),
+                    import_timestamp=import_timestamp,
+                    import_source=_IMPORT_SOURCE,
+                    import_batch_id=batch_id,
+                )
             )
-            for item in raw_data
-        ]
+            previous = item
+        return plays
 
     @staticmethod
     def _primary_artist(item: SpotifyPlayHistoryItem) -> str:
         """First credited artist, matching how the export names a play."""
         return item.track.artists[0].name if item.track.artists else ""
 
-    @staticmethod
-    def _service_metadata(item: SpotifyPlayHistoryItem) -> dict[str, JsonValue]:
+    @classmethod
+    def _service_metadata(
+        cls,
+        item: SpotifyPlayHistoryItem,
+        *,
+        previous: SpotifyPlayHistoryItem | None,
+    ) -> dict[str, JsonValue]:
         """Channel-native metadata.
 
         ``track_uri`` is load-bearing: ``ConnectorTrackPlay`` derives its
         connector identifier from it, which is what lets the existing Spotify
-        resolver handle these rows unchanged. ``duration_ms`` is carried for the
-        future END-shift calibration correction (v0.10.1 Epic B7) — it is data
-        on the ledger, never a stand-in for ``ms_played``.
+        resolver handle these rows unchanged. ``duration_ms`` is the track's
+        length — data on the ledger, never a stand-in for ``ms_played``.
+
+        ``start_shift_ms`` is present only when this play can be shown to have
+        run in full; without it the projection keeps the raw stamp and pairs at
+        the wide fallback tolerance, which is the pre-calibration behaviour.
         """
-        return {
+        metadata: dict[str, JsonValue] = {
             "track_uri": f"spotify:track:{item.track.id}",
             "duration_ms": item.track.duration_ms,
             "context_type": item.context.type if item.context else None,
             "context_uri": item.context.uri if item.context else None,
         }
+        shift_ms = cls._derived_start_shift_ms(item, previous)
+        if shift_ms is not None:
+            metadata[START_SHIFT_MS_KEY] = shift_ms
+        return metadata
+
+    @staticmethod
+    def _derived_start_shift_ms(
+        item: SpotifyPlayHistoryItem, previous: SpotifyPlayHistoryItem | None
+    ) -> int | None:
+        """This play's END→START shift, or None when it cannot be derived.
+
+        ``played_at`` marks the END of the play (v0.10.3 C1: median offset
+        -205.8s against a 219.7s median track length, 90/90 nearest Last.fm
+        pairs one-directional), and the API reports no listened duration — so
+        the shift has to come from the payload's ``track.duration_ms``, which is
+        only this play's length if the play ran in full.
+
+        The evidence for that is the wall clock between consecutive END stamps:
+        for back-to-back plays it *is* the later play's listened time. Matching
+        the track's duration means the play filled its slot exactly; falling
+        short means it was cut off, and running over means something sat idle
+        before it. Only the match is stamped — a shift is a correction, and a
+        wrong one moves the play further from the truth than leaving it be.
+
+        The first entry of a poll has no predecessor and so is never stamped;
+        it keeps the fallback tolerance, and the plays around it pair normally.
+        """
+        duration_ms = item.track.duration_ms
+        if previous is None or duration_ms <= 0:
+            return None
+        elapsed_ms = (item.played_at - previous.played_at).total_seconds() * (
+            _MS_PER_SECOND
+        )
+        if abs(elapsed_ms - duration_ms) > _FULL_PLAY_TOLERANCE_MS:
+            return None
+        return duration_ms
 
     @override
     async def _handle_checkpoints(

@@ -1,12 +1,13 @@
 # Project Mixd — Planning
 
-**Current Version**: 0.10.2.14
+**Current Version**: 0.10.3
 **Next**: finish the v0.10.2.x import-hardening train — run the remaining GDPR files through the new queue and the full Last.fm history import (v0.10.2.6–2.8 shipped 2026-08-08 as one deploy; entries in [v0.10.x.md](v0.10.x.md#post-deploy-revisions)) — then v0.10.3 Post-import data integrity audit — agent-driven adversarial verification of the first at-scale prod imports (duplicate plays, missed merges, identity twins; the checklist is a floor, the agent extends it) ([details](v0.10.x.md#v0103-post-import-data-integrity-audit)). Follow-up pool: the PLR0913/0917 flip decision ([spoke 26](fable-sweep/26-ratchet-closeout.md)), and the still-gated candidates (**MCP spec/SDK drift check — now unblocked**, the stable-v2 bump landed here; model/effort cost re-eval before Sonnet 5 intro pricing ends 2026-08-31; demand-gated conversation persistence, memory tool, subagent fan-out, chat-voices toggle).
 
 ## Shipped — current cycle (v0.9.x–v0.10.x)
 
 Canonical release log: [CHANGELOG.md](../../CHANGELOG.md) (all ships, full entries). This narrative keeps one line per ship for the current + previous minor cycle only; older lines are pruned at cycle close.
 
+- **v0.10.3** (2026-08-10) — Your listening history audited against itself and holding up: normalization re-derived exactly across 132,199 plays, zero dropped observations. Nine defects found at the edges; every ledger row now records *why* it didn't count, Spotify's live API stops stamping the wrong end of a play, the export's own duplicate rows stop double-counting, and a remaster stops splitting into a second track. [changelog](../../CHANGELOG.md#0103--2026-08-10)
 - **v0.10.2.14** (2026-08-09) — Fixes the outage the previous release surfaced: a flat environment variable was rebuilding its whole config group and discarding the nested settings around it, which sent the log file to a directory the app can't write and killed startup. [changelog](../../CHANGELOG.md#010214--2026-08-09)
 - **v0.10.2.13** (2026-08-09) — Check back on a running export and it tells you where it is: one live view of the whole drain, counted in files and never sliding backwards, with each file's plays and duration kept on its row, waiting files showing when their turn comes, and a failure that stays legible without turning the whole export red. [changelog](../../CHANGELOG.md#010213--2026-08-09)
 - **v0.10.2.12** (2026-08-09) — Relinked Spotify ids resolve onto the track your library already holds, so the imports stop failing on your most-played music. The 55 "dead ids" weren't dead: 40 of 47 were relinks, and reuse only checked the ISRC — which a remaster never shares with its original. Failed writes now say so instead of passing for dead identifiers, four dropped counters reach the run record, and an exported `DATABASE_URL` finally beats `.env.local`. [changelog](../../CHANGELOG.md#010212--2026-08-09)
@@ -144,7 +145,7 @@ Each milestone delivers a **vertical slice** — backend API + frontend page tog
 | **v0.10.0** | Convergent play history — order-free, re-import-safe canonical plays projected from the observation ledger; lands before the first at-scale import ([findings](play-import-convergence-findings.md)) | 🚀 Shipped | [details](v0.10.x.md#v0100-convergent-play-history) |
 | **v0.10.1** | Continuous play polling — Spotify recently-played, demand-driven + adaptive; plus workflow feedback: saves visible immediately, run state visible wherever the user is watching, successful-run count in the list | ✅ Completed | [details](v0.10.x.md#v0101-continuous-play-polling) |
 | **v0.10.2** | Mapping supersession & resolution event log (pulled forward so v0.11.x connectors are supersession-native) | 🚀 Shipped | [details](v0.10.x.md#v0102-mapping-supersession--resolution-event-log) |
-| **v0.10.3** | Post-import data integrity audit — agent-driven adversarial verification of the first at-scale prod imports (duplicate plays, missed merges, identity twins; checklist is a floor, the agent extends it) | 🔨 In Progress | [details](v0.10.x.md#v0103-post-import-data-integrity-audit) |
+| **v0.10.3** | Post-import data integrity audit — adversarial verification of the first at-scale prod imports, plus the remediation it found ([findings](v0.10.3-audit-findings.md)) | 🚀 Shipped | [details](v0.10.x.md#v0103-post-import-data-integrity-audit) |
 | **v0.11.0** | Apple Music foundation — auth, client, ISRC-conservative resolution, play channel | 🔜 Not Started | [details](v0.11.x.md#v0110-apple-music-foundation) |
 | **v0.11.1** | Discogs foundation — BYO-token client + collection snapshot | 🔜 Not Started | [details](v0.11.x.md#v0111-discogs-foundation) |
 | **v0.12.0** | Entity representation spike — artists/albums across five services, real data (docs-only) | 🔜 Not Started | [details](v0.12.x.md#v0120-entity-representation-spike) |
@@ -153,6 +154,7 @@ Each milestone delivers a **vertical slice** — backend API + frontend page tog
 | **v0.13.0** | Apple Music integration — library, likes sync, deferred-play re-resolution | 🔜 Not Started | [details](v0.13.x.md#v0130-apple-music-integration) |
 | **v0.13.1** | Physical media & Discogs | 🔜 Not Started | [details](v0.13.x.md#v0131-physical-media--discogs) |
 | **v0.13.2** | Manual listens | 🔜 Not Started | [details](v0.13.x.md#v0132-manual-listens) |
+| **v0.13.3** | Now Playing — see, control, and tag/rate/like the track you're hearing (Spotify polled + remote-controlled, Apple played in-tab via MusicKit JS) | 🔜 Not Started | [details](v0.13.x.md#v0133-now-playing) |
 | **v0.14.0** | Data quality tools | 🔜 Not Started | [details](v0.14.x.md#v0140-data-quality) |
 | **v0.14.1** | Rekordbox connector + audio quality enrichment | 🔜 Not Started | [details](v0.14.x.md#v0141-rekordbox-connector) |
 | **v0.15.0** | Data sovereignty — continuous archive & exit rights (direction-neutral under PDR-001) | 🔜 Not Started | [details](v0.15.x.md#v0150-data-sovereignty--archive--exit-rights) |
@@ -188,7 +190,7 @@ See [docs/personas.md](../personas.md) for full persona definitions.
 | v0.10.x | Play history & mapping integrity | Play counts finally trustworthy and live (poll + export + Last.fm converge) | Observation ledger, rebuild command, append-only mapping history to script against | History "just works" no matter what they connect or re-import |
 | v0.11.x | Connector foundations (Apple, Discogs) | Apple listening joins the canonical history; the Discogs on-ramp | Two new connector surfaces to explore | Groundwork for "connect Apple Music" being a first-class button |
 | v0.12.x | First-class artists & albums | Favorites and artist-driven playlists on identity measured across five services | Entity design in the open (spike findings doc); rich relational model | Browse-by-artist/album navigation every music app is expected to have |
-| v0.13.x | Completing the collection | Full reclamation — streaming, physical, and manual history unified | Re-resolution machinery + collection import to script | Apple Music at parity with Spotify |
+| v0.13.x | Completing the collection | Full reclamation — streaming, physical, and manual history unified; tags land in the listening moment, not from memory | Re-resolution machinery + collection import to script; an in-tab Apple player and polled Spotify state | Apple Music at parity with Spotify; a now-playing bar as the most legible surface in the app |
 | v0.14.x | Data quality + Rekordbox | Fixes mappings, finds gaps, trusts automated results | Rekordbox: purchased music + BPM/key/lossless workflow filters | Fewer wrong-song moments |
 | v0.15.x | Sovereignty & gate readiness | Disaster insurance for years of curation | Data sovereignty made tangible | Ownership without self-hosting |
 | v1.0.x | The gate | Confidence the data model is stable before guests arrive | An instance they can invite friends to | They can finally get an account |

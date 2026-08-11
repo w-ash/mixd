@@ -13,6 +13,7 @@ import pytest
 
 from src.domain.entities.operations import SyncCheckpoint
 from src.domain.exceptions import SpotifyAuthRequiredError
+from src.domain.matching.play_projection import START_SHIFT_MS_KEY
 from src.domain.repositories.play import (
     LastfmImportParams,
     SpotifyRecentImportParams,
@@ -51,18 +52,20 @@ def _item(
     name: str = "Creep",
     artist: str = "Radiohead",
     minute: int = 0,
+    second: int = 0,
+    duration_ms: int = 238640,
     context: SpotifyPlayContext | None = None,
 ) -> SpotifyPlayHistoryItem:
-    """Build one recently-played entry."""
+    """Build one recently-played entry (``played_at`` stamps the play's END)."""
     return SpotifyPlayHistoryItem(
         track=SpotifyTrack(
             id=track_id,
             name=name,
             artists=[SpotifyArtist(id="a1", name=artist)],
             album=SpotifyAlbum(id="al1", name="Pablo Honey"),
-            duration_ms=238640,
+            duration_ms=duration_ms,
         ),
-        played_at=datetime(2026, 7, 20, 12, minute, tzinfo=UTC),
+        played_at=datetime(2026, 7, 20, 12, minute, second, tzinfo=UTC),
         context=context,
     )
 
@@ -323,6 +326,84 @@ class TestProcessData:
         assert with_ctx.service_metadata["context_type"] == "album"
         assert with_ctx.service_metadata["context_uri"] == "spotify:album:x"
         assert without_ctx.service_metadata["context_type"] is None
+
+
+class TestDerivedStartShift:
+    """The END→START correction the projection reads back (v0.10.3 C1).
+
+    ``played_at`` marks the end of the play and the API reports no listened
+    duration, so a play observed here lands a track-length after its real
+    start. The shift is derived from the payload and written as ledger data —
+    never as a synthetic ``ms_played``, which survivorship would let win a
+    merge and corrupt listening-time statistics.
+    """
+
+    @staticmethod
+    async def _plays(items: list[SpotifyPlayHistoryItem]):
+        importer = SpotifyRecentlyPlayedImporter(client=_client())
+        return await importer._process_data(
+            items,
+            user_id="user-1",
+            batch_id="b",
+            import_timestamp=datetime(2026, 7, 20, 13, tzinfo=UTC),
+        )
+
+    async def test_back_to_back_play_is_stamped_with_the_track_length(self):
+        """Consecutive END stamps a track-length apart: the play ran in full."""
+        plays = await self._plays([
+            _item(minute=0, duration_ms=240_000),
+            _item(minute=4, duration_ms=240_000),
+        ])
+
+        assert plays[1].service_metadata[START_SHIFT_MS_KEY] == 240_000
+        # The correction is a timestamp, never a listening duration.
+        assert plays[1].ms_played is None
+
+    async def test_first_entry_of_a_poll_is_never_stamped(self):
+        """Nothing precedes it, so nothing evidences that it ran in full."""
+        plays = await self._plays([
+            _item(minute=0, duration_ms=240_000),
+            _item(minute=4, duration_ms=240_000),
+        ])
+
+        assert START_SHIFT_MS_KEY not in plays[0].service_metadata
+
+    async def test_truncated_play_is_left_uncorrected(self):
+        """Skipped a minute in: the track's length is not this play's shift."""
+        plays = await self._plays([
+            _item(minute=0, duration_ms=240_000),
+            _item(minute=1, duration_ms=240_000),
+        ])
+
+        assert START_SHIFT_MS_KEY not in plays[1].service_metadata
+
+    async def test_play_after_an_idle_gap_is_left_uncorrected(self):
+        """Room to spare proves nothing — the listener may have started late."""
+        plays = await self._plays([
+            _item(minute=0, duration_ms=240_000),
+            _item(minute=30, duration_ms=240_000),
+        ])
+
+        assert START_SHIFT_MS_KEY not in plays[1].service_metadata
+
+    async def test_crossfade_sized_shortfall_still_counts_as_a_full_play(self):
+        """Crossfade ends a track early by up to 12s; it still played in full."""
+        plays = await self._plays([
+            _item(minute=0, duration_ms=240_000),
+            _item(minute=3, second=52, duration_ms=240_000),
+        ])
+
+        assert plays[1].service_metadata[START_SHIFT_MS_KEY] == 240_000
+
+    async def test_entries_are_walked_in_play_order(self):
+        """Spotify returns newest-first; the shift reads off the *previous* play."""
+        plays = await self._plays([
+            _item(minute=4, duration_ms=240_000),
+            _item(minute=0, duration_ms=240_000),
+        ])
+
+        assert [p.played_at.minute for p in plays] == [0, 4]
+        assert plays[1].service_metadata[START_SHIFT_MS_KEY] == 240_000
 
 
 class TestHandleCheckpoints:
