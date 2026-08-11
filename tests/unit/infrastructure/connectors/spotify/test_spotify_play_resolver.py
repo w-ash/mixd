@@ -4,7 +4,7 @@ Tests the resolver's core business logic: duration filtering, incognito filterin
 track resolution, relinking, metadata preservation, and error handling.
 """
 
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 from unittest.mock import AsyncMock, MagicMock, call
 
 import pytest
@@ -41,12 +41,16 @@ def _route_batch_save(track_repo) -> None:
     track_repo.save_tracks.side_effect = _save_tracks
 
 
+_PLAYED_AT = datetime(2024, 6, 15, 14, 30, tzinfo=UTC)
+
+
 def _make_connector_play(
     track_name: str = "Test Song",
     artist_name: str = "Test Artist",
     ms_played: int = 240000,
     track_uri: str = "spotify:track:4iV5W9uYEdYUVa79Axb7Rh",
     incognito: bool = False,
+    played_at: datetime = _PLAYED_AT,
     **extra_metadata: object,
 ) -> ConnectorTrackPlay:
     """Create a ConnectorTrackPlay for testing."""
@@ -55,7 +59,7 @@ def _make_connector_play(
         track_name=track_name,
         artist_name=artist_name,
         album_name="Test Album",
-        played_at=datetime(2024, 6, 15, 14, 30, tzinfo=UTC),
+        played_at=played_at,
         ms_played=ms_played,
         service_metadata={
             "track_uri": track_uri,
@@ -273,6 +277,89 @@ class TestResolverFiltering:
         assert context["track_name"] == "Test Song"
         assert context["artist_name"] == "Test Artist"
         assert context["resolution_method"] == MatchMethod.PLAY_RESOLVER
+
+
+def _fragments(
+    *, parts: tuple[int, ...], reason_end: str = "endplay"
+) -> list[ConnectorTrackPlay]:
+    """Export records for one listen split into abutting ``parts`` fragments."""
+    ended_at = _PLAYED_AT
+    records: list[ConnectorTrackPlay] = []
+    for ms_played in parts:
+        ended_at += timedelta(milliseconds=ms_played)
+        records.append(
+            _make_connector_play(
+                ms_played=ms_played, played_at=ended_at, reason_end=reason_end
+            )
+        )
+    return records
+
+
+class TestListenThresholdJudgesTheWholeListen:
+    """v0.10.3 C9 — the bar is cleared by a listen, not by a fragment of one.
+
+    The fixture's canonical track runs five minutes, so the bar is 150s: every
+    fragment below is under it on its own and only some of them are together.
+    """
+
+    @pytest.fixture
+    def resolver_with_existing_tracks(self):
+        connector = MagicMock()
+        resolver = SpotifyConnectorPlayResolver(spotify_connector=connector)
+        uow = MagicMock()
+        attach_resolution_recorder(uow)
+        connector_repo = AsyncMock()
+        connector_repo.find_tracks_by_connectors.return_value = {
+            ("spotify", "4iV5W9uYEdYUVa79Axb7Rh"): make_track(duration_ms=300000),
+        }
+        uow.get_connector_repository.return_value = connector_repo
+        return resolver, uow
+
+    async def test_fragments_of_one_listen_are_admitted_together(
+        self, resolver_with_existing_tracks
+    ):
+        """The defect: three 60s fragments of a 5-minute track fail the 50%
+        bar three times, and the listen the user actually had vanishes."""
+        resolver, uow = resolver_with_existing_tracks
+        interrupted = _fragments(parts=(60000, 60000, 60000))
+
+        outcome = await resolver.resolve_connector_plays(
+            interrupted, uow, user_id="test-user"
+        )
+
+        assert outcome.metrics["accepted_plays"] == 3
+        assert outcome.metrics["duration_excluded"] == 0
+        assert outcome.exclusions == ()
+        assert {cp.id for cp, _ in outcome.resolutions} == {p.id for p in interrupted}
+
+    async def test_fragments_short_even_in_total_stay_excluded(
+        self, resolver_with_existing_tracks
+    ):
+        resolver, uow = resolver_with_existing_tracks
+        interrupted = _fragments(parts=(30000, 30000))
+
+        outcome = await resolver.resolve_connector_plays(
+            interrupted, uow, user_id="test-user"
+        )
+
+        assert outcome.metrics["duration_excluded"] == 2
+        assert outcome.resolutions == ()
+        assert [reason for _, reason in outcome.exclusions] == ["too_short"] * 2
+
+    async def test_a_repeat_chain_is_still_judged_play_by_play(
+        self, resolver_with_existing_tracks
+    ):
+        """Three completed 60s plays abut exactly like fragments do — summing
+        them would admit a listen that never happened."""
+        resolver, uow = resolver_with_existing_tracks
+        repeats = _fragments(parts=(60000, 60000, 60000), reason_end="trackdone")
+
+        outcome = await resolver.resolve_connector_plays(
+            repeats, uow, user_id="test-user"
+        )
+
+        assert outcome.metrics["accepted_plays"] == 0
+        assert outcome.metrics["duration_excluded"] == 3
 
 
 class TestResolverContextKeys:

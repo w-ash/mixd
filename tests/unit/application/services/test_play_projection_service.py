@@ -56,6 +56,7 @@ def _export(
     *,
     ended_at: datetime,
     ms_played: int = 201_000,
+    reason_end: str | None = None,
 ) -> ConnectorTrackPlay:
     return ConnectorTrackPlay(
         service="spotify",
@@ -63,7 +64,10 @@ def _export(
         track_name="Striptease",
         played_at=ended_at,
         ms_played=ms_played,
-        service_metadata={"track_uri": "spotify:track:4iV5W9uYEdYUVa79Axb7Rh"},
+        service_metadata={
+            "track_uri": "spotify:track:4iV5W9uYEdYUVa79Axb7Rh",
+            "reason_end": reason_end,
+        },
         resolved_track_id=_TRACK,
         import_source="spotify_export",
         import_batch_id="batch-export",
@@ -523,6 +527,58 @@ class TestProjectFullHistory:
             for play in c.args[0]
         ]
         assert full_inserted == observed_inserted
+
+    @pytest.mark.asyncio
+    async def test_an_island_across_midnight_is_owned_by_one_chunk(self):
+        """v0.10.3 C9 — an interrupted listen straddling a day boundary is
+        still one play, and the rebuild reaches the same answer as the import.
+
+        The listen begins at 23:55 and its later segment lands on the next
+        calendar day, so both days' chunks fetch both segments and consolidate
+        the same island; only the chunk holding the island's start applies it.
+        """
+        island_start = datetime(2024, 11, 5, 23, 55, tzinfo=UTC)
+        first = _export(
+            ended_at=island_start + timedelta(minutes=5),
+            ms_played=300_000,
+            reason_end="endplay",
+        )
+        second = _export(
+            ended_at=island_start + timedelta(minutes=10),
+            ms_played=300_000,
+            reason_end="endplay",
+        )
+        entries = [first, second]
+
+        observed_uow, observed_plays = _wire_windowed_uow(entries)
+        observed_stats = await PlayProjectionService().project_observed_days(
+            observed_uow,
+            user_id=_USER,
+            played_at=[entry.played_at for entry in entries],
+        )
+
+        inserted = [
+            play
+            for c in observed_plays.bulk_insert_plays.await_args_list
+            for play in c.args[0]
+        ]
+        assert len(inserted) == 1
+        assert inserted[0].played_at == island_start
+        assert inserted[0].ms_played == 600_000
+        assert observed_stats["listening_islands_merged"] == 1
+        memberships = [
+            edge
+            for c in observed_plays.bulk_upsert_play_sources.await_args_list
+            for edge in c.args[0]
+        ]
+        assert {edge.connector_play_id for edge in memberships} == {first.id, second.id}
+        assert {edge.track_play_id for edge in memberships} == {inserted[0].id}
+
+        full_uow, _full_plays = self._wire_full_history(entries)
+        full_stats = await PlayProjectionService().project_full_history(
+            full_uow, user_id=_USER
+        )
+        assert full_stats == observed_stats
 
     @pytest.mark.asyncio
     async def test_empty_ledger_returns_none_and_fetches_nothing(self):

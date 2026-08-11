@@ -73,9 +73,7 @@ def setup_logging(
     """
     console_level = "DEBUG" if verbose else settings.logging.console_level
 
-    # Create log directory
     log_file_path = Path(settings.logging.log_file)
-    log_file_path.parent.mkdir(parents=True, exist_ok=True)
 
     shared = _shared_processors()
 
@@ -120,12 +118,55 @@ def setup_logging(
         )
     )
 
+    # --- Root logger ---
+    # The console handler lands FIRST, before anything that can fail: stdout is
+    # the sink Fly reads, so a process with only this handler is still fully
+    # observable. Attaching it up front is also what leaves a usable logger for
+    # the fallback warning below.
+    root = logging.getLogger()
+    root.handlers.clear()
+    root.addHandler(console_handler)
+    root.setLevel(logging.DEBUG)  # Let handlers filter by their own levels
+
+    # Suppress noisy third-party loggers
+    logging.getLogger("httpx2").setLevel(logging.WARNING)
+    logging.getLogger("httpcore").setLevel(logging.WARNING)
+    logging.getLogger("asyncio").setLevel(logging.WARNING)
+
     # --- File handler (flat JSON for agents/jq/Fly.io) ---
-    file_handler = logging.handlers.RotatingFileHandler(
-        str(log_file_path),
-        maxBytes=_parse_rotation(settings.logging.rotation),
-        backupCount=_parse_retention(settings.logging.retention),
-    )
+    file_handler = _build_file_handler(log_file_path, shared)
+    if file_handler is not None:
+        root.addHandler(file_handler)
+
+
+def _build_file_handler(
+    log_file_path: Path, shared: list[structlog.types.Processor]
+) -> logging.Handler | None:
+    """Build the rotating JSON file handler, or None if the sink can't be opened.
+
+    A log file the process cannot write is a lost diagnostic; an app that
+    refuses to start is a lost app. Both the directory creation and the handler
+    construction can raise ``OSError`` (``PermissionError`` and
+    ``ReadOnlyFileSystemError`` among its subclasses) when the configured path
+    lands somewhere the container can't write — so both are guarded, and the
+    degradation is announced through the console handler rather than swallowed.
+    """
+    try:
+        log_file_path.parent.mkdir(parents=True, exist_ok=True)
+        file_handler = logging.handlers.RotatingFileHandler(
+            str(log_file_path),
+            maxBytes=_parse_rotation(settings.logging.rotation),
+            backupCount=_parse_retention(settings.logging.retention),
+        )
+    except OSError as exc:
+        get_logger(__name__).warning(
+            "File logging disabled — log path is not writable; "
+            "continuing with console output only",
+            log_file=str(log_file_path),
+            reason=str(exc),
+        )
+        return None
+
     file_handler.setLevel(logging.getLevelNamesMapping()[settings.logging.file_level])
     file_handler.setFormatter(
         structlog.stdlib.ProcessorFormatter(
@@ -137,18 +178,7 @@ def setup_logging(
             ],
         )
     )
-
-    # --- Root logger ---
-    root = logging.getLogger()
-    root.handlers.clear()
-    root.addHandler(console_handler)
-    root.addHandler(file_handler)
-    root.setLevel(logging.DEBUG)  # Let handlers filter by their own levels
-
-    # Suppress noisy third-party loggers
-    logging.getLogger("httpx2").setLevel(logging.WARNING)
-    logging.getLogger("httpcore").setLevel(logging.WARNING)
-    logging.getLogger("asyncio").setLevel(logging.WARNING)
+    return file_handler
 
 
 def setup_script_logger(_script_name: str) -> None:

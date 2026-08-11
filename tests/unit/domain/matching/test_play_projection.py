@@ -15,6 +15,8 @@ import pytest
 
 from src.domain.entities import ConnectorTrackPlay
 from src.domain.matching.play_projection import (
+    ISLAND_CONTINUATION_GAP_SECONDS,
+    MAX_ISLAND_SPAN,
     MAX_NORMALIZED_START_SHIFT,
     START_SHIFT_MS_KEY,
     UnknownChannelError,
@@ -58,7 +60,15 @@ def _export_obs(
     track_id: UUID | None = _TRACK_A,
     artist: str = "Carwash",
     title: str = "Striptease",
+    reason_end: str | None = None,
 ) -> ConnectorTrackPlay:
+    """One Spotify export record.
+
+    ``reason_end`` is the export's own verdict on how the record ended, and the
+    only thing that tells an interrupted listen from a repeat (v0.10.3 C9).
+    Left unset by default so every case that does not speak to islands keeps
+    testing the projection without one.
+    """
     return ConnectorTrackPlay(
         service="spotify",
         artist_name=artist,
@@ -69,6 +79,7 @@ def _export_obs(
             "track_uri": "spotify:track:4iV5W9uYEdYUVa79Axb7Rh",
             "platform": "ios",
             "skipped": False,
+            "reason_end": reason_end,
         },
         resolved_track_id=track_id,
         import_source="spotify_export",
@@ -285,6 +296,174 @@ class TestSameChannelCollapse:
         assert set(result.plays[0].member_ids) == {first.id, twin.id, scrobble.id}
 
 
+def _island(
+    *,
+    parts: tuple[int, ...],
+    start: datetime = _BASE,
+    reason_end: str = "endplay",
+    title: str = "Striptease",
+) -> list[ConnectorTrackPlay]:
+    """Export records for one listen interrupted into ``parts`` fragments.
+
+    Each fragment's playback begins exactly where the previous one stopped, so
+    the records abut — which is what the ledger sees whether the listener was
+    interrupted or restarted the track, hence the ``reason_end`` discriminator.
+    """
+    segments: list[ConnectorTrackPlay] = []
+    for ms in parts:
+        start += timedelta(milliseconds=ms)
+        segments.append(
+            _export_obs(
+                ended_at=start, ms_played=ms, reason_end=reason_end, title=title
+            )
+        )
+    return segments
+
+
+class TestListeningIslands:
+    """v0.10.3 C9 — the threshold judges a listen, and a listen is an island."""
+
+    def test_an_interrupted_listen_is_one_play_carrying_its_whole_duration(self):
+        """The defect this exists for: three fragments, each under the 50% bar,
+        are one listen the user heard nearly all of."""
+        segments = _island(parts=(60_000, 70_000, 65_000))
+
+        result = project_ledger_entries(segments)
+
+        assert len(result.plays) == 1
+        play = result.plays[0]
+        assert play.ms_played == 195_000
+        # The canonical stamp is where the listen actually began.
+        assert play.played_at == _BASE
+        assert set(play.member_ids) == {s.id for s in segments}
+        assert result.stats["listening_islands_merged"] == 2
+        assert result.stats["same_channel_collapsed"] == 0
+
+    def test_a_repeat_one_chain_stays_one_play_per_repeat(self):
+        """Three back-to-back complete plays abut exactly like an interrupted
+        listen does; the export's own completion verdict is what parts them."""
+        chain = _island(parts=(201_000, 201_000, 201_000), reason_end="trackdone")
+
+        result = project_ledger_entries(chain)
+
+        assert len(result.plays) == 3
+        assert result.stats["listening_islands_merged"] == 0
+        assert [p.ms_played for p in result.plays] == [201_000] * 3
+
+    def test_an_unattributed_end_reason_never_merges(self):
+        """Silence is not a licence to merge: a channel that says nothing about
+        completion cannot distinguish a resume from a replay, so it does not."""
+        abutting = _island(parts=(60_000, 70_000))
+        unattributed = [
+            _export_obs(ended_at=s.played_at, ms_played=s.ms_played) for s in abutting
+        ]
+
+        result = project_ledger_entries(unattributed)
+
+        assert len(result.plays) == 2
+        assert result.stats["listening_islands_merged"] == 0
+
+    def test_a_scrobble_pairs_with_the_consolidated_listen(self):
+        """Last.fm stamps the listen's true start, which is the island's — not
+        the start of whichever fragment happens to sit nearest."""
+        segments = _island(parts=(60_000, 70_000, 65_000))
+        scrobble = _lastfm_obs(played_at=_BASE + timedelta(seconds=2))
+
+        result = project_ledger_entries([*segments, scrobble])
+
+        assert len(result.plays) == 1
+        play = result.plays[0]
+        assert play.ms_played == 195_000
+        assert set(play.member_ids) == {scrobble.id, *(s.id for s in segments)}
+
+    @pytest.mark.parametrize("overshoot_seconds", [0, 1])
+    def test_the_continuation_window_bounds_the_resume(self, overshoot_seconds: int):
+        """A resume is immediate; a later play of the same track is a new listen."""
+        first = _export_obs(
+            ended_at=_BASE + timedelta(milliseconds=60_000),
+            ms_played=60_000,
+            reason_end="endplay",
+        )
+        resumed_after = timedelta(
+            seconds=ISLAND_CONTINUATION_GAP_SECONDS + overshoot_seconds
+        )
+        later = _export_obs(
+            ended_at=_BASE + timedelta(milliseconds=130_000) + resumed_after,
+            ms_played=70_000,
+            reason_end="endplay",
+        )
+
+        result = project_ledger_entries([first, later])
+
+        assert len(result.plays) == (2 if overshoot_seconds else 1)
+
+    def test_an_island_cannot_outrun_the_projection_fetch_margin(self):
+        """The span bound is what keeps a chain from reaching past the window
+        the owning chunk fetches — an unbounded island would go unprojected."""
+        head_ms = int(MAX_ISLAND_SPAN.total_seconds() * 1000)
+        first = _export_obs(
+            ended_at=_BASE + timedelta(milliseconds=head_ms),
+            ms_played=head_ms,
+            reason_end="endplay",
+        )
+        tail = _export_obs(
+            ended_at=_BASE + timedelta(milliseconds=head_ms + 1_000),
+            ms_played=1_000,
+            reason_end="endplay",
+        )
+
+        assert len(project_ledger_entries([first, tail]).plays) == 2
+
+
+class TestIslandAndDuplicateBoundary:
+    """The two same-channel rules answer different questions and must not
+    borrow each other's cases (v0.10.3 C2 vs C9)."""
+
+    def test_a_jittered_twin_is_a_duplicate_even_when_it_abuts(self):
+        """Byte-identical ``ms_played`` seconds apart is one record written
+        twice — never a fragment, whatever the end reason says."""
+        first = _export_obs(ended_at=_BASE, ms_played=216_468, reason_end="endplay")
+        twin = _export_obs(
+            ended_at=_BASE + timedelta(seconds=1),
+            ms_played=216_468,
+            reason_end="endplay",
+        )
+
+        result = project_ledger_entries([first, twin])
+
+        assert len(result.plays) == 1
+        assert result.plays[0].ms_played == 216_468
+        assert result.stats["same_channel_collapsed"] == 1
+        assert result.stats["listening_islands_merged"] == 0
+
+    def test_fragments_are_an_island_and_never_a_duplicate(self):
+        segments = _island(parts=(60_000, 70_000))
+
+        result = project_ledger_entries(segments)
+
+        assert result.stats["same_channel_collapsed"] == 0
+        assert result.stats["listening_islands_merged"] == 1
+
+    def test_a_duplicated_fragment_is_counted_once_toward_the_listen(self):
+        """The duplicate pass runs first for exactly this reason — a surviving
+        twin would inflate the listen's duration by a whole fragment."""
+        first, second = _island(parts=(60_000, 70_000))
+        twin = _export_obs(
+            ended_at=first.played_at + timedelta(seconds=1),
+            ms_played=60_000,
+            reason_end="endplay",
+        )
+
+        result = project_ledger_entries([first, twin, second])
+
+        assert len(result.plays) == 1
+        play = result.plays[0]
+        assert play.ms_played == 130_000
+        assert set(play.member_ids) == {first.id, twin.id, second.id}
+        assert result.stats["same_channel_collapsed"] == 1
+        assert result.stats["listening_islands_merged"] == 1
+
+
 class TestResolutionDivergenceBridge:
     def test_bridge_unions_equal_normalized_identity_across_track_ids(self):
         scrobble = _lastfm_obs(
@@ -338,7 +517,8 @@ def _observation_sets(draw: st.DrawFn) -> tuple[list[ConnectorTrackPlay], int]:
     the ground truth is unambiguous; within an event, observations jitter
     ±5s around the true start (findings §3's alignment band). An export
     observation may also arrive twice, a second or two apart with identical
-    ms_played — the upstream duplicate class (v0.10.3 C2).
+    ms_played — the upstream duplicate class (v0.10.3 C2) — and may itself be
+    written as several abutting fragments of one interrupted listen (C9).
 
     Returns the observations paired with the number of events they describe.
     """
@@ -357,6 +537,7 @@ def _observation_sets(draw: st.DrawFn) -> tuple[list[ConnectorTrackPlay], int]:
         jitter = draw(st.integers(min_value=-5, max_value=5))
         ms_played = draw(st.integers(min_value=30_000, max_value=300_000))
         duplicate_jitter = draw(st.integers(min_value=0, max_value=3))
+        fragments = draw(st.integers(min_value=1, max_value=3))
         if "lastfm" in channels:
             entries.append(
                 _lastfm_obs(
@@ -366,22 +547,30 @@ def _observation_sets(draw: st.DrawFn) -> tuple[list[ConnectorTrackPlay], int]:
                 )
             )
         if "spotify_export" in channels:
-            ended_at = start + timedelta(milliseconds=ms_played)
-            entries.append(
-                _export_obs(
-                    ended_at=ended_at,
-                    ms_played=ms_played,
-                    track_id=track_id,
-                    title=f"Song {event_index}",
+            # Fragments abut and are all declared incomplete, so they describe
+            # one interrupted listen of exactly ``ms_played`` in total.
+            part = ms_played // fragments
+            parts = [part] * (fragments - 1) + [ms_played - part * (fragments - 1)]
+            ended_at = start
+            for part_ms in parts:
+                ended_at += timedelta(milliseconds=part_ms)
+                entries.append(
+                    _export_obs(
+                        ended_at=ended_at,
+                        ms_played=part_ms,
+                        track_id=track_id,
+                        title=f"Song {event_index}",
+                        reason_end="endplay" if fragments > 1 else None,
+                    )
                 )
-            )
             if duplicate_jitter:
                 entries.append(
                     _export_obs(
                         ended_at=ended_at + timedelta(seconds=duplicate_jitter),
-                        ms_played=ms_played,
+                        ms_played=parts[-1],
                         track_id=track_id,
                         title=f"Song {event_index}",
+                        reason_end="endplay" if fragments > 1 else None,
                     )
                 )
         if "spotify_api" in channels:
@@ -455,7 +644,11 @@ class TestConvergenceLaws:
         covered = [
             pid
             for g in groups
-            for pid in (*(m.id for m in g.members), *(a.id for a in g.absorbed))
+            for pid in (
+                *(m.id for m in g.members),
+                *(a.id for a in g.absorbed),
+                *(s.id for s in g.segments),
+            )
         ]
         assert sorted(covered) == sorted(e.id for e in entries)
 

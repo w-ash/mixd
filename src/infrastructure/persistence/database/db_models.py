@@ -312,12 +312,19 @@ class DBTrackMapping(BaseEntity):
     user_id: Mapped[str] = mapped_column(
         String(), nullable=False, default="default", server_default="default"
     )
+    # RESTRICT, not CASCADE (migration 051): mappings are append-only history
+    # and a cascade is a silent history delete — production reached a state
+    # where resolution_events named superseding mappings a track delete had
+    # already taken. A caller that means to remove the track moves its
+    # mappings first (``merge_mappings_to_track``); everything else must fail
+    # at the database, because the repository guard in ``hard_delete_track``
+    # cannot see a raw Core DELETE.
     track_id: Mapped[UuidType] = mapped_column(
-        PgUuidCol(as_uuid=True), ForeignKey("tracks.id", ondelete="CASCADE")
+        PgUuidCol(as_uuid=True), ForeignKey("tracks.id", ondelete="RESTRICT")
     )
     connector_track_id: Mapped[UuidType] = mapped_column(
         PgUuidCol(as_uuid=True),
-        ForeignKey("connector_tracks.id", ondelete="CASCADE"),
+        ForeignKey("connector_tracks.id", ondelete="RESTRICT"),
     )
     connector_name: Mapped[str] = mapped_column(String(32), nullable=False)
     match_method: Mapped[str] = mapped_column(String(32))
@@ -337,12 +344,17 @@ class DBTrackMapping(BaseEntity):
     # than overwriting in place.  DEFERRABLE INITIALLY DEFERRED because the
     # write path stamps the predecessor with an id the successor INSERT has
     # not written yet (legal alongside ON CONFLICT: the arbiter is the unique
-    # index, and only arbiters must be non-deferrable).
+    # index, and only arbiters must be non-deferrable).  ON DELETE RESTRICT
+    # since 051: SET NULL let a deleted successor blank its predecessor's
+    # pointer, leaving a retired row with a reason and no successor —
+    # indistinguishable from a retirement that never had one. RESTRICT's
+    # delete check is non-deferrable regardless of the clause below, which
+    # only governs the insert-side check the write path defers.
     superseded_by_id: Mapped[UuidType | None] = mapped_column(
         PgUuidCol(as_uuid=True),
         ForeignKey(
             "track_mappings.id",
-            ondelete="SET NULL",
+            ondelete="RESTRICT",
             deferrable=True,
             initially="DEFERRED",
         ),

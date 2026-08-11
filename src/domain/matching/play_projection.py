@@ -22,6 +22,14 @@ back an end stamp sits from its start is *ledger data*, never a per-channel
 branch: an observation carries its own listened ``ms_played`` or, when its
 channel cannot observe one, a shift its importer derived
 (:data:`START_SHIFT_MS_KEY`).
+
+The grouping invariant reads "one *listen* per channel per event", not one
+*record*: a channel can write one listen down several times. Two independent
+rules turn its records into that single observation before any cross-channel
+pairing happens — the jittered-duplicate collapse (:func:`_one_observation`,
+v0.10.3 C2) and the listening-island consolidation (:func:`_island_runs`,
+v0.10.3 C9). They are disjoint by construction: duplicates repeat one
+``ms_played``, island segments partition a listen into different ones.
 """
 
 from collections import defaultdict
@@ -30,7 +38,7 @@ from datetime import datetime, timedelta
 from typing import Final, Literal
 from uuid import UUID
 
-from attrs import define, field
+from attrs import define, evolve, field
 
 from src.domain.entities import ConnectorTrackPlay
 from src.domain.entities.operations import TrackContextFields
@@ -70,6 +78,26 @@ START_SHIFT_MS_KEY: Final = "start_shift_ms"
 # observed jitter band; the *safety* argument is the ``ms_played`` bound in
 # :func:`_one_observation` rather than this constant.
 SAME_CHANNEL_JITTER_SECONDS: Final = 3.0
+
+# Listening-island continuation window (v0.10.3 C9). A player that is
+# interrupted mid-track — a device handover, an app relaunch, the listener
+# clicking back into the row — writes the rest of the listen as a further
+# record whose start abuts the previous record's end. Sized from the reference
+# corpus: 4,416 such adjacencies at 30s across 206,900 islands, with no cliff
+# in the gap distribution, so this is the same "resumed without an intervening
+# decision" band findings §3 uses cross-channel rather than a measured edge.
+# Widening it recovers a little more (82 rescued listens at 60s against 64
+# here) and risks chaining separate listens; the safety argument is the
+# completion signal below, not this number.
+ISLAND_CONTINUATION_GAP_SECONDS: Final = 30.0
+
+# How far an island may run from its own start. Islands are chains, so per-link
+# gap bounds alone leave the total span unbounded, and the span is what the
+# projection service's chunk fetch margin has to cover for the chunk that owns
+# an island to see all of its segments. The reference corpus tops out at 2,121s
+# across at most 13 segments, so an hour is far above anything observed and far
+# below the normalization clamp the fetch margin already pays for.
+MAX_ISLAND_SPAN: Final = timedelta(hours=1)
 
 _MS_PER_SECOND: Final = 1000
 
@@ -249,6 +277,31 @@ def _generic_context(entry: ConnectorTrackPlay) -> dict[str, JsonValue]:
 
 
 @define(frozen=True, slots=True)
+class CompletionSignal:
+    """How a channel says an observation reached the end of the track.
+
+    The one thing that separates an interrupted listen from a repeat: three
+    back-to-back records of one track abut identically whether the listener
+    was interrupted twice or played it three times through. Measured over the
+    reference corpus, adjacent same-track records whose predecessor ended
+    ``trackdone`` sum to 1.79x the track's duration (85% overshoot it), while
+    every other class sums to 1.14x or less — so a declared completion is a
+    listen boundary and nothing else in the export's vocabulary is.
+
+    Declared per channel rather than read inline because ``reason_end`` is the
+    Spotify *export's* word for this; a channel that reports completion some
+    other way registers its own key here and inherits the rule.
+
+    Attributes:
+        metadata_key: Service-metadata key carrying the channel's end reason.
+        completed_value: The value that means "played to the end".
+    """
+
+    metadata_key: str
+    completed_value: str
+
+
+@define(frozen=True, slots=True)
 class ChannelSpec:
     """Per-channel grouping behavior — the one place a channel is described.
 
@@ -275,6 +328,10 @@ class ChannelSpec:
             whose timestamp semantics are declared but not yet calibrated. No
             channel sets it today; it is the seam a newly registered one uses
             to err toward merging until its own calibration lands.
+        completion_signal: How this channel declares a record ran to the end of
+            the track. Islands are only consolidated on a channel that has one:
+            without it, "interrupted then resumed" and "played twice" are
+            indistinguishable, and guessing costs the user a real listen.
     """
 
     name: str
@@ -285,6 +342,7 @@ class ChannelSpec:
     timestamp_quality: int
     context_builder: Callable[[ConnectorTrackPlay], dict[str, JsonValue]]
     tolerance_override: float | None = None
+    completion_signal: CompletionSignal | None = None
 
 
 # Channel registry — priority order per findings §6:
@@ -298,6 +356,9 @@ CHANNEL_SPECS: Final[Mapping[tuple[str, str], ChannelSpec]] = {
         time_semantics="end",
         timestamp_quality=2,
         context_builder=_spotify_context,
+        completion_signal=CompletionSignal(
+            metadata_key=TrackContextFields.REASON_END, completed_value="trackdone"
+        ),
     ),
     ("spotify", "spotify_api"): ChannelSpec(
         name="spotify_api",
@@ -395,6 +456,36 @@ def normalized_start_time(entry: ConnectorTrackPlay, spec: ChannelSpec) -> datet
     return entry.played_at - (start_shift(entry, spec) or timedelta(0))
 
 
+def observation_end(entry: ConnectorTrackPlay, spec: ChannelSpec) -> datetime:
+    """When this observation stopped playing, whatever its channel stamps.
+
+    Start plus listened time, so it reads the same on a start-stamping and an
+    end-stamping channel — the island rule compares one record's end against
+    the next one's start and must not care which end the channel wrote down.
+    """
+    return normalized_start_time(entry, spec) + timedelta(
+        milliseconds=entry.ms_played or 0
+    )
+
+
+def completion_verdict(entry: ConnectorTrackPlay, spec: ChannelSpec) -> bool | None:
+    """Did this observation reach the end of its track, per its own channel?
+
+    ``None`` means the channel did not say — either it declares no
+    :class:`CompletionSignal` at all, or this record carries no value for it.
+    Silence is never read as "incomplete": that reading would let a repeat
+    chain on an unannotated channel merge into one listen, and losing a real
+    play is a worse error than leaving a fragmented one fragmented.
+    """
+    signal = spec.completion_signal
+    if signal is None:
+        return None
+    observed = entry.service_metadata.get(signal.metadata_key)
+    if not isinstance(observed, str) or not observed:
+        return None
+    return observed == signal.completed_value
+
+
 def _pair_tolerance(
     a: ConnectorTrackPlay,
     a_spec: ChannelSpec,
@@ -437,18 +528,22 @@ class PlayGroup:
 
     ``members`` are the per-channel representatives (at most one per channel —
     the grouping invariant) sorted by (priority, id); survivorship reads them.
-    ``absorbed`` are same-channel duplicate observations collapsed into a
-    member (:func:`_one_observation`); they contribute ledger membership but
-    never field values.
+    The other two hold the same-channel records :func:`_collapse_same_channel`
+    folded into a member, kept apart because they say opposite things about the
+    data: ``absorbed`` are duplicate writes of one listen and contribute no
+    field value, while ``segments`` are real parts of it whose listened time is
+    already summed into their representative's ``ms_played``. All three
+    contribute ledger membership.
     """
 
     members: tuple[ConnectorTrackPlay, ...]
     absorbed: tuple[ConnectorTrackPlay, ...] = ()
+    segments: tuple[ConnectorTrackPlay, ...] = ()
 
     @property
     def member_ids(self) -> tuple[UUID, ...]:
-        """Every ledger observation this event covers (members + absorbed)."""
-        return tuple(e.id for e in (*self.members, *self.absorbed))
+        """Every ledger observation this event covers."""
+        return tuple(e.id for e in (*self.members, *self.absorbed, *self.segments))
 
     @property
     def divergent(self) -> bool:
@@ -580,15 +675,163 @@ def _duplicate_clusters(
     return list(clusters.values())
 
 
-def _collapse_same_channel(
-    entries: Sequence[ConnectorTrackPlay],
-) -> tuple[list[ConnectorTrackPlay], dict[UUID, list[ConnectorTrackPlay]], int]:
-    """Collapse same-channel observations of one listen into a representative.
+def _continues_island(
+    island: Sequence[ConnectorTrackPlay],
+    candidate: ConnectorTrackPlay,
+    spec: ChannelSpec,
+) -> bool:
+    """Is ``candidate`` the rest of the listen ``island`` has so far?
 
-    See :func:`_one_observation` for what counts as one observation. The
-    max-ms_played record represents (it saw the most of the play); ties break
-    on the earliest stamp, then lowest id. Returns (representatives,
-    absorbed-by-representative, collapsed-count).
+    Four conditions, all necessary:
+
+    * The island's last record is **declared incomplete** by its channel. A
+      completed record ends the listen, which is what keeps a repeat chain
+      three plays instead of one; an undeclared one ends it too (see
+      :func:`completion_verdict`).
+    * Both sides report listened time — without it there is no end to abut
+      against and no duration to sum.
+    * The candidate's start abuts that record's end within
+      :data:`ISLAND_CONTINUATION_GAP_SECONDS`, in either direction (the
+      corpus's gaps run mildly negative as often as positive).
+    * The island stays inside :data:`MAX_ISLAND_SPAN` of its own start.
+    """
+    previous = island[-1]
+    if completion_verdict(previous, spec) is not False:
+        return False
+    if previous.ms_played is None or candidate.ms_played is None:
+        return False
+    gap = (
+        normalized_start_time(candidate, spec) - observation_end(previous, spec)
+    ).total_seconds()
+    if abs(gap) > ISLAND_CONTINUATION_GAP_SECONDS:
+        return False
+    span = observation_end(candidate, spec) - normalized_start_time(island[0], spec)
+    return span <= MAX_ISLAND_SPAN
+
+
+def _island_runs(
+    units: Sequence[ConnectorTrackPlay], spec: ChannelSpec | None
+) -> list[list[ConnectorTrackPlay]]:
+    """Partition one channel's records of one track into listening islands.
+
+    ``units`` must be sorted by (played_at, id). A channel with no declared
+    completion signal — or an unregistered one — yields singletons: consecutive
+    records there could equally be a repeat, and the projection does not guess.
+    """
+    if spec is None or spec.completion_signal is None:
+        return [[unit] for unit in units]
+    runs: list[list[ConnectorTrackPlay]] = []
+    for unit in units:
+        if runs and _continues_island(runs[-1], unit, spec):
+            runs[-1].append(unit)
+        else:
+            runs.append([unit])
+    return runs
+
+
+def _island_representative(
+    island: Sequence[ConnectorTrackPlay], spec: ChannelSpec
+) -> ConnectorTrackPlay:
+    """One record standing for a whole listen, carrying its total listened time.
+
+    The earliest segment represents, because the island's start is the field
+    the rest of the projection reads (pairing, chunk ownership, the surviving
+    ``played_at``) and that segment is the one that owns it — and its context
+    describes how the listen *began*, which is the half a reader wants. Its
+    ``ms_played`` is restated as the island's total and its stamp moved to the
+    end that total implies, so both derived values are the listen's rather
+    than the fragment's. Keeping the segment's own id is what lets membership
+    edges, absorbed siblings, and survivorship tiebreaks stay untouched.
+    """
+    if len(island) == 1:
+        return island[0]
+    listened = sum(segment.ms_played or 0 for segment in island)
+    start = normalized_start_time(island[0], spec)
+    stamped_at = (
+        start + timedelta(milliseconds=listened)
+        if spec.time_semantics == "end"
+        else start
+    )
+    return evolve(island[0], ms_played=listened, played_at=stamped_at)
+
+
+def group_into_islands(
+    entries: Sequence[ConnectorTrackPlay],
+) -> list[list[ConnectorTrackPlay]]:
+    """Partition observations into listening islands — the shared definition.
+
+    The projection consolidates islands so a fragmented listen is one canonical
+    play; an importer's admission policy has to ask the same question of the
+    same partition, or a listen the projection would treat as whole is judged
+    fragment by fragment. Both read this function so there is one answer.
+
+    Unlike the projection's internal use, this tolerates unregistered channels
+    (their records come back as singletons) — an importer holds raw rows whose
+    ``import_source`` may not yet name a registered channel.
+    """
+    buckets: dict[tuple[str, str, str], list[ConnectorTrackPlay]] = defaultdict(list)
+    for entry in entries:
+        spec = CHANNEL_SPECS.get((entry.service, entry.import_source or ""))
+        buckets[
+            entry.user_id,
+            spec.name if spec is not None else entry.service,
+            entry.connector_track_identifier,
+        ].append(entry)
+
+    islands: list[list[ConnectorTrackPlay]] = []
+    for bucket in buckets.values():
+        bucket.sort(key=lambda e: (e.played_at, e.id))
+        head = bucket[0]
+        islands.extend(
+            _island_runs(
+                bucket, CHANNEL_SPECS.get((head.service, head.import_source or ""))
+            )
+        )
+    islands.sort(key=lambda run: (run[0].played_at, run[0].id))
+    return islands
+
+
+@define(frozen=True, slots=True)
+class _ChannelUnits:
+    """One channel's records reduced to one representative per listen.
+
+    ``duplicates`` and ``segments`` are both keyed by representative id and are
+    kept apart because they mean opposite things about the data: a duplicate is
+    a record the channel should never have written, a segment is a real part of
+    the listen whose time is counted.
+    """
+
+    representatives: list[ConnectorTrackPlay]
+    duplicates: dict[UUID, list[ConnectorTrackPlay]]
+    segments: dict[UUID, list[ConnectorTrackPlay]]
+
+    @property
+    def duplicates_collapsed(self) -> int:
+        return sum(len(records) for records in self.duplicates.values())
+
+    @property
+    def island_segments_merged(self) -> int:
+        return sum(len(records) for records in self.segments.values())
+
+
+def _collapse_same_channel(entries: Sequence[ConnectorTrackPlay]) -> _ChannelUnits:
+    """Reduce a channel's records of one track to one per listening event.
+
+    Two passes over the same (user, channel, track) bucket, in this order and
+    not the other:
+
+    1. **Duplicates** — see :func:`_one_observation`. The max-ms_played record
+       represents (it saw the most of the play); ties break on the earliest
+       stamp, then lowest id.
+    2. **Islands** — see :func:`_island_runs`. The segments of one interrupted
+       listen fold into a single representative carrying their summed listened
+       time (:func:`_island_representative`).
+
+    Duplicates first because a surviving twin would otherwise be counted twice
+    into an island's total. The reverse never happens: a duplicate pair's
+    second record starts a whole ``ms_played`` *before* the first one ends, so
+    it can only read as a continuation for plays shorter than the island gap —
+    and by then the duplicate pass has already removed it.
     """
     buckets: dict[tuple[str, str, str], list[ConnectorTrackPlay]] = defaultdict(list)
     for entry in entries:
@@ -598,20 +841,38 @@ def _collapse_same_channel(
         )
 
     representatives: list[ConnectorTrackPlay] = []
-    absorbed: dict[UUID, list[ConnectorTrackPlay]] = {}
-    collapsed = 0
+    duplicates: dict[UUID, list[ConnectorTrackPlay]] = {}
+    segments: dict[UUID, list[ConnectorTrackPlay]] = {}
     for bucket in buckets.values():
         bucket.sort(key=lambda e: (e.played_at, e.id))
+        spec = channel_for(bucket[0])
+
+        units: list[ConnectorTrackPlay] = []
+        twins: dict[UUID, list[ConnectorTrackPlay]] = {}
         for cluster in _duplicate_clusters(bucket):
             cluster.sort(key=lambda e: (-(e.ms_played or 0), e.played_at, e.id))
-            representative, *rest = cluster
-            representatives.append(representative)
+            unit, *rest = cluster
+            units.append(unit)
             if rest:
-                absorbed[representative.id] = rest
-                collapsed += len(rest)
+                twins[unit.id] = rest
+        units.sort(key=lambda e: (e.played_at, e.id))
+
+        for island in _island_runs(units, spec):
+            representative = _island_representative(island, spec)
+            representatives.append(representative)
+            # A twin of any segment stays a duplicate — it belongs to the
+            # record it repeats, not to the listen the segments compose.
+            twinned = [twin for segment in island for twin in twins.get(segment.id, ())]
+            if twinned:
+                duplicates[representative.id] = twinned
+            rest_of_island = [
+                segment for segment in island if segment.id != representative.id
+            ]
+            if rest_of_island:
+                segments[representative.id] = rest_of_island
     # Deterministic order regardless of input permutation.
     representatives.sort(key=lambda e: (e.played_at, e.id))
-    return representatives, absorbed, collapsed
+    return _ChannelUnits(representatives, duplicates, segments)
 
 
 def group_ledger_entries(
@@ -622,8 +883,8 @@ def group_ledger_entries(
     Deterministic in the entry *set* — any permutation or batch partition of
     the same observations yields identical groups. Steps:
 
-    1. Same-channel collapse (one channel's duplicate records of one track →
-       one observation, max ms_played — :func:`_one_observation`).
+    1. Same-channel collapse (one channel's records of one track → one
+       observation per listen — :func:`_collapse_same_channel`).
     2. Candidate pairs: cross-channel observations that resolved to the same
        canonical track — or whose exact-normalized artist::title matches (the
        resolution-divergence bridge, findings §5b) — within the pair's
@@ -636,9 +897,14 @@ def group_ledger_entries(
     (``resolved_track_id`` set) — the caller's fetch guarantees both.
     """
     if not entries:
-        return [], {"same_channel_collapsed": 0, "resolution_divergence": 0}
+        return [], {
+            "same_channel_collapsed": 0,
+            "listening_islands_merged": 0,
+            "resolution_divergence": 0,
+        }
 
-    reps, absorbed, collapsed = _collapse_same_channel(entries)
+    units = _collapse_same_channel(entries)
+    reps = units.representatives
     specs = [channel_for(e) for e in reps]
     starts = list(map(normalized_start_time, reps, specs, strict=True))
 
@@ -706,7 +972,10 @@ def group_ledger_entries(
         group = PlayGroup(
             members=members,
             absorbed=tuple(
-                sibling for m in members for sibling in absorbed.get(m.id, ())
+                twin for m in members for twin in units.duplicates.get(m.id, ())
+            ),
+            segments=tuple(
+                segment for m in members for segment in units.segments.get(m.id, ())
             ),
         )
         if group.divergent:
@@ -721,7 +990,8 @@ def group_ledger_entries(
         )
     )
     return groups, {
-        "same_channel_collapsed": collapsed,
+        "same_channel_collapsed": units.duplicates_collapsed,
+        "listening_islands_merged": units.island_segments_merged,
         "resolution_divergence": divergence,
     }
 

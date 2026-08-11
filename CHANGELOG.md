@@ -6,6 +6,18 @@ linked backlog version file. Versioning follows mixd's four-segment
 `major.minor.feature.revision` scheme (`.claude/rules/version-management.md`), not strict
 SemVer. Format inspired by [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [0.10.3.1] — 2026-08-10
+
+**Closes the rest of what the audit found.** A listen you paused your way through now counts as one listen, a remaster stops becoming a second track no matter which door it came in by, and retired identity history can no longer be deleted out from under the log that explains it.
+
+- **A song split across interruptions counts once, not zero times.** The listen threshold was applied to each fragment, so three 40% pieces of one song failed three times over — 64 listens vanished that way. Fragments are now consolidated into one listen before the threshold judges them, and separately, 66 plays that had been counted twice consolidate into 65. The rule that keeps repeat plays apart is the export's own "track finished" marker, measured rather than assumed: consecutive plays that follow a completed one sum to 1.79× the track's length, every other kind to under 1.14×.
+- **Both doors that created duplicate tracks are now shut.** The playlist and likes importer had no reuse guard at all — a larger share of the duplicates than the path fixed in 0.10.3. Both now share one definition of "same recording" rather than two that could drift apart.
+- **Deleting a track can no longer take its mapping history with it.** The database refuses (migration 051), and the application refuses first with an error naming what was at risk. This is the fence around the cleanup script that caused the loss.
+- **A log file mixd can't open no longer takes the site down** — it warns, names the path and the reason, and keeps running on console output.
+- New `scripts/find_duplicate_canonicals.py` reports which existing duplicate tracks are safe to merge (29) and which are genuinely different recordings that must not be (26). Read-only; it prints the commands rather than running them.
+
+→ [details](docs/backlog/v0.10.x.md#post-deploy-revisions) · [findings](docs/backlog/v0.10.3-audit-findings.md)
+
 ## [0.10.3] — 2026-08-10
 
 **Your listening history has been audited against itself, and it holds up.** The first at-scale import — fifteen years of Spotify history plus Last.fm — was checked adversarially: end-to-start normalization re-derived exactly across 132,199 plays, zero dropped observations, zero orphaned plays, zero duplicate canonical rows. Nine defects were found around the edges, and the ones that mattered are fixed.

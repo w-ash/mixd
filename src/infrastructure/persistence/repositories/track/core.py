@@ -336,15 +336,19 @@ class _MergeMetricCounts(NamedTuple):
 
 
 class MappingHistoryLossError(DomainError):
-    """Raised when deleting a track would cascade away mapping history.
+    """Raised when deleting a track would take mapping history with it.
 
-    ``track_mappings.track_id`` is ``ON DELETE CASCADE``, so every ``DELETE FROM
-    tracks`` is also a mapping delete — and mappings have been append-only since
-    migration 044. A retired row is not spare data: it is the artifact a
-    ``superseded`` event names, and ``resolution_events`` is keyed by value with
-    no FK, so the log survives a cascade that takes the row it describes. That
-    combination is what production hit — an event recording a superseding
-    mapping id that no longer resolves to anything.
+    Mappings have been append-only since migration 044. A retired row is not
+    spare data: it is the artifact a ``superseded`` event names, and
+    ``resolution_events`` is keyed by value with no FK, so the log outlives a
+    delete that takes the row it describes. Production hit exactly that — an
+    event recording a superseding mapping id that no longer resolves.
+
+    ``track_mappings.track_id`` was ``ON DELETE CASCADE`` when that happened;
+    migration 051 made it ``RESTRICT``, so the database now refuses too. This
+    guard is still the one that reports *why*: a Core ``delete(DBTrack)`` past
+    this repository raises a bare ``ForeignKeyViolation`` naming a constraint,
+    not the history it was about to erase.
 
     A caller that genuinely means to remove the track moves its mappings
     somewhere first (what ``merge_mappings_to_track`` does) or retires them
@@ -1455,13 +1459,19 @@ class TrackRepository(BaseRepository[DBTrack, Track]):
     async def hard_delete_track(self, track_id: UUID) -> None:
         """Permanently delete a track — refused while any mapping still points at it.
 
-        The delete does not stop at ``tracks``: ``track_mappings.track_id`` is
-        ``ON DELETE CASCADE``, so this statement silently removes every mapping
-        row on the track, retired ones included. Since 044 those rows are
-        append-only history, and ``resolution_events`` references them *by
-        value* — no FK, nothing to cascade, nothing to complain. A cascade
-        therefore leaves the log describing a decision whose artifact is gone,
-        which is exactly the state production reached.
+        Deleting a track used to take its mappings with it:
+        ``track_mappings.track_id`` was ``ON DELETE CASCADE``, so the statement
+        silently removed every mapping row on the track, retired ones included.
+        Since 044 those rows are append-only history, and ``resolution_events``
+        references them *by value* — no FK, nothing to cascade, nothing to
+        complain — so the log was left describing a decision whose artifact was
+        gone. That is the state production reached, and migration 051 closed it
+        at the constraint (``RESTRICT`` on all three mapping FKs).
+
+        This guard is the readable half of that pair. The constraint stops any
+        path, including a Core ``delete(DBTrack)`` that never reaches this
+        method; the guard is what turns the refusal into an error naming the
+        mapping ids at risk instead of a constraint violation.
 
         So the check is "any mapping at all", not "any superseded mapping": a
         live row is a future predecessor, and by the time an event names it the

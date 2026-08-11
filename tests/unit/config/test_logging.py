@@ -4,8 +4,10 @@ Verifies setup_logging(), get_logger(), logging_context(), per-workflow-run
 JSONL sinks, Rich progress console coordination, and rotation/retention helpers.
 """
 
+import io
 import json
 import logging
+import os
 from pathlib import Path
 import tempfile
 from unittest.mock import MagicMock, patch
@@ -91,6 +93,109 @@ class TestSetupLogging:
 
                 # Must NOT have loguru's nested structure
                 assert "record" not in entry
+
+
+class TestFileSinkFallback:
+    """A log sink that cannot be opened degrades to console-only, never fatally.
+
+    Console output is the sink Fly reads; the file is a local convenience.
+    Treating both as required lets the weaker one veto startup.
+    """
+
+    @staticmethod
+    def _root_handlers_reset() -> None:
+        logging.getLogger().handlers.clear()
+
+    @pytest.mark.skipif(
+        os.getuid() == 0, reason="root bypasses directory permissions entirely"
+    )
+    def test_unwritable_directory_configures_console_only(self):
+        """A real read-only directory raises nothing and still logs to console."""
+        stream = io.StringIO()
+        with tempfile.TemporaryDirectory() as temp_dir:
+            readonly_dir = Path(temp_dir) / "readonly"
+            readonly_dir.mkdir()
+            readonly_dir.chmod(0o555)
+            try:
+                with patch(
+                    "src.config.logging.settings.logging.log_file",
+                    readonly_dir / "mixd.log",
+                ):
+                    setup_logging(console_stream=stream)
+
+                    root = logging.getLogger()
+                    handler_types = [type(h).__name__ for h in root.handlers]
+                    assert "StreamHandler" in handler_types
+                    assert "RotatingFileHandler" not in handler_types
+
+                    get_logger("fallback.test").info("still alive")
+                    assert "still alive" in stream.getvalue()
+            finally:
+                self._root_handlers_reset()
+                readonly_dir.chmod(0o755)
+
+    def test_unwritable_parent_creation_configures_console_only(self):
+        """The mkdir branch is guarded too, not just the handler construction."""
+        stream = io.StringIO()
+        with tempfile.TemporaryDirectory() as temp_dir:
+            nested = Path(temp_dir) / "readonly" / "mixd.log"
+            with (
+                patch("src.config.logging.settings.logging.log_file", nested),
+                patch.object(
+                    Path, "mkdir", side_effect=PermissionError(13, "Permission denied")
+                ),
+            ):
+                try:
+                    setup_logging(console_stream=stream)
+
+                    handler_types = [
+                        type(h).__name__ for h in logging.getLogger().handlers
+                    ]
+                    assert "StreamHandler" in handler_types
+                    assert "RotatingFileHandler" not in handler_types
+                finally:
+                    self._root_handlers_reset()
+
+        assert "Permission denied" in stream.getvalue()
+
+    def test_fallback_warning_names_path_and_reason(self):
+        """The one warning identifies both the path and the OS reason."""
+        stream = io.StringIO()
+        with tempfile.TemporaryDirectory() as temp_dir:
+            log_file = Path(temp_dir) / "mixd.log"
+            with (
+                patch("src.config.logging.settings.logging.log_file", log_file),
+                patch(
+                    "logging.handlers.RotatingFileHandler",
+                    side_effect=OSError(30, "Read-only file system"),
+                ),
+            ):
+                try:
+                    setup_logging(console_stream=stream)
+                finally:
+                    self._root_handlers_reset()
+
+        output = stream.getvalue()
+        assert "File logging disabled" in output
+        assert str(log_file) in output
+        assert "Read-only file system" in output
+
+    def test_writable_path_still_attaches_file_handler(self):
+        """The guard must not disable the file sink where it does work."""
+        stream = io.StringIO()
+        with tempfile.TemporaryDirectory() as temp_dir:
+            log_file = Path(temp_dir) / "nested" / "mixd.log"
+            with patch("src.config.logging.settings.logging.log_file", log_file):
+                try:
+                    setup_logging(console_stream=stream)
+                    get_logger("fallback.test").info("written to disk")
+                    for handler in logging.getLogger().handlers:
+                        handler.flush()
+                finally:
+                    self._root_handlers_reset()
+
+            assert "written to disk" in log_file.read_text()
+        assert "File logging disabled" not in stream.getvalue()
 
 
 class TestGetLogger:

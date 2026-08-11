@@ -8,9 +8,10 @@ re-runs mechanical no-ops.
 
 Chunking is correctness-aware: each chunk fetches ``_ANCHOR_REACH`` outside its
 core, wide enough that every group anchored inside the core is fully visible.
-Members sit away from the anchor in raw ``played_at`` for two compounding
+Members sit away from the anchor in raw ``played_at`` for three compounding
 reasons — an end-time observation's normalized start shifts back by up to its
-``ms_played``, and pairing spreads a group's members across up to
+``ms_played``, an interrupted listen's later segments trail its start by up to
+``MAX_ISLAND_SPAN``, and pairing spreads a group's members across up to
 ``MAX_ANCHOR_PULL_BACK`` of normalized start. A group is applied by exactly one
 chunk: the one whose core contains its earliest member's normalized start. That
 ownership rule is batch-boundary invariance operationalized.
@@ -35,6 +36,7 @@ from src.domain.matching.play_projection import (
     CHANNEL_SPECS,
     CROSS_CHANNEL_TOLERANCE_FALLBACK_SECONDS,
     CROSS_CHANNEL_TOLERANCE_SECONDS,
+    MAX_ISLAND_SPAN,
     MAX_NORMALIZED_START_SHIFT,
     PlayGroup,
     ProjectedPlay,
@@ -50,11 +52,14 @@ logger = get_logger(__name__)
 # and gives the rebuild resumable progress.
 _CHUNK = timedelta(days=1)
 
-# Raw-played_at fetch margin around a chunk core. Equal by construction to the
-# domain's clamp on the end-time → start-time normalization shift, so every
-# group's members are guaranteed visible to the chunk that owns its earliest
-# normalized start; the cost is only a few extra fetched rows per chunk.
-PROJECTION_FETCH_MARGIN = MAX_NORMALIZED_START_SHIFT
+# Raw-played_at fetch margin around a chunk core, covering both ways a group's
+# member can sit later in raw ``played_at`` than the group's anchor: its own
+# end-time → start-time normalization shift, and the tail of a listening island
+# whose earliest segment holds the anchor. Taken as the max of the two domain
+# bounds rather than restated, so tightening one or widening the other cannot
+# silently break "every member of every group a chunk owns is fetched by that
+# chunk". The cost is only a few extra fetched rows per chunk.
+PROJECTION_FETCH_MARGIN = max(MAX_NORMALIZED_START_SHIFT, MAX_ISLAND_SPAN)
 
 # The widest tolerance any single cross-channel pairing can use. Read off the
 # domain's own rules instead of restated, so registering a channel with a wider
@@ -104,6 +109,7 @@ _STAT_KEYS = (
     "orphaned_deleted",
     "resolution_divergence",
     "same_channel_collapsed",
+    "listening_islands_merged",
 )
 
 # Single source of truth for rendering projection stats in user-facing
@@ -117,6 +123,7 @@ PROJECTION_STAT_LABELS: Mapping[str, str] = {
     "orphaned_deleted": "Orphans Deleted",
     "resolution_divergence": "Resolution Divergence",
     "same_channel_collapsed": "Same-Channel Collapsed",
+    "listening_islands_merged": "Interrupted Segments Merged",
 }
 
 
@@ -137,8 +144,10 @@ def observed_day_cores(played_at: Iterable[datetime]) -> list[_ChunkCore]:
     independent reasons that BOTH have to be paid for:
 
     1. Normalization: an end-time observation's own start is its ``played_at``
-       minus ``ms_played``, clamped to ``PROJECTION_FETCH_MARGIN`` (6h).
-    2. Pairing: the group's anchor belongs to whichever member starts earliest,
+       minus ``ms_played``, clamped to ``MAX_NORMALIZED_START_SHIFT`` (6h).
+    2. Islands: a record can be the tail segment of an interrupted listen whose
+       earliest segment — up to ``MAX_ISLAND_SPAN`` earlier — holds the anchor.
+    3. Pairing: the group's anchor belongs to whichever member starts earliest,
        and an already-stored cross-channel neighbour can hold that anchor up to
        ``MAX_ANCHOR_PULL_BACK`` earlier still.
 
@@ -387,6 +396,7 @@ class PlayProjectionService:
 
         stats["resolution_divergence"] = sum(1 for _, p in owned if p.divergent)
         stats["same_channel_collapsed"] = sum(len(g.absorbed) for g, _ in owned)
+        stats["listening_islands_merged"] = sum(len(g.segments) for g, _ in owned)
 
         member_ids = [mid for group, _ in owned for mid in group.member_ids]
         sources = await plays_repo.get_play_sources_for_connector_plays(

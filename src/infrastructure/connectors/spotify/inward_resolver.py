@@ -42,12 +42,16 @@ from src.config.constants import MatchMethod, SpotifyConstants
 from src.config.telemetry import phase
 from src.domain.entities import Artist, Track
 from src.domain.entities.shared import JsonValue
-from src.domain.matching import normalize_for_comparison
 from src.domain.matching.content_digest import DigestSide
 from src.domain.matching.evaluation_service import TrackMatchEvaluationService
 from src.domain.matching.isrc_validation import (
     assess_isrc_match_reliability,
     compute_duration_diff_ms,
+)
+from src.domain.matching.recording_identity import (
+    RecordingDescription,
+    describe_track,
+    describes_same_recording,
 )
 from src.domain.matching.types import RawProviderMatch
 from src.domain.repositories.connector import ConnectorMappingSpec, IsrcCollisionSpec
@@ -113,26 +117,12 @@ def _shortest_plausible_ms(completed_play_ms_estimate: int | None) -> int | None
     return max(completed_play_ms_estimate - VERSION_MISMATCH_TOLERANCE_MS, 0)
 
 
-def _plays_as_one_recording(a: int | None, b: int | None) -> bool:
-    """Do two durations agree closely enough to be the same recording?
-
-    The same question ``assess_isrc_match_reliability`` answers for an ISRC
-    collision, asked of a pair that has no identifier vouching for it at all —
-    so it is answered by the same assessor, on the same tolerance. One number
-    decides "remaster or different version" everywhere, and it is hashed into
-    the matcher version, which a second private constant here would silently
-    fall out of.
-
-    An unknown duration is refused rather than waved through, and that is the
-    one place this parts company with the ISRC path. There, a matching ISRC has
-    already asserted the identity and the duration is only a cross-check, so
-    missing it leaves the assertion standing. Here the durations are the whole
-    of the evidence that two same-named recordings are one recording; with them
-    unknown there is nothing left to accept on.
-    """
-    duration_diff_ms = compute_duration_diff_ms(a, b)
-    return duration_diff_ms is not None and not (
-        assess_isrc_match_reliability(duration_diff_ms).suspect
+def _describe_payload(spotify_track: SpotifyTrack) -> RecordingDescription:
+    """A Spotify payload as the same-recording question sees it."""
+    return RecordingDescription(
+        title=spotify_track.name,
+        artist=spotify_track.artists[0].name if spotify_track.artists else "",
+        duration_ms=spotify_track.duration_ms,
     )
 
 
@@ -148,25 +138,6 @@ def _payload_as_candidate(spotify_track: SpotifyTrack) -> Track:
         title=spotify_track.name,
         artists=[Artist(name=a.name) for a in spotify_track.artists if a.name],
         duration_ms=spotify_track.duration_ms,
-    )
-
-
-def _same_normalized_identity(track: Track, spotify_track: SpotifyTrack) -> bool:
-    """Do a canonical and a Spotify payload normalize to one artist+title?
-
-    Deliberately equality on the normalized forms rather than the similarity
-    bar the shared reuse gate uses. ``find_tracks_by_title_artist`` also
-    answers on a parenthetical-stripped form, which is right for proposing a
-    candidate and too loose for reusing one unasked: it pairs "Ice Ice Baby
-    (Wunderbros Dubstep Remix)" with "Ice Ice Baby", and their durations are
-    close enough that the duration guard would not catch it either.
-    """
-    if not track.artists or not spotify_track.artists:
-        return False
-    return normalize_for_comparison(track.title) == normalize_for_comparison(
-        spotify_track.name
-    ) and normalize_for_comparison(track.artists[0].name) == normalize_for_comparison(
-        spotify_track.artists[0].name
     )
 
 
@@ -770,17 +741,17 @@ class SpotifyInwardResolver(InwardTrackResolver):
     ) -> int | None:
         """Confidence for reusing ``candidate`` for this payload, or None to refuse.
 
-        The duration guard is what actually separates the two populations here.
-        Fellegi-Sunter saturates on an exact artist+title agreement — a pair
-        four minutes apart in length still scores 100 — so the matcher can say
-        which canonical is the candidate but not whether it is the same
-        recording. Asking it anyway keeps the number the mapping stores derived
-        from the model rather than from a fresh constant.
+        ``describes_same_recording`` is the gate; the evaluation service only
+        prices what it has already accepted. The duration half of that gate is
+        what actually separates the two populations here: Fellegi-Sunter
+        saturates on an exact artist+title agreement — a pair four minutes
+        apart in length still scores 100 — so the matcher can say which
+        canonical is the candidate but not whether it is the same recording.
+        Asking it anyway keeps the number the mapping stores derived from the
+        model rather than from a fresh constant.
         """
-        if not _same_normalized_identity(candidate, spotify_track):
-            return None
-        if not _plays_as_one_recording(
-            spotify_track.duration_ms, candidate.duration_ms
+        if not describes_same_recording(
+            describe_track(candidate), _describe_payload(spotify_track)
         ):
             return None
         match_result = self._match_evaluation_service.evaluate_single_match(

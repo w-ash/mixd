@@ -21,6 +21,7 @@ from src.domain.entities import (
 from src.domain.entities.shared import JsonValue
 from src.domain.matching.play_projection import (
     build_play_context,
+    group_into_islands,
     spotify_id_from_uri,
 )
 from src.domain.repositories.play import PlayResolutionOutcome, ResolutionMetrics
@@ -223,7 +224,9 @@ class SpotifyConnectorPlayResolver:
             unique_spotify_ids, uow, user_id=user_id, fallback_hints=fallback_hints
         )
 
-        # Step 3: Create TrackPlay objects with Spotify's rich metadata
+        # Step 3: Decide which listens clear the duration threshold, then
+        # create TrackPlay objects with Spotify's rich metadata.
+        listened_enough = self._listened_enough(eligible, canonical_tracks_map)
         track_plays: list[TrackPlay] = []
         resolutions: list[tuple[ConnectorTrackPlay, UUID]] = []
 
@@ -240,7 +243,7 @@ class SpotifyConnectorPlayResolver:
                 exclusions.append((connector_play, "unresolved"))
                 continue
 
-            if self._duration_excluded(connector_play, canonical_track):
+            if connector_play.id not in listened_enough:
                 filtering_stats["duration_excluded"] += 1
                 exclusions.append((connector_play, "too_short"))
                 duration_info = (
@@ -248,9 +251,9 @@ class SpotifyConnectorPlayResolver:
                     if canonical_track.duration_ms
                     else "?"
                 )
-                # A duration skip implies ms_played is not None (the guard
-                # lives in _duration_excluded); `or 0` only satisfies the
-                # type checker.
+                # A duration skip implies ms_played is not None (an island
+                # holding an unmeasured play is admitted whole in
+                # ``_listened_enough``); `or 0` only satisfies the type checker.
                 ms_played = connector_play.ms_played or 0
                 logger.debug(
                     f"Skipped (duration): {connector_play.track_name} - "
@@ -393,23 +396,54 @@ class SpotifyConnectorPlayResolver:
         if _ran_to_completion(cp) and cp.ms_played:
             self._completed_play_ms_by_id.setdefault(sid, []).append(cp.ms_played)
 
-    def _duration_excluded(
-        self, connector_play: ConnectorTrackPlay, canonical_track: Track
-    ) -> bool:
-        """True when the resolved play is too short to count as listened.
+    def _listened_enough(
+        self,
+        eligible: list[ConnectorTrackPlay],
+        canonical_tracks_map: dict[str, Track],
+    ) -> set[UUID]:
+        """Ids of the plays whose *listen* clears the duration threshold.
+
+        The unit judged is the listening island, not the record (v0.10.3 C9).
+        A track interrupted into three fragments is one listen the listener
+        heard most of; asking the 50% question of each fragment separately
+        fails it three times and drops the listen from their history
+        altogether. The island partition comes from the domain
+        (:func:`group_into_islands`) precisely so the answer here matches the
+        one the projection will reach when it consolidates the same segments
+        into one canonical play.
 
         Runs post-resolution deliberately — unlike the incognito partition —
-        because the 50% rule needs the canonical ``duration_ms``, which only
-        a resolved track carries.
+        because the 50% rule needs the canonical ``duration_ms``, which only a
+        resolved track carries. An island holding a play with no ``ms_played``
+        at all is admitted whole: the rule has nothing to weigh, which is the
+        same verdict the per-play check reached.
+
+        One boundary effect, accepted: the resolver sees the import's plays a
+        chunk at a time, so an island straddling a chunk edge is judged in
+        halves. That can leave a rescued listen short, never doubled — the
+        projection islands whatever rows carry a resolution, so both halves
+        land in one canonical play regardless of how they were admitted.
         """
-        return connector_play.ms_played is not None and not (
-            should_include_spotify_play(
-                connector_play.ms_played,
-                canonical_track.duration_ms,
-                connector_play.track_name,
-                connector_play.artist_name,
+        admitted: set[UUID] = set()
+        for island in group_into_islands(eligible):
+            spotify_id = self._extract_spotify_id_from_connector_play(island[0])
+            canonical_track = (
+                canonical_tracks_map.get(spotify_id) if spotify_id else None
             )
-        )
+            if canonical_track is None:
+                # Never identified, so it is a resolution failure rather than a
+                # short listen; the main loop records it as one.
+                continue
+            unmeasured = any(segment.ms_played is None for segment in island)
+            listened = sum(segment.ms_played or 0 for segment in island)
+            if unmeasured or should_include_spotify_play(
+                listened,
+                canonical_track.duration_ms,
+                island[0].track_name,
+                island[0].artist_name,
+            ):
+                admitted.update(segment.id for segment in island)
+        return admitted
 
     def _build_context(
         self, connector_play: ConnectorTrackPlay, spotify_id: str | None
