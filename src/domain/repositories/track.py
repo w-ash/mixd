@@ -95,10 +95,18 @@ class TrackRepositoryProtocol(Protocol):
         ...
 
     def move_references_to_track(self, from_id: UUID, to_id: UUID) -> Awaitable[None]:
-        """Move all foreign key references (playlist tracks, plays, likes) from one track to another.
+        """Move all foreign key references from one track to another.
+
+        Playlist tracks, canonical plays, the connector-play ledger those plays
+        project from, likes and preferences.
 
         Handles conflict resolution for likes where both tracks have entries
         for the same service (keeps the most recently synced state).
+
+        The ledger is not optional: a ``connector_plays`` row left on the
+        source track is CASCADE-deleted when the track is, so the caller that
+        deletes it afterwards would lose the observations canonical history is
+        replayable from.
 
         Args:
             from_id: Source track ID whose references will be moved.

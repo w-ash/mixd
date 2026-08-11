@@ -36,6 +36,23 @@ All eight stories from the identity/governance research passes are now **schedul
 - **Selective Last.fm MBID verification** (M) — The user wants ambiguous Last.fm matches (duration off, title similarity below exact) to get a second opinion so the right recording wins — without paying MusicBrainz's 1 req/s on *every* track, which a past per-track attempt proved unusably slow. v0.8.18 demoted all Last.fm matches to `artist_title` scoring (unverified MBIDs are junk — LB-431) but preserves the MBID as `service_data["lastfm_mbid"]`. **Trigger-gated verification**: consult MusicBrainz only when cheap evidence disagrees (duration delta beyond tolerance, title below exact tier); verification must be Track-vs-Recording aware and follow 301 merges (FM7d says the client's 301 handling is itself unverified — same work item). A verified Recording MBID re-earns `mbid`-grade scoring (`ISRC_GRADE_METHODS` already keeps the slot open). Natural home: near v1.1.0's re-validation machinery.
     - **v0.8.18 review hardening (persistence side)** — the identity review (2026-07) found the matching layer's distrust was undone in persistence: `lastfm/inward_resolver.py` injected the Last.fm MBID into `connector_track_identifiers['musicbrainz']`, which fed `save_track`'s `uq_tracks_user_mbid` **merge** key, so a stale/type-confused Last.fm MBID could collapse two distinct recordings. The injection was removed — the unverified MBID now survives only in the enrichment debug log, not in any identity slot. So this work item must **also** (a) capture the unverified hint somewhere durable (e.g. the LASTFM mapping's `metadata`) rather than only logs, and (b) re-promote a *verified* Recording MBID back into `connector_track_identifiers['musicbrainz']` — not just re-score — since the write path no longer trusts the raw value.
 
+- **Decide whether `tracks.isrc` is an identity key or a reference** (M, added 2026-08-10) — The user's
+  model is that a canonical track's ISRC is *reference only*: the authoritative per-release codes live
+  on its linked `connector_tracks`, one per release, which is how the data already behaves (one
+  canonical on prod holds four Spotify ids, and 81,893 of 81,954 connector tracks carry their own
+  ISRC). But `uq_tracks_user_isrc` is a `UNIQUE(user_id, isrc)` constraint, which asserts the opposite
+  — a reference field cannot be a uniqueness key without also being an identity claim.
+
+    **Why it matters**: it did not cause the v0.10.3 twin groups (those differ by ISRC; ISRC-keyed
+    *reuse* caused them) and it does not block the 29 pending merges, since `mixd track merge` deletes
+    the loser row. But the mismatch keeps generating false alarms — it was the reason a merge looked
+    unsafe during triage until the connector-track ISRCs were checked. Decide: keep the constraint and
+    document `tracks.isrc` as "the primary release's code, load-bearing", or drop it and let
+    `connector_tracks.isrc` carry identity alone.
+
+    **Natural home**: v0.12.x, which revisits entity identity for artists and albums and will face the
+    same reference-vs-key question one level up.
+
 ## Data Ownership
 
 The larger question — what "ownership of listening data" means architecturally (sovereign-server + exit rights vs Obsidian-style local-first) — is held open with an evidence ledger in [PDR-001](../decisions/PDR-001-data-ownership-model.md).
@@ -138,6 +155,22 @@ Deferred from v0.7.6 to keep that sub-version focused on single-playlist prefere
 ## Tenancy hardening
 
 - **Remove `Track.user_id`/`TrackLike.user_id` silent `'default'`** (M, added 2026-08-08) — The user wants canonicals to always land under the tenant that created them: the v0.10.2.9 incident traced mistenanted Spotify-import canonicals (and their one-shot repair script, `cleanup_mistenanted_spotify_tracks.py`) to `Track.user_id`'s silent `"default"` — `create_track_from_spotify_data` never set it, and nothing failed loudly. Make `user_id` a required field on both entities (no default; `DEFAULT_USER_ID` stays a local-dev convenience at the interface edge, never an entity fallback), and consider an optional repository-level write-path backstop that rejects a persist whose entity tenant disagrees with the ambient `user_context`. Deferred from the v0.10.2.9 review (F8): an entity-signature change touching every construction site deserves its own pass, not a hotfix rider.
+
+- **Make RLS actually enforce, or stop claiming it does** (L, added 2026-08-10) — The user is promised
+  multi-tenant isolation, and today it rests entirely on application-level `user_id` predicates: every
+  tenant table has RLS *enabled and forced*, and production connects as `neondb_owner` with
+  `rolbypassrls = true`, which supersedes `FORCE`. Measured during the v0.10.3 audit
+  ([findings](v0.10.3-audit-findings.md) C3/C7), where it let a match-before-create reuse another
+  tenant's canonical tracks — 20 of the user's plays ended up depending on `default`-owned rows through
+  a cascading FK. One missed predicate is currently a cross-tenant read with no backstop.
+
+    **Decisions to make**: a non-bypass application role is the obvious fix, but Neon's owner role is
+    what migrations and several scripts assume — so this is a connection-identity change, not a config
+    toggle. Alternative is to drop the RLS pretence and rely on predicates plus tests, which is at
+    least honest. Either way `CLAUDE.md`'s "multi-tenancy (RLS)" claim should match reality.
+
+    **Blocks**: nothing today (single real user), but it gates v1.0.0's invited testers — that is the
+    first moment a missed predicate stops being theoretical.
 
 ## Social & Infrastructure
 

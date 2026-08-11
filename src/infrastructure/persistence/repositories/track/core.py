@@ -173,6 +173,39 @@ moved_plays AS (
     WHERE track_id = :from_id
     RETURNING id
 ),
+-- The ledger observations the canonical plays above are a projection of.
+-- Moved for the same reason as every other arm, plus one they do not have:
+-- ``connector_plays.resolved_track_id`` is ON DELETE CASCADE, so a row left
+-- behind is not stranded by the merge, it is *destroyed* by it — and
+-- ``play_sources`` follows through its own CASCADE on ``connector_play_id``,
+-- taking the membership edges with it. That is the one loss a rebuild cannot
+-- repair: v0.10.0 made canonical history a replayable projection of this
+-- table, so deleting rows here means ``mixd plays rebuild`` reproduces a
+-- smaller history, silently and with no error.
+--
+-- No conflict arm, because a collision is unreachable:
+-- ``uq_connector_plays_deduplication`` is (user_id, connector_name,
+-- connector_track_identifier, played_at, ms_played) NULLS NOT DISTINCT, and
+-- ``resolved_track_id`` appears in no unique key. This UPDATE therefore
+-- changes no key column, and the table already held at most one row per key
+-- whichever track it resolved to — the winner cannot be holding a twin.
+--
+-- ``resolved_at`` is deliberately untouched. It records when the resolution
+-- decision was made; a merge revises *what* the row resolved to, not when.
+-- Restamping it would date every observation's reconciliation to the merge.
+--
+-- Unscoped by tenant, like every arm here: the cascade this arm exists to
+-- prevent is unscoped, so a ``user_id`` predicate would leave another
+-- tenant's observations behind to be deleted — the same data loss, on the
+-- rows least likely to be noticed. Moving beats destroying, and
+-- ``moved_plays`` above already moves that tenant's canonical plays; scoping
+-- only this arm would split one tenant's history across the ledger and the
+-- projection derived from it.
+moved_connector_plays AS (
+    UPDATE connector_plays SET resolved_track_id = :to_id, updated_at = :now
+    WHERE resolved_track_id = :from_id
+    RETURNING id
+),
 -- Find likes where both tracks have the same service
 like_conflicts AS (
     SELECT
@@ -280,6 +313,7 @@ moved_preference_events AS (
 SELECT
     (SELECT count(*) FROM moved_playlist_tracks) AS playlist_tracks_moved,
     (SELECT count(*) FROM moved_plays) AS plays_moved,
+    (SELECT count(*) FROM moved_connector_plays) AS connector_plays_moved,
     (SELECT count(*) FROM deleted_conflict_likes) AS like_conflicts_resolved,
     (SELECT count(*) FROM moved_likes) AS likes_moved,
     (SELECT count(*) FROM deleted_conflict_prefs) AS pref_conflicts_resolved,
@@ -306,6 +340,7 @@ class _MoveReferenceCounts(NamedTuple):
 
     playlist_tracks_moved: int
     plays_moved: int
+    connector_plays_moved: int
     like_conflicts_resolved: int
     likes_moved: int
     pref_conflicts_resolved: int
@@ -1140,9 +1175,16 @@ class TrackRepository(BaseRepository[DBTrack, Track]):
     async def move_references_to_track(self, from_id: UUID, to_id: UUID) -> None:
         """Move all foreign key references from one track to another.
 
-        Single CTE chain: moves playlist tracks, plays, likes, and preferences
-        (with conflict resolution). Preference events are moved unconditionally
-        — the append-only log preserves history from both tracks.
+        Single CTE chain: moves playlist tracks, plays, connector plays, likes,
+        and preferences (with conflict resolution). Preference events are moved
+        unconditionally — the append-only log preserves history from both
+        tracks.
+
+        ``connector_plays`` is the arm that must not be forgotten: its FK is ON
+        DELETE CASCADE, so a ledger row left on the loser is deleted by the
+        merge rather than merely stranded, and the canonical history stops
+        being replayable. See the arm's own comment for why it needs no
+        conflict resolution, leaves ``resolved_at`` alone, and is unscoped.
         """
         result = await self.session.execute(
             text(_MOVE_REFERENCES_SQL),
@@ -1153,6 +1195,7 @@ class TrackRepository(BaseRepository[DBTrack, Track]):
             f"Moved references: {from_id} → {to_id} "
             f"(playlist_tracks={counts.playlist_tracks_moved}, "
             f"plays={counts.plays_moved}, "
+            f"connector_plays={counts.connector_plays_moved}, "
             f"like_conflicts={counts.like_conflicts_resolved}, "
             f"likes_moved={counts.likes_moved}, "
             f"pref_conflicts={counts.pref_conflicts_resolved}, "

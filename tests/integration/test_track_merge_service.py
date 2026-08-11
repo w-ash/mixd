@@ -1,16 +1,24 @@
 """Integration tests for TrackMergeService with real database operations."""
 
-from datetime import UTC, datetime
-from uuid import uuid4, uuid7
+from datetime import UTC, datetime, timedelta
+from uuid import UUID, uuid4, uuid7
 
 import pytest
 from sqlalchemy import select, text
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from src.application.services.play_projection_service import PlayProjectionService
+from src.application.use_cases.rebuild_play_history import (
+    RebuildPlayHistoryCommand,
+    RebuildPlayHistoryUseCase,
+)
+from src.domain.entities import ConnectorTrackPlay
 from src.domain.entities.preference import PreferenceEvent, TrackPreference
 from src.domain.exceptions import NotFoundError
 from src.infrastructure.persistence.database.db_models import (
+    DBConnectorPlay,
     DBConnectorTrack,
+    DBPlaySource,
     DBResolutionEvent,
     DBTrack,
     DBTrackLike,
@@ -18,6 +26,7 @@ from src.infrastructure.persistence.database.db_models import (
     DBTrackPlay,
 )
 from src.infrastructure.persistence.database.live_rows import INCLUDE_SUPERSEDED
+from src.infrastructure.persistence.repositories.factories import get_unit_of_work
 from src.infrastructure.persistence.repositories.track.connector import (
     TrackConnectorRepository,
     TrackMappingRepository,
@@ -27,6 +36,7 @@ from src.infrastructure.persistence.repositories.track.preferences import (
 )
 from src.infrastructure.persistence.unit_of_work import DatabaseUnitOfWork
 from src.infrastructure.services.track_merge_service import TrackMergeService
+from tests.fixtures import make_track
 
 
 class TestTrackMergeServiceIntegration:
@@ -719,4 +729,327 @@ class TestMergeSourceIsUnambiguous:
         ]
         assert primaries == [newer], (
             "the incumbent primary stands; the merge promotes nothing over it"
+        )
+
+
+_LEDGER_AT = datetime(2026, 3, 14, 21, 0, tzinfo=UTC)
+
+
+class TestMergePreservesTheLedger:
+    """``connector_plays`` is the one table a merge cannot merely forget.
+
+    Its ``resolved_track_id`` FK is ON DELETE CASCADE, so a row left on the
+    loser is destroyed by the merge rather than stranded by it — and
+    ``play_sources`` follows through its own CASCADE on ``connector_play_id``,
+    taking the membership edges too. Nothing errors; the history is simply
+    smaller afterwards, and v0.10.0's guarantee that canonical plays are a
+    replayable projection of this table quietly stops holding.
+    """
+
+    @staticmethod
+    async def _pair(session: AsyncSession, tracker) -> tuple[DBTrack, DBTrack]:
+        winner = DBTrack(title="Ledger Winner", artists={"names": ["A"]})
+        loser = DBTrack(title="Ledger Loser", artists={"names": ["A"]})
+        session.add_all([winner, loser])
+        await session.flush()
+        tracker.add_track(winner.id)
+        tracker.add_track(loser.id)
+        return winner, loser
+
+    @staticmethod
+    async def _observation(
+        session: AsyncSession,
+        track_id: UUID,
+        *,
+        user_id: str = "default",
+        played_at: datetime = _LEDGER_AT,
+        resolved_at: datetime = _LEDGER_AT,
+    ) -> DBConnectorPlay:
+        row = DBConnectorPlay(
+            user_id=user_id,
+            connector_name="lastfm",
+            connector_track_identifier=f"TEST_cp_{uuid4().hex[:8]}",
+            played_at=played_at,
+            raw_metadata={},
+            resolved_track_id=track_id,
+            resolved_at=resolved_at,
+        )
+        session.add(row)
+        await session.flush()
+        return row
+
+    @staticmethod
+    async def _canonical(
+        session: AsyncSession, track_id: UUID, *, played_at: datetime = _LEDGER_AT
+    ) -> DBTrackPlay:
+        row = DBTrackPlay(
+            track_id=track_id,
+            service="lastfm",
+            played_at=played_at,
+            ms_played=None,
+        )
+        session.add(row)
+        await session.flush()
+        return row
+
+    @staticmethod
+    async def _merge(session: AsyncSession, winner_id: UUID, loser_id: UUID) -> None:
+        uow = DatabaseUnitOfWork(session)
+        async with uow:
+            await TrackMergeService().merge_tracks(winner_id, loser_id, uow)
+        await session.flush()
+
+    async def test_the_losers_observations_move_to_the_winner(
+        self, db_session: AsyncSession, test_data_tracker
+    ):
+        """The regression: before the fix these rows were CASCADE-deleted."""
+        winner, loser = await self._pair(db_session, test_data_tracker)
+        observation = await self._observation(db_session, loser.id)
+
+        await self._merge(db_session, winner.id, loser.id)
+
+        assert (
+            await db_session.execute(
+                select(DBConnectorPlay.resolved_track_id).where(
+                    DBConnectorPlay.id == observation.id
+                )
+            )
+        ).scalar_one() == winner.id
+
+    async def test_the_membership_edges_still_resolve_at_both_ends(
+        self, db_session: AsyncSession, test_data_tracker
+    ):
+        """``play_sources`` survives only because its ledger row did.
+
+        Both ends have to land on the winner together: the edge is what says
+        which observation backs which canonical play, and an edge whose halves
+        disagreed about the track would be worse than no edge at all.
+        """
+        winner, loser = await self._pair(db_session, test_data_tracker)
+        observation = await self._observation(db_session, loser.id)
+        canonical = await self._canonical(db_session, loser.id)
+        db_session.add(
+            DBPlaySource(track_play_id=canonical.id, connector_play_id=observation.id)
+        )
+        await db_session.flush()
+
+        await self._merge(db_session, winner.id, loser.id)
+
+        edge = (
+            (
+                await db_session.execute(
+                    select(DBPlaySource).where(
+                        DBPlaySource.connector_play_id == observation.id
+                    )
+                )
+            )
+            .scalars()
+            .one()
+        )
+        assert edge.track_play_id == canonical.id
+        assert (
+            await db_session.execute(
+                select(DBTrackPlay.track_id).where(DBTrackPlay.id == edge.track_play_id)
+            )
+        ).scalar_one() == winner.id
+        assert (
+            await db_session.execute(
+                select(DBConnectorPlay.resolved_track_id).where(
+                    DBConnectorPlay.id == edge.connector_play_id
+                )
+            )
+        ).scalar_one() == winner.id
+
+    async def test_a_loser_with_no_observations_merges_unchanged(
+        self, db_session: AsyncSession, test_data_tracker
+    ):
+        """The common path: nothing in the ledger, nothing new to move."""
+        winner, loser = await self._pair(db_session, test_data_tracker)
+        untouched = await self._observation(db_session, winner.id)
+
+        await self._merge(db_session, winner.id, loser.id)
+
+        assert (
+            await db_session.execute(select(DBTrack.id).where(DBTrack.id == loser.id))
+        ).scalar_one_or_none() is None
+        assert (
+            await db_session.execute(
+                select(DBConnectorPlay.resolved_track_id).where(
+                    DBConnectorPlay.id == untouched.id
+                )
+            )
+        ).scalar_one() == winner.id
+
+    async def test_both_sides_observations_coexist_on_the_winner(
+        self, db_session: AsyncSession, test_data_tracker
+    ):
+        """Re-pointing cannot collide, so there is no conflict arm to test.
+
+        ``uq_connector_plays_deduplication`` is (user_id, connector_name,
+        connector_track_identifier, played_at, ms_played) NULLS NOT DISTINCT —
+        ``resolved_track_id`` is in no unique key. The move changes no key
+        column, and the table already held at most one row per key whichever
+        track it pointed at, so the winner cannot be holding a twin. Both sets
+        simply survive.
+        """
+        winner, loser = await self._pair(db_session, test_data_tracker)
+        theirs = await self._observation(db_session, winner.id)
+        ours = await self._observation(db_session, loser.id)
+
+        await self._merge(db_session, winner.id, loser.id)
+
+        landed = (
+            (
+                await db_session.execute(
+                    select(DBConnectorPlay.id).where(
+                        DBConnectorPlay.resolved_track_id == winner.id
+                    )
+                )
+            )
+            .scalars()
+            .all()
+        )
+        assert set(landed) == {theirs.id, ours.id}
+
+    async def test_the_resolution_timestamp_is_not_restamped(
+        self, db_session: AsyncSession, test_data_tracker
+    ):
+        """A merge revises *what* the row resolved to, not when it resolved.
+
+        Restamping ``resolved_at`` would date the observation's reconciliation
+        to the merge and erase when the resolution actually happened.
+        """
+        winner, loser = await self._pair(db_session, test_data_tracker)
+        resolved_at = _LEDGER_AT + timedelta(days=2)
+        observation = await self._observation(
+            db_session, loser.id, resolved_at=resolved_at
+        )
+
+        await self._merge(db_session, winner.id, loser.id)
+
+        assert (
+            await db_session.execute(
+                select(DBConnectorPlay.resolved_at).where(
+                    DBConnectorPlay.id == observation.id
+                )
+            )
+        ).scalar_one() == resolved_at
+
+    async def test_another_tenants_observations_move_rather_than_die(
+        self, db_session: AsyncSession, test_data_tracker
+    ):
+        """Unscoped, like every other arm of ``move_references_to_track``.
+
+        The cascade this arm prevents is unscoped, so a ``user_id`` predicate
+        would leave a second tenant's observations behind to be deleted — the
+        same data loss on the rows least likely to be noticed. The arm that
+        moves their canonical plays is unscoped for the same reason; scoping
+        only this one would split a tenant's history across the ledger and the
+        projection derived from it.
+        """
+        winner, loser = await self._pair(db_session, test_data_tracker)
+        theirs = await self._observation(db_session, loser.id, user_id="TEST_other")
+
+        await self._merge(db_session, winner.id, loser.id)
+
+        row = (
+            (
+                await db_session.execute(
+                    select(
+                        DBConnectorPlay.resolved_track_id, DBConnectorPlay.user_id
+                    ).where(DBConnectorPlay.id == theirs.id)
+                )
+            )
+            .tuples()
+            .one()
+        )
+        assert row == (winner.id, "TEST_other"), "moved, and still their row"
+
+
+class TestMergeKeepsCanonicalHistoryReplayable:
+    """The consequence the ledger exists for, end to end.
+
+    v0.10.0 made canonical plays a projection of ``connector_plays``. If a
+    merge destroys observations, a later rebuild re-derives a *smaller*
+    history — no error, no warning, just fewer plays than the user had. This
+    replays the projection across a merge and asserts it converges on exactly
+    the row it built the first time.
+    """
+
+    async def test_a_rebuild_after_a_merge_reproduces_the_same_history(
+        self, db_session: AsyncSession
+    ):
+        user_id = f"TEST_merge_replay_{uuid4().hex[:8]}"
+        uow = get_unit_of_work(db_session)
+        track_repo = uow.get_track_repository()
+        winner = await track_repo.save_track(
+            make_track(
+                title="Replay Winner",
+                artist="Carwash",
+                user_id=user_id,
+                connector_track_identifiers={},
+            )
+        )
+        loser = await track_repo.save_track(
+            make_track(
+                title="Replay Loser",
+                artist="Carwash",
+                user_id=user_id,
+                connector_track_identifiers={},
+            )
+        )
+        observation = ConnectorTrackPlay(
+            service="lastfm",
+            artist_name="Carwash",
+            track_name="Replay Loser",
+            played_at=_LEDGER_AT,
+            ms_played=None,
+            user_id=user_id,
+            import_timestamp=datetime.now(UTC),
+            import_source="lastfm_api",
+            import_batch_id=f"TEST_{uuid4()}",
+        )
+        connector_repo = uow.get_connector_play_repository()
+        _ = await connector_repo.bulk_insert_connector_plays([observation])
+        _ = await connector_repo.bulk_update_resolution(
+            [(observation, loser.id)], resolved_at=datetime.now(UTC)
+        )
+        _ = await PlayProjectionService().project_observed_days(
+            uow, user_id=user_id, played_at=[_LEDGER_AT]
+        )
+        before = (
+            (
+                await db_session.execute(
+                    select(DBTrackPlay.id).where(DBTrackPlay.user_id == user_id)
+                )
+            )
+            .scalars()
+            .all()
+        )
+        assert len(before) == 1
+
+        async with uow:
+            _ = await TrackMergeService().merge_tracks(winner.id, loser.id, uow)
+        await db_session.flush()
+
+        result = await RebuildPlayHistoryUseCase().execute(
+            RebuildPlayHistoryCommand(user_id=user_id), get_unit_of_work(db_session)
+        )
+
+        assert result.stats["groups_unchanged"] == 1
+        assert result.stats["unsourced_deleted"] == 0
+        after = (
+            (
+                await db_session.execute(
+                    select(DBTrackPlay.id, DBTrackPlay.track_id).where(
+                        DBTrackPlay.user_id == user_id
+                    )
+                )
+            )
+            .tuples()
+            .all()
+        )
+        assert after == [(before[0], winner.id)], (
+            "the rebuild re-derived the same play, now on the winner — the "
+            "history did not shrink"
         )

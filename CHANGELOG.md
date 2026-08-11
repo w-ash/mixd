@@ -6,6 +6,18 @@ linked backlog version file. Versioning follows mixd's four-segment
 `major.minor.feature.revision` scheme (`.claude/rules/version-management.md`), not strict
 SemVer. Format inspired by [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [0.10.3.2] — 2026-08-11
+
+**Merging two tracks no longer deletes the observations underneath them.** Found while building the repair for the audit's own findings: combining duplicate tracks moved everything visible — plays, likes, playlists, tags — and silently destroyed the raw listening records the loser was built from. Nothing errored, and the UI looked right; the loss only showed up if you later re-derived your history, which came back quietly smaller.
+
+- **The ledger now travels with the merge.** `connector_plays` move to the surviving track before it is deleted, so their membership edges survive and re-deriving your history reproduces it exactly. Pinned by a test that projects, merges, rebuilds, and asserts nothing changed — the guarantee itself, not a proxy for it.
+- **Repair tooling for the cross-tenant tracks.** 24 tracks your plays depend on are owned by an old mistenanted import; 2 can simply be re-owned and 22 collide with a track you already own, so merging is the only remedy — and merging them was impossible before this release, from either direction. One read-only report now lists all 51 pending merges (29 duplicates + 22 cross-tenant) with the exact command for each and which ones must not be merged.
+- **The mistenanted-cleanup script works again under the new constraints**, deals with mapping history explicitly rather than by cascade, and refuses to proceed silently when a deletion would strand an audit-log entry. Its default window was moved to 2026-07-27 — the old one sat after every damaged row, so a default run reported "nothing to repair" while the damage stood.
+- **Play timestamps recorded before the API fix can be corrected in place.** 78 of the 113 affected plays carry enough evidence to recover the right start time; the rest are left alone rather than guessed at.
+- Three scripts were printing a command that does not exist (`mixd track merge`; the group is `tracks`).
+
+→ [details](docs/backlog/v0.10.x.md#post-deploy-revisions) · [findings](docs/backlog/v0.10.3-audit-findings.md)
+
 ## [0.10.3.1] — 2026-08-10
 
 **Closes the rest of what the audit found.** A listen you paused your way through now counts as one listen, a remaster stops becoming a second track no matter which door it came in by, and retired identity history can no longer be deleted out from under the log that explains it.

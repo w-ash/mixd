@@ -47,7 +47,11 @@ class TrackMergeService:
         winner_track = await track_repo.get_by_id(winner_id)
         _ = await track_repo.get_by_id(loser_id)  # Just verify it exists
 
-        # Move all foreign key references via repository
+        # Move all foreign key references via repository. Everything with an
+        # ON DELETE CASCADE FK to the loser has to leave before the delete
+        # below, or the delete destroys it rather than stranding it — most
+        # consequentially the ``connector_plays`` ledger, which canonical play
+        # history is a replayable projection of.
         await track_repo.move_references_to_track(loser_id, winner_id)
         edges = await track_repo.merge_mappings_to_track(loser_id, winner_id)
         await track_repo.merge_metrics_to_track(loser_id, winner_id)
