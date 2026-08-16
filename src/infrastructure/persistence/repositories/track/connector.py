@@ -1179,6 +1179,7 @@ class TrackConnectorRepository:
         domain_tracks: list[Track] = []
         track_mappings_data: list[dict[str, object]] = []
         reuse_primaries: list[tuple[UUID, str, UUID]] = []
+        elected: dict[UUID, str] = {}
         for identifier, track_group in tracks_by_identifier.items():
             domain_track, mapping_row, reused = await self._ingest_one_group(
                 connector,
@@ -1200,6 +1201,8 @@ class TrackConnectorRepository:
                     connector,
                     connector_track_lookup[identifier].id,
                 ))
+            else:
+                elected.setdefault(domain_track.id, identifier)
 
         # 3.5. Re-encounter is a freshness signal, not evidence: stamp
         # last_seen_at on every mapping this batch re-encountered — including
@@ -1212,17 +1215,16 @@ class TrackConnectorRepository:
 
         # 4. Bulk create mappings + set primaries for the newly created tracks.
         await self._create_mappings_and_set_primaries(
-            connector, domain_tracks, track_mappings_data
+            connector, elected, track_mappings_data
         )
 
-        # 4.5. A reused canonical elects nothing: step 4 keys its election off
-        # ``connector_track_identifiers``, which for a reuse still names the id
-        # the canonical already carried, so that id keeps primacy and the new
-        # mapping is correctly a secondary alias. The one case that needs
-        # filling is a canonical with no mapping for this connector at all — a
-        # Last.fm-born track a Spotify playlist has just matched — which would
-        # otherwise be left with a live mapping and no primary. Vacancy-fill,
-        # never a deposition (see ``_batch_ensure_primary_mappings``).
+        # 4.5. A reused canonical elects nothing above — it is absent from
+        # ``elected`` — so the id it already described itself by keeps primacy
+        # and this batch's id is correctly a secondary alias. The one case that
+        # needs filling is a canonical with no mapping for this connector at
+        # all — a Last.fm-born track a Spotify playlist has just matched —
+        # which would otherwise be left with a live mapping and no primary.
+        # Vacancy-fill, never a deposition (see ``_batch_ensure_primary_mappings``).
         if reuse_primaries:
             _ = await self._batch_ensure_primary_mappings(reuse_primaries)
 
@@ -1406,7 +1408,12 @@ class TrackConnectorRepository:
         confidence separates nothing here, but taking the number from the model
         keeps the mapping's confidence derived rather than invented.
 
-        Returns the canonical and its mapping row, or ``None`` to create.
+        Returns the canonical and its mapping row, or ``None`` to create. The
+        canonical comes back naming *this* batch's connector id, like every
+        other path out of this method: callers key the returned tracks by
+        ``connector_track_identifiers[connector]`` to attach playlist positions
+        and ``liked_at`` stamps, so a reused canonical that still named only
+        the id it was born with would leave those silently unresolved.
         """
         from src.config import create_evaluation_service
 
@@ -1449,7 +1456,7 @@ class TrackConnectorRepository:
             # already has a primary for this connector keeps it.
             "is_primary": False,
         }
-        return candidate, mapping_row
+        return candidate.with_connector_track_id(connector, identifier), mapping_row
 
     async def _touch_last_seen(self, mapping_ids: list[UUID]) -> None:
         """Bulk-stamp last_seen_at on re-encountered mappings.
@@ -1656,26 +1663,28 @@ class TrackConnectorRepository:
     async def _create_mappings_and_set_primaries(
         self,
         connector: str,
-        domain_tracks: list[Track],
+        elected: Mapping[UUID, str],
         track_mappings_data: list[dict[str, object]],
     ) -> None:
-        """Assert new mappings, then set one primary per track-connector pair."""
+        """Assert new mappings, then set one primary per track-connector pair.
+
+        ``elected`` names the external id each track should describe itself by,
+        decided by the caller rather than read back off the returned tracks'
+        ``connector_track_identifiers``: those name *this batch's* id for every
+        track including a reused canonical, whose own primary this election
+        would then depose (the reuse is an alias — step 4.5 only fills a
+        vacancy).
+        """
         if not track_mappings_data:
             return
 
         assertion = await self.mapping_repo.assert_mappings(track_mappings_data)
         await self._record_assertion(assertion)
 
-        primaries_set: dict[UUID, str] = {}
-        for track in domain_tracks:
-            if track.id not in primaries_set:
-                cid = track.connector_track_identifiers.get(connector)
-                if cid:
-                    primaries_set[track.id] = cid
-
-        primaries = [(tid, connector, cid) for tid, cid in primaries_set.items()]
-        if primaries:
-            _ = await self._batch_ensure_primary_mappings_by_external_id(primaries)
+        if elected:
+            _ = await self._batch_ensure_primary_mappings_by_external_id([
+                (track_id, connector, cid) for track_id, cid in elected.items()
+            ])
 
     async def _clear_denormalized_id(self, track_id: UUID, connector: str) -> None:
         """Clear denormalized ID column on DBTrack when no mappings remain for a connector."""
@@ -2586,10 +2595,9 @@ class TrackConnectorRepository:
         """``_batch_ensure_primary_mappings``, keyed by external connector id.
 
         For the callers that genuinely only hold the string: the specs
-        ``map_tracks_to_connectors`` marked ``primary``, and
-        ``_create_mappings_and_set_primaries``, which reads it straight off
-        ``domain_tracks[].connector_track_identifiers``. Neither ever sees the
-        connector track's internal id. A caller that already holds the UUID
+        ``map_tracks_to_connectors`` marked ``primary``, and the ids the ingest
+        loop elected for the groups it created. Neither ever sees the connector
+        track's internal id. A caller that already holds the UUID
         should call ``_batch_ensure_primary_mappings`` directly instead of
         routing through here just to convert it back.
 

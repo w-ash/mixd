@@ -6,6 +6,16 @@ linked backlog version file. Versioning follows mixd's four-segment
 `major.minor.feature.revision` scheme (`.claude/rules/version-management.md`), not strict
 SemVer. Format inspired by [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [0.10.3.3] — 2026-08-15
+
+**A song your library already knows keeps its place in the playlist you just imported.** When an import recognized a track as one you already had — the fix that stopped remasters becoming second copies — it handed back the track without the id the import was actually about. Every position in that playlist was then recorded as unresolved, and a liked track imported the same way lost the date you liked it. Three defects, all found by reviewing the previous two releases rather than by hitting them in prod.
+
+- **Recognized tracks land where they belong.** The reuse path now names the id it was just asked about, like every other path that creates or finds a track. A knock-on: that same field was quietly deciding which id a track describes itself by, so making it honest would have demoted the id the track was already known by — that decision is now made explicitly instead of inferred.
+- **A listen the export wrote down twice is counted once, not admitted as two.** Spotify's export duplicates a play with timestamps a second apart; your history already collapsed those, but the import-time "did you listen to enough of this?" test did not — it added both copies together, so two 30-second fragments could pass as a full minute on a two-minute track and be admitted, while your history only ever showed the 30 seconds. Both now ask the question of the same thing.
+- **The cross-tenant repair script refuses a third tenant's rows** rather than reassigning them, and every statement it runs names the tenant it is taking rows from. The whole point of the repair is that several accounts ended up sharing one track, so a third account's rows really can be sitting there.
+
+→ [details](docs/backlog/v0.10.x.md#post-deploy-revisions) · [findings](docs/backlog/v0.10.3-audit-findings.md)
+
 ## [0.10.3.2] — 2026-08-11
 
 **Merging two tracks no longer deletes the observations underneath them.** Found while building the repair for the audit's own findings: combining duplicate tracks moved everything visible — plays, likes, playlists, tags — and silently destroyed the raw listening records the loser was built from. Nothing errored, and the UI looked right; the loss only showed up if you later re-derived your history, which came back quietly smaller.

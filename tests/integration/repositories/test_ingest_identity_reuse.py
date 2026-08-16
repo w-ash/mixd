@@ -115,6 +115,27 @@ class TestIngestReusesAnExistingCanonical:
         assert imported[0].id == original.id
         assert await _canonical_count(db_session) == before
 
+    async def test_the_reused_canonical_names_this_batchs_connector_id(
+        self, db_session: AsyncSession
+    ):
+        """Callers key the returned tracks by their connector id — playlist
+        positions and ``liked_at`` stamps are attached that way — so a reused
+        canonical still naming only the id it was born with silently loses
+        them, which is what every other creation path here avoids."""
+        _ = await _seed_original(db_session)
+
+        imported = (
+            await get_unit_of_work(db_session)
+            .get_connector_repository()
+            .ingest_external_tracks_bulk(
+                "spotify",
+                [_connector_track("sp_remaster", isrc=REMASTER_ISRC)],
+                user_id="default",
+            )
+        )
+
+        assert imported[0].connector_track_identifiers["spotify"] == "sp_remaster"
+
     async def test_the_reuse_mapping_records_how_it_was_decided(
         self, db_session: AsyncSession
     ):

@@ -10,6 +10,7 @@ from datetime import UTC, datetime, timedelta
 import random
 from uuid import UUID
 
+from attrs import evolve
 from hypothesis import given, settings, strategies as st
 import pytest
 
@@ -21,6 +22,7 @@ from src.domain.matching.play_projection import (
     START_SHIFT_MS_KEY,
     UnknownChannelError,
     channel_for,
+    group_into_islands,
     group_ledger_entries,
     merge_group,
     normalized_start_time,
@@ -462,6 +464,50 @@ class TestIslandAndDuplicateBoundary:
         assert set(play.member_ids) == {first.id, twin.id, second.id}
         assert result.stats["same_channel_collapsed"] == 1
         assert result.stats["listening_islands_merged"] == 1
+
+
+class TestTheImportersViewOfTheSameCollapse:
+    """``group_into_islands`` is what an importer judges its 50% rule against,
+    so it has to reach the projection's answer on the same rows."""
+
+    def test_a_jittered_twin_never_inflates_the_listens_time(self):
+        """The twin's gap to its original is ``delta - ms_played`` — deeply
+        negative for a short fragment, hence inside the continuation window.
+        Islanding raw rows chained them and counted the fragment twice."""
+        first = _export_obs(ended_at=_BASE, ms_played=30_000, reason_end="endplay")
+        twin = _export_obs(
+            ended_at=_BASE + timedelta(seconds=1),
+            ms_played=30_000,
+            reason_end="endplay",
+        )
+
+        islands = group_into_islands([first, twin])
+
+        assert len(islands) == 1
+        assert islands[0].representative.ms_played == 30_000
+        # Both rows still belong to the listen: the importer admits or drops
+        # them together, whichever way the threshold falls.
+        assert set(islands[0].member_ids) == {first.id, twin.id}
+
+    def test_the_listens_time_is_the_projections(self):
+        segments = _island(parts=(60_000, 70_000))
+
+        islands = group_into_islands(segments)
+
+        assert [i.representative.ms_played for i in islands] == [130_000]
+        assert set(islands[0].member_ids) == {s.id for s in segments}
+
+    def test_an_unregistered_channels_records_come_back_as_singletons(self):
+        """An importer holds raw rows whose ``import_source`` the registry may
+        not name yet; the projection's own call still refuses them."""
+        abutting = [
+            evolve(obs, import_source="TEST_unregistered")
+            for obs in _island(parts=(60_000, 70_000))
+        ]
+
+        assert len(group_into_islands(abutting)) == 2
+        with pytest.raises(UnknownChannelError):
+            _ = group_ledger_entries(abutting)
 
 
 class TestResolutionDivergenceBridge:

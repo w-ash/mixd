@@ -409,13 +409,18 @@ class UnknownChannelError(ValueError):
     """
 
 
+def _registered_channel(entry: ConnectorTrackPlay) -> ChannelSpec | None:
+    """The observation's channel spec, or None when its channel is unregistered."""
+    return CHANNEL_SPECS.get((entry.service, entry.import_source or ""))
+
+
 def channel_for(entry: ConnectorTrackPlay) -> ChannelSpec:
     """Resolve an observation's channel spec, raising on unregistered channels."""
-    key = (entry.service, entry.import_source or "")
-    spec = CHANNEL_SPECS.get(key)
+    spec = _registered_channel(entry)
     if spec is None:
         raise UnknownChannelError(
-            f"No ChannelSpec registered for {key!r} — add it to "
+            f"No ChannelSpec registered for "
+            f"{(entry.service, entry.import_source or '')!r} — add it to "
             f"play_projection.CHANNEL_SPECS"
         )
     return spec
@@ -755,42 +760,6 @@ def _island_representative(
     return evolve(island[0], ms_played=listened, played_at=stamped_at)
 
 
-def group_into_islands(
-    entries: Sequence[ConnectorTrackPlay],
-) -> list[list[ConnectorTrackPlay]]:
-    """Partition observations into listening islands — the shared definition.
-
-    The projection consolidates islands so a fragmented listen is one canonical
-    play; an importer's admission policy has to ask the same question of the
-    same partition, or a listen the projection would treat as whole is judged
-    fragment by fragment. Both read this function so there is one answer.
-
-    Unlike the projection's internal use, this tolerates unregistered channels
-    (their records come back as singletons) — an importer holds raw rows whose
-    ``import_source`` may not yet name a registered channel.
-    """
-    buckets: dict[tuple[str, str, str], list[ConnectorTrackPlay]] = defaultdict(list)
-    for entry in entries:
-        spec = CHANNEL_SPECS.get((entry.service, entry.import_source or ""))
-        buckets[
-            entry.user_id,
-            spec.name if spec is not None else entry.service,
-            entry.connector_track_identifier,
-        ].append(entry)
-
-    islands: list[list[ConnectorTrackPlay]] = []
-    for bucket in buckets.values():
-        bucket.sort(key=lambda e: (e.played_at, e.id))
-        head = bucket[0]
-        islands.extend(
-            _island_runs(
-                bucket, CHANNEL_SPECS.get((head.service, head.import_source or ""))
-            )
-        )
-    islands.sort(key=lambda run: (run[0].played_at, run[0].id))
-    return islands
-
-
 @define(frozen=True, slots=True)
 class _ChannelUnits:
     """One channel's records reduced to one representative per listen.
@@ -814,7 +783,10 @@ class _ChannelUnits:
         return sum(len(records) for records in self.segments.values())
 
 
-def _collapse_same_channel(entries: Sequence[ConnectorTrackPlay]) -> _ChannelUnits:
+def _collapse_same_channel(
+    entries: Sequence[ConnectorTrackPlay],
+    spec_of: Callable[[ConnectorTrackPlay], ChannelSpec | None] = channel_for,
+) -> _ChannelUnits:
     """Reduce a channel's records of one track to one per listening event.
 
     Two passes over the same (user, channel, track) bucket, in this order and
@@ -832,20 +804,26 @@ def _collapse_same_channel(entries: Sequence[ConnectorTrackPlay]) -> _ChannelUni
     second record starts a whole ``ms_played`` *before* the first one ends, so
     it can only read as a continuation for plays shorter than the island gap —
     and by then the duplicate pass has already removed it.
+
+    ``spec_of`` is how :func:`group_into_islands` reuses both passes on raw
+    ledger rows: it resolves unregistered channels to None (singleton islands)
+    where the projection's own call insists every channel is registered.
     """
     buckets: dict[tuple[str, str, str], list[ConnectorTrackPlay]] = defaultdict(list)
     for entry in entries:
-        spec = channel_for(entry)
-        buckets[entry.user_id, spec.name, entry.connector_track_identifier].append(
-            entry
-        )
+        spec = spec_of(entry)
+        buckets[
+            entry.user_id,
+            spec.name if spec is not None else entry.service,
+            entry.connector_track_identifier,
+        ].append(entry)
 
     representatives: list[ConnectorTrackPlay] = []
     duplicates: dict[UUID, list[ConnectorTrackPlay]] = {}
     segments: dict[UUID, list[ConnectorTrackPlay]] = {}
     for bucket in buckets.values():
         bucket.sort(key=lambda e: (e.played_at, e.id))
-        spec = channel_for(bucket[0])
+        spec = spec_of(bucket[0])
 
         units: list[ConnectorTrackPlay] = []
         twins: dict[UUID, list[ConnectorTrackPlay]] = {}
@@ -858,7 +836,10 @@ def _collapse_same_channel(entries: Sequence[ConnectorTrackPlay]) -> _ChannelUni
         units.sort(key=lambda e: (e.played_at, e.id))
 
         for island in _island_runs(units, spec):
-            representative = _island_representative(island, spec)
+            # spec is None ⇒ every run is a singleton, which represents itself.
+            representative = (
+                island[0] if spec is None else _island_representative(island, spec)
+            )
             representatives.append(representative)
             # A twin of any segment stays a duplicate — it belongs to the
             # record it repeats, not to the listen the segments compose.
@@ -873,6 +854,51 @@ def _collapse_same_channel(entries: Sequence[ConnectorTrackPlay]) -> _ChannelUni
     # Deterministic order regardless of input permutation.
     representatives.sort(key=lambda e: (e.played_at, e.id))
     return _ChannelUnits(representatives, duplicates, segments)
+
+
+@define(frozen=True, slots=True)
+class ListeningIsland:
+    """One listen: the record standing for it, plus every row it was written as.
+
+    ``representative`` carries the island's *summed* listened time (see
+    :func:`_island_representative`); ``member_ids`` names every ledger
+    observation the listen was written down as — its segments and any duplicate
+    write of them — so an importer admits or drops a whole listen at once.
+    """
+
+    representative: ConnectorTrackPlay
+    member_ids: tuple[UUID, ...]
+
+
+def group_into_islands(
+    entries: Sequence[ConnectorTrackPlay],
+) -> list[ListeningIsland]:
+    """Reduce observations to one record per listen — the shared definition.
+
+    The projection consolidates islands so a fragmented listen is one canonical
+    play; an importer's admission policy has to ask its question of the same
+    unit, or a listen the projection would treat as whole is judged fragment by
+    fragment. Both run :func:`_collapse_same_channel`, in its order —
+    duplicates before islands — so there is one answer: a jittered twin repeats
+    a listen rather than extending it, and summing its ``ms_played`` into an
+    island's total would admit a listen the projection never sees.
+
+    Unlike the projection's own call, unregistered channels are tolerated
+    (their records come back as singletons) — an importer holds raw rows whose
+    ``import_source`` may not yet name a registered channel.
+    """
+    units = _collapse_same_channel(entries, _registered_channel)
+    return [
+        ListeningIsland(
+            representative,
+            (
+                representative.id,
+                *(e.id for e in units.segments.get(representative.id, ())),
+                *(e.id for e in units.duplicates.get(representative.id, ())),
+            ),
+        )
+        for representative in units.representatives
+    ]
 
 
 def group_ledger_entries(

@@ -410,7 +410,8 @@ class SpotifyConnectorPlayResolver:
         altogether. The island partition comes from the domain
         (:func:`group_into_islands`) precisely so the answer here matches the
         one the projection will reach when it consolidates the same segments
-        into one canonical play.
+        into one canonical play — including its duplicate pass, so a listen
+        written down twice is weighed once and admitted (or dropped) whole.
 
         Runs post-resolution deliberately — unlike the incognito partition —
         because the 50% rule needs the canonical ``duration_ms``, which only a
@@ -426,7 +427,8 @@ class SpotifyConnectorPlayResolver:
         """
         admitted: set[UUID] = set()
         for island in group_into_islands(eligible):
-            spotify_id = self._extract_spotify_id_from_connector_play(island[0])
+            listen = island.representative
+            spotify_id = self._extract_spotify_id_from_connector_play(listen)
             canonical_track = (
                 canonical_tracks_map.get(spotify_id) if spotify_id else None
             )
@@ -434,15 +436,16 @@ class SpotifyConnectorPlayResolver:
                 # Never identified, so it is a resolution failure rather than a
                 # short listen; the main loop records it as one.
                 continue
-            unmeasured = any(segment.ms_played is None for segment in island)
-            listened = sum(segment.ms_played or 0 for segment in island)
-            if unmeasured or should_include_spotify_play(
-                listened,
+            # The representative carries the island's summed listened time, or
+            # None when its channel reported none — nothing to weigh, which is
+            # the same verdict the per-play check reached.
+            if listen.ms_played is None or should_include_spotify_play(
+                listen.ms_played,
                 canonical_track.duration_ms,
-                island[0].track_name,
-                island[0].artist_name,
+                listen.track_name,
+                listen.artist_name,
             ):
-                admitted.update(segment.id for segment in island)
+                admitted.update(island.member_ids)
         return admitted
 
     def _build_context(

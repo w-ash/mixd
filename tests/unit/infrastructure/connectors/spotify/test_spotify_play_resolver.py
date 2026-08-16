@@ -79,6 +79,23 @@ def _make_connector_play(
     )
 
 
+def _resolver_and_uow(duration_ms: int = 300000):
+    """Resolver + mock UoW whose one canonical track runs ``duration_ms``.
+
+    The length is what sets the 50% bar every admission test is written
+    against, so it is the only thing the callers vary.
+    """
+    resolver = SpotifyConnectorPlayResolver(spotify_connector=MagicMock())
+    uow = MagicMock()
+    attach_resolution_recorder(uow)
+    connector_repo = AsyncMock()
+    connector_repo.find_tracks_by_connectors.return_value = {
+        ("spotify", "4iV5W9uYEdYUVa79Axb7Rh"): make_track(duration_ms=duration_ms),
+    }
+    uow.get_connector_repository.return_value = connector_repo
+    return resolver, uow
+
+
 def _ids_and_hints(resolver, plays):
     """Call the extraction seam the way an all-eligible chunk does.
 
@@ -141,22 +158,8 @@ class TestResolverFiltering:
 
     @pytest.fixture
     def resolver_with_existing_tracks(self):
-        """Resolver + mock UoW where all tracks resolve to existing canonical tracks."""
-        connector = MagicMock()
-        resolver = SpotifyConnectorPlayResolver(spotify_connector=connector)
-
-        uow = MagicMock()
-
-        attach_resolution_recorder(uow)
-        # Existing connector mappings return a canonical track
-        canonical_track = make_track(duration_ms=300000)  # 5-minute track
-        connector_repo = AsyncMock()
-        connector_repo.find_tracks_by_connectors.return_value = {
-            ("spotify", "4iV5W9uYEdYUVa79Axb7Rh"): canonical_track,
-        }
-        uow.get_connector_repository.return_value = connector_repo
-
-        return resolver, uow
+        """Resolver + mock UoW where all tracks resolve to a 5-minute canonical."""
+        return _resolver_and_uow()
 
     async def test_incognito_plays_excluded(self, resolver_with_existing_tracks):
         resolver, uow = resolver_with_existing_tracks
@@ -304,16 +307,7 @@ class TestListenThresholdJudgesTheWholeListen:
 
     @pytest.fixture
     def resolver_with_existing_tracks(self):
-        connector = MagicMock()
-        resolver = SpotifyConnectorPlayResolver(spotify_connector=connector)
-        uow = MagicMock()
-        attach_resolution_recorder(uow)
-        connector_repo = AsyncMock()
-        connector_repo.find_tracks_by_connectors.return_value = {
-            ("spotify", "4iV5W9uYEdYUVa79Axb7Rh"): make_track(duration_ms=300000),
-        }
-        uow.get_connector_repository.return_value = connector_repo
-        return resolver, uow
+        return _resolver_and_uow()
 
     async def test_fragments_of_one_listen_are_admitted_together(
         self, resolver_with_existing_tracks
@@ -360,6 +354,32 @@ class TestListenThresholdJudgesTheWholeListen:
 
         assert outcome.metrics["accepted_plays"] == 0
         assert outcome.metrics["duration_excluded"] == 3
+
+    async def test_a_listen_written_twice_is_weighed_once(self):
+        """A jittered twin repeats a listen, it does not extend one.
+
+        The two rows abut inside the island window (their gap is ``delta -
+        ms_played``, deeply negative for a short fragment), so islanding raw
+        rows chained them into a 60s listen that cleared this 2-minute track's
+        bar — while the projection, which collapses duplicates *first*, only
+        ever sees 30s. Admission now runs the same collapse.
+        """
+        resolver, uow = _resolver_and_uow(duration_ms=120000)
+        fragment = _make_connector_play(
+            ms_played=30000, played_at=_PLAYED_AT, reason_end="endplay"
+        )
+        twin = _make_connector_play(
+            ms_played=30000,
+            played_at=_PLAYED_AT + timedelta(seconds=1),
+            reason_end="endplay",
+        )
+
+        outcome = await resolver.resolve_connector_plays(
+            [fragment, twin], uow, user_id="test-user"
+        )
+
+        assert outcome.metrics["duration_excluded"] == 2
+        assert outcome.resolutions == ()
 
 
 class TestResolverContextKeys:
@@ -961,11 +981,18 @@ class TestResolverMetrics:
         }
         uow.get_connector_repository.return_value = connector_repo
 
+        # Hours apart deliberately: records of one track sharing an instant are
+        # one observation written twice (findings §7), and the admission policy
+        # judges them as such. These are meant to be three separate listens.
         plays = [
             _make_connector_play(ms_played=300000),  # accepted
-            _make_connector_play(ms_played=5000),  # duration filtered
             _make_connector_play(
-                ms_played=300000, incognito=True
+                ms_played=5000, played_at=_PLAYED_AT + timedelta(hours=1)
+            ),  # duration filtered
+            _make_connector_play(
+                ms_played=300000,
+                incognito=True,
+                played_at=_PLAYED_AT + timedelta(hours=2),
             ),  # incognito filtered
         ]
 

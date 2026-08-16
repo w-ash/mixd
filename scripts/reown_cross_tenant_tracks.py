@@ -443,6 +443,15 @@ SELECT
     (SELECT count(*) FROM playlist_tracks pt
        JOIN playlists pl ON pl.id = pt.playlist_id
       WHERE pt.track_id = c.id AND pl.user_id <> :user) AS left_playlist_tracks,
+    -- Companions on the loser owned by neither end of this pair. The C3 root
+    -- cause is several tenants sharing one canonical, so a loser really can
+    -- hold a third tenant's rows; re-owning them to this user would be the
+    -- cross-tenant leak the repair exists to remove.
+    (SELECT count(*) FROM track_mappings tm
+      WHERE tm.track_id = c.id AND tm.user_id NOT IN (:user, c.user_id))
+    + (SELECT count(*) FROM track_metrics m
+      WHERE m.track_id = c.id AND m.user_id NOT IN (:user, c.user_id))
+      AS left_third_tenant_companions,
     -- A play the winner already holds under the same dedup key: moving the
     -- loser's would violate uq_track_plays_deduplication mid-merge.
     (SELECT count(*) FROM track_plays a
@@ -514,7 +523,7 @@ UPDATE track_mappings loser
        ORDER BY connector_track_id, connector_name, is_primary DESC, id
   ) w
  WHERE loser.track_id = :loser
-   AND loser.user_id <> :user
+   AND loser.user_id = :owner
    AND loser.superseded_at IS NULL
    AND loser.connector_track_id = w.connector_track_id
    AND loser.connector_name = w.connector_name
@@ -866,6 +875,14 @@ _LEFT_REASONS: tuple[tuple[str, str], ...] = (
         (
             "playlist_tracks on the loser in another tenant's playlist — the "
             "merge would move them onto this user's track"
+        ),
+    ),
+    (
+        "left_third_tenant_companions",
+        (
+            "track_mappings or track_metrics on the loser owned by another "
+            "tenant — one that is neither end of this pair, so neither the "
+            "re-own below nor the merge may take them for this user"
         ),
     ),
 )
@@ -1238,7 +1255,13 @@ async def merge_pair(
         (
             await session.execute(
                 text(_CONFLATE_MAPPINGS_SQL),
-                {**ids, "user": pair.user, "now": now, "conflation": _CONFLATION},
+                {
+                    **ids,
+                    "user": pair.user,
+                    "owner": pair.loser.owner,
+                    "now": now,
+                    "conflation": _CONFLATION,
+                },
             )
         )
         .mappings()
@@ -1259,12 +1282,14 @@ async def merge_pair(
         )
     # Whatever is left on the loser has no live counterpart under this user
     # (the statement above retired every one that did), so a plain re-own
-    # cannot trip the live-connector index.
+    # cannot trip the live-connector index. Every statement names the owning
+    # tenant, exactly as ``reown`` does: a row belonging to some *third* tenant
+    # is refused upstream (``left_third_tenant_companions``), never taken here.
     reowned_mappings = await session.execute(
         update(DBTrackMapping)
         .where(
             DBTrackMapping.track_id == pair.loser.track_id,
-            DBTrackMapping.user_id != pair.user,
+            DBTrackMapping.user_id == pair.loser.owner,
         )
         .values(user_id=pair.user)
     )
@@ -1272,7 +1297,7 @@ async def merge_pair(
         update(DBTrackMetric)
         .where(
             DBTrackMetric.track_id == pair.loser.track_id,
-            DBTrackMetric.user_id != pair.user,
+            DBTrackMetric.user_id == pair.loser.owner,
         )
         .values(user_id=pair.user)
     )

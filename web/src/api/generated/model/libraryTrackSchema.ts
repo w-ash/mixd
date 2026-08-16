@@ -3,7 +3,7 @@
  * Do not edit manually.
  * Mixd
  * Personal music metadata hub
- * OpenAPI spec version: 0.10.3.2
+ * OpenAPI spec version: 0.10.3.3
  */
 import type { ArtistSchema } from './artistSchema.ts';
 import type { PreferenceState } from './preferenceState.ts';

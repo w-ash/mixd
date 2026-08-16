@@ -58,6 +58,7 @@ from src.infrastructure.persistence.repositories.factories import get_unit_of_wo
 
 _OWNER = "default"
 _USER = "TEST_user_cfe9d062"
+_THIRD = "TEST_user_3a71f0c4"
 _WINDOW = datetime(2026, 8, 1, tzinfo=UTC)
 _CREATED = _WINDOW + timedelta(days=2)
 _PLAYED_AT = datetime(2026, 8, 3, 12, 0, tzinfo=UTC)
@@ -628,6 +629,23 @@ class TestCrossTenantMerge:
             )
         ).scalars()
         assert list(moved_ledger) == [_USER]
+
+    async def test_a_third_tenants_mapping_on_the_loser_refuses_the_pair(
+        self, db_session: AsyncSession
+    ):
+        """C3's root cause is several tenants sharing one canonical, so the
+        loser can hold rows belonging to neither end of the pair. Re-owning
+        them to this user is the cross-tenant leak the repair exists to close,
+        and no merge of this pair has anything to say about them."""
+        _, loser, connector_track = await _merge_scenario(db_session, suffix="third")
+        _ = await _mapping(
+            db_session, user_id=_THIRD, track=loser, connector_track=connector_track
+        )
+
+        pair = await _only_pair(db_session, loser)
+
+        assert not pair.is_mergeable
+        assert any("neither end of this pair" in reason for reason in pair.refusals)
 
     async def test_no_mapping_survives_the_merge_owned_by_the_old_tenant(
         self, db_session: AsyncSession
