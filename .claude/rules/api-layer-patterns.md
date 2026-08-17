@@ -16,11 +16,9 @@ paths:
 - **Errors**: `{"error": {"code": "UPPER_SNAKE", "message": "Human readable", "details": {...}}}`
 - **Long operations**: return `{"operation_id": "uuid"}` immediately, stream progress via SSE
 
-## Preview Endpoints (Read-Only)
-- Pattern: `GET /resource/{id}/sub-resource/{sub_id}/action/preview` — returns what *would* happen without doing it
-- No side effects — pure read-only operation using existing domain logic
-- Accept overrides via query params (e.g., `?direction_override=push`) to let the UI show "what if" scenarios
-- Example: `GET /playlists/{id}/links/{link_id}/sync/preview` → `SyncPreviewResponse(tracks_to_add, tracks_to_remove, ...)`
+## Preview Endpoints
+- **Diff previews** (read-only): `GET /resource/{id}/sub-resource/{sub_id}/action/preview` — returns what *would* happen without doing it. No side effects; accept overrides via query params (e.g., `?direction_override=push`). Example: `GET /playlists/{id}/links/{link_id}/sync/preview` → `SyncPreviewResponse(...)`
+- **Workflow preview** (`POST /workflows/{id}/preview`) is NOT read-only: sources commit canonical rows (idempotent); only destination writes are skipped. See `application-patterns.md` § Preview use cases before "fixing" this.
 
 ## Partial Updates (PATCH)
 - `PATCH /resource/{id}/sub-resource/{sub_id}` — update specific fields without replacing the whole resource

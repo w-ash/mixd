@@ -6,6 +6,17 @@ linked backlog version file. Versioning follows mixd's four-segment
 `major.minor.feature.revision` scheme (`.claude/rules/version-management.md`), not strict
 SemVer. Format inspired by [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [0.10.3.5] — 2026-08-16
+
+**A playlist import no longer fails because your play history was importing at the same moment.** The previous release's unidentified error has a name: two imports colliding on the same track, one holding it mid-write while the other waited until the database gave up. The wait was being answered in the worst possible way — retrying track by track, each retry queuing on the same held track, burning minutes and importing nothing.
+
+- **Colliding imports now step aside and retry once, together.** When another import holds a track this one needs, the whole batch waits a second and retries as one — the competitor commits in about a second, so the retry lands. If the collision outlives the retry, the run fails loudly instead of quietly recording every track as "Couldn't match". The same courtesy applies everywhere batches used to be split on a collision: likes syncs stop skipping a page of likes forever, and background play imports stop grinding minutes against a held lock.
+- **Workflow preview now tells the truth about what it does.** Preview always materialized the tracks it showed you — that's how later steps can look them up — while every description claimed "nothing is written". The descriptions now match reality, and preview gained the protections real writers have: it refuses to run alongside an active run of the same workflow, and counts against the same concurrency limit as every other background operation.
+- Shutdown got faster again: cancelled runs and previews skip their 30-second stream-drain wait, so the 15-second shutdown budget is enough; and a rejected preview or run answers immediately instead of after 30 seconds.
+- One definition of "is this a collision or a bad row" lives in the domain layer and is consumed by every batch writer — the wrong-cause log lines from the incident can't recur.
+
+→ [details](docs/backlog/v0.10.x.md#post-deploy-revisions)
+
 ## [0.10.3.4] — 2026-08-16
 
 **Deploys stop taking twelve minutes, and a failed import step stops hiding why it failed.** Two unrelated defects found from production on the same evening — one that made every deploy end in a forced kill, and one that turned a single database error into sixty-odd unreadable ones.

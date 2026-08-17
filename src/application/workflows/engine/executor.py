@@ -254,7 +254,12 @@ def install_shutdown_handler() -> bool:
             continue
         if _asyncio_trampoline is None:
             _asyncio_trampoline = signal.getsignal(sig)
-        if previous is not _asyncio_trampoline:
+        # Never replace a stored callable (uvicorn's handle_exit) with the
+        # SIG_DFL a closed loop restored — that would break the chain that
+        # ends the serve loop.
+        if previous is not _asyncio_trampoline and (
+            callable(previous) or sig not in _previous_handlers
+        ):
             _previous_handlers[sig] = previous
         installed = True
     return installed

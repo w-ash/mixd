@@ -159,6 +159,9 @@ async def playlist_source(
 
     connector_ = connector  # capture narrowed str for closure
 
+    # Deliberately no ``dry_run`` check: downstream nodes re-query tracks by
+    # id from their own sessions, so previews must commit canonical rows too
+    # (idempotent). See workflow_preview.py.
     async def _sync_and_upsert(uow: UnitOfWorkProtocol):
         connector_playlist: ConnectorPlaylist = await sync_connector_playlist(
             connector_, connector_playlist_identifier, uow

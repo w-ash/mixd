@@ -279,6 +279,37 @@ class TestPlaylistSourceConnector:
         assert isinstance(tl, TrackList)
         assert len(tl.tracks) == 2
 
+    async def test_preview_context_still_materializes_canonical_rows(
+        self, connector_context, connector_tracks
+    ):
+        """``dry_run`` skips destinations only: downstream nodes re-query
+        tracks by id, so a preview must still commit canonical rows (see
+        workflow_preview.py)."""
+        context, uow = connector_context
+        context["dry_run"] = True
+        cp = self._make_connector_playlist()
+        upsert_result = self._make_upsert_result(connector_tracks, is_create=True)
+
+        with (
+            patch(
+                "src.application.workflows.nodes.source.sync_connector_playlist",
+                new_callable=AsyncMock,
+                return_value=cp,
+            ),
+            patch(
+                "src.application.workflows.nodes.source.upsert_canonical_playlist",
+                new_callable=AsyncMock,
+                return_value=upsert_result,
+            ) as mock_upsert,
+        ):
+            _ = await playlist_source(
+                context,
+                {"playlist_id": "sp-abc", "connector": "spotify"},
+            )
+
+        mock_upsert.assert_awaited_once()
+        assert mock_upsert.call_args.args[:4] == (cp, "spotify", "sp-abc", uow)
+
     async def test_connector_empty_playlist_returns_empty_tracklist(
         self, connector_context
     ):

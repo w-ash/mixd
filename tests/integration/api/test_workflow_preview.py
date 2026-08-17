@@ -3,12 +3,18 @@
 Tests POST /workflows/preview (unsaved) and POST /workflows/{id}/preview (saved).
 Preview endpoints launch background tasks (stubbed in tests) and return 202
 with an operation_id for SSE streaming.
+
+Previews write canonical tracks, so the kickoff guards them: 409 while a run
+of the same workflow is active, 429 at operation-slot capacity.
 """
 
 import httpx2
 import pytest
 
+from src.config.constants import SSEConstants
 import src.interface.api.routes.workflows as _workflows_mod
+import src.interface.api.services.sse_operations as _sse_ops
+import src.interface.api.services.workflow_execution as _wf_exec_mod
 from tests.fixtures.factories import nonexistent_id
 from tests.integration.api.conftest import (
     create_workflow as _create_workflow,
@@ -24,6 +30,18 @@ def _stub_workflow_background(monkeypatch):
         pass
 
     monkeypatch.setattr(_workflows_mod, "launch_background", _noop_launch)
+    # The run endpoint's launcher lives in workflow_execution; stubbing it too
+    # lets a test create a PENDING run row without executing anything.
+    monkeypatch.setattr(_wf_exec_mod, "launch_background", _noop_launch)
+
+
+@pytest.fixture(autouse=True)
+def _release_leaked_slots():
+    """Drop slot claims the stubbed background task never releases —
+    otherwise three previews exhaust the cap and later kickoffs 429."""
+    before = set(_sse_ops._active_operations)
+    yield
+    _sse_ops._active_operations.intersection_update(before)
 
 
 class TestPreviewUnsavedWorkflow:
@@ -125,3 +143,72 @@ class TestPreviewSavedWorkflow:
         # Preview should still work
         response = await client.post(f"/api/v1/workflows/{wf_id}/preview")
         assert response.status_code == 202
+
+
+class TestPreviewGuards:
+    """Previews are canonical-track writers; the kickoff guards them like runs."""
+
+    async def test_preview_of_workflow_with_active_run_returns_409(
+        self, client: httpx2.AsyncClient
+    ) -> None:
+        """The run row is PENDING (its task is stubbed); the preview kickoff
+        refuses to add a second writer on the same workflow's sources."""
+        wf_id = await _create_workflow(client)
+        run_resp = await client.post(f"/api/v1/workflows/{wf_id}/run")
+        assert run_resp.status_code == 202
+
+        response = await client.post(f"/api/v1/workflows/{wf_id}/preview")
+
+        assert response.status_code == 409
+        assert response.json()["error"]["code"] == "WORKFLOW_RUNNING"
+
+    async def test_unsaved_preview_has_no_run_to_collide_with(
+        self, client: httpx2.AsyncClient
+    ) -> None:
+        """An unsaved definition has no workflow row, hence no run guard."""
+        wf_id = await _create_workflow(client)
+        run_resp = await client.post(f"/api/v1/workflows/{wf_id}/run")
+        assert run_resp.status_code == 202
+
+        response = await client.post(
+            "/api/v1/workflows/preview",
+            json={"definition": _valid_definition()},
+        )
+
+        assert response.status_code == 202
+
+    async def test_preview_counts_against_the_operation_cap(
+        self, client: httpx2.AsyncClient
+    ) -> None:
+        """Previews used to bypass the global concurrency cap entirely."""
+        tokens = [
+            f"cap-filler-{i}" for i in range(SSEConstants.MAX_CONCURRENT_OPERATIONS)
+        ]
+        for token in tokens:
+            _sse_ops.acquire_operation_slot(token)
+        try:
+            response = await client.post(
+                "/api/v1/workflows/preview",
+                json={"definition": _valid_definition()},
+            )
+            assert response.status_code == 429
+        finally:
+            for token in tokens:
+                _sse_ops.release_operation_slot(token)
+
+    async def test_preview_claims_a_slot_until_its_task_releases_it(
+        self, client: httpx2.AsyncClient
+    ) -> None:
+        """Kickoff acquires; ``execute_preview_background`` releases (stubbed
+        here, so the claim is still visible after the 202)."""
+        before = len(_sse_ops._active_operations)
+
+        response = await client.post(
+            "/api/v1/workflows/preview",
+            json={"definition": _valid_definition()},
+        )
+
+        assert response.status_code == 202
+        operation_id = response.json()["operation_id"]
+        assert operation_id in _sse_ops._active_operations
+        assert len(_sse_ops._active_operations) == before + 1

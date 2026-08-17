@@ -7,10 +7,11 @@ and CLI error handler.
 
 Layer note: this reads as infrastructure but is presentation. It produces
 user-facing copy — ``user_message`` becomes an HTTP 503 body and a CLI red
-line — and it imports nothing from ``src``, does no I/O, and has no consumer
-outside ``interface/``. It lived under ``persistence/database/`` until the
-layer contract was enforced, which is why the name says "database": that is
-the exception taxonomy it reads, not the layer it belongs to.
+line — imports only inward (SQLSTATE constants from
+``domain.repositories.errors``, which answers "retry?" where this answers
+"what do we tell the user?"), does no I/O, and has no consumer outside
+``interface/``. It lived under ``persistence/database/`` until the layer
+contract was enforced, hence the "database" name.
 """
 
 import re
@@ -20,6 +21,8 @@ from typing import Final, Literal
 
 from attrs import frozen
 from sqlalchemy.exc import TimeoutError as SATimeoutError
+
+from src.domain.repositories.errors import LOCK_NOT_AVAILABLE
 
 type DatabaseErrorCategory = Literal[
     "dns_failure",
@@ -34,7 +37,6 @@ type DatabaseErrorCategory = Literal[
 
 _AUTH_PGCODES: Final = frozenset({"28P01", "28000"})
 _STATEMENT_TIMEOUT_PGCODE: Final = "57014"
-_LOCK_TIMEOUT_PGCODE: Final = "55P03"
 
 _HOST_RE: Final = re.compile(
     r'(?:connection to server at|host[=:])\s*["\']?([^\s"\',;:]+)',
@@ -109,7 +111,7 @@ def classify_database_error(exc: Exception) -> DatabaseErrorInfo:
                     user_message="Database query timed out — the operation took too long",
                     detail=str(cause),
                 )
-            if pgcode == _LOCK_TIMEOUT_PGCODE:
+            if pgcode == LOCK_NOT_AVAILABLE:
                 return DatabaseErrorInfo(
                     category="timeout",
                     user_message="Database lock timeout — another operation is blocking this query",

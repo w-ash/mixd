@@ -75,6 +75,19 @@ class TestTerminalLine:
         assert "hunter2" not in body["message"]
 
 
+class TestCancelledRun:
+    async def test_a_cancelled_run_still_ends_with_a_terminal_frame(self) -> None:
+        """``Task.exception()`` raises on a cancelled task; the drain must
+        yield the sentinel's terminal frame, not abort the stream."""
+
+        async def run_fn(_queue: asyncio.Queue[QueueItem]) -> None:
+            raise asyncio.CancelledError
+
+        lines = await _collect(run_fn, shutting_down=False)
+
+        assert _payload(lines[-1]) == {"type": "done"}
+
+
 class TestDrainTermination:
     """The drain loop's two exits: the completion sentinel, and SIGTERM."""
 

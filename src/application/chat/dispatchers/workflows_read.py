@@ -114,7 +114,10 @@ def _compact_preview_track(track: Mapping[str, object]) -> JsonDict:
 async def handle_preview_workflow(
     tool_input: Mapping[str, JsonValue], ctx: ToolContext
 ) -> JsonValue:
-    """Dry-run a workflow definition and return a compact preview summary.
+    """Preview a workflow definition and return a compact summary.
+
+    Destination writes are skipped; source nodes materialize canonical tracks
+    (idempotent) — see ``PreviewWorkflowUseCase``.
 
     Breaks the standard dispatcher pattern: ``PreviewWorkflowUseCase`` owns its
     own sessions and takes a parsed ``WorkflowDef`` directly, so it is not
@@ -426,15 +429,18 @@ SPECS: list[dict[str, object]] = [
     {
         "name": "preview_workflow",
         "description": (
-            "Call this to dry-run a complete workflow definition against the "
+            "Call this to preview a complete workflow definition against the "
             "user's real library and see the tracks it would produce, before "
-            "saving or running it. Nothing is written — destination nodes are "
-            "skipped. Returns the total track count, a head of the output "
-            "tracks, per-node counts, and the run duration."
+            "saving or running it. Destination nodes are skipped (no playlist "
+            "is created or modified); source nodes cache canonical track "
+            "records (idempotent). Returns the total track count, a head of "
+            "the output tracks, per-node counts, and the run duration."
         ),
         "input_schema": PREVIEW_WORKFLOW_INPUT_SCHEMA,
         "dispatch": handle_preview_workflow,
         "use_cases": ("PreviewWorkflowUseCase",),
+        # "read" despite the source upserts: they're idempotent cache-fill,
+        # touching no user-facing artifact — no confirmation gate needed.
         "kind": "read",
     },
     {

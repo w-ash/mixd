@@ -3,7 +3,7 @@
   "info": {
     "title": "Mixd",
     "description": "Personal music metadata hub",
-    "version": "0.10.3.4"
+    "version": "0.10.3.5"
   },
   "paths": {
     "/api/v1/connectors/{service}/auth-url": {
@@ -2772,7 +2772,7 @@
           "workflows"
         ],
         "summary": "Preview Unsaved Workflow",
-        "description": "Preview an unsaved workflow definition (dry-run). Returns operation_id for SSE.",
+        "description": "Preview an unsaved workflow definition. Returns operation_id for SSE.\n\nSources materialize canonical rows (idempotent); destinations are skipped.",
         "operationId": "preview_unsaved_workflow_api_v1_workflows_preview_post",
         "requestBody": {
           "content": {
@@ -2814,7 +2814,7 @@
           "workflows"
         ],
         "summary": "Preview Saved Workflow",
-        "description": "Preview a saved workflow (dry-run). Returns operation_id for SSE.",
+        "description": "Preview a saved workflow. Returns operation_id for SSE.\n\nSame write semantics as the unsaved form; 409 while a run is active.",
         "operationId": "preview_saved_workflow_api_v1_workflows__workflow_id__preview_post",
         "parameters": [
           {

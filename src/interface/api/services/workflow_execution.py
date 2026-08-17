@@ -38,6 +38,7 @@ from src.interface.api.services.background import (
 from src.interface.api.services.sse_operations import (
     build_terminal_event,
     prepare_sse_operation,
+    release_operation_slot,
 )
 
 logger = get_logger(__name__).bind(service="workflows_api")
@@ -70,8 +71,9 @@ async def launch_workflow_run(
         )
     except Exception:
         # Use case failed (e.g., 409 already-running). Tear down the SSE queue we
-        # just registered so it doesn't leak.
-        await finalize_sse_operation(operation_id)
+        # just registered so it doesn't leak. Grace 0: no client has connected
+        # yet, and the default 30s read window would block this request.
+        await finalize_sse_operation(operation_id, grace_period_seconds=0.0)
         raise
 
     run_id = result.run_id
@@ -176,12 +178,14 @@ async def execute_workflow_background(
     #
     # Hold the sweeper at its active cadence for this run's lifetime; it sleeps
     # for hours otherwise so Neon's compute can suspend.
+    cancellation: CancelledError | None = None
     try:
         async with track_run():
             await _run_workflow_and_push_terminal(
                 operation_id, workflow_def, run_id, sse_queue, user_id
             )
-    except CancelledError:
+    except CancelledError as exc:
+        cancellation = exc
         # Best-effort push of error SSE event on cancellation
         with contextlib.suppress(CancelledError, Exception):
             await sse_queue.put(
@@ -196,7 +200,16 @@ async def execute_workflow_background(
             )
 
     finally:
-        await finalize_sse_operation(operation_id)
+        # Cancellation skips the SSE read window: the grace exists for a live
+        # client, and 30s per task would blow the shutdown drain budget.
+        await finalize_sse_operation(
+            operation_id,
+            grace_period_seconds=0.0 if cancellation is not None else None,
+        )
+    if cancellation is not None:
+        # Re-raise so the task ends *cancelled* and the shutdown drain sees a
+        # settled task — mirrors run_sse_operation.
+        raise cancellation
 
 
 async def execute_preview_background(
@@ -207,11 +220,13 @@ async def execute_preview_background(
 ) -> None:
     """Execute workflow preview in background, pushing SSE events.
 
-    Delegates to ``PreviewWorkflowUseCase`` which runs with ``dry_run=True``.
-    No run records are created — previews are ephemeral.
+    Delegates to ``PreviewWorkflowUseCase`` (destinations skipped, sources
+    still materialize canonical rows — see its module docstring). No run
+    record is created. Releases the slot ``_start_preview`` claimed.
     """
     from src.application.use_cases.workflow_preview import PreviewWorkflowUseCase
 
+    cancellation: CancelledError | None = None
     try:
         use_case = PreviewWorkflowUseCase()
         preview_result = await use_case.execute(
@@ -241,6 +256,8 @@ async def execute_preview_background(
         )
 
     except (CancelledError, Exception) as exc:
+        if isinstance(exc, CancelledError):
+            cancellation = exc
         error_msg = (
             WorkflowConstants.CANCELLED_BY_SERVER_MESSAGE
             if isinstance(exc, CancelledError)
@@ -260,4 +277,10 @@ async def execute_preview_background(
             )
 
     finally:
-        await finalize_sse_operation(operation_id)
+        release_operation_slot(operation_id)
+        await finalize_sse_operation(
+            operation_id,
+            grace_period_seconds=0.0 if cancellation is not None else None,
+        )
+    if cancellation is not None:
+        raise cancellation

@@ -54,6 +54,9 @@ def _set_connection_timeouts(
     """
     cursor = dbapi_connection.cursor()
     cursor.execute("SET statement_timeout = '30s'")
+    # 10s clears Neon's ~7.5s cold start and sits below statement_timeout.
+    # Contention is handled by the classified retry at the ingest seam, not
+    # by waiting longer here.
     cursor.execute("SET lock_timeout = '10s'")
     cursor.close()
 

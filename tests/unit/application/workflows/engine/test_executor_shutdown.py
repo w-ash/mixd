@@ -197,6 +197,21 @@ class TestInstallAcrossEventLoops:
         assert second_ok is True
         assert second_disposition is first_disposition
 
+    def test_reinstall_keeps_the_stored_callable_predecessor(self):
+        """Loop close restores SIG_DFL; a re-install must not replace the
+        captured callable (uvicorn's handle_exit) with it."""
+        fake_handle_exit = Mock()
+        signal.signal(signal.SIGTERM, fake_handle_exit)
+
+        async def _install() -> bool:
+            return executor_module.install_shutdown_handler()
+
+        assert asyncio.run(_install()) is True
+        assert signal.getsignal(signal.SIGTERM) is signal.SIG_DFL
+        assert asyncio.run(_install()) is True
+
+        assert executor_module._previous_handlers[signal.SIGTERM] is fake_handle_exit
+
 
 @pytest.mark.usefixtures("_isolated_signals")
 class TestShutdownCallbacks:

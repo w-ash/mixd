@@ -28,6 +28,7 @@ from src.domain.entities import (
 )
 from src.domain.entities.operations import UNSET, PollHealth, Unset
 from src.domain.entities.progress import ProgressEmitter
+from src.domain.repositories.errors import is_transient_contention
 from src.domain.repositories.uow import UnitOfWorkProtocol
 from src.domain.services.play_poll_decision import (
     PollDecisionInputs,
@@ -352,7 +353,12 @@ class ImportSpotifyLikesUseCase:
                         like_entries, user_id=command.user_id
                     )
                     imported += len(needs_likes)
-                except Exception:
+                except Exception as err:
+                    # Contention must fail the run BEFORE the checkpoint
+                    # advances past this page — swallowing it would skip the
+                    # batch permanently; the next sync rewrites it instead.
+                    if is_transient_contention(err):
+                        raise
                     logger.exception("Error bulk-saving likes")
 
             batches += 1

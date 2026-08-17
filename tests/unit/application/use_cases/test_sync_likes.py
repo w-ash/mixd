@@ -107,6 +107,33 @@ class TestImportSpotifyLikesIncrementalCommit:
         # 3 per-batch checkpoints + 1 final checkpoint on exit = 4
         assert checkpoint_repo.save_sync_checkpoint.await_count == 4
 
+    async def test_contention_fails_the_run_before_the_checkpoint_advances(
+        self, mock_uow
+    ):
+        """A swallowed 55P03 would advance the cursor past the failed page,
+        permanently skipping its likes; re-raising lets the next sync rewrite it."""
+
+        class _LockNotAvailable(Exception):
+            sqlstate = "55P03"
+
+        like_repo = mock_uow.get_like_repository()
+        like_repo.save_track_likes_batch = AsyncMock(
+            side_effect=_LockNotAvailable("key held by concurrent writer")
+        )
+        connector = self._mock_connector([_page_of_tracks(5, 0, cursor=None)])
+        with patch(
+            "src.application.use_cases.sync_likes.resolve_liked_track_connector",
+            return_value=connector,
+        ):
+            use_case = ImportSpotifyLikesUseCase()
+            command = ImportSpotifyLikesCommand(user_id="test-user", limit=50)
+            with pytest.raises(_LockNotAvailable):
+                await use_case.execute(command, mock_uow)
+
+        checkpoint_repo = mock_uow.get_checkpoint_repository()
+        checkpoint_repo.save_sync_checkpoint.assert_not_awaited()
+        mock_uow.commit_batch.assert_not_awaited()
+
     async def test_cancellation_preserves_committed_batches(self, mock_uow):
         """CancelledError after page 2 of 4 → commit_batch called exactly 2 times."""
         import asyncio

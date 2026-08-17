@@ -28,4 +28,6 @@ Use typed resolvers from `_shared/connector_resolver.py` — `resolve_playlist_c
 - All workflow operations work on database tracks (`track.id is not None`), never on raw connector data. Source nodes persist via `SavePlaylistUseCase` before returning.
 
 ## Preview use cases
-Use cases that preview side effects (e.g., `PreviewPlaylistSyncUseCase`) fetch external state and compute diffs but skip `uow.commit()`. They reuse existing connector methods (e.g., `sync_connector_playlist()`) in a read-only context.
+Two distinct shapes — don't apply one's rule to the other:
+- **Diff previews** (e.g., `PreviewPlaylistSyncUseCase`): fetch external state, compute diffs, skip `uow.commit()`.
+- **Workflow preview** (`PreviewWorkflowUseCase`): `dry_run=True` skips **destination writes only**; source nodes commit canonical rows (idempotent) because downstream nodes re-query them by id from their own sessions. Don't "fix" this to skip-commit without redesigning the engine's session model — rationale in `workflow_preview.py`.

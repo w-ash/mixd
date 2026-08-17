@@ -185,7 +185,10 @@ def stream_chat_response(
                 yield ": keepalive\n\n"
                 continue
             if item is None:
-                yield _terminal_line(task.exception() if task.done() else None)
+                # task.exception() raises on a cancelled task — report it as
+                # "no exception" rather than aborting the stream mid-frame.
+                done = task.done() and not task.cancelled()
+                yield _terminal_line(task.exception() if done else None)
                 return
             yield _format_item(item)
 

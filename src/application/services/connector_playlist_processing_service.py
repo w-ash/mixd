@@ -5,7 +5,9 @@ with PlaylistEntry objects (tracks + position metadata), handling bulk operation
 duplicate preservation, and performance optimization across create and update use cases.
 """
 
+import asyncio
 from datetime import datetime
+from typing import Final
 
 from src.application.connector_protocols import TrackConversionConnector
 from src.config import get_logger
@@ -19,9 +21,19 @@ from src.domain.entities.playlist import (
 from src.domain.entities.shared import JsonValue
 from src.domain.entities.track import ConnectorTrack, Track
 from src.domain.repositories.connector import ConnectorRepositoryProtocol
+from src.domain.repositories.errors import is_transient_contention, postgres_sqlstate
 from src.domain.repositories.uow import UnitOfWorkProtocol
 
 logger = get_logger(__name__)
+
+# Pause before the single whole-batch retry of a contended ingest. The
+# competing writer is routine and short-lived — the play-import resolver's
+# ``save_tracks``, one multi-row INSERT — and by the time we get here we have
+# already spent the connection's ``lock_timeout`` (10s in production) waiting
+# on it, so most of its transaction is behind us. A second is long enough for
+# it to commit and release, and short enough that the worst case (the retry
+# times out too) fails within the node's budget instead of doubling it.
+CONTENTION_RETRY_DELAY_SECONDS: Final = 1.0
 
 
 class ConnectorPlaylistProcessingService:
@@ -205,19 +217,19 @@ class ConnectorPlaylistProcessingService:
         """Resolve unique tracks to domain tracks, ingesting any that are new.
 
         Bulk-looks up existing tracks, then ingests only the truly-new ones
-        (falling back to per-track retry on bulk failure, so one bad row doesn't
-        drop the batch). Returns the connector-track-id → domain ``Track`` map.
+        (see ``_ingest_new_tracks`` for what happens when that fails). Returns
+        the connector-track-id → domain ``Track`` map.
 
-        Every tolerated ingest — the bulk attempt and each per-track retry —
-        runs inside ``uow.savepoint()``. A continue-on-error loop *must*: a
-        statement that raises leaves PostgreSQL's transaction aborted, so
-        without a savepoint to roll back to, the retry loop below issues 2N
-        more statements that can only fail with ``InFailedSqlTransaction``,
-        and the first error — the only one that explains anything — is buried
-        under them. That is the v0.10.2.2 cascade, which fixed the inward
-        resolvers' item loops and left this one uncovered; it surfaced as a
-        workflow source node dying on ``SAVEPOINT sa_savepoint_67`` with the
-        real cause long since rotated out of the log.
+        Every tolerated ingest — the bulk attempt, its contention retry, and
+        each per-track retry — runs inside ``uow.savepoint()``. A
+        continue-on-error loop *must*: a statement that raises leaves
+        PostgreSQL's transaction aborted, so without a savepoint to roll back
+        to, the retry loop below issues 2N more statements that can only fail
+        with ``InFailedSqlTransaction``, and the first error — the only one
+        that explains anything — is buried under them. That is the v0.10.2.2
+        cascade, which fixed the inward resolvers' item loops and left this one
+        uncovered; it surfaced as a workflow source node dying on ``SAVEPOINT
+        sa_savepoint_67`` with the real cause long since rotated out of the log.
         """
         connector_repo = uow.get_connector_repository()
 
@@ -248,50 +260,14 @@ class ConnectorPlaylistProcessingService:
         # Ingest only truly new tracks
         if new_connector_tracks:
             logger.info(f"Creating {len(new_connector_tracks)} new tracks in database")
-            try:
-                async with uow.savepoint():
-                    newly_created_tracks = (
-                        await connector_repo.ingest_external_tracks_bulk(
-                            connector_name, new_connector_tracks, user_id=user_id
-                        )
-                    )
-            except Exception:
-                # ERROR with the traceback, not a WARNING carrying ``str(e)``:
-                # this is the *first* failure and the only one that names a
-                # cause. Everything after it is consequence, and a one-line
-                # warning is what made the original invisible in the deployed
-                # logs.
-                logger.error(
-                    f"Bulk ingest of {len(new_connector_tracks)} {connector_name} "
-                    f"tracks failed — retrying them one at a time",
-                    connector=connector_name,
-                    track_count=len(new_connector_tracks),
-                    exc_info=True,
-                )
-                failed = await self._ingest_one_at_a_time(
-                    connector_repo,
-                    connector_name,
-                    new_connector_tracks,
-                    track_id_to_domain_track,
-                    uow,
-                    user_id=user_id,
-                )
-                if failed:
-                    logger.error(
-                        f"{failed} of {len(new_connector_tracks)} {connector_name} "
-                        f"tracks could not be ingested individually either; their "
-                        f"playlist positions will be recorded UNRESOLVED",
-                        connector=connector_name,
-                        failed=failed,
-                    )
-            else:
-                # Add to mapping
-                for track in newly_created_tracks:
-                    connector_track_id = track.connector_track_identifiers.get(
-                        connector_name
-                    )
-                    if connector_track_id:
-                        track_id_to_domain_track[connector_track_id] = track
+            await self._ingest_new_tracks(
+                connector_repo,
+                connector_name,
+                new_connector_tracks,
+                track_id_to_domain_track,
+                uow,
+                user_id=user_id,
+            )
 
         logger.info(
             f"Track processing complete: {len(track_id_to_domain_track)} unique tracks resolved",
@@ -300,6 +276,168 @@ class ConnectorPlaylistProcessingService:
         )
 
         return track_id_to_domain_track
+
+    async def _ingest_new_tracks(
+        self,
+        connector_repo: ConnectorRepositoryProtocol,
+        connector_name: str,
+        new_connector_tracks: list[ConnectorTrack],
+        track_id_to_domain_track: dict[str, Track],
+        uow: UnitOfWorkProtocol,
+        *,
+        user_id: str,
+    ) -> None:
+        """Ingest the new tracks in bulk, choosing the fallback by *why* it failed.
+
+        The two failure modes want opposite responses, and answering both with
+        the per-track loop is what turned a loud crash into a slow silent one:
+
+        - **Transient contention** (lock timeout, deadlock, serialization loss)
+          is not about the rows at all — a concurrent transaction holds one of
+          the identity keys (``uq_tracks_user_isrc`` and friends), routinely
+          the play-import resolver that ``RunWorkflowUseCase`` starts just
+          before the workflow and deliberately does not await. Splitting the
+          batch up makes it strictly worse: each of the N retries queues on the
+          same contended index in turn, so a 32-track batch burns N times
+          ``lock_timeout`` (~5.5 minutes in production) and *still* resolves
+          nothing, leaving every playlist position recorded UNRESOLVED with no
+          failure anywhere. So: retry the whole batch once, then give up
+          loudly. A visibly failed run beats 32 quietly-wrong positions.
+        - **Anything else** — a bad value, a violated constraint — is about one
+          row, and the per-track loop exists to find it and save the other 31.
+        """
+        try:
+            async with uow.savepoint():
+                newly_created_tracks = await connector_repo.ingest_external_tracks_bulk(
+                    connector_name, new_connector_tracks, user_id=user_id
+                )
+        except Exception as bulk_error:
+            if not is_transient_contention(bulk_error):
+                await self._fall_back_to_per_track(
+                    connector_repo,
+                    connector_name,
+                    new_connector_tracks,
+                    track_id_to_domain_track,
+                    uow,
+                    cause=bulk_error,
+                    user_id=user_id,
+                )
+                return
+            try:
+                newly_created_tracks = await self._retry_bulk_ingest_after_contention(
+                    connector_repo,
+                    connector_name,
+                    new_connector_tracks,
+                    uow,
+                    bulk_error,
+                    user_id=user_id,
+                )
+            except Exception as retry_error:
+                if is_transient_contention(retry_error):
+                    raise
+                # The retry surfaced an ordinary row problem (e.g. the
+                # competitor committed our key and the rerun hit 23505) —
+                # exactly the per-track loop's case.
+                await self._fall_back_to_per_track(
+                    connector_repo,
+                    connector_name,
+                    new_connector_tracks,
+                    track_id_to_domain_track,
+                    uow,
+                    cause=retry_error,
+                    user_id=user_id,
+                )
+                return
+
+        for track in newly_created_tracks:
+            connector_track_id = track.connector_track_identifiers.get(connector_name)
+            if connector_track_id:
+                track_id_to_domain_track[connector_track_id] = track
+
+    async def _fall_back_to_per_track(
+        self,
+        connector_repo: ConnectorRepositoryProtocol,
+        connector_name: str,
+        new_connector_tracks: list[ConnectorTrack],
+        track_id_to_domain_track: dict[str, Track],
+        uow: UnitOfWorkProtocol,
+        *,
+        cause: Exception,
+        user_id: str,
+    ) -> None:
+        """Isolate a bad row: log ``cause`` with its traceback, retry per track."""
+        logger.error(
+            f"Bulk ingest of {len(new_connector_tracks)} {connector_name} "
+            f"tracks failed — retrying them one at a time",
+            connector=connector_name,
+            track_count=len(new_connector_tracks),
+            exc_info=cause,
+        )
+        failed = await self._ingest_one_at_a_time(
+            connector_repo,
+            connector_name,
+            new_connector_tracks,
+            track_id_to_domain_track,
+            uow,
+            user_id=user_id,
+        )
+        if failed:
+            logger.error(
+                f"{failed} of {len(new_connector_tracks)} {connector_name} "
+                f"tracks could not be ingested individually either; their "
+                f"playlist positions will be recorded UNRESOLVED",
+                connector=connector_name,
+                failed=failed,
+            )
+
+    @staticmethod
+    async def _retry_bulk_ingest_after_contention(
+        connector_repo: ConnectorRepositoryProtocol,
+        connector_name: str,
+        new_connector_tracks: list[ConnectorTrack],
+        uow: UnitOfWorkProtocol,
+        bulk_error: Exception,
+        *,
+        user_id: str,
+    ) -> list[Track]:
+        """Re-run the identical bulk ingest once, after a short pause.
+
+        One retry, not a loop: the writer we lost to commits in about a second,
+        so if a full ``lock_timeout`` plus that pause was not enough, waiting
+        again is guesswork. Raises on the second failure — the caller routes
+        still-contention to a loud run failure (an empty map would reach the
+        user as a green run full of "Couldn't match") and anything else to the
+        per-track fallback.
+        """
+        contended_sqlstate = postgres_sqlstate(bulk_error)
+        logger.warning(
+            f"Bulk ingest of {len(new_connector_tracks)} {connector_name} tracks hit "
+            f"transient database contention (SQLSTATE {contended_sqlstate}) — "
+            f"retrying the whole batch once in {CONTENTION_RETRY_DELAY_SECONDS}s",
+            connector=connector_name,
+            track_count=len(new_connector_tracks),
+            sqlstate=contended_sqlstate,
+        )
+        await asyncio.sleep(CONTENTION_RETRY_DELAY_SECONDS)
+        try:
+            async with uow.savepoint():
+                return await connector_repo.ingest_external_tracks_bulk(
+                    connector_name, new_connector_tracks, user_id=user_id
+                )
+        except Exception as retry_error:
+            if is_transient_contention(retry_error):
+                retry_sqlstate = postgres_sqlstate(retry_error)
+                logger.error(
+                    f"Bulk ingest of {len(new_connector_tracks)} {connector_name} "
+                    f"tracks failed again under database contention (SQLSTATE "
+                    f"{retry_sqlstate}) — failing the run rather than recording "
+                    f"{len(new_connector_tracks)} positions UNRESOLVED",
+                    connector=connector_name,
+                    track_count=len(new_connector_tracks),
+                    sqlstate=retry_sqlstate,
+                    exc_info=True,
+                )
+            raise
 
     def _build_playlist_entries(
         self,

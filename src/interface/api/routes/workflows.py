@@ -51,7 +51,7 @@ from src.application.workflows.nodes.config_fields import get_node_config_fields
 from src.application.workflows.nodes.registry import list_nodes
 from src.config import get_logger
 from src.domain.entities.workflow import Workflow, WorkflowDef, WorkflowRun
-from src.domain.exceptions import NotFoundError
+from src.domain.exceptions import NotFoundError, WorkflowAlreadyRunningError
 from src.domain.repositories.uow import UnitOfWorkProtocol
 from src.interface.api.deps import get_current_user_id
 from src.interface.api.routes._schedule_ops import (
@@ -90,8 +90,14 @@ from src.interface.api.schemas.workflows import (
     to_workflow_detail,
     to_workflow_summary,
 )
-from src.interface.api.services.background import launch_background
-from src.interface.api.services.sse_operations import prepare_sse_operation
+from src.interface.api.services.background import (
+    finalize_sse_operation,
+    launch_background,
+)
+from src.interface.api.services.sse_operations import (
+    acquire_operation_slot,
+    prepare_sse_operation,
+)
 from src.interface.api.services.workflow_execution import (
     execute_preview_background,
     launch_workflow_run,
@@ -295,7 +301,7 @@ async def validate_workflow(
 
 
 # ---------------------------------------------------------------------------
-# Preview endpoints (dry-run execution)
+# Preview endpoints (run the graph, skip destination writes)
 # ---------------------------------------------------------------------------
 
 
@@ -304,7 +310,10 @@ async def preview_unsaved_workflow(
     body: CreateWorkflowRequest,
     user_id: str = Depends(get_current_user_id),
 ) -> PreviewStartedResponse:
-    """Preview an unsaved workflow definition (dry-run). Returns operation_id for SSE."""
+    """Preview an unsaved workflow definition. Returns operation_id for SSE.
+
+    Sources materialize canonical rows (idempotent); destinations are skipped.
+    """
     definition = schema_to_workflow_def(body.definition)
     return await _start_preview(definition, user_id)
 
@@ -314,20 +323,52 @@ async def preview_saved_workflow(
     workflow_id: UUID,
     user_id: str = Depends(get_current_user_id),
 ) -> PreviewStartedResponse:
-    """Preview a saved workflow (dry-run). Returns operation_id for SSE."""
+    """Preview a saved workflow. Returns operation_id for SSE.
+
+    Same write semantics as the unsaved form; 409 while a run is active.
+    """
     command = GetWorkflowCommand(user_id=user_id, workflow_id=workflow_id)
     result = await execute_use_case(
         lambda uow: GetWorkflowUseCase().execute(command, uow),
         user_id=user_id,
     )
-    return await _start_preview(result.workflow.definition, user_id)
+    return await _start_preview(
+        result.workflow.definition, user_id, workflow_id=workflow_id
+    )
 
 
 async def _start_preview(
-    workflow_def: WorkflowDef, user_id: str
+    workflow_def: WorkflowDef, user_id: str, workflow_id: UUID | None = None
 ) -> PreviewStartedResponse:
-    """Shared logic: register SSE queue, launch background preview."""
+    """Shared kickoff: run guard, concurrency slot, SSE queue, background task.
+
+    A preview writes canonical tracks, so it gets run-style protections:
+    best-effort 409 against an active run (saved workflows only —
+    ``workflow_id`` is the row id the run guard keys on; previews create no
+    run row, and the residual race degrades to write contention the ingest
+    path retries), and an operation-slot claim so previews count against the
+    global 429 cap.
+    """
+    if workflow_id is not None:
+        active_runs = await execute_use_case(
+            lambda uow: ListActiveRunsUseCase().execute(
+                ListActiveRunsCommand(user_id=user_id), uow
+            ),
+            user_id=user_id,
+        )
+        if any(run.workflow_id == workflow_id for run in active_runs.runs):
+            raise WorkflowAlreadyRunningError(str(workflow_id))
+
     operation_id, sse_queue = await prepare_sse_operation()
+    try:
+        # Slot released by execute_preview_background's finally.
+        acquire_operation_slot(operation_id)
+    except Exception:
+        # 429 — tear down the queue we just registered so it doesn't leak.
+        # Grace 0: no client has connected yet, and the default 30s read
+        # window would block this request.
+        await finalize_sse_operation(operation_id, grace_period_seconds=0.0)
+        raise
 
     launch_background(
         f"workflow_preview_{operation_id}",

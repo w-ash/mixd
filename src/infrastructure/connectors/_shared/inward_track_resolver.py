@@ -25,6 +25,10 @@ from src.domain.entities import Track
 from src.domain.matching.evaluation_service import TrackMatchEvaluationService
 from src.domain.matching.types import RawProviderMatch
 from src.domain.repositories.connector import ConnectorMappingSpec
+from src.domain.repositories.errors import (
+    is_transient_contention,
+    postgres_sqlstate,
+)
 from src.domain.repositories.resolution import ResolutionDecision
 from src.domain.repositories.uow import UnitOfWorkProtocol
 
@@ -96,6 +100,16 @@ async def persist_bulk_with_item_fallback[TWrite, TKey, TPersisted](
         async with uow.savepoint():
             persisted = dict(await persist(writes))
     except Exception as e:
+        # Contention is not a poisoned row: per-item splitting would re-block
+        # once per item on the same held key. Re-raise — the import fails
+        # loudly and the schedule-level retry (adaptive poller) reruns it.
+        if is_transient_contention(e):
+            logger.warning(
+                f"Bulk persist of {len(writes)} {describe} hit transient "
+                f"contention (SQLSTATE {postgres_sqlstate(e)}) — re-raising",
+                sqlstate=postgres_sqlstate(e),
+            )
+            raise
         tally = _degraded_persists.get()
         if tally is not None:
             tally.count += 1

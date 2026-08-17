@@ -25,6 +25,10 @@ from sqlalchemy.sql import ColumnElement
 
 from src.config import get_logger
 from src.domain.exceptions import NotFoundError
+from src.domain.repositories.errors import (
+    is_transient_contention,
+    postgres_sqlstate,
+)
 
 # Import needed for relationship chains in eager loading
 from src.infrastructure.persistence.database.db_models import DatabaseModel
@@ -658,8 +662,11 @@ class BaseRepository[TDBModel: DatabaseModel, TDomainModel]:
             if db_entity is None:
                 _raise_update_retrieval_error()
             return await self._map_to_domain(db_entity)
-        # Phase 2: Entity doesn't exist, create it
-        # Use simple insert instead of complex on_conflict_do_update
+        # Phase 2: Entity doesn't exist, create it. Deliberately not ON
+        # CONFLICT: a row can claim several unique constraints at once (tracks:
+        # isrc + spotify_id + mbid) while ON CONFLICT arbitrates only one, and
+        # blocking on a contended index is inherent either way. Contention is
+        # handled by savepoint-owning callers (see domain.repositories.errors).
         stmt = (
             insert(self.model_class)
             .values(**insert_values)
@@ -838,6 +845,17 @@ class BaseRepository[TDBModel: DatabaseModel, TDomainModel]:
                 entities, lookup_keys, return_models, index_where, update_where
             )
         except Exception as e:
+            # The fallback isolates a bad row. Contention is not a bad row —
+            # per-row retries would re-block N x lock_timeout and write nothing
+            # — so re-raise for the savepoint-owning caller, who owns the retry.
+            if is_transient_contention(e):
+                logger.warning(
+                    "Bulk upsert hit transient contention; re-raising instead "
+                    "of per-row fallback",
+                    sqlstate=postgres_sqlstate(e),
+                    entity_count=len(entities),
+                )
+                raise
             logger.warning(
                 f"Bulk upsert failed, falling back to individual upserts: {e}",
                 entity_count=len(entities),

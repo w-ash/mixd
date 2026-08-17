@@ -1,8 +1,15 @@
-"""Use case for workflow preview (dry-run execution).
+"""Use case for workflow preview: run the graph, skip destination writes.
 
-Previews are ephemeral — no run record is created. The workflow is executed
-with ``dry_run=True`` so destination nodes skip writes. Results are delivered
-via SSE for real-time node status and a final ``preview_complete`` event.
+Previews are ephemeral (no run record) but not write-free: ``dry_run`` is
+honored only by destinations, while sources materialize canonical rows
+(idempotent upserts). Load-bearing, not an oversight — nodes each open their
+own session and downstream nodes re-query tracks by id, so source writes must
+be committed to be visible. A write-free preview would need a shared
+no-commit session, and would hold uncommitted identity keys for its whole
+duration — the exact lock-contention blocker the ingest retry exists to
+survive.
+
+Results are delivered via SSE, ending with a ``preview_complete`` event.
 """
 
 import asyncio
@@ -32,10 +39,10 @@ class PreviewWorkflowResult:
 
 @define(slots=True)
 class PreviewWorkflowUseCase:
-    """Execute a workflow in dry-run mode for preview.
+    """Execute a workflow in preview mode (destination writes skipped).
 
-    Validates the definition, checks connector availability, then runs the
-    workflow with ``dry_run=True``. No database records are created.
+    Validates the definition, then runs the workflow with ``dry_run=True``.
+    Source nodes still materialize canonical rows — see the module docstring.
     """
 
     async def execute(
@@ -50,9 +57,9 @@ class PreviewWorkflowUseCase:
 
         validate_workflow_def(workflow_def)
 
-        # Previews are dry-run (no run row, no external writes), so they are not
-        # subject to the active-run concurrency guard — a preview can run
-        # alongside a real run of the same workflow.
+        # Guards (active-run 409, concurrency slot) live in the API kickoff;
+        # this use case stays guard-free so the chat tool can call it directly.
+        # A residual overlap degrades to write contention, which is retried.
 
         timer = ExecutionTimer()
 

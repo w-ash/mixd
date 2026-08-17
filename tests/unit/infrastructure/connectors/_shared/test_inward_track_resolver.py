@@ -195,6 +195,35 @@ class TestPersistBulkWithItemFallback:
         assert persisted_chunks == [["a"], ["c"]]
         assert item_failures == ["bad"]
 
+    async def test_contention_is_reraised_never_split_per_item(self):
+        """55P03 is a held key, not a poisoned row — per-item splitting would
+        re-block once per item. Re-raise; the poller-level retry reruns it."""
+        from src.infrastructure.connectors._shared.inward_track_resolver import (
+            persist_bulk_with_item_fallback,
+        )
+
+        class _LockNotAvailable(Exception):
+            sqlstate = "55P03"
+
+        uow = self._uow()
+        calls: list[int] = []
+
+        async def _contended(chunk):
+            calls.append(len(chunk))
+            raise _LockNotAvailable("key held by concurrent writer")
+
+        with pytest.raises(_LockNotAvailable):
+            _ = await persist_bulk_with_item_fallback(
+                ["a", "b", "c"],
+                uow,
+                persist=_contended,
+                write_key=lambda item: item,
+                describe="test writes",
+            )
+
+        assert calls == [3], "one bulk attempt, no per-item re-blocking"
+        assert uow.savepoint.call_count == 1
+
     async def test_empty_writes_touch_nothing(self):
         from src.infrastructure.connectors._shared.inward_track_resolver import (
             persist_bulk_with_item_fallback,

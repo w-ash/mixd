@@ -3,7 +3,7 @@
  * Do not edit manually.
  * Mixd
  * Personal music metadata hub
- * OpenAPI spec version: 0.10.3.4
+ * OpenAPI spec version: 0.10.3.5
  */
 import {
   useMutation,
@@ -941,7 +941,9 @@ export const getPreviewUnsavedWorkflowApiV1WorkflowsPreviewPostUrl = () => {
 }
 
 /**
- * Preview an unsaved workflow definition (dry-run). Returns operation_id for SSE.
+ * Preview an unsaved workflow definition. Returns operation_id for SSE.
+ *
+ * Sources materialize canonical rows (idempotent); destinations are skipped.
  * @summary Preview Unsaved Workflow
  */
 export const previewUnsavedWorkflowApiV1WorkflowsPreviewPost = async (createWorkflowRequest: CreateWorkflowRequest, options?: Parameters<typeof customFetch>[1]): Promise<previewUnsavedWorkflowApiV1WorkflowsPreviewPostResponse> => {
@@ -1031,7 +1033,9 @@ export const getPreviewSavedWorkflowApiV1WorkflowsWorkflowIdPreviewPostUrl = (wo
 }
 
 /**
- * Preview a saved workflow (dry-run). Returns operation_id for SSE.
+ * Preview a saved workflow. Returns operation_id for SSE.
+ *
+ * Same write semantics as the unsaved form; 409 while a run is active.
  * @summary Preview Saved Workflow
  */
 export const previewSavedWorkflowApiV1WorkflowsWorkflowIdPreviewPost = async (workflowId: string, options?: Parameters<typeof customFetch>[1]): Promise<previewSavedWorkflowApiV1WorkflowsWorkflowIdPreviewPostResponse> => {

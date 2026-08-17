@@ -126,7 +126,7 @@ chat-only for now — the latter pending the gated Tasks-extension epic.
 | query_playlist_links | read | exposed | Call this to see how a canonical playlist connects to external services, or to preview a sync before running it. |
 | query_stats | read | exposed | Call this to read the user's library health and stats. |
 | query_operations | read | exposed | Call this to read the user's background-operation history and sync state. |
-| preview_workflow | read | exposed | Call this to dry-run a complete workflow definition against the user's real library and see the tracks it would produce, before saving or running it. |
+| preview_workflow | read | exposed | Call this to preview a complete workflow definition against the user's real library and see the tracks it would produce, before saving or running it. |
 | query_workflow_history | read | exposed | Call this to read workflow run history or version history. |
 | query_schedules | read | exposed | Call this to read the user's automation schedules before answering questions about when a workflow or sync runs, or proposing a schedule change. |
 | merge_tracks | write | exposed | Call this to propose merging two duplicate canonical tracks into one. |
