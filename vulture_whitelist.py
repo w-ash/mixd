@@ -142,3 +142,13 @@ fallback_resolved  # ResolutionMetrics — read via _CARRIED_RESOLUTION_METRICS
 redirect_resolved  # ResolutionMetrics — read via _CARRIED_RESOLUTION_METRICS
 dead_ids_unresolved  # ResolutionMetrics — read via _CARRIED_RESOLUTION_METRICS
 isrc_suspect_deferred  # ResolutionMetrics — read via _CARRIED_RESOLUTION_METRICS
+
+# --- v0.10.3.4: the sse-starlette shutdown bridge ---
+# `AppStatus.should_exit` is sse-starlette's own module-global flag, and setting it is
+# the library's documented substitute for the shutdown detection our signal handler
+# displaces (it hunts for uvicorn's Server via `signal.getsignal(SIGTERM).__self__`,
+# which returns asyncio's trampoline once we install). vulture sees a write to a
+# third-party class attribute with no reader in src/ — the reader is inside the
+# library's own stream loop. Whitelisting is the honest fix; the alternative is an
+# artificial Python reader for a flag we do not own.
+should_exit  # sse_starlette.sse.AppStatus — read by the library's stream loop

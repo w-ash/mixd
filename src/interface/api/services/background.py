@@ -25,11 +25,18 @@ logger = get_logger(__name__).bind(service="background_tasks")
 _background_tasks: set[asyncio.Task[None]] = set()
 
 # How long the lifespan shutdown waits for cancelled background tasks to finish
-# their terminal bookkeeping. Bounded by Fly's `kill_timeout = 5s`: past that the
-# platform SIGKILLs us, so the drain must leave headroom for the rest of the
-# lifespan teardown (progress unsubscribe, adapter close). Stragglers are logged
-# and abandoned — the process is going away either way.
-SHUTDOWN_DRAIN_TIMEOUT_SECONDS: Final = 3.0
+# their terminal bookkeeping. What it protects: a cancelled import's *shielded*
+# terminal audit write, which is a round trip to Neon (cold-start latency
+# included) — the 2026-08-08 incident where a killed run stayed durably recorded
+# as `complete` with empty counts. The real budget is Fly's `kill_timeout = 300s`
+# drain window, and this spend is *additive* to uvicorn's
+# `--timeout-graceful-shutdown 30` (Dockerfile CMD) rather than nested inside it:
+# `Server.shutdown()` waits for connections under that timeout, then awaits the
+# lifespan shutdown with no bound of its own. 15s leaves room for the rest of the
+# lifespan teardown (progress unsubscribe, adapter close, MCP manager exit) and
+# still lands near 45s worst case. Stragglers are logged and abandoned — the
+# process is going away either way.
+SHUTDOWN_DRAIN_TIMEOUT_SECONDS: Final = 15.0
 
 
 @define(frozen=True, slots=True)

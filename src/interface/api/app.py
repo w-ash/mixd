@@ -63,6 +63,26 @@ async def _prune_expired_oauth_states() -> None:
         logger.warning("Failed to prune expired OAuth states", error=str(e))
 
 
+def _drain_sse_starlette_streams() -> None:
+    """Tell sse-starlette the server is shutting down, so its streams drain.
+
+    sse-starlette normally detects shutdown itself, two ways — both of which this
+    process defeats. Its ``Server.handle_exit`` monkey-patch lands too late:
+    uvicorn's ``capture_signals()`` binds the method *before* ``config.load()``
+    imports this app, so the registered bound method predates the patch. Its
+    fallback recovers the ``Server`` from ``signal.getsignal(SIGTERM).__self__``,
+    which returns asyncio's trampoline once ``install_shutdown_handler`` has run.
+
+    Setting the flag directly is the library's own documented substitute. Without
+    it, an open ``/mcp`` stream (StreamableHTTP streams over sse-starlette) holds
+    uvicorn's connection drain — which runs *before* lifespan shutdown — for the
+    full ``--timeout-graceful-shutdown`` window.
+    """
+    from sse_starlette.sse import AppStatus
+
+    AppStatus.should_exit = True
+
+
 @asynccontextmanager
 async def lifespan(_app: FastAPI) -> AsyncGenerator[None]:
     """Wire SSE progress subscriber to the global progress manager."""
@@ -71,12 +91,17 @@ async def lifespan(_app: FastAPI) -> AsyncGenerator[None]:
 
     setup_logging()
 
-    # Install the process-wide SIGTERM handler once so graceful shutdown is
-    # shared across all concurrent runs (replaces the former per-run handler,
-    # whose per-run reset let a starting run wipe an in-flight run's signal).
-    from src.application.workflows.engine.executor import install_shutdown_handler
+    # Install the process-wide shutdown handlers (SIGTERM + SIGINT) once so
+    # graceful shutdown is shared across all concurrent runs (replaces the former
+    # per-run handler, whose per-run reset let a starting run wipe an in-flight
+    # run's signal).
+    from src.application.workflows.engine.executor import (
+        add_shutdown_callback,
+        install_shutdown_handler,
+    )
 
     install_shutdown_handler()
+    add_shutdown_callback(_drain_sse_starlette_streams)
 
     from src.config import log_startup_warnings
 
@@ -176,7 +201,11 @@ async def lifespan(_app: FastAPI) -> AsyncGenerator[None]:
         # live event loop + DB engine. Left to interpreter teardown it never lands —
         # the incident where a Fly-autostop SIGINT killed an import mid-flight and
         # the run stayed durably recorded as `complete` with empty counts. Bounded
-        # by Fly's 5s kill_timeout; stragglers are logged and abandoned.
+        # by SHUTDOWN_DRAIN_TIMEOUT_SECONDS, which is *additive* to uvicorn's
+        # `--timeout-graceful-shutdown`, not nested inside it: `Server.shutdown()`
+        # waits for connections under that timeout and only then awaits the
+        # lifespan shutdown, unbounded. Worst case is 30s + 15s, well inside Fly's
+        # 300s kill_timeout; stragglers are logged and abandoned.
         from src.interface.api.services.background import (
             SHUTDOWN_DRAIN_TIMEOUT_SECONDS,
             cancel_all_background_tasks,

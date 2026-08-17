@@ -99,9 +99,22 @@ EXPOSE 8000
 HEALTHCHECK --interval=30s --timeout=10s --start-period=60s --retries=3 \
     CMD ["python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8000/api/v1/health')"]
 
+# --timeout-graceful-shutdown bounds uvicorn's wait for in-flight requests. It
+# defaults to None (unbounded), and uvicorn drains connections *before* running
+# lifespan shutdown — so a long-lived SSE stream that only ends on a
+# lifespan-pushed sentinel deadlocks the two against each other until Fly's
+# kill_timeout (300s) SIGKILLs the machine. 30s breaks that unconditionally and
+# leaves the rest of the drain window as headroom — the lifespan's own task drain
+# runs after this window, not inside it.
+#
+# --limit-max-requests recycles the worker with no signal at all, so the
+# shutdown flag the SSE streams poll never gets set on that path; this timeout is
+# its only bound. Accepted: a recycle is not a deploy, and 30s is well inside the
+# kill_timeout.
 CMD ["uvicorn", "src.interface.api.app:app", \
      "--host", "0.0.0.0", "--port", "8000", \
      "--workers", "1", \
      "--no-access-log", \
+     "--timeout-graceful-shutdown", "30", \
      "--limit-concurrency", "50", \
      "--limit-max-requests", "5000"]

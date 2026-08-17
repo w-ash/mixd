@@ -44,7 +44,11 @@ cd "$(dirname "$0")/.."
 # result's separately is exactly how the skip breakdown reached the logs but never the
 # run record. The names now live only as strings in _RUN_METRIC_KEYS /
 # _CARRIED_RESOLUTION_METRICS, which vulture cannot follow into a TypedDict key.
-BASE_WHITELIST=82
+# 82 → 83 at v0.10.3.4: `should_exit`, sse-starlette's own shutdown flag. Our signal
+# handler displaces the one the library introspects to notice a shutdown, so the lifespan
+# sets its flag directly — a write to a third-party attribute whose only reader lives
+# inside the library, where vulture cannot follow it.
+BASE_WHITELIST=83
 BASE_NOQA=13
 BASE_TYPE_IGNORE=0
 BASE_PYRIGHT_IGNORE=18

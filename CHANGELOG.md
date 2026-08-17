@@ -6,6 +6,19 @@ linked backlog version file. Versioning follows mixd's four-segment
 `major.minor.feature.revision` scheme (`.claude/rules/version-management.md`), not strict
 SemVer. Format inspired by [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [0.10.3.4] — 2026-08-16
+
+**Deploys stop taking twelve minutes, and a failed import step stops hiding why it failed.** Two unrelated defects found from production on the same evening — one that made every deploy end in a forced kill, and one that turned a single database error into sixty-odd unreadable ones.
+
+- **The server never actually shut down when asked.** It logged that it was shutting down gracefully, then kept serving until the platform killed it five minutes later — twice per deploy. The app's own signal handler had been silently displacing the web server's, and the web server's was the only thing that ends the process. Everything that runs on a clean shutdown — closing connections, recording an interrupted import honestly — had been skipped on every deploy for as long as this existed.
+- **A live progress stream could hold shutdown open indefinitely.** The stream ended only when told to by the shutdown routine that was itself waiting for the stream to end. Streams now notice the shutdown directly, and the wait is bounded rather than unlimited.
+- **A failing import step no longer poisons the rest of its own transaction.** When bulk-importing a playlist's new tracks failed, the retry-one-at-a-time fallback couldn't succeed — the database had already discarded the transaction — so each retry failed for a reason that had nothing to do with the track it named, and the one error that explained anything was pushed out of the log by its own aftermath. Each attempt is now isolated so the retry genuinely recovers, and the first failure is logged with its full traceback.
+- Production was running two machines where the configuration calls for one, which splits in-memory state across them and doubled the deploy stall; scaled back to one.
+
+Known gap: the original error behind the import failure is still unidentified — it was destroyed by the logging defect above before it could be read. The next occurrence will name itself.
+
+→ [details](docs/backlog/v0.10.x.md#post-deploy-revisions)
+
 ## [0.10.3.3] — 2026-08-15
 
 **A song your library already knows keeps its place in the playlist you just imported.** When an import recognized a track as one you already had — the fix that stopped remasters becoming second copies — it handed back the track without the id the import was actually about. Every position in that playlist was then recorded as unresolved, and a liked track imported the same way lost the date you liked it. Three defects, all found by reviewing the previous two releases rather than by hitting them in prod.

@@ -207,6 +207,17 @@ class ConnectorPlaylistProcessingService:
         Bulk-looks up existing tracks, then ingests only the truly-new ones
         (falling back to per-track retry on bulk failure, so one bad row doesn't
         drop the batch). Returns the connector-track-id → domain ``Track`` map.
+
+        Every tolerated ingest — the bulk attempt and each per-track retry —
+        runs inside ``uow.savepoint()``. A continue-on-error loop *must*: a
+        statement that raises leaves PostgreSQL's transaction aborted, so
+        without a savepoint to roll back to, the retry loop below issues 2N
+        more statements that can only fail with ``InFailedSqlTransaction``,
+        and the first error — the only one that explains anything — is buried
+        under them. That is the v0.10.2.2 cascade, which fixed the inward
+        resolvers' item loops and left this one uncovered; it surfaced as a
+        workflow source node dying on ``SAVEPOINT sa_savepoint_67`` with the
+        real cause long since rotated out of the log.
         """
         connector_repo = uow.get_connector_repository()
 
@@ -238,10 +249,42 @@ class ConnectorPlaylistProcessingService:
         if new_connector_tracks:
             logger.info(f"Creating {len(new_connector_tracks)} new tracks in database")
             try:
-                newly_created_tracks = await connector_repo.ingest_external_tracks_bulk(
-                    connector_name, new_connector_tracks, user_id=user_id
+                async with uow.savepoint():
+                    newly_created_tracks = (
+                        await connector_repo.ingest_external_tracks_bulk(
+                            connector_name, new_connector_tracks, user_id=user_id
+                        )
+                    )
+            except Exception:
+                # ERROR with the traceback, not a WARNING carrying ``str(e)``:
+                # this is the *first* failure and the only one that names a
+                # cause. Everything after it is consequence, and a one-line
+                # warning is what made the original invisible in the deployed
+                # logs.
+                logger.error(
+                    f"Bulk ingest of {len(new_connector_tracks)} {connector_name} "
+                    f"tracks failed — retrying them one at a time",
+                    connector=connector_name,
+                    track_count=len(new_connector_tracks),
+                    exc_info=True,
                 )
-
+                failed = await self._ingest_one_at_a_time(
+                    connector_repo,
+                    connector_name,
+                    new_connector_tracks,
+                    track_id_to_domain_track,
+                    uow,
+                    user_id=user_id,
+                )
+                if failed:
+                    logger.error(
+                        f"{failed} of {len(new_connector_tracks)} {connector_name} "
+                        f"tracks could not be ingested individually either; their "
+                        f"playlist positions will be recorded UNRESOLVED",
+                        connector=connector_name,
+                        failed=failed,
+                    )
+            else:
                 # Add to mapping
                 for track in newly_created_tracks:
                     connector_track_id = track.connector_track_identifiers.get(
@@ -249,30 +292,6 @@ class ConnectorPlaylistProcessingService:
                     )
                     if connector_track_id:
                         track_id_to_domain_track[connector_track_id] = track
-            except Exception as e:
-                logger.warning(
-                    f"Failed to ingest {len(new_connector_tracks)} tracks, attempting individual retry",
-                    error=str(e),
-                    connector=connector_name,
-                )
-
-                # Retry individual tracks to handle partial conflicts
-                for connector_track in new_connector_tracks:
-                    try:
-                        await self._ingest_single_track(
-                            connector_repo,
-                            connector_name,
-                            connector_track,
-                            track_id_to_domain_track,
-                            user_id=user_id,
-                        )
-                    except Exception as individual_error:
-                        logger.warning(
-                            f"Failed to ingest individual track {connector_track.connector_track_identifier}",
-                            error=str(individual_error),
-                            track_id=connector_track.connector_track_identifier,
-                        )
-                        # Continue processing other tracks
 
         logger.info(
             f"Track processing complete: {len(track_id_to_domain_track)} unique tracks resolved",
@@ -351,6 +370,47 @@ class ConnectorPlaylistProcessingService:
             title=source.title if source is not None else None,
             artists=tuple(a.name for a in source.artists) if source is not None else (),
         )
+
+    async def _ingest_one_at_a_time(
+        self,
+        connector_repo: ConnectorRepositoryProtocol,
+        connector_name: str,
+        connector_tracks: list[ConnectorTrack],
+        track_id_to_domain_track: dict[str, Track],
+        uow: UnitOfWorkProtocol,
+        *,
+        user_id: str,
+    ) -> int:
+        """Retry each track in its own savepoint; return how many still failed.
+
+        The savepoint is what makes "continue" meaningful. Without it the
+        first failing track poisons the transaction and every later iteration
+        fails for a reason that has nothing to do with the track it names —
+        so the loop reports N failures, all but one of them fiction, and the
+        caller carries on to ``save_playlist`` on a transaction that can no
+        longer execute anything.
+        """
+        failed = 0
+        for connector_track in connector_tracks:
+            try:
+                async with uow.savepoint():
+                    await self._ingest_single_track(
+                        connector_repo,
+                        connector_name,
+                        connector_track,
+                        track_id_to_domain_track,
+                        user_id=user_id,
+                    )
+            except Exception as individual_error:
+                failed += 1
+                logger.warning(
+                    f"Failed to ingest individual track {connector_track.connector_track_identifier}",
+                    error=str(individual_error),
+                    track_id=connector_track.connector_track_identifier,
+                )
+                # Continue processing other tracks — the savepoint above has
+                # already rolled this one's partial writes back.
+        return failed
 
     async def _ingest_single_track(
         self,

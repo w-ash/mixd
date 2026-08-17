@@ -17,6 +17,7 @@ from src.application.use_cases.get_operation_snapshot import (
     GetOperationSnapshotCommand,
     GetOperationSnapshotUseCase,
 )
+from src.application.workflows.engine.executor import shutdown_requested
 from src.config import get_logger
 from src.domain.entities.workflow import WorkflowRun
 from src.domain.exceptions import NotFoundError
@@ -76,6 +77,23 @@ async def stream_operation_progress(
             last_seq = int(last_event_id.removeprefix("evt_"))
 
     while True:
+        # Process-wide flag, set by the shutdown handler. Sits with the
+        # disconnect check — both are per-iteration liveness, and both must be
+        # reached even while events are arriving faster than the keepalive
+        # timeout (a paged import easily does that). Leaving breaks a real
+        # deadlock: uvicorn drains in-flight requests *before* running lifespan
+        # shutdown, and the only other way out of this loop is a sentinel that
+        # the lifespan pushes — so a dashboard tab holding this stream open would
+        # keep the drain waiting on a queue nobody can fill. FastAPI's native
+        # EventSourceResponse is a bare StreamingResponse marker with no shutdown
+        # handling of its own, so this poll is the whole mechanism.
+        if shutdown_requested():
+            logger.info(
+                "Closing SSE stream — shutdown requested",
+                operation_id=operation_id,
+            )
+            break
+
         if await request.is_disconnected():
             logger.debug("SSE client disconnected", operation_id=operation_id)
             break

@@ -22,6 +22,7 @@ from src.application.chat.events import (
     ToolStartEvent,
 )
 from src.application.tools.registry import TOOLS
+from src.application.workflows.engine.executor import shutdown_requested
 from src.config import get_logger
 from src.domain.entities.shared import JsonDict
 from src.domain.exceptions import (
@@ -163,6 +164,19 @@ def stream_chat_response(
 
     async def _drain() -> AsyncGenerator[str]:
         while True:
+            # Checked every iteration, not only after a keepalive timeout: an
+            # answer streaming steadily never idles long enough to time out, so a
+            # timeout-branch check would be reached least often exactly when the
+            # stream is busiest. Process-wide flag, set by the shutdown handler.
+            # The chat task is not in the background-task registry, so nothing
+            # else stops it; without this the drain holds uvicorn's pre-lifespan
+            # wait open. Returning with no terminal frame is deliberate — the
+            # client reports STREAM_ENDED, which is the truth, where a `done`
+            # frame would claim a completed answer. The generator's `finally`
+            # cancels the task exactly as on disconnect.
+            if shutdown_requested():
+                logger.info("chat_stream_closed_for_shutdown")
+                return
             try:
                 item = await asyncio.wait_for(
                     queue.get(), timeout=_KEEPALIVE_INTERVAL_SECONDS

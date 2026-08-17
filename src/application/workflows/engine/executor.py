@@ -9,7 +9,7 @@ music platforms, with progress tracking, fault tolerance, and per-run database
 session management for long-running playlist operations.
 
 The engine is deliberately Prefect-free: parallelism, run-state, retries
-(``tenacity`` in connectors), cancellation (SIGTERM ``_shutdown_requested``), and
+(``tenacity`` in connectors), cancellation (SIGTERM/SIGINT ``_shutdown_requested``), and
 results are all owned here and in ``workflow_runs``.
 """
 
@@ -18,7 +18,7 @@ from collections.abc import Callable, Coroutine, Mapping
 import datetime
 import signal
 import time
-from typing import cast
+from typing import Final, cast
 from uuid import UUID
 
 import attrs
@@ -134,33 +134,142 @@ class WorkflowCancelledError(Exception):
 # Graceful shutdown: set between nodes so the current node completes
 _shutdown_requested = False
 
+# The signals that ask this process to stop. Exactly uvicorn's `HANDLED_SIGNALS`:
+# covering only SIGTERM left a SIGINT (Fly autostop, `docker stop` on some
+# runtimes, a foreground Ctrl-C) exiting the server with this flag still False,
+# so no SSE stream and no workflow run ever learned it was going away.
+_SHUTDOWN_SIGNALS: Final = (signal.SIGTERM, signal.SIGINT)
 
-def _request_shutdown() -> None:
-    """Signal handler callback — sets the shutdown flag for the orchestration loop."""
+# Per-signal handlers our own install displaced, kept so the callback can chain
+# to them (see install_shutdown_handler). Values are typed `object` because
+# `signal.getsignal` can hand back a callable, `SIG_DFL`/`SIG_IGN`, or None —
+# only the callable case is chainable.
+_previous_handlers: dict[int, object] = {}
+
+# asyncio's own C-level trampoline, learned from `getsignal` at the first
+# successful install. Recognising it is what lets a re-install (a fresh event
+# loop in the same process) re-register and refresh the chain without capturing
+# *ourselves* as the predecessor.
+_asyncio_trampoline: object = None
+
+# Run when shutdown is first requested. The hook exists so the interface layer
+# can react to a signal it does not own the handler for — see
+# `add_shutdown_callback`.
+_shutdown_callbacks: list[Callable[[], None]] = []
+
+
+def add_shutdown_callback(callback: Callable[[], None]) -> None:
+    """Register a callback to run when a shutdown signal arrives.
+
+    Runs inside the signal callback, so it must not block or await — set a flag,
+    nothing more. It must also be idempotent: a second signal (an impatient
+    operator, or Fly following its kill_timeout with an unconditional SIGTERM)
+    runs the callbacks again. A raising callback is logged and skipped; it never
+    stops the remaining callbacks or the handler chain.
+
+    This exists because displacing a signal handler has consequences beyond this
+    module. The API's lifespan uses it to tell sse-starlette (whose own shutdown
+    detection our install defeats — see ``install_shutdown_handler``) that the
+    server is going away.
+    """
+    _shutdown_callbacks.append(callback)
+
+
+def _request_shutdown(signum: int) -> None:
+    """Signal handler callback — sets the flag, notifies, then chains onward.
+
+    Chaining is what actually stops the server: under uvicorn our own handler is
+    installed *over* uvicorn's, so this callback is the only remaining caller of
+    it (see install_shutdown_handler). Uvicorn's ``handle_exit`` only appends to a
+    list and flips flags, so calling it inline from an asyncio signal callback is
+    safe. Under the CLI the predecessor is ``asyncio.Runner``'s own SIGINT
+    handler (which cancels the main task) or a non-callable ``SIG_DFL``, in which
+    case the chain is skipped.
+
+    ``signum`` is bound per signal at install time, so the predecessor is invoked
+    with the signal it was registered for — a hardcoded SIGTERM would have told
+    uvicorn the wrong story on SIGINT.
+    """
     global _shutdown_requested
     _shutdown_requested = True
     logger.warning(
-        "Graceful shutdown requested — will stop after current node completes"
+        "Graceful shutdown requested — will stop after current node completes",
+        signal=signal.Signals(signum).name,
     )
+    for callback in _shutdown_callbacks:
+        try:
+            callback()
+        except Exception as e:
+            # A misbehaving observer must not cost us the chain below, which is
+            # the only thing that still ends uvicorn's serve loop.
+            logger.error("Shutdown callback failed", error=str(e), exc_info=e)
+    previous = _previous_handlers.get(signum)
+    if callable(previous):
+        previous(signum, None)
 
 
 def install_shutdown_handler() -> bool:
-    """Install the process-wide SIGTERM handler once.
+    """Install the process-wide shutdown handlers, chaining to their predecessors.
 
-    Call once at process start (API lifespan, CLI entrypoint). Returns False on
+    Call once at process start (API lifespan, CLI entrypoint); calling it again
+    on a *new* event loop re-registers correctly. Returns False on
     platforms/threads where signal handlers are unavailable (Windows, non-main
     thread). Replaces the former per-run register/reset: the per-run reset of the
     module-global flag let a starting run clobber an in-flight run's shutdown
     signal, and the per-run remove tore the handler down for still-running
     siblings.
+
+    The chain exists because uvicorn and asyncio install signal handlers through
+    two different mechanisms that do not stack. ``Server.capture_signals()`` uses
+    ``signal.signal(sig, self.handle_exit)``, and ``handle_exit`` setting
+    ``should_exit`` is the *only* thing that ends the serve loop; it runs before
+    lifespan startup, so this call lands second and ``loop.add_signal_handler``
+    — which registers asyncio's own C-level handler for the signal — silently
+    replaces it. Without re-invoking what we displaced, SIGTERM logged "graceful
+    shutdown requested" and the API then served on until Fly.io's 300s
+    ``kill_timeout`` expired and SIGKILLed it, skipping lifespan shutdown (adapter
+    close, shielded audit writes) entirely.
+
+    Displacing uvicorn's handler has a second, quieter cost: libraries that
+    detect shutdown by introspecting ``signal.getsignal(SIGTERM).__self__`` for
+    the uvicorn ``Server`` (sse-starlette does exactly this) find asyncio's
+    trampoline instead and never fire. ``add_shutdown_callback`` is how those
+    libraries get told; the API lifespan registers the sse-starlette bridge.
+
+    Order matters: ``getsignal`` must be read *before* ``add_signal_handler``,
+    which afterwards reports asyncio's trampoline instead of the predecessor.
+    Recognising that trampoline — rather than the former install-once boolean —
+    is what makes a re-install safe: the boolean was process-global while the
+    registration is *loop*-global, so a second ``asyncio.run`` skipped the
+    install and left the process with no handler at all.
     """
+    global _asyncio_trampoline
     loop = asyncio.get_running_loop()
-    try:
-        loop.add_signal_handler(signal.SIGTERM, _request_shutdown)
-    except NotImplementedError, OSError:
-        return False
-    else:
-        return True
+    installed = False
+    for sig in _SHUTDOWN_SIGNALS:
+        previous = signal.getsignal(sig)
+        try:
+            loop.add_signal_handler(sig, _request_shutdown, sig)
+        except NotImplementedError, OSError:
+            continue
+        if _asyncio_trampoline is None:
+            _asyncio_trampoline = signal.getsignal(sig)
+        if previous is not _asyncio_trampoline:
+            _previous_handlers[sig] = previous
+        installed = True
+    return installed
+
+
+def shutdown_requested() -> bool:
+    """Whether a shutdown signal has asked this process to stop.
+
+    Process-wide and one-way: set by ``_request_shutdown`` and never cleared, so
+    callers outside the engine can drop out of their own long-lived loops instead
+    of holding the server open. The SSE endpoints use it — a stream that only
+    ends on client disconnect or a lifespan-pushed sentinel would otherwise
+    deadlock uvicorn's drain, which runs *before* lifespan shutdown.
+    """
+    return _shutdown_requested
 
 
 # --- Node timeout ---
