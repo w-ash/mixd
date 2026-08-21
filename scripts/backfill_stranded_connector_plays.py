@@ -20,6 +20,16 @@ former ``(user_id, service, played_at)`` join against ``track_plays`` compares a
 ledger timestamp against a canonical one the projection *derives* from the whole
 observation group, so it reported healthy rows as stranded.
 
+**The anti-join alone is not sufficient, and was never the whole test.** A
+deliberately-excluded observation also has no membership edge: a skip under the
+listen threshold, or a private-session play, is *supposed* to have no canonical
+play. Before v0.10.3 those were indistinguishable from failures — 80,209 rows in
+the reference corpus, which is the finding that added ``exclusion_reason``. Now
+they are distinguishable, so the query says so: rows carrying a *deliberate*
+exclusion reason are never candidates. Without that predicate this script
+offered to re-resolve 80,243 rows where 51 were genuinely stranded, and
+``--apply`` would have projected ~80k skipped plays into canonical history.
+
 Re-upload of the source file is the other recovery route and needs no script: Phase 1
 forwards every parsed play, not only newly-inserted ones, and the resolution
 write-back matches on the ledger natural key. Prefer this script when the source file
@@ -49,13 +59,15 @@ Usage:
 import asyncio
 from collections import defaultdict
 from datetime import UTC, datetime
+from typing import Final
 
-from sqlalchemy import select
+from sqlalchemy import or_, select
 import typer
 
 from src.config import get_logger, setup_script_logger
 from src.config.constants import BusinessLimits
 from src.domain.entities import ConnectorTrackPlay
+from src.domain.entities.operations import PLAY_EXCLUSION_REASONS
 from src.domain.entities.progress import NullProgressEmitter
 from src.infrastructure.persistence.database.db_connection import get_session
 from src.infrastructure.persistence.database.db_models import (
@@ -69,11 +81,30 @@ from src.infrastructure.persistence.database.user_context import (
 
 logger = get_logger(__name__)
 
+# The one ``PlayExclusionReason`` that means "we could not identify the track",
+# as opposed to "we identified it and left it out on purpose". Asserted against
+# the domain vocabulary so a rename there fails loudly here instead of silently
+# widening this script's candidate set back to every skipped play.
+UNRESOLVED_EXCLUSION: Final = "unresolved"
+if UNRESOLVED_EXCLUSION not in PLAY_EXCLUSION_REASONS:
+    raise RuntimeError(
+        f"{UNRESOLVED_EXCLUSION!r} is no longer a PlayExclusionReason — this "
+        f"script's candidate filter is out of date and would re-resolve rows "
+        f"that were excluded on purpose"
+    )
 
-async def _find_stranded(since: datetime | None) -> list[DBConnectorPlay]:
-    """Return connector_plays with no ``play_sources`` membership edge.
 
-    Scoped to the caller's ``user_context`` by RLS, not by a WHERE clause.
+async def _find_stranded(since: datetime | None, user: str) -> list[DBConnectorPlay]:
+    """Return ``user``'s connector_plays with no ``play_sources`` membership edge.
+
+    The tenant predicate is explicit and load-bearing. This function used to
+    rely on ``user_context`` + RLS alone — but per PDR-002 the Neon role owns
+    the tables and carries ``BYPASSRLS``, so in production the policies do not
+    run and an unscoped scan sees every tenant. On 2026-08-20 that swept 34
+    rows belonging to ``default`` into a run for another user and re-resolved
+    them onto *that* user's tracks, re-creating the cross-tenant ledger state
+    the mistenancy repair had just removed. RLS is defence in depth here, never
+    the isolation itself.
     """
     stmt = (
         select(DBConnectorPlay)
@@ -81,7 +112,19 @@ async def _find_stranded(since: datetime | None) -> list[DBConnectorPlay]:
             DBPlaySource,
             DBPlaySource.connector_play_id == DBConnectorPlay.id,
         )
-        .where(DBPlaySource.id.is_(None))
+        .where(
+            DBConnectorPlay.user_id == user,
+            DBPlaySource.id.is_(None),
+            # A deliberate exclusion is not a stranding: those rows have no
+            # canonical play by design. ``unresolved`` stays a candidate — the
+            # resolver tried and failed, and a later run (relink handling, a
+            # restored id) can still succeed. NULL stays a candidate too: no
+            # verdict was ever recorded, which is the killed-import shape.
+            or_(
+                DBConnectorPlay.exclusion_reason.is_(None),
+                DBConnectorPlay.exclusion_reason == UNRESOLVED_EXCLUSION,
+            ),
+        )
     )
     if since is not None:
         stmt = stmt.where(DBConnectorPlay.played_at >= since)
@@ -139,7 +182,7 @@ async def _resolve_group(user_id: str, plays: list[ConnectorTrackPlay]) -> int:
 
 async def _run(*, apply: bool, since: datetime | None, user: str) -> None:
     setup_script_logger("backfill_stranded_connector_plays")
-    rows = await _find_stranded(since)
+    rows = await _find_stranded(since, user)
     plays = [_to_domain(row) for row in rows]
 
     by_service: dict[str, int] = defaultdict(int)
