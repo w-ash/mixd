@@ -14,7 +14,7 @@
 
 | Option | Cost | Notes |
 |---|---|---|
-| Apply for extended quota mode | Application effort + review wait; needs a real app description | Removes the restriction class entirely; also lifts the search-limit cut and user cap |
+| Apply for extended quota mode | Application effort + review wait; needs a real app description | **Closed 2026-08-20** — see ledger: extended quota requires an organization with ≥250k MAU |
 | Accept per-id fallback | Zero code (batch helper already degrades) | Import throughput reverts; fine for incremental imports, painful for any future full re-import/rebuild-with-refetch |
 | Cache-first hardening | Ledger + connector_tracks already make re-imports API-free | Full imports are one-time; after the first, the API dependency is mostly dead IDs and new releases |
 
@@ -25,6 +25,9 @@
 | 2026-08-08 | [S] | Live authenticated probe (this app's prod token) | `GET /v1/tracks?ids=` returns 200 with correct positional payload | Direct measurement; today's truth only |
 | 2026-08-08 | [S] | developer.spotify.com Feb-2026 migration guide | Dev-mode apps: batch fetches removed, search limit 50→10, `/me/library` consolidation; existing-app enforcement postponed 2026-03-09 | Official; postponement has no announced end date |
 | 2026-08-08 | [D] | v0.10.2.4 measurements | Batch path ≈ 920 calls vs ~46k per-id for the 200k set; per-id at 12/s ≈ 65 min of pure probe time | The size of what's at stake |
+| 2026-08-20 | [S] | developer.spotify.com changelog, 2026-07-23 | 25 Client IDs per account restored, with one API quota pooled across all of a developer account's apps — a second Client ID adds no capacity, so per-tenant app registration is not a quota mitigation | Official; `re-verify` |
+| 2026-08-20 | [S] | developer.spotify.com blog 2026-06-18 (refresh-token expiration); enforced for existing apps 2026-07-20 | Refresh tokens expire 6 months after the original authorization; refreshing does not extend the window; expiry surfaces as 400 `invalid_grant` | Official; `re-verify` |
+| 2026-08-20 | [S] | developer.spotify.com blog 2025-04-15 (extended-access criteria) | Extended quota is granted only to organizations with ≥250k MAU — the "apply for extended quota" option in this PDR is closed for mixd | Official; criteria could change — `re-verify` |
 
 All Spotify program-terms rows are perishable — `re-verify` on read.
 
@@ -41,3 +44,4 @@ All Spotify program-terms rows are perishable — `re-verify` on read.
 
 - 2026-08-08 — Opened during v0.10.2.4 (batched-lookup fast path shipped; live probe confirmed availability; audit flagged the postponement as the only architectural threat to batch-first).
 - 2026-08-08 — v0.10.2.8: trigger (b) instrumentation is live — the batch client (`spotify/client.py`, `_get_tracks_batch_impl`) now logs a distinct error naming this PDR on any 403 from `GET /tracks?ids=`, so the trigger is observable in prod logs rather than folded into the anonymous `unanswered` bucket.
+- 2026-08-20 — Evidence appended from the 2026-08 provider research pass; the extended-quota option marked closed (orgs ≥250k MAU); v0.11.2 schedules the QUOTA_EXCEEDED 429 discriminator, sharpening trigger (b)'s observability.
