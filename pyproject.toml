@@ -18,7 +18,7 @@ dependencies = [
     # since 2024). Starlette's TestClient already prefers it and mcp v2 requires it,
     # so this is the line the ecosystem settled on. Plain httpx stays in the lock
     # only as an anthropic transitive; nothing in src/ or tests/ imports it.
-    "httpx2>=2.9.1,<3",
+    "httpx2>=2.10.0,<3",
     "structlog>=26.1.0",
     "python-dotenv>=1.2.2",
     "rich>=15.0.0",
