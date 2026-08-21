@@ -6,6 +6,17 @@ linked backlog version file. Versioning follows mixd's four-segment
 `major.minor.feature.revision` scheme (`.claude/rules/version-management.md`), not strict
 SemVer. Format inspired by [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [0.10.3.6] — 2026-08-20
+
+**The cleanup this cycle has been building toward is done, and the tools that did it no longer trust guards they never actually had.** Your listening history has been re-derived from scratch and came back to the row: 132,273 plays unchanged, three merged, three orphans removed, nothing diverged. What made this release necessary is that running the repair surfaced two bugs in the repair scripts themselves.
+
+- **A recovery script could not tell "we failed to identify this" from "we skipped this on purpose".** It found stranded plays by looking for ones with no place in your history — which was exact when it was written, and quietly wrong once every skipped play started recording *why* it was skipped. Pointed at the real library it offered to recover 80,243 plays when 39 were actually stranded; running it would have inserted about eighty thousand one-second skips into your history as real listens. It now asks the right question, and fails loudly if that question ever changes shape again.
+- **The same script relied on the database to keep one account's data away from another, which in production it does not.** A run for one account reached into another's rows and re-attached 34 of them to the wrong library — undoing part of the cleanup that had just fixed exactly that. The rule is now written into the query instead of assumed, the 34 were reset, and there are no cross-account references left anywhere.
+- Play-history cleanup completed end to end: leftover tracks from the old mistenanted import purged, timestamps corrected, and 12 previously unidentifiable plays recovered. 39 remain unidentifiable — Spotify returns no title at all for those tracks, so nothing automatic can fix them.
+- Also in: node execution detail columns aligned, provider-integration research, and planning for the next milestone.
+
+→ [details](docs/backlog/v0.10.x.md#post-deploy-revisions)
+
 ## [0.10.3.5] — 2026-08-16
 
 **A playlist import no longer fails because your play history was importing at the same moment.** The previous release's unidentified error has a name: two imports colliding on the same track, one holding it mid-write while the other waited until the database gave up. The wait was being answered in the worst possible way — retrying track by track, each retry queuing on the same held track, burning minutes and importing nothing.
