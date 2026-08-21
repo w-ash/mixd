@@ -59,6 +59,11 @@ class TrackMergeService:
         # is a mapping that changed for no reason anyone can reconstruct.
         await self._record_conflations(edges, uow)
 
+        # The moved plays now count toward the winner; the loser is deleted.
+        _ = await uow.get_plays_repository().recompute_track_play_aggregates(
+            [winner_id], user_id=winner_track.user_id
+        )
+
         # Hard delete the loser track
         await track_repo.hard_delete_track(loser_id)
 

@@ -5,8 +5,10 @@ Split from the former monolithic ``interfaces.py``.
 
 from collections.abc import Awaitable, Sequence
 from datetime import datetime
-from typing import TYPE_CHECKING, Literal, Protocol, TypedDict
+from typing import TYPE_CHECKING, Final, Literal, Protocol, TypedDict
 from uuid import UUID
+
+from attrs import define
 
 from src.domain.entities import (
     Track,
@@ -21,6 +23,47 @@ from src.domain.repositories.resolution import SupersessionEdge
 
 if TYPE_CHECKING:
     from src.domain.repositories.uow import UnitOfWorkProtocol
+
+
+@define(frozen=True, slots=True)
+class PlayFilters:
+    """Play-derived narrowing for a track listing; all bounds are AND-ed.
+
+    The contradictory combinations are rejected here rather than reaching the
+    database as a WHERE clause no row can satisfy — a caller asking for both
+    "never played" and "10+ plays" has a bug, and an empty page hides it.
+    """
+
+    min_plays: int | None = None
+    played_within: int | None = None
+    not_played_within: int | None = None
+    never_played: bool = False
+
+    def __attrs_post_init__(self) -> None:
+        if self.never_played and (
+            self.min_plays is not None
+            or self.played_within is not None
+            or self.not_played_within is not None
+        ):
+            raise ValueError(
+                "never_played cannot combine with another play filter — a track "
+                "with zero plays has no play count or last-played date to match"
+            )
+        # A band like "played within 2 years but not within a week" is valid;
+        # the reverse asks for a track played recently and not recently.
+        if (
+            self.played_within is not None
+            and self.not_played_within is not None
+            and self.not_played_within >= self.played_within
+        ):
+            raise ValueError(
+                f"not_played_within ({self.not_played_within}d) must be shorter "
+                f"than played_within ({self.played_within}d) to describe a range"
+            )
+
+
+#: Shared "no play narrowing" default — frozen, so one instance is safe.
+NO_PLAY_FILTERS: Final = PlayFilters()
 
 
 class TrackFacets(TypedDict):
@@ -172,7 +215,8 @@ class TrackRepositoryProtocol(Protocol):
         tags: Sequence[str] | None = None,
         tag_mode: Literal["and", "or"] = "and",
         namespace: str | None = None,
-        sort_by: str = "title_asc",
+        play_filters: PlayFilters = NO_PLAY_FILTERS,
+        sort_by: str = "last_played_desc",
         limit: int = 50,
         offset: int = 0,
         after_value: SortKey | None = None,

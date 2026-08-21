@@ -242,3 +242,39 @@ class TestListTracksFacets:
         body = response.json()
         assert body["total"] == 2
         assert body["facets"]["preference"] == {"unrated": 2}
+
+
+class TestListTracksPlayFilters:
+    async def test_min_plays_narrows_the_listing(
+        self, client: httpx2.AsyncClient
+    ) -> None:
+        await _create_track(client, "A")
+
+        response = await client.get("/api/v1/tracks?min_plays=1")
+
+        assert response.status_code == 200
+        # No plays imported, so a play-count floor excludes everything.
+        assert response.json()["total"] == 0
+
+    async def test_never_played_with_min_plays_is_a_400_not_an_empty_page(
+        self, client: httpx2.AsyncClient
+    ) -> None:
+        """The pair means ``play_count >= 10 AND play_count = 0``. Answering
+        with an empty library reads as a fact about the user's data rather
+        than a contradiction in the request."""
+        await _create_track(client, "A")
+
+        response = await client.get("/api/v1/tracks?min_plays=10&never_played=true")
+
+        assert response.status_code == 400
+        assert response.json()["error"]["code"] == "VALIDATION_ERROR"
+
+    async def test_contradictory_recency_bounds_are_a_400(
+        self, client: httpx2.AsyncClient
+    ) -> None:
+        response = await client.get(
+            "/api/v1/tracks?played_within=7&not_played_within=730"
+        )
+
+        assert response.status_code == 400
+        assert response.json()["error"]["code"] == "VALIDATION_ERROR"

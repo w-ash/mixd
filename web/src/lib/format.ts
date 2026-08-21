@@ -39,6 +39,14 @@ export function formatDateTime(
   });
 }
 
+/** Format a time of day as "14:02" (locale clock). */
+export function formatTimeOfDay(dateStr: string): string {
+  return new Date(dateStr).toLocaleTimeString(undefined, {
+    hour: "2-digit",
+    minute: "2-digit",
+  });
+}
+
 /** Decode HTML entities (e.g. `&#x27;` → `'`). Spotify returns HTML-encoded descriptions. */
 const HTML_ENTITIES: Record<string, string> = {
   "&amp;": "&",
@@ -53,6 +61,14 @@ const ENTITY_RE = /&(?:amp|lt|gt|quot|#39|#x27|#x2F);/g;
 
 export function decodeHtmlEntities(text: string): string {
   return text.replace(ENTITY_RE, (match) => HTML_ENTITIES[match] ?? match);
+}
+
+/**
+ * The browser's IANA timezone. Falls back to UTC so an absent or exotic
+ * `Intl` value degrades to a valid zone rather than an empty string.
+ */
+export function browserTimezone(): string {
+  return Intl.DateTimeFormat().resolvedOptions().timeZone || "UTC";
 }
 
 /** Format a number with locale-aware thousand separators (e.g. 1,234). */

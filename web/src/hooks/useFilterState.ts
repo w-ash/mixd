@@ -24,16 +24,28 @@ interface UseFilterStateOptions {
 export function useFilterState({ onMutate }: UseFilterStateOptions = {}) {
   const [searchParams, setSearchParams] = useSearchParams();
 
-  const setFilter = useCallback(
-    (key: string, value: string | null) => {
+  /**
+   * Write several params in ONE navigation.
+   *
+   * `setSearchParams` does not queue the way `setState` does: react-router
+   * builds the updater's input from the `searchParams` captured at the
+   * current render and navigates immediately. Two back-to-back calls
+   * therefore both branch off the same base and the second silently
+   * discards the first. Anything touching more than one key must go
+   * through here rather than calling `setFilter` twice.
+   */
+  const setFilters = useCallback(
+    (updates: Record<string, string | null>) => {
       onMutate?.();
       setSearchParams(
         (prev) => {
           const next = new URLSearchParams(prev);
-          if (value === null || value === "") {
-            next.delete(key);
-          } else {
-            next.set(key, value);
+          for (const [key, value] of Object.entries(updates)) {
+            if (value === null || value === "") {
+              next.delete(key);
+            } else {
+              next.set(key, value);
+            }
           }
           next.delete("page");
           return next;
@@ -42,6 +54,11 @@ export function useFilterState({ onMutate }: UseFilterStateOptions = {}) {
       );
     },
     [setSearchParams, onMutate],
+  );
+
+  const setFilter = useCallback(
+    (key: string, value: string | null) => setFilters({ [key]: value }),
+    [setFilters],
   );
 
   const setMultiFilter = useCallback(
@@ -66,5 +83,5 @@ export function useFilterState({ onMutate }: UseFilterStateOptions = {}) {
     setSearchParams(() => new URLSearchParams(), { replace: true });
   }, [setSearchParams, onMutate]);
 
-  return { searchParams, setFilter, setMultiFilter, clearAll };
+  return { searchParams, setFilter, setFilters, setMultiFilter, clearAll };
 }

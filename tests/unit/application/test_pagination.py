@@ -10,6 +10,7 @@ from uuid import uuid7
 import pytest
 
 from src.application.pagination import (
+    TRACK_SORT_COLUMNS,
     PageCursor,
     cursor_sort_value_from_row,
     cursor_sort_value_to_query,
@@ -148,3 +149,27 @@ class TestCursorSortValueConversion:
     def test_none_passthrough(self) -> None:
         assert cursor_sort_value_from_row("title", None) is None
         assert cursor_sort_value_to_query("title", None) is None
+
+
+class TestSortRegistriesStayInSync:
+    """``TRACK_SORT_COLUMNS`` (application, for cursor encoding) and
+    ``TrackRepository._SORT_SPECS`` (infrastructure, for ORDER BY) hold the
+    same mapping and are kept in step by hand — the track repositories import
+    nothing from ``src.application``, and reversing that would invert the
+    dependency flow. So the duplication is deliberate; this test is what makes
+    it safe, turning a "keep these in sync" comment into a failing build."""
+
+    def test_the_two_registries_are_identical(self) -> None:
+        from src.infrastructure.persistence.repositories.track.core import (
+            TrackRepository,
+        )
+
+        assert TRACK_SORT_COLUMNS == TrackRepository._SORT_SPECS
+
+    def test_every_sort_key_resolves_to_a_known_column(self) -> None:
+        from src.infrastructure.persistence.repositories.track.core import (
+            TrackRepository,
+        )
+
+        for column, _direction in TRACK_SORT_COLUMNS.values():
+            assert column in TrackRepository._SORT_COLUMNS

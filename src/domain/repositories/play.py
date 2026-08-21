@@ -272,6 +272,58 @@ class PlaysRepositoryProtocol(Protocol):
         """Insert-or-repoint membership edges (arbiter: connector_play_id)."""
         ...
 
+    def list_play_events(
+        self,
+        *,
+        user_id: str,
+        before: tuple[datetime, UUID] | None = None,
+        since: datetime | None = None,
+        until: datetime | None = None,
+        service: str | None = None,
+        track_id: UUID | None = None,
+        limit: int = 50,
+    ) -> Awaitable[tuple[list[TrackPlay], tuple[datetime, UUID] | None]]:
+        """Page through play events newest-first, keyset on ``(played_at, id)``.
+
+        Returns ``(rows, next_page_key)``; ``next_page_key`` is None on the
+        last page and otherwise feeds the next call's ``before``.
+        """
+        ...
+
+    def get_play_histogram(
+        self,
+        *,
+        user_id: str,
+        bucket: Literal["day", "week", "month"],
+        since: datetime | None = None,
+        until: datetime | None = None,
+        service: str | None = None,
+        track_id: UUID | None = None,
+        tz: str = "UTC",
+    ) -> Awaitable[list[tuple[datetime, int]]]:
+        """Play counts per ``bucket``, ascending; bin starts are ``tz``-local."""
+        ...
+
+    def recompute_track_play_aggregates(
+        self,
+        track_ids: Sequence[UUID] | None,
+        *,
+        user_id: str,
+    ) -> Awaitable[int]:
+        """Re-derive the denormalized play aggregates on ``tracks``.
+
+        Sets ``play_count`` / ``first_played_at`` / ``last_played_at`` from a
+        fresh GROUP BY over ``track_plays``, zeroing tracks in scope that no
+        longer have plays. ``track_ids=None`` re-derives the user's whole
+        library (the rebuild path). This is the ONLY writer of those columns —
+        every code path that inserts, moves, or deletes canonical plays must
+        call it for the tracks it touched, in the same transaction.
+
+        Returns:
+            Number of track rows updated.
+        """
+        ...
+
 
 class ConnectorPlayRepositoryProtocol(Protocol):
     """Repository interface for connector play operations.

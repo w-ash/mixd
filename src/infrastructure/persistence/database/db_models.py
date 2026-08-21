@@ -192,6 +192,14 @@ class DBTrack(BaseEntity):
     # Denormalized artist text for search and sorting (e.g., "Artist1, Artist2")
     artists_text: Mapped[str | None] = mapped_column(String())
 
+    # Play aggregates, written only by ``recompute_track_play_aggregates`` —
+    # never by save_track/to_db, whose full-column write would clobber them.
+    play_count: Mapped[int] = mapped_column(
+        nullable=False, default=0, server_default="0"
+    )
+    last_played_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    first_played_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+
     # Relationships
     mappings: Mapped[list[DBTrackMapping]] = relationship(
         back_populates="track",
@@ -261,6 +269,14 @@ class DBTrack(BaseEntity):
             "title_stripped",
             "artist_normalized",
         ),
+        # DESC NULLS LAST matches the default library sort; a plain index
+        # scanned backward would put NULLs first.
+        Index(
+            "ix_tracks_user_last_played",
+            "user_id",
+            text("last_played_at DESC NULLS LAST"),
+        ),
+        Index("ix_tracks_user_play_count", "user_id", "play_count"),
     )
 
 

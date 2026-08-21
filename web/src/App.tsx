@@ -69,6 +69,9 @@ const ImportHistoryPage = lazy(() =>
 const Library = lazy(() =>
   import("./pages/Library").then((m) => ({ default: m.Library })),
 );
+const Plays = lazy(() =>
+  import("./pages/Plays").then((m) => ({ default: m.Plays })),
+);
 const TrackDetail = lazy(() =>
   import("./pages/TrackDetail").then((m) => ({ default: m.TrackDetail })),
 );
@@ -256,6 +259,14 @@ export function App() {
                       element={
                         <Suspense fallback={<PageSkeleton />}>
                           <Library />
+                        </Suspense>
+                      }
+                    />
+                    <Route
+                      path="library/plays"
+                      element={
+                        <Suspense fallback={<PageSkeleton />}>
+                          <Plays />
                         </Suspense>
                       }
                     />

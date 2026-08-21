@@ -4,12 +4,13 @@ Verifies search, filtering, sorting, and pagination with a real PostgreSQL datab
 Each test gets a fresh DB via the db_session fixture.
 """
 
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 from uuid import uuid4
 
 import pytest
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from src.domain.repositories.track import PlayFilters
 from src.infrastructure.persistence.database.db_models import (
     DBTrack,
     DBTrackLike,
@@ -24,6 +25,9 @@ async def _insert_track(
     artist: str = "Test Artist",
     album: str | None = None,
     duration_ms: int | None = None,
+    play_count: int = 0,
+    last_played_at: datetime | None = None,
+    first_played_at: datetime | None = None,
 ) -> int:
     """Insert a track directly into the DB and return its ID."""
     db_track = DBTrack(
@@ -32,6 +36,9 @@ async def _insert_track(
         artists_text=artist,
         album=album,
         duration_ms=duration_ms,
+        play_count=play_count,
+        last_played_at=last_played_at,
+        first_played_at=first_played_at,
         created_at=datetime.now(UTC),
         updated_at=datetime.now(UTC),
     )
@@ -508,3 +515,153 @@ class TestListTracksKeysetPagination:
         page = await track_repo.list_tracks(user_id="default", include_total=False)
         assert page["total"] is None
         assert len(page["tracks"]) == 2
+
+
+def _days_ago(days: int) -> datetime:
+    return datetime.now(UTC) - timedelta(days=days)
+
+
+class TestListTracksPlaySortsAndFilters:
+    """Play-aggregate sorts (NULLS LAST) and filters, incl. the NULL-tail keyset."""
+
+    async def _seed_played_library(self, db_session: AsyncSession) -> None:
+        """Three played tracks (recent → old) and two never played."""
+        await _insert_track(
+            db_session, "Recent", play_count=5, last_played_at=_days_ago(1)
+        )
+        await _insert_track(
+            db_session, "Middle", play_count=50, last_played_at=_days_ago(30)
+        )
+        await _insert_track(
+            db_session, "Old", play_count=12, last_played_at=_days_ago(800)
+        )
+        await _insert_track(db_session, "Never A")
+        await _insert_track(db_session, "Never B")
+
+    async def test_default_sort_is_last_played_desc_nulls_last(
+        self, db_session: AsyncSession
+    ) -> None:
+        await self._seed_played_library(db_session)
+        repo = get_unit_of_work(db_session).get_track_repository()
+
+        page = await repo.list_tracks(user_id="default")
+        titles = [t.title for t in page["tracks"]]
+        assert titles[:3] == ["Recent", "Middle", "Old"]
+        assert set(titles[3:]) == {"Never A", "Never B"}
+
+    async def test_plays_desc_orders_by_count(self, db_session: AsyncSession) -> None:
+        await self._seed_played_library(db_session)
+        repo = get_unit_of_work(db_session).get_track_repository()
+
+        page = await repo.list_tracks(user_id="default", sort_by="plays_desc")
+        assert [t.title for t in page["tracks"]][:3] == ["Middle", "Old", "Recent"]
+
+    async def test_keyset_walk_crosses_null_boundary_gapless(
+        self, db_session: AsyncSession
+    ) -> None:
+        """Paging by cursor visits every row exactly once, NULL tail included."""
+        await self._seed_played_library(db_session)
+        repo = get_unit_of_work(db_session).get_track_repository()
+
+        seen: list[str] = []
+        after_value: object = None
+        after_id = None
+        for _ in range(10):
+            page = await repo.list_tracks(
+                user_id="default",
+                sort_by="last_played_desc",
+                limit=2,
+                after_value=after_value,
+                after_id=after_id,
+                include_total=False,
+            )
+            seen.extend(t.title for t in page["tracks"])
+            if page["next_page_key"] is None:
+                break
+            after_value, after_id = page["next_page_key"]
+
+        assert len(seen) == len(set(seen)) == 5
+        assert seen[:3] == ["Recent", "Middle", "Old"]
+
+    async def test_keyset_inside_null_tail_advances(
+        self, db_session: AsyncSession
+    ) -> None:
+        """An all-NULL library still pages to completion (no page-1 loop)."""
+        for title in ("N1", "N2", "N3"):
+            await _insert_track(db_session, title)
+        repo = get_unit_of_work(db_session).get_track_repository()
+
+        seen: list[str] = []
+        after_value: object = None
+        after_id = None
+        for _ in range(6):
+            page = await repo.list_tracks(
+                user_id="default",
+                sort_by="last_played_desc",
+                limit=1,
+                after_value=after_value,
+                after_id=after_id,
+                include_total=False,
+            )
+            if not page["tracks"]:
+                break
+            seen.extend(t.title for t in page["tracks"])
+            if page["next_page_key"] is None:
+                break
+            after_value, after_id = page["next_page_key"]
+
+        assert sorted(seen) == ["N1", "N2", "N3"]
+
+    async def test_play_filters(self, db_session: AsyncSession) -> None:
+        await self._seed_played_library(db_session)
+        repo = get_unit_of_work(db_session).get_track_repository()
+
+        min_plays = await repo.list_tracks(
+            user_id="default", play_filters=PlayFilters(min_plays=10)
+        )
+        assert {t.title for t in min_plays["tracks"]} == {"Middle", "Old"}
+
+        never = await repo.list_tracks(
+            user_id="default", play_filters=PlayFilters(never_played=True)
+        )
+        assert {t.title for t in never["tracks"]} == {"Never A", "Never B"}
+
+        recent = await repo.list_tracks(
+            user_id="default", play_filters=PlayFilters(played_within=7)
+        )
+        assert {t.title for t in recent["tracks"]} == {"Recent"}
+
+        # Rediscovery bucket: has plays, none within 2 years; never-played excluded.
+        forgotten = await repo.list_tracks(
+            user_id="default", play_filters=PlayFilters(not_played_within=730)
+        )
+        assert {t.title for t in forgotten["tracks"]} == {"Old"}
+
+    async def test_play_filter_composes_with_liked(
+        self, db_session: AsyncSession
+    ) -> None:
+        await self._seed_played_library(db_session)
+        page = (
+            await get_unit_of_work(db_session)
+            .get_track_repository()
+            .list_tracks(user_id="default")
+        )
+        middle_id = next(t.id for t in page["tracks"] if t.title == "Middle")
+        await _like_track(db_session, middle_id)
+
+        repo = get_unit_of_work(db_session).get_track_repository()
+        result = await repo.list_tracks(
+            user_id="default", play_filters=PlayFilters(min_plays=10), liked=True
+        )
+        assert {t.title for t in result["tracks"]} == {"Middle"}
+
+    async def test_aggregate_fields_exposed_on_library_rows(
+        self, db_session: AsyncSession
+    ) -> None:
+        await self._seed_played_library(db_session)
+        repo = get_unit_of_work(db_session).get_track_repository()
+
+        page = await repo.list_tracks(user_id="default", sort_by="plays_desc")
+        top = page["tracks"][0]
+        assert top.play_count == 50
+        assert top.last_played_at is not None

@@ -26,7 +26,12 @@ from src.config.constants import BusinessLimits
 from src.domain.entities import Track
 from src.domain.entities.preference import PreferenceState
 from src.domain.entities.tag import normalize_tag
-from src.domain.repositories.track import TrackFacets, TrackListingPage
+from src.domain.repositories.track import (
+    NO_PLAY_FILTERS,
+    PlayFilters,
+    TrackFacets,
+    TrackListingPage,
+)
 from src.domain.repositories.uow import UnitOfWorkProtocol
 
 logger = get_logger(__name__)
@@ -56,7 +61,8 @@ class ListTracksCommand:
     tags: Sequence[str] | None = field(default=None, converter=_normalize_tags)
     tag_mode: Literal["and", "or"] = "and"
     namespace: str | None = None
-    sort_by: TrackSortBy = "title_asc"
+    play_filters: PlayFilters = NO_PLAY_FILTERS
+    sort_by: TrackSortBy = "last_played_desc"
     limit: int = field(default=BusinessLimits.DEFAULT_PAGE_SIZE)
     offset: int = 0
     cursor: str | None = None
@@ -138,6 +144,7 @@ class ListTracksUseCase:
                 tags=command.tags,
                 tag_mode=command.tag_mode,
                 namespace=command.namespace,
+                play_filters=command.play_filters,
                 sort_by=command.sort_by,
                 limit=command.limit,
                 offset=command.offset,

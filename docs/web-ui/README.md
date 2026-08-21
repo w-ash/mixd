@@ -30,6 +30,7 @@ Documentation for the Mixd web interface, organized by concern.
 | v0.7.0 -- Data Quality & New Connectors | Unmapped track filters in Library, manual mapping UI on Track Detail, DQ alerts on Dashboard |
 | v0.8.0 -- Scheduling & Workflow Features | Sub-flows, import/export, schedule picker on workflow detail |
 | v0.9.0 -- LLM-Assisted Workflows | Natural language workflow creation via chat interface |
+| v0.10.4 -- Play History Surfaces | Plays feed at `/library/plays` (chart navigator + virtualized feed), per-track history on Track Detail, Library sort/filter by play count and recency (default: most recently played) |
 
 ## How to Use These Docs
 

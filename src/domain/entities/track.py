@@ -65,6 +65,10 @@ class Track:
     # Extended properties
     id: UUID = field(factory=uuid7)
     version: int = 0  # 0 = unpersisted, ≥1 = persisted (set by repository on load/save)
+    # Play aggregates: read-only on load; persisting a Track never writes them.
+    play_count: int = 0
+    last_played_at: datetime | None = None
+    first_played_at: datetime | None = None
     connector_track_identifiers: dict[str, str] = field(factory=dict)
     connector_metadata: Mapping[str, Mapping[str, JsonValue]] = field(
         factory=dict[str, Mapping[str, JsonValue]]

@@ -1,5 +1,6 @@
 import { DismissibleChip } from "#/components/shared/DismissibleChip";
 import { TagChip } from "#/components/shared/TagChip";
+import { recencyLabel } from "#/lib/play-filters";
 import { cn } from "#/lib/utils";
 
 const PREFERENCE_LABELS: Record<string, string> = {
@@ -15,7 +16,21 @@ interface ActiveFilterChipsProps {
   connector: string | null;
   preference: string | null;
   tags: string[];
-  onClearFilter: (key: "q" | "liked" | "connector" | "preference") => void;
+  minPlays: string | null;
+  neverPlayed: boolean;
+  playedWithin: string | null;
+  notPlayedWithin: string | null;
+  onClearFilter: (
+    key:
+      | "q"
+      | "liked"
+      | "connector"
+      | "preference"
+      | "min_plays"
+      | "never_played"
+      | "played_within"
+      | "not_played_within",
+  ) => void;
   onRemoveTag: (tag: string) => void;
   onClearAll: () => void;
   className?: string;
@@ -34,6 +49,10 @@ export function ActiveFilterChips({
   connector,
   preference,
   tags,
+  minPlays,
+  neverPlayed,
+  playedWithin,
+  notPlayedWithin,
   onClearFilter,
   onRemoveTag,
   onClearAll,
@@ -79,6 +98,46 @@ export function ActiveFilterChips({
         key="connector"
         label={`Source: ${label}`}
         onRemove={() => onClearFilter("connector")}
+      />,
+    );
+  }
+
+  if (neverPlayed) {
+    chips.push(
+      <DismissibleChip
+        key="never-played"
+        label="Never played"
+        onRemove={() => onClearFilter("never_played")}
+      />,
+    );
+  }
+
+  if (minPlays) {
+    chips.push(
+      <DismissibleChip
+        key="min-plays"
+        label={`${minPlays}+ plays`}
+        onRemove={() => onClearFilter("min_plays")}
+      />,
+    );
+  }
+
+  if (playedWithin) {
+    chips.push(
+      <DismissibleChip
+        key="played-within"
+        label={recencyLabel(playedWithin, false)}
+        onRemove={() => onClearFilter("played_within")}
+      />,
+    );
+  }
+
+  if (notPlayedWithin) {
+    chips.push(
+      <DismissibleChip
+        key="not-played-within"
+        label={recencyLabel(notPlayedWithin, true)}
+        onRemove={() => onClearFilter("not_played_within")}
       />,
     );
   }

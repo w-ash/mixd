@@ -6,6 +6,18 @@ linked backlog version file. Versioning follows mixd's four-segment
 `major.minor.feature.revision` scheme (`.claude/rules/version-management.md`), not strict
 SemVer. Format inspired by [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [0.10.4] — 2026-08-21
+
+**Four releases went into making your listening history trustworthy; this one lets you look at it.** There is now a Plays page that scrolls your entire history newest-first — grouped by day, with a song you had on repeat collapsed into one row instead of flooding the feed — and a bar chart above it you click to jump to any stretch of it. Every track page shows the plays behind its summary numbers. And the Library opens on what you've actually been playing rather than row one of the alphabet.
+
+- **A Plays page, at `/library/plays`.** Relative timestamps for anything in the last day (the exact moment is in the tooltip), the source service on every row, and the list loads as you scroll. Clicking a bar in the chart filters the feed to that period and puts the range in the URL, so a view you find is a link you can send. Opening the page pulls fresh plays first, so today's listening is there.
+- **The evidence under every track's summary.** Track Detail said "143 plays, first 2019, last yesterday" and stopped. It now shows when those plays happened as a chart, the most recent ones as a list, and links through to the full feed filtered to that track. Tracks with only a handful of plays keep the summary line — a chart through three points is noise.
+- **A Library ordered by your listening.** New sorts for play count and last played, with the sorted value visible in the row (sorted by count you see "47 plays"; by recency, "3h ago"), and the default is now most-recently-played. Filters for heavy rotation ("10+ plays") and for the rediscovery bucket ("not played in 2+ years"). Never-played tracks sink to the end rather than interleaving.
+- **The play counts are stored, not recounted.** Each track now carries its own count and first/last play date, updated in the same transaction as the plays themselves — including when tracks merge or plays are removed, so a count can't drift away from the history the audit certified. `mixd plays rebuild` re-derives them along with everything else.
+- **Also fixed before it shipped.** A pre-release review caught that the Library's play-count and recency filters did nothing at all, and that some combinations left the Library stuck showing zero tracks with no way back except clearing every filter. The same defect broke clicking a bar on the chart. Two ways to make the new endpoints return a server error — a date without a timezone, an unrecognized timezone name — are closed. Contradictory filter combinations now say so instead of answering with an empty library.
+
+→ [details](docs/backlog/v0.10.x.md#v0104-play-history-surfaces)
+
 ## [0.10.3.6] — 2026-08-20
 
 **The cleanup this cycle has been building toward is done, and the tools that did it no longer trust guards they never actually had.** Your listening history has been re-derived from scratch and came back to the row: 132,273 plays unchanged, three merged, three orphans removed, nothing diverged. What made this release necessary is that running the repair surfaced two bugs in the repair scripts themselves.

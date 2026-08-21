@@ -148,13 +148,17 @@ GET    /tracks
        ?q=<search>                    free-text search on title + artist + album (min 2 chars)
        ?connector=<name>              filter by connector mapping
        ?liked=<true|false>            filter by canonical liked status (any service)
-       ?sort=<field_dir>              title_asc, title_desc, artist_asc, artist_desc, added_asc, added_desc, duration_asc, duration_desc
+       ?sort=<field_dir>              title_asc, title_desc, artist_asc, artist_desc, added_asc, added_desc, duration_asc, duration_desc, plays_asc, plays_desc, last_played_asc, last_played_desc
+       ?min_plays=<int>               at least N plays (v0.10.4)
+       ?never_played=<true>           zero plays (v0.10.4)
+       ?played_within=<days>          played in the last N days (v0.10.4)
+       ?not_played_within=<days>      has plays, none in the last N days (v0.10.4)
        ?limit=&offset=
        → { data: LibraryTrackSchema[], total, limit, offset }
 ```
 - **Use case**: `ListTracksUseCase` (merged search+list — `q` param triggers search)
-- **Status**: ✅ Implemented (v0.3.2)
-- **Note**: Search uses `ilike` on title, album, and `cast(artists, String)` for JSON column. Sort defaults to `title_asc`.
+- **Status**: ✅ Implemented (v0.3.2; play sorts/filters v0.10.4)
+- **Note**: Search uses `ilike` on title, album, and `cast(artists, String)` for JSON column. Sort defaults to `last_played_desc` (NULLS LAST — never-played tracks sort last). `LibraryTrackSchema` carries `total_plays` and `last_played` from denormalized aggregate columns.
 
 ```
 GET    /tracks/{id}
@@ -252,6 +256,33 @@ Defined in `src/interface/api/schemas/tracks.py`.
   ]
 }
 ```
+
+### Plays (v0.10.4)
+
+Play-event reads. One filter model serves the feed, its chart, and Track Detail (`track_id` narrows to one track — there is no per-track route). Both endpoints demand-pull play freshness (same trigger as track detail).
+
+```
+GET    /plays
+       ?limit=<1..200, default 50>
+       ?cursor=<opaque>               timestamp-keyset cursor — stable while polling inserts new plays
+       ?since=<ISO8601>&until=<ISO8601>
+       ?service=<name>
+       ?track_id=<uuid>
+       → { data: PlayEventSchema[], limit, next_cursor }
+```
+- **Use case**: `ListPlaysUseCase`
+- **Status**: ✅ Implemented (v0.10.4)
+- **Note**: newest-first; `PlayEventSchema` = `{ id, track_id, title, artists, played_at, ms_played, service, source_services }`. Cursor pagination only — no offset, no total.
+
+```
+GET    /plays/histogram
+       ?since=&until=&service=&track_id=
+       ?tz=<IANA name, default UTC>   bin boundaries in the user's timezone
+       → { bins: [{ bucket_start: ISO8601, count: int }], bucket: "day" | "week" | "month" }
+```
+- **Use case**: `GetPlaysHistogramUseCase`
+- **Status**: ✅ Implemented (v0.10.4)
+- **Note**: bin size chosen server-side from the span (≤90d day, ≤2y week, else month — starting point, revisit).
 
 ---
 
@@ -870,12 +901,8 @@ GET    /stats/dashboard
 
 ```
 GET    /stats/plays
-       ?limit=&offset=
-       ?from=<ISO8601>&to=<ISO8601>
-       → { data: TrackPlay[], total, limit, offset }
 ```
-- **Use case**: Play history query
-- **Status**: Needs implementation
+- **Status**: Superseded — play-event reads shipped as `GET /plays` (v0.10.4, see § Plays under Tracks); this route will not be built.
 
 ```
 GET    /stats/top-tracks

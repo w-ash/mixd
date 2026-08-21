@@ -3,6 +3,7 @@ import {
   History,
   ListMusic,
   type LucideIcon,
+  Play,
   Plug,
   RefreshCw,
   Settings as SettingsIcon,
@@ -28,6 +29,7 @@ interface SheetLink {
 }
 
 const SHEET_LINKS: readonly SheetLink[] = [
+  { to: "/library/plays", label: "Plays", Icon: Play },
   { to: "/playlists", label: "Playlists", Icon: ListMusic },
   { to: "/settings/integrations", label: "Integrations", Icon: Plug },
   { to: "/settings/assistant", label: "Assistant", Icon: Sparkles },

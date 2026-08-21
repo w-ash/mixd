@@ -233,6 +233,11 @@ web/
 │   │       ├── LastRunCard.test.tsx
 │   │       ├── TablePagination.tsx  Page controls for paginated list views
 │   │       └── TablePagination.test.tsx
+│   │   ├── plays/                   Play-history components (v0.10.4)
+│   │   │   ├── PlaysBarChart.tsx    Recharts bar chart; optional bar-click date navigation
+│   │   │   ├── PlayFeed.tsx         Virtualized feed: sticky day headers, repeat collapsing
+│   │   │   ├── PlaysHistoryView.tsx Chart + feed over one URL filter model (from/to/service/track_id)
+│   │   │   └── TrackPlaysSection.tsx Compact chart + recent plays for Track Detail
 │   │   └── workflow/                Workflow DAG components (v0.4.0+, used in 3 contexts below)
 │   │       ├── nodes/              Custom React Flow node components per category
 │   │       │   ├── SourceNode.tsx
@@ -282,9 +287,10 @@ web/
 │   │   ├── Dashboard.test.tsx
 │   │   ├── Imports.tsx              Import operations with real-time progress
 │   │   ├── Imports.test.tsx
-│   │   ├── Library.tsx              Track browsing, search, pagination (v0.3.2)
+│   │   ├── Library.tsx              Track browsing, search, pagination (v0.3.2; play sorts/filters v0.10.4)
 │   │   ├── Library.test.tsx
-│   │   ├── TrackDetail.tsx          Track metadata, mappings, likes, play history (v0.3.2)
+│   │   ├── Plays.tsx                Play history feed at /library/plays (v0.10.4)
+│   │   ├── TrackDetail.tsx          Track metadata, mappings, likes, play history (v0.3.2; chart + recent plays v0.10.4)
 │   │   ├── TrackDetail.test.tsx
 │   │   ├── Playlists.tsx            List view with table + pagination
 │   │   ├── Playlists.test.tsx

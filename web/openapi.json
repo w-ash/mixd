@@ -3,7 +3,7 @@
   "info": {
     "title": "Mixd",
     "description": "Personal music metadata hub",
-    "version": "0.10.3.6"
+    "version": "0.10.4"
   },
   "paths": {
     "/api/v1/connectors/{service}/auth-url": {
@@ -1639,13 +1639,82 @@
             "description": "Filter to tracks carrying any mood:*/energy:* tag."
           },
           {
+            "name": "min_plays",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "integer",
+                  "minimum": 1
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "Only tracks with at least this many plays",
+              "title": "Min Plays"
+            },
+            "description": "Only tracks with at least this many plays"
+          },
+          {
+            "name": "played_within",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "integer",
+                  "minimum": 1
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "Only tracks played in the last N days",
+              "title": "Played Within"
+            },
+            "description": "Only tracks played in the last N days"
+          },
+          {
+            "name": "not_played_within",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "integer",
+                  "minimum": 1
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "Only tracks with plays, none in the last N days",
+              "title": "Not Played Within"
+            },
+            "description": "Only tracks with plays, none in the last N days"
+          },
+          {
+            "name": "never_played",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "boolean",
+              "description": "Only tracks with zero plays",
+              "default": false,
+              "title": "Never Played"
+            },
+            "description": "Only tracks with zero plays"
+          },
+          {
             "name": "sort",
             "in": "query",
             "required": false,
             "schema": {
               "$ref": "#/components/schemas/TrackSortBy",
               "description": "Sort field and direction",
-              "default": "title_asc"
+              "default": "last_played_desc"
             },
             "description": "Sort field and direction"
           },
@@ -2209,6 +2278,254 @@
               "application/json": {
                 "schema": {
                   "$ref": "#/components/schemas/BatchTagResponse"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/plays": {
+      "get": {
+        "tags": [
+          "plays"
+        ],
+        "summary": "List Plays",
+        "description": "List play events newest-first, keyset-paginated.",
+        "operationId": "list_plays_api_v1_plays_get",
+        "parameters": [
+          {
+            "name": "limit",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "maximum": 200,
+              "minimum": 1,
+              "default": 50,
+              "title": "Limit"
+            }
+          },
+          {
+            "name": "cursor",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "Opaque keyset cursor",
+              "title": "Cursor"
+            },
+            "description": "Opaque keyset cursor"
+          },
+          {
+            "name": "since",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string",
+                  "format": "date-time"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Since"
+            }
+          },
+          {
+            "name": "until",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string",
+                  "format": "date-time"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Until"
+            }
+          },
+          {
+            "name": "service",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "Filter to one source service",
+              "title": "Service"
+            },
+            "description": "Filter to one source service"
+          },
+          {
+            "name": "track_id",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string",
+                  "format": "uuid"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "Filter to one track",
+              "title": "Track Id"
+            },
+            "description": "Filter to one track"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PlayListResponse"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/plays/histogram": {
+      "get": {
+        "tags": [
+          "plays"
+        ],
+        "summary": "Get Plays Histogram",
+        "description": "Binned play counts over time; bin size chosen server-side from the span.",
+        "operationId": "get_plays_histogram_api_v1_plays_histogram_get",
+        "parameters": [
+          {
+            "name": "since",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string",
+                  "format": "date-time"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Since"
+            }
+          },
+          {
+            "name": "until",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string",
+                  "format": "date-time"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Until"
+            }
+          },
+          {
+            "name": "service",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Service"
+            }
+          },
+          {
+            "name": "track_id",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string",
+                  "format": "uuid"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Track Id"
+            }
+          },
+          {
+            "name": "tz",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string",
+              "description": "IANA timezone for bin boundaries",
+              "default": "UTC",
+              "title": "Tz"
+            },
+            "description": "IANA timezone for bin boundaries"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PlayHistogramResponse"
                 }
               }
             }
@@ -6220,6 +6537,25 @@
         "type": "object",
         "title": "HTTPValidationError"
       },
+      "HistogramBinSchema": {
+        "properties": {
+          "bucket_start": {
+            "type": "string",
+            "format": "date-time",
+            "title": "Bucket Start"
+          },
+          "count": {
+            "type": "integer",
+            "title": "Count"
+          }
+        },
+        "type": "object",
+        "required": [
+          "bucket_start",
+          "count"
+        ],
+        "title": "HistogramBinSchema"
+      },
       "ImportConnectorPlaylistsRequest": {
         "properties": {
           "connector_playlist_identifiers": {
@@ -6680,6 +7016,23 @@
             },
             "type": "array",
             "title": "Tags"
+          },
+          "total_plays": {
+            "type": "integer",
+            "title": "Total Plays",
+            "default": 0
+          },
+          "last_played": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "date-time"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Last Played"
           }
         },
         "type": "object",
@@ -7806,6 +8159,129 @@
           "offset"
         ],
         "title": "PaginatedResponse[WorkflowSummarySchema]"
+      },
+      "PlayEventSchema": {
+        "properties": {
+          "id": {
+            "type": "string",
+            "format": "uuid",
+            "title": "Id"
+          },
+          "track_id": {
+            "type": "string",
+            "format": "uuid",
+            "title": "Track Id"
+          },
+          "title": {
+            "type": "string",
+            "title": "Title"
+          },
+          "artists": {
+            "type": "string",
+            "title": "Artists"
+          },
+          "played_at": {
+            "type": "string",
+            "format": "date-time",
+            "title": "Played At"
+          },
+          "ms_played": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Ms Played"
+          },
+          "service": {
+            "type": "string",
+            "title": "Service"
+          },
+          "source_services": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "title": "Source Services"
+          }
+        },
+        "type": "object",
+        "required": [
+          "id",
+          "track_id",
+          "title",
+          "artists",
+          "played_at",
+          "ms_played",
+          "service",
+          "source_services"
+        ],
+        "title": "PlayEventSchema",
+        "description": "One play event with its track's display metadata."
+      },
+      "PlayHistogramResponse": {
+        "properties": {
+          "bins": {
+            "items": {
+              "$ref": "#/components/schemas/HistogramBinSchema"
+            },
+            "type": "array",
+            "title": "Bins"
+          },
+          "bucket": {
+            "type": "string",
+            "enum": [
+              "day",
+              "week",
+              "month"
+            ],
+            "title": "Bucket"
+          }
+        },
+        "type": "object",
+        "required": [
+          "bins",
+          "bucket"
+        ],
+        "title": "PlayHistogramResponse",
+        "description": "Binned play counts; ``bucket`` names the server-chosen bin size."
+      },
+      "PlayListResponse": {
+        "properties": {
+          "data": {
+            "items": {
+              "$ref": "#/components/schemas/PlayEventSchema"
+            },
+            "type": "array",
+            "title": "Data"
+          },
+          "limit": {
+            "type": "integer",
+            "title": "Limit"
+          },
+          "next_cursor": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Next Cursor"
+          }
+        },
+        "type": "object",
+        "required": [
+          "data",
+          "limit",
+          "next_cursor"
+        ],
+        "title": "PlayListResponse",
+        "description": "List shape: data array plus opaque next-page cursor."
       },
       "PlayPollingRequest": {
         "properties": {
@@ -9156,7 +9632,11 @@
           "added_desc",
           "added_asc",
           "duration_asc",
-          "duration_desc"
+          "duration_desc",
+          "plays_desc",
+          "plays_asc",
+          "last_played_desc",
+          "last_played_asc"
         ]
       },
       "TrackSummarySchema": {

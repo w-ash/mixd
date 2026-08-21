@@ -3,7 +3,7 @@
  * Do not edit manually.
  * Mixd
  * Personal music metadata hub
- * OpenAPI spec version: 0.10.3.6
+ * OpenAPI spec version: 0.10.4
  */
 import type { ArtistSchema } from './artistSchema.ts';
 import type { PreferenceState } from './preferenceState.ts';
@@ -22,4 +22,6 @@ export interface LibraryTrackSchema {
   is_liked: boolean;
   preference?: PreferenceState | null;
   tags?: string[];
+  total_plays?: number;
+  last_played?: string | null;
 }

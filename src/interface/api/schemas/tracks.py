@@ -71,6 +71,8 @@ class LibraryTrackSchema(BaseModel):
     is_liked: bool
     preference: PreferenceState | None = None
     tags: list[str] = Field(default_factory=list)
+    total_plays: int = 0
+    last_played: datetime | None = None
 
 
 class SetPreferenceRequest(BaseModel):
@@ -272,6 +274,8 @@ def to_library_track(
         is_liked=track.id in liked_track_ids,
         preference=preference_map.get(track.id) if preference_map else None,
         tags=tag_map.get(track.id, []) if tag_map else [],
+        total_plays=track.play_count,
+        last_played=track.last_played_at,
     )
 
 

@@ -3,7 +3,7 @@
  * Do not edit manually.
  * Mixd
  * Personal music metadata hub
- * OpenAPI spec version: 0.10.3.6
+ * OpenAPI spec version: 0.10.4
  */
 import type { ListTracksApiV1TracksGetTagMode } from './listTracksApiV1TracksGetTagMode.ts';
 import type { TrackSortBy } from './trackSortBy.ts';
@@ -37,6 +37,22 @@ tag_mode?: ListTracksApiV1TracksGetTagMode;
  * Filter to tracks carrying any mood:*\/energy:* tag.
  */
 namespace?: string | null;
+/**
+ * Only tracks with at least this many plays
+ */
+min_plays?: number | null;
+/**
+ * Only tracks played in the last N days
+ */
+played_within?: number | null;
+/**
+ * Only tracks with plays, none in the last N days
+ */
+not_played_within?: number | null;
+/**
+ * Only tracks with zero plays
+ */
+never_played?: boolean;
 /**
  * Sort field and direction
  */

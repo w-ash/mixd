@@ -561,4 +561,15 @@ class PlayProjectionService:
                 list(delete_candidates), user_id=user_id
             )
 
+        # window_plays covers tracks an update or merge moved a play away
+        # from; owned covers the targets. Same transaction as the play writes.
+        affected_track_ids = {play.track_id for _, play in owned}
+        affected_track_ids.update(
+            play.track_id for play in window_plays if play.track_id is not None
+        )
+        if affected_track_ids:
+            _ = await plays_repo.recompute_track_play_aggregates(
+                list(affected_track_ids), user_id=user_id
+            )
+
         return stats

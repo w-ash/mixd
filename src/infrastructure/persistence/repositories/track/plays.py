@@ -2,11 +2,20 @@
 
 from collections.abc import Mapping, Sequence
 from datetime import UTC, datetime
-from typing import cast, override
+from typing import Literal, cast, override
 from uuid import UUID
 
 from attrs import define
-from sqlalchemy import delete as sa_delete, func, select
+from sqlalchemy import (
+    ColumnElement,
+    and_,
+    delete as sa_delete,
+    exists,
+    func,
+    or_,
+    select,
+    update,
+)
 from sqlalchemy.dialects.postgresql import insert as pg_insert
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -16,6 +25,7 @@ from src.domain.entities.shared import JsonDict
 from src.domain.repositories.play import PlayAggregationResult, PlaySortBy
 from src.infrastructure.persistence.database.db_models import (
     DBPlaySource,
+    DBTrack,
     DBTrackPlay,
 )
 from src.infrastructure.persistence.repositories.base_repo import (
@@ -304,7 +314,6 @@ class TrackPlayRepository(BaseRepository[DBTrackPlay, TrackPlay]):
         self, *, user_id: str, limit: int = 100, sort_by: PlaySortBy | None = None
     ) -> list[TrackPlay]:
         """Get recent plays with optional sorting, scoped to user."""
-        from src.infrastructure.persistence.database.db_models import DBTrack
 
         user_filter = self.model_class.user_id == user_id
 
@@ -671,3 +680,167 @@ class TrackPlayRepository(BaseRepository[DBTrackPlay, TrackPlay]):
             },
         )
         _ = await self.session.execute(stmt)
+
+    @db_operation("recompute_track_play_aggregates")
+    async def recompute_track_play_aggregates(
+        self,
+        track_ids: Sequence[UUID] | None,
+        *,
+        user_id: str,
+    ) -> int:
+        """Re-derive the denormalized play aggregates on ``tracks``.
+
+        One UPDATE ... FROM a GROUP BY over ``track_plays`` for tracks that
+        have plays, plus a zero-out arm for in-scope tracks whose plays are
+        gone. ``track_ids=None`` covers the user's whole library (rebuild).
+        The zero-out arm only touches rows whose stored values are stale, so
+        a full re-derive never rewrites an already-clean library.
+        """
+        # Pending ORM mutations (bulk_update_plays repoints) must be visible
+        # to the Core aggregation below; autoflush is off session-wide.
+        await self.session.flush()
+
+        agg = (
+            select(
+                DBTrackPlay.track_id.label("track_id"),
+                func.count().label("play_count"),
+                func.min(DBTrackPlay.played_at).label("first_played_at"),
+                func.max(DBTrackPlay.played_at).label("last_played_at"),
+            )
+            .where(DBTrackPlay.user_id == user_id)
+            .group_by(DBTrackPlay.track_id)
+        )
+        if track_ids is not None:
+            if not track_ids:
+                return 0
+            agg = agg.where(DBTrackPlay.track_id.in_(list(track_ids)))
+        agg_sq = agg.subquery("play_aggregates")
+
+        set_stmt = (
+            update(DBTrack)
+            .where(DBTrack.user_id == user_id)
+            .where(DBTrack.id == agg_sq.c.track_id)
+            .values(
+                play_count=agg_sq.c.play_count,
+                first_played_at=agg_sq.c.first_played_at,
+                last_played_at=agg_sq.c.last_played_at,
+            )
+        )
+        updated = rows_affected(await self.session.execute(set_stmt))
+
+        zero_stmt = (
+            update(DBTrack)
+            .where(DBTrack.user_id == user_id)
+            .where(
+                ~exists(
+                    select(1)
+                    .where(DBTrackPlay.track_id == DBTrack.id)
+                    .where(DBTrackPlay.user_id == user_id)
+                )
+            )
+            .where(
+                or_(
+                    DBTrack.play_count != 0,
+                    DBTrack.last_played_at.is_not(None),
+                    DBTrack.first_played_at.is_not(None),
+                )
+            )
+            .values(play_count=0, first_played_at=None, last_played_at=None)
+        )
+        if track_ids is not None:
+            zero_stmt = zero_stmt.where(DBTrack.id.in_(list(track_ids)))
+        zeroed = rows_affected(await self.session.execute(zero_stmt))
+        return updated + zeroed
+
+    @db_operation("list_play_events")
+    async def list_play_events(
+        self,
+        *,
+        user_id: str,
+        before: tuple[datetime, UUID] | None = None,
+        since: datetime | None = None,
+        until: datetime | None = None,
+        service: str | None = None,
+        track_id: UUID | None = None,
+        limit: int = 50,
+    ) -> tuple[list[TrackPlay], tuple[datetime, UUID] | None]:
+        """Page play events newest-first, keyset on ``(played_at, id)``."""
+        stmt = (
+            select(DBTrackPlay)
+            .where(DBTrackPlay.user_id == user_id)
+            .where(*self._event_filters(since, until, service, track_id))
+        )
+
+        if before is not None:
+            before_played_at, before_id = before
+            # OR form of (played_at, id) < (x, y): same index plan, cleaner
+            # types than tuple_() literals (precedent: operation_run repo).
+            stmt = stmt.where(
+                or_(
+                    DBTrackPlay.played_at < before_played_at,
+                    and_(
+                        DBTrackPlay.played_at == before_played_at,
+                        DBTrackPlay.id < before_id,
+                    ),
+                )
+            )
+
+        stmt = stmt.order_by(DBTrackPlay.played_at.desc(), DBTrackPlay.id.desc()).limit(
+            limit + 1
+        )
+
+        rows = list((await self.session.execute(stmt)).scalars().all())
+        has_more = len(rows) > limit
+        if has_more:
+            rows = rows[:limit]
+
+        plays = [await TrackPlayMapper.to_domain(r) for r in rows]
+        next_page_key: tuple[datetime, UUID] | None = None
+        if has_more and plays:
+            last = plays[-1]
+            next_page_key = (last.played_at, last.id)
+        return plays, next_page_key
+
+    @db_operation("get_play_histogram")
+    async def get_play_histogram(
+        self,
+        *,
+        user_id: str,
+        bucket: Literal["day", "week", "month"],
+        since: datetime | None = None,
+        until: datetime | None = None,
+        service: str | None = None,
+        track_id: UUID | None = None,
+        tz: str = "UTC",
+    ) -> list[tuple[datetime, int]]:
+        """Play counts per ``bucket``, ascending; bin starts are ``tz``-local."""
+        bucket_start = func.date_trunc(
+            bucket, func.timezone(tz, DBTrackPlay.played_at)
+        ).label("bucket_start")
+        stmt = (
+            select(bucket_start, func.count().label("play_count"))
+            .where(DBTrackPlay.user_id == user_id)
+            .where(*self._event_filters(since, until, service, track_id))
+            .group_by(bucket_start)
+            .order_by(bucket_start.asc())
+        )
+        result = await self.session.execute(stmt)
+        return [(cast("datetime", row[0]), cast("int", row[1])) for row in result.all()]
+
+    @staticmethod
+    def _event_filters(
+        since: datetime | None,
+        until: datetime | None,
+        service: str | None,
+        track_id: UUID | None,
+    ) -> list[ColumnElement[bool]]:
+        conds: list[ColumnElement[bool]] = []
+        if since is not None:
+            conds.append(DBTrackPlay.played_at >= since)
+        if until is not None:
+            conds.append(DBTrackPlay.played_at < until)
+        if service is not None:
+            conds.append(DBTrackPlay.service == service)
+        if track_id is not None:
+            conds.append(DBTrackPlay.track_id == track_id)
+        return conds

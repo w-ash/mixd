@@ -34,6 +34,7 @@ from src.application.chat.dispatchers import (
     operations,
     playlists,
     playlists_write,
+    plays,
     preferences_write,
     schedules,
     stats,
@@ -67,6 +68,7 @@ type ConfirmedExecutor = Callable[[PendingAction, str], Awaitable[JsonValue]]
 _DISPATCHER_SPECS_LISTS: tuple[list[dict[str, object]], ...] = (
     # Read tools (Epic 1)
     library.SPECS,
+    plays.SPECS,
     tags.SPECS,
     playlists.SPECS,
     links.SPECS,

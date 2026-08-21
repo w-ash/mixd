@@ -2,7 +2,7 @@
 
 from collections import Counter
 from collections.abc import Mapping, Sequence
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 from typing import Any, ClassVar, Final, Literal, NamedTuple, cast
 from uuid import UUID, uuid7
 
@@ -40,6 +40,8 @@ from src.domain.matching.isrc_validation import (
 )
 from src.domain.repositories.resolution import SupersessionEdge
 from src.domain.repositories.track import (
+    NO_PLAY_FILTERS,
+    PlayFilters,
     TrackFacets,
     TrackListingPage,
 )
@@ -424,7 +426,17 @@ class TrackRepository(BaseRepository[DBTrack, Track]):
         "artists_text": DBTrack.artists_text,
         "created_at": DBTrack.created_at,
         "duration_ms": DBTrack.duration_ms,
+        "play_count": DBTrack.play_count,
+        "last_played_at": DBTrack.last_played_at,
     }
+
+    # Nullable sort columns order NULLS LAST and need the keyset's NULL arms —
+    # a plain tuple comparison drops NULL rows (NULL compare = UNKNOWN).
+    _NULLABLE_SORT_COLUMNS: ClassVar[frozenset[str]] = frozenset({
+        "artists_text",
+        "duration_ms",
+        "last_played_at",
+    })
 
     # Sort key → (db_column, direction). Infrastructure-owned ORDER BY
     # registry; the cursor-encoding mapping ``TRACK_SORT_COLUMNS`` in
@@ -438,6 +450,10 @@ class TrackRepository(BaseRepository[DBTrack, Track]):
         "added_asc": ("created_at", "asc"),
         "duration_asc": ("duration_ms", "asc"),
         "duration_desc": ("duration_ms", "desc"),
+        "plays_desc": ("play_count", "desc"),
+        "plays_asc": ("play_count", "asc"),
+        "last_played_desc": ("last_played_at", "desc"),
+        "last_played_asc": ("last_played_at", "asc"),
     }
 
     def __init__(self, session: AsyncSession) -> None:
@@ -831,7 +847,8 @@ class TrackRepository(BaseRepository[DBTrack, Track]):
         tags: Sequence[str] | None = None,
         tag_mode: Literal["and", "or"] = "and",
         namespace: str | None = None,
-        sort_by: str = "title_asc",
+        play_filters: PlayFilters = NO_PLAY_FILTERS,
+        sort_by: str = "last_played_desc",
         limit: int = 50,
         offset: int = 0,
         # Keyset pagination: seek after this (sort_value, id) pair.
@@ -857,6 +874,7 @@ class TrackRepository(BaseRepository[DBTrack, Track]):
             tags=tags,
             tag_mode=tag_mode,
             namespace=namespace,
+            play_filters=play_filters,
         )
 
         # Count total matching tracks (skipped on cursor-paginated pages)
@@ -946,6 +964,7 @@ class TrackRepository(BaseRepository[DBTrack, Track]):
         tags: Sequence[str] | None,
         tag_mode: Literal["and", "or"],
         namespace: str | None,
+        play_filters: PlayFilters = NO_PLAY_FILTERS,
     ) -> list[ColumnElement[bool]]:
         """Build the WHERE conditions for list_tracks — always user-scoped.
 
@@ -1035,6 +1054,22 @@ class TrackRepository(BaseRepository[DBTrack, Track]):
             )
             conditions.append(DBTrack.id.in_(ns_subq))
 
+        # Play filters read the denormalized aggregate columns directly.
+        # One `now` so the two recency cutoffs describe the same instant.
+        now = datetime.now(UTC)
+        if play_filters.min_plays is not None:
+            conditions.append(DBTrack.play_count >= play_filters.min_plays)
+        if play_filters.never_played:
+            conditions.append(DBTrack.play_count == 0)
+        if play_filters.played_within is not None:
+            cutoff = now - timedelta(days=play_filters.played_within)
+            conditions.append(DBTrack.last_played_at >= cutoff)
+        if play_filters.not_played_within is not None:
+            # Rediscovery bucket: has plays, none recent. Never-played tracks
+            # stay out — that is the separate never_played filter.
+            cutoff = now - timedelta(days=play_filters.not_played_within)
+            conditions.append(DBTrack.last_played_at < cutoff)
+
         return conditions
 
     def _apply_sort_and_page(
@@ -1051,32 +1086,48 @@ class TrackRepository(BaseRepository[DBTrack, Track]):
 
         Returns the augmented statement plus the resolved ``sort_field`` name so
         the caller can read the cursor value off the last row for the next-page
-        key. Keyset seeking (``WHERE (sort_col, id) </> (:value, :id)``) engages
-        when both ``after_value`` and ``after_id`` are provided; otherwise falls
-        back to OFFSET.
+        key. Keyset seeking engages whenever ``after_id`` is present; a None
+        ``after_value`` with a nullable sort column means the cursor sits in
+        the NULL tail. No cursor falls back to OFFSET.
         """
         # Resolve sort column from the registry (sort_by validated upstream;
-        # unknown values fall back to title_asc).
+        # unknown values fall back to the default sort).
         sort_field, sort_dir = self._SORT_SPECS.get(
-            sort_by, self._SORT_SPECS["title_asc"]
+            sort_by, self._SORT_SPECS["last_played_desc"]
         )
         col = self._SORT_COLUMNS[sort_field]
+        nullable = sort_field in self._NULLABLE_SORT_COLUMNS
+        desc = sort_dir == "desc"
 
-        # Keyset pagination: WHERE (sort_col, id) > (:value, :id) for ASC
-        use_keyset = after_value is not None and after_id is not None
+        # A NULL cursor value on a NOT NULL column is malformed — offset instead.
+        use_keyset = after_id is not None and (after_value is not None or nullable)
         if use_keyset:
-            keyset_pair = tuple_(col, DBTrack.id)
-            cursor_pair = tuple_(literal(after_value), literal(after_id))
-            if sort_dir == "desc":
-                stmt = stmt.where(keyset_pair < cursor_pair)
+            if after_value is None:
+                # Inside the NULL tail only the id tiebreaker advances.
+                stmt = stmt.where(
+                    col.is_(None),
+                    DBTrack.id < after_id if desc else DBTrack.id > after_id,
+                )
             else:
-                stmt = stmt.where(keyset_pair > cursor_pair)
+                keyset_pair = tuple_(col, DBTrack.id)
+                cursor_pair = tuple_(literal(after_value), literal(after_id))
+                predicate = (
+                    keyset_pair < cursor_pair if desc else keyset_pair > cursor_pair
+                )
+                if nullable:
+                    # NULLS LAST: the whole NULL tail follows a non-NULL cursor,
+                    # and the tuple comparison alone would drop it (UNKNOWN).
+                    predicate = or_(predicate, col.is_(None))
+                stmt = stmt.where(predicate)
         else:
             stmt = stmt.offset(offset)
 
+        order_col = col.desc() if desc else col.asc()
+        if nullable:
+            order_col = order_col.nulls_last()
         stmt = stmt.order_by(
-            col.desc() if sort_dir == "desc" else col.asc(),
-            DBTrack.id.desc() if sort_dir == "desc" else DBTrack.id.asc(),
+            order_col,
+            DBTrack.id.desc() if desc else DBTrack.id.asc(),
         )
         return stmt.limit(limit), sort_field
 

@@ -23,7 +23,7 @@ PostgreSQL 17 via psycopg3 — Neon serverless in prod, testcontainers `postgres
 
 ## Semantic gotchas by table (constraints the code shows but you'll miss)
 
-- **tracks** — per-user uniques on `(user_id, spotify_id)`, `(user_id, isrc)`, `(user_id, mbid)`; normalized/stripped columns are pre-computed for fuzzy matching. pg_trgm GIN + JSONB GIN indexes exist **only via migration `002_pg_opt`** — absent in test DBs (see Environments).
+- **tracks** — per-user uniques on `(user_id, spotify_id)`, `(user_id, isrc)`, `(user_id, mbid)`; normalized/stripped columns are pre-computed for fuzzy matching. pg_trgm GIN + JSONB GIN indexes exist **only via migration `002_pg_opt`** — absent in test DBs (see Environments). Play aggregates `play_count`/`first_played_at`/`last_played_at` (052, v0.10.4) are written ONLY by `recompute_track_play_aggregates` (projection, track merge, rebuild) — never by `save_track`/`to_db`, whose full-column write would clobber them.
 - **connector_tracks / connector_playlists** — shared cache, **no `user_id`, no RLS**. Uniques on `(connector_name, connector_*_identifier)`.
 - **track_mappings** — unique `(user_id, connector_track_id, connector_name)`; **partial unique** `(user_id, track_id, connector_name) WHERE is_primary = TRUE`.
 - **track_plays** — immutable events; `source_services` is native `ARRAY(VARCHAR)` (cross-source dedup); unique `(user_id, track_id, service, played_at, ms_played)`; BRIN on `played_at` via `002_pg_opt` only.

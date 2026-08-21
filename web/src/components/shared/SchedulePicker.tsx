@@ -26,12 +26,8 @@ import {
   SelectValue,
 } from "#/components/ui/select";
 import { Switch } from "#/components/ui/switch";
-import {
-  browserTimezone,
-  describeSchedule,
-  formatNextRun,
-  WEEKDAYS,
-} from "#/lib/schedule";
+import { browserTimezone } from "#/lib/format";
+import { describeSchedule, formatNextRun, WEEKDAYS } from "#/lib/schedule";
 
 interface SchedulePickerProps {
   schedule: ScheduleResponse | null;

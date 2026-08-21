@@ -47,6 +47,7 @@ from src.application.use_cases.untag_track import (
     UntagTrackUseCase,
 )
 from src.config.constants import BusinessLimits
+from src.domain.repositories.track import PlayFilters
 from src.interface.api.deps import get_current_user_id, trigger_play_refresh
 from src.interface.api.schemas.tracks import (
     AddTagRequest,
@@ -94,10 +95,24 @@ async def list_tracks(
     namespace: str | None = Query(
         default=None, description="Filter to tracks carrying any mood:*/energy:* tag."
     ),
+    min_plays: int | None = Query(
+        default=None, ge=1, description="Only tracks with at least this many plays"
+    ),
+    played_within: int | None = Query(
+        default=None, ge=1, description="Only tracks played in the last N days"
+    ),
+    not_played_within: int | None = Query(
+        default=None,
+        ge=1,
+        description="Only tracks with plays, none in the last N days",
+    ),
+    never_played: bool = Query(
+        default=False, description="Only tracks with zero plays"
+    ),
     sort: Annotated[
         TrackSortBy,
         Query(description="Sort field and direction"),
-    ] = "title_asc",
+    ] = "last_played_desc",
     limit: int = Query(default=50, ge=1, le=200),
     offset: int = Query(default=0, ge=0),
     cursor: str | None = Query(
@@ -130,6 +145,12 @@ async def list_tracks(
         tags=tag,
         tag_mode=tag_mode,
         namespace=namespace,
+        play_filters=PlayFilters(
+            min_plays=min_plays,
+            played_within=played_within,
+            not_played_within=not_played_within,
+            never_played=never_played,
+        ),
         sort_by=sort,
         limit=limit,
         offset=offset,

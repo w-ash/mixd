@@ -19,11 +19,17 @@ function baseProps() {
       { name: "lastfm", display_name: "Last.fm" },
       // biome-ignore lint/suspicious/noExplicitAny: minimal test shape
     ] as any,
+    minPlays: null as number | null,
+    neverPlayed: false,
+    playedWithin: null as number | null,
+    notPlayedWithin: null as number | null,
     onPreferenceChange: vi.fn(),
     onLikedChange: vi.fn(),
     onConnectorChange: vi.fn(),
     onTagsChange: vi.fn(),
     onTagModeChange: vi.fn(),
+    onPlayCountChange: vi.fn(),
+    onRecencyChange: vi.fn(),
   };
 }
 

@@ -154,8 +154,8 @@ With database-backed credential storage, Settings handles the Last.fm web auth f
 **Steps**:
 
 1. Library page loads with a **paginated track table**.
-   - Default sort: recently added (most recent first).
-   - Shows: title, artist(s), album, duration, connector icons (which services have this track).
+   - Default sort (v0.10.4): most recently played first; never-played tracks sort last.
+   - Shows: title, artist(s), album, duration, plays, last played (relative, exact datetime in tooltip), connector icons (which services have this track).
    - Pagination: 50 tracks per page with offset controls.
 
 2. **Search**: User types in the search bar at the top.
@@ -167,11 +167,14 @@ With database-backed credential storage, Settings handles the Last.fm web auth f
    - **Connector**: All / Spotify / Last.fm / Apple Music / MusicBrainz
    - **Liked status**: All / Liked / Not Liked (with service sub-filter)
    - **Has mappings**: All / Mapped to all connectors / Missing mappings
+   - **Play count** (v0.10.4): Any / Never played / 10+ / 50+ presets, plus a custom numeric minimum
+   - **Play recency** (v0.10.4): Any time / Played this week / Played this month / Not played in 2+ years (rediscovery bucket; excludes never-played tracks)
    - Filters are additive (AND logic). Changing a filter resets to page 1.
 
 4. **Sorting**: Click column headers to sort.
-   - Sortable columns: Title (A-Z), Artist (A-Z), Album (A-Z), Duration, Release Date
+   - Sortable columns: Title (A-Z), Artist (A-Z), Duration, Plays, Last Played
    - Click again to reverse. Active sort column shows arrow indicator.
+   - The play columns always show their values ("47", "3h ago"), so a play sort is never ordering by an invisible field.
 
 5. **Selection**: Clicking a track row navigates to the track detail page (`/library/{id}`).
 
@@ -181,7 +184,8 @@ With database-backed credential storage, Settings handles the Last.fm web auth f
 | Load page | `GET /tracks?limit=50&offset=0` | `ListTracksUseCase` | ✅ Implemented (v0.3.2) |
 | Search | `GET /tracks?q=...&limit=50` | `ListTracksUseCase` (merged search+list) | ✅ Implemented (v0.3.2) |
 | Filter by connector | `GET /tracks?connector=spotify` | `ListTracksUseCase` (with filter param) | ✅ Implemented (v0.3.2) |
-| Sort | `GET /tracks?sort=title&order=asc` | `ListTracksUseCase` (with sort param) | ✅ Implemented (v0.3.2) |
+| Sort | `GET /tracks?sort=last_played_desc` | `ListTracksUseCase` (with sort param) | ✅ Implemented (v0.3.2; play sorts v0.10.4) |
+| Play filters | `GET /tracks?min_plays=10`, `?never_played=true`, `?played_within=7`, `?not_played_within=730` | `ListTracksUseCase` | ✅ Implemented (v0.10.4) |
 
 **Edge cases**:
 - Very large libraries (>50,000 tracks): Offset pagination remains functional. Consider adding "jump to page" input for deep navigation.
@@ -202,13 +206,15 @@ With database-backed credential storage, Settings handles the Last.fm web auth f
      - Each row: Connector icon + name, External ID, Match Method, Confidence score (color-coded: green >80, yellow 50-80, red <50), Primary indicator
    - **Like Status** section: per-service like state with dates
      - "Liked on Spotify (Dec 15, 2024)" / "Not liked on Last.fm"
-   - **Play History** section: summary stats
-     - Total plays, Last played date, First played date
-     - Mini chart (sparkline) of play frequency over time if data exists
+   - **Play History** section (expanded v0.10.4):
+     - Summary stats: Total plays, First played, Last played
+     - Binned bar chart of plays over time (day/week/month bins chosen server-side; hidden below 5 total plays, where the stat line carries the story)
+     - Recent plays list: the last 10 events with relative timestamps (exact datetime in tooltip) and per-play source badges
+     - **View all plays** link → `/library/plays?track_id={id}` (the feed pre-filtered to this track, Flow 2.4)
    - **Metrics** section: connector-specific metrics
      - Last.fm: user play count, global play count, listener count
 
-   > **⚠ Not yet built (2026-06-17):** the Play History sparkline and the Metrics section are described aspirationally — verify against the live `GET /tracks/{id}` payload before relying on them.
+   > **⚠ Not yet built (2026-06-17):** the Metrics section is described aspirationally — verify against the live `GET /tracks/{id}` payload before relying on it.
 
 2. **Actions** available on this page:
    - **Like/Unlike**: Toggle like status per service. Calls `POST /tracks/{id}/like` or `DELETE /tracks/{id}/like` with `{ connector: "spotify" }`.
@@ -220,6 +226,8 @@ With database-backed credential storage, Settings handles the Last.fm web auth f
 | Action | Endpoint | Use Case | Status |
 |--------|----------|----------|--------|
 | Load detail | `GET /tracks/{id}` | `GetTrackDetailsUseCase` | ✅ Implemented (v0.3.2) |
+| Recent plays | `GET /plays?track_id={id}&limit=10` | `ListPlaysUseCase` | ✅ Implemented (v0.10.4) |
+| Play chart | `GET /plays/histogram?track_id={id}&tz=...` | `GetPlaysHistogramUseCase` | ✅ Implemented (v0.10.4) |
 | Like track | `POST /tracks/{id}/like` | `SyncLikesUseCase` (single-track variant) | Needs implementation |
 | Unlike track | `DELETE /tracks/{id}/like` | `SyncLikesUseCase` (single-track variant) | Needs implementation |
 | Add to playlist | `POST /playlists/{id}/tracks` | `UpdateCanonicalPlaylistUseCase` | Needs implementation |
@@ -265,6 +273,35 @@ With database-backed credential storage, Settings handles the Last.fm web auth f
 - Connector search API rate limited: Show "Search temporarily unavailable. Try again in a moment."
 - User selects a track that's already mapped to another canonical track: Warning dialog "This Spotify track is already linked to 'Other Track'. Proceed anyway?" (could indicate a merge candidate).
 - Connector is disconnected: "Edit" button disabled with tooltip "Reconnect Spotify to fix mappings."
+
+---
+
+### 2.4 Play History Feed (v0.10.4)
+
+**Trigger**: User clicks **Library → Plays** in the sidebar (Library is a nav section with children Tracks and Plays; Artists and Albums will nest here in v0.12.x), or follows "View all plays" from a Track Detail page.
+
+**Steps**:
+
+1. Plays page (`/library/plays`) loads with:
+   - **Plays-over-time bar chart** as the date navigator. Bin size (day/week/month) is chosen server-side from the visible span. Clicking a bar narrows the feed to that period and writes `from`/`to` to the URL; a dismissible range chip clears back to all-time.
+   - **Play feed**: a virtualized, newest-first list of play events under sticky day headers ("Today" / "Yesterday" / absolute date). Consecutive plays of the same track collapse into one row with a ×N count and time range. Timestamps are relative for today, time-of-day otherwise, with the exact datetime in the tooltip. Each row shows the track title/artist (linking to `/library/{track_id}`) and per-play source badges from `source_services`.
+
+2. **Filters** (URL-driven, shareable): date range (`from`/`to`), `service`, `track_id`. With `track_id` set, the feed shows one track's complete play history — the target of Track Detail's "View all plays" link.
+
+3. **Infinite scroll**: reaching the end of the list fetches the next page via a timestamp cursor, so rows never shift while live polling inserts new plays.
+
+4. Opening the page demand-pulls play freshness (same trigger as Track Detail), so a listen from minutes ago appears without waiting for the background poll.
+
+**Backend calls**:
+| Action | Endpoint | Use Case | Status |
+|--------|----------|----------|--------|
+| Load feed / next page | `GET /plays?limit=100&cursor=...` (+ filters) | `ListPlaysUseCase` | ✅ Implemented (v0.10.4) |
+| Chart bins | `GET /plays/histogram?tz=...` (+ filters) | `GetPlaysHistogramUseCase` | ✅ Implemented (v0.10.4) |
+
+**Edge cases**:
+- No plays at all: empty state "No plays yet. Import listening history or connect a service to start the feed."
+- No plays in a selected range: "No plays in this period. Clear the range to see everything."
+- A day spanning a DST shift can bin an edge hour differently between chart and headers (server bins in the user's IANA `tz`; accepted, revisit with the tz note in the backlog spec).
 
 ---
 
@@ -516,7 +553,7 @@ No confirmation dialog — removal is **optimistic with an Undo snackbar** (the 
 5. On completion:
    - Summary card: "Import complete. 9,400 plays processed. 8,100 new plays imported. 1,300 duplicates skipped. 15 tracks could not be resolved."
    - Checkpoint updated (shown in Sync Checkpoints section).
-   - **View Play History** button.
+   - **View Play History** button → `/library/plays` (Flow 2.4). *Destination exists since v0.10.4; the button itself is not yet rendered by the import completion card.*
 
 **Backend calls**:
 | Step | Endpoint | Use Case | Status |

@@ -11,6 +11,7 @@ import {
   useSetTrackPreferenceApiV1TracksTrackIdPreferencePut,
 } from "#/api/generated/tracks/tracks";
 import { PageHeader } from "#/components/layout/PageHeader";
+import { TrackPlaysSection } from "#/components/plays/TrackPlaysSection";
 import { BackLink } from "#/components/shared/BackLink";
 import { EmptyState } from "#/components/shared/EmptyState";
 import { MergeTrackDialog } from "#/components/shared/MergeTrackDialog";
@@ -260,19 +261,25 @@ export function TrackDetail() {
           {!hasPlays ? (
             <p className="text-sm text-text-muted">No play history recorded.</p>
           ) : (
-            <dl className="space-y-2">
-              <Field label="Total Plays">
-                <span className="tabular-nums">
-                  {track.play_summary.total_plays.toLocaleString()}
-                </span>
-              </Field>
-              <Field label="First Played">
-                {formatDateTime(track.play_summary.first_played)}
-              </Field>
-              <Field label="Last Played">
-                {formatDateTime(track.play_summary.last_played)}
-              </Field>
-            </dl>
+            <>
+              <dl className="space-y-2">
+                <Field label="Total Plays">
+                  <span className="tabular-nums">
+                    {track.play_summary.total_plays.toLocaleString()}
+                  </span>
+                </Field>
+                <Field label="First Played">
+                  {formatDateTime(track.play_summary.first_played)}
+                </Field>
+                <Field label="Last Played">
+                  {formatDateTime(track.play_summary.last_played)}
+                </Field>
+              </dl>
+              <TrackPlaysSection
+                trackId={track.id}
+                totalPlays={track.play_summary.total_plays}
+              />
+            </>
           )}
         </Section>
 

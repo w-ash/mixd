@@ -10,7 +10,7 @@ internal plumbing). This table is generated from
 `src/application/tools/registry.py` and enforced by
 `tests/unit/application/tools/test_registry_parity.py`.
 
-**88 capabilities: 77 covered, 11 excluded.**
+**90 capabilities: 79 covered, 11 excluded.**
 
 | Capability (use case) | Chat tool | Disposition | Rationale |
 | --- | --- | --- | --- |
@@ -40,6 +40,7 @@ internal plumbing). This table is generated from
 | GetMatchMethodHealthUseCase | query_stats | covered | — |
 | GetOperationRunUseCase | query_operations | covered | — |
 | GetPlayedTracksUseCase | query_library | covered | — |
+| GetPlaysHistogramUseCase | query_plays | covered | — |
 | GetPreferredTracksUseCase | query_library | covered | — |
 | GetScheduleUseCase | query_schedules | covered | — |
 | GetSyncCheckpointStatusUseCase | query_operations | covered | — |
@@ -58,6 +59,7 @@ internal plumbing). This table is generated from
 | ListOperationRunsUseCase | query_operations | covered | — |
 | ListPlaylistLinksUseCase | query_playlist_links | covered | — |
 | ListPlaylistsUseCase | query_playlists | covered | — |
+| ListPlaysUseCase | query_plays | covered | — |
 | ListResolutionNegativesUseCase | query_stats | covered | — |
 | ListSchedulesUseCase | query_schedules | covered | — |
 | ListTagsUseCase | list_tags | covered | — |
@@ -121,6 +123,7 @@ chat-only for now — the latter pending the gated Tasks-extension epic.
 | validate_workflow_def | read | exposed | Use this to check a workflow definition you did not just generate — one the user pasted, or a saved workflow fetched via get_workflow — against the node catalog and DAG rules. |
 | save_workflow | write | exposed | Call this to persist a workflow definition after a successful generate_workflow_def — pass the exact definition it accepted, plus workflow_id when updating an existing workflow (omit it to create). |
 | query_library | read | exposed | Call this to read the user's track library: search or list tracks (scope 'all'), inspect one track's full detail (scope 'all' with track_id), or pull the liked, preferred, or recently played slices (scope 'liked'/'preferred'/'played'). |
+| query_plays | read | exposed | Call this to read the user's raw play history: individual play events (when each track was played, from which service), filterable by track, service, and date range, newest first — or set histogram=true for binned plays-over-time counts. |
 | list_tags | read | exposed | Call this to see the user's tags with how many tracks carry each and when each was last used. |
 | query_playlists | read | exposed | Call this to read the user's playlists before answering questions about them, referencing one, or proposing changes — so names and ids are real, never guessed. |
 | query_playlist_links | read | exposed | Call this to see how a canonical playlist connects to external services, or to preview a sync before running it. |

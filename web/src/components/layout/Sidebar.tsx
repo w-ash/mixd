@@ -7,6 +7,8 @@ import {
   LayoutDashboard,
   Library,
   ListMusic,
+  Music,
+  Play,
   Plug,
   RefreshCw,
   Settings,
@@ -26,6 +28,8 @@ interface NavChild {
   to: string;
   label: string;
   Icon: LucideIcon;
+  /** Exact-match active state — for a child that is a prefix of its siblings. */
+  end?: boolean;
 }
 
 interface NavItem {
@@ -38,7 +42,15 @@ interface NavItem {
 
 const navItems: NavItem[] = [
   { to: "/", label: "Dashboard", Icon: LayoutDashboard, end: true },
-  { to: "/library", label: "Library", Icon: Library },
+  {
+    to: "/library",
+    label: "Library",
+    Icon: Library,
+    children: [
+      { to: "/library", label: "Tracks", Icon: Music, end: true },
+      { to: "/library/plays", label: "Plays", Icon: Play },
+    ],
+  },
   { to: "/playlists", label: "Playlists", Icon: ListMusic },
   { to: "/workflows", label: "Workflows", Icon: GitBranch },
   {
@@ -132,6 +144,7 @@ export function Sidebar() {
                     <li key={child.to}>
                       <NavLink
                         to={child.to}
+                        end={child.end}
                         viewTransition
                         className={({ isActive }) =>
                           cn(

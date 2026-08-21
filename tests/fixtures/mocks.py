@@ -158,6 +158,11 @@ def make_mock_plays_repo(**overrides) -> AsyncMock:
     repo = AsyncMock()
     repo.bulk_insert_plays.return_value = overrides.pop("bulk_insert_plays", (0, 0))
     repo.get_play_aggregations.return_value = overrides.pop("get_play_aggregations", {})
+    repo.recompute_track_play_aggregates.return_value = overrides.pop(
+        "recompute_track_play_aggregates", 0
+    )
+    repo.list_play_events.return_value = overrides.pop("list_play_events", ([], None))
+    repo.get_play_histogram.return_value = overrides.pop("get_play_histogram", [])
     for k, v in overrides.items():
         setattr(repo, k, v)
     return repo

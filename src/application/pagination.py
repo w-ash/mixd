@@ -25,6 +25,10 @@ type TrackSortBy = Literal[
     "added_asc",
     "duration_asc",
     "duration_desc",
+    "plays_desc",
+    "plays_asc",
+    "last_played_desc",
+    "last_played_asc",
 ]
 
 # Sort key → (db_column, direction), used for cursor encoding and sort-key
@@ -40,10 +44,15 @@ TRACK_SORT_COLUMNS: Final[dict[TrackSortBy, tuple[str, str]]] = {
     "added_asc": ("created_at", "asc"),
     "duration_asc": ("duration_ms", "asc"),
     "duration_desc": ("duration_ms", "desc"),
+    "plays_desc": ("play_count", "desc"),
+    "plays_asc": ("play_count", "asc"),
+    "last_played_desc": ("last_played_at", "desc"),
+    "last_played_asc": ("last_played_at", "asc"),
 }
 
-# Sort columns that store datetime values (ISO string in cursor)
-_DATETIME_COLUMNS: Final = frozenset({"created_at"})
+# Sort columns that store datetime values (ISO string in cursor).
+# ``played_at`` belongs to the play-event listing's cursor, not a track sort.
+_DATETIME_COLUMNS: Final = frozenset({"created_at", "last_played_at", "played_at"})
 
 
 @define(frozen=True, slots=True)

@@ -5,6 +5,7 @@ import type { PreferenceState } from "#/components/shared/PreferenceToggle";
 import { PreferenceToggle } from "#/components/shared/PreferenceToggle";
 import { TagFilter } from "#/components/shared/TagFilter";
 import { Button } from "#/components/ui/button";
+import { Input } from "#/components/ui/input";
 import {
   Select,
   SelectContent,
@@ -15,6 +16,12 @@ import {
 import { Sheet } from "#/components/ui/sheet";
 import { useIsMobile } from "#/hooks/useIsMobile";
 import type { TagMatchMode } from "#/lib/filters-to-workflow";
+import {
+  findRecencyPreset,
+  PLAY_COUNT_PRESETS,
+  RECENCY_ANY,
+  RECENCY_PRESETS,
+} from "#/lib/play-filters";
 import { cn } from "#/lib/utils";
 
 interface LibraryFilterPanelProps {
@@ -31,6 +38,10 @@ interface LibraryFilterPanelProps {
   connector: string | null;
   tags: string[];
   tagMode: TagMatchMode;
+  minPlays: number | null;
+  neverPlayed: boolean;
+  playedWithin: number | null;
+  notPlayedWithin: number | null;
   // Connector options for the Source select
   connectors: ConnectorMetadataSchema[];
   /** Optional per-facet counts (from `GET /tracks?include_facets=true`).
@@ -42,6 +53,14 @@ interface LibraryFilterPanelProps {
   onConnectorChange: (value: string | null) => void;
   onTagsChange: (tags: string[]) => void;
   onTagModeChange: (mode: TagMatchMode) => void;
+  onPlayCountChange: (value: {
+    minPlays: number | null;
+    neverPlayed: boolean;
+  }) => void;
+  onRecencyChange: (value: {
+    playedWithin: number | null;
+    notPlayedWithin: number | null;
+  }) => void;
 }
 
 /**
@@ -67,6 +86,10 @@ export function LibraryFilterPanel({
   connector,
   tags,
   tagMode,
+  minPlays,
+  neverPlayed,
+  playedWithin,
+  notPlayedWithin,
   connectors,
   facets,
   onPreferenceChange,
@@ -74,8 +97,20 @@ export function LibraryFilterPanel({
   onConnectorChange,
   onTagsChange,
   onTagModeChange,
+  onPlayCountChange,
+  onRecencyChange,
 }: LibraryFilterPanelProps) {
   const isMobile = useIsMobile();
+
+  const playCountValue = neverPlayed
+    ? "never"
+    : minPlays === null
+      ? "any"
+      : PLAY_COUNT_PRESETS.includes(minPlays)
+        ? String(minPlays)
+        : "custom";
+  const recencyValue =
+    findRecencyPreset(playedWithin, notPlayedWithin)?.value ?? RECENCY_ANY;
 
   // Helper: "(N)" suffix for a facet option, or empty string when no facet
   // data is loaded. Keeps call sites concise.
@@ -116,6 +151,90 @@ export function LibraryFilterPanel({
           onTagsChange={onTagsChange}
           onModeChange={onTagModeChange}
         />
+      </FilterSection>
+
+      <FilterSection label="Plays">
+        <div className="flex flex-wrap items-center gap-3">
+          <Select
+            value={playCountValue}
+            onValueChange={(value) => {
+              if (value === "custom") return;
+              if (value === "any") {
+                onPlayCountChange({ minPlays: null, neverPlayed: false });
+              } else if (value === "never") {
+                onPlayCountChange({ minPlays: null, neverPlayed: true });
+              } else {
+                onPlayCountChange({
+                  minPlays: Number(value),
+                  neverPlayed: false,
+                });
+              }
+            }}
+          >
+            <SelectTrigger aria-label="Filter by play count" className="w-40">
+              <SelectValue />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="any">Any play count</SelectItem>
+              <SelectItem value="never">Never played</SelectItem>
+              {PLAY_COUNT_PRESETS.map((n) => (
+                <SelectItem key={n} value={String(n)}>
+                  {n}+ plays
+                </SelectItem>
+              ))}
+              {playCountValue === "custom" && (
+                <SelectItem value="custom">{minPlays}+ plays</SelectItem>
+              )}
+            </SelectContent>
+          </Select>
+
+          <div className="flex items-center gap-1.5">
+            <label
+              htmlFor="library-min-plays"
+              className="text-xs text-text-muted"
+            >
+              Min
+            </label>
+            <Input
+              id="library-min-plays"
+              type="number"
+              min={1}
+              className="w-20"
+              value={minPlays ?? ""}
+              onChange={(e) => {
+                const raw = e.target.value;
+                onPlayCountChange({
+                  minPlays: raw === "" ? null : Math.max(1, Number(raw)),
+                  neverPlayed: false,
+                });
+              }}
+              aria-label="Minimum play count"
+            />
+          </div>
+
+          <Select
+            value={recencyValue}
+            onValueChange={(value) => {
+              const preset = RECENCY_PRESETS.find((p) => p.value === value);
+              onRecencyChange({
+                playedWithin: preset?.playedWithin ?? null,
+                notPlayedWithin: preset?.notPlayedWithin ?? null,
+              });
+            }}
+          >
+            <SelectTrigger aria-label="Filter by play recency" className="w-48">
+              <SelectValue />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value={RECENCY_ANY}>Any time</SelectItem>
+              {RECENCY_PRESETS.map((preset) => (
+                <SelectItem key={preset.value} value={preset.value}>
+                  {preset.label}
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+        </div>
       </FilterSection>
 
       <FilterSection label="Source">

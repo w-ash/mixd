@@ -208,6 +208,9 @@ class TrackMapper(BaseModelMapper[DBTrack, Track]):
             duration_ms=db_model.duration_ms,
             release_date=ensure_utc(db_model.release_date),
             isrc=db_model.isrc,
+            play_count=db_model.play_count,
+            last_played_at=ensure_utc(db_model.last_played_at),
+            first_played_at=ensure_utc(db_model.first_played_at),
             connector_track_identifiers=connector_track_identifiers,
             connector_metadata=connector_metadata,
         )

@@ -1,3 +1,4 @@
+import { fireEvent } from "@testing-library/react";
 import { HttpResponse, http } from "msw";
 import { describe, expect, it } from "vitest";
 
@@ -216,5 +217,121 @@ describe("Library", () => {
     expect(
       screen.getByRole("button", { name: /Sort by Duration/ }),
     ).toBeInTheDocument();
+  });
+
+  it("requests most-recently-played sort by default", async () => {
+    let sortParam: string | null = null;
+    server.use(
+      http.get("*/api/v1/tracks", ({ request }) => {
+        sortParam = new URL(request.url).searchParams.get("sort");
+        return HttpResponse.json(
+          { data: [], total: 0, limit: 50, offset: 0 },
+          { status: 200 },
+        );
+      }),
+    );
+
+    renderWithProviders(<Library />);
+
+    await waitFor(() => {
+      expect(sortParam).toBe("last_played_desc");
+    });
+  });
+
+  it("renders play count and last-played columns with values", async () => {
+    const [track] = makeTracks(1);
+    overrideTracks([
+      {
+        ...track,
+        total_plays: 47,
+        last_played: new Date(Date.now() - 3 * 3_600_000).toISOString(),
+      },
+    ]);
+
+    renderWithProviders(<Library />);
+
+    await waitFor(() => {
+      expect(screen.getAllByText("Track 1").length).toBeGreaterThan(0);
+    });
+
+    expect(screen.getAllByText("47").length).toBeGreaterThan(0);
+    expect(screen.getAllByText("3h ago").length).toBeGreaterThan(0);
+    expect(
+      screen.getByRole("button", { name: /Sort by Plays/ }),
+    ).toBeInTheDocument();
+    expect(
+      screen.getByRole("button", { name: /Sort by Last Played/ }),
+    ).toBeInTheDocument();
+  });
+
+  it("shows an em-dash for never-played tracks", async () => {
+    overrideTracks([
+      { ...makeTracks(1)[0], total_plays: 0, last_played: null },
+    ]);
+
+    renderWithProviders(<Library />);
+
+    await waitFor(() => {
+      expect(screen.getAllByText("Track 1").length).toBeGreaterThan(0);
+    });
+
+    expect(screen.getAllByText("—").length).toBeGreaterThan(0);
+  });
+
+  // Regression: min_plays and never_played were written by two back-to-back
+  // setFilter calls. The second rebuilt from the pre-navigation params, so the
+  // min_plays write was discarded and the filter did nothing at all.
+  it("sends the edited minimum play count to the API", async () => {
+    const requests: string[] = [];
+    server.use(
+      http.get("*/api/v1/tracks", ({ request }) => {
+        requests.push(request.url);
+        return HttpResponse.json(
+          { data: [], total: 0, limit: 50, offset: 0 },
+          { status: 200 },
+        );
+      }),
+    );
+
+    // Starting with a play filter set means the panel renders expanded.
+    renderWithProviders(<Library />, {
+      routerProps: { initialEntries: ["/library?min_plays=10"] },
+    });
+
+    const minInput = await screen.findByLabelText("Minimum play count");
+    fireEvent.change(minInput, { target: { value: "25" } });
+
+    await waitFor(() => {
+      const last = new URL(requests[requests.length - 1]);
+      expect(last.searchParams.get("min_plays")).toBe("25");
+    });
+  });
+
+  it("clearing the minimum drops min_plays without stranding never_played", async () => {
+    const requests: string[] = [];
+    server.use(
+      http.get("*/api/v1/tracks", ({ request }) => {
+        requests.push(request.url);
+        return HttpResponse.json(
+          { data: [], total: 0, limit: 50, offset: 0 },
+          { status: 200 },
+        );
+      }),
+    );
+
+    renderWithProviders(<Library />, {
+      routerProps: {
+        initialEntries: ["/library?min_plays=10&never_played=true"],
+      },
+    });
+
+    const minInput = await screen.findByLabelText("Minimum play count");
+    fireEvent.change(minInput, { target: { value: "" } });
+
+    await waitFor(() => {
+      const last = new URL(requests[requests.length - 1]);
+      expect(last.searchParams.get("min_plays")).toBeNull();
+      expect(last.searchParams.get("never_played")).toBeNull();
+    });
   });
 });

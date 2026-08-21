@@ -129,6 +129,16 @@ class RebuildPlayHistoryUseCase:
             else:
                 stats["unsourced_deleted"] = 0
 
+            # Whole-library pass: also heals tracks the per-chunk recomputes
+            # never saw because the ledger no longer mentions them.
+            if not command.dry_run:
+                stats[
+                    "aggregates_recomputed"
+                ] = await plays_repo.recompute_track_play_aggregates(
+                    None, user_id=command.user_id
+                )
+                await commit_batch(uow)
+
         logger.info(
             "Play history rebuild complete",
             user_id=command.user_id,

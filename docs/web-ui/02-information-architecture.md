@@ -10,7 +10,9 @@
 ```
 Mixd
 ├── Dashboard        /                    Stats, health, activity feed
-├── Library          /library             Track browsing & search
+├── Library                               Nav section (v0.10.4); Artists/Albums nest here in v0.12.x
+│   ├── Tracks       /library             Track browsing & search
+│   └── Plays        /library/plays       Play history feed with chart navigator
 ├── Playlists        /playlists           List, detail, edit, links
 ├── Workflows        /workflows           List, run, edit, visualize
 ├── Imports          /imports             Trigger & monitor data operations
@@ -26,7 +28,8 @@ Dashboard and Stats are merged into a single page at `/`. The dashboard IS the s
 | Route | Page | Primary Flow Reference | Notes |
 |-------|------|----------------------|-------|
 | `/` | Dashboard | Flow 7.1 | Stats, connector health, freshness alerts, recent activity |
-| `/library` | Track List | Flow 2.1 | Paginated, searchable, filterable |
+| `/library` | Track List | Flow 2.1 | Paginated, searchable, filterable; default sort = most recently played (v0.10.4) |
+| `/library/plays` | Play History Feed | Flow 2.4 | Chart-as-date-navigator + virtualized play feed; `?track_id=` narrows to one track (v0.10.4) |
 | `/library/:id` | Track Detail | Flow 2.2, 2.3 | Metadata, mappings, likes, play history, actions |
 | `/playlists` | Playlist List | Flow 3.1 | All canonical playlists. Create uses modal dialog, not a route. |
 | `/playlists/:id` | Playlist Detail | Flow 3.2, 3.3, 3.4, 3.5, 3.6 | Track list, add/remove/reorder. Edit name/description uses inline dialog. |
@@ -51,6 +54,7 @@ Every page has an empty state. Text guides users to the canonical location for t
 |------|------------|
 | Dashboard `/` | "Connect services in Settings to get started." |
 | Library `/library` | "No tracks yet. Import data from the Import Center." |
+| Plays `/library/plays` | "No plays yet. Import listening history or connect a service to start the feed." |
 | Playlists `/playlists` | "No playlists yet. Create your first playlist to start curating your music collection." [New Playlist] |
 | Workflows `/workflows` | "No workflows yet. Create your first workflow or start from a template." [Create Workflow] [Browse Templates] |
 | Imports `/imports` | "No import history. Connect a service in Settings first." Available operations cards still shown. |

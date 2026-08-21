@@ -20,11 +20,6 @@ export const WEEKDAYS = [
   "Saturday",
 ] as const;
 
-/** The browser's IANA timezone, used as the default when creating a schedule. */
-export function browserTimezone(): string {
-  return Intl.DateTimeFormat().resolvedOptions().timeZone || "UTC";
-}
-
 /** Format a 24-hour `hour`/`minute` as a 12-hour clock string ("6:30 AM"). */
 export function formatClockTime(hour: number, minute: number): string {
   const period = hour < 12 ? "AM" : "PM";

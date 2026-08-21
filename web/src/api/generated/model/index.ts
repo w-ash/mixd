@@ -3,7 +3,7 @@
  * Do not edit manually.
  * Mixd
  * Personal music metadata hub
- * OpenAPI spec version: 0.10.3.6
+ * OpenAPI spec version: 0.10.4
  */
 
 export * from './activeAssignmentSchema.ts';
@@ -64,7 +64,9 @@ export * from './fieldType.ts';
 export * from './getConnectorAuthUrlApiV1ConnectorsServiceAuthUrlGet200.ts';
 export * from './getMatchingHealthApiV1StatsMatchingGetParams.ts';
 export * from './getPlaylistTracksApiV1PlaylistsPlaylistIdTracksGetParams.ts';
+export * from './getPlaysHistogramApiV1PlaysHistogramGetParams.ts';
 export * from './healthCheckApiV1HealthGetParams.ts';
+export * from './histogramBinSchema.ts';
 export * from './hTTPValidationError.ts';
 export * from './importConnectorPlaylistsRequest.ts';
 export * from './importConnectorPlaylistsRequestSyncDirection.ts';
@@ -88,6 +90,7 @@ export * from './listActiveRunsApiV1WorkflowsActiveRunsGetParams.ts';
 export * from './listConnectorPlaylistsApiV1ConnectorsServicePlaylistsGetParams.ts';
 export * from './listOperationRunsApiV1OperationRunsGetParams.ts';
 export * from './listPlaylistsApiV1PlaylistsGetParams.ts';
+export * from './listPlaysApiV1PlaysGetParams.ts';
 export * from './listReviewsApiV1ReviewsGetParams.ts';
 export * from './listTagsApiV1TagsGetParams.ts';
 export * from './listTracksApiV1TracksGetParams.ts';
@@ -118,10 +121,14 @@ export * from './paginatedResponsePlaylistEntrySchema.ts';
 export * from './paginatedResponsePlaylistSummarySchema.ts';
 export * from './paginatedResponseWorkflowRunSummarySchema.ts';
 export * from './paginatedResponseWorkflowSummarySchema.ts';
+export * from './playEventSchema.ts';
+export * from './playHistogramResponse.ts';
+export * from './playHistogramResponseBucket.ts';
 export * from './playlistBriefSchema.ts';
 export * from './playlistDetailSchema.ts';
 export * from './playlistEntrySchema.ts';
 export * from './playlistLinkSchema.ts';
+export * from './playListResponse.ts';
 export * from './playlistSummarySchema.ts';
 export * from './playPollingRequest.ts';
 export * from './playPollingResponse.ts';

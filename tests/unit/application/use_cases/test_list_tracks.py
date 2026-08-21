@@ -11,7 +11,7 @@ from src.application.use_cases.list_tracks import (
     ListTracksResult,
     ListTracksUseCase,
 )
-from src.domain.repositories.track import TrackListingPage
+from src.domain.repositories.track import PlayFilters, TrackListingPage
 from tests.fixtures import make_tracks
 from tests.fixtures.mocks import make_mock_uow
 
@@ -76,7 +76,8 @@ class TestListTracksUseCase:
             tags=None,
             tag_mode="and",
             namespace=None,
-            sort_by="title_asc",
+            play_filters=PlayFilters(),
+            sort_by="last_played_desc",
             limit=50,
             offset=0,
             after_value=None,
@@ -108,6 +109,7 @@ class TestListTracksUseCase:
             tags=None,
             tag_mode="and",
             namespace=None,
+            play_filters=PlayFilters(),
             sort_by="duration_desc",
             limit=25,
             offset=50,
@@ -157,7 +159,9 @@ class TestListTracksCursorPagination:
         )
         mock_uow.get_track_repository().list_tracks.return_value = _page()
 
-        command = ListTracksCommand(user_id="test-user", cursor=cursor)
+        command = ListTracksCommand(
+            user_id="test-user", cursor=cursor, sort_by="title_asc"
+        )
         await ListTracksUseCase().execute(command, mock_uow)
 
         call_kwargs = mock_uow.get_track_repository().list_tracks.call_args.kwargs
@@ -227,7 +231,7 @@ class TestListTracksCommand:
         assert cmd.query is None
         assert cmd.liked is None
         assert cmd.connector is None
-        assert cmd.sort_by == "title_asc"
+        assert cmd.sort_by == "last_played_desc"
         assert cmd.limit == 50
         assert cmd.offset == 0
         assert cmd.cursor is None

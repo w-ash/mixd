@@ -125,6 +125,53 @@ class TestTrackMergeServiceIntegration:
                 await merge_service.merge_tracks(fake_id_1, fake_id_2, uow)
 
 
+class TestMergeRecomputesPlayAggregates:
+    """The winner's denormalized aggregates cover the union of both tracks' plays."""
+
+    async def test_winner_aggregates_equal_union_of_plays(
+        self, db_session: AsyncSession, test_data_tracker
+    ):
+        winner = DBTrack(title="Agg Winner", artists={"names": ["A"]})
+        loser = DBTrack(title="Agg Loser", artists={"names": ["A"]})
+        db_session.add_all([winner, loser])
+        await db_session.flush()
+        test_data_tracker.add_track(winner.id)
+        test_data_tracker.add_track(loser.id)
+
+        earliest = datetime(2026, 2, 1, tzinfo=UTC)
+        latest = earliest + timedelta(days=9)
+        # The loser holds both extremes, so the recompute must see the moved
+        # plays — the winner's own rows alone would give the wrong bounds.
+        db_session.add_all([
+            DBTrackPlay(track_id=winner.id, service="lastfm", played_at=at)
+            for at in (earliest + timedelta(days=1), earliest + timedelta(days=2))
+        ])
+        db_session.add_all([
+            DBTrackPlay(track_id=loser.id, service="lastfm", played_at=at)
+            for at in (earliest, latest)
+        ])
+        await db_session.flush()
+
+        uow = DatabaseUnitOfWork(db_session)
+        async with uow:
+            _ = await TrackMergeService().merge_tracks(winner.id, loser.id, uow)
+
+        row = (
+            (
+                await db_session.execute(
+                    select(
+                        DBTrack.play_count,
+                        DBTrack.first_played_at,
+                        DBTrack.last_played_at,
+                    ).where(DBTrack.id == winner.id)
+                )
+            )
+            .tuples()
+            .one()
+        )
+        assert row == (4, earliest, latest)
+
+
 class TestTrackMergePreferences:
     """Preferences must move (or be conflict-resolved) when tracks merge."""
 

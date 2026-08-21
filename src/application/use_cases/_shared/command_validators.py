@@ -1,9 +1,11 @@
-"""Bespoke attrs field validators for Command classes.
+"""Bespoke attrs field validators and converters for Command classes.
 
 Only contains validators with logic that attrs's built-in validators
 (``attrs.validators.min_len``, ``in_``, ``ge``/``le``, ``optional``, ``and_``)
 cannot express. Use the built-ins directly at the call site for everything else.
 """
+
+from datetime import UTC, datetime
 
 from attrs import Attribute
 
@@ -31,3 +33,18 @@ def non_empty_string[StrT: str](
     """
     if not value or not value.strip():
         raise ValueError(f"{attribute.name} must be a non-empty string, got: {value!r}")
+
+
+def as_utc(value: datetime | None) -> datetime | None:
+    """Attach UTC to a naive datetime so Commands never carry a mixed pair.
+
+    Datetimes reach Commands from surfaces that cannot promise an offset —
+    a bare ``datetime`` query param, ``datetime.fromisoformat`` over
+    LLM-supplied text — while everything downstream (``datetime.now(UTC)``,
+    TIMESTAMPTZ columns) is aware. Mixing the two either raises on
+    subtraction or, worse, lets psycopg reinterpret the value against the
+    session TimeZone and return silently wrong rows.
+    """
+    if value is None or value.tzinfo is not None:
+        return value
+    return value.replace(tzinfo=UTC)

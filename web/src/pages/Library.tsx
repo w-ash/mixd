@@ -40,7 +40,14 @@ import { useFilterState } from "#/hooks/useFilterState";
 import { usePagination } from "#/hooks/usePagination";
 import { useTrackSearch } from "#/hooks/useTrackSearch";
 import { parsePreferenceParam } from "#/lib/filters-to-workflow";
-import { formatArtists, formatDuration, formatList } from "#/lib/format";
+import {
+  formatArtists,
+  formatCount,
+  formatDuration,
+  formatList,
+  formatRelativeTime,
+} from "#/lib/format";
+import { countPlayFilters } from "#/lib/play-filters";
 import { pluralSuffix } from "#/lib/pluralize";
 import { cn } from "#/lib/utils";
 
@@ -105,6 +112,15 @@ function TrackCard({ track, selected, onSelectedChange }: TrackCardProps) {
         <span className="shrink-0 tabular-nums">
           {formatDuration(track.duration_ms)}
         </span>
+        {track.total_plays ? (
+          <span
+            className="shrink-0 tabular-nums"
+            title={track.last_played ?? undefined}
+          >
+            {formatCount(track.total_plays)} play
+            {pluralSuffix(track.total_plays)}
+          </span>
+        ) : null}
         {track.preference && <PreferenceBadge state={track.preference} />}
       </div>
       {track.tags && track.tags.length > 0 && (
@@ -123,7 +139,13 @@ function TrackCard({ track, selected, onSelectedChange }: TrackCardProps) {
   );
 }
 
-type SortField = "title" | "artist" | "duration" | "added";
+type SortField =
+  | "title"
+  | "artist"
+  | "duration"
+  | "added"
+  | "plays"
+  | "last_played";
 type SortDir = "asc" | "desc";
 
 const SORT_LABELS: Record<SortField, string> = {
@@ -131,6 +153,8 @@ const SORT_LABELS: Record<SortField, string> = {
   artist: "Artist",
   duration: "Duration",
   added: "Added",
+  plays: "Plays",
+  last_played: "Last Played",
 };
 
 /** Map column name to API sort param */
@@ -141,11 +165,11 @@ function toSortParam(field: SortField, dir: SortDir): TrackSortBy {
 /** Parse API sort param back to field + direction */
 function parseSortParam(param: string): { field: SortField; dir: SortDir } {
   const lastUnderscore = param.lastIndexOf("_");
-  if (lastUnderscore === -1) return { field: "title", dir: "asc" };
+  if (lastUnderscore === -1) return { field: "last_played", dir: "desc" };
   const field = param.slice(0, lastUnderscore) as SortField;
   const dir = param.slice(lastUnderscore + 1) as SortDir;
   if (!SORT_LABELS[field] || (dir !== "asc" && dir !== "desc")) {
-    return { field: "title", dir: "asc" };
+    return { field: "last_played", dir: "desc" };
   }
   return { field, dir };
 }
@@ -207,9 +231,10 @@ export function Library() {
     cursorMapRef.current.clear();
     setSelectedIds(new Set());
   }, []);
-  const { searchParams, setFilter, setMultiFilter, clearAll } = useFilterState({
-    onMutate: resetLocalState,
-  });
+  const { searchParams, setFilter, setFilters, setMultiFilter, clearAll } =
+    useFilterState({
+      onMutate: resetLocalState,
+    });
   const { search, setSearch, deferredSearch, isSearching } = useTrackSearch(
     searchParams.get("q") ?? "",
   );
@@ -222,8 +247,12 @@ export function Library() {
   const tagParams = searchParams.getAll("tag");
   const tagModeParam: "and" | "or" =
     searchParams.get("tag_mode") === "or" ? "or" : "and";
+  const minPlaysParam = searchParams.get("min_plays");
+  const playedWithinParam = searchParams.get("played_within");
+  const notPlayedWithinParam = searchParams.get("not_played_within");
+  const neverPlayedParam = searchParams.get("never_played") === "true";
   const { field: sortField, dir: sortDir } = parseSortParam(
-    searchParams.get("sort") ?? "title_asc",
+    searchParams.get("sort") ?? "last_played_desc",
   );
   // Round-trip through the parser so garbage URL values normalize to a
   // valid TrackSortBy instead of reaching the API as a raw string.
@@ -251,7 +280,10 @@ export function Library() {
   // and stays open once the user has engaged with it — we never auto-close
   // it on filter clear, so the user can keep editing without losing their
   // place. Manual toggle via the toolbar button still works.
-  const activeFilterCount = useMemo(
+  // Play filters have no workflow-node mapping yet — Save as Workflow keys
+  // on the subset filtersToWorkflowDef can express, so that subset is counted
+  // on its own and the play groups are added on top for the panel badge.
+  const mappableFilterCount = useMemo(
     () =>
       countActiveFilters({
         preference: preferenceParam,
@@ -261,6 +293,14 @@ export function Library() {
       }),
     [preferenceParam, likedParam, connectorParam, tagParams],
   );
+  const activeFilterCount =
+    mappableFilterCount +
+    countPlayFilters({
+      minPlays: minPlaysParam,
+      neverPlayed: neverPlayedParam,
+      playedWithin: playedWithinParam,
+      notPlayedWithin: notPlayedWithinParam,
+    });
   const [filterPanelOpen, setFilterPanelOpen] = useState(activeFilterCount > 0);
   useEffect(() => {
     if (activeFilterCount > 0) setFilterPanelOpen(true);
@@ -279,6 +319,14 @@ export function Library() {
         preference: preferenceParam ?? undefined,
         tag: tagParams.length > 0 ? tagParams : undefined,
         tag_mode: tagModeParam,
+        min_plays: minPlaysParam ? Number(minPlaysParam) : undefined,
+        played_within: playedWithinParam
+          ? Number(playedWithinParam)
+          : undefined,
+        not_played_within: notPlayedWithinParam
+          ? Number(notPlayedWithinParam)
+          : undefined,
+        never_played: neverPlayedParam || undefined,
         sort: sortParam,
         limit: PAGE_SIZE,
         offset: queryOffset,
@@ -328,12 +376,7 @@ export function Library() {
     setFilter("q", value);
   };
 
-  const hasFilters =
-    querySearch ||
-    likedParam ||
-    connectorParam ||
-    preferenceParam ||
-    tagParams.length > 0;
+  const hasFilters = activeFilterCount > 0 || Boolean(querySearch);
 
   return (
     <div>
@@ -406,11 +449,11 @@ export function Library() {
         <Button
           type="button"
           variant="outline"
-          disabled={activeFilterCount === 0}
+          disabled={mappableFilterCount === 0}
           onClick={() => setSaveWorkflowOpen(true)}
           title={
-            activeFilterCount === 0
-              ? "Apply a filter first to save as workflow"
+            mappableFilterCount === 0
+              ? "Apply a preference, liked, source, or tag filter first"
               : "Save the current filters as a reusable workflow"
           }
           className="gap-2"
@@ -439,6 +482,25 @@ export function Library() {
         onTagModeChange={(mode) =>
           setFilter("tag_mode", mode === "and" ? null : mode)
         }
+        minPlays={minPlaysParam ? Number(minPlaysParam) : null}
+        neverPlayed={neverPlayedParam}
+        playedWithin={playedWithinParam ? Number(playedWithinParam) : null}
+        notPlayedWithin={
+          notPlayedWithinParam ? Number(notPlayedWithinParam) : null
+        }
+        onPlayCountChange={({ minPlays, neverPlayed }) => {
+          setFilters({
+            min_plays: minPlays === null ? null : String(minPlays),
+            never_played: neverPlayed ? "true" : null,
+          });
+        }}
+        onRecencyChange={({ playedWithin, notPlayedWithin }) => {
+          setFilters({
+            played_within: playedWithin === null ? null : String(playedWithin),
+            not_played_within:
+              notPlayedWithin === null ? null : String(notPlayedWithin),
+          });
+        }}
       />
 
       <ActiveFilterChips
@@ -447,6 +509,10 @@ export function Library() {
         connector={connectorParam}
         preference={preferenceParam}
         tags={tagParams}
+        minPlays={minPlaysParam}
+        neverPlayed={neverPlayedParam}
+        playedWithin={playedWithinParam}
+        notPlayedWithin={notPlayedWithinParam}
         onClearFilter={(key) => {
           if (key === "q") {
             setSearch("");
@@ -607,7 +673,12 @@ export function Library() {
                     >
                       Artist
                     </SortableHead>
-                    <TableHead className="w-48">Album</TableHead>
+                    {/* Column priority: Album/Tags yield below 2xl so the
+                        play columns (the default sort) stay in view without
+                        horizontal scrolling. */}
+                    <TableHead className="hidden w-48 2xl:table-cell">
+                      Album
+                    </TableHead>
                     <SortableHead
                       field="duration"
                       currentField={sortField}
@@ -617,8 +688,28 @@ export function Library() {
                     >
                       Duration
                     </SortableHead>
+                    <SortableHead
+                      field="plays"
+                      currentField={sortField}
+                      currentDir={sortDir}
+                      onSort={handleSort}
+                      className="w-16 text-right"
+                    >
+                      Plays
+                    </SortableHead>
+                    <SortableHead
+                      field="last_played"
+                      currentField={sortField}
+                      currentDir={sortDir}
+                      onSort={handleSort}
+                      className="w-28"
+                    >
+                      Last Played
+                    </SortableHead>
                     <TableHead className="w-10 text-center">Pref</TableHead>
-                    <TableHead className="w-48">Tags</TableHead>
+                    <TableHead className="hidden w-48 2xl:table-cell">
+                      Tags
+                    </TableHead>
                     <TableHead className="w-24 text-center">Sources</TableHead>
                   </TableRow>
                 </TableHeader>
@@ -661,8 +752,12 @@ export function Library() {
                           />
                         )}
                       </TableCell>
-                      {/* Title */}
-                      <TableCell>
+                      {/* Title — truncated so one long title can't push the
+                          play columns past the viewport edge. */}
+                      <TableCell
+                        className="max-w-96 truncate"
+                        title={track.title}
+                      >
                         <Link
                           to={`/library/${track.id}`}
                           viewTransition
@@ -676,12 +771,27 @@ export function Library() {
                         {formatArtists(track.artists)}
                       </TableCell>
                       {/* Album */}
-                      <TableCell className="text-text-muted text-sm truncate max-w-48">
+                      <TableCell className="hidden max-w-48 truncate text-text-muted text-sm 2xl:table-cell">
                         {track.album ?? "\u2014"}
                       </TableCell>
                       {/* Duration */}
                       <TableCell className="text-right tabular-nums text-text-muted text-sm">
                         {formatDuration(track.duration_ms)}
+                      </TableCell>
+                      {/* Plays */}
+                      <TableCell className="text-right tabular-nums text-text-muted text-sm">
+                        {track.total_plays
+                          ? formatCount(track.total_plays)
+                          : "\u2014"}
+                      </TableCell>
+                      {/* Last Played */}
+                      <TableCell
+                        className="whitespace-nowrap text-text-muted text-sm"
+                        title={track.last_played ?? undefined}
+                      >
+                        {track.last_played
+                          ? formatRelativeTime(track.last_played)
+                          : "\u2014"}
                       </TableCell>
                       {/* Preference */}
                       <TableCell className="w-10 text-center">
@@ -690,7 +800,7 @@ export function Library() {
                         )}
                       </TableCell>
                       {/* Tags */}
-                      <TableCell className="w-48">
+                      <TableCell className="hidden w-48 2xl:table-cell">
                         {track.tags && track.tags.length > 0 && (
                           <TagRowChips tags={track.tags} />
                         )}

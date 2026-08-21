@@ -282,9 +282,12 @@ def list_tracks(
         typer.Option(
             "--sort",
             "-s",
-            help="Sort order (e.g. title_asc, artist_desc, added_desc, duration_asc)",
+            help=(
+                "Sort order (e.g. last_played_desc, plays_desc, title_asc, "
+                "artist_desc, added_desc, duration_asc)"
+            ),
         ),
-    ] = "title_asc",
+    ] = "last_played_desc",
     limit: Annotated[
         int,
         typer.Option("--limit", "-l", help="Number of tracks to show"),
