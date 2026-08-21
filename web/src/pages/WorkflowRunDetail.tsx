@@ -17,7 +17,10 @@ import { DetailHeaderSkeleton } from "#/components/shared/skeletons";
 import { WorkflowGraph } from "#/components/shared/WorkflowGraph";
 import { Button } from "#/components/ui/button";
 import { Skeleton } from "#/components/ui/skeleton";
-import { NodeExecutionRow } from "#/components/workflow/run-detail/NodeExecutionRow";
+import {
+  NODE_ROW_GRID_COLS,
+  NodeExecutionRow,
+} from "#/components/workflow/run-detail/NodeExecutionRow";
 import { OutputTracksTable } from "#/components/workflow/run-detail/OutputTracksTable";
 import { useWorkflowExecutionContext } from "#/contexts/WorkflowExecutionContext";
 import { useActiveRun } from "#/hooks/useActiveRuns";
@@ -264,7 +267,7 @@ export function WorkflowRunDetail() {
       {sortedNodes.length > 0 && (
         <section className="mt-8 space-y-3">
           <SectionHeader title="Node Execution Details" />
-          <div className="space-y-2">
+          <div className={cn("grid grid-cols-1 gap-y-2", NODE_ROW_GRID_COLS)}>
             {sortedNodes.map((node) => (
               <NodeExecutionRow key={node.node_id} node={node} />
             ))}

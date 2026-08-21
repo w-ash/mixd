@@ -23,6 +23,7 @@ import {
   TableRow,
 } from "#/components/ui/table";
 import { formatDuration, formatRelativeTime } from "#/lib/format";
+import { numericCellClass } from "#/lib/utils";
 
 export function RunHistoryTable({
   runs,
@@ -91,10 +92,10 @@ export function RunHistoryTable({
                   <TableCell>
                     <RunStatusBadge status={run.status} />
                   </TableCell>
-                  <TableCell className="text-right font-mono text-xs tabular-nums text-text-muted">
+                  <TableCell className={numericCellClass}>
                     {formatDuration(run.duration_ms)}
                   </TableCell>
-                  <TableCell className="text-right font-mono text-xs tabular-nums text-text-muted">
+                  <TableCell className={numericCellClass}>
                     {run.output_track_count ?? "—"}
                   </TableCell>
                   <TableCell className="text-right text-xs text-text-muted">

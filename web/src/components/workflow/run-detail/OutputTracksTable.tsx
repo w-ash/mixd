@@ -10,6 +10,7 @@ import {
   TableRow,
 } from "#/components/ui/table";
 import { formatMetricHeader, formatMetricValue } from "#/lib/format";
+import { numericCellClass } from "#/lib/utils";
 
 /**
  * Card representation of an output track — used by ResponsiveTable below the
@@ -109,10 +110,7 @@ export function OutputTracksTable({
                     {String(track.artists ?? "")}
                   </TableCell>
                   {metricColumns.map((col) => (
-                    <TableCell
-                      key={col}
-                      className="text-right font-mono text-xs tabular-nums text-text-muted"
-                    >
+                    <TableCell key={col} className={numericCellClass}>
                       {formatMetricValue(
                         (track.metrics as Record<string, unknown>)?.[col],
                       )}
