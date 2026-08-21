@@ -148,7 +148,7 @@ GET    /tracks
        ?q=<search>                    free-text search on title + artist + album (min 2 chars)
        ?connector=<name>              filter by connector mapping
        ?liked=<true|false>            filter by canonical liked status (any service)
-       ?sort=<field_dir>              title_asc, title_desc, artist_asc, artist_desc, added_asc, added_desc, duration_asc, duration_desc, plays_asc, plays_desc, last_played_asc, last_played_desc
+       ?sort=<field_dir>              title_asc, title_desc, added_asc, added_desc, duration_asc, duration_desc, plays_asc, plays_desc, last_played_asc, last_played_desc (default: last_played_desc; no artist sort until artists are first-class — v0.12.1)
        ?min_plays=<int>               at least N plays (v0.10.4)
        ?never_played=<true>           zero plays (v0.10.4)
        ?played_within=<days>          played in the last N days (v0.10.4)

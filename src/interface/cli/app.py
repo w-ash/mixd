@@ -50,7 +50,7 @@ def whoami_command() -> None:
     from rich.panel import Panel
     from rich.table import Table
 
-    from src.config.settings import get_database_url
+    from src.config.settings import database_host_and_mode, get_database_url
     from src.interface.cli.async_runner import run_async
     from src.interface.cli.cli_helpers import get_cli_user_id
 
@@ -60,8 +60,7 @@ def whoami_command() -> None:
     # Mask password in DB URL for display
     parsed = urlparse(db_url.replace("+psycopg", ""))
     masked = db_url.replace(parsed.password, "****") if parsed.password else db_url
-    db_host = parsed.hostname or "unknown"
-    mode = "local" if db_host in ("localhost", "127.0.0.1") else "remote"
+    mode = database_host_and_mode(db_url)[1]
 
     lines = [
         f"[cyan]User ID:[/cyan]  {user_id}",

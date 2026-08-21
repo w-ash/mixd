@@ -139,18 +139,13 @@ function TrackCard({ track, selected, onSelectedChange }: TrackCardProps) {
   );
 }
 
-type SortField =
-  | "title"
-  | "artist"
-  | "duration"
-  | "added"
-  | "plays"
-  | "last_played";
+// No artist sort until artists are first-class (v0.12.1) — `artists_text` is a
+// joined display string, so ordering by it sorts by "Bowie, Eno", not by artist.
+type SortField = "title" | "duration" | "added" | "plays" | "last_played";
 type SortDir = "asc" | "desc";
 
 const SORT_LABELS: Record<SortField, string> = {
   title: "Title",
-  artist: "Artist",
   duration: "Duration",
   added: "Added",
   plays: "Plays",
@@ -665,14 +660,7 @@ export function Library() {
                     >
                       Title
                     </SortableHead>
-                    <SortableHead
-                      field="artist"
-                      currentField={sortField}
-                      currentDir={sortDir}
-                      onSort={handleSort}
-                    >
-                      Artist
-                    </SortableHead>
+                    <TableHead>Artist</TableHead>
                     {/* Column priority: Album/Tags yield below 2xl so the
                         play columns (the default sort) stay in view without
                         horizontal scrolling. */}

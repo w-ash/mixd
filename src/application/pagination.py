@@ -16,11 +16,12 @@ from attrs import define
 
 # ── Track sort definitions ──────────────────────────────────────────────
 
+# No artist sort: ordering by the denormalized ``artists_text`` blob sorts by
+# the joined display string ("Bowie, Eno" ≠ "Eno, Bowie"), which is a different
+# thing from sorting by artist. It returns with first-class artists (v0.12.1).
 type TrackSortBy = Literal[
     "title_asc",
     "title_desc",
-    "artist_asc",
-    "artist_desc",
     "added_desc",
     "added_asc",
     "duration_asc",
@@ -38,8 +39,6 @@ type TrackSortBy = Literal[
 TRACK_SORT_COLUMNS: Final[dict[TrackSortBy, tuple[str, str]]] = {
     "title_asc": ("title", "asc"),
     "title_desc": ("title", "desc"),
-    "artist_asc": ("artists_text", "asc"),
-    "artist_desc": ("artists_text", "desc"),
     "added_desc": ("created_at", "desc"),
     "added_asc": ("created_at", "asc"),
     "duration_asc": ("duration_ms", "asc"),

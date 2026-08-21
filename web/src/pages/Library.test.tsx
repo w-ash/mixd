@@ -212,11 +212,24 @@ describe("Library", () => {
       screen.getByRole("button", { name: /Sort by Title/ }),
     ).toBeInTheDocument();
     expect(
-      screen.getByRole("button", { name: /Sort by Artist/ }),
-    ).toBeInTheDocument();
-    expect(
       screen.getByRole("button", { name: /Sort by Duration/ }),
     ).toBeInTheDocument();
+  });
+
+  // Artist stays a column but stops being a sort: `artists_text` is a joined
+  // display string, so ordering by it sorts by "Bowie, Eno" rather than by
+  // artist. It returns with first-class artists (v0.12.1).
+  it("renders Artist as a column but not a sort", async () => {
+    overrideTracks(makeTracks(1));
+
+    renderWithProviders(<Library />);
+
+    await waitFor(() => {
+      expect(screen.getAllByText("Track 1").length).toBeGreaterThan(0);
+    });
+
+    expect(screen.getAllByText("Artist").length).toBeGreaterThan(0);
+    expect(screen.queryByRole("button", { name: /Sort by Artist/ })).toBeNull();
   });
 
   it("requests most-recently-played sort by default", async () => {

@@ -20,8 +20,8 @@ from collections.abc import Mapping
 import contextlib
 import os
 from pathlib import Path
-from typing import Annotated, ClassVar, Literal, Self, cast
-from urllib.parse import urlparse
+from typing import Annotated, ClassVar, Final, Literal, Self, cast
+from urllib.parse import parse_qs, urlparse
 
 from dotenv import dotenv_values
 from pydantic import BaseModel, Field, SecretStr, model_validator
@@ -851,6 +851,41 @@ def get_database_url() -> str:
 
     raw = os.environ.get("DATABASE_URL", "") or settings.database.url
     return _normalize_database_url(raw)
+
+
+# Hosts that mean "this developer's own machine". Everything else — Neon, Fly,
+# a teammate's box — is remote. Deliberately not a substring match: `.local`
+# mDNS names and container hostnames are other machines.
+_LOCAL_DB_HOSTS: Final = frozenset({"localhost", "127.0.0.1", "::1"})
+
+
+def database_host_and_mode(db_url: str) -> tuple[str, str]:
+    """Split a database URL into ``(host, "local"|"remote")``.
+
+    One definition of "local" for the ``whoami`` diagnostic and the
+    default-user guard, so what the CLI reports and what the session layer
+    enforces can never disagree.
+
+    **Unknown means remote.** A URL this cannot parse is not evidence of
+    safety, and the guard built on this is not on a hot path — failing closed
+    costs a false alarm, failing open costs production rows. ``MIXD_USER_ID``
+    is the documented way through either way.
+
+    Handles libpq's ``?host=`` form, where a leading ``/`` is a unix socket
+    directory (local) and anything else is a hostname — which is how
+    ``postgresql:///neondb?host=ep-x.neon.tech`` reaches production while
+    looking hostless.
+    """
+    parsed = urlparse(db_url.replace("+psycopg", ""))
+    host = parsed.hostname or ""
+    if not host:
+        raw = (parse_qs(parsed.query).get("host") or [""])[0]
+        if raw.startswith("/"):
+            return raw, "local"  # unix socket on this machine
+        host = raw
+    if not host:
+        return "unknown", "remote"
+    return host, "local" if host.lower() in _LOCAL_DB_HOSTS else "remote"
 
 
 def get_sync_database_url() -> str:

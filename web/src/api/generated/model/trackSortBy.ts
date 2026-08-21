@@ -3,7 +3,7 @@
  * Do not edit manually.
  * Mixd
  * Personal music metadata hub
- * OpenAPI spec version: 0.10.4
+ * OpenAPI spec version: 0.10.4.1
  */
 
 export type TrackSortBy = typeof TrackSortBy[keyof typeof TrackSortBy];
@@ -12,8 +12,6 @@ export type TrackSortBy = typeof TrackSortBy[keyof typeof TrackSortBy];
 export const TrackSortBy = {
   title_asc: 'title_asc',
   title_desc: 'title_desc',
-  artist_asc: 'artist_asc',
-  artist_desc: 'artist_desc',
   added_desc: 'added_desc',
   added_asc: 'added_asc',
   duration_asc: 'duration_asc',

@@ -354,17 +354,54 @@ The `AND id NOT IN (SELECT ... FROM read_only_cte)` pattern ensures each row is 
 
 ### Keyset Pagination Indexes
 
-Composite indexes from migration `003_keyset_idx` support O(1) keyset page seeks:
+Migration `053_track_sort_indexes` gives every track sort a user-scoped
+covering index. It replaced migration `003_keyset_idx`, whose indexes led with
+the sort column rather than `user_id` (they predate multi-tenancy) and which
+turned out to be **absent from production entirely** — `added` was the slowest
+sort in the app against an index the codebase believed existed.
 
-| Index | Columns | Used By |
-|-------|---------|---------|
-| `ix_tracks_title_id` | `(title, id)` | `sort_by=title_asc/desc` |
-| `ix_tracks_created_at_id` | `(created_at, id)` | `sort_by=added_asc/desc` |
-| `ix_tracks_artists_text_id` | `(artists_text, id)` | `sort_by=artist_asc/desc` |
+Each index is `(user_id, <sort key>, id)`. `user_id` leads because every listing
+is user-scoped; `id` trails because the ORDER BY ends with an `id` tiebreaker
+and the keyset predicate compares `(sort key, id)` as a row.
 
-`duration_ms` sort intentionally lacks a composite index (rare sort option — falls back to sequential scan which is fast enough for 15k rows).
+| Index | Key after `user_id` | Serves |
+|-------|--------------------|--------|
+| `ix_tracks_user_title_id` | `title, id` | `title_asc` + `title_desc` |
+| `ix_tracks_user_created_at_id` | `created_at, id` | `added_asc` + `added_desc` |
+| `ix_tracks_user_play_count_id` | `play_count, id` | `plays_asc` + `plays_desc` |
+| `ix_tracks_user_duration_id` | `(duration_ms IS NULL), duration_ms, id` | `duration_asc` |
+| `ix_tracks_user_duration_desc_id` | `(duration_ms IS NOT NULL) DESC, duration_ms DESC, id DESC` | `duration_desc` |
+| `ix_tracks_user_last_played_id` | `(last_played_at IS NULL), last_played_at, id` | `last_played_asc` |
+| `ix_tracks_user_last_played_desc_id` | `(last_played_at IS NOT NULL) DESC, last_played_at DESC, id DESC` | `last_played_desc` (default) |
 
-Verify with: `EXPLAIN ANALYZE SELECT * FROM tracks WHERE (title, id) > ('value', 123) ORDER BY title ASC, id ASC LIMIT 50`
+**NOT NULL columns need one index; nullable columns need two.** A backward index
+scan serves the opposite direction, so `title` / `created_at` / `play_count` get
+a single index each. `duration_ms` and `last_played_at` are nullable and the
+repository sorts them NULLS LAST in *both* directions — which is Postgres's ASC
+default but the opposite of its DESC default, so a backward scan yields NULLS
+FIRST and the planner falls back to a sort.
+
+**Why the leading `(col IS NULL)` boolean.** The readable keyset predicate for a
+NULLS LAST column is `(col, id) </> (:v, :i) OR col IS NULL` — correct, and
+unseekable: the `OR` demotes the row comparison from an Index Cond to a Filter,
+so a deep page rescans the user's whole range (measured at 47k buffers versus 52
+for page 1). Leading the sort key with the NULL-ness as an explicit boolean
+running in the same direction as the column gives the same row order with every
+key pointing one way, which keeps the comparison a single seekable predicate.
+`(col IS NULL) ASC` and `(col IS NOT NULL) DESC` both place NULLs last.
+
+There is **no artist sort** — ordering by the denormalized `artists_text` blob
+sorts by the joined display string ("Bowie, Eno" ≠ "Eno, Bowie"), which is a
+different thing from sorting by artist. It returns with first-class artists
+(v0.12.1); `ix_tracks_artists_text_id` was dropped with it.
+
+Cost of record: index footprint on `tracks` roughly tripled (11 MB → 31 MB at
+68k rows) and the bulk play-aggregate refresh on the import hot path slowed
+~72%. Ordered page-1 on every sort was judged worth it.
+
+Verify with: `EXPLAIN (ANALYZE, BUFFERS) SELECT * FROM tracks WHERE user_id = '<u>'
+ORDER BY (last_played_at IS NOT NULL) DESC, last_played_at DESC, id DESC LIMIT 50`
+— a seeking plan holds its buffer count at any cursor depth.
 
 ## Related Documentation
 

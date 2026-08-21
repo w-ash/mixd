@@ -59,6 +59,7 @@ async def execute_use_case[TResult](
     from src.infrastructure.persistence.database.db_connection import get_session
     from src.infrastructure.persistence.database.user_context import (
         statement_timeout_context,
+        system_context,
         user_context,
     )
     from src.infrastructure.persistence.repositories.factories import get_unit_of_work
@@ -68,6 +69,12 @@ async def execute_use_case[TResult](
         with ExitStack() as stack:
             if user_id is not None:
                 _ = stack.enter_context(user_context(user_id))
+            else:
+                # No user_id means cross-tenant maintenance (the sweeper, the
+                # run reaper) — already the documented contract here. Declaring
+                # it lets the session layer refuse an *accidental* default-user
+                # transaction without also refusing these.
+                _ = stack.enter_context(system_context())
             if statement_timeout is not None:
                 _ = stack.enter_context(statement_timeout_context(statement_timeout))
             return await use_case_factory(uow)

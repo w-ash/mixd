@@ -20,6 +20,7 @@ from sqlalchemy.engine import CursorResult
 from src.config.logging import get_logger
 from src.infrastructure.persistence.database.db_connection import get_session
 from src.infrastructure.persistence.database.db_models import DBOAuthState
+from src.infrastructure.persistence.database.user_context import system_context
 
 logger = get_logger(__name__)
 
@@ -31,11 +32,15 @@ async def prune_expired_states() -> int:
     created (``routes/auth.py``), so this exists for the states that expired
     while the server was down — it runs once from the FastAPI lifespan.
     """
-    async with get_session() as session:
-        result = await session.execute(
-            delete(DBOAuthState).where(DBOAuthState.expires_at < datetime.now(UTC))
-        )
-        count = cast("CursorResult[object]", result).rowcount
+    # Global by design — no user predicate — so it declares itself user-less
+    # rather than riding the default-user contextvar, which the session layer
+    # now refuses on a remote database.
+    with system_context():
+        async with get_session() as session:
+            result = await session.execute(
+                delete(DBOAuthState).where(DBOAuthState.expires_at < datetime.now(UTC))
+            )
+            count = cast("CursorResult[object]", result).rowcount
 
     if count:
         logger.info("Pruned expired OAuth states", count=count)

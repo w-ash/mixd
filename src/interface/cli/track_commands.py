@@ -284,7 +284,7 @@ def list_tracks(
             "-s",
             help=(
                 "Sort order (e.g. last_played_desc, plays_desc, title_asc, "
-                "artist_desc, added_desc, duration_asc)"
+                "added_desc, duration_asc)"
             ),
         ),
     ] = "last_played_desc",

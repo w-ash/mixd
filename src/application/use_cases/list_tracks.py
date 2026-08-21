@@ -7,7 +7,7 @@ plain listing. This avoids two nearly-identical use cases and maps cleanly to
 
 from collections.abc import Sequence
 from datetime import datetime
-from typing import Literal
+from typing import Final, Literal
 from uuid import UUID
 
 from attrs import define, field
@@ -49,6 +49,22 @@ def _normalize_tags(tags: Sequence[str] | None) -> tuple[str, ...] | None:
     return tuple(normalize_tag(t) for t in tags)
 
 
+DEFAULT_TRACK_SORT: Final[TrackSortBy] = "last_played_desc"
+
+
+def _known_sort(value: str) -> TrackSortBy:
+    """Fall back to the default sort rather than raising on an unknown key.
+
+    The repository documents unknown sorts as falling back, but it never got
+    the chance to: ``execute`` subscripts ``TRACK_SORT_COLUMNS`` directly, so an
+    unrecognized value was a ``KeyError`` — a 500 — several frames earlier.
+    Normalizing here makes the documented behavior true for every caller. The
+    API's ``TrackSortBy`` Query type still rejects garbage with a 422 before it
+    reaches this point; this covers programmatic callers and stale cursors.
+    """
+    return value if value in TRACK_SORT_COLUMNS else DEFAULT_TRACK_SORT
+
+
 @define(frozen=True, slots=True)
 class ListTracksCommand:
     """Parameters for listing/searching tracks."""
@@ -62,7 +78,7 @@ class ListTracksCommand:
     tag_mode: Literal["and", "or"] = "and"
     namespace: str | None = None
     play_filters: PlayFilters = NO_PLAY_FILTERS
-    sort_by: TrackSortBy = "last_played_desc"
+    sort_by: TrackSortBy = field(default=DEFAULT_TRACK_SORT, converter=_known_sort)
     limit: int = field(default=BusinessLimits.DEFAULT_PAGE_SIZE)
     offset: int = 0
     cursor: str | None = None

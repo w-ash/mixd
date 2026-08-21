@@ -85,8 +85,8 @@ class TrackListingPage(TypedDict):
     tracks: list[Track]
     total: int | None  # None when count was skipped (cursor-paginated pages)
     liked_track_ids: set[UUID]
-    # Cursor value type depends on the active sort column: str (title,
-    # artists_text), int (duration_ms), or datetime (created_at). The
+    # Cursor value type depends on the active sort column: str (title), int
+    # (duration_ms, play_count), or datetime (created_at, last_played_at). The
     # application layer's PageCursor encodes/decodes for the wire.
     next_page_key: tuple[str | int | datetime | None, UUID] | None
     # Facet counts over the current filter set. None when not requested.

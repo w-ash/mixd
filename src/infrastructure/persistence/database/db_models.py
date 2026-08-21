@@ -269,14 +269,49 @@ class DBTrack(BaseEntity):
             "title_stripped",
             "artist_normalized",
         ),
-        # DESC NULLS LAST matches the default library sort; a plain index
-        # scanned backward would put NULLs first.
+        # Library sort indexes (053). Every listing is
+        # ``WHERE user_id = :u ORDER BY <col> <dir> [NULLS LAST], id <dir>``,
+        # so each index is (user_id, sort col, id) — `id` last because the
+        # keyset predicate compares `(col, id)` as a row and `play_count` has
+        # tie groups in the tens of thousands.
+        #
+        # NOT NULL columns need one index: a backward scan serves DESC.
+        Index("ix_tracks_user_title_id", "user_id", "title", "id"),
+        Index("ix_tracks_user_created_at_id", "user_id", "created_at", "id"),
+        Index("ix_tracks_user_play_count_id", "user_id", "play_count", "id"),
+        # Nullable columns need one index per direction, each led by the
+        # NULL-ness boolean the repository puts first in its ORDER BY.
+        # `(col IS NULL) ASC` / `(col IS NOT NULL) DESC` both sort NULLs last;
+        # leading with them keeps every key in one direction, which is what
+        # lets the keyset row-comparison seek rather than filter.
         Index(
-            "ix_tracks_user_last_played",
+            "ix_tracks_user_duration_id",
             "user_id",
-            text("last_played_at DESC NULLS LAST"),
+            text("(duration_ms IS NULL)"),
+            "duration_ms",
+            "id",
         ),
-        Index("ix_tracks_user_play_count", "user_id", "play_count"),
+        Index(
+            "ix_tracks_user_duration_desc_id",
+            "user_id",
+            text("(duration_ms IS NOT NULL) DESC"),
+            text("duration_ms DESC"),
+            text("id DESC"),
+        ),
+        Index(
+            "ix_tracks_user_last_played_id",
+            "user_id",
+            text("(last_played_at IS NULL)"),
+            "last_played_at",
+            "id",
+        ),
+        Index(
+            "ix_tracks_user_last_played_desc_id",
+            "user_id",
+            text("(last_played_at IS NOT NULL) DESC"),
+            text("last_played_at DESC"),
+            text("id DESC"),
+        ),
     )
 
 

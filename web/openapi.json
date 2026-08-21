@@ -3,7 +3,7 @@
   "info": {
     "title": "Mixd",
     "description": "Personal music metadata hub",
-    "version": "0.10.4"
+    "version": "0.10.4.1"
   },
   "paths": {
     "/api/v1/connectors/{service}/auth-url": {
@@ -9627,8 +9627,6 @@
         "enum": [
           "title_asc",
           "title_desc",
-          "artist_asc",
-          "artist_desc",
           "added_desc",
           "added_asc",
           "duration_asc",

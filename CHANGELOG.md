@@ -6,6 +6,18 @@ linked backlog version file. Versioning follows mixd's four-segment
 `major.minor.feature.revision` scheme (`.claude/rules/version-management.md`), not strict
 SemVer. Format inspired by [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [0.10.4.1] — 2026-08-21
+
+**Sorting your library by anything other than the default no longer stalls.** Yesterday's release made "most recently played" fast and left the other sorts doing a full scan of your library on every page — `Added` was the slowest thing in the app. Every sort column now has an index behind it, and paging deep into a sorted list stays as fast as the first page rather than getting slower the further you go.
+
+- **Measured against your real library** (57,248 tracks): `Added`, `Duration` and oldest-first `Last Played` were each taking 44–49ms of pure sorting per page, on top of the round trip. They now come back index-ordered. Two things were wrong — three indexes the code believed existed were simply not in the database, and an index that sorts never-played tracks to the bottom can only do so in one direction, so each of those columns needed a second one.
+- **Deep pages stay fast.** Jumping many pages into a sorted list was re-scanning everything before the page you asked for. That's now a direct seek regardless of depth.
+- **Sorting by artist is withdrawn.** It sorted by the joined artist *text* — so "Bowie, Eno" and "Eno, Bowie" landed in different places — which isn't really sorting by artist. It comes back when artists become first-class entities. The Artist column still shows, it just isn't clickable.
+- **A local command can no longer write into the production database.** Running mixd locally, or opening the local web UI, could quietly file rows under a placeholder account in production — which is how three phantom accounts got there. That's now refused outright, at the one point every path goes through. Genuine cross-account maintenance (the run reaper, the OAuth cleanup) says so explicitly and is unaffected.
+- Also: an unrecognized sort value falls back to the default instead of returning a server error.
+
+→ [details](docs/backlog/v0.10.x.md#post-deploy-revisions)
+
 ## [0.10.4] — 2026-08-21
 
 **Four releases went into making your listening history trustworthy; this one lets you look at it.** There is now a Plays page that scrolls your entire history newest-first — grouped by day, with a song you had on repeat collapsed into one row instead of flooding the feed — and a bar chart above it you click to jump to any stretch of it. Every track page shows the plays behind its summary numbers. And the Library opens on what you've actually been playing rather than row one of the alphabet.

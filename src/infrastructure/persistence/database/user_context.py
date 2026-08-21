@@ -62,6 +62,65 @@ def user_context(user_id: str) -> Generator[None]:
         _current_user_id.reset(token)
 
 
+class DefaultUserOnRemoteDatabaseError(RuntimeError):
+    """A transaction tried to open as ``default`` against a hosted database."""
+
+
+_system_operation: ContextVar[bool] = ContextVar("_system_operation", default=False)
+
+
+@contextmanager
+def system_context() -> Generator[None]:
+    """Mark a transaction as cross-tenant maintenance with no owning user.
+
+    A handful of operations legitimately run without a user: pruning expired
+    OAuth CSRF state, reaping dead operation runs, sweeping stalled workflow
+    runs. They are global by design — ``prune_expired_states`` is a ``DELETE``
+    with no user predicate at all.
+
+    Until now those were indistinguishable from a bug, because both showed up
+    as ``DEFAULT_USER_ID`` on the contextvar. This makes "no tenant, on
+    purpose" a declared thing, so :func:`set_rls_user_on_begin` can refuse the
+    accidental case without also breaking the deliberate one. ``app.user_id``
+    is unchanged — only the guard's decision differs.
+    """
+    token = _system_operation.set(True)
+    try:
+        yield
+    finally:
+        _system_operation.reset(token)
+
+
+def _refuse_default_user_on_remote(uid: str) -> None:
+    """Refuse to open a transaction as ``default`` against a remote database.
+
+    ``DEFAULT_USER_ID`` is local-dev scaffolding (``config/constants.py``): it
+    is never a real account, so rows written under it on a hosted database are
+    always an accident. Production carries three such tenants, from three
+    different doors — a pre-multi-user snapshot, a CLI invocation that picked
+    up ``.env.local``'s production URL, and a reproduction script. The CLI, the
+    API (``deps.get_current_user_id`` returns this sentinel whenever auth is
+    unconfigured, which is what ``pnpm dev`` does) and ad-hoc scripts are three
+    entry points, and this event is the one place all three converge.
+
+    Fails closed: a URL that cannot be parsed counts as remote. Set
+    ``MIXD_USER_ID`` to the account you mean, or point ``DATABASE_URL`` at
+    localhost.
+    """
+    from src.config.settings import database_host_and_mode, get_database_url
+
+    host, mode = database_host_and_mode(get_database_url())
+    if mode == "local":
+        return
+    raise DefaultUserOnRemoteDatabaseError(
+        f"Refusing to open a transaction as {uid!r} against remote database "
+        f"{host!r}. {uid!r} is local-dev only — writing it to a hosted "
+        f"database creates a tenant nobody owns. Set MIXD_USER_ID to the "
+        f"account you mean, or point DATABASE_URL at localhost. "
+        f"(Cross-tenant maintenance should declare system_context().)"
+    )
+
+
 @contextmanager
 def statement_timeout_context(value: str) -> Generator[None]:
     """Raise the statement timeout for transactions opened inside a block.
@@ -119,6 +178,8 @@ def set_rls_user_on_begin(
         return  # Savepoint — inherit parent transaction's settings
 
     uid = _current_user_id.get()
+    if uid == BusinessLimits.DEFAULT_USER_ID and not _system_operation.get():
+        _refuse_default_user_on_remote(uid)
     timeout = _current_statement_timeout.get()
 
     if timeout is None:

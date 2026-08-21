@@ -3,7 +3,7 @@
  * Do not edit manually.
  * Mixd
  * Personal music metadata hub
- * OpenAPI spec version: 0.10.4
+ * OpenAPI spec version: 0.10.4.1
  */
 
 export type PlayHistogramResponseBucket = typeof PlayHistogramResponseBucket[keyof typeof PlayHistogramResponseBucket];
