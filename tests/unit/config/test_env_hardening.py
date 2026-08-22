@@ -2,7 +2,7 @@
 
 import os
 from pathlib import Path
-from typing import cast
+from typing import ClassVar, cast
 from unittest.mock import patch
 
 from pydantic import ValidationError
@@ -147,6 +147,28 @@ class TestFlatKeysDoNotClobberNestedSiblings:
         assert merged["file_level"] == "INFO"
 
 
+class TestAppleFlatEnvRoutes:
+    """Flat APPLE_* env vars route into the credentials group."""
+
+    APPLE_ENV: ClassVar[dict[str, str]] = {
+        "APPLE_TEAM_ID": "TEAM123456",
+        "APPLE_KEY_ID": "KEYID12345",
+        "APPLE_PRIVATE_KEY": "-----BEGIN PRIVATE KEY-----\nfakekey\n-----END PRIVATE KEY-----",
+        "APPLE_MUSIC_ORIGIN": "https://mixd.example.com",
+    }
+
+    def test_apple_vars_route_to_credentials(self):
+        with patch.dict("os.environ", self.APPLE_ENV):
+            creds = Settings(_env_file=None).credentials
+        assert creds.apple_team_id == self.APPLE_ENV["APPLE_TEAM_ID"]
+        assert creds.apple_key_id == self.APPLE_ENV["APPLE_KEY_ID"]
+        assert (
+            creds.apple_private_key.get_secret_value()
+            == self.APPLE_ENV["APPLE_PRIVATE_KEY"]
+        )
+        assert creds.apple_music_origin == self.APPLE_ENV["APPLE_MUSIC_ORIGIN"]
+
+
 class TestServerConfig:
     """ServerConfig validates host/port with sensible defaults."""
 
@@ -202,3 +224,36 @@ class TestLogStartupWarnings:
         with patch.object(settings, "credentials", creds):
             log_startup_warnings()
         assert len(capture_logs) == 0
+
+    def test_warns_when_apple_partially_configured(self, capture_logs):
+        from src.config.settings import CredentialsConfig
+
+        creds = CredentialsConfig(
+            spotify_client_id="some_id",
+            lastfm_key="some_key",
+            apple_team_id="TEAM123456",  # key_id and private_key missing
+        )
+        with patch.object(settings, "credentials", creds):
+            log_startup_warnings()
+        events = [e["event"] for e in capture_logs]
+        assert any("Apple Music partially configured" in e for e in events)
+
+    def test_silent_when_apple_fully_configured(self, capture_logs):
+        from src.config.settings import CredentialsConfig
+
+        creds = CredentialsConfig(
+            spotify_client_id="some_id",
+            lastfm_key="some_key",
+            apple_team_id="TEAM123456",
+            apple_key_id="KEYID12345",
+            apple_private_key="-----BEGIN PRIVATE KEY-----\nfake\n-----END PRIVATE KEY-----",
+        )
+        with patch.object(settings, "credentials", creds):
+            log_startup_warnings()
+        assert len(capture_logs) == 0
+
+    def test_silent_when_apple_fully_unconfigured(self, capture_logs):
+        creds = self._make_credentials(spotify_id="some_id", lastfm_key="some_key")
+        with patch.object(settings, "credentials", creds):
+            log_startup_warnings()
+        assert not any("Apple Music" in e["event"] for e in capture_logs)

@@ -78,11 +78,15 @@ async def _create_state(
     return state
 
 
-async def _validate_state(state: str) -> tuple[bool, str | None, str | None]:
+async def validate_state(
+    state: str, service: str
+) -> tuple[bool, str | None, str | None]:
     """Validate and consume a CSRF state token from the database.
 
     Returns (is_valid, code_verifier, user_id). Uses DELETE...RETURNING
-    for atomic consume — single round-trip, no race window.
+    for atomic consume — single round-trip, no race window. The state is
+    bound to the service it was minted for: a state created for one
+    connector's flow never authenticates another's callback.
     """
     from src.infrastructure.persistence.database.db_connection import get_session
     from src.infrastructure.persistence.database.db_models import DBOAuthState
@@ -97,6 +101,7 @@ async def _validate_state(state: str) -> tuple[bool, str | None, str | None]:
             delete(DBOAuthState)
             .where(
                 DBOAuthState.state == state,
+                DBOAuthState.service == service,
                 DBOAuthState.expires_at > now,
             )
             .returning(DBOAuthState.code_verifier, DBOAuthState.user_id)
@@ -129,16 +134,18 @@ async def get_connector_auth_url(
     CSRF + PKCE state factory is injected so security-sensitive DB state
     creation stays centralized in this file.
 
-    Returns 404 for unknown services, 400 for non-OAuth connectors
-    (``auth_method`` in ``{"none", "coming_soon"}``).
+    Returns 404 for unknown services, 400 for connectors without a web
+    authorization flow (``auth_method`` in ``{"none", "coming_soon"}``).
+    Both ``oauth`` and ``browser_bridge`` (Apple Music's MusicKit JS
+    bridge — the URL points at our own bridge page) are allowed.
     """
     config = discover_connectors().get(service)
     if config is None:
         raise HTTPException(status_code=404, detail=f"Unknown connector: {service}")
     build = config["build_auth_url"]
-    if config["auth_method"] != "oauth" or build is None:
+    if config["auth_method"] not in {"oauth", "browser_bridge"} or build is None:
         raise HTTPException(
-            status_code=400, detail=f"{service} does not support OAuth authorization"
+            status_code=400, detail=f"{service} does not support web authorization"
         )
     auth_url = await build(user_id, request, _create_state)
     return {"auth_url": auth_url}
@@ -164,7 +171,7 @@ async def spotify_callback(
             f"/settings/integrations?auth=spotify&status=error&reason={urllib.parse.quote(error)}"
         )
 
-    valid, code_verifier, user_id = await _validate_state(state)
+    valid, code_verifier, user_id = await validate_state(state, "spotify")
     if not valid or not user_id:
         logger.warning("Spotify auth callback with invalid CSRF state")
         return RedirectResponse(
@@ -220,7 +227,7 @@ async def lastfm_callback(token: str = "", _state: str = "") -> RedirectResponse
         )
 
     # Validate state to recover user_id
-    valid, _, user_id = await _validate_state(_state)
+    valid, _, user_id = await validate_state(_state, "lastfm")
     if not valid or not user_id:
         logger.warning("Last.fm auth callback with invalid state")
         return RedirectResponse(

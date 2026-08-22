@@ -180,10 +180,38 @@ async def get_apple_music_status(
     user_id: str,
     storage: TokenStorage | None,
 ) -> ConnectorStatus:
-    """Apple Music connector is under development — stub status."""
-    del user_id, storage
+    """Apple Music status from the stored Music User Token — no network calls.
+
+    A MUT cannot be validated without spending a ``/v1/me`` request and cannot
+    be refreshed: expiry (fixed ~6-month lifetime) or a recorded
+    ``reauth_required`` marker (written by the API client on a 403 rejection)
+    both mean the user must re-run the MusicKit browser authorization.
+    Mirrors Spotify's convention for expected credential aging: the grant
+    stays ``connected=True`` with ``auth_error="reauth_required"`` so the UI
+    derives ``needs_reauth`` ("one click to fix"), never ``expired``.
+    """
+    storage = storage or get_token_storage()
+    token_data = await storage.load_token("apple_music", user_id)
+
+    if token_data is None:
+        return ConnectorStatus(
+            name="apple_music", auth_method="browser_bridge", connected=False
+        )
+
+    expires_at = token_data.get("expires_at", 0) or 0
+    extra_data = token_data.get("extra_data") or {}
+    auth_error: ConnectorAuthError | None = None
+    if extra_data.get("reauth_required") or expires_at <= time.time():
+        auth_error = "reauth_required"
+
     return ConnectorStatus(
-        name="apple_music", auth_method="coming_soon", connected=False
+        name="apple_music",
+        auth_method="browser_bridge",
+        connected=True,
+        # Apple exposes no profile endpoint — there is no account name.
+        account_name=None,
+        token_expires_at=int(expires_at) if expires_at else None,
+        auth_error=auth_error,
     )
 
 

@@ -1,0 +1,396 @@
+{
+  "data": [
+    {
+      "attributes": {
+        "albumName": "Peque\u00f1os Pasos Bailando",
+        "artistName": "Carly Rae Jepsen",
+        "artwork": {
+          "bgColor": "caceea",
+          "height": 3000,
+          "textColor1": "291854",
+          "textColor2": "342d38",
+          "textColor3": "493c72",
+          "textColor4": "524d5c",
+          "url": "https://artwork.example/{w}x{h}bb.jpg",
+          "width": 3000
+        },
+        "composerName": "Carly Rae Jepsen, Nolan Lambroza & Simon Wilcox",
+        "discNumber": 1,
+        "durationInMillis": 207960,
+        "genreNames": [
+          "Pop",
+          "Music"
+        ],
+        "hasLyrics": true,
+        "isAppleDigitalMaster": false,
+        "isrc": "USUM71703861",
+        "name": "Cut To The Feeling",
+        "playParams": {
+          "id": "6799139636",
+          "kind": "song"
+        },
+        "releaseDate": "2017-04-10",
+        "trackNumber": 13,
+        "url": "https://music.apple.com/us/album/cut-to-the-feeling/6799139043?i=6799139636"
+      },
+      "href": "/v1/catalog/us/songs/6799139636",
+      "id": "6799139636",
+      "relationships": {
+        "albums": {
+          "data": [
+            {
+              "href": "/v1/catalog/us/albums/6799139043",
+              "id": "6799139043",
+              "type": "albums"
+            }
+          ],
+          "href": "/v1/catalog/us/songs/6799139636/albums"
+        },
+        "artists": {
+          "data": [
+            {
+              "href": "/v1/catalog/us/artists/284363062",
+              "id": "284363062",
+              "type": "artists"
+            }
+          ],
+          "href": "/v1/catalog/us/songs/6799139636/artists"
+        }
+      },
+      "type": "songs"
+    },
+    {
+      "attributes": {
+        "albumName": "Shower Sessions",
+        "artistName": "Carly Rae Jepsen",
+        "artwork": {
+          "bgColor": "afc0d5",
+          "height": 3000,
+          "textColor1": "001c2e",
+          "textColor2": "00293b",
+          "textColor3": "233d50",
+          "textColor4": "23475a",
+          "url": "https://artwork.example/{w}x{h}bb.jpg",
+          "width": 3000
+        },
+        "composerName": "Carly Rae Jepsen, Nolan Lambroza & Simon Wilcox",
+        "discNumber": 1,
+        "durationInMillis": 207960,
+        "genreNames": [
+          "Pop",
+          "Music"
+        ],
+        "hasLyrics": true,
+        "isAppleDigitalMaster": false,
+        "isrc": "USUM71703861",
+        "name": "Cut To The Feeling",
+        "playParams": {
+          "id": "6793206654",
+          "kind": "song"
+        },
+        "releaseDate": "2017-04-10",
+        "trackNumber": 10,
+        "url": "https://music.apple.com/us/album/cut-to-the-feeling/6793206284?i=6793206654"
+      },
+      "href": "/v1/catalog/us/songs/6793206654",
+      "id": "6793206654",
+      "relationships": {
+        "albums": {
+          "data": [
+            {
+              "href": "/v1/catalog/us/albums/6793206284",
+              "id": "6793206284",
+              "type": "albums"
+            }
+          ],
+          "href": "/v1/catalog/us/songs/6793206654/albums"
+        },
+        "artists": {
+          "data": [
+            {
+              "href": "/v1/catalog/us/artists/284363062",
+              "id": "284363062",
+              "type": "artists"
+            }
+          ],
+          "href": "/v1/catalog/us/songs/6793206654/artists"
+        }
+      },
+      "type": "songs"
+    },
+    {
+      "attributes": {
+        "albumName": "CSD 2023",
+        "artistName": "Carly Rae Jepsen",
+        "artwork": {
+          "bgColor": "0659d4",
+          "height": 3000,
+          "textColor1": "e2fb57",
+          "textColor2": "fed73d",
+          "textColor3": "b6db70",
+          "textColor4": "ccbe5b",
+          "url": "https://artwork.example/{w}x{h}bb.jpg",
+          "width": 3000
+        },
+        "composerName": "Carly Rae Jepsen, Nolan Lambroza & Simon Wilcox",
+        "discNumber": 1,
+        "durationInMillis": 207960,
+        "genreNames": [
+          "Pop",
+          "Music"
+        ],
+        "hasLyrics": true,
+        "isAppleDigitalMaster": false,
+        "isrc": "USUM71703861",
+        "name": "Cut To The Feeling",
+        "playParams": {
+          "id": "1694571282",
+          "kind": "song"
+        },
+        "releaseDate": "2017-04-10",
+        "trackNumber": 52,
+        "url": "https://music.apple.com/us/album/cut-to-the-feeling/1694567359?i=1694571282"
+      },
+      "href": "/v1/catalog/us/songs/1694571282",
+      "id": "1694571282",
+      "relationships": {
+        "albums": {
+          "data": [
+            {
+              "href": "/v1/catalog/us/albums/1694567359",
+              "id": "1694567359",
+              "type": "albums"
+            }
+          ],
+          "href": "/v1/catalog/us/songs/1694571282/albums"
+        },
+        "artists": {
+          "data": [
+            {
+              "href": "/v1/catalog/us/artists/284363062",
+              "id": "284363062",
+              "type": "artists"
+            }
+          ],
+          "href": "/v1/catalog/us/songs/1694571282/artists"
+        }
+      },
+      "type": "songs"
+    },
+    {
+      "attributes": {
+        "albumName": "Cut To The Feeling - Single",
+        "artistName": "Carly Rae Jepsen",
+        "artwork": {
+          "bgColor": "93dbe1",
+          "height": 3000,
+          "textColor1": "140d0d",
+          "textColor2": "130e0e",
+          "textColor3": "2e3638",
+          "textColor4": "2d3738",
+          "url": "https://artwork.example/{w}x{h}bb.jpg",
+          "width": 3000
+        },
+        "composerName": "Carly Rae Jepsen, Nolan Lambroza & Simon Wilcox",
+        "discNumber": 1,
+        "durationInMillis": 207960,
+        "genreNames": [
+          "Pop",
+          "Music"
+        ],
+        "hasLyrics": true,
+        "isAppleDigitalMaster": false,
+        "isrc": "USUM71703861",
+        "name": "Cut To The Feeling",
+        "playParams": {
+          "id": "1445304939",
+          "kind": "song"
+        },
+        "releaseDate": "2017-04-10",
+        "trackNumber": 1,
+        "url": "https://music.apple.com/us/album/cut-to-the-feeling/1445304934?i=1445304939"
+      },
+      "href": "/v1/catalog/us/songs/1445304939",
+      "id": "1445304939",
+      "relationships": {
+        "albums": {
+          "data": [
+            {
+              "href": "/v1/catalog/us/albums/1445304934",
+              "id": "1445304934",
+              "type": "albums"
+            }
+          ],
+          "href": "/v1/catalog/us/songs/1445304939/albums"
+        },
+        "artists": {
+          "data": [
+            {
+              "href": "/v1/catalog/us/artists/284363062",
+              "id": "284363062",
+              "type": "artists"
+            }
+          ],
+          "href": "/v1/catalog/us/songs/1445304939/artists"
+        }
+      },
+      "type": "songs"
+    },
+    {
+      "attributes": {
+        "albumName": "Emotion (10th Anniversary Edition)",
+        "artistName": "Carly Rae Jepsen",
+        "artwork": {
+          "bgColor": "010101",
+          "height": 3000,
+          "textColor1": "c6c6c5",
+          "textColor2": "9bb5c8",
+          "textColor3": "9f9f9d",
+          "textColor4": "7c91a0",
+          "url": "https://artwork.example/{w}x{h}bb.jpg",
+          "width": 3000
+        },
+        "composerName": "Carly Rae Jepsen, Nolan Lambroza & Simon Wilcox",
+        "discNumber": 1,
+        "durationInMillis": 207960,
+        "genreNames": [
+          "Pop",
+          "Music"
+        ],
+        "hasLyrics": true,
+        "isAppleDigitalMaster": true,
+        "isrc": "USUM71703861",
+        "name": "Cut To The Feeling",
+        "playParams": {
+          "id": "1833372109",
+          "kind": "song"
+        },
+        "releaseDate": "2017-04-10",
+        "trackNumber": 18,
+        "url": "https://music.apple.com/us/album/cut-to-the-feeling/1833371779?i=1833372109"
+      },
+      "href": "/v1/catalog/us/songs/1833372109",
+      "id": "1833372109",
+      "relationships": {
+        "albums": {
+          "data": [
+            {
+              "href": "/v1/catalog/us/albums/1833371779",
+              "id": "1833371779",
+              "type": "albums"
+            }
+          ],
+          "href": "/v1/catalog/us/songs/1833372109/albums"
+        },
+        "artists": {
+          "data": [
+            {
+              "href": "/v1/catalog/us/artists/284363062",
+              "id": "284363062",
+              "type": "artists"
+            }
+          ],
+          "href": "/v1/catalog/us/songs/1833372109/artists"
+        }
+      },
+      "type": "songs"
+    },
+    {
+      "attributes": {
+        "albumName": "GLOW IN MUSIC \u7d66",
+        "artistName": "Carly Rae Jepsen",
+        "artwork": {
+          "bgColor": "fe1f56",
+          "height": 3000,
+          "textColor1": "121614",
+          "textColor2": "141613",
+          "textColor3": "411721",
+          "textColor4": "421820",
+          "url": "https://artwork.example/{w}x{h}bb.jpg",
+          "width": 3000
+        },
+        "composerName": "Carly Rae Jepsen, Nolan Lambroza & Simon Wilcox",
+        "discNumber": 1,
+        "durationInMillis": 207960,
+        "genreNames": [
+          "Pop",
+          "Music"
+        ],
+        "hasLyrics": true,
+        "isAppleDigitalMaster": false,
+        "isrc": "USUM71703861",
+        "name": "Cut To The Feeling",
+        "playParams": {
+          "id": "1689860745",
+          "kind": "song"
+        },
+        "releaseDate": "2017-04-10",
+        "trackNumber": 62,
+        "url": "https://music.apple.com/us/album/cut-to-the-feeling/1689859987?i=1689860745"
+      },
+      "href": "/v1/catalog/us/songs/1689860745",
+      "id": "1689860745",
+      "relationships": {
+        "albums": {
+          "data": [
+            {
+              "href": "/v1/catalog/us/albums/1689859987",
+              "id": "1689859987",
+              "type": "albums"
+            }
+          ],
+          "href": "/v1/catalog/us/songs/1689860745/albums"
+        },
+        "artists": {
+          "data": [
+            {
+              "href": "/v1/catalog/us/artists/284363062",
+              "id": "284363062",
+              "type": "artists"
+            }
+          ],
+          "href": "/v1/catalog/us/songs/1689860745/artists"
+        }
+      },
+      "type": "songs"
+    }
+  ],
+  "meta": {
+    "filters": {
+      "isrc": {
+        "USUM71703861": [
+          {
+            "href": "/v1/catalog/us/songs/6799139636",
+            "id": "6799139636",
+            "type": "songs"
+          },
+          {
+            "href": "/v1/catalog/us/songs/6793206654",
+            "id": "6793206654",
+            "type": "songs"
+          },
+          {
+            "href": "/v1/catalog/us/songs/1694571282",
+            "id": "1694571282",
+            "type": "songs"
+          },
+          {
+            "href": "/v1/catalog/us/songs/1445304939",
+            "id": "1445304939",
+            "type": "songs"
+          },
+          {
+            "href": "/v1/catalog/us/songs/1833372109",
+            "id": "1833372109",
+            "type": "songs"
+          },
+          {
+            "href": "/v1/catalog/us/songs/1689860745",
+            "id": "1689860745",
+            "type": "songs"
+          }
+        ]
+      }
+    }
+  }
+}

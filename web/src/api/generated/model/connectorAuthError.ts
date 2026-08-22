@@ -12,4 +12,5 @@ export type ConnectorAuthError = typeof ConnectorAuthError[keyof typeof Connecto
 export const ConnectorAuthError = {
   refresh_failed: 'refresh_failed',
   scope_missing: 'scope_missing',
+  reauth_required: 'reauth_required',
 } as const;

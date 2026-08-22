@@ -287,6 +287,7 @@ def create_app() -> FastAPI:
     register_exception_handlers(app)
 
     # Mount routers
+    from src.interface.api.routes.apple_auth import router as apple_auth_router
     from src.interface.api.routes.assistant import router as assistant_router
     from src.interface.api.routes.auth import router as auth_router
     from src.interface.api.routes.chat import router as chat_router
@@ -312,6 +313,9 @@ def create_app() -> FastAPI:
     # Auth routes: callbacks at /auth/*, auth-url endpoints at /api/v1/connectors/*
     # Mounted without prefix — routes define their own paths
     app.include_router(auth_router)
+    # Apple Music MusicKit JS bridge: /auth/apple/authorize page +
+    # /api/v1/connectors/apple_music/token — same no-prefix convention
+    app.include_router(apple_auth_router)
 
     # Webhook routes: /webhooks/* — no prefix, bypasses NeonAuthMiddleware
     from src.interface.api.routes.webhooks import router as webhooks_router

@@ -93,6 +93,7 @@ export type RunOperationType =
   | "export_lastfm_likes"
   | "import_spotify_history"
   | "import_spotify_recent"
+  | "import_apple_recent"
   | "import_connector_playlists"
   | "apply_assignments_bulk";
 
@@ -136,6 +137,13 @@ const RUN_TYPES: Record<
       n > 0
         ? `Imported ${n} ${n === 1 ? "scrobble" : "scrobbles"}`
         : "Import complete",
+  },
+  import_apple_recent: {
+    countKeys: ["track_plays", "connector_plays", "raw_plays"],
+    title: (n) =>
+      n > 0
+        ? `Imported ${n} recent ${n === 1 ? "play" : "plays"}`
+        : "Already up to date",
   },
   import_connector_playlists: {
     countKeys: ["succeeded", "imported"],

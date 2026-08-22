@@ -206,14 +206,19 @@ class TestMusicBrainzStatus:
 
 
 class TestAppleMusicStatus:
-    """Apple Music connector — stub, always not connected."""
+    """Apple Music connector — browser_bridge, connectable (v0.11.x P4)."""
 
-    async def test_not_connected(self, client: httpx2.AsyncClient) -> None:
-        response = await client.get("/api/v1/connectors")
+    async def test_disconnected_without_token(self, client: httpx2.AsyncClient) -> None:
+        storage = _mock_storage()  # returns None for apple_music
+        with patch(f"{_SVC}.get_token_storage", return_value=storage):
+            response = await client.get("/api/v1/connectors")
 
         apple = next(c for c in response.json() if c["name"] == "apple_music")
+        assert apple["auth_method"] == "browser_bridge"
         assert apple["connected"] is False
+        assert apple["status"] == "disconnected"
         assert apple["account_name"] is None
+        assert apple["capabilities"] == ["history_import_api"]
 
 
 class TestLastfmStatus:

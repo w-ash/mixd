@@ -258,8 +258,15 @@ class TestObservedDayCores:
         assert all(end - start == timedelta(days=1) for start, end in cores)
 
     def test_repeated_plays_in_a_day_share_one_chunk(self):
+        # Derived, not pinned: the earliest play sits exactly one anchor-reach
+        # into the day, so its reach-back stays inside it whatever tolerance a
+        # newly registered channel widens the reach to (Apple did, v0.11.x).
+        reach = PROJECTION_FETCH_MARGIN + MAX_ANCHOR_PULL_BACK
+        day = datetime(2024, 1, 9, tzinfo=UTC)
         cores = observed_day_cores([
-            datetime(2024, 1, 9, hour, 0, tzinfo=UTC) for hour in (7, 12, 23)
+            day + reach,
+            day + timedelta(hours=18),
+            day + timedelta(hours=23),
         ])
 
         assert [start.date() for start, _ in cores] == [date(2024, 1, 9)]
@@ -291,7 +298,11 @@ class TestObservedDayCores:
 
     def test_play_past_the_whole_reach_back_stays_one_day(self):
         """Beyond normalization AND the pairing pull-back, one day suffices."""
-        cores = observed_day_cores([datetime(2024, 3, 10, 6, 30, tzinfo=UTC)])
+        reach = PROJECTION_FETCH_MARGIN + MAX_ANCHOR_PULL_BACK
+        past_reach = datetime(2024, 3, 10, tzinfo=UTC) + reach + timedelta(minutes=30)
+        assert past_reach.date() == date(2024, 3, 10), "reach outgrew the day"
+
+        cores = observed_day_cores([past_reach])
 
         assert [start.date() for start, _ in cores] == [date(2024, 3, 10)]
 

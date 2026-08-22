@@ -63,7 +63,7 @@ def log_failure_summary(service: str, match_count: int, failure_count: int) -> N
 
 
 def create_and_log_failure(
-    track_id: UUID,
+    track_id: UUID | None,
     reason: MatchFailureReason,
     service: str,
     method: str,

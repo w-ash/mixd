@@ -39,12 +39,14 @@ def _make_scope(
     path: str = "/api/v1/tracks",
     *,
     scope_type: str = "http",
+    method: str = "GET",
     headers: list[tuple[bytes, bytes]] | None = None,
 ) -> dict[str, Any]:
     """Build a minimal ASGI HTTP scope dict."""
     return {
         "type": scope_type,
         "path": path,
+        "method": method,
         "headers": headers or [],
     }
 
@@ -182,6 +184,46 @@ class TestExemptApiPaths:
         await mw(scope, _noop_receive, send)
 
         assert inner.called is True
+
+
+class TestAppleTokenRouteExemption:
+    """The Apple Music token POST authenticates by CSRF state, not Bearer.
+
+    The bridge page's fetch carries no JWT; the single-use, user-bound state
+    row minted by the authenticated auth-url request is the credential.
+    """
+
+    async def test_token_post_reachable_without_bearer(self):
+        mw, inner = _make_middleware()
+        scope = _make_scope(path="/api/v1/connectors/apple_music/token", method="POST")
+        send = _ResponseCapture()
+
+        await mw(scope, _noop_receive, send)
+
+        assert inner.called is True
+
+    async def test_token_delete_still_requires_bearer(self):
+        """The disconnect DELETE on the same path is session-authenticated."""
+        mw, inner = _make_middleware()
+        scope = _make_scope(
+            path="/api/v1/connectors/apple_music/token", method="DELETE"
+        )
+        send = _ResponseCapture()
+
+        await mw(scope, _noop_receive, send)
+
+        assert inner.called is False
+        assert send.status == 401
+
+    async def test_other_api_posts_still_require_bearer(self):
+        mw, inner = _make_middleware()
+        scope = _make_scope(path="/api/v1/connectors/spotify/token", method="POST")
+        send = _ResponseCapture()
+
+        await mw(scope, _noop_receive, send)
+
+        assert inner.called is False
+        assert send.status == 401
 
 
 class TestBearerTokenAuth:

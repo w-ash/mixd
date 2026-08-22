@@ -203,9 +203,10 @@ export const getDeleteConnectorTokenApiV1ConnectorsServiceTokenDeleteUrl = (serv
 }
 
 /**
- * Remove stored OAuth token for a connector, disconnecting it.
+ * Remove a connector's stored credential, disconnecting it.
  *
- * Only connectors declaring ``auth_method="oauth"`` in the registry can be
+ * Only connectors that store a per-user credential — ``auth_method`` of
+ * ``oauth`` or ``browser_bridge`` (Apple Music's MUT) — can be
  * disconnected; anything else (public APIs, coming-soon stubs) returns 400.
  * @summary Delete Connector Token
  */

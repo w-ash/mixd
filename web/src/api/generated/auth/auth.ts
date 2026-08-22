@@ -6,21 +6,27 @@
  * OpenAPI spec version: 0.10.4.1
  */
 import {
+  useMutation,
   useQuery
 } from '@tanstack/react-query';
 import type {
   DataTag,
   DefinedInitialDataOptions,
   DefinedUseQueryResult,
+  MutationFunction,
   QueryClient,
   QueryFunction,
   QueryKey,
   UndefinedInitialDataOptions,
+  UseMutationOptions,
+  UseMutationResult,
   UseQueryOptions,
   UseQueryResult
 } from '@tanstack/react-query';
 
 import type {
+  AppleAuthorizeAuthAppleAuthorizeGetParams,
+  AppleMusicTokenRequest,
   GetConnectorAuthUrlApiV1ConnectorsServiceAuthUrlGet200,
   HTTPValidationError,
   LastfmCallbackAuthLastfmCallbackGetParams,
@@ -85,8 +91,10 @@ export const getGetConnectorAuthUrlApiV1ConnectorsServiceAuthUrlGetUrl = (servic
  * CSRF + PKCE state factory is injected so security-sensitive DB state
  * creation stays centralized in this file.
  *
- * Returns 404 for unknown services, 400 for non-OAuth connectors
- * (``auth_method`` in ``{"none", "coming_soon"}``).
+ * Returns 404 for unknown services, 400 for connectors without a web
+ * authorization flow (``auth_method`` in ``{"none", "coming_soon"}``).
+ * Both ``oauth`` and ``browser_bridge`` (Apple Music's MusicKit JS
+ * bridge — the URL points at our own bridge page) are allowed.
  * @summary Get Connector Auth Url
  */
 export const getConnectorAuthUrlApiV1ConnectorsServiceAuthUrlGet = async (service: string, options?: Parameters<typeof customFetch>[1]): Promise<getConnectorAuthUrlApiV1ConnectorsServiceAuthUrlGetResponse> => {
@@ -441,3 +449,229 @@ export function useLastfmCallbackAuthLastfmCallbackGet<TData = Awaited<ReturnTyp
 
 
 
+export type appleAuthorizeAuthAppleAuthorizeGetResponse200 = {
+  data: string
+  status: 200
+}
+
+export type appleAuthorizeAuthAppleAuthorizeGetResponse422 = {
+  data: HTTPValidationError
+  status: 422
+}
+
+export type appleAuthorizeAuthAppleAuthorizeGetResponseSuccess = (appleAuthorizeAuthAppleAuthorizeGetResponse200) & {
+  headers: Headers;
+};
+export type appleAuthorizeAuthAppleAuthorizeGetResponseError = (appleAuthorizeAuthAppleAuthorizeGetResponse422) & {
+  headers: Headers;
+};
+
+export type appleAuthorizeAuthAppleAuthorizeGetResponse = (appleAuthorizeAuthAppleAuthorizeGetResponseSuccess | appleAuthorizeAuthAppleAuthorizeGetResponseError)
+
+export const getAppleAuthorizeAuthAppleAuthorizeGetUrl = (params?: AppleAuthorizeAuthAppleAuthorizeGetParams,) => {
+  const normalizedParams = new URLSearchParams();
+
+  Object.entries(params || {}).forEach(([key, value]) => {
+
+    if (value !== undefined) {
+      normalizedParams.append(key, value === null ? 'null' : String(value))
+    }
+  });
+
+  const stringifiedParams = normalizedParams.toString();
+
+  return stringifiedParams.length > 0 ? `/auth/apple/authorize?${stringifiedParams}` : `/auth/apple/authorize`
+}
+
+/**
+ * Serve the MusicKit JS bridge page for the given CSRF state.
+ *
+ * The state is minted by the auth-url route and merely carried through to
+ * the token POST, which validates and consumes it — this page holds no
+ * session and identifies no user.
+ * @summary Apple Authorize
+ */
+export const appleAuthorizeAuthAppleAuthorizeGet = async (params?: AppleAuthorizeAuthAppleAuthorizeGetParams, options?: Parameters<typeof customFetch>[1]): Promise<appleAuthorizeAuthAppleAuthorizeGetResponse> => {
+
+  return customFetch<appleAuthorizeAuthAppleAuthorizeGetResponse>(getAppleAuthorizeAuthAppleAuthorizeGetUrl(params),
+  {
+    ...options,
+    method: 'GET'
+
+
+  }
+);}
+
+
+
+
+
+export const getAppleAuthorizeAuthAppleAuthorizeGetQueryKey = (params?: AppleAuthorizeAuthAppleAuthorizeGetParams,) => {
+    return [
+    `/auth/apple/authorize`, ...(params ? [params] : [])
+    ] as const;
+    }
+
+
+export const getAppleAuthorizeAuthAppleAuthorizeGetQueryOptions = <TData = Awaited<ReturnType<typeof appleAuthorizeAuthAppleAuthorizeGet>>, TError = HTTPValidationError>(params?: AppleAuthorizeAuthAppleAuthorizeGetParams, options?: { query?:Partial<UseQueryOptions<Awaited<ReturnType<typeof appleAuthorizeAuthAppleAuthorizeGet>>, TError, TData>>, request?: SecondParameter<typeof customFetch>}
+) => {
+
+const {query: queryOptions, request: requestOptions} = options ?? {};
+
+  const queryKey =  queryOptions?.queryKey ?? getAppleAuthorizeAuthAppleAuthorizeGetQueryKey(params);
+
+
+
+    const queryFn: QueryFunction<Awaited<ReturnType<typeof appleAuthorizeAuthAppleAuthorizeGet>>> = ({ signal }) => appleAuthorizeAuthAppleAuthorizeGet(params, { signal, ...requestOptions });
+
+
+
+
+
+   return  { queryKey, queryFn, ...queryOptions} as UseQueryOptions<Awaited<ReturnType<typeof appleAuthorizeAuthAppleAuthorizeGet>>, TError, TData> & { queryKey: DataTag<QueryKey, TData, TError> }
+}
+
+export type AppleAuthorizeAuthAppleAuthorizeGetQueryResult = NonNullable<Awaited<ReturnType<typeof appleAuthorizeAuthAppleAuthorizeGet>>>
+export type AppleAuthorizeAuthAppleAuthorizeGetQueryError = HTTPValidationError
+
+
+export function useAppleAuthorizeAuthAppleAuthorizeGet<TData = Awaited<ReturnType<typeof appleAuthorizeAuthAppleAuthorizeGet>>, TError = HTTPValidationError>(
+ params: undefined |  AppleAuthorizeAuthAppleAuthorizeGetParams, options: { query:Partial<UseQueryOptions<Awaited<ReturnType<typeof appleAuthorizeAuthAppleAuthorizeGet>>, TError, TData>> & Pick<
+        DefinedInitialDataOptions<
+          Awaited<ReturnType<typeof appleAuthorizeAuthAppleAuthorizeGet>>,
+          TError,
+          Awaited<ReturnType<typeof appleAuthorizeAuthAppleAuthorizeGet>>
+        > , 'initialData'
+      >, request?: SecondParameter<typeof customFetch>}
+ , queryClient?: QueryClient
+  ):  DefinedUseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> }
+export function useAppleAuthorizeAuthAppleAuthorizeGet<TData = Awaited<ReturnType<typeof appleAuthorizeAuthAppleAuthorizeGet>>, TError = HTTPValidationError>(
+ params?: AppleAuthorizeAuthAppleAuthorizeGetParams, options?: { query?:Partial<UseQueryOptions<Awaited<ReturnType<typeof appleAuthorizeAuthAppleAuthorizeGet>>, TError, TData>> & Pick<
+        UndefinedInitialDataOptions<
+          Awaited<ReturnType<typeof appleAuthorizeAuthAppleAuthorizeGet>>,
+          TError,
+          Awaited<ReturnType<typeof appleAuthorizeAuthAppleAuthorizeGet>>
+        > , 'initialData'
+      >, request?: SecondParameter<typeof customFetch>}
+ , queryClient?: QueryClient
+  ):  UseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> }
+export function useAppleAuthorizeAuthAppleAuthorizeGet<TData = Awaited<ReturnType<typeof appleAuthorizeAuthAppleAuthorizeGet>>, TError = HTTPValidationError>(
+ params?: AppleAuthorizeAuthAppleAuthorizeGetParams, options?: { query?:Partial<UseQueryOptions<Awaited<ReturnType<typeof appleAuthorizeAuthAppleAuthorizeGet>>, TError, TData>>, request?: SecondParameter<typeof customFetch>}
+ , queryClient?: QueryClient
+  ):  UseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> }
+/**
+ * @summary Apple Authorize
+ */
+
+export function useAppleAuthorizeAuthAppleAuthorizeGet<TData = Awaited<ReturnType<typeof appleAuthorizeAuthAppleAuthorizeGet>>, TError = HTTPValidationError>(
+ params?: AppleAuthorizeAuthAppleAuthorizeGetParams, options?: { query?:Partial<UseQueryOptions<Awaited<ReturnType<typeof appleAuthorizeAuthAppleAuthorizeGet>>, TError, TData>>, request?: SecondParameter<typeof customFetch>}
+ , queryClient?: QueryClient
+ ):  UseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> } {
+
+  const queryOptions = getAppleAuthorizeAuthAppleAuthorizeGetQueryOptions(params,options)
+
+  const query = useQuery(queryOptions, queryClient) as  UseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> };
+
+  return withQueryKey(query, queryOptions.queryKey);
+}
+
+
+
+
+
+
+export type storeAppleMusicTokenApiV1ConnectorsAppleMusicTokenPostResponse204 = {
+  data: void
+  status: 204
+}
+
+export type storeAppleMusicTokenApiV1ConnectorsAppleMusicTokenPostResponse422 = {
+  data: HTTPValidationError
+  status: 422
+}
+
+export type storeAppleMusicTokenApiV1ConnectorsAppleMusicTokenPostResponseSuccess = (storeAppleMusicTokenApiV1ConnectorsAppleMusicTokenPostResponse204) & {
+  headers: Headers;
+};
+export type storeAppleMusicTokenApiV1ConnectorsAppleMusicTokenPostResponseError = (storeAppleMusicTokenApiV1ConnectorsAppleMusicTokenPostResponse422) & {
+  headers: Headers;
+};
+
+export type storeAppleMusicTokenApiV1ConnectorsAppleMusicTokenPostResponse = (storeAppleMusicTokenApiV1ConnectorsAppleMusicTokenPostResponseSuccess | storeAppleMusicTokenApiV1ConnectorsAppleMusicTokenPostResponseError)
+
+export const getStoreAppleMusicTokenApiV1ConnectorsAppleMusicTokenPostUrl = () => {
+
+
+
+
+  return `/api/v1/connectors/apple_music/token`
+}
+
+/**
+ * Validate the CSRF state and persist the Music User Token.
+ *
+ * The user is derived from the state row (created by the authenticated
+ * auth-url request), not from the ambient session — same trust model as the
+ * OAuth callbacks in ``auth.py``. The storefront lookup is best-effort:
+ * Apple being unreachable must not fail the connect.
+ * @summary Store Apple Music Token
+ */
+export const storeAppleMusicTokenApiV1ConnectorsAppleMusicTokenPost = async (appleMusicTokenRequest: AppleMusicTokenRequest, options?: Parameters<typeof customFetch>[1]): Promise<storeAppleMusicTokenApiV1ConnectorsAppleMusicTokenPostResponse> => {
+
+  return customFetch<storeAppleMusicTokenApiV1ConnectorsAppleMusicTokenPostResponse>(getStoreAppleMusicTokenApiV1ConnectorsAppleMusicTokenPostUrl(),
+  {
+    ...options,
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', ...options?.headers },
+    body: JSON.stringify(appleMusicTokenRequest)
+  }
+);}
+
+
+
+
+
+export const getStoreAppleMusicTokenApiV1ConnectorsAppleMusicTokenPostMutationOptions = <TError = HTTPValidationError,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof storeAppleMusicTokenApiV1ConnectorsAppleMusicTokenPost>>, TError,{data: AppleMusicTokenRequest}, TContext>, request?: SecondParameter<typeof customFetch>}
+): UseMutationOptions<Awaited<ReturnType<typeof storeAppleMusicTokenApiV1ConnectorsAppleMusicTokenPost>>, TError,{data: AppleMusicTokenRequest}, TContext> => {
+
+const mutationKey = ['storeAppleMusicTokenApiV1ConnectorsAppleMusicTokenPost'];
+const {mutation: mutationOptions, request: requestOptions} = options ?
+      options.mutation && 'mutationKey' in options.mutation && options.mutation.mutationKey ?
+      options
+      : {...options, mutation: {...options.mutation, mutationKey}}
+      : {mutation: { mutationKey, }, request: undefined};
+
+
+
+
+      const mutationFn: MutationFunction<Awaited<ReturnType<typeof storeAppleMusicTokenApiV1ConnectorsAppleMusicTokenPost>>, {data: AppleMusicTokenRequest}> = (props) => {
+          const {data} = props ?? {};
+
+          return  storeAppleMusicTokenApiV1ConnectorsAppleMusicTokenPost(data,requestOptions)
+        }
+
+
+
+
+
+
+  return  { mutationFn, ...mutationOptions }}
+
+    export type StoreAppleMusicTokenApiV1ConnectorsAppleMusicTokenPostMutationResult = NonNullable<Awaited<ReturnType<typeof storeAppleMusicTokenApiV1ConnectorsAppleMusicTokenPost>>>
+    export type StoreAppleMusicTokenApiV1ConnectorsAppleMusicTokenPostMutationBody = AppleMusicTokenRequest
+    export type StoreAppleMusicTokenApiV1ConnectorsAppleMusicTokenPostMutationError = HTTPValidationError
+
+    /**
+ * @summary Store Apple Music Token
+ */
+export const useStoreAppleMusicTokenApiV1ConnectorsAppleMusicTokenPost = <TError = HTTPValidationError,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof storeAppleMusicTokenApiV1ConnectorsAppleMusicTokenPost>>, TError,{data: AppleMusicTokenRequest}, TContext>, request?: SecondParameter<typeof customFetch>}
+ , queryClient?: QueryClient): UseMutationResult<
+        Awaited<ReturnType<typeof storeAppleMusicTokenApiV1ConnectorsAppleMusicTokenPost>>,
+        TError,
+        {data: AppleMusicTokenRequest},
+        TContext
+      > => {
+      return useMutation(getStoreAppleMusicTokenApiV1ConnectorsAppleMusicTokenPostMutationOptions(options), queryClient);
+    }

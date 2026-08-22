@@ -11,6 +11,9 @@ export type ConnectorAuthMethod = typeof ConnectorAuthMethod[keyof typeof Connec
 
 export const ConnectorAuthMethod = {
   oauth: 'oauth',
+  browser_bridge: 'browser_bridge',
+  token: 'token',
+  device_code: 'device_code',
   none: 'none',
   coming_soon: 'coming_soon',
 } as const;

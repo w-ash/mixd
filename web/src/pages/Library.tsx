@@ -39,6 +39,7 @@ import {
 import { useFilterState } from "#/hooks/useFilterState";
 import { usePagination } from "#/hooks/usePagination";
 import { useTrackSearch } from "#/hooks/useTrackSearch";
+import { isConnectable } from "#/lib/connectors";
 import { parsePreferenceParam } from "#/lib/filters-to-workflow";
 import {
   formatArtists,
@@ -578,12 +579,12 @@ export function Library() {
             heading={hasFilters ? "No matching tracks" : "No tracks yet"}
             description={(() => {
               if (hasFilters) return "Try adjusting your search or filters.";
-              const oauthLabels = connectors
-                .filter((c) => c.auth_method === "oauth")
+              const connectableLabels = connectors
+                .filter((c) => isConnectable(c.auth_method))
                 .map((c) => c.display_name);
               const source =
-                oauthLabels.length > 0
-                  ? formatList(oauthLabels, "disjunction")
+                connectableLabels.length > 0
+                  ? formatList(connectableLabels, "disjunction")
                   : "a music service";
               return `Import your music from ${source} to see your library here.`;
             })()}

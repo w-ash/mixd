@@ -77,6 +77,16 @@ START_SHIFT_MS_KEY: Final = "start_shift_ms"
 # and the exact-instant collapse because ``played_at`` differs. Sized from the
 # observed jitter band; the *safety* argument is the ``ms_played`` bound in
 # :func:`_one_observation` rather than this constant.
+APPLE_PLAY_TOLERANCE_SECONDS: Final = 1800.0
+"""Half-open poll window midpoint uncertainty; starting point, revisit after
+calibration.
+
+Apple's recently-played feed reports no timestamps, so the importer stamps
+each new item with the midpoint of the poll interval it appeared in. A true
+start can sit anywhere in that interval — up to half the polling cadence from
+the midpoint — and the channel pairs at that half-window rather than any
+observed-clock tolerance."""
+
 SAME_CHANNEL_JITTER_SECONDS: Final = 3.0
 
 # Listening-island continuation window (v0.10.3 C9). A player that is
@@ -396,6 +406,24 @@ CHANNEL_SPECS: Final[Mapping[tuple[str, str], ChannelSpec]] = {
         # (pause-skewed) start for the surviving timestamp (findings §3).
         timestamp_quality=3,
         context_builder=_lastfm_context,
+    ),
+    ("apple", "apple_api"): ChannelSpec(
+        name="apple_api",
+        service="apple",
+        import_source="apple_api",
+        priority=4,
+        # The importer stamps a poll-window midpoint and calls it the start —
+        # nothing END-shaped exists to normalize away.
+        time_semantics="start",
+        # Below every existing channel: the feed observes no clock at all, so
+        # this channel's presence may create a play the others missed, but its
+        # guessed timestamp must never win a merge against an observed one.
+        timestamp_quality=0,
+        context_builder=_generic_context,
+        tolerance_override=APPLE_PLAY_TOLERANCE_SECONDS,
+        # No completion vocabulary: islands never consolidate here, so an
+        # interrupted-and-resumed listen is not guessed into one play.
+        completion_signal=None,
     ),
 }
 
@@ -1092,6 +1120,9 @@ def project_ledger_entries(
 # was populated would otherwise lose every service-specific key (mbid, the
 # Last.fm URLs, spotify_track_id) to the generic builder. The export builder is
 # the right default for Spotify: it is the shape those legacy rows were written in.
+# No "apple" entry: the service has no legacy null-``import_source`` rows (its
+# importer always stamps ``apple_api``), and its registered builder IS the
+# generic one this fallback would bottom out at.
 _FALLBACK_CONTEXT_BUILDERS: Final[
     Mapping[str, Callable[[ConnectorTrackPlay], dict[str, JsonValue]]]
 ] = {

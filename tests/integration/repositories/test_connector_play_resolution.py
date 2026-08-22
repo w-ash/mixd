@@ -6,7 +6,7 @@ in-memory entities carry fresh ones, and the write-back must still land (that
 is what lets a re-import heal rows whose first resolution attempt failed).
 """
 
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 from uuid import uuid4
 
 import sqlalchemy as sa
@@ -134,6 +134,120 @@ class TestBulkUpdateResolution:
             .all()
         )
         assert unresolved == [unresolved_play.connector_track_identifier]
+
+    async def test_unresolved_apple_rows_query(self, db_session):
+        """Apple rows follow the same predicate: unresolved = NULL resolved_track_id.
+
+        Apple plays carry the catalog song id in ``service_metadata`` AND as
+        the ledger identifier (the entity's "apple" branch derives it from
+        ``song_id``, v0.11.x); the unresolved query path keys on
+        connector_name + resolved_track_id, so an apple row the resolver could
+        not identify stays findable for the v0.13.0 re-resolution drain and
+        out of projection queries.
+        """
+        uow = get_unit_of_work(db_session)
+        connector_repo = uow.get_connector_play_repository()
+        track_repo = uow.get_track_repository()
+
+        saved_track = await track_repo.save_track(
+            make_track(
+                title="TEST_AppleUnresolvedTrack",
+                artist="TEST_AppleArtist",
+                connector_track_identifiers={},
+            )
+        )
+
+        def _apple_play(track_name: str, song_id: str) -> ConnectorTrackPlay:
+            return ConnectorTrackPlay(
+                service="apple",
+                artist_name="TEST_AppleArtist",
+                track_name=track_name,
+                played_at=_PLAYED_AT,
+                user_id="default",
+                service_metadata={"song_id": song_id},
+                import_timestamp=datetime.now(UTC),
+                import_source="apple_api",
+                import_batch_id=f"TEST_BATCH_{uuid4()}",
+            )
+
+        resolved_play = _apple_play("TEST_AppleUnresolvedTrack_resolved", "101")
+        unresolved_play = _apple_play("TEST_AppleUnresolvedTrack_pending", "102")
+        _ = await connector_repo.bulk_insert_connector_plays([
+            resolved_play,
+            unresolved_play,
+        ])
+        _ = await connector_repo.bulk_update_resolution(
+            [(resolved_play, saved_track.id)], resolved_at=datetime.now(UTC)
+        )
+
+        unresolved = (
+            (
+                await db_session.execute(
+                    sa.select(DBConnectorPlay.connector_track_identifier).where(
+                        DBConnectorPlay.connector_name == "apple",
+                        DBConnectorPlay.resolved_track_id.is_(None),
+                        # The identifier is the catalog song id, so this
+                        # test's rows are pinned by their seeded ids.
+                        DBConnectorPlay.connector_track_identifier.in_(["101", "102"]),
+                    )
+                )
+            )
+            .scalars()
+            .all()
+        )
+        assert unresolved == [unresolved_play.connector_track_identifier]
+
+    async def test_unresolved_apple_row_excluded_from_projection_fetch(
+        self, db_session
+    ):
+        """The other half of the ledger contract: an unresolved apple row is
+        NOT in the projection's resolved-row fetch (``find_resolved_in_window``
+        — the query the projection service runs over the window)."""
+        uow = get_unit_of_work(db_session)
+        connector_repo = uow.get_connector_play_repository()
+        track_repo = uow.get_track_repository()
+        user_id = f"TEST_user_{uuid4()}"
+
+        saved_track = await track_repo.save_track(
+            make_track(
+                title="TEST_AppleProjectionTrack",
+                artist="TEST_AppleArtist",
+                connector_track_identifiers={},
+            )
+        )
+
+        def _apple_play(track_name: str, song_id: str) -> ConnectorTrackPlay:
+            return ConnectorTrackPlay(
+                service="apple",
+                artist_name="TEST_AppleArtist",
+                track_name=track_name,
+                played_at=_PLAYED_AT,
+                user_id=user_id,
+                service_metadata={"song_id": song_id},
+                import_timestamp=datetime.now(UTC),
+                import_source="apple_api",
+                import_batch_id=f"TEST_BATCH_{uuid4()}",
+            )
+
+        resolved_play = _apple_play("TEST_AppleProjectionTrack_resolved", "201")
+        unresolved_play = _apple_play("TEST_AppleProjectionTrack_pending", "202")
+        _ = await connector_repo.bulk_insert_connector_plays([
+            resolved_play,
+            unresolved_play,
+        ])
+        _ = await connector_repo.bulk_update_resolution(
+            [(resolved_play, saved_track.id)], resolved_at=datetime.now(UTC)
+        )
+
+        window = await connector_repo.find_resolved_in_window(
+            _PLAYED_AT - timedelta(hours=1),
+            _PLAYED_AT + timedelta(hours=1),
+            user_id=user_id,
+        )
+
+        assert [p.connector_track_identifier for p in window] == [
+            resolved_play.connector_track_identifier
+        ]
 
     async def test_ledger_rows_carry_entity_id_and_user_id(self, db_session):
         """Tenancy: rows persist the entity's user_id and id, not column defaults."""

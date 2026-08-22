@@ -1,0 +1,14 @@
+{
+  "errors": [
+    {
+      "code": "40005",
+      "detail": "Value must be an integer less than or equal to 30, but was: 50",
+      "id": "2ZJ4A5RAXJHRNQSHESMUE6HB7M",
+      "source": {
+        "parameter": "limit"
+      },
+      "status": "400",
+      "title": "Invalid Parameter Value"
+    }
+  ]
+}

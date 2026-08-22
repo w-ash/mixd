@@ -9,7 +9,7 @@ import { Badge } from "#/components/ui/badge";
 import { Button } from "#/components/ui/button";
 import { useConnectorAuth } from "#/hooks/useConnectorAuth";
 import { type ConnectorBrand, connectorBrand } from "#/lib/connector-brand";
-import { humanizeAuthError } from "#/lib/connectors";
+import { humanizeAuthError, isConnectable } from "#/lib/connectors";
 import { formatRelativeTime } from "#/lib/format";
 import { cn } from "#/lib/utils";
 
@@ -186,7 +186,9 @@ interface ConnectorCardProps {
 export function ConnectorCard({ connector, authError }: ConnectorCardProps) {
   const state: CardState =
     authError && !connector.connected ? "error" : connector.status;
-  const isConnectable = connector.auth_method === "oauth";
+  // Connect-capable methods store a disconnectable per-user credential via
+  // some connect flow (oauth redirect, MusicKit bridge, token, device code).
+  const connectable = isConnectable(connector.auth_method);
   const { connect, disconnect, isConnecting, isDisconnecting } =
     useConnectorAuth(connector.name, connector.display_name);
   const [showSettings, setShowSettings] = useState(false);
@@ -197,7 +199,7 @@ export function ConnectorCard({ connector, authError }: ConnectorCardProps) {
   const isActive =
     state === "connected" || state === "expired" || state === "needs_reauth";
   const isMuted = state === "coming_soon";
-  const hasSettings = isConnectable && isActive;
+  const hasSettings = connectable && isActive;
 
   return (
     <>
@@ -251,7 +253,7 @@ export function ConnectorCard({ connector, authError }: ConnectorCardProps) {
       </Collapsible.Root>
 
       {/* Disconnect confirmation dialog */}
-      {isConnectable && (
+      {connectable && (
         <ConfirmationDialog
           open={showDisconnect}
           onOpenChange={setShowDisconnect}

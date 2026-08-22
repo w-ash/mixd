@@ -50,6 +50,19 @@ class TestDeriveStatusState:
         )
         assert derive_status_state(status) == "needs_reauth"
 
+    def test_reauth_required_maps_to_needs_reauth(self) -> None:
+        status = make_status(auth_error="reauth_required")
+        assert derive_status_state(status) == "needs_reauth"
+
+    def test_reauth_required_wins_over_expired(self) -> None:
+        # Expected credential aging (Spotify's 6-month refresh grant, Apple's
+        # MUT) still renders as needs_reauth, not expired — same one-click fix.
+        status = make_status(
+            auth_error="reauth_required",
+            token_expires_at=int(time.time()) - 100,
+        )
+        assert derive_status_state(status) == "needs_reauth"
+
     def test_coming_soon_short_circuits_auth_error(self) -> None:
         status = make_status(
             auth_method="coming_soon", connected=False, auth_error="scope_missing"

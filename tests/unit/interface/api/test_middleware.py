@@ -3,13 +3,16 @@
 Pins that a ``SpotifyAuthRequiredError`` (a ``DomainError``) surfaces as a clean
 409 carrying the connect hint, instead of falling through to the generic
 ``Exception`` handler as an opaque 500 — the gap before a dedicated handler was
-registered for synchronous (non-SSE) Spotify routes.
+registered for synchronous (non-SSE) Spotify routes. Same coverage for
+``AppleMusicAuthRequiredError`` (v0.11.0) — a dead MUT surfacing through any
+route must yield the same actionable 409 shape, not a 500.
 """
 
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
 
 from src.domain.exceptions import (
+    AppleMusicAuthRequiredError,
     ChatUnavailableError,
     SpotifyAuthRequiredError,
     ToolExecutionError,
@@ -25,6 +28,10 @@ def _app() -> FastAPI:
     @app.get("/boom")
     async def _boom() -> None:
         raise SpotifyAuthRequiredError
+
+    @app.get("/apple-boom")
+    async def _apple_boom() -> None:
+        raise AppleMusicAuthRequiredError
 
     @app.get("/tool-boom")
     async def _tool_boom() -> None:
@@ -46,6 +53,17 @@ class TestSpotifyAuthRequiredHandler:
         body = resp.json()
         assert body["error"]["code"] == "SPOTIFY_AUTH_REQUIRED"
         assert "connect" in body["error"]["message"].lower()
+
+
+class TestAppleMusicAuthRequiredHandler:
+    def test_maps_to_409_with_reauth_hint(self):
+        client = TestClient(_app(), raise_server_exceptions=False)
+        resp = client.get("/apple-boom")
+
+        assert resp.status_code == 409
+        body = resp.json()
+        assert body["error"]["code"] == "APPLE_MUSIC_AUTH_REQUIRED"
+        assert "apple music" in body["error"]["message"].lower()
 
 
 class TestToolExecutionErrorHandler:

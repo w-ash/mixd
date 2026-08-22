@@ -81,6 +81,33 @@ describe("Library", () => {
     ).toBeInTheDocument();
   });
 
+  it("empty state names browser_bridge connectors as import sources", async () => {
+    // Apple Music connects via the MusicKit bridge, not OAuth — it must
+    // still count as a connect-capable import source.
+    overrideTracks([]);
+    server.use(
+      http.get("*/api/v1/connectors", () =>
+        HttpResponse.json(
+          [
+            makeConnectorMetadata({ name: "apple_music" }),
+            makeConnectorMetadata({ name: "musicbrainz" }),
+          ],
+          { status: 200 },
+        ),
+      ),
+    );
+
+    renderWithProviders(<Library />);
+
+    await waitFor(() => {
+      expect(screen.getByText("No tracks yet")).toBeInTheDocument();
+    });
+
+    expect(
+      screen.getByText(/Import your music from Apple Music/),
+    ).toBeInTheDocument();
+  });
+
   it("renders error state when API fails", async () => {
     server.use(
       http.get("*/api/v1/tracks", () => {

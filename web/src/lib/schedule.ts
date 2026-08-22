@@ -83,6 +83,7 @@ export function describeSchedule(schedule: {
  */
 export const SYNC_TARGETS = [
   "lastfm:plays",
+  "apple:plays",
   "spotify:likes",
   "lastfm:likes",
 ] as const;

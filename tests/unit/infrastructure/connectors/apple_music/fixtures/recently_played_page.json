@@ -1,0 +1,116 @@
+{
+  "data": [
+    {
+      "attributes": {
+        "albumName": "All Systems Are Lying / Run Free (Nite Versions) - Single",
+        "artistName": "Soulwax",
+        "artwork": {
+          "bgColor": "eef5f7",
+          "height": 3500,
+          "textColor1": "0b161c",
+          "textColor2": "1f292d",
+          "textColor3": "384348",
+          "textColor4": "485256",
+          "url": "https://artwork.example/{w}x{h}bb.jpg",
+          "width": 3500
+        },
+        "composerName": "David Dewaele & Stephen Dewaele",
+        "discNumber": 1,
+        "durationInMillis": 453422,
+        "genreNames": [
+          "Electronic",
+          "Music"
+        ],
+        "hasLyrics": false,
+        "isAppleDigitalMaster": false,
+        "isrc": "UKS362500345",
+        "name": "Run Free (Nite Version)",
+        "playParams": {
+          "id": "1847888607",
+          "kind": "song"
+        },
+        "releaseDate": "2025-10-16",
+        "trackNumber": 1,
+        "url": "https://music.apple.com/us/album/run-free-nite-version/1847888603?i=1847888607"
+      },
+      "href": "/v1/catalog/us/songs/1847888607",
+      "id": "1847888607",
+      "type": "songs"
+    },
+    {
+      "attributes": {
+        "albumName": "Always With Me",
+        "artistName": "TEED",
+        "artwork": {
+          "bgColor": "fffefe",
+          "height": 3000,
+          "textColor1": "0d1c23",
+          "textColor2": "1c201e",
+          "textColor3": "3e494f",
+          "textColor4": "494d4b",
+          "url": "https://artwork.example/{w}x{h}bb.jpg",
+          "width": 3000
+        },
+        "composerName": "Orlando Higginbottom",
+        "discNumber": 1,
+        "durationInMillis": 221607,
+        "genreNames": [
+          "Dance",
+          "Music"
+        ],
+        "hasLyrics": false,
+        "isAppleDigitalMaster": false,
+        "isrc": "QMFME2519844",
+        "name": "Always With Me",
+        "playParams": {
+          "id": "1837729683",
+          "kind": "song"
+        },
+        "releaseDate": "2025-12-05",
+        "trackNumber": 7,
+        "url": "https://music.apple.com/us/album/always-with-me/1837729668?i=1837729683"
+      },
+      "href": "/v1/catalog/us/songs/1837729683",
+      "id": "1837729683",
+      "type": "songs"
+    },
+    {
+      "attributes": {
+        "albumName": "Galaxy - Single",
+        "artistName": "Kungs, Theophilus London & Mind Enterprises",
+        "artwork": {
+          "bgColor": "f50808",
+          "height": 3000,
+          "textColor1": "011515",
+          "textColor2": "011515",
+          "textColor3": "321212",
+          "textColor4": "321212",
+          "url": "https://artwork.example/{w}x{h}bb.jpg",
+          "width": 3000
+        },
+        "composerName": "Valentin Brunel, FutureTimez, Franz Novotny, Andrea Tirone, Adam Novodor, Lenno Linjama & A. Ridha",
+        "discNumber": 1,
+        "durationInMillis": 170640,
+        "genreNames": [
+          "Electronic",
+          "Music"
+        ],
+        "hasLyrics": true,
+        "isAppleDigitalMaster": true,
+        "isrc": "FR9W12559982",
+        "name": "Galaxy",
+        "playParams": {
+          "id": "1859571413",
+          "kind": "song"
+        },
+        "releaseDate": "2026-01-09",
+        "trackNumber": 1,
+        "url": "https://music.apple.com/us/album/galaxy/1859571411?i=1859571413"
+      },
+      "href": "/v1/catalog/us/songs/1859571413",
+      "id": "1859571413",
+      "type": "songs"
+    }
+  ],
+  "next": "/v1/me/recent/played/tracks?offset=30&types=songs"
+}

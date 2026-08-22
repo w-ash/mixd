@@ -406,6 +406,43 @@ class TestConnectorConnectPreflight:
 
         assert response.status_code == 200
 
+    async def test_apple_recent_409_when_not_connected(
+        self, client: httpx2.AsyncClient
+    ):
+        with self._disconnected():
+            response = await client.post("/api/v1/imports/apple/recent", json={})
+        assert response.status_code == 409
+        assert response.json()["error"]["code"] == "CONNECTOR_NOT_CONNECTED"
+        assert response.json()["error"]["details"]["connector"] == "apple_music"
+
+    async def test_apple_recent_accepted_when_connected(
+        self, client: httpx2.AsyncClient
+    ):
+        # Apple's browser-bridge MUTs carry no OAuth scopes, so token presence
+        # (not scope) is the whole precondition — a plain connected token.
+        storage = AsyncMock()
+        storage.load_token = AsyncMock(
+            return_value=StoredToken(account_name="connected", session_key="sk")
+        )
+        with patch("src.interface.api.deps.get_token_storage", return_value=storage):
+            response = await client.post("/api/v1/imports/apple/recent", json={})
+
+        assert response.status_code == 200
+        assert response.json()["operation_id"]
+
+    async def test_apple_recent_accepts_force(self, client: httpx2.AsyncClient):
+        """`force` re-seeds the window fingerprint for one poll."""
+        storage = AsyncMock()
+        storage.load_token = AsyncMock(
+            return_value=StoredToken(account_name="connected", session_key="sk")
+        )
+        with patch("src.interface.api.deps.get_token_storage", return_value=storage):
+            response = await client.post(
+                "/api/v1/imports/apple/recent", json={"force": True}
+            )
+
+        assert response.status_code == 200
+
     async def test_spotify_history_upload_is_not_gated(
         self, client: httpx2.AsyncClient
     ):
@@ -775,8 +812,15 @@ class TestCheckpointEndpoints:
         data = response.json()
         assert isinstance(data, list)
         assert (
-            len(data) == 4
-        )  # spotify/likes, lastfm/likes, lastfm/plays, spotify/plays
+            len(data) == 5
+        )  # spotify/likes, lastfm/likes, lastfm/plays, spotify/plays, apple/plays
+        assert {(e["service"], e["entity_type"]) for e in data} == {
+            ("spotify", "likes"),
+            ("lastfm", "likes"),
+            ("lastfm", "plays"),
+            ("spotify", "plays"),
+            ("apple", "plays"),
+        }
 
     async def test_get_checkpoints_schema(self, client: httpx2.AsyncClient):
         response = await client.get("/api/v1/imports/checkpoints")

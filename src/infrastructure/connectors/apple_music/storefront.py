@@ -1,0 +1,96 @@
+"""Storefront resolution for Apple Music catalog calls.
+
+Every ``/v1/catalog/{storefront}/...`` request needs the user's storefront id.
+The MusicKit connect flow best-effort records it on the stored token
+(``extra_data["storefront"]`` — see ``interface/api/routes/apple_auth.py``),
+so the stored value is the fast path; a live ``GET /v1/me/storefront`` is the
+fallback for tokens stored before the lookup succeeded. A successful fallback
+writes the id back onto the stored token (best-effort) so the next
+resolution takes the fast path.
+
+Returns ``None`` rather than raising when no storefront can be determined
+(no stored token, revoked authorization, Apple unreachable): callers own the
+failure shape — the matching provider fails its batch with MatchFailures, the
+inward resolver fails its batch without writing backoff entries.
+"""
+
+from src.config import get_logger
+from src.domain.exceptions import AppleMusicAuthRequiredError
+from src.infrastructure.connectors._shared.token_storage import (
+    StoredToken,
+    TokenStorage,
+)
+from src.infrastructure.connectors.apple_music.client import (
+    APPLE_MUSIC_SERVICE,
+    AppleMusicAPIClient,
+)
+
+logger = get_logger(__name__)
+
+
+async def resolve_storefront(
+    client: AppleMusicAPIClient,
+    *,
+    storage: TokenStorage | None = None,
+    user_id: str | None = None,
+) -> str | None:
+    """The user's storefront id, from the stored token or a live lookup.
+
+    ``storage``/``user_id`` default to the shared token storage and the
+    ambient user context; tests pass both explicitly.
+    """
+    if storage is None:
+        from src.infrastructure.connectors._shared.token_storage import (
+            get_token_storage,
+        )
+
+        storage = get_token_storage()
+    if user_id is None:
+        from src.infrastructure.persistence.database.user_context import (
+            get_current_user_id_from_context,
+        )
+
+        user_id = get_current_user_id_from_context()
+
+    stored = await storage.load_token(APPLE_MUSIC_SERVICE, user_id)
+    extra_data = (stored.get("extra_data") if stored else None) or {}
+    storefront = extra_data.get("storefront")
+    if isinstance(storefront, str) and storefront:
+        return storefront
+
+    try:
+        live = await client.get_storefront()
+    except AppleMusicAuthRequiredError:
+        logger.info("No Apple Music storefront: user authorization missing/expired")
+        return None
+    if live is None:
+        logger.warning("Apple Music storefront lookup returned nothing")
+        return None
+    if stored is not None:
+        await _persist_storefront(storage, user_id, stored, live.id)
+    return live.id
+
+
+async def _persist_storefront(
+    storage: TokenStorage,
+    user_id: str,
+    stored: StoredToken,
+    storefront_id: str,
+) -> None:
+    """Best-effort write-back of a fallback-fetched storefront id.
+
+    Recording it on the stored token turns the next resolution into the fast
+    path. A storage failure must not fail the resolution that already
+    succeeded — log and move on (same shape as the client's
+    ``_mark_reauth_required``).
+    """
+    try:
+        extra_data = dict(stored.get("extra_data") or {})
+        extra_data["storefront"] = storefront_id
+        stored["extra_data"] = extra_data
+        await storage.save_token(APPLE_MUSIC_SERVICE, user_id, stored)
+    except Exception:
+        logger.warning(
+            "Failed to record Apple Music storefront on the stored token",
+            exc_info=True,
+        )

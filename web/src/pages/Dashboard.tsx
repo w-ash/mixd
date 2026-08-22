@@ -18,6 +18,7 @@ import { PreferenceBadge } from "#/components/shared/PreferenceToggle";
 import { QueryStates } from "#/components/shared/QueryStates";
 import { ScheduleFailuresBanner } from "#/components/shared/ScheduleFailuresBanner";
 import { CardGridSkeleton } from "#/components/shared/skeletons";
+import { isConnectable } from "#/lib/connectors";
 import { formatCount } from "#/lib/format";
 import { pluralize } from "#/lib/pluralize";
 import { cn } from "#/lib/utils";
@@ -199,7 +200,7 @@ export function Dashboard() {
   const connectorLabels =
     connectorsData?.status === 200
       ? connectorsData.data
-          .filter((c) => c.auth_method === "oauth")
+          .filter((c) => isConnectable(c.auth_method))
           .map((c) => c.display_name)
       : [];
 

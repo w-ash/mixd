@@ -365,7 +365,6 @@ source = ["mixd", "src"]
 omit = [
     "tests/*",
     "src/interface/cli/*",
-    "src/infrastructure/connectors/apple_music/*",
 ]
 
 # Type checking configuration - BasedPyright (modern Python-focused type checker)
@@ -549,6 +548,13 @@ ignore_imports = [
     "src.interface.api.routes.auth -> src.infrastructure.connectors.spotify.auth",
     "src.interface.api.routes.auth -> src.infrastructure.persistence.database.db_connection",
     "src.interface.api.routes.auth -> src.infrastructure.persistence.database.db_models",
+    # Same carve-out, v0.11.x: the Apple Music MusicKit JS bridge — browser-
+    # mediated Music User Token capture + storage. `user_context` scopes the
+    # best-effort storefront read to the state row's user.
+    "src.interface.api.routes.apple_auth -> src.infrastructure.connectors._shared.token_storage",
+    "src.interface.api.routes.apple_auth -> src.infrastructure.connectors.apple_music.auth",
+    "src.interface.api.routes.apple_auth -> src.infrastructure.connectors.apple_music.client",
+    "src.interface.api.routes.apple_auth -> src.infrastructure.persistence.database.user_context",
     "src.interface.api.routes.connectors -> src.infrastructure.connectors._shared.connector_status",
     "src.interface.api.routes.connectors -> src.infrastructure.connectors._shared.token_storage",
     "src.interface.api.routes.connectors -> src.infrastructure.connectors.discovery",

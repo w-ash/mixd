@@ -14,6 +14,7 @@ from typing import Final
 
 from attrs import define, field
 
+from src.application.connector_protocols import Closeable
 from src.application.services.play_projection_service import (
     PROJECTION_STAT_LABELS,
     PlayProjectionService,
@@ -331,9 +332,15 @@ class PlayImportOrchestrator:
         if not connector_plays:
             return self._create_empty_resolution_result()
 
-        # Group connector plays by service for service-specific resolution
-        spotify_plays = [p for p in connector_plays if p.connector_name == "spotify"]
-        lastfm_plays = [p for p in connector_plays if p.connector_name == "lastfm"]
+        # Group connector plays by service for service-specific resolution.
+        # Keyed on connector_name rather than an enumerated list so a newly
+        # registered service (apple, v0.11.x) resolves through its registry
+        # entry instead of being silently dropped here; an unregistered name
+        # still fails loud in the resolver factory. Sorted for a deterministic
+        # per-service order.
+        plays_by_service: dict[str, list[ConnectorTrackPlay]] = {}
+        for play in connector_plays:
+            plays_by_service.setdefault(play.connector_name, []).append(play)
 
         all_track_plays: list[TrackPlay] = []
         # Only what Phase 3 still needs after a chunk is durable: the days the
@@ -351,12 +358,11 @@ class PlayImportOrchestrator:
             progress_emitter, "Resolving plays to canonical tracks", phase="match"
         ) as operation_id:
             # Resolve plays per service using registry-provided resolvers
-            for service, plays in [
-                ("spotify", spotify_plays),
-                ("lastfm", lastfm_plays),
-            ]:
-                if plays:
-                    resolver = await self.resolver_factory(service)
+            for service, plays in sorted(plays_by_service.items()):
+                if not plays:
+                    continue
+                resolver = await self.resolver_factory(service)
+                try:
                     for offset in range(0, len(plays), _RESOLUTION_COMMIT_CHUNK_SIZE):
                         chunk = plays[offset : offset + _RESOLUTION_COMMIT_CHUNK_SIZE]
                         chunk_index = offset // _RESOLUTION_COMMIT_CHUNK_SIZE
@@ -434,6 +440,13 @@ class PlayImportOrchestrator:
                                 message=f"Resolved {len(all_track_plays)}/{len(connector_plays)} plays ({service})",
                             )
                         )
+                finally:
+                    # Factory-built resolvers own httpx2 pools (the Apple
+                    # resolver constructs its own client); without an explicit
+                    # close every import strands one. Opt-in via the Closeable
+                    # protocol — resolvers without an aclose are left alone.
+                    if isinstance(resolver, Closeable):
+                        await resolver.aclose()
 
             # Phase 3: project the affected window. Canonical plays are derived
             # from the observation ledger the chunk loop already stamped — the

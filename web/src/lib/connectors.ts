@@ -1,10 +1,27 @@
-/** Shared connector copy (non-branding).
+/** Shared connector helpers (non-branding).
  *
  * Per-connector branding (logos, colors, button classes, UX descriptions)
- * lives in ``lib/connector-brand.tsx``. This module only carries copy
- * that's keyed on backend-emitted *auth error codes* rather than on
- * connector names.
+ * lives in ``lib/connector-brand.tsx``. This module carries copy keyed on
+ * backend-emitted *auth error codes* and the connect-capability predicate —
+ * nothing keyed on connector names.
  */
+
+import type { ConnectorAuthMethod } from "#/api/generated/model";
+
+/** Auth methods a user can act on to connect the service. */
+const connectableAuthMethods: ReadonlySet<ConnectorAuthMethod> = new Set([
+  "oauth",
+  "browser_bridge",
+  "token",
+  "device_code",
+]);
+
+/** Whether a connector can be connected by the user (stores a per-user
+ * credential via some connect flow) — i.e. everything except "none"
+ * (public API) and "coming_soon". */
+export function isConnectable(authMethod: ConnectorAuthMethod): boolean {
+  return connectableAuthMethods.has(authMethod);
+}
 
 /** Map auth callback reason codes to human-readable messages. */
 const authErrorMessages: Record<string, string> = {
@@ -18,6 +35,8 @@ const authErrorMessages: Record<string, string> = {
   refresh_failed: "Session token could not be refreshed — please reconnect",
   scope_missing:
     "New permissions needed — reconnect to enable listening history",
+  reauth_required: "Session expired — reconnect to continue",
+  authorize_failed: "Authorization was cancelled or failed — try again",
 };
 
 /** Convert an auth error reason code to a human-readable string. */

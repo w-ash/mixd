@@ -24,13 +24,14 @@ import {
   getExportLastfmLikesApiV1ImportsLastfmLikesPostResponseMock,
   getGetCheckpointsApiV1ImportsCheckpointsGetResponseMock,
   getGetSpotifyHistoryQueueApiV1ImportsSpotifyHistoryQueueGetResponseMock,
+  getImportAppleRecentApiV1ImportsAppleRecentPostResponseMock,
   getImportLastfmHistoryApiV1ImportsLastfmHistoryPostResponseMock,
   getImportSpotifyHistoryApiV1ImportsSpotifyHistoryPostResponseMock,
   getImportSpotifyLikesApiV1ImportsSpotifyLikesPostResponseMock,
   getImportSpotifyRecentApiV1ImportsSpotifyRecentPostResponseMock
 } from './imports.faker.ts';
 
-export { getImportLastfmHistoryApiV1ImportsLastfmHistoryPostResponseMock, getImportSpotifyRecentApiV1ImportsSpotifyRecentPostResponseMock, getImportSpotifyLikesApiV1ImportsSpotifyLikesPostResponseMock, getExportLastfmLikesApiV1ImportsLastfmLikesPostResponseMock, getImportSpotifyHistoryApiV1ImportsSpotifyHistoryPostResponseMock, getGetSpotifyHistoryQueueApiV1ImportsSpotifyHistoryQueueGetResponseMock, getCancelSpotifyHistoryQueueApiV1ImportsSpotifyHistoryQueueDeleteResponseMock, getGetCheckpointsApiV1ImportsCheckpointsGetResponseMock } from './imports.faker.ts';
+export { getImportLastfmHistoryApiV1ImportsLastfmHistoryPostResponseMock, getImportSpotifyRecentApiV1ImportsSpotifyRecentPostResponseMock, getImportAppleRecentApiV1ImportsAppleRecentPostResponseMock, getImportSpotifyLikesApiV1ImportsSpotifyLikesPostResponseMock, getExportLastfmLikesApiV1ImportsLastfmLikesPostResponseMock, getImportSpotifyHistoryApiV1ImportsSpotifyHistoryPostResponseMock, getGetSpotifyHistoryQueueApiV1ImportsSpotifyHistoryQueueGetResponseMock, getCancelSpotifyHistoryQueueApiV1ImportsSpotifyHistoryQueueDeleteResponseMock, getGetCheckpointsApiV1ImportsCheckpointsGetResponseMock } from './imports.faker.ts';
 
 
 export const getImportLastfmHistoryApiV1ImportsLastfmHistoryPostMockHandler = (overrideResponse?: OperationStartedResponse | ((info: Parameters<Parameters<typeof http.post>[1]>[0]) => Promise<OperationStartedResponse> | OperationStartedResponse), options?: RequestHandlerOptions) => {
@@ -52,6 +53,18 @@ export const getImportSpotifyRecentApiV1ImportsSpotifyRecentPostMockHandler = (o
     return HttpResponse.json(overrideResponse !== undefined
     ? (typeof overrideResponse === "function" ? await overrideResponse(info) : overrideResponse)
     : getImportSpotifyRecentApiV1ImportsSpotifyRecentPostResponseMock(),
+      { status: 200
+      })
+  }, options)
+}
+
+export const getImportAppleRecentApiV1ImportsAppleRecentPostMockHandler = (overrideResponse?: OperationStartedResponse | ((info: Parameters<Parameters<typeof http.post>[1]>[0]) => Promise<OperationStartedResponse> | OperationStartedResponse), options?: RequestHandlerOptions) => {
+  return http.post('*/api/v1/imports/apple/recent', async (info: Parameters<Parameters<typeof http.post>[1]>[0]) => {
+
+
+    return HttpResponse.json(overrideResponse !== undefined
+    ? (typeof overrideResponse === "function" ? await overrideResponse(info) : overrideResponse)
+    : getImportAppleRecentApiV1ImportsAppleRecentPostResponseMock(),
       { status: 200
       })
   }, options)
@@ -131,6 +144,7 @@ export const getGetCheckpointsApiV1ImportsCheckpointsGetMockHandler = (overrideR
 export const getImportsMock = () => [
   getImportLastfmHistoryApiV1ImportsLastfmHistoryPostMockHandler(),
   getImportSpotifyRecentApiV1ImportsSpotifyRecentPostMockHandler(),
+  getImportAppleRecentApiV1ImportsAppleRecentPostMockHandler(),
   getImportSpotifyLikesApiV1ImportsSpotifyLikesPostMockHandler(),
   getExportLastfmLikesApiV1ImportsLastfmLikesPostMockHandler(),
   getImportSpotifyHistoryApiV1ImportsSpotifyHistoryPostMockHandler(),

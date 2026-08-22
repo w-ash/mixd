@@ -18,3 +18,5 @@ export const getGetConnectorAuthUrlApiV1ConnectorsServiceAuthUrlGetResponseMock 
         [faker.string.alphanumeric(5)]: faker.string.alpha({length: {min: 10, max: 20}})
       })
 
+export const getAppleAuthorizeAuthAppleAuthorizeGetResponseMock = (): string => (faker.word.sample())
+

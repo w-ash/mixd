@@ -252,19 +252,56 @@ describe("ConnectorCard", () => {
     });
   });
 
-  describe("passive connectors", () => {
-    it("renders Apple Music with Coming soon", () => {
+  describe("browser_bridge connectors", () => {
+    it("renders a Connect button (not Coming soon) for disconnected Apple Music", () => {
       renderWithProviders(
         <ConnectorCard connector={makeConnector({ name: "apple_music" })} />,
       );
 
       expect(screen.getByText("Apple Music")).toBeInTheDocument();
-      expect(screen.getByText("Coming soon")).toBeInTheDocument();
-      expect(
-        screen.getByText("Playlists and library sync"),
-      ).toBeInTheDocument();
+      expect(screen.getByText("Connect Apple Music")).toBeInTheDocument();
+      expect(screen.queryByText("Coming soon")).not.toBeInTheDocument();
     });
 
+    it("shows settings gear (disconnect path) for connected Apple Music", async () => {
+      const user = userEvent.setup();
+      renderWithProviders(
+        <ConnectorCard
+          connector={makeConnector({
+            name: "apple_music",
+            connected: true,
+            token_expires_at: Math.floor(Date.now() / 1000) + 3600,
+          })}
+        />,
+      );
+
+      await user.click(
+        screen.getByRole("button", { name: "Apple Music settings" }),
+      );
+      await user.click(screen.getByText("Disconnect Apple Music"));
+
+      await waitFor(() => {
+        expect(screen.getByText("Disconnect Apple Music?")).toBeInTheDocument();
+      });
+    });
+
+    it("shows Reconnect when the Music User Token needs reauthorization", () => {
+      renderWithProviders(
+        <ConnectorCard
+          connector={makeConnector({
+            name: "apple_music",
+            connected: true,
+            status: "needs_reauth",
+            auth_error: "reauth_required",
+          })}
+        />,
+      );
+
+      expect(screen.getByText("Reconnect")).toBeInTheDocument();
+    });
+  });
+
+  describe("passive connectors", () => {
     it("renders MusicBrainz with Available badge", () => {
       renderWithProviders(
         <ConnectorCard

@@ -297,6 +297,12 @@ class ConnectorTrackPlay:
         elif self.service == "lastfm":
             # Last.fm uses artist::title pattern (no stable IDs)
             identifier = f"{self.artist_name}::{self.track_name}"
+        elif self.service == "apple":
+            # Apple catalog song id if available, fallback to artist::title —
+            # mirrors the Spotify branch so the ledger identifier is what the
+            # resolver resolves and the projection buckets on.
+            song_id = self.service_metadata.get("song_id")
+            identifier = song_id or f"{self.artist_name}::{self.track_name}"
         else:
             # Generic fallback for other services
             identifier = f"{self.artist_name}::{self.track_name}"

@@ -13,11 +13,20 @@ from src.domain.services.oauth_grant import grant_scopes
 
 
 class StoredToken(TypedDict, total=False):
-    """Token data as stored. All fields optional to support both Spotify and Last.fm.
+    """Token data as stored. Fields are optional. Each connector uses its own subset.
 
-    Spotify uses: access_token, refresh_token, token_type, expires_in, expires_at, scope
-    Last.fm uses: session_key
-    Both use: account_name
+    Per-connector field contract:
+
+    - Spotify: access_token, refresh_token, scope.
+    - Last.fm: session_key.
+    - Apple Music: access_token holds the Music User Token. Set explicit expires_at.
+      There is no refresh_token.
+    - Tidal: access_token and refresh_token, as a pair.
+    - Discogs: a personal access token, stored in access_token.
+      An OAuth 1.0a token secret would go in extra_data, if ever needed.
+    - account_name: display name, set by any connector.
+    - extra_data["authorized_at"]: Unix timestamp of the grant. Set it wherever
+      grant age matters (e.g. Spotify's refresh-token expiry window).
     """
 
     access_token: str

@@ -264,6 +264,90 @@ class TestProjectionPipeline:
         assert all(s.track_play_id == survivor.id for s in sources)
 
 
+def _apple(user_id: str, *, minutes_after_start: int = 12) -> ConnectorTrackPlay:
+    """Apple recently-played observation of the same listen (v0.11.x).
+
+    ``played_at`` is a poll-window midpoint — the feed carries no timestamps —
+    so it can sit many minutes from the true start and still be the same
+    listen; the channel's wide tolerance override is what pairs it.
+    """
+    return ConnectorTrackPlay(
+        service="apple",
+        artist_name="Carwash",
+        track_name="Striptease",
+        played_at=_START + timedelta(minutes=minutes_after_start),
+        ms_played=None,
+        user_id=user_id,
+        service_metadata={"song_id": "1440857781"},
+        import_timestamp=datetime.now(UTC),
+        import_source="apple_api",
+        import_batch_id=f"TEST_{uuid4()}",
+    )
+
+
+class TestApplePlayChannelProjection:
+    """v0.11.x milestone acceptance: overlapping Apple + Last.fm observations
+    of one listen project to ONE canonical play with the observed timestamp."""
+
+    async def test_apple_and_lastfm_observations_project_to_one_play(self, db_session):
+        user_id = f"TEST_proj_{uuid4().hex[:8]}"
+        uow = get_unit_of_work(db_session)
+        track = await uow.get_track_repository().save_track(
+            make_track(
+                title="Striptease",
+                artist="Carwash",
+                user_id=user_id,
+                connector_track_identifiers={},
+            )
+        )
+        scrobble, apple = _scrobble(user_id), _apple(user_id)
+        await _seed_resolved(uow, user_id, [scrobble, apple], track.id)
+
+        stats = await PlayProjectionService().project_observed_days(
+            uow, user_id=user_id, played_at=[scrobble.played_at, apple.played_at]
+        )
+
+        assert stats["groups_created"] == 1
+        plays, sources = await _canonical_state(db_session, user_id)
+        assert len(plays) == 1
+        play = plays[0]
+        # Survivorship: Last.fm outranks apple on priority AND timestamp
+        # quality — the observed scrobble time wins over the midpoint guess.
+        assert play.service == "lastfm"
+        assert play.played_at == scrobble.played_at
+        assert play.ms_played is None
+        assert play.source_services == ["lastfm", "apple"]
+        assert play.context is not None
+        assert play.context["merged_from_apple_api"]["song_id"] == "1440857781"
+        assert {s.connector_play_id for s in sources} == {scrobble.id, apple.id}
+        assert all(s.track_play_id == play.id for s in sources)
+
+    async def test_apple_observation_alone_still_becomes_a_play(self, db_session):
+        """Presence evidence stands on its own when nobody else observed it."""
+        user_id = f"TEST_proj_{uuid4().hex[:8]}"
+        uow = get_unit_of_work(db_session)
+        track = await uow.get_track_repository().save_track(
+            make_track(
+                title="Striptease",
+                artist="Carwash",
+                user_id=user_id,
+                connector_track_identifiers={},
+            )
+        )
+        apple = _apple(user_id)
+        await _seed_resolved(uow, user_id, [apple], track.id)
+
+        stats = await PlayProjectionService().project_observed_days(
+            uow, user_id=user_id, played_at=[apple.played_at]
+        )
+
+        assert stats["groups_created"] == 1
+        plays, _sources = await _canonical_state(db_session, user_id)
+        assert len(plays) == 1
+        assert plays[0].service == "apple"
+        assert plays[0].played_at == apple.played_at
+
+
 class TestRebuildPlayHistory:
     async def test_rebuild_converges_doubles_and_deletes_unsourced(self, db_session):
         """Milestone acceptance shape: a defective pre-projection state (one

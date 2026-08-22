@@ -29,6 +29,11 @@ from src.domain.entities.preference import PreferenceEvent, TrackPreference
 from src.domain.entities.tag import TagEvent, TrackTag
 from src.domain.entities.track import Artist, ConnectorTrack, Track, TrackLike
 from src.domain.entities.workflow import Workflow, WorkflowDef, WorkflowTaskDef
+from src.infrastructure.connectors.apple_music.models import (
+    AppleMusicPlayParams,
+    AppleMusicSong,
+    AppleMusicSongAttributes,
+)
 from src.infrastructure.connectors.spotify.models import (
     SpotifyAlbum,
     SpotifyArtist,
@@ -114,6 +119,49 @@ def make_spotify_track(
     kwargs.setdefault("artists", [SpotifyArtist(name=artist_name)])
     kwargs.setdefault("album", SpotifyAlbum(name=album_name))
     return SpotifyTrack(id=spotify_id, name=name, duration_ms=duration_ms, **kwargs)
+
+
+# ---------------------------------------------------------------------------
+# AppleMusicSong factories (Pydantic model for API responses)
+#
+# Shape verified against the live API (probe 2026-08-22): catalog songs carry
+# isrc + durationInMillis reliably, and playParams are {id, kind} only —
+# catalog_id here exercises the dormant library-resource divergence (v0.13).
+# ---------------------------------------------------------------------------
+
+
+def make_apple_song(
+    song_id: str = "1613600188",
+    name: str = "Test Song",
+    artist: str = "Test Artist",
+    album: str = "Test Album",
+    duration_ms: int = 200_000,
+    isrc: str | None = "USUM72309818",
+    catalog_id: str | None = None,
+    release_date: str | None = "2023-01-01",
+) -> AppleMusicSong:
+    """Build an :class:`AppleMusicSong` catalog resource with sensible defaults.
+
+    ``catalog_id`` populates ``playParams.catalogId`` (successor-id divergence
+    when it differs from ``song_id``); omitted, the song carries no playParams.
+    """
+    play_params = (
+        AppleMusicPlayParams(id=song_id, catalog_id=catalog_id)
+        if catalog_id is not None
+        else None
+    )
+    return AppleMusicSong(
+        id=song_id,
+        attributes=AppleMusicSongAttributes(
+            name=name,
+            artist_name=artist,
+            album_name=album,
+            duration_in_millis=duration_ms,
+            isrc=isrc,
+            release_date=release_date,
+            play_params=play_params,
+        ),
+    )
 
 
 # ---------------------------------------------------------------------------

@@ -22,7 +22,7 @@ _PLAY_POLL = "spotify:plays"
 
 class TestValidateSyncTarget:
     def test_valid_targets_accepted(self) -> None:
-        for target in ("lastfm:plays", "spotify:likes", "lastfm:likes"):
+        for target in ("lastfm:plays", "spotify:likes", "lastfm:likes", "apple:plays"):
             assert validate_sync_target(target) == target
 
     def test_self_managed_target_is_not_user_schedulable(self) -> None:
@@ -58,6 +58,16 @@ class TestDispatchableVersusSchedulable:
 
     def test_ordinary_targets_have_no_poll_hooks(self) -> None:
         assert SYNC_TARGETS["lastfm:plays"].try_begin_poll is None
+
+    def test_apple_plays_is_plain_schedulable_without_poll_hooks(self) -> None:
+        """Deliberate deviation from spotify:plays: the adaptive poll policy
+        hardcodes spotify/lastfm, so apple:plays ships as an ordinary
+        user-schedulable target — no adaptive cadence, no hooks."""
+        spec = SYNC_TARGETS["apple:plays"]
+        assert spec.user_schedulable is True
+        assert spec.try_begin_poll is None
+        assert spec.finish_poll is None
+        assert sync_target_label("apple:plays") == "Apple Music plays"
 
     def test_self_managed_target_still_has_a_label(self) -> None:
         # Its schedule row is real and appears in listings, so a raw id would

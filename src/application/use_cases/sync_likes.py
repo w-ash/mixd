@@ -138,6 +138,7 @@ CHECKPOINT_COMBINATIONS: tuple[tuple[str, Literal["likes", "plays"]], ...] = (
     ("lastfm", "likes"),
     ("lastfm", "plays"),
     ("spotify", "plays"),
+    ("apple", "plays"),
 )
 
 

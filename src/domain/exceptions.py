@@ -219,6 +219,30 @@ class LastfmAuthRequiredError(DomainError):
         )
 
 
+class AppleMusicAuthRequiredError(DomainError):
+    """Raised when an Apple Music call cannot authenticate and needs user action.
+
+    Two shapes share the error because both have a re-connect (or re-configure)
+    remedy, mirroring ``SpotifyAuthRequiredError``:
+
+    - No Music User Token is stored for the user, or Apple answered 403 with a
+      body indicating the user token expired or was revoked. MUTs cannot be
+      refreshed — the only fix is the browser MusicKit re-authorization flow,
+      so the client also records ``extra_data["reauth_required"]`` on the
+      stored token for the connector status surface.
+    - Apple answered 401, which rejects the instance's developer token — a
+      server configuration problem (``APPLE_TEAM_ID``/``APPLE_KEY_ID``/
+      ``APPLE_PRIVATE_KEY``), surfaced with its own message.
+    """
+
+    def __init__(self, message: str | None = None) -> None:
+        super().__init__(
+            message
+            or "Apple Music is not connected. Re-authorize it from the "
+            "Integrations page."
+        )
+
+
 class ConnectorNotConnectedError(DomainError):
     """Raised by the import-route pre-flight when a connector has no stored token.
 

@@ -1,4 +1,4 @@
-"""Shared httpx2 client factories for Spotify, Last.fm, and MusicBrainz API connectors.
+"""Shared httpx2 client factories for Spotify, Last.fm, MusicBrainz, and Apple Music API connectors.
 
 Provides AsyncClient factories with:
 - Structured request/response logging via event hooks
@@ -22,6 +22,9 @@ SPOTIFY_API_BASE = "https://api.spotify.com/v1"
 SPOTIFY_ACCOUNTS_BASE = "https://accounts.spotify.com"
 LASTFM_API_BASE = "https://ws.audioscrobbler.com/2.0"
 MUSICBRAINZ_API_BASE = "https://musicbrainz.org/ws/2"
+# No version segment — Apple Music endpoints carry their own /v1 prefix
+# (/v1/me/... and /v1/catalog/... diverge above the version).
+APPLE_MUSIC_API_BASE = "https://api.music.apple.com"
 
 _http_logger = get_logger(__name__).bind(service="http_client")
 
@@ -180,6 +183,21 @@ def make_spotify_auth_client() -> httpx2.AsyncClient:
     return _make_client(
         base_url=SPOTIFY_ACCOUNTS_BASE,
         timeout=httpx2.Timeout(10.0),
+    )
+
+
+def make_apple_music_client(auth: httpx2.Auth) -> httpx2.AsyncClient:
+    """Return a configured AsyncClient for Apple Music API calls.
+
+    Authentication (the developer-token bearer) is delegated to the provided
+    httpx2.Auth instance; the per-user Music-User-Token header is injected
+    per-call by the client on /v1/me/* requests. Caller owns lifecycle.
+    Timeouts sourced from settings.api.apple_music.request_timeout.
+    """
+    return _make_client(
+        base_url=APPLE_MUSIC_API_BASE,
+        auth=auth,
+        timeout=_read_timeout(float(settings.api.apple_music.request_timeout)),
     )
 
 

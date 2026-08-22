@@ -17,6 +17,7 @@ from src.interface.api.deps import (
 from src.interface.api.schemas.imports import (
     CheckpointStatusSchema,
     ExportLastfmLikesRequest,
+    ImportAppleRecentRequest,
     ImportLastfmHistoryRequest,
     ImportQueueResponse,
     ImportSpotifyLikesRequest,
@@ -100,6 +101,38 @@ async def import_spotify_recent(
     return await launch_sse_operation(
         user_id=user_id,
         operation_type="import_spotify_recent",
+        coro_factory=_import,
+    )
+
+
+@router.post("/apple/recent")
+async def import_apple_recent(
+    body: ImportAppleRecentRequest,
+    user_id: str = Depends(get_current_user_id),
+    _connected: None = Depends(require_connector_connected("apple_music")),
+) -> OperationStartedResponse:
+    """Poll Apple Music's recently-played API for new plays.
+
+    Connection-gated rather than scope-gated: Apple's browser-bridge MUTs
+    carry no OAuth scopes, so token presence is the whole precondition — the
+    status probe is storage-only, exactly what `require_connector_connected`
+    checks.
+    """
+
+    async def _import(emitter: OperationBoundEmitter) -> object:
+        from src.application.use_cases.import_play_history import run_import
+
+        return await run_import(
+            user_id=user_id,
+            service="apple",
+            mode="recent",
+            progress_emitter=emitter,
+            force=body.force,
+        )
+
+    return await launch_sse_operation(
+        user_id=user_id,
+        operation_type="import_apple_recent",
         coro_factory=_import,
     )
 

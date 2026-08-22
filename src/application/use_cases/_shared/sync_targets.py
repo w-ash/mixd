@@ -124,6 +124,14 @@ SYNC_TARGETS: Final[Mapping[str, SyncTargetSpec]] = {
         label="Last.fm plays",
         run=lambda user_id: run_import(user_id, "lastfm", "incremental"),
     ),
+    "apple:plays": SyncTargetSpec(
+        label="Apple Music plays",
+        run=lambda user_id: run_import(user_id, "apple", "incremental"),
+        # Plain schedulable, deliberately unlike spotify:plays: the adaptive
+        # poll policy hardcodes spotify/lastfm, so this target has no poll
+        # hooks and an ordinary user-managed cadence. Revisit when the policy
+        # grows a per-target seam.
+    ),
     "spotify:likes": SyncTargetSpec(
         label="Spotify likes",
         run=run_spotify_likes_import,

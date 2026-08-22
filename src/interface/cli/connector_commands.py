@@ -45,6 +45,8 @@ def connectors_status(ctx: typer.Context) -> None:
         for s in statuses:
             if s.auth_error == "scope_missing":
                 status_str = "[yellow]Re-connect needed (new permissions)[/yellow]"
+            elif s.auth_error == "reauth_required":
+                status_str = "[yellow]Re-connect needed (session expired)[/yellow]"
             elif s.auth_error == "refresh_failed":
                 status_str = "[red]Error: session refresh failed[/red]"
             elif s.connected:
@@ -172,7 +174,7 @@ def disconnect_connector(
         config = discover_connectors().get(service)
         if config is None:
             raise ValueError(f"Unknown connector: {service}")
-        if config["auth_method"] != "oauth":
+        if config["auth_method"] not in {"oauth", "browser_bridge"}:
             raise ValueError(f"{service} does not store credentials to disconnect")
 
         user_id = get_cli_user_id()

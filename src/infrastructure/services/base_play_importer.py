@@ -17,7 +17,11 @@ from src.domain.entities.progress import (
     ProgressStatus,
     create_progress_event,
 )
-from src.domain.exceptions import LastfmAuthRequiredError, SpotifyAuthRequiredError
+from src.domain.exceptions import (
+    AppleMusicAuthRequiredError,
+    LastfmAuthRequiredError,
+    SpotifyAuthRequiredError,
+)
 from src.domain.repositories.play import PlayImportParams
 from src.domain.repositories.uow import UnitOfWorkProtocol
 from src.domain.results import (
@@ -196,7 +200,11 @@ class BasePlayImporter[TRawData, TParams: PlayImportParams](ABC):
                 user_id=user_id,
             )
 
-        except LastfmAuthRequiredError, SpotifyAuthRequiredError:
+        except (
+            AppleMusicAuthRequiredError,
+            LastfmAuthRequiredError,
+            SpotifyAuthRequiredError,
+        ):
             # Must precede the generic catch: a connector that needs
             # re-authorizing is not a failed import, it is an actionable user
             # state. Swallowing it into an error result would strand the

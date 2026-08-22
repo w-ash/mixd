@@ -1,0 +1,26 @@
+{
+  "data": [
+    {
+      "attributes": {
+        "defaultLanguageTag": "en-US",
+        "explicitContentPolicy": "allowed",
+        "name": "United States",
+        "supportedLanguageTags": [
+          "en-US",
+          "es-MX",
+          "ar",
+          "ru",
+          "zh-Hans-CN",
+          "fr-FR",
+          "ko",
+          "pt-BR",
+          "vi",
+          "zh-Hant-TW"
+        ]
+      },
+      "href": "/v1/storefronts/us",
+      "id": "us",
+      "type": "storefronts"
+    }
+  ]
+}

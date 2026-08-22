@@ -176,6 +176,84 @@ class TestTwoPhaseHappyPath:
         assert result.metadata["ingestion_phase"]["batch_id"] == "test-batch-123"
 
 
+class _CloseableResolver:
+    """Resolver double with a REAL aclose attribute.
+
+    The orchestrator's close is gated on ``isinstance(resolver, Closeable)``,
+    and runtime_checkable protocol checks use ``getattr_static`` — a bare
+    AsyncMock's dynamic attributes are invisible to it.
+    """
+
+    def __init__(self) -> None:
+        self.resolve_connector_plays = AsyncMock(
+            return_value=PlayResolutionOutcome(
+                track_plays=[], metrics={"error_count": 0}, resolutions=()
+            )
+        )
+        self.aclose = AsyncMock()
+
+
+class TestResolverLifecycle:
+    """Resolvers obtained from the factory are closed after resolution."""
+
+    def _orchestrator(self, resolver):
+        async def resolver_factory(service: str):
+            return resolver
+
+        return PlayImportOrchestrator(resolver_factory=resolver_factory)
+
+    async def test_resolver_closed_after_resolution_phase(self, mock_uow):
+        resolver = _CloseableResolver()
+
+        await self._orchestrator(resolver).execute_resolution_phase(
+            [_make_connector_play()],
+            mock_uow,
+            user_id="test-user",
+            progress_emitter=NullProgressEmitter(),
+        )
+
+        resolver.aclose.assert_awaited_once()
+
+    async def test_resolver_closed_even_when_resolution_raises(self, mock_uow):
+        resolver = _CloseableResolver()
+        resolver.resolve_connector_plays.side_effect = RuntimeError("boom")
+
+        with pytest.raises(RuntimeError, match="boom"):
+            await self._orchestrator(resolver).execute_resolution_phase(
+                [_make_connector_play()],
+                mock_uow,
+                user_id="test-user",
+                progress_emitter=NullProgressEmitter(),
+            )
+
+        resolver.aclose.assert_awaited_once()
+
+    async def test_resolver_without_aclose_still_resolves(self, mock_uow):
+        """Closing is opt-in: a resolver exposing no aclose is left alone."""
+
+        class _PlainResolver:
+            async def resolve_connector_plays(
+                self, chunk, uow, *, user_id, progress_callback=None
+            ):
+                return PlayResolutionOutcome(
+                    track_plays=[], metrics={"error_count": 0}, resolutions=()
+                )
+
+        async def resolver_factory(service: str):
+            return _PlainResolver()
+
+        orchestrator = PlayImportOrchestrator(resolver_factory=resolver_factory)
+
+        result = await orchestrator.execute_resolution_phase(
+            [_make_connector_play()],
+            mock_uow,
+            user_id="test-user",
+            progress_emitter=NullProgressEmitter(),
+        )
+
+        assert result is not None
+
+
 class TestEmptyIngestion:
     """Test short-circuit when ingestion produces no plays."""
 

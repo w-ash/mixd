@@ -454,6 +454,109 @@ class TestBaseMatchingProviderValidation:
         assert provider._has_artist_and_title(track) is False
 
 
+class IsrcOnlyProvider(ConcreteProvider):
+    """Provider that opts out of artist/title matching (Apple Music shape)."""
+
+    supports_artist_title_matching = False
+
+
+class TestSupportsArtistTitleMatchingFlag:
+    """Flag-off path: ISRC-only providers never reach _match_by_artist_title."""
+
+    def test_flag_defaults_to_true(self):
+        assert BaseMatchingProvider.supports_artist_title_matching is True
+        assert ConcreteProvider().supports_artist_title_matching is True
+
+    async def test_no_isrc_track_fails_instead_of_artist_title(self):
+        """A track without ISRC gets a NO_ISRC failure, not a fallback call."""
+        provider = IsrcOnlyProvider()
+        t1 = Track(title="Song 1", artists=[Artist(name="Artist 1")])
+
+        result = await provider.fetch_raw_matches_for_tracks([t1])
+
+        assert len(provider.artist_title_calls) == 0
+        assert not result.matches
+        assert len(result.failures) == 1
+        assert result.failures[0].track_id == t1.id
+        assert result.failures[0].reason == MatchFailureReason.NO_ISRC
+
+    async def test_isrc_miss_not_funneled_to_artist_title(self):
+        """An ISRC track that misses is NOT retried by artist/title."""
+        provider = IsrcOnlyProvider()
+        t1 = Track(
+            title="Song 1", isrc="USRC11111111", artists=[Artist(name="Artist 1")]
+        )
+        # No isrc_results configured → the track misses.
+
+        result = await provider.fetch_raw_matches_for_tracks([t1])
+
+        assert len(provider.isrc_calls) == 1
+        assert len(provider.artist_title_calls) == 0
+        assert not result.matches
+
+    async def test_progress_reaches_total_when_no_isrc_partition_is_skipped(self):
+        """The skipped no-ISRC partition still counts toward progress — the
+        final callback must reach total, not stall at the ISRC phase."""
+        from unittest.mock import AsyncMock
+
+        provider = IsrcOnlyProvider()
+        callback = AsyncMock()
+        isrc_tracks = [
+            Track(
+                title=f"Song {i}",
+                isrc=f"USRC{i:08d}",
+                artists=[Artist(name="Artist")],
+            )
+            for i in range(60)
+        ]
+        no_isrc_tracks = [
+            Track(title=f"NoCode {i}", artists=[Artist(name="Artist")])
+            for i in range(40)
+        ]
+
+        await provider.fetch_raw_matches_for_tracks(
+            isrc_tracks + no_isrc_tracks, progress_callback=callback
+        )
+
+        totals = [c.args[:2] for c in callback.call_args_list]
+        assert (60, 100) in totals
+        assert totals[-1] == (100, 100)
+
+    async def test_id_less_no_isrc_track_appears_in_failures(self):
+        """A track without a database id cannot get a per-track NO_ISRC
+        failure keyed on its id, but it must not vanish either — it gets the
+        NO_METADATA-style failure the unprocessable path uses."""
+        provider = IsrcOnlyProvider()
+        ghost = Track(id=None, title="Ghost", artists=[Artist(name="Artist")])
+
+        result = await provider.fetch_raw_matches_for_tracks([ghost])
+
+        assert not result.matches
+        assert len(result.failures) == 1
+        failure = result.failures[0]
+        assert failure.track_id is None
+        assert failure.reason == MatchFailureReason.NO_METADATA
+
+    async def test_flag_off_isrc_hits_still_match(self):
+        """The ISRC path itself is untouched by the flag."""
+        provider = IsrcOnlyProvider()
+        t1 = Track(
+            title="Song 1", isrc="USRC11111111", artists=[Artist(name="Artist 1")]
+        )
+        provider.isrc_results = {
+            t1.id: RawProviderMatch(
+                connector_id="apple:1",
+                match_method="isrc",
+                service_data={"title": "Song 1"},
+            )
+        }
+
+        result = await provider.fetch_raw_matches_for_tracks([t1])
+
+        assert result.matches[t1.id]["connector_id"] == "apple:1"
+        assert len(provider.artist_title_calls) == 0
+
+
 class TestBaseMatchingProviderProgressCallback:
     """Test progress_callback invocation during matching phases."""
 

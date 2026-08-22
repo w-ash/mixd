@@ -45,6 +45,19 @@ class ImportSpotifyRecentRequest(BaseModel):
     force: bool = False
 
 
+class ImportAppleRecentRequest(BaseModel):
+    """Request body for polling Apple Music's recently-played API.
+
+    No mode, no limit: the stored window fingerprint makes every poll
+    incremental, and the endpoint's page size is fixed rather than caller-set.
+    ``force`` re-seeds that fingerprint for one poll — a recovery lever for a
+    fingerprint that ran ahead of what was actually stored, not a re-import
+    (Apple's feed carries no timestamps to re-ingest seen plays against).
+    """
+
+    force: bool = False
+
+
 class ExportLastfmLikesRequest(BaseModel):
     """Request body for triggering a Last.fm likes export."""
 

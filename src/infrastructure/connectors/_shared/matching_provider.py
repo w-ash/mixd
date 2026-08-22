@@ -7,6 +7,7 @@ remain in the domain layer.
 
 from abc import ABC, abstractmethod
 from collections.abc import Awaitable, Callable
+from typing import ClassVar
 from uuid import UUID
 
 from src.config import get_logger
@@ -49,6 +50,15 @@ class BaseMatchingProvider(ABC):
     - _match_by_isrc(): Service-specific ISRC matching
     - _match_by_artist_title(): Service-specific artist/title matching
     """
+
+    # Does this provider match by artist/title at all? Conservative providers
+    # (Apple Music) set this False: tracks without an ISRC fail with NO_ISRC
+    # instead of entering the artist/title partition, ISRC misses are not
+    # funneled into a second-chance search, and ``_match_by_artist_title`` is
+    # never called. Failures for ISRC *misses* stay with ``_match_by_isrc`` —
+    # the hook already reports its own misses, and a second base-level failure
+    # for the same track would double-count it.
+    supports_artist_title_matching: ClassVar[bool] = True
 
     @property
     @abstractmethod
@@ -150,21 +160,56 @@ class BaseMatchingProvider(ABC):
                         f"ISRC matching complete ({len(isrc_matches)} matched)",
                     )
 
-            # Fallback: failed ISRC tracks with valid artist/title get a second chance
-            failed_isrc_tracks = [
-                t
-                for t in isrc_tracks
-                if t.id not in isrc_matches and self._has_artist_and_title(t)
-            ]
-            if failed_isrc_tracks:
-                logger.info(
-                    f"Falling back to artist/title for {len(failed_isrc_tracks)} failed ISRC tracks"
-                )
+            # ISRC-only providers never reach artist/title: ISRC-less tracks
+            # fail as NO_ISRC here (id-less ones as NO_METADATA — they cannot
+            # be addressed per-track but must not vanish), ISRC misses keep
+            # the failure their _match_by_isrc already reported, and no
+            # fallback list is built.
+            no_isrc_failures: list[MatchFailure] = []
+            if not self.supports_artist_title_matching:
+                no_isrc_failures = [
+                    create_and_log_failure(
+                        track_id=t.id,
+                        reason=MatchFailureReason.NO_ISRC,
+                        service=self.service_name,
+                        method="isrc",
+                        details="Track has no ISRC and this provider matches by ISRC only",
+                    )
+                    if t.id
+                    else create_and_log_failure(
+                        track_id=None,
+                        reason=MatchFailureReason.NO_METADATA,
+                        service=self.service_name,
+                        method="unknown",
+                        details="Track has no database id and no ISRC",
+                    )
+                    for t in artist_title_tracks
+                ]
+                completed += len(artist_title_tracks)
+                if progress_callback is not None and artist_title_tracks:
+                    await progress_callback(
+                        completed,
+                        total,
+                        f"Skipped {len(artist_title_tracks)} tracks without "
+                        "ISRC (ISRC-only provider)",
+                    )
+                remaining_tracks: list[Track] = []
+            else:
+                # Fallback: failed ISRC tracks with valid artist/title get a second chance
+                failed_isrc_tracks = [
+                    t
+                    for t in isrc_tracks
+                    if t.id not in isrc_matches and self._has_artist_and_title(t)
+                ]
+                if failed_isrc_tracks:
+                    logger.info(
+                        f"Falling back to artist/title for {len(failed_isrc_tracks)} failed ISRC tracks"
+                    )
 
-            # Filter out tracks already matched by ISRC, then add failed ISRC fallbacks
-            remaining_tracks = [
-                t for t in artist_title_tracks if t.id not in isrc_matches
-            ] + failed_isrc_tracks
+                # Filter out tracks already matched by ISRC, then add failed ISRC fallbacks
+                remaining_tracks = [
+                    t for t in artist_title_tracks if t.id not in isrc_matches
+                ] + failed_isrc_tracks
 
             # Process remaining tracks by artist/title
             artist_title_matches: dict[UUID, RawProviderMatch] = {}
@@ -185,7 +230,10 @@ class BaseMatchingProvider(ABC):
             # Merge all results
             all_matches = {**isrc_matches, **artist_title_matches}
             all_failures = (
-                isrc_failures + artist_title_failures + unprocessable_failures
+                isrc_failures
+                + artist_title_failures
+                + no_isrc_failures
+                + unprocessable_failures
             )
 
             final_result = ProviderMatchResult(

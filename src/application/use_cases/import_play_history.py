@@ -23,9 +23,14 @@ from src.domain.entities.progress import (
     ProgressEmitter,
     ProgressOperation,
 )
-from src.domain.exceptions import LastfmAuthRequiredError, SpotifyAuthRequiredError
+from src.domain.exceptions import (
+    AppleMusicAuthRequiredError,
+    LastfmAuthRequiredError,
+    SpotifyAuthRequiredError,
+)
 from src.domain.repositories.play import (
     RECENTLY_PLAYED_PAGE_LIMIT,
+    AppleRecentImportParams,
     ImportKind,
     LastfmImportParams,
     PlayImporterProtocol,
@@ -36,7 +41,7 @@ from src.domain.repositories.uow import UnitOfWorkProtocol
 
 logger = get_logger(__name__)
 
-ServiceType = Literal["lastfm", "spotify"]
+ServiceType = Literal["lastfm", "spotify", "apple"]
 ImportMode = Literal["recent", "incremental", "full", "file"]
 
 
@@ -108,6 +113,21 @@ class ImportTracksCommand:
                 raise ValueError(
                     f"file_path is not valid for Spotify {self.mode} imports "
                     f"(the API is the source, not a file)"
+                )
+        elif self.service == "apple":
+            # Only the recently-played poll exists: Apple offers no export
+            # file, and the feed retains only a trailing window, so there is
+            # no "whole history" to ask for.
+            if self.mode not in ("recent", "incremental"):
+                raise ValueError(
+                    f"Apple Music doesn't support mode: {self.mode}. The "
+                    f"recently-played API is the only source — use "
+                    f"mode='recent' or mode='incremental'."
+                )
+            if self.file_path:
+                raise ValueError(
+                    "file_path is not valid for Apple Music imports "
+                    "(the API is the source, not a file)"
                 )
 
 
@@ -199,7 +219,11 @@ class ImportTracksUseCase:
                     total_batches=1,
                 )
 
-            except LastfmAuthRequiredError, SpotifyAuthRequiredError:
+            except (
+                AppleMusicAuthRequiredError,
+                LastfmAuthRequiredError,
+                SpotifyAuthRequiredError,
+            ):
                 # Connector-not-connected is a clean precondition, not a soft
                 # failure — let it propagate so the SSE seam emits a terminal
                 # error (and the 409 middleware handler maps it for sync callers).
@@ -263,6 +287,8 @@ class ImportTracksUseCase:
                 return await self._run_lastfm_import(command, uow, progress_emitter)
             case "spotify":
                 return await self._run_spotify_import(command, uow, progress_emitter)
+            case "apple":
+                return await self._run_apple_recent(command, uow, progress_emitter)
 
     async def _run_lastfm_import(
         self,
@@ -608,6 +634,63 @@ class ImportTracksUseCase:
         except Exception as e:
             logger.error(
                 "Spotify recently-played import failed",
+                error=str(e),
+                error_type=type(e).__name__,
+                exc_info=True,
+            )
+            raise
+        else:
+            return result
+
+    async def _run_apple_recent(
+        self,
+        command: ImportTracksCommand,
+        uow: UnitOfWorkProtocol,
+        progress_emitter: ProgressEmitter,
+    ) -> OperationResult:
+        """Polls Apple's recently-played API using the two-phase workflow.
+
+        Phase 1: Ingests the new plays as connector_plays on the ``apple_api``
+        channel (the importer's prefix-diff decides what is new — the feed
+        carries no timestamps to cursor on). Phase 2: Resolves them to
+        canonical track_plays through the Apple resolver registered in P6.
+
+        The command carries no limit: the endpoint's page size is fixed and
+        the diff, not a count, bounds the ingest. ``force`` re-seeds the
+        window fingerprint (a recovery lever, not a re-import — see
+        ``AppleRecentImportParams``).
+
+        Args:
+            command: Mode ``recent``/``incremental`` (identical here — the
+                stored fingerprint makes every poll incremental) and the
+                optional ``force`` extra.
+            uow: Database transaction manager for atomic operations.
+
+        Returns:
+            Import statistics with the number of plays ingested and resolved.
+        """
+        force = bool(command.additional_options.get("force"))
+
+        importer = await self._create_service_importer(command.service, uow, "api")
+        orchestrator = await self._create_play_import_orchestrator(uow)
+
+        try:
+            result = await orchestrator.import_plays_two_phase(
+                importer=importer,
+                uow=uow,
+                user_id=command.user_id,
+                progress_emitter=progress_emitter,
+                params=AppleRecentImportParams(force=force),
+            )
+
+            logger.info(
+                f"Apple Music recently-played two-phase import completed: "
+                f"{result.summary_metrics.get('track_plays')} track plays created"
+            )
+
+        except Exception as e:
+            logger.error(
+                "Apple Music recently-played import failed",
                 error=str(e),
                 error_type=type(e).__name__,
                 exc_info=True,

@@ -131,13 +131,14 @@ async def delete_connector_token(
     service: str,
     user_id: str = Depends(get_current_user_id),
 ) -> None:
-    """Remove stored OAuth token for a connector, disconnecting it.
+    """Remove a connector's stored credential, disconnecting it.
 
-    Only connectors declaring ``auth_method="oauth"`` in the registry can be
+    Only connectors that store a per-user credential — ``auth_method`` of
+    ``oauth`` or ``browser_bridge`` (Apple Music's MUT) — can be
     disconnected; anything else (public APIs, coming-soon stubs) returns 400.
     """
     config = _require_connector(service)
-    if config["auth_method"] != "oauth":
+    if config["auth_method"] not in {"oauth", "browser_bridge"}:
         raise HTTPException(status_code=400, detail=f"Cannot disconnect {service}")
     storage = get_token_storage()
     await storage.delete_token(service, user_id)

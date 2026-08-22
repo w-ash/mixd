@@ -148,6 +148,25 @@ class CredentialsConfig(BaseModel):
         "unset the chat panel is disabled and the API returns CHAT_UNAVAILABLE.",
     )
 
+    apple_team_id: str = Field(
+        default="",
+        description="Apple Developer Team ID. Required for Apple Music features.",
+    )
+    apple_key_id: str = Field(
+        default="",
+        description="MusicKit private key ID. Required for Apple Music features.",
+    )
+    apple_private_key: SecretStr = Field(
+        default=SecretStr(""),
+        description="MusicKit .p8 private key PEM content (not a file path). "
+        "Required for Apple Music features.",
+    )
+    apple_music_origin: str = Field(
+        default="",
+        description="Optional web origin embedded in the developer token's "
+        "'origin' claim — restricts where the token is accepted from.",
+    )
+
 
 class ConnectorAPIConfig(BaseModel):
     """Per-connector API tuning: batch sizes, retry policy, rate limiting."""
@@ -218,6 +237,14 @@ class APIConfig(BaseModel):
             request_delay=0.2,
         ),
         description="MusicBrainz API tuning. Conservative defaults — MusicBrainz rate-limits aggressively.",
+    )
+    apple_music: ConnectorAPIConfig = Field(
+        default_factory=lambda: ConnectorAPIConfig(
+            batch_size=25,
+            concurrency=5,
+            rate_limit=5.0,
+        ),
+        description="Apple Music API tuning. Apple publishes no rate limits; the quota attaches to the shared instance developer token (not per-user), so pacing stays conservative to protect every user behind it. batch_size matches the 25-code filter[isrc] cap.",
     )
 
     # Spotify-specific fields that don't fit the common shape
@@ -717,6 +744,10 @@ class Settings(BaseSettings):
         "lastfm_username": ("credentials", None),
         "lastfm_password": ("credentials", None),
         "anthropic_api_key": ("credentials", None),
+        "apple_team_id": ("credentials", None),
+        "apple_key_id": ("credentials", None),
+        "apple_private_key": ("credentials", None),
+        "apple_music_origin": ("credentials", None),
         # Server
         "server_host": ("server", "host"),
         "server_port": ("server", "port"),
@@ -912,6 +943,16 @@ def log_startup_warnings() -> None:
     if not settings.credentials.lastfm_key:
         logger.warning(
             "Last.fm not configured — scrobble and play count features will be unavailable"
+        )
+    apple_parts = (
+        settings.credentials.apple_team_id,
+        settings.credentials.apple_key_id,
+        settings.credentials.apple_private_key.get_secret_value(),
+    )
+    if any(apple_parts) and not all(apple_parts):
+        logger.warning(
+            "Apple Music partially configured — set all of APPLE_TEAM_ID, "
+            "APPLE_KEY_ID, and APPLE_PRIVATE_KEY (or none)"
         )
     if (
         settings.server.neon_auth_url

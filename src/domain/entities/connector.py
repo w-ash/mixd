@@ -17,8 +17,18 @@ from attrs import define
 type ConnectorCategory = Literal["streaming", "enrichment", "history"]
 """Taxonomy of music-service kinds, used to group connectors on the UI."""
 
-type ConnectorAuthMethod = Literal["oauth", "none", "coming_soon"]
-"""How a user connects: OAuth flow, no auth (public API), or not-yet-implemented."""
+type ConnectorAuthMethod = Literal[
+    "oauth", "browser_bridge", "token", "device_code", "none", "coming_soon"
+]
+"""How a user connects.
+
+``oauth`` — standard OAuth authorization-code flow.
+``browser_bridge`` — Apple MusicKit JS bridge (browser-mediated, not OAuth).
+``token`` — personal access token pasted by the user.
+``device_code`` — OAuth device-code flow.
+``none`` — no auth required (public API).
+``coming_soon`` — not yet implemented.
+"""
 
 type ConnectorStatusState = Literal[
     "connected",
@@ -31,11 +41,15 @@ type ConnectorStatusState = Literal[
 ]
 """UI-facing state derived from raw status + auth method."""
 
-type ConnectorAuthError = Literal["refresh_failed", "scope_missing"]
+type ConnectorAuthError = Literal["refresh_failed", "scope_missing", "reauth_required"]
 """Server-observed auth failure codes. Widen as new failure modes arise.
 
 ``scope_missing`` is not a failure of the connection — the stored grant
 predates a scope the app now requests, so the user must re-consent once.
+
+``reauth_required`` covers expected credential aging — Spotify's 6-month
+refresh-token grant, Apple's Music User Token — where the user fixes it with
+one click. It is a state, not an error.
 """
 
 type Capability = Literal[
@@ -88,6 +102,11 @@ def derive_status_state(status: ConnectorStatus) -> ConnectorStatusState:
     if status.auth_error == "scope_missing":
         # The session works; the grant is just narrower than the app now
         # requests — a one-time re-consent, not a connection failure.
+        return "needs_reauth"
+    if status.auth_error == "reauth_required":
+        # Expected credential aging (Spotify's 6-month refresh grant, Apple's
+        # MUT) — the user fixes it with one click, so it's a state, not an
+        # error.
         return "needs_reauth"
     if status.auth_error is not None:
         return "error"

@@ -52,7 +52,9 @@ class MatchFailure:
     enabling intelligent handling and comprehensive logging.
     """
 
-    track_id: UUID  # ID of the track that failed to match
+    # ID of the track that failed to match; None for a track that never got
+    # a database id (still counted and logged, just not addressable).
+    track_id: UUID | None
     reason: MatchFailureReason  # Structured failure reason
     service: str  # Name of the external service ("spotify", "musicbrainz", "lastfm")
     method: str  # Match method attempted ("isrc", "artist_title", "mbid")

@@ -1,0 +1,76 @@
+{
+  "data": [
+    {
+      "attributes": {
+        "albumName": "Greatest Hits In Japan",
+        "artistName": "Queen",
+        "artwork": {
+          "bgColor": "151412",
+          "height": 3000,
+          "textColor1": "cbc5bf",
+          "textColor2": "d1b672",
+          "textColor3": "a6a19c",
+          "textColor4": "ab955f",
+          "url": "https://artwork.example/{w}x{h}bb.jpg",
+          "width": 3000
+        },
+        "composerName": "Freddie Mercury",
+        "discNumber": 1,
+        "durationInMillis": 355145,
+        "genreNames": [
+          "Rock",
+          "Music"
+        ],
+        "hasLyrics": true,
+        "isAppleDigitalMaster": false,
+        "isrc": "GBUM71029604",
+        "name": "Bohemian Rhapsody",
+        "playParams": {
+          "id": "6781076960",
+          "kind": "song"
+        },
+        "releaseDate": "1975-10-31",
+        "trackNumber": 7,
+        "url": "https://music.apple.com/us/album/bohemian-rhapsody/6781076775?i=6781076960"
+      },
+      "href": "/v1/catalog/us/songs/6781076960",
+      "id": "6781076960",
+      "relationships": {
+        "albums": {
+          "data": [
+            {
+              "href": "/v1/catalog/us/albums/6781076775",
+              "id": "6781076775",
+              "type": "albums"
+            }
+          ],
+          "href": "/v1/catalog/us/songs/6781076960/albums"
+        },
+        "artists": {
+          "data": [
+            {
+              "href": "/v1/catalog/us/artists/3296287",
+              "id": "3296287",
+              "type": "artists"
+            }
+          ],
+          "href": "/v1/catalog/us/songs/6781076960/artists"
+        }
+      },
+      "type": "songs"
+    }
+  ],
+  "meta": {
+    "filters": {
+      "equivalents": {
+        "6781076960": [
+          {
+            "href": "/v1/catalog/us/songs/6781076960",
+            "id": "6781076960",
+            "type": "songs"
+          }
+        ]
+      }
+    }
+  }
+}

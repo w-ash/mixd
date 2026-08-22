@@ -39,12 +39,14 @@ class PlayImportServiceRegistry:
     def __init__(self):
         """Initialize registry with known service mappings."""
         self._importer_factories = {
+            ("apple", "api"): self._create_apple_recently_played_importer,
             ("lastfm", "api"): self._create_lastfm_importer,
             ("spotify", "file"): self._create_spotify_importer,
             ("spotify", "api"): self._create_spotify_recently_played_importer,
         }
 
         self._resolver_factories = {
+            "apple": self._create_apple_resolver,
             "lastfm": self._create_lastfm_resolver,
             "spotify": self._create_spotify_resolver,
         }
@@ -129,6 +131,30 @@ class PlayImportServiceRegistry:
         )
 
         return create_recently_played_importer()
+
+    async def _create_apple_recently_played_importer(
+        self, _uow: UnitOfWorkProtocol
+    ) -> PlayImporterProtocol:
+        """Create the Apple Music recently-played API importer via connector factory."""
+        from src.infrastructure.connectors.apple_music.factory import (
+            create_recently_played_importer,
+        )
+
+        return create_recently_played_importer()
+
+    async def _create_apple_resolver(
+        self, _uow: UnitOfWorkProtocol | None = None
+    ) -> PlayResolverProtocol:
+        """Create the Apple Music resolver via connector factory.
+
+        Registered under the data-plane service name "apple", matching the
+        ("apple", "api") importer entry above.
+        """
+        from src.infrastructure.connectors.apple_music.factory import (
+            create_play_resolver,
+        )
+
+        return create_play_resolver()
 
     async def _create_lastfm_resolver(
         self, _uow: UnitOfWorkProtocol | None = None

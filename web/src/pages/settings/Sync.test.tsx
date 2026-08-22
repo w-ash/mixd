@@ -78,6 +78,12 @@ const checkpoints: CheckpointStatusSchema[] = [
     has_previous_sync: false,
     last_sync_timestamp: null,
   },
+  {
+    service: "apple",
+    entity_type: "plays",
+    has_previous_sync: true,
+    last_sync_timestamp: "2025-12-02T10:00:00Z",
+  },
 ];
 
 function setupCheckpointsMock() {
@@ -107,7 +113,7 @@ describe("Sync page", () => {
     expect(screen.getByText("Liked Tracks")).toBeInTheDocument();
   });
 
-  it("renders all five operation cards", () => {
+  it("renders all six operation cards", () => {
     setupCheckpointsMock();
     renderWithProviders(<Sync />);
 
@@ -116,6 +122,7 @@ describe("Sync page", () => {
     expect(screen.getByText("Export Loves")).toBeInTheDocument();
     expect(screen.getByText("Spotify Recent Plays")).toBeInTheDocument();
     expect(screen.getByText("Spotify Data Export")).toBeInTheDocument();
+    expect(screen.getByText("Apple Music Recent Plays")).toBeInTheDocument();
   });
 
   it("renders connector icons for service identification", () => {
@@ -124,9 +131,11 @@ describe("Sync page", () => {
 
     const spotifyIcons = screen.getAllByTitle("Spotify");
     const lastfmIcons = screen.getAllByTitle("Last.fm");
+    const appleIcons = screen.getAllByTitle("Apple Music");
 
     expect(spotifyIcons).toHaveLength(3);
     expect(lastfmIcons).toHaveLength(2);
+    expect(appleIcons).toHaveLength(1);
   });
 
   it("renders run buttons for each operation", () => {
@@ -134,9 +143,25 @@ describe("Sync page", () => {
     renderWithProviders(<Sync />);
 
     const importButtons = screen.getAllByRole("button", { name: "Import" });
-    expect(importButtons).toHaveLength(4);
+    expect(importButtons).toHaveLength(5);
     const exportButtons = screen.getAllByRole("button", { name: "Export" });
     expect(exportButtons).toHaveLength(1);
+  });
+
+  it("renders the Apple Music checkpoint's last-sync row", async () => {
+    setupCheckpointsMock();
+    renderWithProviders(<Sync />);
+
+    const appleCard = screen
+      .getByText("Apple Music Recent Plays")
+      .closest("div.rounded-xl") as HTMLElement;
+    expect(within(appleCard).getByText("Last sync:")).toBeInTheDocument();
+    // Its checkpoint carries a real timestamp — the row must not fall back to
+    // "Never", which is what a missing/undefined checkpoint would render
+    // before the checkpoints query resolves.
+    await waitFor(() => {
+      expect(within(appleCard).queryByText("Never")).not.toBeInTheDocument();
+    });
   });
 
   it("renders segmented mode selector for Last.fm history", () => {

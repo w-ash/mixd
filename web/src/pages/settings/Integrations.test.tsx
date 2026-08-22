@@ -114,6 +114,47 @@ describe("Integrations", () => {
     expect(screen.getByText("Connect Last.fm")).toBeInTheDocument();
   });
 
+  it("flips a connector card to connected after an auth callback redirect, even though the callback's invalidation races the page's own initial fetch", async () => {
+    // The page mounts fresh off the OAuth redirect: `useGetConnectorsApiV1ConnectorsGet`
+    // fires its initial GET on mount, and the `?auth=apple_music&status=success`
+    // effect fires `invalidateQueries` in the same tick. The backend is already
+    // correct by the time of the redirect, but the *first* GET here simulates
+    // a request that raced ahead of that correctness (matching the live repro:
+    // card stays "disconnected" until something forces a second round-trip).
+    let callCount = 0;
+    server.use(
+      http.get("*/api/v1/connectors", () => {
+        callCount += 1;
+        const connected = callCount > 1;
+        return HttpResponse.json(
+          [
+            makeConnectorMetadata({
+              name: "apple_music",
+              connected,
+              status: connected ? "connected" : "disconnected",
+            }),
+          ],
+          { status: 200 },
+        );
+      }),
+    );
+
+    renderWithProviders(<Integrations />, {
+      routerProps: {
+        initialEntries: [
+          "/settings/integrations?auth=apple_music&status=success",
+        ],
+      },
+    });
+
+    // The callback's invalidation must eventually produce a *second* network
+    // round-trip that flips the card — not just redisplay the first response.
+    await waitFor(() => {
+      expect(screen.queryByText("Connect Apple Music")).not.toBeInTheDocument();
+    });
+    expect(callCount).toBeGreaterThanOrEqual(2);
+  });
+
   it("updates page description", async () => {
     server.use(
       http.get("*/api/v1/connectors", () => {

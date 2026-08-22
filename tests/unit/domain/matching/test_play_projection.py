@@ -16,6 +16,8 @@ import pytest
 
 from src.domain.entities import ConnectorTrackPlay
 from src.domain.matching.play_projection import (
+    APPLE_PLAY_TOLERANCE_SECONDS,
+    CHANNEL_SPECS,
     ISLAND_CONTINUATION_GAP_SECONDS,
     MAX_ISLAND_SPAN,
     MAX_NORMALIZED_START_SHIFT,
@@ -851,3 +853,119 @@ class TestSpotifyApiToleranceBoundary:
         groups, _stats = group_ledger_entries(entries)
 
         assert len(groups) == 1
+
+
+def _apple_obs(
+    *,
+    played_at: datetime,
+    track_id: UUID | None = _TRACK_A,
+    artist: str = "Carwash",
+    title: str = "Striptease",
+    song_id: str = "1440857781",
+) -> ConnectorTrackPlay:
+    """One Apple recently-played observation.
+
+    ``played_at`` is a poll-window midpoint, not an observed time — the feed
+    carries no timestamps, so the importer stamps the midpoint of the interval
+    the play must have happened in. That is what the channel's wide tolerance
+    and floor timestamp quality encode.
+    """
+    return ConnectorTrackPlay(
+        service="apple",
+        artist_name=artist,
+        track_name=title,
+        played_at=played_at,
+        ms_played=None,
+        service_metadata={"song_id": song_id},
+        resolved_track_id=track_id,
+        import_source="apple_api",
+        import_batch_id="batch-apple",
+    )
+
+
+class TestAppleApiChannel:
+    """The v0.11.x play channel: presence evidence with midpoint timestamps.
+
+    Apple's feed says WHAT played but never WHEN, so the channel may create a
+    play no other channel saw but must never win a timestamp from one that
+    observed the clock — priority below every existing channel, timestamp
+    quality at the floor, pairing at the uncalibrated half-window tolerance.
+    """
+
+    def test_channel_registered_with_floor_quality_and_wide_tolerance(self):
+        spec = CHANNEL_SPECS["apple", "apple_api"]
+
+        assert spec.name == "apple_api"
+        assert spec.priority == 4
+        assert spec.time_semantics == "start"
+        assert spec.timestamp_quality == 0
+        assert spec.tolerance_override == APPLE_PLAY_TOLERANCE_SECONDS == 1800.0
+        # No completion vocabulary: islands must never consolidate here, or an
+        # interrupted-and-resumed listen would be guessed into one play.
+        assert spec.completion_signal is None
+        # Strictly below every other channel on both ranks — presence may
+        # create a play; it must never outrank an observed field.
+        others = [s for k, s in CHANNEL_SPECS.items() if k != ("apple", "apple_api")]
+        assert all(spec.priority > other.priority for other in others)
+        assert all(spec.timestamp_quality < other.timestamp_quality for other in others)
+
+    def test_apple_midpoint_and_scrobble_minutes_apart_are_one_listen(self):
+        """A midpoint can sit far from the true start; the override absorbs it."""
+        scrobble = _lastfm_obs(played_at=_BASE)
+        apple = _apple_obs(played_at=_BASE + timedelta(minutes=12))
+
+        groups, _stats = group_ledger_entries([scrobble, apple])
+
+        assert len(groups) == 1
+        assert {m.id for m in groups[0].members} == {scrobble.id, apple.id}
+
+    def test_survivorship_keeps_the_observed_timestamp(self):
+        """Quality 3 (Last.fm true start) beats 0 (midpoint guess)."""
+        scrobble = _lastfm_obs(played_at=_BASE)
+        apple = _apple_obs(played_at=_BASE + timedelta(minutes=12))
+
+        groups, _stats = group_ledger_entries([scrobble, apple])
+        merged = merge_group(groups[0])
+
+        assert merged.played_at == scrobble.played_at
+        # Priority 3 < 4: Last.fm also wins identity/provenance, and the apple
+        # observation's context nests under its channel name.
+        assert merged.service == "lastfm"
+        assert merged.context is not None
+        assert "merged_from_apple_api" in merged.context
+
+    def test_two_apple_observations_of_one_track_never_merge_with_each_other(self):
+        """The one-observation-per-channel invariant holds at the wide tolerance.
+
+        Cross-channel pairing never proposes a same-channel pair, so two apple
+        midpoints 12 minutes apart — same track, well inside the 1800s window —
+        stay two events: they came from two polls, hence two listens.
+        """
+        first = _apple_obs(played_at=_BASE)
+        second = _apple_obs(played_at=_BASE + timedelta(minutes=12))
+
+        groups, _stats = group_ledger_entries([first, second])
+
+        assert len(groups) == 2
+
+    def test_apple_alone_projects_at_its_midpoint(self):
+        """The channel's whole point: a play nobody else observed still lands."""
+        apple = _apple_obs(played_at=_BASE)
+
+        groups, _stats = group_ledger_entries([apple])
+        merged = merge_group(groups[0])
+
+        assert merged.played_at == _BASE
+        assert merged.ms_played is None
+        assert merged.source_services == ("apple",)
+
+    def test_midpoint_outside_the_override_stays_a_separate_play(self):
+        """The wide window is a tolerance, not an unconditional merge."""
+        scrobble = _lastfm_obs(played_at=_BASE)
+        apple = _apple_obs(
+            played_at=_BASE + timedelta(seconds=APPLE_PLAY_TOLERANCE_SECONDS + 60)
+        )
+
+        groups, _stats = group_ledger_entries([scrobble, apple])
+
+        assert len(groups) == 2

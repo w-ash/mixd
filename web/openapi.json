@@ -12,7 +12,7 @@
           "auth"
         ],
         "summary": "Get Connector Auth Url",
-        "description": "Generate the OAuth authorization URL for the named connector.\n\nDispatches via the connector registry: each OAuth-capable connector\nregisters a ``build_auth_url`` callable (e.g. ``spotify/auth.py``,\n``lastfm/auth.py``) that assembles the provider-specific URL. The\nCSRF + PKCE state factory is injected so security-sensitive DB state\ncreation stays centralized in this file.\n\nReturns 404 for unknown services, 400 for non-OAuth connectors\n(``auth_method`` in ``{\"none\", \"coming_soon\"}``).",
+        "description": "Generate the OAuth authorization URL for the named connector.\n\nDispatches via the connector registry: each OAuth-capable connector\nregisters a ``build_auth_url`` callable (e.g. ``spotify/auth.py``,\n``lastfm/auth.py``) that assembles the provider-specific URL. The\nCSRF + PKCE state factory is injected so security-sensitive DB state\ncreation stays centralized in this file.\n\nReturns 404 for unknown services, 400 for connectors without a web\nauthorization flow (``auth_method`` in ``{\"none\", \"coming_soon\"}``).\nBoth ``oauth`` and ``browser_bridge`` (Apple Music's MusicKit JS\nbridge \u2014 the URL points at our own bridge page) are allowed.",
         "operationId": "get_connector_auth_url_api_v1_connectors__service__auth_url_get",
         "parameters": [
           {
@@ -153,6 +153,85 @@
                 "schema": {}
               }
             }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/auth/apple/authorize": {
+      "get": {
+        "tags": [
+          "auth"
+        ],
+        "summary": "Apple Authorize",
+        "description": "Serve the MusicKit JS bridge page for the given CSRF state.\n\nThe state is minted by the auth-url route and merely carried through to\nthe token POST, which validates and consumes it \u2014 this page holds no\nsession and identifies no user.",
+        "operationId": "apple_authorize_auth_apple_authorize_get",
+        "parameters": [
+          {
+            "name": "state",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string",
+              "default": "",
+              "title": "State"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "text/html": {
+                "schema": {
+                  "type": "string"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/connectors/apple_music/token": {
+      "post": {
+        "tags": [
+          "auth"
+        ],
+        "summary": "Store Apple Music Token",
+        "description": "Validate the CSRF state and persist the Music User Token.\n\nThe user is derived from the state row (created by the authenticated\nauth-url request), not from the ambient session \u2014 same trust model as the\nOAuth callbacks in ``auth.py``. The storefront lookup is best-effort:\nApple being unreachable must not fail the connect.",
+        "operationId": "store_apple_music_token_api_v1_connectors_apple_music_token_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/AppleMusicTokenRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "204": {
+            "description": "Successful Response"
           },
           "422": {
             "description": "Validation Error",
@@ -3799,7 +3878,7 @@
           "connectors"
         ],
         "summary": "Delete Connector Token",
-        "description": "Remove stored OAuth token for a connector, disconnecting it.\n\nOnly connectors declaring ``auth_method=\"oauth\"`` in the registry can be\ndisconnected; anything else (public APIs, coming-soon stubs) returns 400.",
+        "description": "Remove a connector's stored credential, disconnecting it.\n\nOnly connectors that store a per-user credential \u2014 ``auth_method`` of\n``oauth`` or ``browser_bridge`` (Apple Music's MUT) \u2014 can be\ndisconnected; anything else (public APIs, coming-soon stubs) returns 400.",
         "operationId": "delete_connector_token_api_v1_connectors__service__token_delete",
         "parameters": [
           {
@@ -4086,6 +4165,48 @@
             "application/json": {
               "schema": {
                 "$ref": "#/components/schemas/ImportSpotifyRecentRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/OperationStartedResponse"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/imports/apple/recent": {
+      "post": {
+        "tags": [
+          "imports"
+        ],
+        "summary": "Import Apple Recent",
+        "description": "Poll Apple Music's recently-played API for new plays.\n\nConnection-gated rather than scope-gated: Apple's browser-bridge MUTs\ncarry no OAuth scopes, so token presence is the whole precondition \u2014 the\nstatus probe is storage-only, exactly what `require_connector_connected`\nchecks.",
+        "operationId": "import_apple_recent_api_v1_imports_apple_recent_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ImportAppleRecentRequest"
               }
             }
           },
@@ -5243,6 +5364,27 @@
         "title": "AddTracksRequest",
         "description": "Request body for POST /playlists/{id}/tracks.\n\n``track_ids`` is order-significant and may repeat (manual add allows\nduplicates). ``position`` is a 0-based insert index; omit to append."
       },
+      "AppleMusicTokenRequest": {
+        "properties": {
+          "music_user_token": {
+            "type": "string",
+            "minLength": 1,
+            "title": "Music User Token"
+          },
+          "state": {
+            "type": "string",
+            "minLength": 1,
+            "title": "State"
+          }
+        },
+        "type": "object",
+        "required": [
+          "music_user_token",
+          "state"
+        ],
+        "title": "AppleMusicTokenRequest",
+        "description": "Body of the bridge page's token POST."
+      },
       "ApplyResultSchema": {
         "properties": {
           "preferences_applied": {
@@ -5879,13 +6021,17 @@
         "type": "string",
         "enum": [
           "refresh_failed",
-          "scope_missing"
+          "scope_missing",
+          "reauth_required"
         ]
       },
       "ConnectorAuthMethod": {
         "type": "string",
         "enum": [
           "oauth",
+          "browser_bridge",
+          "token",
+          "device_code",
           "none",
           "coming_soon"
         ]
@@ -6555,6 +6701,18 @@
           "count"
         ],
         "title": "HistogramBinSchema"
+      },
+      "ImportAppleRecentRequest": {
+        "properties": {
+          "force": {
+            "type": "boolean",
+            "title": "Force",
+            "default": false
+          }
+        },
+        "type": "object",
+        "title": "ImportAppleRecentRequest",
+        "description": "Request body for polling Apple Music's recently-played API.\n\nNo mode, no limit: the stored window fingerprint makes every poll\nincremental, and the endpoint's page size is fixed rather than caller-set.\n``force`` re-seeds that fingerprint for one poll \u2014 a recovery lever for a\nfingerprint that ran ahead of what was actually stored, not a re-import\n(Apple's feed carries no timestamps to re-ingest seen plays against)."
       },
       "ImportConnectorPlaylistsRequest": {
         "properties": {

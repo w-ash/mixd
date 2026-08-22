@@ -16,6 +16,7 @@ import {
   useExportLastfmLikesApiV1ImportsLastfmLikesPost,
   useGetCheckpointsApiV1ImportsCheckpointsGet,
   useGetSpotifyHistoryQueueApiV1ImportsSpotifyHistoryQueueGet,
+  useImportAppleRecentApiV1ImportsAppleRecentPost,
   useImportLastfmHistoryApiV1ImportsLastfmHistoryPost,
   useImportSpotifyHistoryApiV1ImportsSpotifyHistoryPost,
   useImportSpotifyLikesApiV1ImportsSpotifyLikesPost,
@@ -645,6 +646,47 @@ function SpotifyRecentImport({
   );
 }
 
+function AppleRecentImport({
+  checkpoints,
+  connected,
+}: {
+  checkpoints: CheckpointStatusSchema[];
+  connected: boolean;
+}) {
+  const [operationId, setOperationId] = useState<string | null>(null);
+  const [runId, setRunId] = useState<string | null>(null);
+  const mutation = useImportAppleRecentApiV1ImportsAppleRecentPost();
+
+  const trigger = () => {
+    mutation.mutate(
+      { data: {} },
+      makeOperationCallbacks(
+        "Apple Music recent plays import",
+        setOperationId,
+        setRunId,
+      ),
+    );
+  };
+
+  return (
+    <OperationCard
+      connector="apple_music"
+      title="Apple Music Recent Plays"
+      description="Poll Apple Music's recently-played feed for new listens."
+      // The API poll position, not an export's — this is the fingerprint the
+      // next poll resumes from.
+      checkpoint={findCheckpoint(checkpoints, "apple", "plays")}
+      operationId={operationId}
+      runId={runId}
+      operationType="import_apple_recent"
+      connected={connected}
+      isPending={mutation.isPending}
+      onTrigger={trigger}
+      syncTarget="apple:plays"
+    />
+  );
+}
+
 /** A queue entry that can still run — "queued" or "running". */
 function isSettledEntry(entry: ImportQueueEntrySchema): boolean {
   return entry.status !== "queued" && entry.status !== "running";
@@ -803,6 +845,7 @@ export function Sync() {
   }
   const lastfmConnected = connectedByName.lastfm ?? true;
   const spotifyConnected = connectedByName.spotify ?? true;
+  const appleConnected = connectedByName.apple_music ?? true;
   // scope_missing ships with connected=true — likes and playlists still work,
   // so only the surface that needs the new scope gates on it.
   const spotifyNeedsReconnect = authErrorByName.spotify === "scope_missing";
@@ -862,6 +905,15 @@ export function Sync() {
                   style={{ animationDelay: "150ms" }}
                 >
                   <SpotifyHistoryImport />
+                </div>
+                <div
+                  className="animate-fade-up"
+                  style={{ animationDelay: "225ms" }}
+                >
+                  <AppleRecentImport
+                    checkpoints={checkpoints}
+                    connected={appleConnected}
+                  />
                 </div>
               </div>
             </section>

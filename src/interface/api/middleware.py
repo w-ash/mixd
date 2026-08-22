@@ -30,6 +30,7 @@ from sqlalchemy.exc import DatabaseError
 from src.application.workflows.definition.validation import ConnectorNotAvailableError
 from src.config import get_logger
 from src.domain.exceptions import (
+    AppleMusicAuthRequiredError,
     ConfirmationRequiredError,
     ConnectorNotConnectedError,
     ConnectorScopeMissingError,
@@ -220,6 +221,19 @@ def register_exception_handlers(app: FastAPI) -> None:
             },
         )
 
+    async def apple_music_auth_required_handler(
+        _request: Request, exc: Exception
+    ) -> JSONResponse:
+        return JSONResponse(
+            status_code=409,
+            content={
+                "error": {
+                    "code": "APPLE_MUSIC_AUTH_REQUIRED",
+                    "message": str(exc),
+                }
+            },
+        )
+
     async def connector_not_connected_handler(
         _request: Request, exc: Exception
     ) -> JSONResponse:
@@ -337,6 +351,9 @@ def register_exception_handlers(app: FastAPI) -> None:
     )
     app.add_exception_handler(SpotifyAuthRequiredError, spotify_auth_required_handler)
     app.add_exception_handler(LastfmAuthRequiredError, lastfm_auth_required_handler)
+    app.add_exception_handler(
+        AppleMusicAuthRequiredError, apple_music_auth_required_handler
+    )
     app.add_exception_handler(
         ConnectorNotConnectedError, connector_not_connected_handler
     )

@@ -77,8 +77,29 @@ class SpotifyRecentImportParams:
     force: bool = False
 
 
+@define(frozen=True, slots=True)
+class AppleRecentImportParams:
+    """Selectors for an Apple Music recently-played API poll.
+
+    Carries no cursor: resume state (the previous window's fingerprint and
+    poll time) lives on the ``("apple", "plays")`` sync checkpoint, keyed on
+    the mixd user the pipeline threads through.
+
+    ``force`` discards that fingerprint for one poll and re-seeds it from the
+    current window, emitting zero observations — the recovery lever for a
+    corrupt fingerprint. Unlike Spotify's ``force`` it cannot re-ingest the
+    window: Apple reports no timestamps, so items already fingerprinted have
+    no honest ``played_at`` to be re-imported with.
+    """
+
+    force: bool = False
+
+
 type PlayImportParams = (
-    LastfmImportParams | SpotifyImportParams | SpotifyRecentImportParams
+    LastfmImportParams
+    | SpotifyImportParams
+    | SpotifyRecentImportParams
+    | AppleRecentImportParams
 )
 
 # Where an import's data comes from. One service can offer both — Spotify reads

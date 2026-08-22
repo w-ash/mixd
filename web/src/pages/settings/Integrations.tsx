@@ -4,6 +4,7 @@ import { useEffect, useMemo, useState } from "react";
 import { useNavigate, useSearchParams } from "react-router";
 import {
   getGetConnectorsApiV1ConnectorsGetQueryKey,
+  getGetConnectorsApiV1ConnectorsGetQueryOptions,
   useGetConnectorsApiV1ConnectorsGet,
 } from "#/api/generated/connectors/connectors";
 import type { ConnectorMetadataSchema } from "#/api/generated/model";
@@ -179,9 +180,23 @@ export function Integrations() {
 
     if (status === "success") {
       toasts.success(`${label} connected`);
-      queryClient.invalidateQueries({
-        queryKey: getGetConnectorsApiV1ConnectorsGetQueryKey(),
-      });
+      // This page mounts fresh off the OAuth redirect, so the connectors
+      // query's *initial* fetch (fired on mount, alongside this effect) is
+      // often still in flight right here. TanStack Query dedupes a fetch
+      // triggered while one is already pending onto that same in-flight
+      // promise — it only cancels-and-restarts when the query already has
+      // data. Invalidating immediately would therefore just re-display that
+      // first (possibly pre-auth) response and never hit the network again.
+      // Ensure the initial fetch has settled first so invalidation's
+      // cancel-and-refetch actually fires a fresh request.
+      void queryClient
+        .fetchQuery(getGetConnectorsApiV1ConnectorsGetQueryOptions())
+        .catch(() => undefined)
+        .then(() =>
+          queryClient.invalidateQueries({
+            queryKey: getGetConnectorsApiV1ConnectorsGetQueryKey(),
+          }),
+        );
     } else {
       const message = reason ? humanizeAuthError(reason) : "Unknown error";
       toasts.message(`${label} connection failed`, { description: message });

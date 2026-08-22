@@ -46,6 +46,27 @@ class TestConnectorsStatusCommand:
             assert "Disconnected" in result.output
             assert "testuser" in result.output
 
+    def test_shows_reauth_required_status(self):
+        statuses = [
+            ConnectorStatus(
+                name="spotify",
+                auth_method="oauth",
+                connected=True,
+                auth_error="reauth_required",
+            ),
+        ]
+
+        with patch(
+            "src.infrastructure.connectors._shared.connector_status.get_all_connector_statuses",
+            new_callable=AsyncMock,
+            return_value=statuses,
+        ):
+            result = runner.invoke(app, ["connectors"])
+
+            assert result.exit_code == 0
+            assert "Re-connect needed (session expired)" in result.output
+            assert "Error" not in result.output
+
     def test_shows_disconnected_status(self):
         statuses = [
             ConnectorStatus(name="spotify", auth_method="oauth", connected=False),
@@ -60,3 +81,32 @@ class TestConnectorsStatusCommand:
 
             assert result.exit_code == 0
             assert "Disconnected" in result.output
+
+
+class TestDisconnectCommand:
+    def test_browser_bridge_connector_can_disconnect(self):
+        """Apple Music (browser_bridge) stores a credential — the guard must
+        let it through, not reject it as credential-less."""
+        storage = AsyncMock()
+        with patch(
+            "src.infrastructure.connectors._shared.token_storage.get_token_storage",
+            return_value=storage,
+        ):
+            result = runner.invoke(app, ["connectors", "disconnect", "apple_music"])
+
+        assert result.exit_code == 0
+        assert "Disconnected apple_music" in result.output
+        storage.delete_token.assert_awaited_once()
+        assert storage.delete_token.await_args.args[0] == "apple_music"
+
+    def test_public_api_connector_cannot_disconnect(self):
+        storage = AsyncMock()
+        with patch(
+            "src.infrastructure.connectors._shared.token_storage.get_token_storage",
+            return_value=storage,
+        ):
+            result = runner.invoke(app, ["connectors", "disconnect", "musicbrainz"])
+
+        assert result.exit_code != 0
+        storage.delete_token.assert_not_awaited()
+        assert "Traceback" not in result.output

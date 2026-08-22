@@ -29,6 +29,7 @@ import type {
   CheckpointStatusSchema,
   ExportLastfmLikesRequest,
   HTTPValidationError,
+  ImportAppleRecentRequest,
   ImportLastfmHistoryRequest,
   ImportQueueResponse,
   ImportSpotifyLikesRequest,
@@ -241,6 +242,101 @@ export const useImportSpotifyRecentApiV1ImportsSpotifyRecentPost = <TError = HTT
         TContext
       > => {
       return useMutation(getImportSpotifyRecentApiV1ImportsSpotifyRecentPostMutationOptions(options), queryClient);
+    }
+    export type importAppleRecentApiV1ImportsAppleRecentPostResponse200 = {
+  data: OperationStartedResponse
+  status: 200
+}
+
+export type importAppleRecentApiV1ImportsAppleRecentPostResponse422 = {
+  data: HTTPValidationError
+  status: 422
+}
+
+export type importAppleRecentApiV1ImportsAppleRecentPostResponseSuccess = (importAppleRecentApiV1ImportsAppleRecentPostResponse200) & {
+  headers: Headers;
+};
+export type importAppleRecentApiV1ImportsAppleRecentPostResponseError = (importAppleRecentApiV1ImportsAppleRecentPostResponse422) & {
+  headers: Headers;
+};
+
+export type importAppleRecentApiV1ImportsAppleRecentPostResponse = (importAppleRecentApiV1ImportsAppleRecentPostResponseSuccess | importAppleRecentApiV1ImportsAppleRecentPostResponseError)
+
+export const getImportAppleRecentApiV1ImportsAppleRecentPostUrl = () => {
+
+
+
+
+  return `/api/v1/imports/apple/recent`
+}
+
+/**
+ * Poll Apple Music's recently-played API for new plays.
+ *
+ * Connection-gated rather than scope-gated: Apple's browser-bridge MUTs
+ * carry no OAuth scopes, so token presence is the whole precondition — the
+ * status probe is storage-only, exactly what `require_connector_connected`
+ * checks.
+ * @summary Import Apple Recent
+ */
+export const importAppleRecentApiV1ImportsAppleRecentPost = async (importAppleRecentRequest: ImportAppleRecentRequest, options?: Parameters<typeof customFetch>[1]): Promise<importAppleRecentApiV1ImportsAppleRecentPostResponse> => {
+
+  return customFetch<importAppleRecentApiV1ImportsAppleRecentPostResponse>(getImportAppleRecentApiV1ImportsAppleRecentPostUrl(),
+  {
+    ...options,
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', ...options?.headers },
+    body: JSON.stringify(importAppleRecentRequest)
+  }
+);}
+
+
+
+
+
+export const getImportAppleRecentApiV1ImportsAppleRecentPostMutationOptions = <TError = HTTPValidationError,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof importAppleRecentApiV1ImportsAppleRecentPost>>, TError,{data: ImportAppleRecentRequest}, TContext>, request?: SecondParameter<typeof customFetch>}
+): UseMutationOptions<Awaited<ReturnType<typeof importAppleRecentApiV1ImportsAppleRecentPost>>, TError,{data: ImportAppleRecentRequest}, TContext> => {
+
+const mutationKey = ['importAppleRecentApiV1ImportsAppleRecentPost'];
+const {mutation: mutationOptions, request: requestOptions} = options ?
+      options.mutation && 'mutationKey' in options.mutation && options.mutation.mutationKey ?
+      options
+      : {...options, mutation: {...options.mutation, mutationKey}}
+      : {mutation: { mutationKey, }, request: undefined};
+
+
+
+
+      const mutationFn: MutationFunction<Awaited<ReturnType<typeof importAppleRecentApiV1ImportsAppleRecentPost>>, {data: ImportAppleRecentRequest}> = (props) => {
+          const {data} = props ?? {};
+
+          return  importAppleRecentApiV1ImportsAppleRecentPost(data,requestOptions)
+        }
+
+
+
+
+
+
+  return  { mutationFn, ...mutationOptions }}
+
+    export type ImportAppleRecentApiV1ImportsAppleRecentPostMutationResult = NonNullable<Awaited<ReturnType<typeof importAppleRecentApiV1ImportsAppleRecentPost>>>
+    export type ImportAppleRecentApiV1ImportsAppleRecentPostMutationBody = ImportAppleRecentRequest
+    export type ImportAppleRecentApiV1ImportsAppleRecentPostMutationError = HTTPValidationError
+
+    /**
+ * @summary Import Apple Recent
+ */
+export const useImportAppleRecentApiV1ImportsAppleRecentPost = <TError = HTTPValidationError,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof importAppleRecentApiV1ImportsAppleRecentPost>>, TError,{data: ImportAppleRecentRequest}, TContext>, request?: SecondParameter<typeof customFetch>}
+ , queryClient?: QueryClient): UseMutationResult<
+        Awaited<ReturnType<typeof importAppleRecentApiV1ImportsAppleRecentPost>>,
+        TError,
+        {data: ImportAppleRecentRequest},
+        TContext
+      > => {
+      return useMutation(getImportAppleRecentApiV1ImportsAppleRecentPostMutationOptions(options), queryClient);
     }
     export type importSpotifyLikesApiV1ImportsSpotifyLikesPostResponse200 = {
   data: OperationStartedResponse

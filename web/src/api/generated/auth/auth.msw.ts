@@ -18,10 +18,11 @@ import type {
 } from '../model';
 
 import {
+  getAppleAuthorizeAuthAppleAuthorizeGetResponseMock,
   getGetConnectorAuthUrlApiV1ConnectorsServiceAuthUrlGetResponseMock
 } from './auth.faker.ts';
 
-export { getGetConnectorAuthUrlApiV1ConnectorsServiceAuthUrlGetResponseMock } from './auth.faker.ts';
+export { getGetConnectorAuthUrlApiV1ConnectorsServiceAuthUrlGetResponseMock, getAppleAuthorizeAuthAppleAuthorizeGetResponseMock } from './auth.faker.ts';
 
 
 export const getGetConnectorAuthUrlApiV1ConnectorsServiceAuthUrlGetMockHandler = (overrideResponse?: GetConnectorAuthUrlApiV1ConnectorsServiceAuthUrlGet200 | ((info: Parameters<Parameters<typeof http.get>[1]>[0]) => Promise<GetConnectorAuthUrlApiV1ConnectorsServiceAuthUrlGet200> | GetConnectorAuthUrlApiV1ConnectorsServiceAuthUrlGet200), options?: RequestHandlerOptions) => {
@@ -55,8 +56,33 @@ export const getLastfmCallbackAuthLastfmCallbackGetMockHandler = (overrideRespon
       })
   }, options)
 }
+
+export const getAppleAuthorizeAuthAppleAuthorizeGetMockHandler = (overrideResponse?: string | ((info: Parameters<Parameters<typeof http.get>[1]>[0]) => Promise<string> | string), options?: RequestHandlerOptions) => {
+  return http.get('*/auth/apple/authorize', async (info: Parameters<Parameters<typeof http.get>[1]>[0]) => {
+
+  const resolvedBody = overrideResponse !== undefined
+    ? (typeof overrideResponse === "function" ? await overrideResponse(info) : overrideResponse)
+    : getAppleAuthorizeAuthAppleAuthorizeGetResponseMock();
+    const textBody = typeof resolvedBody === 'string' ? resolvedBody : JSON.stringify(resolvedBody ?? null);
+    return HttpResponse.html(textBody,
+      { status: 200
+      })
+  }, options)
+}
+
+export const getStoreAppleMusicTokenApiV1ConnectorsAppleMusicTokenPostMockHandler = (overrideResponse?: void | ((info: Parameters<Parameters<typeof http.post>[1]>[0]) => Promise<void> | void), options?: RequestHandlerOptions) => {
+  return http.post('*/api/v1/connectors/apple_music/token', async (info: Parameters<Parameters<typeof http.post>[1]>[0]) => {
+  if (typeof overrideResponse === 'function') {await overrideResponse(info); }
+
+    return new HttpResponse(null,
+      { status: 204
+      })
+  }, options)
+}
 export const getAuthMock = () => [
   getGetConnectorAuthUrlApiV1ConnectorsServiceAuthUrlGetMockHandler(),
   getSpotifyCallbackAuthSpotifyCallbackGetMockHandler(),
-  getLastfmCallbackAuthLastfmCallbackGetMockHandler()
+  getLastfmCallbackAuthLastfmCallbackGetMockHandler(),
+  getAppleAuthorizeAuthAppleAuthorizeGetMockHandler(),
+  getStoreAppleMusicTokenApiV1ConnectorsAppleMusicTokenPostMockHandler()
 ]
