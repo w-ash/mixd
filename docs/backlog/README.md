@@ -157,10 +157,11 @@ Each milestone delivers a **vertical slice** — backend API + frontend page tog
 | **v0.10.2** | Mapping supersession & resolution event log (pulled forward so v0.11.x connectors are supersession-native) | ✅ Completed | [details](v0.10.x.md#v0102-mapping-supersession--resolution-event-log) |
 | **v0.10.3** | Post-import data integrity audit — adversarial verification of the first at-scale prod imports, plus the remediation it found ([findings](v0.10.3-audit-findings.md)) | ✅ Completed | [details](v0.10.x.md#v0103-post-import-data-integrity-audit) |
 | **v0.10.4** | Play history surfaces — global play feed with chart navigator, per-track history on Track Detail, Library sort/filter by play count and recency (default: most recently played) | 🚀 Shipped | [details](v0.10.x.md#v0104-play-history-surfaces) |
-| **v0.11.0** | Apple Music foundation — connector auth-state fidelity, MusicKit JS bridge auth, client, ISRC-conservative resolution, play channel | 🔜 Not Started | [details](v0.11.x.md#v0110-apple-music-foundation) |
+| **v0.11.0** | Apple Music foundation — connector auth-state fidelity, MusicKit JS bridge auth, client, ISRC-conservative resolution, play channel | 🔨 In Progress | [details](v0.11.x.md#v0110-apple-music-foundation) |
 | **v0.11.1** | Discogs foundation — BYO-token client + collection snapshot | 🔜 Not Started | [details](v0.11.x.md#v0111-discogs-foundation) |
 | **v0.11.2** | Spotify API currency — invalid_grant re-auth + reconnect UX, quota-429 discrimination, account_id linkage, explicit disconnect semantics | 🔜 Not Started | [details](v0.11.x.md#v0112-spotify-api-currency) |
 | **v0.11.3** | Tidal foundation — BYO-app OAuth 2.1/PKCE auth, client, ISRC-conservative resolution, favorites snapshot | 🔜 Not Started | [details](v0.11.x.md#v0113-tidal-foundation) |
+| **v0.11.4** | Web cache consistency — tag-driven invalidation (mutation meta + server-named SSE tags), race-safe core, backend-owned enums | 🔜 Not Started | [details](v0.11.x.md#v0114-web-cache-consistency) |
 | **v0.12.0** | Entity representation spike — artists/albums across six services, real data (docs-only) | 🔜 Not Started | [details](v0.12.x.md#v0120-entity-representation-spike) |
 | **v0.12.1** | First-class artists | 🔜 Not Started | [details](v0.12.x.md#v0121-first-class-artists) |
 | **v0.12.2** | First-class albums | 🔜 Not Started | [details](v0.12.x.md#v0122-first-class-albums) |
