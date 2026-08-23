@@ -32,7 +32,7 @@ jobs:
 
       # Full version, not `@v9` — setup-uv stopped publishing major/minor tags
       # at v8.0.0 (see ci.yml for the supply-chain rationale).
-      - uses: astral-sh/setup-uv@v9.0.0
+      - uses: astral-sh/setup-uv@v10.0.1
 
       - name: Install dependencies
         run: uv sync --locked

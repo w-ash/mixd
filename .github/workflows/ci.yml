@@ -55,7 +55,7 @@ jobs:
       # v8.0.0 (deliberately, as a supply-chain measure after the tj-actions
       # compromise), so a shortened `@v9` fails at "Unable to resolve action".
       # Dependabot's github-actions ecosystem still bumps an exact tag like this.
-      - uses: astral-sh/setup-uv@v9.0.0
+      - uses: astral-sh/setup-uv@v10.0.1
 
       # --locked, not --frozen: assert uv.lock is current for pyproject.toml. --frozen
       # installs a stale lock happily, deferring the failure to the Dockerfile's
