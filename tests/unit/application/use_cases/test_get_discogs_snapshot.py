@@ -18,46 +18,17 @@ from src.application.use_cases.get_discogs_snapshot import (
     GetDiscogsSnapshotUseCase,
 )
 from src.domain.exceptions import ConnectorSyncError, DiscogsAuthRequiredError
-from tests.fixtures import make_mock_uow
+from tests.fixtures import (
+    make_discogs_collection_page,
+    make_discogs_release,
+    make_mock_uow,
+)
 
 _USER = "default"
 
 
 def _page(items: int, releases: list[dict[str, object]]) -> dict[str, object]:
-    return {
-        "pagination": {
-            "page": 1,
-            "pages": 1,
-            "per_page": 10,
-            "items": items,
-            "urls": {"next": None},
-        },
-        "releases": releases,
-    }
-
-
-def _release(
-    title: str,
-    *,
-    artists: list[dict[str, str]] | None = None,
-    year: int = 1982,
-    formats: list[dict[str, object]] | None = None,
-    date_added: str = "2026-08-01T10:00:00-07:00",
-) -> dict[str, object]:
-    return {
-        "id": 249504,
-        "instance_id": 1,
-        "date_added": date_added,
-        "basic_information": {
-            "id": 249504,
-            "title": title,
-            "year": year,
-            "artists": artists or [{"name": "Duran Duran", "anv": "", "join": ""}],
-            "labels": [{"name": "EMI", "catno": "EMC 3411"}],
-            "formats": formats
-            or [{"name": "Vinyl", "qty": "1", "descriptions": ["LP", "Album"]}],
-        },
-    }
+    return make_discogs_collection_page(releases, items=items, per_page=10)
 
 
 def _make_connector(
@@ -122,8 +93,8 @@ class TestEmptyCollection:
 class TestPopulatedCollection:
     async def test_items_mapped_in_returned_order(self) -> None:
         releases = [
-            _release("Rio"),
-            _release(
+            make_discogs_release("Rio"),
+            make_discogs_release(
                 "Under Pressure",
                 artists=[
                     {"name": "Queen", "anv": "", "join": "&"},
@@ -153,7 +124,7 @@ class TestPopulatedCollection:
         assert second.formats == '2x Vinyl (7")'
 
     async def test_recent_limit_bounds_page_and_items(self) -> None:
-        releases = [_release(f"R{i}") for i in range(3)]
+        releases = [make_discogs_release(f"R{i}") for i in range(3)]
         connector = _make_connector(page=_page(40, releases))
 
         result, _uow = await _execute(connector, recent_limit=2)
@@ -169,9 +140,11 @@ class TestPopulatedCollection:
         # None): such an item has nothing to display, so the snapshot skips
         # it — the good items still render and the total stays authoritative
         # from pagination. Never an exception, never a 500.
-        malformed = dict(_release("ignored"))
+        malformed = dict(make_discogs_release("ignored"))
         malformed["basic_information"] = None
-        connector = _make_connector(page=_page(3, [_release("Rio"), malformed]))
+        connector = _make_connector(
+            page=_page(3, [make_discogs_release("Rio"), malformed])
+        )
 
         result, _uow = await _execute(connector)
 
@@ -179,14 +152,14 @@ class TestPopulatedCollection:
         assert [i.title for i in result.recent] == ["Rio"]
 
     async def test_count_refresh_saved(self) -> None:
-        connector = _make_connector(page=_page(2, [_release("Rio")]))
+        connector = _make_connector(page=_page(2, [make_discogs_release("Rio")]))
 
         await _execute(connector)
 
         connector.save_collection_count.assert_awaited_once_with(2)
 
     async def test_count_refresh_failure_is_swallowed(self) -> None:
-        connector = _make_connector(page=_page(1, [_release("Rio")]))
+        connector = _make_connector(page=_page(1, [make_discogs_release("Rio")]))
         connector.save_collection_count.side_effect = RuntimeError("db down")
 
         result, _uow = await _execute(connector)
@@ -203,7 +176,9 @@ class TestUsernameFallback:
 
     async def test_missing_stored_username_falls_back_to_live_identity(self) -> None:
         connector = _make_connector(
-            username=None, live_username="wash", page=_page(1, [_release("Rio")])
+            username=None,
+            live_username="wash",
+            page=_page(1, [make_discogs_release("Rio")]),
         )
 
         result, _uow = await _execute(connector)

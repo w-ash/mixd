@@ -22,8 +22,20 @@ _CACHE_POLICIES: tuple[tuple[str, str], ...] = tuple(
         [
             ("/api/v1/workflows/nodes", "max-age=86400, stale-while-revalidate=604800"),
             ("/api/v1/stats/", "max-age=30, stale-while-revalidate=300"),
-            ("/api/v1/connectors", "max-age=300, stale-while-revalidate=600"),
-            ("/api/v1/settings", "max-age=60, stale-while-revalidate=300"),
+            # Connector status is state-bearing (connect/disconnect must show
+            # immediately); no-cache forces revalidation and the ETag turns
+            # unchanged responses into 304s.
+            ("/api/v1/connectors", "no-cache"),
+            # The MusicKit developer token rides this response — never store
+            # it in any cache, shared or private. The longer prefix wins over
+            # the generic connectors entry via the longest-prefix-first sort.
+            (
+                "/api/v1/connectors/apple_music/musickit-config",
+                "private, no-store",
+            ),
+            # Settings has a PATCH route — a GET after a write must revalidate
+            # (same staleness class as the connectors bug).
+            ("/api/v1/settings", "no-cache"),
             ("/api/v1/health", "no-cache"),
             ("/api/v1/tracks", "max-age=10, stale-while-revalidate=60"),
             ("/api/v1/playlists", "max-age=10, stale-while-revalidate=60"),

@@ -1,19 +1,24 @@
-"""Integration tests for the Apple Music MusicKit JS bridge routes.
+"""Integration tests for the in-app Apple Music MusicKit connect routes.
 
-Covers the browser bridge page (``GET /auth/apple/authorize``), the Music
-User Token persistence endpoint (``POST /api/v1/connectors/apple_music/token``),
-and the widened auth-url gate that lets ``browser_bridge`` connectors mint a
-connect URL. The developer token is minted with a throwaway EC P-256 key;
-no Apple network calls happen anywhere — the storefront fetch is patched at
-the ``AppleMusicAPIClient`` class.
+The v0.11.x bridge page is gone: the SPA runs ``MusicKit.authorize()`` itself.
+The backend surface is two authenticated JSON routes — ``GET
+/api/v1/connectors/apple_music/musickit-config`` hands the browser-safe
+developer token to the app page, and ``POST
+/api/v1/connectors/apple_music/token`` persists the resulting Music User
+Token under the authenticated user (``get_current_user_id``, like every other
+API route — no CSRF state). The developer token is minted with a throwaway EC
+P-256 key; no Apple network calls happen anywhere — the storefront fetch is
+patched at the ``AppleMusicAPIClient`` class.
+
+The Bearer requirement itself (401 without auth) is enforced by
+``NeonAuthMiddleware`` — covered in ``test_auth_middleware.py`` and the gate
+unit tests, since the default test app runs with auth disabled.
 """
 
 from collections.abc import Generator
 from datetime import timedelta
-import re
 import time
 from unittest.mock import AsyncMock, patch
-import urllib.parse
 
 from cryptography.hazmat.primitives import serialization
 from cryptography.hazmat.primitives.asymmetric import ec
@@ -31,13 +36,13 @@ from src.infrastructure.persistence.repositories.token_storage import (
 
 TEAM_ID = "TEAMID9999"
 KEY_ID = "KEYID99999"
-MUSICKIT_CDN = "https://js-cdn.music.apple.com/musickit/v3/musickit.js"
 # ``get_current_user_id`` falls back to DEFAULT_USER_ID when auth is disabled,
 # which is the test-app configuration.
 TEST_USER = "default"
 MUT_TTL_SECONDS = timedelta(days=182).total_seconds()
 
-_JWT_RE = re.compile(r"eyJ[\w\-]+\.[\w\-]+\.[\w\-]+")
+CONFIG_URL = "/api/v1/connectors/apple_music/musickit-config"
+TOKEN_URL = "/api/v1/connectors/apple_music/token"
 
 
 @pytest.fixture(scope="module")
@@ -85,15 +90,6 @@ def no_apple_creds() -> Generator[None]:
         yield
 
 
-async def mint_state(client: httpx2.AsyncClient) -> str:
-    """Create a real CSRF state row via the public auth-url endpoint."""
-    resp = await client.get("/api/v1/connectors/apple_music/auth-url")
-    assert resp.status_code == 200, resp.text
-    auth_url = resp.json()["auth_url"]
-    query = urllib.parse.urlparse(auth_url).query
-    return urllib.parse.parse_qs(query)["state"][0]
-
-
 async def load_apple_token() -> StoredToken | None:
     return await DatabaseTokenStorage().load_token("apple_music", TEST_USER)
 
@@ -105,81 +101,73 @@ async def clean_apple_token(client: httpx2.AsyncClient) -> None:
 
 
 class TestAuthUrlGate:
-    """GET /api/v1/connectors/apple_music/auth-url — browser_bridge allowed."""
+    """GET /api/v1/connectors/apple_music/auth-url — no longer served.
 
-    async def test_auth_url_returns_bridge_url_with_state(
+    ``browser_bridge`` connects in-app now; the generic auth-url route is
+    back to its pre-Apple gate (``oauth`` + a registered ``build_auth_url``).
+    """
+
+    async def test_auth_url_returns_400_for_browser_bridge(
         self, client: httpx2.AsyncClient
     ) -> None:
         resp = await client.get("/api/v1/connectors/apple_music/auth-url")
 
+        assert resp.status_code == 400
+
+    async def test_auth_url_still_serves_oauth_connectors(
+        self, client: httpx2.AsyncClient
+    ) -> None:
+        """Reverting the browser_bridge widening must not break OAuth."""
+        resp = await client.get("/api/v1/connectors/spotify/auth-url")
+
         assert resp.status_code == 200
-        auth_url = resp.json()["auth_url"]
-        assert auth_url.startswith("/auth/apple/authorize?")
-        state = urllib.parse.parse_qs(urllib.parse.urlparse(auth_url).query)["state"]
-        assert state[0]
+        assert resp.json()["auth_url"]
 
 
-class TestBridgePage:
-    """GET /auth/apple/authorize — the MusicKit JS bridge page."""
+class TestMusickitConfig:
+    """GET /api/v1/connectors/apple_music/musickit-config — developer token."""
 
-    async def test_renders_musickit_page_with_dev_token(
+    async def test_returns_verifiable_developer_token(
         self,
         client: httpx2.AsyncClient,
         apple_creds: None,
         key_pair: tuple[str, str],
     ) -> None:
-        state = await mint_state(client)
-        resp = await client.get(f"/auth/apple/authorize?state={state}")
+        resp = await client.get(CONFIG_URL)
 
         assert resp.status_code == 200
-        assert resp.headers["content-type"].startswith("text/html")
-        # Documented cause of authorize() 403s when stricter — must be exact.
-        assert resp.headers["referrer-policy"] == "strict-origin-when-cross-origin"
-        body = resp.text
-        assert MUSICKIT_CDN in body
-        # The embedded developer token is a verifiable ES256 JWT.
-        jwts = _JWT_RE.findall(body)
-        assert jwts, "no developer-token JWT embedded in the bridge page"
-        claims = jwt.decode(jwts[0], key_pair[1], algorithms=["ES256"])
+        token = resp.json()["developer_token"]
+        claims = jwt.decode(token, key_pair[1], algorithms=["ES256"])
         assert claims["iss"] == TEAM_ID
-        # The signing key itself must never reach the browser.
-        assert "PRIVATE KEY" not in body
-        # The page posts to the token endpoint and carries the state through.
-        assert "/api/v1/connectors/apple_music/token" in body
-        assert state in body
-        # musickitloaded may have fired before this listener registers (cached
-        # script): the page must run the routine synchronously when
-        # window.MusicKit already exists.
-        assert "if (window.MusicKit)" in body
-        assert 'addEventListener("musickitloaded"' in body
 
-    async def test_unconfigured_returns_clean_error(
+    async def test_private_key_never_leaves_the_server(
+        self, client: httpx2.AsyncClient, apple_creds: None
+    ) -> None:
+        resp = await client.get(CONFIG_URL)
+
+        assert resp.status_code == 200
+        assert "PRIVATE KEY" not in resp.text
+
+    async def test_unconfigured_returns_clean_503(
         self, client: httpx2.AsyncClient, no_apple_creds: None
     ) -> None:
-        resp = await client.get("/auth/apple/authorize?state=whatever")
+        resp = await client.get(CONFIG_URL)
 
         assert resp.status_code == 503
         assert "not configured" in resp.text.lower()
         assert "Traceback" not in resp.text
-        # Every bridge response pins the policy, the error page included.
-        assert resp.headers["referrer-policy"] == "strict-origin-when-cross-origin"
 
 
 class TestTokenPersistence:
     """POST /api/v1/connectors/apple_music/token — MUT storage."""
 
-    async def test_stores_mut_with_six_month_expiry(
+    async def test_stores_mut_under_authenticated_user(
         self, client: httpx2.AsyncClient, clean_apple_token: None
     ) -> None:
-        state = await mint_state(client)
-
         with patch.object(
             AppleMusicAPIClient, "get_storefront", AsyncMock(return_value=None)
         ):
-            resp = await client.post(
-                "/api/v1/connectors/apple_music/token",
-                json={"music_user_token": "fake-mut", "state": state},
-            )
+            resp = await client.post(TOKEN_URL, json={"music_user_token": "fake-mut"})
 
         assert resp.status_code == 204
         stored = await load_apple_token()
@@ -197,17 +185,12 @@ class TestTokenPersistence:
     async def test_storefront_recorded_when_fetch_succeeds(
         self, client: httpx2.AsyncClient, clean_apple_token: None
     ) -> None:
-        state = await mint_state(client)
-
         with patch.object(
             AppleMusicAPIClient,
             "get_storefront",
             AsyncMock(return_value=AppleMusicStorefront(id="us")),
         ):
-            resp = await client.post(
-                "/api/v1/connectors/apple_music/token",
-                json={"music_user_token": "fake-mut", "state": state},
-            )
+            resp = await client.post(TOKEN_URL, json={"music_user_token": "fake-mut"})
 
         assert resp.status_code == 204
         stored = await load_apple_token()
@@ -217,17 +200,12 @@ class TestTokenPersistence:
     async def test_storefront_failure_does_not_fail_connect(
         self, client: httpx2.AsyncClient, clean_apple_token: None
     ) -> None:
-        state = await mint_state(client)
-
         with patch.object(
             AppleMusicAPIClient,
             "get_storefront",
             AsyncMock(side_effect=RuntimeError("apple is down")),
         ):
-            resp = await client.post(
-                "/api/v1/connectors/apple_music/token",
-                json={"music_user_token": "fake-mut", "state": state},
-            )
+            resp = await client.post(TOKEN_URL, json={"music_user_token": "fake-mut"})
 
         assert resp.status_code == 204
         stored = await load_apple_token()
@@ -235,82 +213,29 @@ class TestTokenPersistence:
         assert stored["access_token"] == "fake-mut"
         assert "storefront" not in stored.get("extra_data", {})
 
-    async def test_bad_state_rejected(
-        self, client: httpx2.AsyncClient, clean_apple_token: None
-    ) -> None:
-        resp = await client.post(
-            "/api/v1/connectors/apple_music/token",
-            json={"music_user_token": "fake-mut", "state": "bogus-state"},
-        )
-
-        assert resp.status_code == 400
-        assert await load_apple_token() is None
-
-    async def test_state_is_single_use(
-        self, client: httpx2.AsyncClient, clean_apple_token: None
-    ) -> None:
-        state = await mint_state(client)
-        payload = {"music_user_token": "fake-mut", "state": state}
-
-        with patch.object(
-            AppleMusicAPIClient, "get_storefront", AsyncMock(return_value=None)
-        ):
-            first = await client.post(
-                "/api/v1/connectors/apple_music/token", json=payload
-            )
-            second = await client.post(
-                "/api/v1/connectors/apple_music/token", json=payload
-            )
-
-        assert first.status_code == 204
-        assert second.status_code == 400
-
-    async def test_state_minted_for_another_service_rejected(
-        self, client: httpx2.AsyncClient, clean_apple_token: None
-    ) -> None:
-        """A CSRF state row is bound to its service: a Spotify state must not
-        authenticate the Apple token endpoint."""
-        from src.interface.api.routes.auth import _create_state
-
-        state = await _create_state(TEST_USER, "spotify")
-
-        resp = await client.post(
-            "/api/v1/connectors/apple_music/token",
-            json={"music_user_token": "fake-mut", "state": state},
-        )
-
-        assert resp.status_code == 400
-        assert await load_apple_token() is None
-
     async def test_empty_mut_rejected(
         self, client: httpx2.AsyncClient, clean_apple_token: None
     ) -> None:
-        state = await mint_state(client)
-        resp = await client.post(
-            "/api/v1/connectors/apple_music/token",
-            json={"music_user_token": "", "state": state},
-        )
+        resp = await client.post(TOKEN_URL, json={"music_user_token": ""})
 
         assert resp.status_code == 422
 
 
 class TestDisconnect:
-    """DELETE /api/v1/connectors/apple_music/token — gate widened."""
+    """DELETE /api/v1/connectors/apple_music/token — round-trip."""
 
     async def test_apple_music_can_disconnect(
         self, client: httpx2.AsyncClient, clean_apple_token: None
     ) -> None:
-        state = await mint_state(client)
         with patch.object(
             AppleMusicAPIClient, "get_storefront", AsyncMock(return_value=None)
         ):
             connect = await client.post(
-                "/api/v1/connectors/apple_music/token",
-                json={"music_user_token": "fake-mut", "state": state},
+                TOKEN_URL, json={"music_user_token": "fake-mut"}
             )
         assert connect.status_code == 204
 
-        resp = await client.delete("/api/v1/connectors/apple_music/token")
+        resp = await client.delete(TOKEN_URL)
 
         assert resp.status_code == 204
         assert await load_apple_token() is None

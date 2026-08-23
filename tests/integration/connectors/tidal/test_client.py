@@ -18,6 +18,7 @@ import pytest
 
 from src.config import settings
 from src.domain.exceptions import TidalAuthRequiredError
+from tests.fixtures.connector_transport import recording
 from tests.integration.connectors.tidal.conftest import (
     TIDAL_ACCESS_TOKEN,
     collection_items_page_payload,
@@ -27,17 +28,6 @@ from tests.integration.connectors.tidal.conftest import (
 )
 
 ISRC = "QMJMT1701229"
-
-
-def recording(handler):
-    """Wrap a handler so every request is captured for assertions."""
-    requests: list[httpx2.Request] = []
-
-    def _handler(request: httpx2.Request) -> httpx2.Response:
-        requests.append(request)
-        return handler(request)
-
-    return _handler, requests
 
 
 def three_page_tracks_handler(request: httpx2.Request) -> httpx2.Response:

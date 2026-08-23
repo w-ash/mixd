@@ -153,16 +153,17 @@ async def get_connector_auth_url(
     CSRF + PKCE state factory is injected so security-sensitive DB state
     creation stays centralized in this file.
 
-    Returns 404 for unknown services, 400 for connectors without a web
-    authorization flow (``auth_method`` in ``{"none", "coming_soon"}``).
-    Both ``oauth`` and ``browser_bridge`` (Apple Music's MusicKit JS
-    bridge — the URL points at our own bridge page) are allowed.
+    Returns 404 for unknown services, 400 for connectors without a redirect
+    authorization flow — only ``oauth`` connectors serve one. Apple Music's
+    ``browser_bridge`` connects in-app via MusicKit JS (the SPA never calls
+    this route for it), and ``token`` / ``none`` / ``coming_soon`` have no
+    provider redirect at all.
     """
     config = discover_connectors().get(service)
     if config is None:
         raise HTTPException(status_code=404, detail=f"Unknown connector: {service}")
     build = config["build_auth_url"]
-    if config["auth_method"] not in {"oauth", "browser_bridge"} or build is None:
+    if config["auth_method"] != "oauth" or build is None:
         raise HTTPException(
             status_code=400, detail=f"{service} does not support web authorization"
         )

@@ -6,10 +6,12 @@ CLI path, against Tidal's *undocumented* ``device_authorization`` endpoint
 redirect when that endpoint turns out not to exist
 (``DeviceCodeUnsupportedError``). ``--browser`` forces the fallback.
 
-Both flows live in ``tidal/auth.py`` (the v0.6.5 credential carve-out shape
-— the same module the web callback's ``exchange_code`` uses), so a token
-connected here also lights up the web connector card. Disconnect is the
-generic ``mixd connectors disconnect tidal``.
+Both flows live in ``tidal/device_auth.py`` (the v0.6.5 credential
+carve-out shape — sharing ``exchange_code`` with the web callback's
+``tidal/auth.py``), and ``device_auth.run_auth`` owns the device→browser
+fallback policy, so a token connected here also lights up the web
+connector card. Disconnect is the generic ``mixd connectors disconnect
+tidal``.
 
 ``mixd tidal snapshot`` renders the favorites snapshot use case: a
 ``TIDAL · N favorites`` header (Tidal's connect scope carries no identity,
@@ -40,10 +42,9 @@ def auth(
     ),
 ) -> None:
     """Authenticate with Tidal (device code, with a browser fallback)."""
-    from src.infrastructure.connectors.tidal.auth import (
+    from src.infrastructure.connectors.tidal.device_auth import (
         DeviceAuthorization,
         DeviceCodeExpiredError,
-        DeviceCodeUnsupportedError,
     )
 
     user_id = get_cli_user_id()
@@ -57,43 +58,31 @@ def auth(
             console.print(f"[dim]Or open: {grant.verification_uri_complete}[/dim]")
         console.print("[dim]Waiting for approval...[/dim]")
 
-    async def _device_flow() -> StoredToken:
-        from src.infrastructure.connectors._shared.token_storage import (
-            get_token_storage,
+    def _show_fallback() -> None:
+        console.print(
+            "[yellow]Tidal's device-code endpoint is unavailable — "
+            "falling back to the browser flow.[/yellow]"
         )
-        from src.infrastructure.connectors.tidal import auth as tidal_auth
-
-        return await tidal_auth.run_device_auth(
-            get_token_storage(), user_id, on_verification=_show_verification
-        )
-
-    async def _browser_flow() -> StoredToken:
-        from src.infrastructure.connectors._shared.token_storage import (
-            get_token_storage,
-        )
-        from src.infrastructure.connectors.tidal import auth as tidal_auth
-
-        return await tidal_auth.run_browser_auth(get_token_storage(), user_id)
-
-    def _run_browser_flow() -> None:
         console.print("[cyan]Opening Tidal authorization in browser...[/cyan]")
-        _ = run_async(_browser_flow())
 
-    def _authenticate() -> None:
-        if browser:
-            _run_browser_flow()
-            return
-        try:
-            _ = run_async(_device_flow())
-        except DeviceCodeUnsupportedError:
-            console.print(
-                "[yellow]Tidal's device-code endpoint is unavailable — "
-                "falling back to the browser flow.[/yellow]"
-            )
-            _run_browser_flow()
+    async def _auth() -> StoredToken:
+        from src.infrastructure.connectors._shared.token_storage import (
+            get_token_storage,
+        )
+        from src.infrastructure.connectors.tidal import device_auth
+
+        return await device_auth.run_auth(
+            get_token_storage(),
+            user_id,
+            prefer_browser=browser,
+            on_verification=_show_verification,
+            on_fallback=_show_fallback,
+        )
 
     try:
-        _authenticate()
+        if browser:
+            console.print("[cyan]Opening Tidal authorization in browser...[/cyan]")
+        _ = run_async(_auth())
     except DeviceCodeExpiredError as e:
         console.print(f"[red]{e}[/red]")
         raise typer.Exit(1) from None

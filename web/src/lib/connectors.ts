@@ -36,7 +36,6 @@ const authErrorMessages: Record<string, string> = {
   scope_missing:
     "New permissions needed — reconnect to enable listening history",
   reauth_required: "Session expired — reconnect to continue",
-  authorize_failed: "Authorization was cancelled or failed — try again",
 };
 
 /** Convert an auth error reason code to a human-readable string. */

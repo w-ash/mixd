@@ -230,26 +230,3 @@ class TestRateLimits:
         error_type, _, _ = classifier.classify_error(exc)
 
         assert error_type == "rate_limit"
-
-
-class TestTemplateFallthrough:
-    def test_5xx_is_temporary(self, classifier: AppleMusicErrorClassifier):
-        error_type, error_code, _ = classifier.classify_error(make_status_error(503))
-
-        assert error_type == "temporary"
-        assert error_code == "503"
-
-    def test_plain_request_error_is_temporary(
-        self, classifier: AppleMusicErrorClassifier
-    ):
-        request = httpx2.Request("GET", "https://api.music.apple.com/v1/test")
-        exc = httpx2.ConnectError("boom", request=request)
-
-        error_type, _, _ = classifier.classify_error(exc)
-
-        assert error_type == "temporary"
-
-    def test_404_is_not_found(self, classifier: AppleMusicErrorClassifier):
-        error_type, _, _ = classifier.classify_error(make_status_error(404))
-
-        assert error_type == "not_found"

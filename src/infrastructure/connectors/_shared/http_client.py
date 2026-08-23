@@ -1,4 +1,5 @@
-"""Shared httpx2 client factories for Spotify, Last.fm, MusicBrainz, Apple Music, and Discogs API connectors.
+"""Shared httpx2 client factories for the service API connectors — one per
+``*_API_BASE`` below.
 
 Provides AsyncClient factories with:
 - Structured request/response logging via event hooks
@@ -154,6 +155,14 @@ def parse_json_response(response: httpx2.Response) -> dict[str, JsonValue]:
     This helper centralizes the single cast so callers get typed dicts.
     """
     return cast("dict[str, JsonValue]", response.json())
+
+
+def response_text(response: httpx2.Response) -> str:
+    """Response body text, or empty when the body was never read (streaming)."""
+    try:
+        return response.text
+    except RuntimeError:
+        return ""
 
 
 def parse_json_body(response: httpx2.Response) -> dict[str, JsonValue] | None:

@@ -3,7 +3,7 @@
   "info": {
     "title": "Mixd",
     "description": "Personal music metadata hub",
-    "version": "0.11.3.1"
+    "version": "0.11.3.2"
   },
   "paths": {
     "/api/v1/connectors/{service}/auth-url": {
@@ -12,7 +12,7 @@
           "auth"
         ],
         "summary": "Get Connector Auth Url",
-        "description": "Generate the OAuth authorization URL for the named connector.\n\nDispatches via the connector registry: each OAuth-capable connector\nregisters a ``build_auth_url`` callable (e.g. ``spotify/auth.py``,\n``lastfm/auth.py``) that assembles the provider-specific URL. The\nCSRF + PKCE state factory is injected so security-sensitive DB state\ncreation stays centralized in this file.\n\nReturns 404 for unknown services, 400 for connectors without a web\nauthorization flow (``auth_method`` in ``{\"none\", \"coming_soon\"}``).\nBoth ``oauth`` and ``browser_bridge`` (Apple Music's MusicKit JS\nbridge \u2014 the URL points at our own bridge page) are allowed.",
+        "description": "Generate the OAuth authorization URL for the named connector.\n\nDispatches via the connector registry: each OAuth-capable connector\nregisters a ``build_auth_url`` callable (e.g. ``spotify/auth.py``,\n``lastfm/auth.py``) that assembles the provider-specific URL. The\nCSRF + PKCE state factory is injected so security-sensitive DB state\ncreation stays centralized in this file.\n\nReturns 404 for unknown services, 400 for connectors without a redirect\nauthorization flow \u2014 only ``oauth`` connectors serve one. Apple Music's\n``browser_bridge`` connects in-app via MusicKit JS (the SPA never calls\nthis route for it), and ``token`` / ``none`` / ``coming_soon`` have no\nprovider redirect at all.",
         "operationId": "get_connector_auth_url_api_v1_connectors__service__auth_url_get",
         "parameters": [
           {
@@ -229,43 +229,21 @@
         }
       }
     },
-    "/auth/apple/authorize": {
+    "/api/v1/connectors/apple_music/musickit-config": {
       "get": {
         "tags": [
           "auth"
         ],
-        "summary": "Apple Authorize",
-        "description": "Serve the MusicKit JS bridge page for the given CSRF state.\n\nThe state is minted by the auth-url route and merely carried through to\nthe token POST, which validates and consumes it \u2014 this page holds no\nsession and identifies no user.",
-        "operationId": "apple_authorize_auth_apple_authorize_get",
-        "parameters": [
-          {
-            "name": "state",
-            "in": "query",
-            "required": false,
-            "schema": {
-              "type": "string",
-              "default": "",
-              "title": "State"
-            }
-          }
-        ],
+        "summary": "Get Musickit Config",
+        "description": "Return the developer token the SPA feeds to ``MusicKit.configure()``.\n\nThe developer token is browser-safe by design (it is embedded in every\nMusicKit page on the web); the signing key never leaves the server.",
+        "operationId": "get_musickit_config_api_v1_connectors_apple_music_musickit_config_get",
         "responses": {
           "200": {
             "description": "Successful Response",
             "content": {
-              "text/html": {
-                "schema": {
-                  "type": "string"
-                }
-              }
-            }
-          },
-          "422": {
-            "description": "Validation Error",
-            "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/HTTPValidationError"
+                  "$ref": "#/components/schemas/MusicKitConfigResponse"
                 }
               }
             }
@@ -279,7 +257,7 @@
           "auth"
         ],
         "summary": "Store Apple Music Token",
-        "description": "Validate the CSRF state and persist the Music User Token.\n\nThe user is derived from the state row (created by the authenticated\nauth-url request), not from the ambient session \u2014 same trust model as the\nOAuth callbacks in ``auth.py``. The storefront lookup is best-effort:\nApple being unreachable must not fail the connect.",
+        "description": "Persist the Music User Token under the authenticated user.\n\nThe storefront lookup is best-effort: Apple being unreachable must not\nfail the connect.",
         "operationId": "store_apple_music_token_api_v1_connectors_apple_music_token_post",
         "requestBody": {
           "content": {
@@ -3975,7 +3953,7 @@
           "connectors"
         ],
         "summary": "Delete Connector Token",
-        "description": "Remove a connector's stored credential, disconnecting it.\n\nOnly connectors that store a per-user credential \u2014 ``auth_method`` of\n``oauth``, ``browser_bridge`` (Apple Music's MUT), or ``token`` (Discogs'\npersonal access token) \u2014 can be disconnected; anything else (public APIs,\ncoming-soon stubs) returns 400.",
+        "description": "Remove a connector's stored credential, disconnecting it.\n\nOnly connectors that store a per-user credential\n(``CREDENTIAL_AUTH_METHODS``) can be disconnected; anything else\n(public APIs, coming-soon stubs) returns 400.",
         "operationId": "delete_connector_token_api_v1_connectors__service__token_delete",
         "parameters": [
           {
@@ -5467,20 +5445,14 @@
             "type": "string",
             "minLength": 1,
             "title": "Music User Token"
-          },
-          "state": {
-            "type": "string",
-            "minLength": 1,
-            "title": "State"
           }
         },
         "type": "object",
         "required": [
-          "music_user_token",
-          "state"
+          "music_user_token"
         ],
         "title": "AppleMusicTokenRequest",
-        "description": "Body of the bridge page's token POST."
+        "description": "Body of the SPA's Music User Token POST."
       },
       "ApplyResultSchema": {
         "properties": {
@@ -7731,6 +7703,20 @@
         ],
         "title": "MethodHealthStatSchema",
         "description": "Single match method + connector aggregation row."
+      },
+      "MusicKitConfigResponse": {
+        "properties": {
+          "developer_token": {
+            "type": "string",
+            "title": "Developer Token"
+          }
+        },
+        "type": "object",
+        "required": [
+          "developer_token"
+        ],
+        "title": "MusicKitConfigResponse",
+        "description": "MusicKit JS configuration for the SPA's in-app connect flow."
       },
       "NodeTypeInfoSchema": {
         "properties": {

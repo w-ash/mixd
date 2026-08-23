@@ -8,6 +8,7 @@ import { ConnectorIcon } from "#/components/shared/ConnectorIcon";
 import { DiscogsTokenDialog } from "#/components/shared/DiscogsTokenDialog";
 import { Badge } from "#/components/ui/badge";
 import { Button } from "#/components/ui/button";
+import { useAppleMusicConnect } from "#/hooks/useAppleMusicConnect";
 import { useConnectorAuth } from "#/hooks/useConnectorAuth";
 import { type ConnectorBrand, connectorBrand } from "#/lib/connector-brand";
 import { humanizeAuthError, isConnectable } from "#/lib/connectors";
@@ -212,6 +213,22 @@ export function ConnectorCard({ connector, authError }: ConnectorCardProps) {
   const connectable = isConnectable(connector.auth_method);
   const { connect, disconnect, isConnecting, isDisconnecting } =
     useConnectorAuth(connector.name, connector.display_name);
+  // browser_bridge (Apple Music) connects in-app via MusicKit JS — no
+  // navigation, no auth-url fetch; the only popup is Apple's login sheet.
+  // The hook is Apple-specific, so a second browser_bridge connector needs
+  // its own flow here (same caveat as the Discogs dialog below).
+  const isBrowserBridge = connector.auth_method === "browser_bridge";
+  // Whenever the card offers a connect/reconnect action, prewarm the
+  // MusicKit setup (config fetch + script load + configure) so the click
+  // chain shrinks to authorize() — Safari's activation budget is strict.
+  const showsConnectAction =
+    state === "disconnected" ||
+    state === "needs_reauth" ||
+    state === "expired" ||
+    state === "error";
+  const appleMusic = useAppleMusicConnect({
+    prewarm: isBrowserBridge && showsConnectAction,
+  });
   const [showSettings, setShowSettings] = useState(false);
   const [showDisconnect, setShowDisconnect] = useState(false);
   const [showTokenForm, setShowTokenForm] = useState(false);
@@ -221,7 +238,12 @@ export function ConnectorCard({ connector, authError }: ConnectorCardProps) {
   // endpoint is per-connector, so a future second token connector needs its
   // own dialog here.
   const isTokenAuth = connector.auth_method === "token";
-  const onConnect = isTokenAuth ? () => setShowTokenForm(true) : connect;
+  const onConnect = isTokenAuth
+    ? () => setShowTokenForm(true)
+    : isBrowserBridge
+      ? appleMusic.connect
+      : connect;
+  const connectBusy = isBrowserBridge ? appleMusic.isConnecting : isConnecting;
 
   const brand = connectorBrand[connector.name];
   const label = connector.display_name;
@@ -260,7 +282,7 @@ export function ConnectorCard({ connector, authError }: ConnectorCardProps) {
               label={label}
               brand={brand}
               connect={onConnect}
-              isConnecting={isConnecting}
+              isConnecting={connectBusy}
               hasSettings={hasSettings}
               showSettings={showSettings}
             />

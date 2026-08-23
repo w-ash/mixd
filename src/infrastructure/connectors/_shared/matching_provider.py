@@ -48,7 +48,9 @@ class BaseMatchingProvider(ABC):
     Subclasses must implement:
     - service_name: Service identifier property
     - _match_by_isrc(): Service-specific ISRC matching
-    - _match_by_artist_title(): Service-specific artist/title matching
+    - _match_by_artist_title(): Service-specific artist/title matching —
+      unless ``supports_artist_title_matching`` is False, in which case the
+      base default (raising NotImplementedError) is never reached.
     """
 
     # Does this provider match by artist/title at all? Conservative providers
@@ -80,11 +82,18 @@ class BaseMatchingProvider(ABC):
         """
         ...
 
-    @abstractmethod
     async def _match_by_artist_title(
         self, tracks: list[Track]
     ) -> tuple[dict[UUID, RawProviderMatch], list[MatchFailure]]:
         """Service-specific artist/title matching.
+
+        Default: unimplemented. The flag contract — providers that set
+        ``supports_artist_title_matching = False`` (Apple Music, Tidal)
+        never have this hook called: ISRC-less tracks fail via
+        ``_isrc_only_skip_failures`` instead. The hook stays as the v0.12.1
+        alias-aware-comparator plug point: when that lands, a provider
+        implements this with catalog search + alias-aware evaluation and
+        flips its class flag to True.
 
         Args:
             tracks: Tracks with artist and title to match.
@@ -92,7 +101,10 @@ class BaseMatchingProvider(ABC):
         Returns:
             Tuple of (matches dict, failures list).
         """
-        ...
+        raise NotImplementedError(
+            f"{self.service_name} does not implement artist/title matching — "
+            "it lands with the v0.12.1 alias-aware comparator"
+        )
 
     async def fetch_raw_matches_for_tracks(
         self,
@@ -132,17 +144,20 @@ class BaseMatchingProvider(ABC):
                 self._partition_tracks(tracks)
             )
 
-            # Create failures for unprocessable tracks
+            # Create failures for unprocessable tracks. Id-less tracks emit a
+            # failure too (track_id=None): they cannot be addressed per-track
+            # but must not vanish — same doctrine as the ISRC-only skip path.
             unprocessable_failures = [
                 create_and_log_failure(
                     track_id=t.id,
                     reason=MatchFailureReason.NO_METADATA,
                     service=self.service_name,
                     method="unknown",
-                    details="Track missing artist or title data",
+                    details="Track missing artist or title data"
+                    if t.id
+                    else "Track has no database id and no usable metadata",
                 )
                 for t in unprocessable_tracks
-                if t.id
             ]
 
             completed = len(unprocessable_tracks)
@@ -167,24 +182,7 @@ class BaseMatchingProvider(ABC):
             # fallback list is built.
             no_isrc_failures: list[MatchFailure] = []
             if not self.supports_artist_title_matching:
-                no_isrc_failures = [
-                    create_and_log_failure(
-                        track_id=t.id,
-                        reason=MatchFailureReason.NO_ISRC,
-                        service=self.service_name,
-                        method="isrc",
-                        details="Track has no ISRC and this provider matches by ISRC only",
-                    )
-                    if t.id
-                    else create_and_log_failure(
-                        track_id=None,
-                        reason=MatchFailureReason.NO_METADATA,
-                        service=self.service_name,
-                        method="unknown",
-                        details="Track has no database id and no ISRC",
-                    )
-                    for t in artist_title_tracks
-                ]
+                no_isrc_failures = self._isrc_only_skip_failures(artist_title_tracks)
                 completed += len(artist_title_tracks)
                 if progress_callback is not None and artist_title_tracks:
                     await progress_callback(
@@ -249,6 +247,32 @@ class BaseMatchingProvider(ABC):
             )
 
             return final_result
+
+    def _isrc_only_skip_failures(self, tracks: list[Track]) -> list[MatchFailure]:
+        """Failures for the artist/title partition of an ISRC-only provider.
+
+        Tracks with an id fail as ``NO_ISRC``; id-less ones as ``NO_METADATA``
+        with ``track_id=None`` — they cannot be addressed per-track but must
+        not vanish from the failure surface.
+        """
+        return [
+            create_and_log_failure(
+                track_id=t.id,
+                reason=MatchFailureReason.NO_ISRC,
+                service=self.service_name,
+                method="isrc",
+                details="Track has no ISRC and this provider matches by ISRC only",
+            )
+            if t.id
+            else create_and_log_failure(
+                track_id=None,
+                reason=MatchFailureReason.NO_METADATA,
+                service=self.service_name,
+                method="unknown",
+                details="Track has no database id and no ISRC",
+            )
+            for t in tracks
+        ]
 
     async def _match_each(
         self,

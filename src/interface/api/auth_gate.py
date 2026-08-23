@@ -29,15 +29,6 @@ logger = get_logger(__name__)
 _PROTECTED_PREFIX = "/api/"
 _EXEMPT_API_PATHS = ("/api/v1/health",)
 
-# Method-scoped exemptions. The Apple Music token POST is authenticated by
-# its CSRF state, not a Bearer: the single-use, 5-minute, user-bound state
-# row minted by the authenticated auth-url request IS the credential — the
-# same trust model as the OAuth callbacks (which live outside /api/). The
-# MusicKit bridge page's fetch carries no JWT, so the gate must let this one
-# method+path through. Exact match on (method, path): the DELETE disconnect
-# on the same path derives its user from the session and stays gated.
-_EXEMPT_API_ROUTES = (("POST", "/api/v1/connectors/apple_music/token"),)
-
 # Neon Auth signs JWTs with EdDSA (Ed25519) exclusively.
 # See: https://neon.com/docs/auth/guides/plugins/jwt
 _ACCEPTED_ALGORITHMS = ["EdDSA"]
@@ -212,12 +203,6 @@ class NeonAuthMiddleware:
 
         # Exempt API paths (health check)
         if any(path.startswith(exempt) for exempt in _EXEMPT_API_PATHS):
-            await self.app(scope, receive, send)
-            return
-
-        # Method-scoped exemptions (state-authenticated Apple token POST)
-        method: str = cast(str, scope.get("method", ""))
-        if (method, path) in _EXEMPT_API_ROUTES:
             await self.app(scope, receive, send)
             return
 

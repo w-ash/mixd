@@ -23,12 +23,12 @@ from src.domain.exceptions import (
     TidalAuthRequiredError,
     TidalReauthRequiredError,
 )
+from src.infrastructure.connectors._shared.oauth import compute_pkce_challenge
 from src.infrastructure.connectors._shared.token_storage import StoredToken
 from src.infrastructure.connectors.tidal.auth import (
     TIDAL_SCOPES,
     TidalBearerAuth,
     TidalTokenManager,
-    _compute_pkce_challenge,
     build_auth_url,
     exchange_code,
 )
@@ -76,19 +76,19 @@ class TestPKCE:
         # The RFC's own worked example: verifier → S256 challenge.
         verifier = "dBjftJeZ4CVP-mB92K27uhbUJU1p1r_wW1gFWFOEjXk"
         assert (
-            _compute_pkce_challenge(verifier)
+            compute_pkce_challenge(verifier)
             == "E9Melhoa2OwvFrEMTJguCHaoeK1t8URWbuGJSstw-cM"
         )
 
     def test_challenge_is_43_base64url_chars(self):
-        challenge = _compute_pkce_challenge("some-verifier")
+        challenge = compute_pkce_challenge("some-verifier")
         assert len(challenge) == 43
         assert "=" not in challenge
         assert "+" not in challenge
         assert "/" not in challenge
 
     def test_distinct_verifiers_distinct_challenges(self):
-        assert _compute_pkce_challenge("a") != _compute_pkce_challenge("b")
+        assert compute_pkce_challenge("a") != compute_pkce_challenge("b")
 
 
 class TestBuildAuthUrl:
@@ -113,7 +113,7 @@ class TestBuildAuthUrl:
         # The challenge in the URL matches the verifier handed to the state
         # store — the round-trip Tidal will verify at token exchange.
         verifier = create_state.await_args.kwargs["code_verifier"]
-        assert params["code_challenge"] == _compute_pkce_challenge(verifier)
+        assert params["code_challenge"] == compute_pkce_challenge(verifier)
 
     async def test_state_minted_for_tidal_service(self, tidal_creds) -> None:
         create_state = AsyncMock(return_value="state-abc")

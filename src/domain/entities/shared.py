@@ -100,3 +100,10 @@ def json_int(val: JsonValue, default: int = 0) -> int:
 def json_bool(val: JsonValue, default: bool = False) -> bool:
     """Narrow a JsonValue to bool, returning default if not a bool."""
     return val if isinstance(val, bool) else default
+
+
+def json_mappings(val: JsonValue) -> list[Mapping[str, JsonValue]]:
+    """Narrow a JSON list-of-objects; anything else yields an empty list."""
+    if not isinstance(val, Sequence) or isinstance(val, str):
+        return []
+    return [item for item in val if isinstance(item, Mapping)]

@@ -25,7 +25,11 @@ from src.application.use_cases.list_connector_playlists import (
     ListConnectorPlaylistsUseCase,
 )
 from src.application.use_cases.sync_likes import get_all_checkpoint_statuses
-from src.domain.entities.connector import Capability, derive_status_state
+from src.domain.entities.connector import (
+    CREDENTIAL_AUTH_METHODS,
+    Capability,
+    derive_status_state,
+)
 from src.domain.entities.playlist_link import SyncDirection
 from src.domain.entities.shared import ConnectorPlaylistIdentifier
 from src.infrastructure.connectors._shared.connector_status import (
@@ -170,13 +174,12 @@ async def delete_connector_token(
 ) -> None:
     """Remove a connector's stored credential, disconnecting it.
 
-    Only connectors that store a per-user credential — ``auth_method`` of
-    ``oauth``, ``browser_bridge`` (Apple Music's MUT), or ``token`` (Discogs'
-    personal access token) — can be disconnected; anything else (public APIs,
-    coming-soon stubs) returns 400.
+    Only connectors that store a per-user credential
+    (``CREDENTIAL_AUTH_METHODS``) can be disconnected; anything else
+    (public APIs, coming-soon stubs) returns 400.
     """
     config = _require_connector(service)
-    if config["auth_method"] not in {"oauth", "browser_bridge", "token"}:
+    if config["auth_method"] not in CREDENTIAL_AUTH_METHODS:
         raise HTTPException(status_code=400, detail=f"Cannot disconnect {service}")
     storage = get_token_storage()
     await storage.delete_token(service, user_id)

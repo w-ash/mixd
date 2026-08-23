@@ -19,6 +19,7 @@ import httpx2
 import jwt
 
 from src.config import get_logger, settings
+from src.infrastructure.connectors._shared.token_storage import TokenStorage
 
 logger = get_logger(__name__).bind(service="apple_music_auth")
 
@@ -136,3 +137,55 @@ class AppleMusicDeveloperAuth(httpx2.Auth):
     ) -> collections.abc.Generator[httpx2.Request, httpx2.Response]:
         request.headers["Authorization"] = f"Bearer {self._token_provider.get_token()}"
         yield request
+
+
+# -------------------------------------------------------------------------
+# POST-CONNECT STOREFRONT BACKFILL
+# -------------------------------------------------------------------------
+
+
+async def backfill_storefront(storage: TokenStorage, user_id: str) -> None:
+    """Best-effort storefront record after a MusicKit connect.
+
+    Fetches the user's storefront id with the freshly stored MUT and merges
+    it into the token's ``extra_data`` via the narrow ``update_extra_data``
+    write (mirroring the Spotify profile backfill — never a full-token
+    upsert). Any *fetch* failure — Apple down, credentials unconfigured,
+    token rejected — logs and returns; it must never fail the connect.
+    """
+    storefront = await _fetch_storefront(user_id)
+    if storefront is not None:
+        await storage.update_extra_data(
+            "apple_music", user_id, {"storefront": storefront}
+        )
+
+
+async def _fetch_storefront(user_id: str) -> str | None:
+    """Best-effort storefront id lookup; any failure logs and returns None."""
+    try:
+        return await _fetch_storefront_impl(user_id)
+    except Exception:
+        logger.warning(
+            "Apple Music storefront fetch failed after connect", exc_info=True
+        )
+        return None
+
+
+async def _fetch_storefront_impl(user_id: str) -> str | None:
+    """Fetch the storefront id via the API client, closing its pool after.
+
+    The client is constructed under ``user_context`` so it binds to the
+    authenticated user (it reads the MUT back from token storage). Lazy
+    imports: ``client.py`` imports this module, so a top-level client
+    import would be circular.
+    """
+    from src.infrastructure.connectors.apple_music.client import AppleMusicAPIClient
+    from src.infrastructure.persistence.database.user_context import user_context
+
+    with user_context(user_id):
+        client = AppleMusicAPIClient()
+    try:
+        storefront = await client.get_storefront()
+    finally:
+        await client.aclose()
+    return storefront.id if storefront else None

@@ -17,12 +17,18 @@ from src.infrastructure.connectors.discogs.models import (
     DiscogsCollectionPage,
     DiscogsIdentity,
 )
+from tests.fixtures import make_discogs_collection_page, make_discogs_release
 
 
 @pytest.fixture
 def fake_client(monkeypatch: pytest.MonkeyPatch) -> AsyncMock:
+    # The attrs `factory=DiscogsAPIClient` binds the class object directly, so
+    # the seam is the class's construction: __new__ returns the fake (which,
+    # not being a DiscogsAPIClient instance, also skips __init__).
     client = AsyncMock()
-    monkeypatch.setattr(connector_mod, "DiscogsAPIClient", lambda: client)
+    monkeypatch.setattr(
+        connector_mod.DiscogsAPIClient, "__new__", lambda cls, *a, **kw: client
+    )
     return client
 
 
@@ -31,36 +37,14 @@ class TestCollectionPageData:
         self, fake_client: AsyncMock
     ) -> None:
         fake_client.get_collection_page.return_value = (
-            DiscogsCollectionPage.model_validate({
-                "pagination": {
-                    "page": 1,
-                    "pages": 1,
-                    "per_page": 5,
-                    "items": 1,
-                    "urls": {},
-                },
-                "releases": [
-                    {
-                        "id": 249504,
-                        "instance_id": 1,
-                        "date_added": "2026-08-01T10:00:00-07:00",
-                        "basic_information": {
-                            "id": 249504,
-                            "title": "Rio",
-                            "year": 1982,
-                            "artists": [{"name": "Duran Duran"}],
-                            "labels": [{"name": "EMI", "catno": "EMC 3411"}],
-                            "formats": [
-                                {
-                                    "name": "Vinyl",
-                                    "qty": "1",
-                                    "descriptions": ["LP", "Album"],
-                                }
-                            ],
-                        },
-                    }
-                ],
-            })
+            DiscogsCollectionPage.model_validate(
+                make_discogs_collection_page(
+                    # anv/join deliberately absent — the model fills them in,
+                    # and the dumped shape below must carry the defaults.
+                    [make_discogs_release(artists=[{"name": "Duran Duran"}])],
+                    per_page=5,
+                )
+            )
         )
         connector = DiscogsConnector()
 

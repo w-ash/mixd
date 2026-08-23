@@ -28,19 +28,19 @@ import httpx2
 import pytest
 
 from src.config.settings import CredentialsConfig, settings
+from src.infrastructure.connectors._shared.oauth import compute_pkce_challenge
 from src.infrastructure.connectors._shared.token_storage import StoredToken
-from src.infrastructure.connectors.tidal.auth import (
+from src.infrastructure.connectors.tidal.device_auth import (
     DeviceAuthorization,
     DeviceCodeExpiredError,
     DeviceCodeUnsupportedError,
-    _compute_pkce_challenge,
     _redirect_port,
     run_browser_auth,
     run_device_auth,
 )
 
 _UID = "test-user"
-_AUTH_MOD = "src.infrastructure.connectors.tidal.auth"
+_AUTH_MOD = "src.infrastructure.connectors.tidal.device_auth"
 _CLIENT_ID = "tidal-client-id"
 _REDIRECT_URI = "http://127.0.0.1:8899/callback"
 
@@ -327,7 +327,7 @@ class TestRunBrowserAuth:
             "auth-code-1", ANY, redirect_uri=_REDIRECT_URI
         )
         verifier = exchange.await_args.args[1]
-        assert _compute_pkce_challenge(verifier) == params["code_challenge"]
+        assert compute_pkce_challenge(verifier) == params["code_challenge"]
 
         assert token["access_token"] == "at-browser"
         mock_storage.save_token.assert_awaited_once_with("tidal", _UID, token)

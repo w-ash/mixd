@@ -3,15 +3,13 @@
  * Do not edit manually.
  * Mixd
  * Personal music metadata hub
- * OpenAPI spec version: 0.11.3.1
+ * OpenAPI spec version: 0.11.3.2
  */
 
 /**
- * Body of the bridge page's token POST.
+ * Body of the SPA's Music User Token POST.
  */
 export interface AppleMusicTokenRequest {
   /** @minLength 1 */
   music_user_token: string;
-  /** @minLength 1 */
-  state: string;
 }

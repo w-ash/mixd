@@ -11,15 +11,8 @@ from collections.abc import Mapping
 
 from src.application.chat.dispatchers._common import opt_int, user_text
 from src.application.chat.protocols import ToolContext
-from src.application.runner import execute_use_case
-from src.application.use_cases.get_discogs_snapshot import (
-    GetDiscogsSnapshotCommand,
-    GetDiscogsSnapshotUseCase,
-)
-from src.application.use_cases.get_tidal_snapshot import (
-    GetTidalSnapshotCommand,
-    GetTidalSnapshotUseCase,
-)
+from src.application.use_cases.get_discogs_snapshot import run_get_discogs_snapshot
+from src.application.use_cases.get_tidal_snapshot import run_get_tidal_snapshot
 from src.domain.entities.shared import JsonDict, JsonValue
 
 
@@ -35,11 +28,7 @@ async def handle_get_discogs_snapshot(
     remedy.
     """
     recent_limit = opt_int(tool_input, "recent_limit", default=10, maximum=50)
-    command = GetDiscogsSnapshotCommand(user_id=ctx.user_id, recent_limit=recent_limit)
-    result = await execute_use_case(
-        lambda uow: GetDiscogsSnapshotUseCase().execute(command, uow),
-        user_id=ctx.user_id,
-    )
+    result = await run_get_discogs_snapshot(ctx.user_id, recent_limit=recent_limit)
     recent: list[JsonValue] = [
         {
             "title": user_text(item.title),
@@ -82,11 +71,7 @@ async def handle_get_tidal_snapshot(
     per-track Tidal lookup (the relationship serves identifiers only).
     """
     recent_limit = opt_int(tool_input, "recent_limit", default=10, maximum=25)
-    command = GetTidalSnapshotCommand(user_id=ctx.user_id, recent_limit=recent_limit)
-    result = await execute_use_case(
-        lambda uow: GetTidalSnapshotUseCase().execute(command, uow),
-        user_id=ctx.user_id,
-    )
+    result = await run_get_tidal_snapshot(ctx.user_id, recent_limit=recent_limit)
     recent: list[JsonValue] = [
         {
             "title": user_text(item.title),

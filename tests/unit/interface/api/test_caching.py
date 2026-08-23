@@ -269,3 +269,40 @@ class TestPassthrough:
         assert capture.header("etag") is None
         assert capture.header("cache-control") is None
         assert capture.body == b"<html>"
+
+
+class TestStateBearingPolicies:
+    """Connector status must never be served from the browser HTTP cache.
+
+    A connect/disconnect must show on the next fetch. ``no-cache`` forces
+    revalidation; the ETag turns unchanged responses into 304s.
+    """
+
+    def test_connectors_policy_is_no_cache(self) -> None:
+        from src.interface.api.caching import _get_cache_policy
+
+        assert _get_cache_policy("/api/v1/connectors") == "no-cache"
+        assert _get_cache_policy("/api/v1/connectors/spotify/token") == "no-cache"
+
+    def test_musickit_config_is_private_no_store(self) -> None:
+        """The MusicKit developer token rides this response — never cached.
+
+        The longer prefix must win over the generic ``/api/v1/connectors``
+        entry (longest-prefix-first sort), and sibling Apple routes keep the
+        connectors policy.
+        """
+        from src.interface.api.caching import _get_cache_policy
+
+        assert (
+            _get_cache_policy("/api/v1/connectors/apple_music/musickit-config")
+            == "private, no-store"
+        )
+        assert _get_cache_policy("/api/v1/connectors/apple_music/token") == "no-cache"
+
+    def test_settings_policy_is_no_cache(self) -> None:
+        """Settings has a PATCH route — a fresh GET after a write must not be
+        served stale from the browser cache (same class as the connectors bug).
+        """
+        from src.interface.api.caching import _get_cache_policy
+
+        assert _get_cache_policy("/api/v1/settings") == "no-cache"

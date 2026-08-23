@@ -22,8 +22,8 @@ from src.application.use_cases.get_tidal_snapshot import (
 from src.domain.exceptions import TidalAuthRequiredError
 import src.infrastructure.connectors._shared.token_storage as storage_mod
 from src.infrastructure.connectors._shared.token_storage import StoredToken
-import src.infrastructure.connectors.tidal.auth as tidal_auth_mod
-from src.infrastructure.connectors.tidal.auth import (
+import src.infrastructure.connectors.tidal.device_auth as tidal_auth_mod
+from src.infrastructure.connectors.tidal.device_auth import (
     DeviceAuthorization,
     DeviceCodeExpiredError,
     DeviceCodeUnsupportedError,

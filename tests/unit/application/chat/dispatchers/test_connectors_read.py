@@ -1,9 +1,9 @@
 """Unit tests for the ``get_discogs_snapshot`` chat dispatcher.
 
-Monkeypatches ``connectors_read.execute_use_case`` with a fake async runner
-returning a canned snapshot Result, so the tests exercise projection shape
-(and the user-data wrapping on Discogs-originated titles/artist credits)
-without a database or Discogs.
+Monkeypatches the ``run_get_*_snapshot`` entry points on ``connectors_read``
+with fakes returning a canned snapshot Result, so the tests exercise
+projection shape (and the user-data wrapping on Discogs-originated
+titles/artist credits) without a database or Discogs.
 """
 
 from collections.abc import Awaitable, Callable
@@ -23,14 +23,17 @@ _CTX = ToolContext(user_id="default")
 
 
 def _fake_runner(result: object) -> Callable[..., Awaitable[object]]:
-    async def _run(factory: object, user_id: str | None = None) -> object:
+    async def _run(user_id: str, recent_limit: int = 10) -> object:
         return result
 
     return _run
 
 
 def _patch(monkeypatch: pytest.MonkeyPatch, result: object) -> None:
-    monkeypatch.setattr(connectors_read, "execute_use_case", _fake_runner(result))
+    monkeypatch.setattr(
+        connectors_read, "run_get_discogs_snapshot", _fake_runner(result)
+    )
+    monkeypatch.setattr(connectors_read, "run_get_tidal_snapshot", _fake_runner(result))
 
 
 class TestGetDiscogsSnapshot:

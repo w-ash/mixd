@@ -14,27 +14,16 @@ import pytest
 
 from src import __version__
 from src.domain.exceptions import ConnectorSyncError, DiscogsAuthRequiredError
+from tests.fixtures.connector_transport import FakeTokenStorage, recording
 from tests.integration.connectors.discogs.conftest import (
     DISCOGS_TOKEN,
     TEST_USERNAME,
-    FakeTokenStorage,
     collection_page_payload,
     empty_collection_page_payload,
     identity_payload,
     master_payload,
     release_payload,
 )
-
-
-def recording(handler):
-    """Wrap a handler so every request is captured for assertions."""
-    requests: list[httpx2.Request] = []
-
-    def _handler(request: httpx2.Request) -> httpx2.Response:
-        requests.append(request)
-        return handler(request)
-
-    return _handler, requests
 
 
 def routed_handler(request: httpx2.Request) -> httpx2.Response:

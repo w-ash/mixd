@@ -3,7 +3,7 @@
  * Do not edit manually.
  * Mixd
  * Personal music metadata hub
- * OpenAPI spec version: 0.11.3.1
+ * OpenAPI spec version: 0.11.3.2
  */
 import {
   HttpResponse,
@@ -14,15 +14,16 @@ import type {
 } from 'msw';
 
 import type {
-  GetConnectorAuthUrlApiV1ConnectorsServiceAuthUrlGet200
+  GetConnectorAuthUrlApiV1ConnectorsServiceAuthUrlGet200,
+  MusicKitConfigResponse
 } from '../model';
 
 import {
-  getAppleAuthorizeAuthAppleAuthorizeGetResponseMock,
-  getGetConnectorAuthUrlApiV1ConnectorsServiceAuthUrlGetResponseMock
+  getGetConnectorAuthUrlApiV1ConnectorsServiceAuthUrlGetResponseMock,
+  getGetMusickitConfigApiV1ConnectorsAppleMusicMusickitConfigGetResponseMock
 } from './auth.faker.ts';
 
-export { getGetConnectorAuthUrlApiV1ConnectorsServiceAuthUrlGetResponseMock, getAppleAuthorizeAuthAppleAuthorizeGetResponseMock } from './auth.faker.ts';
+export { getGetConnectorAuthUrlApiV1ConnectorsServiceAuthUrlGetResponseMock, getGetMusickitConfigApiV1ConnectorsAppleMusicMusickitConfigGetResponseMock } from './auth.faker.ts';
 
 
 export const getGetConnectorAuthUrlApiV1ConnectorsServiceAuthUrlGetMockHandler = (overrideResponse?: GetConnectorAuthUrlApiV1ConnectorsServiceAuthUrlGet200 | ((info: Parameters<Parameters<typeof http.get>[1]>[0]) => Promise<GetConnectorAuthUrlApiV1ConnectorsServiceAuthUrlGet200> | GetConnectorAuthUrlApiV1ConnectorsServiceAuthUrlGet200), options?: RequestHandlerOptions) => {
@@ -67,14 +68,13 @@ export const getLastfmCallbackAuthLastfmCallbackGetMockHandler = (overrideRespon
   }, options)
 }
 
-export const getAppleAuthorizeAuthAppleAuthorizeGetMockHandler = (overrideResponse?: string | ((info: Parameters<Parameters<typeof http.get>[1]>[0]) => Promise<string> | string), options?: RequestHandlerOptions) => {
-  return http.get('*/auth/apple/authorize', async (info: Parameters<Parameters<typeof http.get>[1]>[0]) => {
+export const getGetMusickitConfigApiV1ConnectorsAppleMusicMusickitConfigGetMockHandler = (overrideResponse?: MusicKitConfigResponse | ((info: Parameters<Parameters<typeof http.get>[1]>[0]) => Promise<MusicKitConfigResponse> | MusicKitConfigResponse), options?: RequestHandlerOptions) => {
+  return http.get('*/api/v1/connectors/apple_music/musickit-config', async (info: Parameters<Parameters<typeof http.get>[1]>[0]) => {
 
-  const resolvedBody = overrideResponse !== undefined
+
+    return HttpResponse.json(overrideResponse !== undefined
     ? (typeof overrideResponse === "function" ? await overrideResponse(info) : overrideResponse)
-    : getAppleAuthorizeAuthAppleAuthorizeGetResponseMock();
-    const textBody = typeof resolvedBody === 'string' ? resolvedBody : JSON.stringify(resolvedBody ?? null);
-    return HttpResponse.html(textBody,
+    : getGetMusickitConfigApiV1ConnectorsAppleMusicMusickitConfigGetResponseMock(),
       { status: 200
       })
   }, options)
@@ -94,6 +94,6 @@ export const getAuthMock = () => [
   getSpotifyCallbackAuthSpotifyCallbackGetMockHandler(),
   getTidalCallbackAuthTidalCallbackGetMockHandler(),
   getLastfmCallbackAuthLastfmCallbackGetMockHandler(),
-  getAppleAuthorizeAuthAppleAuthorizeGetMockHandler(),
+  getGetMusickitConfigApiV1ConnectorsAppleMusicMusickitConfigGetMockHandler(),
   getStoreAppleMusicTokenApiV1ConnectorsAppleMusicTokenPostMockHandler()
 ]

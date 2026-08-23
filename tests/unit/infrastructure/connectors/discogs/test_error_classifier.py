@@ -42,29 +42,3 @@ class TestAuthClassification:
 
         assert error_type == "permanent"
         assert error_code == "auth"
-
-
-class TestTemplateFallthrough:
-    def test_429_falls_through_to_rate_limit(self):
-        classifier = DiscogsErrorClassifier()
-
-        error_type, error_code, _ = classifier.classify_error(
-            http_status_error(429, headers={"Retry-After": "12"})
-        )
-
-        assert error_type == "rate_limit"
-        assert error_code == "429"
-
-    def test_5xx_is_temporary(self):
-        classifier = DiscogsErrorClassifier()
-
-        error_type, _, _ = classifier.classify_error(http_status_error(503))
-
-        assert error_type == "temporary"
-
-    def test_404_is_not_found(self):
-        classifier = DiscogsErrorClassifier()
-
-        error_type, _, _ = classifier.classify_error(http_status_error(404))
-
-        assert error_type == "not_found"

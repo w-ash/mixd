@@ -23,7 +23,7 @@ from src.application.use_cases._shared.connector_resolver import (
     resolve_discogs_collection_connector,
 )
 from src.config import get_logger
-from src.domain.entities.shared import JsonValue, json_int, json_str
+from src.domain.entities.shared import JsonValue, json_int, json_mappings, json_str
 from src.domain.exceptions import ConnectorSyncError
 from src.domain.repositories.uow import UnitOfWorkProtocol
 
@@ -58,13 +58,6 @@ class GetDiscogsSnapshotResult:
     recent: tuple[DiscogsSnapshotItem, ...]
 
 
-def _mappings(value: JsonValue) -> list[Mapping[str, JsonValue]]:
-    """Narrow a JSON list-of-objects; anything else yields an empty list."""
-    if not isinstance(value, Sequence) or isinstance(value, str):
-        return []
-    return [item for item in value if isinstance(item, Mapping)]
-
-
 def _displayable(releases: JsonValue) -> list[Mapping[str, JsonValue]]:
     """Collection items that carry a ``basic_information`` block.
 
@@ -73,7 +66,7 @@ def _displayable(releases: JsonValue) -> list[Mapping[str, JsonValue]]:
     so it is skipped with a warning — the total still comes from pagination,
     which counts the whole collection either way.
     """
-    items = _mappings(releases)
+    items = json_mappings(releases)
     displayable = [i for i in items if isinstance(i.get("basic_information"), Mapping)]
     if len(displayable) < len(items):
         logger.warning(
@@ -90,7 +83,7 @@ def _artists_display(artists: JsonValue) -> str:
     records one — the snapshot shows what the sleeve says.
     """
     parts: list[str] = []
-    for artist in _mappings(artists):
+    for artist in json_mappings(artists):
         name = json_str(artist.get("anv")) or json_str(artist.get("name"))
         if not name:
             continue
@@ -104,7 +97,7 @@ def _artists_display(artists: JsonValue) -> str:
 def _formats_display(formats: JsonValue) -> str:
     """Render format entries like ``2x Vinyl (LP, Album)``, comma-joined."""
     rendered: list[str] = []
-    for fmt in _mappings(formats):
+    for fmt in json_mappings(formats):
         name = json_str(fmt.get("name"))
         if not name:
             continue

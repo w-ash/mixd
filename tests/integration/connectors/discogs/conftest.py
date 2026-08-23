@@ -16,79 +16,19 @@ is replaced with a recorder, so ``RetryAfterWait`` stays real and tests can
 assert the exact honored ``Retry-After`` without waiting on wall time.
 """
 
-import asyncio
-from collections.abc import Awaitable, Callable, Mapping
-
 import httpx2
 import pytest
 
-from src.infrastructure.connectors._shared.token_storage import StoredToken
+from tests.fixtures import make_discogs_collection_page, make_discogs_release
+from tests.fixtures.connector_transport import (
+    FakeTokenStorage,
+    Handler,
+    sleep_recorder,
+)
 
 DISCOGS_TOKEN = "test-discogs-token"
 TEST_USER_ID = "discogs-test-user"
 TEST_USERNAME = "example"
-
-type Handler = Callable[[httpx2.Request], httpx2.Response | Awaitable[httpx2.Response]]
-
-
-class FakeTokenStorage:
-    """In-memory TokenStorage double recording loads and saves."""
-
-    def __init__(self, token: StoredToken | None = None) -> None:
-        self.token = token
-        self.loads: list[tuple[str, str]] = []
-        self.saved: list[tuple[str, str, StoredToken]] = []
-        self.extra_updates: list[tuple[str, str, dict[str, object]]] = []
-
-    async def load_token(self, service: str, user_id: str) -> StoredToken | None:
-        self.loads.append((service, user_id))
-        return self.token
-
-    async def save_token(
-        self, service: str, user_id: str, token_data: StoredToken
-    ) -> None:
-        self.token = token_data
-        self.saved.append((service, user_id, token_data))
-
-    async def update_extra_data(
-        self,
-        service: str,
-        user_id: str,
-        updates: Mapping[str, object],
-        *,
-        account_name: str | None = None,
-    ) -> None:
-        self.extra_updates.append((service, user_id, dict(updates)))
-        if self.token is None:
-            return
-        merged = dict(self.token.get("extra_data") or {})
-        merged.update(updates)
-        self.token["extra_data"] = merged
-        if account_name is not None:
-            self.token["account_name"] = account_name
-
-    async def delete_token(self, service: str, user_id: str) -> None:
-        self.token = None
-
-
-@pytest.fixture(autouse=True)
-def no_rate_limiter(monkeypatch: pytest.MonkeyPatch) -> None:
-    """Keep tests deterministic — no pacing sleeps, no cross-test pause state."""
-    monkeypatch.setattr(
-        "src.infrastructure.connectors.base.get_connector_rate_limiter",
-        lambda _service_name: None,
-    )
-    monkeypatch.setattr(
-        "src.infrastructure.connectors._shared.retry_policies.get_connector_rate_limiter",
-        lambda _service_name: None,
-    )
-    # pacer.apply_rate_headers resolves the limiter through its own module
-    # binding — without this patch, a canned low-remaining rate header would
-    # pause the process-global Discogs limiter and brake later tests.
-    monkeypatch.setattr(
-        "src.infrastructure.connectors.discogs.pacer.get_connector_rate_limiter",
-        lambda _service_name: None,
-    )
 
 
 @pytest.fixture(autouse=True)
@@ -107,24 +47,14 @@ def storage() -> FakeTokenStorage:
 
 
 @pytest.fixture
-def retry_sleeps() -> list[float]:
-    """Sleep durations tenacity would have waited, in order."""
-    return []
-
-
-@pytest.fixture
 def make_client(storage: FakeTokenStorage, retry_sleeps: list[float]):
     """Factory building a DiscogsAPIClient over a MockTransport handler."""
     from src.infrastructure.connectors.discogs.client import DiscogsAPIClient
 
-    async def record_sleep(seconds: float) -> None:
-        retry_sleeps.append(seconds)
-        await asyncio.sleep(0)
-
     def _make(handler: Handler, auth: httpx2.Auth | None = None) -> DiscogsAPIClient:
         client = DiscogsAPIClient(auth=auth)
         # Capture waits instead of sleeping; RetryAfterWait stays real.
-        client._retry_policy.sleep = record_sleep
+        client._retry_policy.sleep = sleep_recorder(retry_sleeps)
         client._storage = storage
         client._user_id = TEST_USER_ID
         # Swap ONLY the transport — factory headers/auth/hooks stay real.
@@ -150,19 +80,16 @@ def identity_payload(username: str = TEST_USERNAME) -> dict[str, object]:
 
 
 def collection_release_payload(instance_id: int) -> dict[str, object]:
-    return {
-        "id": 1000000 + instance_id,
-        "instance_id": instance_id,
-        "date_added": "2024-04-15T08:00:00-07:00",
-        "basic_information": {
-            "id": 1000000 + instance_id,
-            "title": f"Release {instance_id}",
-            "year": 2001,
-            "artists": [{"name": "Daft Punk", "anv": "", "join": ""}],
-            "labels": [{"name": "Virgin", "catno": "CAT-1"}],
-            "formats": [{"name": "Vinyl", "qty": "1", "descriptions": ["LP"]}],
-        },
-    }
+    return make_discogs_release(
+        f"Release {instance_id}",
+        release_id=1000000 + instance_id,
+        instance_id=instance_id,
+        year=2001,
+        artists=[{"name": "Daft Punk", "anv": "", "join": ""}],
+        labels=[{"name": "Virgin", "catno": "CAT-1"}],
+        formats=[{"name": "Vinyl", "qty": "1", "descriptions": ["LP"]}],
+        date_added="2024-04-15T08:00:00-07:00",
+    )
 
 
 def collection_page_payload(
@@ -170,29 +97,18 @@ def collection_page_payload(
 ) -> dict[str, object]:
     start = (page - 1) * per_page
     count = max(0, min(per_page, items - start))
-    urls: dict[str, object] = (
-        {"next": f"https://api.discogs.com/x?page={page + 1}"} if page < pages else {}
+    return make_discogs_collection_page(
+        [collection_release_payload(start + offset + 1) for offset in range(count)],
+        page=page,
+        pages=pages,
+        per_page=per_page,
+        items=items,
     )
-    return {
-        "pagination": {
-            "page": page,
-            "pages": pages,
-            "per_page": per_page,
-            "items": items,
-            "urls": urls,
-        },
-        "releases": [
-            collection_release_payload(start + offset + 1) for offset in range(count)
-        ],
-    }
 
 
 def empty_collection_page_payload() -> dict[str, object]:
     """Verbatim real capture: an authenticated user with zero collection items."""
-    return {
-        "pagination": {"page": 1, "pages": 1, "per_page": 3, "items": 0, "urls": {}},
-        "releases": [],
-    }
+    return make_discogs_collection_page(per_page=3)
 
 
 def release_payload(release_id: int = 1477251) -> dict[str, object]:

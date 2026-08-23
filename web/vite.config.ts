@@ -43,8 +43,9 @@ export default defineConfig({
         target: "http://localhost:8000",
         changeOrigin: true,
       },
-      // Backend-served auth pages (Apple MusicKit bridge) — same-origin in
-      // prod, so dev must forward them to the API rather than the SPA.
+      // Backend-served OAuth callback routes (/auth/{spotify,tidal,lastfm}/
+      // callback) — same-origin in prod, so dev must forward them to the API
+      // rather than the SPA.
       "/auth": {
         target: "http://localhost:8000",
         changeOrigin: true,

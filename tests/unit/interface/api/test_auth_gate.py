@@ -186,27 +186,28 @@ class TestExemptApiPaths:
         assert inner.called is True
 
 
-class TestAppleTokenRouteExemption:
-    """The Apple Music token POST authenticates by CSRF state, not Bearer.
+class TestAppleRoutesGated:
+    """The Apple Music routes are ordinary gated API routes.
 
-    The bridge page's fetch carries no JWT; the single-use, user-bound state
-    row minted by the authenticated auth-url request is the credential.
+    The in-app MusicKit flow (post-bridge) originates from the authenticated
+    SPA, which sends the Bearer like any call — no method-scoped exemption
+    remains.
     """
 
-    async def test_token_post_reachable_without_bearer(self):
+    async def test_token_post_requires_bearer(self):
         mw, inner = _make_middleware()
         scope = _make_scope(path="/api/v1/connectors/apple_music/token", method="POST")
         send = _ResponseCapture()
 
         await mw(scope, _noop_receive, send)
 
-        assert inner.called is True
+        assert inner.called is False
+        assert send.status == 401
 
-    async def test_token_delete_still_requires_bearer(self):
-        """The disconnect DELETE on the same path is session-authenticated."""
+    async def test_musickit_config_requires_bearer(self):
         mw, inner = _make_middleware()
         scope = _make_scope(
-            path="/api/v1/connectors/apple_music/token", method="DELETE"
+            path="/api/v1/connectors/apple_music/musickit-config", method="GET"
         )
         send = _ResponseCapture()
 
@@ -216,8 +217,10 @@ class TestAppleTokenRouteExemption:
         assert send.status == 401
 
     async def test_other_api_posts_still_require_bearer(self):
+        """Removing the bridge's POST exemption left no method-scoped hole —
+        an arbitrary API POST without a Bearer is still rejected."""
         mw, inner = _make_middleware()
-        scope = _make_scope(path="/api/v1/connectors/spotify/token", method="POST")
+        scope = _make_scope(path="/api/v1/workflows", method="POST")
         send = _ResponseCapture()
 
         await mw(scope, _noop_receive, send)

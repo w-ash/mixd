@@ -31,12 +31,6 @@ describe("humanizeAuthError", () => {
     );
   });
 
-  it("maps authorize_failed (MusicKit bridge) to a retry message", () => {
-    expect(humanizeAuthError("authorize_failed")).toBe(
-      "Authorization was cancelled or failed — try again",
-    );
-  });
-
   it("falls back to the raw reason code for unknown codes", () => {
     expect(humanizeAuthError("some_unknown_code")).toBe("some_unknown_code");
   });

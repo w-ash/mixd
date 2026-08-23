@@ -23,12 +23,14 @@ releases"); a count of 0 still renders ("0 releases" — the zero-state
 hook, not an error) and a missing count yields ``detail=None``.
 """
 
+from collections.abc import Awaitable, Callable
 import time
 from unittest.mock import AsyncMock, patch
 
 import httpx2
+import pytest
 
-from src.domain.entities.connector import derive_status_state
+from src.domain.entities.connector import ConnectorStatus, derive_status_state
 from src.infrastructure.connectors._shared.connector_status import (
     fetch_spotify_profile,
     get_apple_music_status,
@@ -152,6 +154,13 @@ class TestScopeGapDetection:
 
         assert status.connected is False
         assert status.auth_error is None
+
+    async def test_token_without_refresh_token_is_disconnected(self) -> None:
+        # No refresh_token means the connection can't be sustained.
+        token = StoredToken(access_token="access", expires_at=int(time.time()) + 3600)
+        status = await get_spotify_status("u1", storage=make_storage(token))
+
+        assert status.connected is False
 
 
 def make_apple_token(
@@ -441,29 +450,13 @@ class TestGetDiscogsStatus:
         assert status.detail is None
         assert derive_status_state(status) == "disconnected"
 
-    async def test_connected_formats_collection_count(self) -> None:
+    async def test_connected_reads_identity_from_token(self) -> None:
         storage = make_storage(_discogs_token({"collection_count": 1204}))
         status = await get_discogs_status("u1", storage)
 
         assert status.connected is True
         assert status.account_name == "wash"
-        assert status.detail == "1,204 releases"
         assert derive_status_state(status) == "connected"
-
-    async def test_zero_count_still_renders(self) -> None:
-        # 0 is the zero-state hook ("start cataloguing"), not an error.
-        storage = make_storage(_discogs_token({"collection_count": 0}))
-        status = await get_discogs_status("u1", storage)
-
-        assert status.connected is True
-        assert status.detail == "0 releases"
-
-    async def test_missing_count_yields_no_detail(self) -> None:
-        storage = make_storage(_discogs_token({}))
-        status = await get_discogs_status("u1", storage)
-
-        assert status.connected is True
-        assert status.detail is None
 
     async def test_probe_is_storage_only(self) -> None:
         # The probe must never construct a Discogs client — status polls fire
@@ -574,28 +567,78 @@ class TestGetTidalStatus:
 
         storage.load_token.assert_awaited_once_with("tidal", "u1")
 
-    async def test_connected_formats_favorites_count(self) -> None:
-        # The stored-count pattern (v0.11.3 snapshot): the snapshot pays for
-        # the real count and caches it; the probe renders it network-free.
-        token = _tidal_token(extra_data={"favorites_count": 1204})
-        status = await get_tidal_status("u1", make_storage(token))
+
+@pytest.mark.parametrize(
+    ("status_fn", "make_service_token", "count_key", "noun"),
+    [
+        pytest.param(
+            get_discogs_status,
+            _discogs_token,
+            "collection_count",
+            "releases",
+            id="discogs",
+        ),
+        pytest.param(
+            get_tidal_status,
+            lambda extra_data: _tidal_token(extra_data=extra_data),
+            "favorites_count",
+            "favorites",
+            id="tidal",
+        ),
+    ],
+)
+class TestStoredCountDetail:
+    """The stored-count ``detail`` pattern, identical across Discogs and
+    Tidal: sync pays for the real count and caches it in ``extra_data``; the
+    probe renders it network-free."""
+
+    async def test_connected_formats_count(
+        self,
+        status_fn: Callable[[str, AsyncMock], Awaitable[ConnectorStatus]],
+        make_service_token: Callable[[dict[str, object] | None], StoredToken],
+        count_key: str,
+        noun: str,
+    ) -> None:
+        storage = make_storage(make_service_token({count_key: 1204}))
+        status = await status_fn("u1", storage)
 
         assert status.connected is True
-        assert status.detail == "1,204 favorites"
+        assert status.detail == f"1,204 {noun}"
 
-    async def test_zero_favorites_still_renders(self) -> None:
-        # 0 is the zero-state hook, not an error.
-        token = _tidal_token(extra_data={"favorites_count": 0})
-        status = await get_tidal_status("u1", make_storage(token))
+    async def test_zero_count_still_renders(
+        self,
+        status_fn: Callable[[str, AsyncMock], Awaitable[ConnectorStatus]],
+        make_service_token: Callable[[dict[str, object] | None], StoredToken],
+        count_key: str,
+        noun: str,
+    ) -> None:
+        # 0 is the zero-state hook ("start cataloguing"), not an error.
+        storage = make_storage(make_service_token({count_key: 0}))
+        status = await status_fn("u1", storage)
 
-        assert status.detail == "0 favorites"
+        assert status.connected is True
+        assert status.detail == f"0 {noun}"
 
-    async def test_missing_count_yields_no_detail(self) -> None:
-        status = await get_tidal_status("u1", make_storage(_tidal_token()))
+    async def test_missing_count_yields_no_detail(
+        self,
+        status_fn: Callable[[str, AsyncMock], Awaitable[ConnectorStatus]],
+        make_service_token: Callable[[dict[str, object] | None], StoredToken],
+        count_key: str,
+        noun: str,
+    ) -> None:
+        status = await status_fn("u1", make_storage(make_service_token({})))
 
+        assert status.connected is True
         assert status.detail is None
 
-    async def test_no_token_has_no_detail(self) -> None:
-        status = await get_tidal_status("u1", make_storage(None))
+    async def test_no_token_has_no_detail(
+        self,
+        status_fn: Callable[[str, AsyncMock], Awaitable[ConnectorStatus]],
+        make_service_token: Callable[[dict[str, object] | None], StoredToken],
+        count_key: str,
+        noun: str,
+    ) -> None:
+        status = await status_fn("u1", make_storage(None))
 
+        assert status.connected is False
         assert status.detail is None

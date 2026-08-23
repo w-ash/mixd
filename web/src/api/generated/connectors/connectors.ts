@@ -3,7 +3,7 @@
  * Do not edit manually.
  * Mixd
  * Personal music metadata hub
- * OpenAPI spec version: 0.11.3.1
+ * OpenAPI spec version: 0.11.3.2
  */
 import {
   useMutation,
@@ -304,10 +304,9 @@ export const getDeleteConnectorTokenApiV1ConnectorsServiceTokenDeleteUrl = (serv
 /**
  * Remove a connector's stored credential, disconnecting it.
  *
- * Only connectors that store a per-user credential — ``auth_method`` of
- * ``oauth``, ``browser_bridge`` (Apple Music's MUT), or ``token`` (Discogs'
- * personal access token) — can be disconnected; anything else (public APIs,
- * coming-soon stubs) returns 400.
+ * Only connectors that store a per-user credential
+ * (``CREDENTIAL_AUTH_METHODS``) can be disconnected; anything else
+ * (public APIs, coming-soon stubs) returns 400.
  * @summary Delete Connector Token
  */
 export const deleteConnectorTokenApiV1ConnectorsServiceTokenDelete = async (service: string, options?: Parameters<typeof customFetch>[1]): Promise<deleteConnectorTokenApiV1ConnectorsServiceTokenDeleteResponse> => {

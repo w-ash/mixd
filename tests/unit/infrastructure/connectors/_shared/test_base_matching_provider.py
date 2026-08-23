@@ -75,10 +75,12 @@ class TestBaseMatchingProviderAbstractEnforcement:
         with pytest.raises(TypeError, match="Can't instantiate abstract class"):
             IncompleteProvider()  # type: ignore[abstract]
 
-    def test_subclass_must_implement_match_by_artist_title(self):
-        """Subclass must implement _match_by_artist_title abstract method."""
+    async def test_artist_title_default_raises_not_implemented(self):
+        """The base _match_by_artist_title default raises NotImplementedError —
+        ISRC-only providers (flag False) inherit it and never reach it; a
+        provider that flips the flag must supply a real implementation."""
 
-        class IncompleteProvider(BaseMatchingProvider):
+        class IsrcOnlyHookless(BaseMatchingProvider):
             @property
             def service_name(self) -> str:
                 return "test"
@@ -86,8 +88,9 @@ class TestBaseMatchingProviderAbstractEnforcement:
             async def _match_by_isrc(self, tracks):
                 return {}, []
 
-        with pytest.raises(TypeError, match="Can't instantiate abstract class"):
-            IncompleteProvider()  # type: ignore[abstract]
+        provider = IsrcOnlyHookless()
+        with pytest.raises(NotImplementedError):
+            await provider._match_by_artist_title([])
 
 
 class TestBaseMatchingProviderTrackPartitioning:
@@ -528,6 +531,21 @@ class TestSupportsArtistTitleMatchingFlag:
         NO_METADATA-style failure the unprocessable path uses."""
         provider = IsrcOnlyProvider()
         ghost = Track(id=None, title="Ghost", artists=[Artist(name="Artist")])
+
+        result = await provider.fetch_raw_matches_for_tracks([ghost])
+
+        assert not result.matches
+        assert len(result.failures) == 1
+        failure = result.failures[0]
+        assert failure.track_id is None
+        assert failure.reason == MatchFailureReason.NO_METADATA
+
+    async def test_id_less_unprocessable_track_appears_in_failures(self):
+        """An id-less track with no metadata at all gets the same None-id
+        NO_METADATA failure the ISRC-only skip path emits — it must not
+        vanish just because it cannot be addressed per-track."""
+        provider = ConcreteProvider()
+        ghost = Track(id=None, title="", artists=[Artist(name="Artist")])
 
         result = await provider.fetch_raw_matches_for_tracks([ghost])
 

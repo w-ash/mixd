@@ -6,6 +6,17 @@ linked backlog version file. Versioning follows mixd's four-segment
 `major.minor.feature.revision` scheme (`.claude/rules/version-management.md`), not strict
 SemVer. Format inspired by [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [0.11.3.2] — 2026-08-23
+
+**Connecting a service shows connected immediately, and Apple Music connects without leaving the page.** The staleness saga had one root cause beneath the earlier fixes: connector status was served with a 5-minute browser-cache header, so the UI's refetches were answered by the disk cache. And the Apple flow no longer opens mixd itself in a bare window — MusicKit now runs inside the Integrations page, so the only popup you see is Apple's own sign-in sheet, launched from your click and prewarmed so it opens instantly.
+
+- Connector status and settings responses now always revalidate (`no-cache`; ETags keep unchanged responses cheap). The MusicKit developer-token response is `private, no-store`.
+- The Apple token endpoint is now a normal authenticated API route (the bridge page, its CSRF state, and the auth-gate exemption are deleted — the surface got smaller).
+- A blocked popup now says "allow popups", not "canceled"; MusicKit loading has a timeout and retries cleanly.
+- Cycle-wide craft pass from an independent review: shared OAuth primitives (PKCE, bearer-refresh, invalid-grant detection), one table for connector auth-error responses, a shared disconnect-capability set (device-code connectors stay disconnectable), Tidal's CLI auth split into its own module, and ~450 lines of duplicated tests consolidated.
+
+→ [details](docs/backlog/v0.11.x.md#post-deploy-revisions)
+
 ## [0.11.3.1] — 2026-08-23
 
 **Connecting any service from the web works in production again.** The first prod connect attempt after the v0.10.4.1 safety guard shipped revealed that the OAuth state helpers (and the remote-MCP OAuth server) opened database sessions without declaring who they ran as — the guard correctly refused them, and every connector's Connect button 500ed.

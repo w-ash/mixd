@@ -16,8 +16,6 @@ multiple tasks call get_valid_token() simultaneously.
 
 import asyncio
 import base64
-import collections.abc
-import hashlib
 from http import HTTPStatus
 from http.server import BaseHTTPRequestHandler, HTTPServer
 import secrets
@@ -27,7 +25,6 @@ import urllib.parse
 import webbrowser
 
 from attrs import define, field
-import httpx2
 
 from src.config import get_logger, settings
 from src.domain.entities.shared import JsonValue
@@ -39,8 +36,12 @@ from src.domain.repositories.play import RECENTLY_PLAYED_SCOPE
 from src.domain.services.oauth_grant import missing_from_grant
 from src.infrastructure.connectors._shared.http_client import (
     make_spotify_auth_client,
-    parse_json_body,
     parse_json_response,
+)
+from src.infrastructure.connectors._shared.oauth import (
+    BearerAuth,
+    compute_pkce_challenge,
+    is_invalid_grant,
 )
 from src.infrastructure.connectors._shared.token_storage import (
     StoredToken,
@@ -75,12 +76,6 @@ def missing_scopes(granted: str | None) -> frozenset[str]:
     return missing_from_grant(granted, SPOTIFY_SCOPES)
 
 
-def _compute_pkce_challenge(code_verifier: str) -> str:
-    """Compute S256 PKCE code_challenge from a code_verifier (RFC 7636)."""
-    digest = hashlib.sha256(code_verifier.encode("ascii")).digest()
-    return base64.urlsafe_b64encode(digest).rstrip(b"=").decode("ascii")
-
-
 async def build_auth_url(
     user_id: str,
     request: Request,
@@ -95,7 +90,7 @@ async def build_auth_url(
     """
     del request  # Spotify's auth URL doesn't depend on the incoming request
     code_verifier = secrets.token_urlsafe(64)
-    code_challenge = _compute_pkce_challenge(code_verifier)
+    code_challenge = compute_pkce_challenge(code_verifier)
     state = await create_state(user_id, "spotify", code_verifier=code_verifier)
     params = {
         "client_id": settings.credentials.spotify_client_id,
@@ -200,16 +195,6 @@ class SpotifyTokenManager:
         client_secret = settings.credentials.spotify_client_secret.get_secret_value()
         return base64.b64encode(f"{client_id}:{client_secret}".encode()).decode()
 
-    @staticmethod
-    def _is_invalid_grant(response: httpx2.Response) -> bool:
-        """True if a refresh-POST body carries ``error: "invalid_grant"``.
-
-        Any body that doesn't parse as a JSON object is "not invalid_grant" —
-        it falls through to the plain HTTPStatusError path rather than raising.
-        """
-        body = parse_json_body(response)
-        return body is not None and body.get("error") == "invalid_grant"
-
     async def _refresh_token(self, refresh_token: str) -> SpotifyTokenCache:
         """Exchange refresh token for new access token via /api/token.
 
@@ -230,9 +215,8 @@ class SpotifyTokenManager:
                     "refresh_token": refresh_token,
                 },
             )
-            if (
-                response.status_code == HTTPStatus.BAD_REQUEST
-                and self._is_invalid_grant(response)
+            if response.status_code == HTTPStatus.BAD_REQUEST and is_invalid_grant(
+                response
             ):
                 logger.warning(
                     "Spotify refresh rejected with invalid_grant — refresh "
@@ -505,35 +489,10 @@ class SpotifyTokenManager:
             return self._token_info["access_token"]
 
 
-_HTTP_UNAUTHORIZED = 401
-
-
 # -------------------------------------------------------------------------
 # HTTPX2 AUTH FLOW
 # -------------------------------------------------------------------------
 
 
-class SpotifyBearerAuth(httpx2.Auth):
-    """httpx2 async auth flow: injects Bearer token and retries on 401.
-
-    Used with a long-lived AsyncClient so token injection and 401 retry
-    are handled transparently without per-call boilerplate in _impl methods.
-    """
-
-    _token_manager: SpotifyTokenManager
-
-    def __init__(self, token_manager: SpotifyTokenManager) -> None:
-        self._token_manager = token_manager
-
-    @override
-    async def async_auth_flow(
-        self, request: httpx2.Request
-    ) -> collections.abc.AsyncGenerator[httpx2.Request, httpx2.Response]:
-        token = await self._token_manager.get_valid_token()
-        request.headers["Authorization"] = f"Bearer {token}"
-        response = yield request
-
-        if response.status_code == _HTTP_UNAUTHORIZED:
-            new_token = await self._token_manager.force_refresh()
-            request.headers["Authorization"] = f"Bearer {new_token}"
-            yield request
+class SpotifyBearerAuth(BearerAuth):
+    """Shared bearer-inject + one-401-retry flow over ``SpotifyTokenManager``."""

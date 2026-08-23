@@ -26,12 +26,12 @@ from src.domain.repositories.play import (
 from src.infrastructure.connectors.apple_music.models import (
     AppleMusicRecentlyPlayedResponse,
     AppleMusicSong,
-    AppleMusicSongAttributes,
 )
 from src.infrastructure.connectors.apple_music.recently_played_importer import (
     MAX_TURNOVER_PAGES,
     AppleMusicRecentlyPlayedImporter,
 )
+from tests.fixtures import make_apple_song
 from tests.fixtures.mocks import make_mock_uow
 
 _PREV_POLL = datetime(2026, 8, 20, 12, 0, tzinfo=UTC)
@@ -44,15 +44,14 @@ _RUN = {"batch_id": "batch-1", "import_timestamp": _NOW}
 
 
 def _song(song_id: str, *, name: str = "Striptease") -> AppleMusicSong:
-    return AppleMusicSong(
-        id=song_id,
-        attributes=AppleMusicSongAttributes(
-            name=name,
-            artist_name="Carwash",
-            album_name="Shimmer",
-            duration_in_millis=201_000,
-            isrc="GBAYE1234567",
-        ),
+    return make_apple_song(
+        song_id=song_id,
+        name=name,
+        artist="Carwash",
+        album="Shimmer",
+        duration_ms=201_000,
+        isrc="GBAYE1234567",
+        release_date=None,
     )
 
 

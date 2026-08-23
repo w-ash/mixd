@@ -13,26 +13,15 @@ import pytest
 
 from src.config import settings
 from src.domain.exceptions import AppleMusicAuthRequiredError
+from tests.fixtures.connector_transport import FakeTokenStorage, recording
 from tests.integration.connectors.apple_music.conftest import (
     DEV_TOKEN,
     MUSIC_USER_TOKEN,
-    FakeTokenStorage,
     invalid_mut_error_body,
     song_payload,
     songs_response,
     storefront_response,
 )
-
-
-def recording(handler):
-    """Wrap a handler so every request is captured for assertions."""
-    requests: list[httpx2.Request] = []
-
-    def _handler(request: httpx2.Request) -> httpx2.Response:
-        requests.append(request)
-        return handler(request)
-
-    return _handler, requests
 
 
 def routed_handler(request: httpx2.Request) -> httpx2.Response:

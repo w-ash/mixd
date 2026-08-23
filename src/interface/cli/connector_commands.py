@@ -177,6 +177,7 @@ def disconnect_connector(
     """
 
     async def _disconnect() -> None:
+        from src.domain.entities.connector import CREDENTIAL_AUTH_METHODS
         from src.infrastructure.connectors._shared.token_storage import (
             get_token_storage,
         )
@@ -185,7 +186,7 @@ def disconnect_connector(
         config = discover_connectors().get(service)
         if config is None:
             raise ValueError(f"Unknown connector: {service}")
-        if config["auth_method"] not in {"oauth", "browser_bridge", "token"}:
+        if config["auth_method"] not in CREDENTIAL_AUTH_METHODS:
             raise ValueError(f"{service} does not store credentials to disconnect")
 
         user_id = get_cli_user_id()

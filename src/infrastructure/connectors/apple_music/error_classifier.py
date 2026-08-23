@@ -35,18 +35,11 @@ from src.domain.exceptions import AppleMusicAuthRequiredError
 from src.infrastructure.connectors._shared.error_classifier import (
     HTTPErrorClassifier,
 )
+from src.infrastructure.connectors._shared.http_client import response_text
 from src.infrastructure.connectors.apple_music.models import (
     AppleMusicError,
     AppleMusicErrorResponse,
 )
-
-
-def _response_text(response: httpx2.Response) -> str:
-    """Response body text, or empty when the body was never read (streaming)."""
-    try:
-        return response.text
-    except RuntimeError:
-        return ""
 
 
 def is_music_user_token_request(request: httpx2.Request) -> bool:
@@ -62,7 +55,7 @@ def is_music_user_token_request(request: httpx2.Request) -> bool:
 
 def first_json_api_error(response: httpx2.Response) -> AppleMusicError | None:
     """Parse the first JSON:API error object from a response body, if any."""
-    text = _response_text(response)
+    text = response_text(response)
     if not text:
         return None
     try:
@@ -120,7 +113,7 @@ class AppleMusicErrorClassifier(HTTPErrorClassifier):
                 # whatever the body happens to mention.
                 return None
             parsed_error = first_json_api_error(response)
-            error_text = f"{error_text} {_response_text(response).lower()}"
+            error_text = f"{error_text} {response_text(response).lower()}"
             mut_request = is_music_user_token_request(exception.request)
 
         # Developer token problems are instance configuration — checked before

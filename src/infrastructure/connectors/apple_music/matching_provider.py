@@ -145,21 +145,6 @@ class AppleMusicMatchingProvider(BaseMatchingProvider):
 
         return matches, failures
 
-    @override
-    async def _match_by_artist_title(
-        self, tracks: list[Track]
-    ) -> tuple[dict[UUID, RawProviderMatch], list[MatchFailure]]:
-        """Unreachable while ``supports_artist_title_matching`` is False.
-
-        The v0.12.1 alias-aware comparator is the plug point: when it lands,
-        implement this hook with catalog search + alias-aware evaluation and
-        flip the class flag to True.
-        """
-        raise NotImplementedError(
-            "Apple Music artist/title matching lands with the v0.12.1 "
-            "alias-aware comparator"
-        )
-
     def _create_raw_match(self, song: AppleMusicSong) -> RawProviderMatch:
         """Raw match data from an Apple Music song — no business logic.
 

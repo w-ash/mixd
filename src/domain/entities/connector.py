@@ -10,7 +10,7 @@ refresh semantics, client IDs) lives in ``src/infrastructure/connectors/``.
 """
 
 import time
-from typing import Literal
+from typing import Final, Literal
 
 from attrs import define
 
@@ -32,6 +32,17 @@ type ConnectorAuthMethod = Literal[
 ``none`` — no auth required (public API).
 ``coming_soon`` — not yet implemented.
 """
+
+CREDENTIAL_AUTH_METHODS: Final[frozenset[ConnectorAuthMethod]] = frozenset({
+    "oauth",
+    "browser_bridge",
+    "token",
+    "device_code",
+})
+"""Auth methods that store a per-user credential and therefore support
+disconnect (the web DELETE route and ``mixd connectors disconnect``).
+Everything else — public APIs (``none``), ``coming_soon`` stubs — has no
+stored credential to remove."""
 
 type ConnectorStatusState = Literal[
     "connected",

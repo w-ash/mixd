@@ -3,14 +3,13 @@
  * Do not edit manually.
  * Mixd
  * Personal music metadata hub
- * OpenAPI spec version: 0.11.3.1
+ * OpenAPI spec version: 0.11.3.2
  */
 
 export * from './activeAssignmentSchema.ts';
 export * from './addTagRequest.ts';
 export * from './addTagResponse.ts';
 export * from './addTracksRequest.ts';
-export * from './appleAuthorizeAuthAppleAuthorizeGetParams.ts';
 export * from './appleMusicTokenRequest.ts';
 export * from './applyResultSchema.ts';
 export * from './artistSchema.ts';
@@ -110,6 +109,7 @@ export * from './matchReviewSchemaConfidenceEvidence.ts';
 export * from './mergeTagsRequest.ts';
 export * from './mergeTrackRequest.ts';
 export * from './methodHealthStatSchema.ts';
+export * from './musicKitConfigResponse.ts';
 export * from './nodeTypeInfoSchema.ts';
 export * from './operationRunDetailSchema.ts';
 export * from './operationRunDetailSchemaStatus.ts';

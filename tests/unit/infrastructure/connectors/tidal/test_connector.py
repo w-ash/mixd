@@ -15,8 +15,13 @@ from src.infrastructure.connectors.tidal.connector import TidalConnector
 
 @pytest.fixture
 def fake_client(monkeypatch: pytest.MonkeyPatch) -> AsyncMock:
+    # The attrs `factory=TidalAPIClient` binds the class object directly, so
+    # the seam is the class's construction: __new__ returns the fake (which,
+    # not being a TidalAPIClient instance, also skips __init__).
     client = AsyncMock()
-    monkeypatch.setattr(connector_mod, "TidalAPIClient", lambda: client)
+    monkeypatch.setattr(
+        connector_mod.TidalAPIClient, "__new__", lambda cls, *a, **kw: client
+    )
     return client
 
 

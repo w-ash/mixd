@@ -28,7 +28,7 @@ the plays ledger) until a later import or the re-resolution drain retries it.
 """
 
 from collections.abc import Mapping, Sequence
-from typing import override
+from typing import ClassVar, override
 
 from attrs import define, evolve
 
@@ -52,6 +52,7 @@ from src.infrastructure.connectors._shared.inward_track_resolver import (
 from src.infrastructure.connectors._shared.successor_resolution import (
     SuccessorAssertion,
     record_substitutions,
+    stale_id_mapping_spec,
 )
 from src.infrastructure.connectors.apple_music.client import AppleMusicAPIClient
 from src.infrastructure.connectors.apple_music.conversions import (
@@ -124,6 +125,12 @@ class _PlannedWrite:
 
 class AppleMusicInwardResolver(InwardTrackResolver):
     """Resolves Apple Music catalog ids → canonical tracks (ISRC-only)."""
+
+    # Substitutions only occur on creations (see ``_PlannedWrite.is_substitution``),
+    # and creations always carry DIRECT_IMPORT — no search fallback exists here.
+    _STALE_ID_METHODS: ClassVar[dict[str, str]] = {
+        MatchMethod.DIRECT_IMPORT: MatchMethod.DIRECT_IMPORT_STALE_ID,
+    }
 
     _client: AppleMusicAPIClient
 
@@ -436,11 +443,12 @@ class AppleMusicInwardResolver(InwardTrackResolver):
             )
             if write.is_substitution:
                 claim(
-                    ConnectorMappingSpec(
+                    stale_id_mapping_spec(
                         track=track,
                         connector=self.connector_name,
-                        connector_id=write.requested_id,
-                        match_method=MatchMethod.DIRECT_IMPORT_STALE_ID,
+                        requested_id=write.requested_id,
+                        primary_method=write.match_method,
+                        stale_method_map=self._STALE_ID_METHODS,
                         confidence=write.confidence,
                     )
                 )

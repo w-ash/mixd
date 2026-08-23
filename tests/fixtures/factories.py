@@ -175,6 +175,78 @@ def make_apple_song(
     )
 
 
+# ---------------------------------------------------------------------------
+# Discogs wire-payload factories (plain dicts — the pre-validation shape)
+# ---------------------------------------------------------------------------
+
+
+def make_discogs_release(
+    title: str = "Rio",
+    *,
+    release_id: int = 249504,
+    instance_id: int = 1,
+    year: int = 1982,
+    artists: list[dict[str, str]] | None = None,
+    labels: list[dict[str, str]] | None = None,
+    formats: list[dict[str, object]] | None = None,
+    date_added: str = "2026-08-01T10:00:00-07:00",
+    **extra: object,
+) -> dict[str, object]:
+    """Raw Discogs collection-release payload with sensible defaults.
+
+    Extra keyword arguments land as additional top-level keys (``rating=4``).
+    """
+    return {
+        "id": release_id,
+        "instance_id": instance_id,
+        "date_added": date_added,
+        "basic_information": {
+            "id": release_id,
+            "title": title,
+            "year": year,
+            "artists": artists
+            if artists is not None
+            else [{"name": "Duran Duran", "anv": "", "join": ""}],
+            "labels": labels
+            if labels is not None
+            else [{"name": "EMI", "catno": "EMC 3411"}],
+            "formats": formats
+            if formats is not None
+            else [{"name": "Vinyl", "qty": "1", "descriptions": ["LP", "Album"]}],
+        },
+        **extra,
+    }
+
+
+def make_discogs_collection_page(
+    releases: list[dict[str, object]] | None = None,
+    *,
+    page: int = 1,
+    pages: int = 1,
+    per_page: int = 100,
+    items: int | None = None,
+) -> dict[str, object]:
+    """Raw Discogs collection page envelope around ``releases``.
+
+    ``items`` defaults to ``len(releases)``; a ``next`` URL appears exactly
+    when ``page < pages`` (the wire signal pagination loops follow).
+    """
+    release_list = releases if releases is not None else []
+    urls: dict[str, object] = (
+        {"next": f"https://api.discogs.com/x?page={page + 1}"} if page < pages else {}
+    )
+    return {
+        "pagination": {
+            "page": page,
+            "pages": pages,
+            "per_page": per_page,
+            "items": items if items is not None else len(release_list),
+            "urls": urls,
+        },
+        "releases": release_list,
+    }
+
+
 def make_tidal_track_resource(
     track_id: str = "12345",
     title: str = "Test Song",

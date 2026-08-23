@@ -3,7 +3,7 @@
  * Do not edit manually.
  * Mixd
  * Personal music metadata hub
- * OpenAPI spec version: 0.11.3.1
+ * OpenAPI spec version: 0.11.3.2
  */
 import {
   useMutation,
@@ -25,11 +25,11 @@ import type {
 } from '@tanstack/react-query';
 
 import type {
-  AppleAuthorizeAuthAppleAuthorizeGetParams,
   AppleMusicTokenRequest,
   GetConnectorAuthUrlApiV1ConnectorsServiceAuthUrlGet200,
   HTTPValidationError,
   LastfmCallbackAuthLastfmCallbackGetParams,
+  MusicKitConfigResponse,
   SpotifyCallbackAuthSpotifyCallbackGetParams,
   TidalCallbackAuthTidalCallbackGetParams
 } from '../model';
@@ -92,10 +92,11 @@ export const getGetConnectorAuthUrlApiV1ConnectorsServiceAuthUrlGetUrl = (servic
  * CSRF + PKCE state factory is injected so security-sensitive DB state
  * creation stays centralized in this file.
  *
- * Returns 404 for unknown services, 400 for connectors without a web
- * authorization flow (``auth_method`` in ``{"none", "coming_soon"}``).
- * Both ``oauth`` and ``browser_bridge`` (Apple Music's MusicKit JS
- * bridge — the URL points at our own bridge page) are allowed.
+ * Returns 404 for unknown services, 400 for connectors without a redirect
+ * authorization flow — only ``oauth`` connectors serve one. Apple Music's
+ * ``browser_bridge`` connects in-app via MusicKit JS (the SPA never calls
+ * this route for it), and ``token`` / ``none`` / ``coming_soon`` have no
+ * provider redirect at all.
  * @summary Get Connector Auth Url
  */
 export const getConnectorAuthUrlApiV1ConnectorsServiceAuthUrlGet = async (service: string, options?: Parameters<typeof customFetch>[1]): Promise<getConnectorAuthUrlApiV1ConnectorsServiceAuthUrlGetResponse> => {
@@ -580,51 +581,36 @@ export function useLastfmCallbackAuthLastfmCallbackGet<TData = Awaited<ReturnTyp
 
 
 
-export type appleAuthorizeAuthAppleAuthorizeGetResponse200 = {
-  data: string
+export type getMusickitConfigApiV1ConnectorsAppleMusicMusickitConfigGetResponse200 = {
+  data: MusicKitConfigResponse
   status: 200
 }
 
-export type appleAuthorizeAuthAppleAuthorizeGetResponse422 = {
-  data: HTTPValidationError
-  status: 422
-}
-
-export type appleAuthorizeAuthAppleAuthorizeGetResponseSuccess = (appleAuthorizeAuthAppleAuthorizeGetResponse200) & {
+export type getMusickitConfigApiV1ConnectorsAppleMusicMusickitConfigGetResponseSuccess = (getMusickitConfigApiV1ConnectorsAppleMusicMusickitConfigGetResponse200) & {
   headers: Headers;
 };
-export type appleAuthorizeAuthAppleAuthorizeGetResponseError = (appleAuthorizeAuthAppleAuthorizeGetResponse422) & {
-  headers: Headers;
-};
+;
 
-export type appleAuthorizeAuthAppleAuthorizeGetResponse = (appleAuthorizeAuthAppleAuthorizeGetResponseSuccess | appleAuthorizeAuthAppleAuthorizeGetResponseError)
+export type getMusickitConfigApiV1ConnectorsAppleMusicMusickitConfigGetResponse = (getMusickitConfigApiV1ConnectorsAppleMusicMusickitConfigGetResponseSuccess)
 
-export const getAppleAuthorizeAuthAppleAuthorizeGetUrl = (params?: AppleAuthorizeAuthAppleAuthorizeGetParams,) => {
-  const normalizedParams = new URLSearchParams();
+export const getGetMusickitConfigApiV1ConnectorsAppleMusicMusickitConfigGetUrl = () => {
 
-  Object.entries(params || {}).forEach(([key, value]) => {
 
-    if (value !== undefined) {
-      normalizedParams.append(key, value === null ? 'null' : String(value))
-    }
-  });
 
-  const stringifiedParams = normalizedParams.toString();
 
-  return stringifiedParams.length > 0 ? `/auth/apple/authorize?${stringifiedParams}` : `/auth/apple/authorize`
+  return `/api/v1/connectors/apple_music/musickit-config`
 }
 
 /**
- * Serve the MusicKit JS bridge page for the given CSRF state.
+ * Return the developer token the SPA feeds to ``MusicKit.configure()``.
  *
- * The state is minted by the auth-url route and merely carried through to
- * the token POST, which validates and consumes it — this page holds no
- * session and identifies no user.
- * @summary Apple Authorize
+ * The developer token is browser-safe by design (it is embedded in every
+ * MusicKit page on the web); the signing key never leaves the server.
+ * @summary Get Musickit Config
  */
-export const appleAuthorizeAuthAppleAuthorizeGet = async (params?: AppleAuthorizeAuthAppleAuthorizeGetParams, options?: Parameters<typeof customFetch>[1]): Promise<appleAuthorizeAuthAppleAuthorizeGetResponse> => {
+export const getMusickitConfigApiV1ConnectorsAppleMusicMusickitConfigGet = async ( options?: Parameters<typeof customFetch>[1]): Promise<getMusickitConfigApiV1ConnectorsAppleMusicMusickitConfigGetResponse> => {
 
-  return customFetch<appleAuthorizeAuthAppleAuthorizeGetResponse>(getAppleAuthorizeAuthAppleAuthorizeGetUrl(params),
+  return customFetch<getMusickitConfigApiV1ConnectorsAppleMusicMusickitConfigGetResponse>(getGetMusickitConfigApiV1ConnectorsAppleMusicMusickitConfigGetUrl(),
   {
     ...options,
     method: 'GET'
@@ -637,69 +623,69 @@ export const appleAuthorizeAuthAppleAuthorizeGet = async (params?: AppleAuthoriz
 
 
 
-export const getAppleAuthorizeAuthAppleAuthorizeGetQueryKey = (params?: AppleAuthorizeAuthAppleAuthorizeGetParams,) => {
+export const getGetMusickitConfigApiV1ConnectorsAppleMusicMusickitConfigGetQueryKey = () => {
     return [
-    `/auth/apple/authorize`, ...(params ? [params] : [])
+    `/api/v1/connectors/apple_music/musickit-config`
     ] as const;
     }
 
 
-export const getAppleAuthorizeAuthAppleAuthorizeGetQueryOptions = <TData = Awaited<ReturnType<typeof appleAuthorizeAuthAppleAuthorizeGet>>, TError = HTTPValidationError>(params?: AppleAuthorizeAuthAppleAuthorizeGetParams, options?: { query?:Partial<UseQueryOptions<Awaited<ReturnType<typeof appleAuthorizeAuthAppleAuthorizeGet>>, TError, TData>>, request?: SecondParameter<typeof customFetch>}
+export const getGetMusickitConfigApiV1ConnectorsAppleMusicMusickitConfigGetQueryOptions = <TData = Awaited<ReturnType<typeof getMusickitConfigApiV1ConnectorsAppleMusicMusickitConfigGet>>, TError = unknown>( options?: { query?:Partial<UseQueryOptions<Awaited<ReturnType<typeof getMusickitConfigApiV1ConnectorsAppleMusicMusickitConfigGet>>, TError, TData>>, request?: SecondParameter<typeof customFetch>}
 ) => {
 
 const {query: queryOptions, request: requestOptions} = options ?? {};
 
-  const queryKey =  queryOptions?.queryKey ?? getAppleAuthorizeAuthAppleAuthorizeGetQueryKey(params);
+  const queryKey =  queryOptions?.queryKey ?? getGetMusickitConfigApiV1ConnectorsAppleMusicMusickitConfigGetQueryKey();
 
 
 
-    const queryFn: QueryFunction<Awaited<ReturnType<typeof appleAuthorizeAuthAppleAuthorizeGet>>> = ({ signal }) => appleAuthorizeAuthAppleAuthorizeGet(params, { signal, ...requestOptions });
+    const queryFn: QueryFunction<Awaited<ReturnType<typeof getMusickitConfigApiV1ConnectorsAppleMusicMusickitConfigGet>>> = ({ signal }) => getMusickitConfigApiV1ConnectorsAppleMusicMusickitConfigGet({ signal, ...requestOptions });
 
 
 
 
 
-   return  { queryKey, queryFn, ...queryOptions} as UseQueryOptions<Awaited<ReturnType<typeof appleAuthorizeAuthAppleAuthorizeGet>>, TError, TData> & { queryKey: DataTag<QueryKey, TData, TError> }
+   return  { queryKey, queryFn, ...queryOptions} as UseQueryOptions<Awaited<ReturnType<typeof getMusickitConfigApiV1ConnectorsAppleMusicMusickitConfigGet>>, TError, TData> & { queryKey: DataTag<QueryKey, TData, TError> }
 }
 
-export type AppleAuthorizeAuthAppleAuthorizeGetQueryResult = NonNullable<Awaited<ReturnType<typeof appleAuthorizeAuthAppleAuthorizeGet>>>
-export type AppleAuthorizeAuthAppleAuthorizeGetQueryError = HTTPValidationError
+export type GetMusickitConfigApiV1ConnectorsAppleMusicMusickitConfigGetQueryResult = NonNullable<Awaited<ReturnType<typeof getMusickitConfigApiV1ConnectorsAppleMusicMusickitConfigGet>>>
+export type GetMusickitConfigApiV1ConnectorsAppleMusicMusickitConfigGetQueryError = unknown
 
 
-export function useAppleAuthorizeAuthAppleAuthorizeGet<TData = Awaited<ReturnType<typeof appleAuthorizeAuthAppleAuthorizeGet>>, TError = HTTPValidationError>(
- params: undefined |  AppleAuthorizeAuthAppleAuthorizeGetParams, options: { query:Partial<UseQueryOptions<Awaited<ReturnType<typeof appleAuthorizeAuthAppleAuthorizeGet>>, TError, TData>> & Pick<
+export function useGetMusickitConfigApiV1ConnectorsAppleMusicMusickitConfigGet<TData = Awaited<ReturnType<typeof getMusickitConfigApiV1ConnectorsAppleMusicMusickitConfigGet>>, TError = unknown>(
+  options: { query:Partial<UseQueryOptions<Awaited<ReturnType<typeof getMusickitConfigApiV1ConnectorsAppleMusicMusickitConfigGet>>, TError, TData>> & Pick<
         DefinedInitialDataOptions<
-          Awaited<ReturnType<typeof appleAuthorizeAuthAppleAuthorizeGet>>,
+          Awaited<ReturnType<typeof getMusickitConfigApiV1ConnectorsAppleMusicMusickitConfigGet>>,
           TError,
-          Awaited<ReturnType<typeof appleAuthorizeAuthAppleAuthorizeGet>>
+          Awaited<ReturnType<typeof getMusickitConfigApiV1ConnectorsAppleMusicMusickitConfigGet>>
         > , 'initialData'
       >, request?: SecondParameter<typeof customFetch>}
  , queryClient?: QueryClient
   ):  DefinedUseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> }
-export function useAppleAuthorizeAuthAppleAuthorizeGet<TData = Awaited<ReturnType<typeof appleAuthorizeAuthAppleAuthorizeGet>>, TError = HTTPValidationError>(
- params?: AppleAuthorizeAuthAppleAuthorizeGetParams, options?: { query?:Partial<UseQueryOptions<Awaited<ReturnType<typeof appleAuthorizeAuthAppleAuthorizeGet>>, TError, TData>> & Pick<
+export function useGetMusickitConfigApiV1ConnectorsAppleMusicMusickitConfigGet<TData = Awaited<ReturnType<typeof getMusickitConfigApiV1ConnectorsAppleMusicMusickitConfigGet>>, TError = unknown>(
+  options?: { query?:Partial<UseQueryOptions<Awaited<ReturnType<typeof getMusickitConfigApiV1ConnectorsAppleMusicMusickitConfigGet>>, TError, TData>> & Pick<
         UndefinedInitialDataOptions<
-          Awaited<ReturnType<typeof appleAuthorizeAuthAppleAuthorizeGet>>,
+          Awaited<ReturnType<typeof getMusickitConfigApiV1ConnectorsAppleMusicMusickitConfigGet>>,
           TError,
-          Awaited<ReturnType<typeof appleAuthorizeAuthAppleAuthorizeGet>>
+          Awaited<ReturnType<typeof getMusickitConfigApiV1ConnectorsAppleMusicMusickitConfigGet>>
         > , 'initialData'
       >, request?: SecondParameter<typeof customFetch>}
  , queryClient?: QueryClient
   ):  UseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> }
-export function useAppleAuthorizeAuthAppleAuthorizeGet<TData = Awaited<ReturnType<typeof appleAuthorizeAuthAppleAuthorizeGet>>, TError = HTTPValidationError>(
- params?: AppleAuthorizeAuthAppleAuthorizeGetParams, options?: { query?:Partial<UseQueryOptions<Awaited<ReturnType<typeof appleAuthorizeAuthAppleAuthorizeGet>>, TError, TData>>, request?: SecondParameter<typeof customFetch>}
+export function useGetMusickitConfigApiV1ConnectorsAppleMusicMusickitConfigGet<TData = Awaited<ReturnType<typeof getMusickitConfigApiV1ConnectorsAppleMusicMusickitConfigGet>>, TError = unknown>(
+  options?: { query?:Partial<UseQueryOptions<Awaited<ReturnType<typeof getMusickitConfigApiV1ConnectorsAppleMusicMusickitConfigGet>>, TError, TData>>, request?: SecondParameter<typeof customFetch>}
  , queryClient?: QueryClient
   ):  UseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> }
 /**
- * @summary Apple Authorize
+ * @summary Get Musickit Config
  */
 
-export function useAppleAuthorizeAuthAppleAuthorizeGet<TData = Awaited<ReturnType<typeof appleAuthorizeAuthAppleAuthorizeGet>>, TError = HTTPValidationError>(
- params?: AppleAuthorizeAuthAppleAuthorizeGetParams, options?: { query?:Partial<UseQueryOptions<Awaited<ReturnType<typeof appleAuthorizeAuthAppleAuthorizeGet>>, TError, TData>>, request?: SecondParameter<typeof customFetch>}
+export function useGetMusickitConfigApiV1ConnectorsAppleMusicMusickitConfigGet<TData = Awaited<ReturnType<typeof getMusickitConfigApiV1ConnectorsAppleMusicMusickitConfigGet>>, TError = unknown>(
+  options?: { query?:Partial<UseQueryOptions<Awaited<ReturnType<typeof getMusickitConfigApiV1ConnectorsAppleMusicMusickitConfigGet>>, TError, TData>>, request?: SecondParameter<typeof customFetch>}
  , queryClient?: QueryClient
  ):  UseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> } {
 
-  const queryOptions = getAppleAuthorizeAuthAppleAuthorizeGetQueryOptions(params,options)
+  const queryOptions = getGetMusickitConfigApiV1ConnectorsAppleMusicMusickitConfigGetQueryOptions(options)
 
   const query = useQuery(queryOptions, queryClient) as  UseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> };
 
@@ -739,12 +725,10 @@ export const getStoreAppleMusicTokenApiV1ConnectorsAppleMusicTokenPostUrl = () =
 }
 
 /**
- * Validate the CSRF state and persist the Music User Token.
+ * Persist the Music User Token under the authenticated user.
  *
- * The user is derived from the state row (created by the authenticated
- * auth-url request), not from the ambient session — same trust model as the
- * OAuth callbacks in ``auth.py``. The storefront lookup is best-effort:
- * Apple being unreachable must not fail the connect.
+ * The storefront lookup is best-effort: Apple being unreachable must not
+ * fail the connect.
  * @summary Store Apple Music Token
  */
 export const storeAppleMusicTokenApiV1ConnectorsAppleMusicTokenPost = async (appleMusicTokenRequest: AppleMusicTokenRequest, options?: Parameters<typeof customFetch>[1]): Promise<storeAppleMusicTokenApiV1ConnectorsAppleMusicTokenPostResponse> => {

@@ -29,7 +29,7 @@ from src.application.use_cases._shared.connector_resolver import (
     resolve_tidal_favorites_connector,
 )
 from src.config import get_logger
-from src.domain.entities.shared import JsonValue, json_str
+from src.domain.entities.shared import JsonValue, json_mappings, json_str
 from src.domain.exceptions import ConnectorSyncError
 from src.domain.repositories.uow import UnitOfWorkProtocol
 
@@ -82,13 +82,6 @@ class GetTidalSnapshotResult:
     recent: tuple[TidalSnapshotItem, ...]
 
 
-def _mappings(value: JsonValue) -> list[Mapping[str, JsonValue]]:
-    """Narrow a JSON list-of-objects; anything else yields an empty list."""
-    if not isinstance(value, Sequence) or isinstance(value, str):
-        return []
-    return [item for item in value if isinstance(item, Mapping)]
-
-
 def _artists_display(artists: JsonValue) -> str:
     """Comma-join the ordered artist names from a track display mapping."""
     if not isinstance(artists, Sequence) or isinstance(artists, str):
@@ -117,7 +110,7 @@ class GetTidalSnapshotUseCase:
             page = await connector.get_collection_items_page(None)
             if page is None:
                 raise ConnectorSyncError("tidal", _FETCH_FAILED_MESSAGE)
-            items = _mappings(page.get("items"))
+            items = json_mappings(page.get("items"))
             recent_limit = min(max(command.recent_limit, 0), _MAX_RECENT_LIMIT)
             recent = await self._recent_items(connector, items[:recent_limit])
             total = page.get("total")
@@ -196,7 +189,7 @@ class GetTidalSnapshotUseCase:
             page = await connector.get_collection_items_page(cursor)
             if page is None:
                 raise ConnectorSyncError("tidal", _FETCH_FAILED_MESSAGE)
-            count += len(_mappings(page.get("items")))
+            count += len(json_mappings(page.get("items")))
             cursor = json_str(page.get("next_cursor")) or None
         if cursor is not None:
             logger.warning(

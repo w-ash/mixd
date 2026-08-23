@@ -37,10 +37,7 @@ from src.infrastructure.connectors.tidal.models import (
 class TidalConnector:
     """Minimal Tidal connector holding the API client."""
 
-    _client: TidalAPIClient = field(init=False, repr=False)
-
-    def __attrs_post_init__(self) -> None:
-        self._client = TidalAPIClient()
+    _client: TidalAPIClient = field(init=False, factory=TidalAPIClient, repr=False)
 
     @property
     def client(self) -> TidalAPIClient:

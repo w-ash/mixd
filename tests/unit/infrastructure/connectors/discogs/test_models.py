@@ -17,53 +17,30 @@ from src.infrastructure.connectors.discogs.models import (
     DiscogsPagination,
     DiscogsRelease,
 )
+from tests.fixtures import make_discogs_collection_page, make_discogs_release
 
 
-def collection_release_payload(
-    release_id: int = 1477251, instance_id: int = 1000001
-) -> dict[str, object]:
-    return {
-        "id": release_id,
-        "instance_id": instance_id,
-        "date_added": "2024-04-15T08:00:00-07:00",
-        "rating": 4,
-        "basic_information": {
-            "id": release_id,
-            "title": "Discovery",
-            "year": 2001,
-            "artists": [
-                {"name": "Daft Punk", "anv": "", "join": ""},
-            ],
-            "labels": [{"name": "Virgin", "catno": "7243 8 49606 1 5"}],
-            "formats": [{"name": "Vinyl", "qty": "2", "descriptions": ["LP", "Album"]}],
-        },
-    }
-
-
-def collection_page_payload(
-    page: int = 1, pages: int = 1, items: int = 1, per_page: int = 100
-) -> dict[str, object]:
-    urls: dict[str, object] = (
-        {"next": f"https://api.discogs.com/x?page={page + 1}"} if page < pages else {}
+def collection_release_payload() -> dict[str, object]:
+    return make_discogs_release(
+        "Discovery",
+        release_id=1477251,
+        instance_id=1000001,
+        year=2001,
+        artists=[{"name": "Daft Punk", "anv": "", "join": ""}],
+        labels=[{"name": "Virgin", "catno": "7243 8 49606 1 5"}],
+        formats=[{"name": "Vinyl", "qty": "2", "descriptions": ["LP", "Album"]}],
+        date_added="2024-04-15T08:00:00-07:00",
+        rating=4,
     )
-    return {
-        "pagination": {
-            "page": page,
-            "pages": pages,
-            "per_page": per_page,
-            "items": items,
-            "urls": urls,
-        },
-        "releases": [collection_release_payload()],
-    }
+
+
+def collection_page_payload() -> dict[str, object]:
+    return make_discogs_collection_page([collection_release_payload()])
 
 
 def empty_collection_page_payload() -> dict[str, object]:
     """Verbatim real capture: an authenticated user with zero collection items."""
-    return {
-        "pagination": {"page": 1, "pages": 1, "per_page": 3, "items": 0, "urls": {}},
-        "releases": [],
-    }
+    return make_discogs_collection_page(per_page=3)
 
 
 def release_payload(release_id: int = 1477251) -> dict[str, object]:

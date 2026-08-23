@@ -25,29 +25,20 @@ and text-pattern fallbacks. The hook adds the Tidal-specific rules:
 - 5xx deliberately falls through to the template's ``temporary``.
 """
 
-import json
+from http import HTTPStatus
 from typing import cast, override
 
 import httpx2
 
 from src.domain.entities.shared import JsonValue
-from src.domain.exceptions import TidalAuthRequiredError
+from src.domain.exceptions import TidalAuthRequiredError, TokenRefreshContendedError
 from src.infrastructure.connectors._shared.error_classifier import (
     HTTPErrorClassifier,
 )
-from src.infrastructure.persistence.repositories.token_refresh_lock import (
-    TokenRefreshContendedError,
+from src.infrastructure.connectors._shared.http_client import (
+    parse_json_body,
+    response_text,
 )
-
-_UNAUTHORIZED = 401
-
-
-def _response_text(response: httpx2.Response) -> str:
-    """Response body text, or empty when the body was never read (streaming)."""
-    try:
-        return response.text
-    except RuntimeError:
-        return ""
 
 
 def first_json_api_error(response: httpx2.Response) -> dict[str, JsonValue] | None:
@@ -58,16 +49,12 @@ def first_json_api_error(response: httpx2.Response) -> dict[str, JsonValue] | No
     (deferred to the connector's ``models.py`` in a later packet); this is
     scaffold-only dict parsing mirroring Apple's ``first_json_api_error``.
     """
-    text = _response_text(response)
-    if not text:
+    if not response_text(response):
         return None
-    try:
-        body = cast("object", json.loads(text))
-    except json.JSONDecodeError:
+    body = parse_json_body(response)
+    if body is None:
         return None
-    if not isinstance(body, dict):
-        return None
-    errors = cast("dict[str, JsonValue]", body).get("errors")
+    errors = body.get("errors")
     if not isinstance(errors, list) or not errors:
         return None
     first = cast("object", errors[0])
@@ -118,7 +105,7 @@ class TidalErrorClassifier(HTTPErrorClassifier):
         # without that conversion must still read as permanent auth.
         if (
             isinstance(exception, httpx2.HTTPStatusError)
-            and exception.response.status_code == _UNAUTHORIZED
+            and exception.response.status_code == HTTPStatus.UNAUTHORIZED
         ):
             error = first_json_api_error(exception.response)
             upstream_detail = _error_detail(error)

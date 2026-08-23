@@ -25,73 +25,20 @@ Payload shapes are T2's PROVISIONAL spec-derived fixtures (see
 ``oas_models.py``) — the v0.11.3 T7 probe reconciles them to the live wire.
 """
 
-import asyncio
-from collections.abc import Awaitable, Callable, Mapping
 import time
 
 import httpx2
 import pytest
 
-from src.infrastructure.connectors._shared.token_storage import StoredToken
 from src.infrastructure.connectors.tidal.auth import TidalTokenManager
+from tests.fixtures.connector_transport import (
+    FakeTokenStorage,
+    Handler,
+    sleep_recorder,
+)
 
 TIDAL_ACCESS_TOKEN = "test-tidal-access-token"
 TEST_USER_ID = "tidal-test-user"
-
-type Handler = Callable[[httpx2.Request], httpx2.Response | Awaitable[httpx2.Response]]
-
-
-class FakeTokenStorage:
-    """In-memory TokenStorage double recording loads and saves."""
-
-    def __init__(self, token: StoredToken | None = None) -> None:
-        self.token = token
-        self.loads: list[tuple[str, str]] = []
-        self.saved: list[tuple[str, str, StoredToken]] = []
-        self.extra_updates: list[tuple[str, str, dict[str, object]]] = []
-
-    async def load_token(self, service: str, user_id: str) -> StoredToken | None:
-        self.loads.append((service, user_id))
-        return self.token
-
-    async def save_token(
-        self, service: str, user_id: str, token_data: StoredToken
-    ) -> None:
-        self.token = token_data
-        self.saved.append((service, user_id, token_data))
-
-    async def update_extra_data(
-        self,
-        service: str,
-        user_id: str,
-        updates: Mapping[str, object],
-        *,
-        account_name: str | None = None,
-    ) -> None:
-        self.extra_updates.append((service, user_id, dict(updates)))
-        if self.token is None:
-            return
-        merged = dict(self.token.get("extra_data") or {})
-        merged.update(updates)
-        self.token["extra_data"] = merged
-        if account_name is not None:
-            self.token["account_name"] = account_name
-
-    async def delete_token(self, service: str, user_id: str) -> None:
-        self.token = None
-
-
-@pytest.fixture(autouse=True)
-def no_rate_limiter(monkeypatch: pytest.MonkeyPatch) -> None:
-    """Keep tests deterministic — no pacing sleeps, no cross-test pause state."""
-    monkeypatch.setattr(
-        "src.infrastructure.connectors.base.get_connector_rate_limiter",
-        lambda _service_name: None,
-    )
-    monkeypatch.setattr(
-        "src.infrastructure.connectors._shared.retry_policies.get_connector_rate_limiter",
-        lambda _service_name: None,
-    )
 
 
 @pytest.fixture
@@ -126,12 +73,6 @@ def forced_refreshes(monkeypatch: pytest.MonkeyPatch) -> list[str]:
 
 
 @pytest.fixture
-def retry_sleeps() -> list[float]:
-    """Sleep durations tenacity would have waited, in order."""
-    return []
-
-
-@pytest.fixture
 def make_client(
     storage: FakeTokenStorage,
     retry_sleeps: list[float],
@@ -152,14 +93,10 @@ def make_client(
         lambda: TEST_USER_ID,
     )
 
-    async def record_sleep(seconds: float) -> None:
-        retry_sleeps.append(seconds)
-        await asyncio.sleep(0)
-
     def _make(handler: Handler) -> TidalAPIClient:
         client = TidalAPIClient()
         # Capture waits instead of sleeping; RetryAfterWait stays real.
-        client._retry_policy.sleep = record_sleep
+        client._retry_policy.sleep = sleep_recorder(retry_sleeps)
         # Swap ONLY the transport — factory headers/auth/hooks stay real.
         client._client._transport = httpx2.MockTransport(handler)
         return client

@@ -1,5 +1,5 @@
 import { delay, HttpResponse, http } from "msw";
-import { describe, expect, it, vi } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 
 import { toasts } from "#/lib/toasts";
 import { makeConnectorMetadata } from "#/test/factories";
@@ -33,6 +33,12 @@ const allConnectors = [
 ];
 
 describe("Integrations", () => {
+  // Two tests spy on `toasts.success`; without a restore the first spy's
+  // call history leaks into the second's not-yet-called assertion.
+  afterEach(() => {
+    vi.restoreAllMocks();
+  });
+
   it("renders loading skeleton initially", () => {
     renderWithProviders(<Integrations />);
 
@@ -121,17 +127,23 @@ describe("Integrations", () => {
     expect(screen.getByText("Connect Last.fm")).toBeInTheDocument();
   });
 
-  it("flips a connector card to connected after an auth callback redirect, even though the callback's invalidation races the page's own initial fetch", async () => {
+  it("flips a connector card to connected after an auth callback redirect — and defers the success toast until the refetch settles", async () => {
     // The page mounts fresh off the OAuth redirect: `useGetConnectorsApiV1ConnectorsGet`
     // fires its initial GET on mount, and the `?auth=apple_music&status=success`
-    // effect fires `invalidateQueries` in the same tick. The backend is already
+    // effect fires its refetch in the same tick. The backend is already
     // correct by the time of the redirect, but the *first* GET here simulates
     // a request that raced ahead of that correctness (matching the live repro:
     // card stays "disconnected" until something forces a second round-trip).
+    // The *second* GET is delayed so a toast fired before the refetch lands
+    // is observable mid-flight.
+    const successSpy = vi.spyOn(toasts, "success");
     let callCount = 0;
     server.use(
-      http.get("*/api/v1/connectors", () => {
+      http.get("*/api/v1/connectors", async () => {
         callCount += 1;
+        if (callCount > 1) {
+          await delay(50);
+        }
         const connected = callCount > 1;
         return HttpResponse.json(
           [
@@ -154,11 +166,21 @@ describe("Integrations", () => {
       },
     });
 
-    // The callback's invalidation must eventually produce a *second* network
-    // round-trip that flips the card — not just redisplay the first response.
+    // First response has landed (card reads disconnected); the delayed
+    // second GET is still in flight — success must not be declared yet.
     await waitFor(() => {
-      expect(screen.queryByText("Connect Apple Music")).not.toBeInTheDocument();
+      expect(screen.getByText("Connect Apple Music")).toBeInTheDocument();
     });
+    expect(successSpy).not.toHaveBeenCalled();
+
+    await waitFor(() => {
+      expect(successSpy).toHaveBeenCalledWith("Apple Music connected");
+    });
+
+    // The callback's refetch produced a *second* network round-trip that
+    // flipped the card — not just a redisplay of the first response — and
+    // the toast waited for it.
+    expect(screen.queryByText("Connect Apple Music")).not.toBeInTheDocument();
     expect(callCount).toBeGreaterThanOrEqual(2);
   });
 
@@ -190,47 +212,9 @@ describe("Integrations", () => {
     expect(screen.getByText("Discogs")).toBeInTheDocument();
   });
 
-  it("flips the Discogs card to connected after the token form submits", async () => {
-    const user = userEvent.setup();
-    let callCount = 0;
-    server.use(
-      http.get("*/api/v1/connectors", () => {
-        callCount += 1;
-        const connected = callCount > 1;
-        return HttpResponse.json(
-          [
-            makeConnectorMetadata({
-              name: "discogs",
-              connected,
-              detail: connected ? "3 releases" : undefined,
-            }),
-          ],
-          { status: 200 },
-        );
-      }),
-      http.put("*/api/v1/connectors/discogs/token", () => {
-        return new HttpResponse(null, { status: 204 });
-      }),
-    );
-
-    renderWithProviders(<Integrations />);
-
-    await user.click(await screen.findByText("Connect Discogs"));
-    const dialog = await screen.findByRole("dialog");
-    await user.type(
-      within(dialog).getByLabelText("Discogs personal access token"),
-      "abc123token",
-    );
-    await user.click(within(dialog).getByRole("button", { name: "Connect" }));
-
-    // Success invalidates the connectors query — the refetch flips the card.
-    await waitFor(() => {
-      expect(screen.getByText("connected · 3 releases")).toBeInTheDocument();
-    });
-    expect(callCount).toBeGreaterThanOrEqual(2);
-    expect(screen.queryByText("Connect Discogs")).not.toBeInTheDocument();
-  });
-
+  // The token form's own behaviors (open, submit, inline error, password
+  // hygiene) are owned by ConnectorCard.test.tsx; this page-level test owns
+  // the post-connect ordering contract, card flip included.
   it("holds the dialog open and busy — and defers the success toast — until the post-connect refetch settles", async () => {
     // Regression for the live bug: the success toast fired (and the dialog
     // closed) the instant the PUT resolved, before the connectors refetch

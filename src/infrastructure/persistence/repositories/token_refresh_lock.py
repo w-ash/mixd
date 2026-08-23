@@ -56,6 +56,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.config import get_logger
 from src.config.constants import TokenConstants
+from src.domain.exceptions import TokenRefreshContendedError
 from src.infrastructure.connectors._shared.token_storage import StoredToken
 from src.infrastructure.persistence.database.db_connection import get_session
 from src.infrastructure.persistence.database.user_context import user_context
@@ -70,22 +71,6 @@ _INT4_WRAP = 2**32
 
 # Postgres SQLSTATE for ``lock_timeout`` expiry (lock_not_available).
 _LOCK_NOT_AVAILABLE_SQLSTATE: Final = "55P03"
-
-
-class TokenRefreshContendedError(Exception):
-    """Timed out waiting for another process's in-flight token refresh.
-
-    Transient by construction: the winner is still mid-POST (or about to
-    release the lock), so a later retry either wins the lock or adopts
-    the winner's completed refresh. Error classifiers should map this to
-    a temporary/retryable category, never a permanent failure.
-    """
-
-    def __init__(self, service: str) -> None:
-        super().__init__(
-            f"Timed out waiting for a concurrent {service} token refresh "
-            "to finish — transient; retry shortly."
-        )
 
 
 def refresh_lock_keys(service: str, user_id: str) -> tuple[int, int]:

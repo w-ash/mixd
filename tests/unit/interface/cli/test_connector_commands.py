@@ -100,6 +100,29 @@ class TestDisconnectCommand:
         storage.delete_token.assert_awaited_once()
         assert storage.delete_token.await_args.args[0] == "apple_music"
 
+    def test_device_code_connector_can_disconnect(self):
+        """device_code stores a per-user credential (CREDENTIAL_AUTH_METHODS)
+        — the next device-code connector must stay disconnectable without a
+        gate edit."""
+        storage = AsyncMock()
+        registry = {"devbox": {"auth_method": "device_code"}}
+        with (
+            patch(
+                "src.infrastructure.connectors.discovery.discover_connectors",
+                return_value=registry,
+            ),
+            patch(
+                "src.infrastructure.connectors._shared.token_storage.get_token_storage",
+                return_value=storage,
+            ),
+        ):
+            result = runner.invoke(app, ["connectors", "disconnect", "devbox"])
+
+        assert result.exit_code == 0
+        assert "Disconnected devbox" in result.output
+        storage.delete_token.assert_awaited_once()
+        assert storage.delete_token.await_args.args[0] == "devbox"
+
     def test_public_api_connector_cannot_disconnect(self):
         storage = AsyncMock()
         with patch(

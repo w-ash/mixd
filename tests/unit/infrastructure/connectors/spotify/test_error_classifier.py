@@ -313,42 +313,20 @@ class TestQuota429Discrimination:
         assert error_code == "429"
         assert "PDR-003" in error_description
 
-    def test_plain_429_with_no_body_falls_through_to_rate_limit(self, classifier):
-        exception = make_http_error(429)
-
-        error_type, error_code, _error_description = classifier.classify_error(
-            exception
-        )
-
-        assert error_type == "rate_limit"
-        assert error_code == "429"
-
-    def test_plain_429_with_different_reason_falls_through_to_rate_limit(
-        self, classifier
+    @pytest.mark.parametrize(
+        ("json_body", "text_body"),
+        [
+            pytest.param(None, None, id="no-body"),
+            pytest.param({"reason": "SOMETHING_ELSE"}, None, id="different-reason"),
+            pytest.param(None, "not json at all {{{", id="unparseable-body"),
+            pytest.param(["QUOTA_EXCEEDED"], None, id="non-dict-body"),
+        ],
+    )
+    def test_plain_429_falls_through_to_rate_limit(
+        self, classifier, json_body: object, text_body: str | None
     ):
-        exception = make_http_error(429, json_body={"reason": "SOMETHING_ELSE"})
-
-        error_type, error_code, _error_description = classifier.classify_error(
-            exception
-        )
-
-        assert error_type == "rate_limit"
-        assert error_code == "429"
-
-    def test_plain_429_with_unparseable_body_falls_through_to_rate_limit(
-        self, classifier
-    ):
-        exception = make_http_error(429, text_body="not json at all {{{")
-
-        error_type, error_code, _error_description = classifier.classify_error(
-            exception
-        )
-
-        assert error_type == "rate_limit"
-        assert error_code == "429"
-
-    def test_plain_429_with_non_dict_body_falls_through_to_rate_limit(self, classifier):
-        exception = make_http_error(429, json_body=["QUOTA_EXCEEDED"])
+        # Anything short of a parsed QUOTA_EXCEEDED reason is an ordinary 429.
+        exception = make_http_error(429, json_body=json_body, text_body=text_body)
 
         error_type, error_code, _error_description = classifier.classify_error(
             exception

@@ -55,6 +55,25 @@ from src.interface.api.error_codes import CHAT_ERROR_CODES
 
 logger = get_logger(__name__)
 
+# Connector credential errors → code+status envelopes, registered in a loop
+# via ``_simple_handler`` (the CHAT_ERROR_CODES pattern). The 409 auth family:
+# not-connected is a precondition the user must resolve (connect the service),
+# not a server fault — surface the connect hint instead of an opaque 500.
+# Tidal's not-connected and dead-grant (the reauth subclass) both resolve with
+# the same reconnect remedy. ``DiscogsInvalidTokenError`` is the one 400:
+# connect-time token validation failure (PUT /connectors/discogs/token) the
+# token form renders inline, distinct from the parent class's 409 "stored
+# credential unusable" — Starlette dispatches on the most specific registered
+# class, so the subclass handler wins.
+CONNECTOR_AUTH_ERROR_CODES: dict[type[Exception], tuple[str, int]] = {
+    SpotifyAuthRequiredError: ("SPOTIFY_AUTH_REQUIRED", 409),
+    LastfmAuthRequiredError: ("LASTFM_AUTH_REQUIRED", 409),
+    AppleMusicAuthRequiredError: ("APPLE_MUSIC_AUTH_REQUIRED", 409),
+    DiscogsAuthRequiredError: ("DISCOGS_AUTH_REQUIRED", 409),
+    TidalAuthRequiredError: ("TIDAL_AUTH_REQUIRED", 409),
+    DiscogsInvalidTokenError: ("DISCOGS_INVALID_TOKEN", 400),
+}
+
 
 def register_exception_handlers(app: FastAPI) -> None:
     """Register global exception-to-HTTP-error-envelope handlers."""
@@ -200,21 +219,6 @@ def register_exception_handlers(app: FastAPI) -> None:
             },
         )
 
-    async def spotify_auth_required_handler(
-        _request: Request, exc: Exception
-    ) -> JSONResponse:
-        # Not connected is a precondition the user must resolve (connect Spotify),
-        # not a server fault — surface the connect hint instead of an opaque 500.
-        return JSONResponse(
-            status_code=409,
-            content={
-                "error": {
-                    "code": "SPOTIFY_AUTH_REQUIRED",
-                    "message": str(exc),
-                }
-            },
-        )
-
     async def spotify_quota_exhausted_handler(
         _request: Request, exc: Exception
     ) -> JSONResponse:
@@ -228,45 +232,6 @@ def register_exception_handlers(app: FastAPI) -> None:
             content={
                 "error": {
                     "code": "SPOTIFY_QUOTA_EXHAUSTED",
-                    "message": str(exc),
-                }
-            },
-        )
-
-    async def lastfm_auth_required_handler(
-        _request: Request, exc: Exception
-    ) -> JSONResponse:
-        return JSONResponse(
-            status_code=409,
-            content={
-                "error": {
-                    "code": "LASTFM_AUTH_REQUIRED",
-                    "message": str(exc),
-                }
-            },
-        )
-
-    async def apple_music_auth_required_handler(
-        _request: Request, exc: Exception
-    ) -> JSONResponse:
-        return JSONResponse(
-            status_code=409,
-            content={
-                "error": {
-                    "code": "APPLE_MUSIC_AUTH_REQUIRED",
-                    "message": str(exc),
-                }
-            },
-        )
-
-    async def discogs_auth_required_handler(
-        _request: Request, exc: Exception
-    ) -> JSONResponse:
-        return JSONResponse(
-            status_code=409,
-            content={
-                "error": {
-                    "code": "DISCOGS_AUTH_REQUIRED",
                     "message": str(exc),
                 }
             },
@@ -413,29 +378,15 @@ def register_exception_handlers(app: FastAPI) -> None:
     app.add_exception_handler(
         ConnectorNotAvailableError, connector_not_available_handler
     )
-    app.add_exception_handler(SpotifyAuthRequiredError, spotify_auth_required_handler)
     app.add_exception_handler(
         SpotifyQuotaExhaustedError, spotify_quota_exhausted_handler
     )
-    app.add_exception_handler(LastfmAuthRequiredError, lastfm_auth_required_handler)
-    app.add_exception_handler(
-        AppleMusicAuthRequiredError, apple_music_auth_required_handler
-    )
-    app.add_exception_handler(DiscogsAuthRequiredError, discogs_auth_required_handler)
-    # Tidal joins the 409 auth family: not-connected and dead-grant (the
-    # reauth subclass) both resolve with the same reconnect remedy.
-    app.add_exception_handler(
-        TidalAuthRequiredError,
-        _simple_handler(TidalAuthRequiredError, 409, "TIDAL_AUTH_REQUIRED"),
-    )
-    # Connect-time token validation failure (PUT /connectors/discogs/token) —
-    # a 400 the token form renders inline, distinct from the parent class's
-    # 409 "stored credential unusable". Starlette dispatches on the most
-    # specific registered class, so the subclass handler wins.
-    app.add_exception_handler(
-        DiscogsInvalidTokenError,
-        _simple_handler(DiscogsInvalidTokenError, 400, "DISCOGS_INVALID_TOKEN"),
-    )
+    # Connector credential errors — see CONNECTOR_AUTH_ERROR_CODES for the
+    # status/code rationale per entry.
+    for exc_type, (code, status_code) in CONNECTOR_AUTH_ERROR_CODES.items():
+        app.add_exception_handler(
+            exc_type, _simple_handler(exc_type, status_code, code)
+        )
     app.add_exception_handler(
         ConnectorNotConnectedError, connector_not_connected_handler
     )

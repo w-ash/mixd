@@ -35,7 +35,11 @@ from tenacity import AsyncRetrying
 
 from src.config import get_logger, settings
 from src.domain.entities.shared import JsonDict
-from src.domain.exceptions import ConnectorSyncError, TidalAuthRequiredError
+from src.domain.exceptions import (
+    ConnectorSyncError,
+    TidalAuthRequiredError,
+    TokenRefreshContendedError,
+)
 from src.infrastructure.connectors._shared.http_client import (
     make_tidal_client,
     parse_json_response,
@@ -59,9 +63,6 @@ from src.infrastructure.connectors.tidal.oas_models import (
     TidalCollectionItemRef,
     TidalOasModel,
     TidalTrackResource,
-)
-from src.infrastructure.persistence.repositories.token_refresh_lock import (
-    TokenRefreshContendedError,
 )
 
 logger = get_logger(__name__).bind(service="tidal_client")

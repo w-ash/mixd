@@ -7,6 +7,9 @@ protected routes while allowing exempt paths through.
 Uses httpx2.AsyncClient with ASGITransport — the same pattern as the main
 API integration tests, but without a database (the middleware responds
 before route handlers run for rejected requests).
+
+Per-path gating details (exempt paths, apple routes, bearer validation)
+are unit-tested in ``tests/unit/interface/api/test_auth_gate.py``.
 """
 
 from collections.abc import AsyncGenerator
@@ -82,25 +85,6 @@ class TestAuthMiddlewareWiring:
         )
         assert resp.status_code == 401
         assert resp.json()["error"]["code"] == "UNAUTHORIZED"
-
-    async def test_non_api_path_passes_through(self, auth_client: httpx2.AsyncClient):
-        """Non-API paths (SPA shell) pass through without auth."""
-        resp = await auth_client.get(
-            "/", headers={"accept": "text/html"}, follow_redirects=False
-        )
-        # Should serve the SPA, not redirect — page-level auth is client-side
-        assert resp.status_code != 401
-        assert resp.status_code != 302
-
-    async def test_valid_bearer_reaches_route(self, auth_client: httpx2.AsyncClient):
-        """Valid bearer token passes through middleware to the route handler."""
-        token = sign_test_jwt()
-        resp = await auth_client.get(
-            "/api/v1/health",
-            headers={"authorization": f"Bearer {token}"},
-        )
-        # Health is exempt so Bearer is irrelevant, but confirms no crash
-        assert resp.status_code != 401
 
     async def test_invalid_bearer_returns_401(self, auth_client: httpx2.AsyncClient):
         resp = await auth_client.get(

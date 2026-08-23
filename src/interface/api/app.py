@@ -313,8 +313,8 @@ def create_app() -> FastAPI:
     # Auth routes: callbacks at /auth/*, auth-url endpoints at /api/v1/connectors/*
     # Mounted without prefix — routes define their own paths
     app.include_router(auth_router)
-    # Apple Music MusicKit JS bridge: /auth/apple/authorize page +
-    # /api/v1/connectors/apple_music/token — same no-prefix convention
+    # Apple Music in-app MusicKit routes: musickit-config + token under
+    # /api/v1/connectors/apple_music/* — same no-prefix convention
     app.include_router(apple_auth_router)
 
     # Webhook routes: /webhooks/* — no prefix, bypasses NeonAuthMiddleware

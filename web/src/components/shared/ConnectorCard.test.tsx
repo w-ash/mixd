@@ -1,7 +1,9 @@
-import { HttpResponse, http } from "msw";
-import { describe, expect, it } from "vitest";
+import { delay, HttpResponse, http } from "msw";
+import { afterEach, describe, expect, it, vi } from "vitest";
 
+import { toasts } from "#/lib/toasts";
 import { makeConnectorMetadata } from "#/test/factories";
+import { mockMusicKit } from "#/test/musickit";
 import { server } from "#/test/setup";
 import {
   renderWithProviders,
@@ -338,6 +340,10 @@ describe("ConnectorCard", () => {
   });
 
   describe("browser_bridge connectors", () => {
+    afterEach(() => {
+      window.MusicKit = undefined;
+    });
+
     it("renders a Connect button (not Coming soon) for disconnected Apple Music", () => {
       renderWithProviders(
         <ConnectorCard connector={makeConnector({ name: "apple_music" })} />,
@@ -346,6 +352,174 @@ describe("ConnectorCard", () => {
       expect(screen.getByText("Apple Music")).toBeInTheDocument();
       expect(screen.getByText("Connect Apple Music")).toBeInTheDocument();
       expect(screen.queryByText("Coming soon")).not.toBeInTheDocument();
+    });
+
+    it("connects in-app: authorize() then MUT POST — no auth-url fetch, no navigation", async () => {
+      const user = userEvent.setup();
+      const { configure, authorize } = mockMusicKit();
+      let authUrlFetched = false;
+      let postBody: unknown;
+      server.use(
+        http.get("*/api/v1/connectors/apple_music/auth-url", () => {
+          authUrlFetched = true;
+          return HttpResponse.json({ auth_url: "/legacy-bridge" });
+        }),
+        http.get("*/api/v1/connectors/apple_music/musickit-config", () =>
+          HttpResponse.json({ developer_token: "dev-jwt" }),
+        ),
+        http.post(
+          "*/api/v1/connectors/apple_music/token",
+          async ({ request }) => {
+            postBody = await request.json();
+            return new HttpResponse(null, { status: 204 });
+          },
+        ),
+      );
+
+      renderWithProviders(
+        <ConnectorCard connector={makeConnector({ name: "apple_music" })} />,
+      );
+
+      await user.click(screen.getByText("Connect Apple Music"));
+
+      await waitFor(() => {
+        expect(postBody).toEqual({ music_user_token: "mut-123" });
+      });
+      expect(authorize).toHaveBeenCalled();
+      expect(configure).toHaveBeenCalledWith(
+        expect.objectContaining({
+          developerToken: "dev-jwt",
+          app: expect.objectContaining({ name: "Mixd" }),
+        }),
+      );
+      // In-app flow: the generic auth-url route is never consulted.
+      expect(authUrlFetched).toBe(false);
+    });
+
+    it("declares success only after the connectors refetch settles", async () => {
+      const user = userEvent.setup();
+      mockMusicKit();
+      const successSpy = vi.spyOn(toasts, "success");
+      let connectorsRefetched = false;
+      server.use(
+        http.get("*/api/v1/connectors/apple_music/musickit-config", () =>
+          HttpResponse.json({ developer_token: "dev-jwt" }),
+        ),
+        http.post(
+          "*/api/v1/connectors/apple_music/token",
+          () => new HttpResponse(null, { status: 204 }),
+        ),
+        // Delayed GET: the success toast must wait for this to land.
+        http.get("*/api/v1/connectors", async () => {
+          await delay(100);
+          connectorsRefetched = true;
+          return HttpResponse.json([
+            makeConnector({ name: "apple_music", connected: true }),
+          ]);
+        }),
+      );
+
+      renderWithProviders(
+        <ConnectorCard connector={makeConnector({ name: "apple_music" })} />,
+      );
+
+      await user.click(screen.getByText("Connect Apple Music"));
+
+      await waitFor(() => {
+        expect(successSpy).toHaveBeenCalledWith("Apple Music connected");
+      });
+      expect(connectorsRefetched).toBe(true);
+    });
+
+    it("treats an authorize() dismissal quietly and re-enables the button", async () => {
+      const user = userEvent.setup();
+      mockMusicKit(
+        vi.fn().mockRejectedValue(new Error("Authorization was canceled")),
+      );
+      const errorSpy = vi.spyOn(toasts, "error");
+      const messageSpy = vi.spyOn(toasts, "message");
+      server.use(
+        http.get("*/api/v1/connectors/apple_music/musickit-config", () =>
+          HttpResponse.json({ developer_token: "dev-jwt" }),
+        ),
+      );
+
+      renderWithProviders(
+        <ConnectorCard connector={makeConnector({ name: "apple_music" })} />,
+      );
+
+      const button = screen.getByRole("button", {
+        name: "Connect Apple Music",
+      });
+      await user.click(button);
+
+      await waitFor(() => {
+        expect(messageSpy).toHaveBeenCalledWith(
+          "Apple Music connection canceled",
+        );
+      });
+      expect(errorSpy).not.toHaveBeenCalled();
+      expect(button).toBeEnabled();
+    });
+
+    it("shows an error toast for a real authorize() failure", async () => {
+      const user = userEvent.setup();
+      mockMusicKit(vi.fn().mockRejectedValue(new Error("AUTHORIZATION_ERROR")));
+      const errorSpy = vi.spyOn(toasts, "error");
+      server.use(
+        http.get("*/api/v1/connectors/apple_music/musickit-config", () =>
+          HttpResponse.json({ developer_token: "dev-jwt" }),
+        ),
+      );
+
+      renderWithProviders(
+        <ConnectorCard connector={makeConnector({ name: "apple_music" })} />,
+      );
+
+      await user.click(screen.getByText("Connect Apple Music"));
+
+      await waitFor(() => {
+        expect(errorSpy).toHaveBeenCalled();
+      });
+    });
+
+    it("disables the connect button while the flow is in flight", async () => {
+      const user = userEvent.setup();
+      let resolveAuthorize!: (mut: string) => void;
+      mockMusicKit(
+        vi.fn().mockImplementation(
+          () =>
+            new Promise<string>((resolve) => {
+              resolveAuthorize = resolve;
+            }),
+        ),
+      );
+      server.use(
+        http.get("*/api/v1/connectors/apple_music/musickit-config", () =>
+          HttpResponse.json({ developer_token: "dev-jwt" }),
+        ),
+        http.post(
+          "*/api/v1/connectors/apple_music/token",
+          () => new HttpResponse(null, { status: 204 }),
+        ),
+      );
+
+      renderWithProviders(
+        <ConnectorCard connector={makeConnector({ name: "apple_music" })} />,
+      );
+
+      const button = screen.getByRole("button", {
+        name: "Connect Apple Music",
+      });
+      await user.click(button);
+
+      await waitFor(() => {
+        expect(button).toBeDisabled();
+      });
+      resolveAuthorize("mut-123");
+      await waitFor(() => {
+        expect(button).toBeEnabled();
+      });
     });
 
     it("shows settings gear (disconnect path) for connected Apple Music", async () => {

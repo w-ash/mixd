@@ -10,6 +10,7 @@ of the HTTPErrorClassifier base class.
 
 from http import HTTPStatus
 
+import httpx2
 import pytest
 
 from src.infrastructure.connectors._shared.error_classifier import (
@@ -389,3 +390,77 @@ class TestHTTPErrorClassifierIntegration:
 
         assert error_type == "unknown"
         assert error_code == "N/A"
+
+
+class _TemplateOnlyClassifier(HTTPErrorClassifier):
+    """No service hook — every classification is the template's own."""
+
+    @property
+    def service_name(self) -> str:
+        return "template_test"
+
+
+def _status_error(
+    status: int, headers: dict[str, str] | None = None
+) -> httpx2.HTTPStatusError:
+    request = httpx2.Request("GET", "https://api.example.com/test")
+    response = httpx2.Response(status, request=request, headers=headers)
+    return httpx2.HTTPStatusError(f"HTTP {status}", request=request, response=response)
+
+
+class TestTemplateFallthrough:
+    """The real ``classify_error`` dispatch every connector classifier
+    inherits (HTTPStatusError -> status table, RequestError -> temporary),
+    asserted once here — the per-connector suites cover only their bespoke
+    ``_classify_service_error`` rules."""
+
+    @pytest.fixture
+    def classifier(self) -> HTTPErrorClassifier:
+        return _TemplateOnlyClassifier()
+
+    def test_429_falls_through_to_rate_limit(
+        self, classifier: HTTPErrorClassifier
+    ) -> None:
+        error_type, error_code, _ = classifier.classify_error(
+            _status_error(429, headers={"Retry-After": "12"})
+        )
+
+        assert error_type == "rate_limit"
+        assert error_code == "429"
+
+    def test_429_without_retry_after_still_rate_limit(
+        self, classifier: HTTPErrorClassifier
+    ) -> None:
+        # No invented backoff number — Retry-After absence is the shared
+        # retry policy's problem, not the classifier's.
+        error_type, error_code, _ = classifier.classify_error(_status_error(429))
+
+        assert error_type == "rate_limit"
+        assert error_code == "429"
+
+    def test_5xx_is_temporary(self, classifier: HTTPErrorClassifier) -> None:
+        error_type, error_code, _ = classifier.classify_error(_status_error(503))
+
+        assert error_type == "temporary"
+        assert error_code == "503"
+
+    def test_404_is_not_found(self, classifier: HTTPErrorClassifier) -> None:
+        error_type, _, _ = classifier.classify_error(_status_error(404))
+
+        assert error_type == "not_found"
+
+    def test_403_is_permanent(self, classifier: HTTPErrorClassifier) -> None:
+        error_type, error_code, _ = classifier.classify_error(_status_error(403))
+
+        assert error_type == "permanent"
+        assert error_code == "403"
+
+    def test_plain_request_error_is_temporary(
+        self, classifier: HTTPErrorClassifier
+    ) -> None:
+        request = httpx2.Request("GET", "https://api.example.com/test")
+        exc = httpx2.ConnectError("boom", request=request)
+
+        error_type, _, _ = classifier.classify_error(exc)
+
+        assert error_type == "temporary"

@@ -10,64 +10,15 @@ Response payload shapes are REDACTED versions of live captures (probe
 ``previews`` is dropped.
 """
 
-from collections.abc import Callable, Mapping
-
 import httpx2
 import pytest
 from tenacity import wait_none
 
-from src.infrastructure.connectors._shared.token_storage import StoredToken
+from tests.fixtures.connector_transport import FakeTokenStorage, Handler
 
 DEV_TOKEN = "test-dev-token"
 MUSIC_USER_TOKEN = "test-music-user-token"
 TEST_USER_ID = "apple-test-user"
-
-type Handler = Callable[[httpx2.Request], httpx2.Response]
-
-
-class FakeTokenStorage:
-    """In-memory TokenStorage double recording loads and saves."""
-
-    def __init__(self, token: StoredToken | None = None) -> None:
-        self.token = token
-        self.loads: list[tuple[str, str]] = []
-        self.saved: list[tuple[str, str, StoredToken]] = []
-        self.extra_updates: list[tuple[str, str, dict[str, object]]] = []
-        self.fail_saves = False
-
-    async def load_token(self, service: str, user_id: str) -> StoredToken | None:
-        self.loads.append((service, user_id))
-        return self.token
-
-    async def save_token(
-        self, service: str, user_id: str, token_data: StoredToken
-    ) -> None:
-        if self.fail_saves:
-            raise RuntimeError("storage write failed")
-        self.token = token_data
-        self.saved.append((service, user_id, token_data))
-
-    async def update_extra_data(
-        self,
-        service: str,
-        user_id: str,
-        updates: Mapping[str, object],
-        *,
-        account_name: str | None = None,
-    ) -> None:
-        if self.fail_saves:
-            raise RuntimeError("storage write failed")
-        self.extra_updates.append((service, user_id, dict(updates)))
-        if self.token is None:
-            return
-        merged = dict(self.token.get("extra_data") or {})
-        merged.update(updates)
-        self.token["extra_data"] = merged
-        if account_name is not None:
-            self.token["account_name"] = account_name
-
-    async def delete_token(self, service: str, user_id: str) -> None:
-        self.token = None
 
 
 class StubDeveloperTokenProvider:
@@ -75,15 +26,6 @@ class StubDeveloperTokenProvider:
 
     def get_token(self) -> str:
         return DEV_TOKEN
-
-
-@pytest.fixture(autouse=True)
-def no_rate_limiter(monkeypatch: pytest.MonkeyPatch) -> None:
-    """Keep tests deterministic — no pacing sleeps from the shared limiter."""
-    monkeypatch.setattr(
-        "src.infrastructure.connectors.base.get_connector_rate_limiter",
-        lambda _service_name: None,
-    )
 
 
 @pytest.fixture

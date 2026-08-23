@@ -283,7 +283,7 @@ async def get_musicbrainz_status(
 
 async def get_apple_music_status(
     user_id: str,
-    storage: TokenStorage | None,
+    storage: TokenStorage | None = None,
 ) -> ConnectorStatus:
     """Apple Music status from the stored Music User Token — no network calls.
 

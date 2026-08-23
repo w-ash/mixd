@@ -29,6 +29,16 @@ class StoredToken(TypedDict, total=False):
     - extra_data["collection_count"] / extra_data["validated_at"] (Discogs):
       collection size and Unix timestamp cached at connect-time validation
       so the status probe can render "N releases" without a network call.
+    - extra_data["favorites_count"] (Tidal): favorites size cached by the
+      snapshot so the status probe can render "N favorites" network-free.
+    - extra_data["storefront"] (Apple Music): the user's storefront id,
+      cached best-effort at connect so catalog calls skip the lookup.
+    - extra_data["reauth_required"] (Apple Music): True, stamped best-effort
+      when the API rejects the stored Music User Token — the status probe
+      derives ``needs_reauth`` from it. Cleared by a fresh connect.
+    - extra_data["refreshed_at"]: Unix seconds stamped by every successful
+      OAuth refresh (``token_refresh_lock``) so lock entrants can tell a
+      just-refreshed token from a stale one.
     - account_name: display name, set by any connector.
     - extra_data["authorized_at"]: Unix timestamp of the grant. Set it wherever
       grant age matters (e.g. Spotify's refresh-token expiry window).

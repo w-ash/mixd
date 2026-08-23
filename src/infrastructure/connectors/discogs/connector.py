@@ -36,10 +36,7 @@ class DiscogsConnector:
     registry / UoW cleanup path can release the pooled httpx2 client.
     """
 
-    _client: DiscogsAPIClient = field(init=False, repr=False)
-
-    def __attrs_post_init__(self) -> None:
-        self._client = DiscogsAPIClient()
+    _client: DiscogsAPIClient = field(init=False, factory=DiscogsAPIClient, repr=False)
 
     @property
     def client(self) -> DiscogsAPIClient:

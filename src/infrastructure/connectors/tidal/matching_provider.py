@@ -145,20 +145,6 @@ class TidalMatchingProvider(BaseMatchingProvider):
 
         return matches, failures
 
-    @override
-    async def _match_by_artist_title(
-        self, tracks: list[Track]
-    ) -> tuple[dict[UUID, RawProviderMatch], list[MatchFailure]]:
-        """Unreachable while ``supports_artist_title_matching`` is False.
-
-        The v0.12.1 alias-aware comparator is the plug point: when it lands,
-        implement this hook with catalog search + alias-aware evaluation and
-        flip the class flag to True.
-        """
-        raise NotImplementedError(
-            "Tidal artist/title matching lands with the v0.12.1 alias-aware comparator"
-        )
-
     @staticmethod
     def _pick_candidate(track: Track, candidates: list[TidalTrack]) -> TidalTrack:
         """The 1:N pick: first duration-cross-check-passing candidate.

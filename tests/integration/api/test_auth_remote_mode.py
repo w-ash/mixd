@@ -15,7 +15,6 @@ Apple Music token POST, and the in-app OAuth AS storage helpers.
 
 from collections.abc import AsyncGenerator
 from unittest.mock import AsyncMock, patch
-import urllib.parse
 
 import httpx2
 import pytest
@@ -136,7 +135,7 @@ class TestValidateState:
 class TestAuthUrlRoutesEndToEnd:
     """The prod symptom: GET /api/v1/connectors/{service}/auth-url 500'd."""
 
-    @pytest.mark.parametrize("service", ["spotify", "apple_music"])
+    @pytest.mark.parametrize("service", ["spotify"])
     async def test_auth_url_returns_200_under_remote_mode(
         self, user_client: httpx2.AsyncClient, remote_mode: None, service: str
     ) -> None:
@@ -148,7 +147,7 @@ class TestAuthUrlRoutesEndToEnd:
 
 class TestAppleTokenPostEndToEnd:
     """POST /api/v1/connectors/apple_music/token stores the MUT under the
-    state row's user — several sessions deep, all of them guarded."""
+    authenticated user — several sessions deep, all of them guarded."""
 
     async def test_token_post_returns_204_and_binds_token_to_user(
         self, user_client: httpx2.AsyncClient, remote_mode: None
@@ -156,17 +155,12 @@ class TestAppleTokenPostEndToEnd:
         storage = DatabaseTokenStorage()
         await storage.delete_token("apple_music", REAL_USER)
         try:
-            resp = await user_client.get("/api/v1/connectors/apple_music/auth-url")
-            assert resp.status_code == 200, resp.text
-            query = urllib.parse.urlparse(resp.json()["auth_url"]).query
-            state = urllib.parse.parse_qs(query)["state"][0]
-
             with patch.object(
                 AppleMusicAPIClient, "get_storefront", AsyncMock(return_value=None)
             ):
                 resp = await user_client.post(
                     "/api/v1/connectors/apple_music/token",
-                    json={"music_user_token": "fake-mut", "state": state},
+                    json={"music_user_token": "fake-mut"},
                 )
 
             assert resp.status_code == 204, resp.text

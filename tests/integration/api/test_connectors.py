@@ -1,14 +1,17 @@
 """Integration tests for connector status and Spotify-playlist endpoints.
 
-Tests connector status detection using mocked TokenStorage, and the
-Spotify-playlist browse + import routes using the ``mock_connector_provider``
-fixture so no live API calls leak from the integration env's real OAuth tokens.
+Route-level coverage only: registry serialization, the Spotify-playlist
+browse + import routes (via the ``mock_connector_provider`` fixture so no
+live API calls leak from the integration env's real OAuth tokens), play
+polling, disconnect scoping, and the Discogs token flow. Per-connector
+status-probe behavior is unit-tested in
+``tests/unit/infrastructure/connectors/_shared/test_connector_status.py``.
 """
 
 from collections.abc import AsyncGenerator
 from datetime import UTC, datetime
 import time
-from unittest.mock import ANY, AsyncMock, patch
+from unittest.mock import AsyncMock, patch
 import uuid
 
 import httpx2
@@ -29,9 +32,6 @@ from src.interface.api.deps import get_current_user_id
 from src.interface.api.rate_limit import InMemoryRateLimiter
 import src.interface.api.routes.connectors as connectors_route
 from tests.integration.api.conftest import _test_db_env
-
-# Patch target prefix — logic lives in infrastructure alongside connectors
-_SVC = "src.infrastructure.connectors._shared.connector_status"
 
 
 class TestGetConnectors:
@@ -79,229 +79,26 @@ class TestGetConnectors:
         # empty until a later epic adds one.
         assert tidal["capabilities"] == []
 
-
-def _mock_storage(
-    spotify_token: StoredToken | None = None, lastfm_token: StoredToken | None = None
-) -> AsyncMock:
-    """Create a mock TokenStorage with configured return values."""
-    storage = AsyncMock()
-
-    async def _load(service: str, user_id: str) -> StoredToken | None:
-        if service == "spotify":
-            return spotify_token
-        if service == "lastfm":
-            return lastfm_token
-        return None
-
-    storage.load_token = AsyncMock(side_effect=_load)
-    storage.save_token = AsyncMock()
-    storage.delete_token = AsyncMock()
-    return storage
-
-
-class TestSpotifyStatus:
-    """Spotify connector status detection from TokenStorage."""
-
-    async def test_disconnected_when_no_token(self, client: httpx2.AsyncClient) -> None:
-        storage = _mock_storage(spotify_token=None)
-        with patch(f"{_SVC}.get_token_storage", return_value=storage):
-            response = await client.get("/api/v1/connectors")
-
-        spotify = next(c for c in response.json() if c["name"] == "spotify")
-        assert spotify["connected"] is False
-
-    async def test_connected_with_valid_token(self, client: httpx2.AsyncClient) -> None:
-        token = StoredToken(
-            access_token="test_token",
-            refresh_token="test_refresh",
-            expires_at=int(time.time()) + 3600,
-            account_name="testuser",
-        )
-        storage = _mock_storage(spotify_token=token)
-        with patch(f"{_SVC}.get_token_storage", return_value=storage):
-            response = await client.get("/api/v1/connectors")
-
-        spotify = next(c for c in response.json() if c["name"] == "spotify")
-        assert spotify["connected"] is True
-        assert spotify["token_expires_at"] is not None
-        assert spotify["account_name"] == "testuser"
-
-    async def test_failed_silent_refresh_reports_auth_error(
+    async def test_apple_music_registered_as_browser_bridge(
         self, client: httpx2.AsyncClient
     ) -> None:
-        """Expired access token + refresh attempt that returns None surfaces as an
-        auth error, not a false-positive 'connected' state."""
-        stale_expires = int(time.time()) - 3600
-        token = StoredToken(
-            access_token="test_token",
-            refresh_token="test_refresh",
-            expires_at=stale_expires,
-        )
-        storage = _mock_storage(spotify_token=token)
+        response = await client.get("/api/v1/connectors")
 
-        # ``try_silent_refresh`` returning None simulates a revoked/invalid
-        # refresh_token — we must not claim the user is still connected.
-        mock_refresh = AsyncMock(return_value=None)
+        apple = next(c for c in response.json() if c["name"] == "apple_music")
+        assert apple["auth_method"] == "browser_bridge"
+        assert apple["capabilities"] == ["history_import_api"]
 
-        with (
-            patch(f"{_SVC}.get_token_storage", return_value=storage),
-            patch(
-                "src.infrastructure.connectors.spotify.auth.SpotifyTokenManager.try_silent_refresh",
-                mock_refresh,
-            ),
-        ):
-            response = await client.get("/api/v1/connectors")
-
-        spotify = next(c for c in response.json() if c["name"] == "spotify")
-        assert spotify["connected"] is False
-        assert spotify["auth_error"] == "refresh_failed"
-        assert spotify["status"] == "error"
-
-    async def test_disconnected_without_refresh_token(
+    async def test_musicbrainz_probe_serializes_end_to_end(
         self, client: httpx2.AsyncClient
     ) -> None:
-        """No refresh_token means the connection can't be sustained."""
-        token = StoredToken(
-            access_token="test_token",
-            expires_at=int(time.time()) + 3600,
-        )
-        storage = _mock_storage(spotify_token=token)
-        with patch(f"{_SVC}.get_token_storage", return_value=storage):
-            response = await client.get("/api/v1/connectors")
-
-        spotify = next(c for c in response.json() if c["name"] == "spotify")
-        assert spotify["connected"] is False
-
-
-class TestSpotifyDisplayName:
-    """Spotify display_name fetching and caching."""
-
-    async def test_display_name_from_stored_token(
-        self, client: httpx2.AsyncClient
-    ) -> None:
-        """Fully-cached name + account_id are returned without any HTTP call."""
-        token = StoredToken(
-            access_token="test_token",
-            refresh_token="test_refresh",
-            expires_at=int(time.time()) + 3600,
-            account_name="cached_user",
-            extra_data={"account_id": "cached_acct_id"},
-        )
-        storage = _mock_storage(spotify_token=token)
-        mock_fetch = AsyncMock()
-        with (
-            patch(f"{_SVC}.get_token_storage", return_value=storage),
-            patch(f"{_SVC}.fetch_spotify_profile", mock_fetch),
-        ):
-            response = await client.get("/api/v1/connectors")
-
-        spotify = next(c for c in response.json() if c["name"] == "spotify")
-        assert spotify["account_name"] == "cached_user"
-        mock_fetch.assert_not_called()
-
-    async def test_backfills_account_id_when_name_cached_but_id_missing(
-        self, client: httpx2.AsyncClient
-    ) -> None:
-        """Pre-v0.11.2 tokens have a cached name but no account_id — the
-        probe backfills it into extra_data (v0.11.2 P S4)."""
-        token = StoredToken(
-            access_token="test_token",
-            refresh_token="test_refresh",
-            expires_at=int(time.time()) + 3600,
-            account_name="cached_user",
-        )
-        storage = _mock_storage(spotify_token=token)
-        mock_fetch = AsyncMock(return_value=("cached_user", "backfilled_acct_id"))
-        with (
-            patch(f"{_SVC}.get_token_storage", return_value=storage),
-            patch(f"{_SVC}.fetch_spotify_profile", mock_fetch),
-        ):
-            response = await client.get("/api/v1/connectors")
-
-        spotify = next(c for c in response.json() if c["name"] == "spotify")
-        assert spotify["account_name"] == "cached_user"
-        # Persisted through the narrow delta write — never a full-token upsert.
-        storage.update_extra_data.assert_called_once_with(
-            "spotify", ANY, {"account_id": "backfilled_acct_id"}, account_name=None
-        )
-        storage.save_token.assert_not_called()
-
-    async def test_fetches_display_name_when_not_cached(
-        self, client: httpx2.AsyncClient
-    ) -> None:
-        """First visit with valid token fetches display_name and caches it."""
-        token = StoredToken(
-            access_token="test_token",
-            refresh_token="test_refresh",
-            expires_at=int(time.time()) + 3600,
-        )
-        storage = _mock_storage(spotify_token=token)
-        mock_fetch = AsyncMock(return_value=("fetched_user", "acct-fetched"))
-        with (
-            patch(f"{_SVC}.get_token_storage", return_value=storage),
-            patch(f"{_SVC}.fetch_spotify_profile", mock_fetch),
-        ):
-            response = await client.get("/api/v1/connectors")
-
-        spotify = next(c for c in response.json() if c["name"] == "spotify")
-        assert spotify["account_name"] == "fetched_user"
-        mock_fetch.assert_called_once_with("test_token")
-
-        # Saved back through the narrow delta write: account_id in extra_data
-        # plus the newly learned account_name — never a full-token upsert.
-        storage.update_extra_data.assert_called_once_with(
-            "spotify", ANY, {"account_id": "acct-fetched"}, account_name="fetched_user"
-        )
-        storage.save_token.assert_not_called()
-
-    async def test_display_name_fetch_failure_returns_none(
-        self, client: httpx2.AsyncClient
-    ) -> None:
-        """Failed display_name fetch returns null — still connected."""
-        token = StoredToken(
-            access_token="test_token",
-            refresh_token="test_refresh",
-            expires_at=int(time.time()) + 3600,
-        )
-        storage = _mock_storage(spotify_token=token)
-        mock_fetch = AsyncMock(return_value=(None, None))
-        with (
-            patch(f"{_SVC}.get_token_storage", return_value=storage),
-            patch(f"{_SVC}.fetch_spotify_profile", mock_fetch),
-        ):
-            response = await client.get("/api/v1/connectors")
-
-        spotify = next(c for c in response.json() if c["name"] == "spotify")
-        assert spotify["connected"] is True
-        assert spotify["account_name"] is None
-
-
-class TestMusicBrainzStatus:
-    """MusicBrainz connector — always connected (public API)."""
-
-    async def test_always_connected(self, client: httpx2.AsyncClient) -> None:
+        # The one probe with no credential dependence — a deterministic
+        # smoke that the route runs a real status probe and serializes it.
         response = await client.get("/api/v1/connectors")
 
         mb = next(c for c in response.json() if c["name"] == "musicbrainz")
         assert mb["connected"] is True
         assert mb["account_name"] is None
         assert mb["token_expires_at"] is None
-
-
-class TestAppleMusicStatus:
-    """Apple Music connector — browser_bridge, connectable (v0.11.x P4)."""
-
-    async def test_disconnected_without_token(self, client: httpx2.AsyncClient) -> None:
-        storage = _mock_storage()  # returns None for apple_music
-        with patch(f"{_SVC}.get_token_storage", return_value=storage):
-            response = await client.get("/api/v1/connectors")
-
-        apple = next(c for c in response.json() if c["name"] == "apple_music")
-        assert apple["auth_method"] == "browser_bridge"
-        assert apple["connected"] is False
-        assert apple["status"] == "disconnected"
-        assert apple["account_name"] is None
-        assert apple["capabilities"] == ["history_import_api"]
 
 
 class TestLastfmStatus:
