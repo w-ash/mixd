@@ -90,14 +90,17 @@ async def _backfill_profile(
     can NEVER yield one (older payload shapes): after a successful ``/me``
     that carries no ``account_id``, ``extra_data["account_id_unavailable"]``
     is stamped so later probes short-circuit instead of re-fetching and
-    re-upserting on every status poll (see the ``StoredToken`` contract). A
+    re-writing on every status poll (see the ``StoredToken`` contract). A
     fetch that fails outright stamps nothing — it taught us nothing, and the
     next probe simply tries again.
 
-    Saves only when something actually changed. A save failure is swallowed
-    (logged) rather than raised, mirroring the Apple storefront best-effort
-    write-back: losing the persist just means the next probe tries again, it
-    doesn't invalidate what this call learned.
+    Persists only the delta, through the narrow ``update_extra_data`` write
+    (plus ``account_name`` when newly learned) — never a full-token upsert,
+    which could write a refresh token loaded before a concurrent rotation
+    back over the rotated grant. A save failure is swallowed (logged) rather
+    than raised, mirroring the Apple storefront best-effort write-back:
+    losing the persist just means the next probe tries again, it doesn't
+    invalidate what this call learned.
     """
     extra_data = base_token.get("extra_data") or {}
     needs_account_id = not has_account_id and not extra_data.get(
@@ -109,29 +112,25 @@ async def _backfill_profile(
     fetched_name, account_id = await fetch_spotify_profile(access_token)
     resolved_name = display_name or fetched_name
 
-    updated: StoredToken = {**base_token}
-    if resolved_name:
-        updated["account_name"] = resolved_name
+    updates: dict[str, object] = {}
     if needs_account_id:
         if account_id:
-            updated = stamp_account_id(updated, account_id)
+            updates["account_id"] = account_id
         elif fetched_name is not None:
             # /me answered (a successful fetch always yields a name) but
             # carried no account_id — this token will never produce one.
-            updated = cast(
-                "StoredToken",
-                {
-                    **updated,
-                    "extra_data": {
-                        **(updated.get("extra_data") or {}),
-                        "account_id_unavailable": True,
-                    },
-                },
-            )
-    if updated == base_token:
+            updates["account_id_unavailable"] = True
+    new_name = (
+        resolved_name
+        if resolved_name and resolved_name != base_token.get("account_name")
+        else None
+    )
+    if not updates and new_name is None:
         return resolved_name
     try:
-        await storage.save_token("spotify", user_id, updated)
+        await storage.update_extra_data(
+            "spotify", user_id, updates, account_name=new_name
+        )
     except Exception:
         logger.warning("Failed to persist Spotify profile backfill", exc_info=True)
     return resolved_name
@@ -348,6 +347,54 @@ async def get_discogs_status(
         connected=True,
         account_name=token_data.get("account_name"),
         detail=f"{count:,} releases" if isinstance(count, int) else None,
+    )
+
+
+async def get_tidal_status(
+    user_id: str,
+    storage: TokenStorage | None = None,
+) -> ConnectorStatus:
+    """Tidal status from the stored token pair — storage only, no network.
+
+    The bearer auth refreshes on use, so the probe never spends a refresh
+    POST (unlike Spotify's silent-refresh-on-probe — kept cheap on purpose).
+    An expired access token with no refresh token to renew it means only
+    the reconnect flow helps: ``connected=True`` +
+    ``auth_error="reauth_required"`` derives to ``needs_reauth`` (one-click
+    fix). No marker check: unlike Apple, no Tidal path records a
+    ``reauth_required`` marker — a dead grant is compare-and-deleted on
+    ``invalid_grant``, which reads as disconnected here. An expired access
+    token *beside* a refresh token is routine — the next API call rotates
+    it silently, so the probe reports the stored expiry as-is with no
+    error.
+
+    The ``detail`` suffix renders the ``favorites_count`` the snapshot
+    cached in ``extra_data`` (the Discogs stored-count pattern) — a count of
+    0 still renders ("0 favorites" is the zero-state, not an error); a token
+    stored before any snapshot ran yields ``detail=None``.
+    """
+    storage = storage or get_token_storage()
+    token_data = await storage.load_token("tidal", user_id)
+
+    if token_data is None:
+        return ConnectorStatus(name="tidal", auth_method="oauth", connected=False)
+
+    expires_at = token_data.get("expires_at", 0) or 0
+    extra_data = token_data.get("extra_data") or {}
+    has_refresh = bool(token_data.get("refresh_token"))
+    auth_error: ConnectorAuthError | None = None
+    if not has_refresh and expires_at <= time.time():
+        auth_error = "reauth_required"
+
+    count = extra_data.get("favorites_count")
+    return ConnectorStatus(
+        name="tidal",
+        auth_method="oauth",
+        connected=True,
+        account_name=token_data.get("account_name"),
+        token_expires_at=int(expires_at) if expires_at else None,
+        auth_error=auth_error,
+        detail=f"{count:,} favorites" if isinstance(count, int) else None,
     )
 
 

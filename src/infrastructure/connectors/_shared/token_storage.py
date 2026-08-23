@@ -7,6 +7,7 @@ The protocol is intentionally in infrastructure (_shared/), not domain —
 token storage is a pure infrastructure concern with no business logic.
 """
 
+from collections.abc import Mapping
 from typing import Protocol, TypedDict
 
 from src.domain.services.oauth_grant import grant_scopes
@@ -66,6 +67,24 @@ class TokenStorage(Protocol):
         self, service: str, user_id: str, token_data: StoredToken
     ) -> None:
         """Persist token data for a service and user. Upserts (creates or replaces)."""
+        ...
+
+    async def update_extra_data(
+        self,
+        service: str,
+        user_id: str,
+        updates: Mapping[str, object],
+        *,
+        account_name: str | None = None,
+    ) -> None:
+        """Merge ``updates`` into ``extra_data`` without touching token columns.
+
+        The safe write for cache-style fields (counts, markers, backfills):
+        unlike load→mutate→``save_token``, it can never write a stale
+        refresh token back over a concurrent rotation. ``account_name``
+        optionally rides the same narrow write. No-op when no token row
+        exists.
+        """
         ...
 
     async def delete_token(self, service: str, user_id: str) -> None:

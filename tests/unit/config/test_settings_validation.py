@@ -128,6 +128,14 @@ class TestConnectorAPIConfigNesting:
         assert config.spotify_large_batch_size == 100
         assert config.spotify_market == "US"
 
+    def test_tidal_overrides(self):
+        # Tidal publishes no rate-limit numbers, so pacing is designed to
+        # Retry-After alone: rate_limit stays unset rather than an invented
+        # steady-state rate, while concurrency stays conservative.
+        config = APIConfig()
+        assert config.tidal.concurrency == 5
+        assert config.tidal.rate_limit is None
+
 
 class TestBoundaryAcceptance:
     """Values at constraint boundaries should be accepted."""

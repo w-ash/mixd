@@ -10,7 +10,7 @@ Response payload shapes are REDACTED versions of live captures (probe
 ``previews`` is dropped.
 """
 
-from collections.abc import Callable
+from collections.abc import Callable, Mapping
 
 import httpx2
 import pytest
@@ -32,6 +32,7 @@ class FakeTokenStorage:
         self.token = token
         self.loads: list[tuple[str, str]] = []
         self.saved: list[tuple[str, str, StoredToken]] = []
+        self.extra_updates: list[tuple[str, str, dict[str, object]]] = []
         self.fail_saves = False
 
     async def load_token(self, service: str, user_id: str) -> StoredToken | None:
@@ -45,6 +46,25 @@ class FakeTokenStorage:
             raise RuntimeError("storage write failed")
         self.token = token_data
         self.saved.append((service, user_id, token_data))
+
+    async def update_extra_data(
+        self,
+        service: str,
+        user_id: str,
+        updates: Mapping[str, object],
+        *,
+        account_name: str | None = None,
+    ) -> None:
+        if self.fail_saves:
+            raise RuntimeError("storage write failed")
+        self.extra_updates.append((service, user_id, dict(updates)))
+        if self.token is None:
+            return
+        merged = dict(self.token.get("extra_data") or {})
+        merged.update(updates)
+        self.token["extra_data"] = merged
+        if account_name is not None:
+            self.token["account_name"] = account_name
 
     async def delete_token(self, service: str, user_id: str) -> None:
         self.token = None

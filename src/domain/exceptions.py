@@ -292,6 +292,43 @@ class AppleMusicAuthRequiredError(DomainError):
         )
 
 
+class TidalAuthRequiredError(DomainError):
+    """Raised when a Tidal access token is needed but none is stored.
+
+    Mirrors ``SpotifyAuthRequiredError``: ``TidalTokenManager.get_valid_token``
+    is server-safe — it never launches an interactive flow, it raises this so
+    the API surfaces map it to the 409 connect-hint envelope. Interactive
+    connect is the web OAuth callback (``/auth/tidal/callback``).
+    """
+
+    def __init__(self, message: str | None = None) -> None:
+        super().__init__(
+            message or "Tidal is not connected. Connect it from the Integrations page."
+        )
+
+
+class TidalReauthRequiredError(TidalAuthRequiredError):
+    """Raised when the Tidal refresh grant is dead — expired or revoked.
+
+    Tidal rotates refresh tokens on every refresh, and the provider treats a
+    replayed (already-rotated) or revoked token as ``invalid_grant`` on the
+    refresh POST — the one place grant death can appear. Detection lives in
+    ``TidalTokenManager``: the dead token is compare-and-deleted (only if the
+    stored refresh token is still the one that failed, so a stale flight
+    never destroys a newer grant — the v0.11.2 Spotify pattern) before
+    raising.
+
+    Subclasses ``TidalAuthRequiredError`` because the remedy is the same
+    reconnect flow; the distinct type lets the status probe and error
+    classifier tell expected credential aging apart from "never connected".
+    """
+
+    def __init__(self) -> None:
+        super().__init__(
+            "Tidal authorization expired — reconnect Tidal from the Integrations page."
+        )
+
+
 class DiscogsAuthRequiredError(DomainError):
     """Raised when a Discogs call cannot authenticate and needs user action.
 

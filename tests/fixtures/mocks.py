@@ -407,6 +407,10 @@ def make_mock_resolution_recorder() -> AsyncMock:
     recorder.remember_no_match.return_value = 0
     recorder.clear_negatives.return_value = 0
     recorder.backoff_suppressed.return_value = frozenset()
+    # A real (empty) mapping: the substitution seam calls .get() on the
+    # result, and an unconfigured AsyncMock child there sheds an unawaited
+    # coroutine per event.
+    recorder.connector_track_ids.return_value = {}
     return recorder
 
 

@@ -1,10 +1,10 @@
-"""``get_discogs_snapshot`` — the read tool over the Discogs collection.
+"""Connector snapshot read tools — Discogs collection and Tidal favorites.
 
-A thin adapter over ``GetDiscogsSnapshotUseCase``: fetch the raw collection
-snapshot (count + recent additions, unmatched — v0.11.1 makes zero canonical
-writes) and project it into a compact model-facing dict. Discogs-originated
-free text (titles, artist credits) is wrapped in ``<user_data>`` tags via
-``user_text`` so the model boundary quotes it as data.
+Thin adapters over the snapshot use cases: fetch the raw snapshot (count +
+recent additions, unmatched — both make zero canonical writes) and project
+it into a compact model-facing dict. Service-originated free text (titles,
+artist credits) is wrapped in ``<user_data>`` tags via ``user_text`` so the
+model boundary quotes it as data.
 """
 
 from collections.abc import Mapping
@@ -15,6 +15,10 @@ from src.application.runner import execute_use_case
 from src.application.use_cases.get_discogs_snapshot import (
     GetDiscogsSnapshotCommand,
     GetDiscogsSnapshotUseCase,
+)
+from src.application.use_cases.get_tidal_snapshot import (
+    GetTidalSnapshotCommand,
+    GetTidalSnapshotUseCase,
 )
 from src.domain.entities.shared import JsonDict, JsonValue
 
@@ -65,6 +69,50 @@ GET_DISCOGS_SNAPSHOT_INPUT_SCHEMA: JsonDict = {
 }
 
 
+async def handle_get_tidal_snapshot(
+    tool_input: Mapping[str, JsonValue],
+    ctx: ToolContext,
+) -> JsonValue:
+    """Run the favorites snapshot use case and project the result for the model.
+
+    An empty collection is a normal answer (total_items 0, recent []) — the
+    zero-state invitation, not an error. A missing Tidal connection raises
+    ``TidalAuthRequiredError``, which the loop surfaces with its reconnect
+    remedy. ``recent_limit`` is capped low: each recent row costs one
+    per-track Tidal lookup (the relationship serves identifiers only).
+    """
+    recent_limit = opt_int(tool_input, "recent_limit", default=10, maximum=25)
+    command = GetTidalSnapshotCommand(user_id=ctx.user_id, recent_limit=recent_limit)
+    result = await execute_use_case(
+        lambda uow: GetTidalSnapshotUseCase().execute(command, uow),
+        user_id=ctx.user_id,
+    )
+    recent: list[JsonValue] = [
+        {
+            "title": user_text(item.title),
+            "artists": user_text(item.artists),
+            "added_at": item.added_at,
+        }
+        for item in result.recent
+    ]
+    return {"total_items": result.total_items, "recent": recent}
+
+
+GET_TIDAL_SNAPSHOT_INPUT_SCHEMA: JsonDict = {
+    "type": "object",
+    "properties": {
+        "recent_limit": {
+            "type": "integer",
+            "description": (
+                "How many recently favorited tracks to return (default 10, "
+                "max 25 — each costs one per-track lookup)."
+            ),
+        },
+    },
+    "additionalProperties": False,
+}
+
+
 SPECS: list[dict[str, object]] = [
     {
         "name": "get_discogs_snapshot",
@@ -81,6 +129,22 @@ SPECS: list[dict[str, object]] = [
         "input_schema": GET_DISCOGS_SNAPSHOT_INPUT_SCHEMA,
         "dispatch": handle_get_discogs_snapshot,
         "use_cases": ("GetDiscogsSnapshotUseCase",),
+        "kind": "read",
+    },
+    {
+        "name": "get_tidal_snapshot",
+        "description": (
+            "Call this to see the user's Tidal favorites as Tidal reports "
+            "them: the total number of favorited tracks and the most "
+            "recently added ones (title, artists, date favorited). Raw and "
+            "unmatched — nothing here is linked to library tracks yet. A "
+            "total of 0 means no favorites, which is a normal answer, not a "
+            "failure. Use it for questions about what the user has "
+            "favorited on Tidal or how large their Tidal collection is."
+        ),
+        "input_schema": GET_TIDAL_SNAPSHOT_INPUT_SCHEMA,
+        "dispatch": handle_get_tidal_snapshot,
+        "use_cases": ("GetTidalSnapshotUseCase",),
         "kind": "read",
     },
 ]

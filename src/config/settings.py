@@ -167,6 +167,30 @@ class CredentialsConfig(BaseModel):
         "'origin' claim — restricts where the token is accepted from.",
     )
 
+    tidal_client_id: str = Field(
+        default="",
+        description="Tidal OAuth 2.1 client ID. Required for Tidal features. "
+        "BYO per deployment — register a free app at developer.tidal.com.",
+    )
+    tidal_redirect_uri: str = Field(
+        default="",
+        description="Primary OAuth callback URL registered in the Tidal "
+        "developer dashboard — the WEB callback (e.g. "
+        "http://localhost:5173/auth/tidal/callback, reaching the API's "
+        "/auth/tidal/callback route through the Vite proxy in dev). No "
+        "client secret field: Tidal is a PKCE public client (S256, "
+        "mandatory for every client) — add a SecretStr field here only if "
+        "the dashboard ever forces a confidential-client secret.",
+    )
+    tidal_cli_redirect_uri: str = Field(
+        default="",
+        description="Optional loopback redirect for the CLI browser "
+        "fallback (e.g. http://127.0.0.1:8899/callback) — the one-shot "
+        "local listener derives its port from it. Falls back to "
+        "tidal_redirect_uri when unset; register BOTH URIs in the Tidal "
+        "dashboard when using the CLI flow.",
+    )
+
 
 class ConnectorAPIConfig(BaseModel):
     """Per-connector API tuning: batch sizes, retry policy, rate limiting."""
@@ -254,6 +278,17 @@ class APIConfig(BaseModel):
             retry_count=4,
         ),
         description="Discogs API tuning. Discogs throttles by source IP: the whole instance (and anything sharing its egress) shares one 60/min bucket, so calls serialize through one instance-wide queue (concurrency=1) and pace at ~42/min (0.7/s) under the ceiling, self-correcting from X-Discogs-Ratelimit-Remaining.",
+    )
+
+    tidal: ConnectorAPIConfig = Field(
+        default_factory=lambda: ConnectorAPIConfig(
+            concurrency=5,
+            rate_limit=None,
+        ),
+        description="Tidal API tuning (v0.11.3 T1 scaffold). Tidal publishes "
+        "no rate-limit numbers, so pacing is designed to Retry-After alone "
+        "(rate_limit stays unset rather than an invented steady-state rate) "
+        "with a conservative concurrency ceiling.",
     )
 
     # Spotify-specific fields that don't fit the common shape
@@ -757,6 +792,9 @@ class Settings(BaseSettings):
         "apple_key_id": ("credentials", None),
         "apple_private_key": ("credentials", None),
         "apple_music_origin": ("credentials", None),
+        "tidal_client_id": ("credentials", None),
+        "tidal_redirect_uri": ("credentials", None),
+        "tidal_cli_redirect_uri": ("credentials", None),
         # Server
         "server_host": ("server", "host"),
         "server_port": ("server", "port"),
@@ -962,6 +1000,15 @@ def log_startup_warnings() -> None:
         logger.warning(
             "Apple Music partially configured — set all of APPLE_TEAM_ID, "
             "APPLE_KEY_ID, and APPLE_PRIVATE_KEY (or none)"
+        )
+    tidal_parts = (
+        settings.credentials.tidal_client_id,
+        settings.credentials.tidal_redirect_uri,
+    )
+    if any(tidal_parts) and not all(tidal_parts):
+        logger.warning(
+            "Tidal partially configured — set both TIDAL_CLIENT_ID and "
+            "TIDAL_REDIRECT_URI (or neither)"
         )
     if (
         settings.server.neon_auth_url

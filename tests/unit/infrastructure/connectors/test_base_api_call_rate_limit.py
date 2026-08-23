@@ -23,6 +23,7 @@ from src.infrastructure.connectors.discogs.client import DiscogsAPIClient
 from src.infrastructure.connectors.lastfm.client import LastFMAPIClient
 from src.infrastructure.connectors.musicbrainz.client import MusicBrainzAPIClient
 from src.infrastructure.connectors.spotify.client import SpotifyAPIClient
+from src.infrastructure.connectors.tidal.client import TidalAPIClient
 
 
 class CountingLimiter(ConnectorRateLimiter):
@@ -148,6 +149,7 @@ class TestServiceNameResolution:
             (MusicBrainzAPIClient, "musicbrainz"),
             (AppleMusicAPIClient, "apple_music"),
             (DiscogsAPIClient, "discogs"),
+            (TidalAPIClient, "tidal"),
         ],
     )
     def test_client_resolves_to_its_settings_key(

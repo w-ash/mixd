@@ -74,6 +74,14 @@ const connectorDefaults: Record<
     auth_method: "token",
     capabilities: [],
   },
+  tidal: {
+    // Mirrors the backend registration (tidal/connector.py): capabilities
+    // is frozenset() — the v0.11.3 snapshot writes no canonical data, and
+    // the existing capability literals are all canonical-data capabilities.
+    category: "streaming",
+    auth_method: "oauth",
+    capabilities: [],
+  },
 };
 
 export function makeConnectorMetadata(

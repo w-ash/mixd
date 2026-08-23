@@ -386,6 +386,67 @@ describe("ConnectorCard", () => {
     });
   });
 
+  describe("TIDAL (oauth streaming connector)", () => {
+    it("shows Connect TIDAL for disconnected state (OAuth path, not a token dialog)", async () => {
+      const user = userEvent.setup();
+      let authUrlFetched = false;
+      server.use(
+        http.get("*/api/v1/connectors/tidal/auth-url", () => {
+          authUrlFetched = true;
+          return HttpResponse.json({
+            auth_url: "https://login.tidal.com/authorize?test=1",
+          });
+        }),
+      );
+
+      renderWithProviders(
+        <ConnectorCard connector={makeConnector({ name: "tidal" })} />,
+      );
+
+      expect(screen.getByText("TIDAL")).toBeInTheDocument();
+      const connectBtn = screen.getByText("Connect TIDAL");
+      expect(connectBtn).toBeInTheDocument();
+
+      await user.click(connectBtn);
+
+      // OAuth redirect path — fetches an auth URL, no token form dialog.
+      await waitFor(() => {
+        expect(authUrlFetched).toBe(true);
+      });
+      expect(screen.queryByRole("dialog")).not.toBeInTheDocument();
+    });
+
+    it('shows "connected · N favorites" for a connected TIDAL card', () => {
+      renderWithProviders(
+        <ConnectorCard
+          connector={makeConnector({
+            name: "tidal",
+            connected: true,
+            detail: "12 favorites",
+          })}
+        />,
+      );
+
+      expect(screen.getByText("TIDAL")).toBeInTheDocument();
+      expect(screen.getByText("connected · 12 favorites")).toBeInTheDocument();
+    });
+
+    it("shows Reconnect when TIDAL needs reauthorization", () => {
+      renderWithProviders(
+        <ConnectorCard
+          connector={makeConnector({
+            name: "tidal",
+            connected: true,
+            status: "needs_reauth",
+            auth_error: "reauth_required",
+          })}
+        />,
+      );
+
+      expect(screen.getByText("Reconnect")).toBeInTheDocument();
+    });
+  });
+
   describe("passive connectors", () => {
     it("renders MusicBrainz with Available badge", () => {
       renderWithProviders(

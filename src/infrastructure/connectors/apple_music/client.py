@@ -221,14 +221,14 @@ class AppleMusicAPIClient(BaseAPIClient):
             )
 
     async def _write_reauth_marker(self) -> None:
-        """Load-modify-save the stored token with the reauth marker set."""
-        stored = await self._storage.load_token(APPLE_MUSIC_SERVICE, self._user_id)
-        if stored is None:
-            return
-        extra_data = dict(stored.get("extra_data") or {})
-        extra_data["reauth_required"] = True
-        stored["extra_data"] = extra_data
-        await self._storage.save_token(APPLE_MUSIC_SERVICE, self._user_id, stored)
+        """Set the reauth marker via the narrow ``update_extra_data`` write.
+
+        Touches only the ``extra_data`` column — never rewrites token
+        columns from a stale load. No-op when no token row exists.
+        """
+        await self._storage.update_extra_data(
+            APPLE_MUSIC_SERVICE, self._user_id, {"reauth_required": True}
+        )
 
     # -------------------------------------------------------------------------
     # Storefront

@@ -1,4 +1,4 @@
-"""OAuth callback routes for Spotify and Last.fm web authentication.
+"""OAuth callback routes for Spotify, Last.fm, and Tidal web authentication.
 
 These routes handle browser redirects from external OAuth providers.
 They are mounted at the top level (not under /api/v1) because they are
@@ -32,6 +32,9 @@ from src.infrastructure.connectors._shared.token_storage import (
 )
 from src.infrastructure.connectors.discovery import discover_connectors
 from src.infrastructure.connectors.spotify.auth import SpotifyTokenManager
+from src.infrastructure.connectors.tidal.auth import (
+    exchange_code as tidal_exchange_code,
+)
 from src.interface.api.deps import get_current_user_id
 
 logger = get_logger(__name__)
@@ -213,6 +216,52 @@ async def _complete_spotify_auth(
 
     logger.info("Spotify web auth completed successfully", user_id=user_id)
     return RedirectResponse("/settings/integrations?auth=spotify&status=success")
+
+
+@router.get("/auth/tidal/callback")
+async def tidal_callback(
+    code: str = "", state: str = "", error: str = ""
+) -> RedirectResponse:
+    """Tidal OAuth callback — exchanges code for the token pair, stores it.
+
+    On success, redirects to /settings/integrations?auth=tidal&status=success.
+    On failure, redirects to /settings/integrations?auth=tidal&status=error.
+    """
+    if error or not code:
+        logger.warning(f"Tidal auth denied or failed: {error}")
+        return RedirectResponse(
+            f"/settings/integrations?auth=tidal&status=error&reason={urllib.parse.quote(error)}"
+        )
+
+    valid, code_verifier, user_id = await validate_state(state, "tidal")
+    # PKCE is mandatory for every Tidal client — a state row without a
+    # verifier can't complete the exchange, so it fails like a bad state.
+    if not valid or not user_id or not code_verifier:
+        logger.warning("Tidal auth callback with invalid CSRF state")
+        return RedirectResponse(
+            "/settings/integrations?auth=tidal&status=error&reason=invalid_state"
+        )
+
+    try:
+        return await _complete_tidal_auth(code, code_verifier, user_id)
+    except Exception:
+        logger.error("Tidal auth callback failed", exc_info=True)
+        return RedirectResponse(
+            "/settings/integrations?auth=tidal&status=error&reason=exchange_failed"
+        )
+
+
+async def _complete_tidal_auth(
+    code: str, code_verifier: str, user_id: str
+) -> RedirectResponse:
+    """Exchange the Tidal code, persist the token pair, and redirect to success."""
+    token_info = await tidal_exchange_code(code, code_verifier)
+    # No account_name yet: wiring a Tidal userinfo fetch (if a cheap endpoint
+    # exists) is deferred to T7 — the connector card renders without a name.
+    await get_token_storage().save_token("tidal", user_id, token_info)
+
+    logger.info("Tidal web auth completed successfully", user_id=user_id)
+    return RedirectResponse("/settings/integrations?auth=tidal&status=success")
 
 
 @router.get("/auth/lastfm/callback")

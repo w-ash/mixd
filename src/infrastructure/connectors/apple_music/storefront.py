@@ -16,10 +16,7 @@ inward resolver fails its batch without writing backoff entries.
 
 from src.config import get_logger
 from src.domain.exceptions import AppleMusicAuthRequiredError
-from src.infrastructure.connectors._shared.token_storage import (
-    StoredToken,
-    TokenStorage,
-)
+from src.infrastructure.connectors._shared.token_storage import TokenStorage
 from src.infrastructure.connectors.apple_music.client import (
     APPLE_MUSIC_SERVICE,
     AppleMusicAPIClient,
@@ -67,28 +64,27 @@ async def resolve_storefront(
         logger.warning("Apple Music storefront lookup returned nothing")
         return None
     if stored is not None:
-        await _persist_storefront(storage, user_id, stored, live.id)
+        await _persist_storefront(storage, user_id, live.id)
     return live.id
 
 
 async def _persist_storefront(
     storage: TokenStorage,
     user_id: str,
-    stored: StoredToken,
     storefront_id: str,
 ) -> None:
     """Best-effort write-back of a fallback-fetched storefront id.
 
     Recording it on the stored token turns the next resolution into the fast
-    path. A storage failure must not fail the resolution that already
-    succeeded — log and move on (same shape as the client's
-    ``_mark_reauth_required``).
+    path. The narrow ``update_extra_data`` write touches only the cache
+    column — never token columns from a stale load. A storage failure must
+    not fail the resolution that already succeeded — log and move on (same
+    shape as the client's ``_mark_reauth_required``).
     """
     try:
-        extra_data = dict(stored.get("extra_data") or {})
-        extra_data["storefront"] = storefront_id
-        stored["extra_data"] = extra_data
-        await storage.save_token(APPLE_MUSIC_SERVICE, user_id, stored)
+        await storage.update_extra_data(
+            APPLE_MUSIC_SERVICE, user_id, {"storefront": storefront_id}
+        )
     except Exception:
         logger.warning(
             "Failed to record Apple Music storefront on the stored token",

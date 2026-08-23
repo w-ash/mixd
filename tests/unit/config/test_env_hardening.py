@@ -169,6 +169,34 @@ class TestAppleFlatEnvRoutes:
         assert creds.apple_music_origin == self.APPLE_ENV["APPLE_MUSIC_ORIGIN"]
 
 
+class TestTidalFlatEnvRoutes:
+    """Flat TIDAL_* env vars route into the credentials group."""
+
+    TIDAL_ENV: ClassVar[dict[str, str]] = {
+        "TIDAL_CLIENT_ID": "tidal-client-123",
+        "TIDAL_REDIRECT_URI": "http://localhost:5173/auth/tidal/callback",
+        "TIDAL_CLI_REDIRECT_URI": "http://127.0.0.1:8899/callback",
+    }
+
+    def test_tidal_vars_route_to_credentials(self):
+        with patch.dict("os.environ", self.TIDAL_ENV):
+            creds = Settings(_env_file=None).credentials
+        assert creds.tidal_client_id == self.TIDAL_ENV["TIDAL_CLIENT_ID"]
+        assert creds.tidal_redirect_uri == self.TIDAL_ENV["TIDAL_REDIRECT_URI"]
+        assert creds.tidal_cli_redirect_uri == self.TIDAL_ENV["TIDAL_CLI_REDIRECT_URI"]
+
+    def test_cli_redirect_uri_defaults_empty(self):
+        # Optional: unset means the CLI browser fallback derives its
+        # listener from the primary TIDAL_REDIRECT_URI.
+        with patch.dict(
+            "os.environ",
+            {k: v for k, v in self.TIDAL_ENV.items() if k != "TIDAL_CLI_REDIRECT_URI"},
+            clear=False,
+        ):
+            creds = Settings(_env_file=None).credentials
+        assert creds.tidal_cli_redirect_uri == ""
+
+
 class TestServerConfig:
     """ServerConfig validates host/port with sensible defaults."""
 
@@ -257,3 +285,35 @@ class TestLogStartupWarnings:
         with patch.object(settings, "credentials", creds):
             log_startup_warnings()
         assert not any("Apple Music" in e["event"] for e in capture_logs)
+
+    def test_warns_when_tidal_partially_configured(self, capture_logs):
+        from src.config.settings import CredentialsConfig
+
+        creds = CredentialsConfig(
+            spotify_client_id="some_id",
+            lastfm_key="some_key",
+            tidal_client_id="tidal-client-123",  # redirect_uri missing
+        )
+        with patch.object(settings, "credentials", creds):
+            log_startup_warnings()
+        events = [e["event"] for e in capture_logs]
+        assert any("Tidal partially configured" in e for e in events)
+
+    def test_silent_when_tidal_fully_configured(self, capture_logs):
+        from src.config.settings import CredentialsConfig
+
+        creds = CredentialsConfig(
+            spotify_client_id="some_id",
+            lastfm_key="some_key",
+            tidal_client_id="tidal-client-123",
+            tidal_redirect_uri="http://127.0.0.1:8888/tidal/callback",
+        )
+        with patch.object(settings, "credentials", creds):
+            log_startup_warnings()
+        assert not any("Tidal" in e["event"] for e in capture_logs)
+
+    def test_silent_when_tidal_fully_unconfigured(self, capture_logs):
+        creds = self._make_credentials(spotify_id="some_id", lastfm_key="some_key")
+        with patch.object(settings, "credentials", creds):
+            log_startup_warnings()
+        assert not any("Tidal" in e["event"] for e in capture_logs)

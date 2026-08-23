@@ -123,6 +123,7 @@ class TestAuthFailures:
 
         assert len(requests) == 1
         assert storage.saved == []
+        assert storage.extra_updates == []
 
     async def test_403_with_real_invalid_mut_body_raises_and_marks_reauth(
         self, make_client, storage: FakeTokenStorage
@@ -142,6 +143,8 @@ class TestAuthFailures:
         extra_data = storage.token.get("extra_data")
         assert extra_data is not None
         assert extra_data["reauth_required"] is True
+        # Narrow write: token columns never rewritten from a stale load.
+        assert storage.saved == []
 
     async def test_403_without_parseable_body_still_marks_reauth(
         self, make_client, storage: FakeTokenStorage
@@ -160,6 +163,7 @@ class TestAuthFailures:
         extra_data = storage.token.get("extra_data")
         assert extra_data is not None
         assert extra_data["reauth_required"] is True
+        assert storage.saved == []
 
     async def test_catalog_403_is_not_reauth_and_writes_no_marker(
         self, make_client, storage: FakeTokenStorage
@@ -177,6 +181,7 @@ class TestAuthFailures:
         assert result.songs == []
         assert result.failed_values == ["catalog-1"]
         assert storage.saved == []
+        assert storage.extra_updates == []
         # Permanent classification: no retry churn on a catalog 403.
         assert len(requests) == 1
 

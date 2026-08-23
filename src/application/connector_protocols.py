@@ -116,6 +116,46 @@ class DiscogsCollectionConnector(Protocol):
         ...
 
 
+class TidalFavoritesConnector(Protocol):
+    """Connector exposing a raw, read-only view of Tidal favorites.
+
+    Raw by design (v0.11.3 Favorites Snapshot, the same posture as
+    ``DiscogsCollectionConnector``): no Tidal domain entities exist yet —
+    matching and import are v0.13.x's job — so pages and track details cross
+    this seam as boundary-validated plain JSON mappings. Tidal has no
+    stored-username equivalent (the connect scope carries no identity), so
+    unlike Discogs there is no username on this seam — display headers use
+    the service name.
+    """
+
+    async def get_collection_items_page(
+        self, cursor: str | None = None
+    ) -> Mapping[str, JsonValue] | None:
+        """One boundary-validated favorites page as plain JSON data.
+
+        ``{"items": [{"id", "added_at"}], "next_cursor", "total"}`` —
+        ``total`` when Tidal serves ``meta.total``, else None; ``next_cursor``
+        None on the last page. None means the fetch could not complete
+        (suppressed transport failure).
+        """
+        ...
+
+    async def get_track_display_data(
+        self, track_id: str
+    ) -> Mapping[str, JsonValue] | None:
+        """Display facts for one track: ``{"title", "artists": [...]}``.
+
+        The favorites relationship carries identifiers + ``addedAt`` only,
+        so rendering a row costs one of these per track. None when the track
+        cannot be fetched or no longer exists.
+        """
+        ...
+
+    async def save_favorites_count(self, count: int) -> None:
+        """Refresh the cached favorites count the status probe renders."""
+        ...
+
+
 class LoveTrackConnector(Protocol):
     """Connector that can love/like tracks on behalf of a user."""
 

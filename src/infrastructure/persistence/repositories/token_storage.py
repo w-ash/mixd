@@ -9,11 +9,13 @@ Each operation wraps its session in ``user_context(user_id)`` so the RLS
 ``after_begin`` event handler sets ``SET LOCAL app.user_id`` as defense-in-depth.
 """
 
+from collections.abc import Mapping
 from datetime import UTC, datetime
 from typing import cast
 
-from sqlalchemy import delete, select
-from sqlalchemy.dialects.postgresql import insert as pg_insert
+from sqlalchemy import cast as sa_cast, delete, func, select, update
+from sqlalchemy.dialects.postgresql import JSONB, insert as pg_insert
+from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.config import get_logger
 from src.infrastructure.connectors._shared.token_storage import StoredToken
@@ -70,20 +72,50 @@ class DatabaseTokenStorage:
     async def load_token(self, service: str, user_id: str) -> StoredToken | None:
         with user_context(user_id):
             async with get_session() as session:
-                result = await session.execute(
-                    select(DBOAuthToken).where(
-                        DBOAuthToken.service == service,
-                        DBOAuthToken.user_id == user_id,
-                    )
-                )
-                row = result.scalar_one_or_none()
-                if row is None:
-                    return None
-                return _row_to_stored_token(row)
+                return await self.load_with_session(session, service, user_id)
+
+    async def load_with_session(
+        self, session: AsyncSession, service: str, user_id: str
+    ) -> StoredToken | None:
+        """Read one stored token through a caller-owned session.
+
+        Internal seam for callers that must read inside an open transaction —
+        the single-flight refresh guard (``token_refresh_lock``) re-reads the
+        token under its advisory lock. The caller owns transaction scope and
+        ``user_context``.
+        """
+        result = await session.execute(
+            select(DBOAuthToken).where(
+                DBOAuthToken.service == service,
+                DBOAuthToken.user_id == user_id,
+            )
+        )
+        row = result.scalar_one_or_none()
+        if row is None:
+            return None
+        return _row_to_stored_token(row)
 
     async def save_token(
         self, service: str, user_id: str, token_data: StoredToken
     ) -> None:
+        with user_context(user_id):
+            async with get_session() as session:
+                await self.save_with_session(session, service, user_id, token_data)
+
+    async def save_with_session(
+        self,
+        session: AsyncSession,
+        service: str,
+        user_id: str,
+        token_data: StoredToken,
+    ) -> None:
+        """Upsert one stored token through a caller-owned session.
+
+        Internal seam for the single-flight refresh guard: the rotated token
+        must land in the same transaction that holds the advisory lock. The
+        caller owns transaction scope and ``user_context``. Sensitive fields
+        are encrypted here, exactly as in ``save_token``.
+        """
         now = datetime.now(UTC)
         values = {
             "service": service,
@@ -115,9 +147,45 @@ class DatabaseTokenStorage:
             )
         )
 
+        await session.execute(stmt)
+
+    async def update_extra_data(
+        self,
+        service: str,
+        user_id: str,
+        updates: Mapping[str, object],
+        *,
+        account_name: str | None = None,
+    ) -> None:
+        """Merge ``updates`` into ``extra_data`` without touching token columns.
+
+        The narrow alternative to load→mutate→``save_token`` for cache-style
+        writes (favorites/collection counts, reauth markers, storefront,
+        account-id backfill): a single SQL UPDATE with a jsonb merge, so a
+        concurrent refresh rotation can never be overwritten by a stale
+        loaded token (which would resurrect a dead refresh token and kill
+        the rotated grant). ``account_name`` rides the same UPDATE when a
+        caller has a display name to backfill — still never a token column.
+        No-op when no token row exists (a disconnect raced the caller).
+        """
+        values: dict[str, object] = {
+            "extra_data": func.coalesce(DBOAuthToken.extra_data, sa_cast({}, JSONB)).op(
+                "||"
+            )(sa_cast(dict(updates), JSONB)),
+            "updated_at": datetime.now(UTC),
+        }
+        if account_name is not None:
+            values["account_name"] = account_name
         with user_context(user_id):
             async with get_session() as session:
-                await session.execute(stmt)
+                _ = await session.execute(
+                    update(DBOAuthToken)
+                    .where(
+                        DBOAuthToken.service == service,
+                        DBOAuthToken.user_id == user_id,
+                    )
+                    .values(**values)
+                )
 
     async def delete_token(self, service: str, user_id: str) -> None:
         with user_context(user_id):

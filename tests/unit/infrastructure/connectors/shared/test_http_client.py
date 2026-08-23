@@ -436,3 +436,91 @@ class TestClientSmokeViaRealHttpx2:
         # _parse_track_info returns None for a response with no "track" key at top
         # but the important assertion is: no exception was raised
         assert result is not None or result is None  # hook must not crash
+
+
+# ---------------------------------------------------------------------------
+# Tidal client factories (v0.11.3 T1 scaffold — no connector registration yet)
+# ---------------------------------------------------------------------------
+
+
+class TestTidalClientFactories:
+    """make_tidal_client / make_tidal_auth_client build correctly-configured clients."""
+
+    async def test_make_tidal_client_uses_tidal_api_base(self):
+        from src.infrastructure.connectors._shared.http_client import (
+            TIDAL_API_BASE,
+            make_tidal_client,
+        )
+
+        auth = MagicMock(spec=httpx2.Auth)
+        client = make_tidal_client(auth)
+        try:
+            assert str(client.base_url).rstrip("/") == TIDAL_API_BASE
+            assert client.auth is auth
+        finally:
+            await client.aclose()
+
+    async def test_make_tidal_client_timeout_from_settings(self):
+        with patch(
+            "src.infrastructure.connectors._shared.http_client.settings"
+        ) as mock_settings:
+            mock_settings.api.tidal.request_timeout = 42.0
+
+            from src.infrastructure.connectors._shared.http_client import (
+                make_tidal_client,
+            )
+
+            client = make_tidal_client(MagicMock(spec=httpx2.Auth))
+        try:
+            assert client.timeout.read == 42.0
+        finally:
+            await client.aclose()
+
+    async def test_make_tidal_client_plain_user_agent(self):
+        """Tidal carries the plain User-Agent — the ``+<repo-url>`` form is
+        Discogs-specific (Discogs silently downgrades generic agents)."""
+        from src.infrastructure.connectors._shared.http_client import (
+            _build_user_agent,
+            make_tidal_client,
+        )
+
+        client = make_tidal_client(MagicMock(spec=httpx2.Auth))
+        try:
+            assert client.headers["user-agent"] == _build_user_agent()
+        finally:
+            await client.aclose()
+
+    async def test_make_tidal_auth_client_uses_tidal_auth_base(self):
+        from src.infrastructure.connectors._shared.http_client import (
+            TIDAL_AUTH_BASE,
+            make_tidal_auth_client,
+        )
+
+        client = make_tidal_auth_client()
+        try:
+            assert str(client.base_url).rstrip("/") == TIDAL_AUTH_BASE
+        finally:
+            await client.aclose()
+
+    async def test_make_tidal_auth_client_timeout_from_settings(self):
+        with patch(
+            "src.infrastructure.connectors._shared.http_client.settings"
+        ) as mock_settings:
+            mock_settings.api.tidal.request_timeout = 7.5
+
+            from src.infrastructure.connectors._shared.http_client import (
+                make_tidal_auth_client,
+            )
+
+            client = make_tidal_auth_client()
+        try:
+            assert client.timeout.read == 7.5
+        finally:
+            await client.aclose()
+
+    def test_tidal_login_base_constant(self):
+        from src.infrastructure.connectors._shared.http_client import (
+            TIDAL_LOGIN_BASE,
+        )
+
+        assert TIDAL_LOGIN_BASE == "https://login.tidal.com"

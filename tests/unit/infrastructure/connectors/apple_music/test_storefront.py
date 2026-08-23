@@ -19,6 +19,7 @@ def _storage(stored: dict | None) -> MagicMock:
     storage = MagicMock()
     storage.load_token = AsyncMock(return_value=stored)
     storage.save_token = AsyncMock()
+    storage.update_extra_data = AsyncMock()
     return storage
 
 
@@ -39,7 +40,7 @@ class TestStoredFastPath:
 
         assert result == "gb"
         client.get_storefront.assert_not_awaited()
-        storage.save_token.assert_not_awaited()
+        storage.update_extra_data.assert_not_awaited()
 
 
 class TestFallbackPersistence:
@@ -50,18 +51,17 @@ class TestFallbackPersistence:
         result = await resolve_storefront(client, storage=storage, user_id=_USER)
 
         assert result == "us"
-        storage.save_token.assert_awaited_once()
-        service, user_id, token = storage.save_token.await_args.args
-        assert (service, user_id) == ("apple_music", _USER)
-        assert token["extra_data"]["storefront"] == "us"
-        # Pre-existing extra_data keys survive the write-back.
-        assert token["extra_data"]["foo"] == "bar"
+        storage.update_extra_data.assert_awaited_once_with(
+            "apple_music", _USER, {"storefront": "us"}
+        )
+        # The narrow write never rewrites token columns from a stale load.
+        storage.save_token.assert_not_awaited()
 
     async def test_storage_write_failure_still_resolves(self):
         """The write-back is best-effort — a storage failure logs and moves on."""
         client = _client("us")
         storage = _storage({"access_token": "mut"})
-        storage.save_token = AsyncMock(side_effect=RuntimeError("db down"))
+        storage.update_extra_data = AsyncMock(side_effect=RuntimeError("db down"))
 
         result = await resolve_storefront(client, storage=storage, user_id=_USER)
 
@@ -75,4 +75,4 @@ class TestFallbackPersistence:
         result = await resolve_storefront(client, storage=storage, user_id=_USER)
 
         assert result == "us"
-        storage.save_token.assert_not_awaited()
+        storage.update_extra_data.assert_not_awaited()

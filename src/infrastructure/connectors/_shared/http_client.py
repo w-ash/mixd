@@ -31,6 +31,13 @@ DISCOGS_API_BASE = "https://api.discogs.com"
 # bypasses the Discogs API queue/limiter and its responses' rate headers are
 # meaningless — callers must ignore them.
 DISCOGS_IMAGE_BASE = "https://i.discogs.com"
+# Tidal splits its surface across three hosts: catalog/library API calls,
+# token exchange (auth.tidal.com/v1/oauth2/token), and the browser-facing
+# authorize redirect (login.tidal.com/authorize) — the last has no client
+# factory since it is a redirect target, never an httpx2 call.
+TIDAL_API_BASE = "https://openapi.tidal.com/v2"
+TIDAL_AUTH_BASE = "https://auth.tidal.com"
+TIDAL_LOGIN_BASE = "https://login.tidal.com"
 
 _http_logger = get_logger(__name__).bind(service="http_client")
 
@@ -289,6 +296,40 @@ def make_discogs_image_client() -> httpx2.AsyncClient:
         base_url=DISCOGS_IMAGE_BASE,
         headers={"User-Agent": _build_user_agent_with_url()},
         timeout=_read_timeout(float(settings.api.discogs.request_timeout)),
+    )
+
+
+def make_tidal_client(auth: httpx2.Auth) -> httpx2.AsyncClient:
+    """Return a configured AsyncClient for Tidal API (v2, JSON:API) calls.
+
+    Authentication is delegated to the provided httpx2.Auth instance (OAuth
+    2.1 + PKCE bearer — added in a later v0.11.3 packet). Plain User-Agent:
+    the ``+<repo-url>`` form is a Discogs-specific accommodation for its
+    rate-limit-by-agent behavior, which Tidal has no documented equivalent
+    of. Caller owns lifecycle. Timeouts sourced from
+    settings.api.tidal.request_timeout.
+    """
+    return _make_client(
+        base_url=TIDAL_API_BASE,
+        auth=auth,
+        headers={"User-Agent": _build_user_agent()},
+        timeout=_read_timeout(float(settings.api.tidal.request_timeout)),
+    )
+
+
+def make_tidal_auth_client() -> httpx2.AsyncClient:
+    """Return a configured AsyncClient for Tidal OAuth token operations.
+
+    Targets ``auth.tidal.com`` (token exchange/refresh); the browser-facing
+    authorize step redirects to ``login.tidal.com`` and needs no client.
+    Timeouts sourced from settings.api.tidal.request_timeout, same as the
+    catalog client — unlike Spotify's auth client, there is no separate flat
+    budget carved out for this connector.
+    """
+    return _make_client(
+        base_url=TIDAL_AUTH_BASE,
+        headers={"User-Agent": _build_user_agent()},
+        timeout=_read_timeout(float(settings.api.tidal.request_timeout)),
     )
 
 

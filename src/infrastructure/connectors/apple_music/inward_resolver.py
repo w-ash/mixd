@@ -44,11 +44,14 @@ from src.domain.matching.isrc_validation import (
     compute_duration_diff_ms,
 )
 from src.domain.repositories.connector import ConnectorMappingSpec, IsrcCollisionSpec
-from src.domain.repositories.resolution import ResolutionDecision
 from src.domain.repositories.uow import UnitOfWorkProtocol
 from src.infrastructure.connectors._shared.inward_track_resolver import (
     InwardTrackResolver,
     persist_bulk_with_item_fallback,
+)
+from src.infrastructure.connectors._shared.successor_resolution import (
+    SuccessorAssertion,
+    record_substitutions,
 )
 from src.infrastructure.connectors.apple_music.client import AppleMusicAPIClient
 from src.infrastructure.connectors.apple_music.conversions import (
@@ -453,31 +456,25 @@ class AppleMusicInwardResolver(InwardTrackResolver):
     ) -> None:
         """Record successor-id detections as ``substituted`` events.
 
-        THE single substitution-recording seam for this connector — a later
-        packet extracts it (with Spotify's) into a shared helper. The event
-        names the *requested* id's connector track: ``substituted`` is a
-        streak-resetting event, and the streak belongs to the id that kept
-        being asked about.
+        THE single substitution-recording seam for this connector, delegating
+        to the shared successor seam
+        (``_shared/successor_resolution.record_substitutions``), which owns
+        the batching and the streak-reset rationale for keying each event to
+        the *requested* id's connector track. Detection stays here: the
+        successor arrives as the playParams catalog id of the fetched song,
+        hence ``"playparams_catalog_id"``.
         """
         if not writes:
             return
-        recorder = uow.get_resolution_recorder()
-        requested_ct = await recorder.connector_track_ids(
-            [write.requested_id for write in writes],
+        await record_substitutions(
+            uow.get_resolution_recorder(),
             connector_name=self.connector_name,
-        )
-        _ = await recorder.record(
-            [
-                ResolutionDecision(
-                    event_type="substituted",
-                    connector_name=self.connector_name,
-                    connector_track_id=requested_ct.get(write.requested_id),
+            assertions=[
+                SuccessorAssertion(
+                    requested_id=write.requested_id,
+                    returned_id=write.current_id,
+                    detection="playparams_catalog_id",
                     track_id=canonicals[write.requested_id].id,
-                    payload={
-                        "requested_id": write.requested_id,
-                        "returned_id": write.current_id,
-                        "detection": "playparams_catalog_id",
-                    },
                 )
                 for write in writes
             ],

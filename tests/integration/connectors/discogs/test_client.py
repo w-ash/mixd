@@ -399,17 +399,22 @@ class TestStoredTokenHelpers:
 
         await client.save_collection_count(7)
 
-        saved = client._storage.saved[-1][2]
-        assert saved["extra_data"]["collection_count"] == 7
+        token = client._storage.token
+        assert token is not None
+        assert token["extra_data"]["collection_count"] == 7
         # Sibling keys survive the refresh.
-        assert saved["extra_data"]["validated_at"] == 1_755_000_000
-        assert saved["access_token"] == DISCOGS_TOKEN
+        assert token["extra_data"]["validated_at"] == 1_755_000_000
+        # Narrow write: token columns never rewritten from a stale load.
+        assert client._storage.saved == []
+        assert token["access_token"] == DISCOGS_TOKEN
 
     async def test_save_collection_count_noop_without_token(self, make_client) -> None:
         client = make_client(routed_handler)
         client._storage.token = None
 
         await client.save_collection_count(7)
+
+        assert client._storage.token is None
 
     async def test_save_account_name_backfills_and_preserves_siblings(
         self, make_client
@@ -422,10 +427,13 @@ class TestStoredTokenHelpers:
 
         await client.save_account_name("attritus")
 
-        saved = client._storage.saved[-1][2]
-        assert saved["account_name"] == "attritus"
-        assert saved["access_token"] == DISCOGS_TOKEN
-        assert saved["extra_data"]["collection_count"] == 1
+        token = client._storage.token
+        assert token is not None
+        assert token["account_name"] == "attritus"
+        assert token["access_token"] == DISCOGS_TOKEN
+        assert token["extra_data"]["collection_count"] == 1
+        # Narrow write: token columns never rewritten from a stale load.
+        assert client._storage.saved == []
 
     async def test_save_account_name_noop_without_token(self, make_client) -> None:
         client = make_client(routed_handler)
@@ -434,5 +442,4 @@ class TestStoredTokenHelpers:
         await client.save_account_name("attritus")
 
         assert client._storage.saved == []
-
-        assert client._storage.saved == []
+        assert client._storage.token is None

@@ -12,6 +12,7 @@ from src.application.connector_protocols import (
     LikedTrackConnector,
     LoveTrackConnector,
     PlaylistConnector,
+    TidalFavoritesConnector,
     TrackConversionConnector,
     UserPlaylistsConnector,
 )
@@ -59,6 +60,13 @@ def resolve_discogs_collection_connector(
 ) -> DiscogsCollectionConnector:
     """Resolve the Discogs connector typed for raw collection reads."""
     return cast(DiscogsCollectionConnector, resolve_connector("discogs", uow))
+
+
+def resolve_tidal_favorites_connector(
+    uow: UnitOfWorkProtocol,
+) -> TidalFavoritesConnector:
+    """Resolve the Tidal connector typed for raw favorites reads."""
+    return cast(TidalFavoritesConnector, resolve_connector("tidal", uow))
 
 
 def resolve_playlist_connector(

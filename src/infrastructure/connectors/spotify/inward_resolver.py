@@ -63,6 +63,11 @@ from src.infrastructure.connectors._shared.inward_track_resolver import (
     TrackResolutionMetrics,
     persist_bulk_with_item_fallback,
 )
+from src.infrastructure.connectors._shared.successor_resolution import (
+    SuccessorAssertion,
+    record_substitutions,
+    stale_id_mapping_spec,
+)
 from src.infrastructure.connectors.spotify import SpotifyConnector
 from src.infrastructure.connectors.spotify.models import SpotifyTrack
 
@@ -1084,13 +1089,12 @@ class SpotifyInwardResolver(InwardTrackResolver):
 
             if write.reuse_track is None and write.requested_id_is_stale:
                 claim(
-                    ConnectorMappingSpec(
+                    stale_id_mapping_spec(
                         track=track,
                         connector="spotify",
-                        connector_id=write.requested_id,
-                        match_method=SpotifyInwardResolver._STALE_ID_METHODS[
-                            write.match_method
-                        ],
+                        requested_id=write.requested_id,
+                        primary_method=write.match_method,
+                        stale_method_map=SpotifyInwardResolver._STALE_ID_METHODS,
                         confidence=write.confidence,
                     )
                 )
@@ -1137,31 +1141,24 @@ class SpotifyInwardResolver(InwardTrackResolver):
         detected by request/response correlation — ``linked_from`` was removed
         in Feb 2026 and the label never came back.
 
-        The event names the *requested* id's connector track, not the returned
-        one. ``substituted`` is a streak-resetting event, and the streak it has
-        to reset belongs to the id that kept coming back absent — recording it
-        against nothing (or against the substitute) left a relinked id
-        accumulating suspicion it had already disproved.
+        Recording goes through the shared successor seam
+        (``_shared/successor_resolution.record_substitutions``), which owns
+        the batching and the streak-reset rationale for keying each event to
+        the *requested* id's connector track. Detection stays here: the pair
+        is request/response correlation, hence ``"id_mismatch"``.
         """
         if not writes:
             return
-        recorder = uow.get_resolution_recorder()
-        requested_ct = await recorder.connector_track_ids(
-            [write.requested_id for write in writes], connector_name="spotify"
-        )
-        _ = await recorder.record(
-            [
-                ResolutionDecision(
-                    event_type="substituted",
-                    connector_name="spotify",
-                    connector_track_id=requested_ct.get(write.requested_id),
+        await record_substitutions(
+            uow.get_resolution_recorder(),
+            connector_name="spotify",
+            assertions=[
+                SuccessorAssertion(
+                    requested_id=write.requested_id,
+                    returned_id=write.spotify_track.id,
+                    detection="id_mismatch",
                     track_id=canonicals[write.requested_id].id,
-                    payload={
-                        "requested_id": write.requested_id,
-                        "returned_id": write.spotify_track.id,
-                        "market": settings.api.spotify_market,
-                        "detection": "id_mismatch",
-                    },
+                    extra={"market": settings.api.spotify_market},
                 )
                 for write in writes
             ],

@@ -47,6 +47,7 @@ from src.domain.exceptions import (
     ScheduleInvariantError,
     SpotifyAuthRequiredError,
     SpotifyQuotaExhaustedError,
+    TidalAuthRequiredError,
     ToolExecutionError,
     WorkflowAlreadyRunningError,
 )
@@ -421,6 +422,12 @@ def register_exception_handlers(app: FastAPI) -> None:
         AppleMusicAuthRequiredError, apple_music_auth_required_handler
     )
     app.add_exception_handler(DiscogsAuthRequiredError, discogs_auth_required_handler)
+    # Tidal joins the 409 auth family: not-connected and dead-grant (the
+    # reauth subclass) both resolve with the same reconnect remedy.
+    app.add_exception_handler(
+        TidalAuthRequiredError,
+        _simple_handler(TidalAuthRequiredError, 409, "TIDAL_AUTH_REQUIRED"),
+    )
     # Connect-time token validation failure (PUT /connectors/discogs/token) —
     # a 400 the token form renders inline, distinct from the parent class's
     # 409 "stored credential unusable". Starlette dispatches on the most

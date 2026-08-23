@@ -34,6 +34,7 @@ from src.infrastructure.connectors._shared.connector_status import (
     get_apple_music_status,
     get_discogs_status,
     get_spotify_status,
+    get_tidal_status,
 )
 from src.infrastructure.connectors._shared.token_storage import StoredToken
 from src.infrastructure.connectors.spotify.auth import (
@@ -288,9 +289,11 @@ class TestAccountIdBackfill:
             status = await get_spotify_status("u1", storage=storage)
 
         assert status.account_name == "Fresh Name"
-        storage.save_token.assert_awaited_once()
-        _, _, saved = storage.save_token.await_args.args
-        assert saved["extra_data"]["account_id"] == "acct-999"
+        # Narrow write: only the delta travels, token columns untouched.
+        storage.update_extra_data.assert_awaited_once_with(
+            "spotify", "u1", {"account_id": "acct-999"}, account_name="Fresh Name"
+        )
+        storage.save_token.assert_not_awaited()
 
     async def test_backfills_account_id_when_name_already_cached(self) -> None:
         # A pre-v0.11.2 token already has account_name cached — only
@@ -310,10 +313,11 @@ class TestAccountIdBackfill:
 
         mock_fetch.assert_awaited_once_with("access")
         assert status.account_name == "testuser"
-        storage.save_token.assert_awaited_once()
-        _, _, saved = storage.save_token.await_args.args
-        assert saved["extra_data"]["account_id"] == "acct-abc"
-        assert saved["account_name"] == "testuser"
+        # The name is already cached, so only account_id is written.
+        storage.update_extra_data.assert_awaited_once_with(
+            "spotify", "u1", {"account_id": "acct-abc"}, account_name=None
+        )
+        storage.save_token.assert_not_awaited()
 
     async def test_no_fetch_when_name_and_account_id_already_cached(self) -> None:
         token = StoredToken(
@@ -329,6 +333,7 @@ class TestAccountIdBackfill:
 
         mock_fetch.assert_not_awaited()
         storage.save_token.assert_not_awaited()
+        storage.update_extra_data.assert_not_awaited()
         assert status.account_name == "testuser"
 
     async def test_marker_short_circuits_probe_with_cached_name(self) -> None:
@@ -348,6 +353,7 @@ class TestAccountIdBackfill:
 
         mock_fetch.assert_not_awaited()
         storage.save_token.assert_not_awaited()
+        storage.update_extra_data.assert_not_awaited()
         assert status.account_name == "testuser"
 
     async def test_fetch_without_account_id_stamps_unavailable_marker(self) -> None:
@@ -366,9 +372,10 @@ class TestAccountIdBackfill:
         ):
             _ = await get_spotify_status("u1", storage=storage)
 
-        storage.save_token.assert_awaited_once()
-        _, _, saved = storage.save_token.await_args.args
-        assert saved["extra_data"]["account_id_unavailable"] is True
+        storage.update_extra_data.assert_awaited_once_with(
+            "spotify", "u1", {"account_id_unavailable": True}, account_name=None
+        )
+        storage.save_token.assert_not_awaited()
 
     async def test_failed_fetch_saves_nothing(self) -> None:
         # A network failure teaches nothing — no marker, no upsert; the next
@@ -387,9 +394,13 @@ class TestAccountIdBackfill:
 
         mock_fetch.assert_awaited_once()
         storage.save_token.assert_not_awaited()
+        storage.update_extra_data.assert_not_awaited()
         assert status.account_name is None
 
-    async def test_backfill_preserves_other_extra_data_keys(self) -> None:
+    async def test_backfill_sends_only_the_delta(self) -> None:
+        # Sibling extra_data keys (authorized_at, ...) are preserved by the
+        # storage-level jsonb merge — the probe must send ONLY the delta so
+        # the narrow write can never clobber concurrent state.
         token = StoredToken(
             access_token="access",
             refresh_token="refresh",
@@ -404,9 +415,9 @@ class TestAccountIdBackfill:
         ):
             _ = await get_spotify_status("u1", storage=storage)
 
-        _, _, saved = storage.save_token.await_args.args
-        assert saved["extra_data"]["authorized_at"] == 1_700_000_000
-        assert saved["extra_data"]["account_id"] == "acct-xyz"
+        storage.update_extra_data.assert_awaited_once_with(
+            "spotify", "u1", {"account_id": "acct-xyz"}, account_name=None
+        )
 
 
 def _discogs_token(extra_data: dict[str, object] | None) -> StoredToken:
@@ -478,3 +489,113 @@ class TestGetDiscogsStatus:
             status = await get_discogs_status("u1", storage)
 
         assert status.detail == "3 releases"
+
+
+_TIDAL_RT = "rt-1"
+
+
+def _tidal_token(
+    *,
+    expires_at: int | None = None,
+    refresh_token: str | None = _TIDAL_RT,
+    extra_data: dict[str, object] | None = None,
+) -> StoredToken:
+    token = StoredToken(
+        access_token="tidal-at",
+        token_type="Bearer",
+        expires_at=expires_at if expires_at is not None else int(time.time()) + 3600,
+    )
+    if refresh_token is not None:
+        token["refresh_token"] = refresh_token
+    if extra_data is not None:
+        token["extra_data"] = extra_data
+    return token
+
+
+class TestGetTidalStatus:
+    """Storage-only Tidal probe (v0.11.3 T4) — the bearer auth refreshes on
+    use, so the probe never spends a refresh POST (no Spotify-style silent
+    refresh here)."""
+
+    async def test_no_token_disconnected(self) -> None:
+        status = await get_tidal_status("u1", make_storage(None))
+
+        assert status.name == "tidal"
+        assert status.auth_method == "oauth"
+        assert status.connected is False
+        assert status.auth_error is None
+        assert derive_status_state(status) == "disconnected"
+
+    async def test_fresh_token_connected_with_expiry(self) -> None:
+        expires = int(time.time()) + 3600
+        status = await get_tidal_status(
+            "u1", make_storage(_tidal_token(expires_at=expires))
+        )
+
+        assert status.connected is True
+        assert status.token_expires_at == expires
+        assert status.auth_error is None
+        assert derive_status_state(status) == "connected"
+
+    async def test_stray_reauth_marker_is_ignored(self) -> None:
+        # No Tidal code path writes a reauth marker (a dead grant is
+        # compare-and-DELETED on invalid_grant), so a stray marker on an
+        # otherwise-healthy token must not fabricate a reauth prompt.
+        token = _tidal_token(extra_data={"reauth_required": True})
+        status = await get_tidal_status("u1", make_storage(token))
+
+        assert status.connected is True
+        assert status.auth_error is None
+        assert derive_status_state(status) == "connected"
+
+    async def test_expired_without_refresh_token_needs_reauth(self) -> None:
+        # No refresh token to renew with — only the reconnect flow fixes it,
+        # so it must derive to needs_reauth (one click), never "expired".
+        token = _tidal_token(expires_at=int(time.time()) - 60, refresh_token=None)
+        status = await get_tidal_status("u1", make_storage(token))
+
+        assert status.connected is True
+        assert status.auth_error == "reauth_required"
+        assert derive_status_state(status) == "needs_reauth"
+
+    async def test_expired_with_refresh_token_is_not_reauth(self) -> None:
+        # An expired access token beside a live refresh token is routine —
+        # the bearer auth refreshes on next use; the probe stays cheap and
+        # reports the stored expiry as-is.
+        token = _tidal_token(expires_at=int(time.time()) - 60)
+        status = await get_tidal_status("u1", make_storage(token))
+
+        assert status.connected is True
+        assert status.auth_error is None
+
+    async def test_probe_is_storage_only(self) -> None:
+        storage = make_storage(_tidal_token())
+        _ = await get_tidal_status("u1", storage)
+
+        storage.load_token.assert_awaited_once_with("tidal", "u1")
+
+    async def test_connected_formats_favorites_count(self) -> None:
+        # The stored-count pattern (v0.11.3 snapshot): the snapshot pays for
+        # the real count and caches it; the probe renders it network-free.
+        token = _tidal_token(extra_data={"favorites_count": 1204})
+        status = await get_tidal_status("u1", make_storage(token))
+
+        assert status.connected is True
+        assert status.detail == "1,204 favorites"
+
+    async def test_zero_favorites_still_renders(self) -> None:
+        # 0 is the zero-state hook, not an error.
+        token = _tidal_token(extra_data={"favorites_count": 0})
+        status = await get_tidal_status("u1", make_storage(token))
+
+        assert status.detail == "0 favorites"
+
+    async def test_missing_count_yields_no_detail(self) -> None:
+        status = await get_tidal_status("u1", make_storage(_tidal_token()))
+
+        assert status.detail is None
+
+    async def test_no_token_has_no_detail(self) -> None:
+        status = await get_tidal_status("u1", make_storage(None))
+
+        assert status.detail is None

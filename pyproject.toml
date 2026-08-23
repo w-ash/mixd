@@ -546,6 +546,9 @@ ignore_imports = [
     "src.interface.api.routes.auth -> src.infrastructure.connectors.discovery",
     "src.interface.api.routes.auth -> src.infrastructure.connectors.lastfm.client",
     "src.interface.api.routes.auth -> src.infrastructure.connectors.spotify.auth",
+    # Same carve-out, v0.11.3: the Tidal OAuth callback shares the connector's
+    # `exchange_code` (PKCE public client) exactly as Spotify's does.
+    "src.interface.api.routes.auth -> src.infrastructure.connectors.tidal.auth",
     "src.interface.api.routes.auth -> src.infrastructure.persistence.database.db_connection",
     "src.interface.api.routes.auth -> src.infrastructure.persistence.database.db_models",
     # Same carve-out, v0.11.x: the Apple Music MusicKit JS bridge — browser-
@@ -565,6 +568,11 @@ ignore_imports = [
     "src.interface.api.routes.connectors -> src.infrastructure.connectors.discogs.token_service",
     "src.interface.cli.discogs_commands -> src.infrastructure.connectors._shared.token_storage",
     "src.interface.cli.discogs_commands -> src.infrastructure.connectors.discogs.token_service",
+    # Same carve-out, v0.11.3: `mixd tidal auth` — the device-code flow with
+    # the localhost-redirect fallback shares `tidal/auth.py` + the token
+    # store with the web callback, so one auth implementation serves both.
+    "src.interface.cli.tidal_commands -> src.infrastructure.connectors._shared.token_storage",
+    "src.interface.cli.tidal_commands -> src.infrastructure.connectors.tidal.auth",
     "src.interface.cli.connector_commands -> src.infrastructure.connectors._shared.connector_status",
     "src.interface.cli.connector_commands -> src.infrastructure.connectors._shared.token_storage",
     "src.interface.cli.connector_commands -> src.infrastructure.connectors.discovery",
@@ -603,6 +611,31 @@ ignore_imports = [
     # nothing in application/ owns adapter lifetime.
     "src.interface.api.app -> src.infrastructure.chat.anthropic_adapter",
 ]
+
+# Sixth contract, v0.11.3 Tidal churn defense: the hand-written models derived
+# from the vendored, SHA-pinned Tidal OpenAPI spec live in one isolated module
+# (`tidal/oas_models.py`) that only the Tidal connector package may import.
+# Tidal revises its API in place, so wire-format shapes must never leak past
+# the adapter — when the spec drifts, the blast radius is exactly this package,
+# not every module that found the models convenient. Direct imports only
+# (`allow_indirect_imports`): reaching Tidal data through the connector's
+# public surface is the adapter wrapping working as designed.
+[[tool.importlinter.contracts]]
+name = "Tidal OAS-derived models are importable only inside the Tidal connector"
+type = "forbidden"
+source_modules = ["src.**"]
+forbidden_modules = ["src.infrastructure.connectors.tidal.oas_models"]
+allow_indirect_imports = true
+ignore_imports = [
+    "src.infrastructure.connectors.tidal -> src.infrastructure.connectors.tidal.oas_models",
+    "src.infrastructure.connectors.tidal.* -> src.infrastructure.connectors.tidal.oas_models",
+    "src.infrastructure.connectors.tidal.** -> src.infrastructure.connectors.tidal.oas_models",
+]
+# "none", not the default "error": the allow-list above is written ahead of its
+# consumers — the T3+ client/resolver modules that will import oas_models don't
+# exist yet, so the wildcards match nothing today and would otherwise fail the
+# run for being unmatched.
+unmatched_ignore_imports_alerting = "none"
 
 [tool.typer.app]
 name = "mixd"

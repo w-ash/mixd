@@ -161,29 +161,27 @@ class DiscogsAPIClient(BaseAPIClient):
 
         The username is normally recorded at connect time; a token row
         missing it (a legacy or partially-written row) gets healed when a
-        live identity probe re-derives it. No-op when no token is stored.
+        live identity probe re-derives it. The narrow ``update_extra_data``
+        write (empty merge + ``account_name``) never rewrites token
+        columns. No-op when no token is stored.
         """
-        stored = await self._storage.load_token(DISCOGS_SERVICE, self._user_id)
-        if stored is None:
-            return
-        stored["account_name"] = username
-        await self._storage.save_token(DISCOGS_SERVICE, self._user_id, stored)
+        await self._storage.update_extra_data(
+            DISCOGS_SERVICE, self._user_id, {}, account_name=username
+        )
 
     async def save_collection_count(self, count: int) -> None:
         """Refresh ``extra_data["collection_count"]`` on the stored token.
 
         The cached count is what ``get_discogs_status`` renders without
         spending Discogs budget on status polls; a snapshot has just paid for
-        the real number, so it writes the cache back. No-op when no token is
-        stored (a disconnect raced the snapshot).
+        the real number, so it writes the cache back — via the narrow
+        ``update_extra_data`` write, which never rewrites token columns from
+        a stale load. No-op when no token is stored (a disconnect raced the
+        snapshot).
         """
-        stored = await self._storage.load_token(DISCOGS_SERVICE, self._user_id)
-        if stored is None:
-            return
-        extra_data = dict(stored.get("extra_data") or {})
-        extra_data["collection_count"] = count
-        stored["extra_data"] = extra_data
-        await self._storage.save_token(DISCOGS_SERVICE, self._user_id, stored)
+        await self._storage.update_extra_data(
+            DISCOGS_SERVICE, self._user_id, {"collection_count": count}
+        )
 
     # -------------------------------------------------------------------------
     # Serialized call plumbing

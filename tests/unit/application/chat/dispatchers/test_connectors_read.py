@@ -96,3 +96,66 @@ class TestGetDiscogsSnapshot:
             await connectors_read.handle_get_discogs_snapshot(
                 {"recent_limit": "ten"}, _CTX
             )
+
+
+class TestGetTidalSnapshot:
+    async def test_projects_snapshot_with_wrapped_user_text(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        from src.application.use_cases.get_tidal_snapshot import (
+            GetTidalSnapshotResult,
+            TidalSnapshotItem,
+        )
+
+        _patch(
+            monkeypatch,
+            GetTidalSnapshotResult(
+                total_items=2,
+                recent=(
+                    TidalSnapshotItem(
+                        title="Rio",
+                        artists="Duran Duran",
+                        added_at="2026-08-01T12:34:56+00:00",
+                    ),
+                ),
+            ),
+        )
+
+        out = await connectors_read.handle_get_tidal_snapshot({}, _CTX)
+
+        assert isinstance(out, dict)
+        assert out["total_items"] == 2
+        recent = out["recent"]
+        assert isinstance(recent, list)
+        assert len(recent) == 1
+        item = recent[0]
+        assert isinstance(item, dict)
+        # Tidal-originated free text reaches the model quoted as data.
+        assert item["title"] == wrap("Rio")
+        assert item["artists"] == wrap("Duran Duran")
+        assert item["added_at"] == "2026-08-01T12:34:56+00:00"
+
+    async def test_empty_collection_is_a_normal_answer(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        from src.application.use_cases.get_tidal_snapshot import GetTidalSnapshotResult
+
+        _patch(monkeypatch, GetTidalSnapshotResult(total_items=0, recent=()))
+
+        out = await connectors_read.handle_get_tidal_snapshot({}, _CTX)
+
+        assert isinstance(out, dict)
+        assert out["total_items"] == 0
+        assert out["recent"] == []
+
+    async def test_bad_recent_limit_raises_tool_error(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        from src.application.use_cases.get_tidal_snapshot import GetTidalSnapshotResult
+
+        _patch(monkeypatch, GetTidalSnapshotResult(total_items=0, recent=()))
+
+        with pytest.raises(ToolExecutionError):
+            await connectors_read.handle_get_tidal_snapshot(
+                {"recent_limit": "ten"}, _CTX
+            )

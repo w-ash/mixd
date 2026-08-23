@@ -13,6 +13,9 @@ repos:
         exclude: tsconfig\.json$
     -   id: debug-statements
     -   id: check-added-large-files
+        # The vendored Tidal OpenAPI spec (~1.6 MB) is deliberate: the OAS
+        # drift gate diffs it in CI (v0.11.3).
+        exclude: ^src/infrastructure/connectors/tidal/tidal-api-oas\.json$
 -   repo: https://github.com/astral-sh/ruff-pre-commit
     # Keep in step with the `ruff` pin in pyproject.toml's dev group. A hook
     # older than the project's ruff can't parse the config: since 0.16 the

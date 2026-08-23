@@ -205,6 +205,17 @@ class SchedulerConstants:
     POLL_LOCK_KEY: Final = 0x6D697864
 
 
+class TokenConstants:
+    """Fixed values for the OAuth token seam."""
+
+    # pg_advisory_xact_lock class id for the per-(user, service) single-flight
+    # token-refresh guard (token_refresh_lock.py). The two-int overload takes
+    # (class_id, obj_id) as signed int4s: this is the fixed class half, ASCII
+    # "tokn" (0x746F6B6E); the obj half is derived from (service, user_id).
+    # Distinct key space from POLL_LOCK_KEY's one-arg bigint overload.
+    REFRESH_LOCK_CLASS: Final = 0x746F6B6E
+
+
 class MappingOrigin:
     """How a track mapping was established.
 
@@ -252,6 +263,7 @@ class MatchMethod:
     # Secondary mappings for stale IDs (old ID → same canonical track)
     DIRECT_IMPORT_STALE_ID: Final = "direct_import_stale_id"
     SEARCH_FALLBACK_STALE_ID: Final = "search_fallback_stale_id"
+    ISRC_MATCH_STALE_ID: Final = "isrc_match_stale_id"
 
     # Confidence scores for automated resolution strategies
     ISRC_MATCH_CONFIDENCE: Final = 95
@@ -278,6 +290,7 @@ class MatchMethod:
         "spotify_redirect": "Error Recovery",
         "direct_import_stale_id": "Secondary Cache",
         "search_fallback_stale_id": "Secondary Cache",
+        "isrc_match_stale_id": "Secondary Cache",
         "lastfm_import_raw_alias": "Secondary Cache",
     }
 
@@ -295,6 +308,7 @@ class MatchMethod:
         "spotify_redirect": "Spotify ID relinking detected",
         "direct_import_stale_id": "Stale ID cache (redirect)",
         "search_fallback_stale_id": "Stale ID cache (fallback)",
+        "isrc_match_stale_id": "Stale ID cache (ISRC reuse)",
         "lastfm_import_raw_alias": "Last.fm raw-spelling alias (pre-autocorrect) cache",
     }
 

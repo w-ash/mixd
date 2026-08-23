@@ -10,7 +10,7 @@ internal plumbing). This table is generated from
 `src/application/tools/registry.py` and enforced by
 `tests/unit/application/tools/test_registry_parity.py`.
 
-**91 capabilities: 80 covered, 11 excluded.**
+**92 capabilities: 81 covered, 11 excluded.**
 
 | Capability (use case) | Chat tool | Disposition | Rationale |
 | --- | --- | --- | --- |
@@ -45,6 +45,7 @@ internal plumbing). This table is generated from
 | GetPreferredTracksUseCase | query_library | covered | — |
 | GetScheduleUseCase | query_schedules | covered | — |
 | GetSyncCheckpointStatusUseCase | query_operations | covered | — |
+| GetTidalSnapshotUseCase | get_tidal_snapshot | covered | — |
 | GetTrackDetailsUseCase | query_library | covered | — |
 | GetTrackPlaylistsUseCase | query_library | covered | — |
 | GetWorkflowRunUseCase | query_workflow_history | covered | — |
@@ -151,6 +152,7 @@ chat-only for now — the latter pending the gated Tasks-extension epic.
 | import_data | write | chat-only (pending Tasks) | Call this to import listening data from a connector — Last.fm play history, Spotify likes, or the ~50 most recent Spotify plays (use that one for today's listening). |
 | rebuild_play_history | write | chat-only (pending Tasks) | Call this to re-derive the user's entire canonical play history from the imported observation ledger — converging duplicates and refreshing merged fields. |
 | get_discogs_snapshot | read | exposed | Call this to see the user's Discogs record collection as Discogs reports it: the total number of collected releases and the most recently added items (title, artist credits, year, physical formats, date added). |
+| get_tidal_snapshot | read | exposed | Call this to see the user's Tidal favorites as Tidal reports them: the total number of favorited tracks and the most recently added ones (title, artists, date favorited). |
 | code_execution | agentic | chat-only (agentic) | Server-side Python sandbox for batch computation over the user's library. |
 | delegate_analysis | agentic | chat-only (agentic) | Use this when a question needs a genuinely multi-step investigation of the user's library — many lookups across play history, tags, preferences, and playlists whose intermediate results this conversation does not need. |
 | tool_search_tool_bm25 | agentic | chat-only (agentic) | Server-side BM25 search over the deferred tool set. |

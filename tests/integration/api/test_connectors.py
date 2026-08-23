@@ -8,7 +8,7 @@ fixture so no live API calls leak from the integration env's real OAuth tokens.
 from collections.abc import AsyncGenerator
 from datetime import UTC, datetime
 import time
-from unittest.mock import AsyncMock, patch
+from unittest.mock import ANY, AsyncMock, patch
 import uuid
 
 import httpx2
@@ -46,7 +46,14 @@ class TestGetConnectors:
         connectors = response.json()
         assert isinstance(connectors, list)
         names = {c["name"] for c in connectors}
-        assert names == {"spotify", "lastfm", "musicbrainz", "apple_music", "discogs"}
+        assert names == {
+            "spotify",
+            "lastfm",
+            "musicbrainz",
+            "apple_music",
+            "discogs",
+            "tidal",
+        }
 
     async def test_discogs_registered_as_token_physical(
         self, client: httpx2.AsyncClient
@@ -58,6 +65,19 @@ class TestGetConnectors:
         assert discogs["auth_method"] == "token"
         assert discogs["category"] == "physical"
         assert discogs["capabilities"] == []
+
+    async def test_tidal_registered_as_oauth_streaming(
+        self, client: httpx2.AsyncClient
+    ) -> None:
+        response = await client.get("/api/v1/connectors")
+
+        tidal = next(c for c in response.json() if c["name"] == "tidal")
+        assert tidal["display_name"] == "TIDAL"
+        assert tidal["auth_method"] == "oauth"
+        assert tidal["category"] == "streaming"
+        # Favorites snapshot writes no canonical data — capabilities stay
+        # empty until a later epic adds one.
+        assert tidal["capabilities"] == []
 
 
 def _mock_storage(
@@ -200,8 +220,11 @@ class TestSpotifyDisplayName:
 
         spotify = next(c for c in response.json() if c["name"] == "spotify")
         assert spotify["account_name"] == "cached_user"
-        saved_token = storage.save_token.call_args.args[2]
-        assert saved_token["extra_data"]["account_id"] == "backfilled_acct_id"
+        # Persisted through the narrow delta write — never a full-token upsert.
+        storage.update_extra_data.assert_called_once_with(
+            "spotify", ANY, {"account_id": "backfilled_acct_id"}, account_name=None
+        )
+        storage.save_token.assert_not_called()
 
     async def test_fetches_display_name_when_not_cached(
         self, client: httpx2.AsyncClient
@@ -224,10 +247,12 @@ class TestSpotifyDisplayName:
         assert spotify["account_name"] == "fetched_user"
         mock_fetch.assert_called_once_with("test_token")
 
-        # Verify it was saved back to storage with account_name + account_id
-        storage.save_token.assert_called()
-        saved_token = storage.save_token.call_args.args[2]
-        assert saved_token["extra_data"]["account_id"] == "acct-fetched"
+        # Saved back through the narrow delta write: account_id in extra_data
+        # plus the newly learned account_name — never a full-token upsert.
+        storage.update_extra_data.assert_called_once_with(
+            "spotify", ANY, {"account_id": "acct-fetched"}, account_name="fetched_user"
+        )
+        storage.save_token.assert_not_called()
 
     async def test_display_name_fetch_failure_returns_none(
         self, client: httpx2.AsyncClient

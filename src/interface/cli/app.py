@@ -184,6 +184,7 @@ def _register_commands() -> None:
         stats_commands,
         sync_commands,
         tag_commands,
+        tidal_commands,
         track_commands,
         workflow_commands,
     )
@@ -257,6 +258,14 @@ def _register_commands() -> None:
         discogs_commands.app,
         name="discogs",
         help="Connect Discogs and browse your record collection",
+        rich_help_panel="🔄 Track Data Sync",
+    )
+
+    # `snapshot` joins this group with the T10 favorites-snapshot packet.
+    app.add_typer(
+        tidal_commands.app,
+        name="tidal",
+        help="Connect Tidal and browse your collection",
         rich_help_panel="🔄 Track Data Sync",
     )
 

@@ -39,6 +39,17 @@ from src.infrastructure.connectors.spotify.models import (
     SpotifyArtist,
     SpotifyTrack,
 )
+from src.infrastructure.connectors.tidal.oas_models import (
+    JsonApiDocument,
+    JsonApiResource,
+    TidalArtistAttributes,
+    TidalArtistResource,
+    TidalManyRelationship,
+    TidalSingleRelationship,
+    TidalTrackAttributes,
+    TidalTrackRelationships,
+    TidalTrackResource,
+)
 
 # ---------------------------------------------------------------------------
 # Track factories
@@ -162,6 +173,76 @@ def make_apple_song(
             play_params=play_params,
         ),
     )
+
+
+def make_tidal_track_resource(
+    track_id: str = "12345",
+    title: str = "Test Song",
+    isrc: str | None = "USUM72309818",
+    duration: str = "PT3M20S",
+    replacement_id: str | None = None,
+    artist_ids: tuple[str, ...] = (),
+) -> TidalTrackResource:
+    """Build a :class:`TidalTrackResource` wire shape with sensible defaults.
+
+    ``duration`` is the ISO-8601 string Tidal serves (default 200s, matching
+    the apple factory's 200_000ms). ``replacement_id`` populates the
+    platform-asserted successor relationship; ``artist_ids`` the ordered
+    artists relationship linkage (names ride ``included`` — see
+    :func:`make_tidal_track_document`).
+    """
+    relationships = None
+    if replacement_id is not None or artist_ids:
+        relationships = TidalTrackRelationships(
+            replacement=TidalSingleRelationship(
+                data=JsonApiResource(id=replacement_id, type="tracks")
+            )
+            if replacement_id is not None
+            else None,
+            artists=TidalManyRelationship(
+                data=[JsonApiResource(id=aid, type="artists") for aid in artist_ids]
+            )
+            if artist_ids
+            else None,
+        )
+    return TidalTrackResource(
+        id=track_id,
+        type="tracks",
+        attributes=TidalTrackAttributes(title=title, isrc=isrc, duration=duration),
+        relationships=relationships,
+    )
+
+
+def make_tidal_track_document(
+    track_id: str = "12345",
+    title: str = "Test Song",
+    isrc: str | None = "USUM72309818",
+    duration: str = "PT3M20S",
+    artists: tuple[str, ...] = ("Test Artist",),
+    replacement_id: str | None = None,
+) -> JsonApiDocument[TidalTrackResource]:
+    """Build the ``GET /tracks/{id}?include=artists,replacement`` document.
+
+    Artist names land as side-loaded ``included`` artist resources with the
+    track's ordered ``artists`` relationship pointing at them, exactly as the
+    wire delivers them.
+    """
+    artist_ids = tuple(f"artist-{i}" for i in range(len(artists)))
+    resource = make_tidal_track_resource(
+        track_id=track_id,
+        title=title,
+        isrc=isrc,
+        duration=duration,
+        replacement_id=replacement_id,
+        artist_ids=artist_ids,
+    )
+    included: list[TidalArtistResource | JsonApiResource] = [
+        TidalArtistResource(
+            id=aid, type="artists", attributes=TidalArtistAttributes(name=name)
+        )
+        for aid, name in zip(artist_ids, artists, strict=True)
+    ]
+    return JsonApiDocument[TidalTrackResource](data=resource, included=included)
 
 
 # ---------------------------------------------------------------------------

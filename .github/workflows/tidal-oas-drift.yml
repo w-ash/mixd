@@ -1,0 +1,41 @@
+# Tidal revises its OpenAPI spec in place (the search contract changed and was
+# fixed same-day on 2026-08-12, tidal-music discussion #366). The connector's
+# hand-written models are derived from a vendored, SHA-pinned copy of that spec
+# (src/infrastructure/connectors/tidal/tidal-api-oas.json), so upstream drift
+# must fail visibly instead of silently breaking parsing: this weekly check
+# compares upstream against the vendored copy and goes red on any difference.
+# On failure: run `uv run python scripts/refresh_tidal_oas.py`, review the diff
+# against tidal/oas_models.py, re-pin TIDAL_OAS_SHA256.
+name: Tidal OAS drift
+
+on:
+  schedule:
+    - cron: "17 6 * * 1" # Mondays 06:17 UTC — off the top-of-hour cron stampede
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+env:
+  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
+
+jobs:
+  drift:
+    name: Vendored spec vs upstream
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          submodules: false
+
+      # Full version, not `@v9` — setup-uv stopped publishing major/minor tags
+      # at v8.0.0 (see ci.yml for the supply-chain rationale).
+      - uses: astral-sh/setup-uv@v9.0.0
+
+      - name: Install dependencies
+        run: uv sync --locked
+
+      - name: Check vendored Tidal OpenAPI spec against upstream
+        run: uv run python scripts/refresh_tidal_oas.py --check

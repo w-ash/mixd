@@ -179,3 +179,36 @@ basic_information  # DiscogsCollectionRelease — display block (read via model_
 genres  # DiscogsRelease — genre tags
 styles  # DiscogsRelease — style tags
 main_release  # DiscogsMaster — canonical release id
+
+# --- v0.11.3 Tidal OAS boundary models (tidal/oas_models.py) ---
+# PROVISIONAL shapes derived from the vendored, SHA-pinned tidal-api-oas.json,
+# written ahead of their consumers: the T3+ client/resolver imports them, and
+# today they are exercised only by tests (outside vulture's paths). They are
+# the validated wire contract, not dead code.
+TIDAL_OAS_SHA256  # oas_models — spec pin, asserted by test_oas_pin.py
+self_url  # CursorLinks — JSON:API "self" link (aliased; "self" is not a valid field name)
+included  # JsonApiDocument — side-loaded resources block
+pointer  # TidalErrorSource — JSON Pointer into the failing request document
+parameter  # TidalErrorSource — offending query parameter name
+JsonApiDocument  # generic top-level document envelope
+TidalTrackResource  # track resource object (T3 ISRC lookup)
+TidalCollectionItemRef  # userCollection items entry (favorites snapshot)
+TidalErrorDocument  # JSON:API error body (error classifier detail)
+
+# --- v0.11.3 T5: Tidal client + domain-facing conversions ---
+# Written ahead of their consumers (the T-later inward resolver and the
+# favorites snapshot); today exercised only by tests (outside vulture's
+# paths). They are the connector's public API surface, not dead code.
+get_tracks_by_isrc  # TidalAPIClient — ISRC 1:N lookup (conservative resolution)
+get_track  # TidalAPIClient — single track + replacement successor pointer
+get_collection_track_items  # TidalAPIClient — favorites page (snapshot epic)
+tidal_track_from_resource  # models.py — wire resource → TidalTrack
+collection_item_from_ref  # models.py — items entry → TidalCollectionItem
+
+# --- v0.11.3 T9: Tidal conservative resolution (successor seam) ---
+# The shared per-connector dead-id consult protocol. Its method
+# (resolve_successors) is implemented and exercised by TidalInwardResolver;
+# the class NAME has no src callsite yet because conformance is structural
+# (runtime_checkable Protocol, asserted by tests, which vulture excludes)
+# and the consult-side consumer is the v0.13.0 re-resolution drain.
+SuccessorHook  # _shared/successor_resolution.py — dead-id successor consult protocol

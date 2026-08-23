@@ -37,6 +37,10 @@ from src.infrastructure.connectors.musicbrainz import MusicBrainzProvider
 from src.infrastructure.connectors.musicbrainz.connector import MusicBrainzConnector
 from src.infrastructure.connectors.spotify import SpotifyProvider
 from src.infrastructure.connectors.spotify.client import SpotifyAPIClient
+from src.infrastructure.connectors.tidal.connector import TidalConnector
+from src.infrastructure.connectors.tidal.matching_provider import (
+    TidalMatchingProvider,
+)
 
 logger = get_logger(__name__)
 
@@ -73,6 +77,9 @@ class TrackIdentityServiceImpl(TrackIdentityServiceProtocol):
             "musicbrainz": lambda ci: MusicBrainzProvider(
                 cast(MusicBrainzConnector, ci)
             ),
+            # The enricher node hands the registry-built TidalConnector
+            # facade; the provider wants the JSON:API client it holds.
+            "tidal": lambda ci: TidalMatchingProvider(cast(TidalConnector, ci).client),
         }
 
     @override
