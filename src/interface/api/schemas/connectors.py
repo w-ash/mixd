@@ -44,6 +44,23 @@ class ConnectorMetadataSchema(BaseModel):
     # from ``DBSyncCheckpoint``. Lets the UI render contextual status like
     # "Synced 2h ago" instead of a bare connected indicator.
     last_synced_at: datetime | None = None
+    # Short human-readable status suffix from the connector's probe, e.g.
+    # "1,204 releases" (Discogs collection count). ``None`` when the
+    # connector has nothing extra to report.
+    detail: str | None = None
+
+
+class ConnectorTokenRequest(BaseModel):
+    """Body for ``PUT /connectors/{service}/token`` — a BYO personal access token.
+
+    Write-only: the token is validated live, stored encrypted, and never
+    returned in any response.
+    """
+
+    # Real Discogs personal access tokens are ~40 chars; 512 bounds hostile
+    # payloads without ever rejecting a genuine token. Oversize input fails
+    # request validation, whose handler strips the echoed value (middleware).
+    token: str = Field(min_length=1, max_length=512)
 
 
 class ActiveAssignmentSchema(BaseModel):

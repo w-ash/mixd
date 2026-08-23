@@ -1,7 +1,9 @@
-"""In-memory sliding-window rate limiter for the chat endpoint.
+"""In-memory sliding-window rate limiter for per-user API throttles.
 
 Right-sized for mixd's single-process deployment shape (matching couplefins).
 Not a distributed limiter — one process, no cross-instance coordination.
+Each surface constructs its own instance with a message naming what was
+throttled (chat requests, Discogs token attempts, ...).
 """
 
 from collections import defaultdict, deque
@@ -16,9 +18,15 @@ class InMemoryRateLimiter:
     # Sweep stale per-key deques at most this often (seconds). Cheap, amortised.
     _SWEEP_INTERVAL_SECONDS = 300.0
 
-    def __init__(self, max_requests: int, window_seconds: float) -> None:
+    def __init__(
+        self,
+        max_requests: int,
+        window_seconds: float,
+        message: str = "Too many chat requests. Please wait a moment and try again.",
+    ) -> None:
         self._max = max_requests
         self._window = window_seconds
+        self._message = message
         self._hits: dict[str, deque[float]] = defaultdict(deque)
         self._last_sweep = time.monotonic()
 
@@ -31,9 +39,7 @@ class InMemoryRateLimiter:
         while hits and hits[0] < cutoff:
             hits.popleft()
         if len(hits) >= self._max:
-            raise RateLimitExceededError(
-                "Too many chat requests. Please wait a moment and try again."
-            )
+            raise RateLimitExceededError(self._message)
         hits.append(now)
 
     def _maybe_sweep(self, now: float) -> None:

@@ -59,6 +59,7 @@ class TestConnectorConfigurationConsistency:
         configs = [
             settings.api.spotify,
             settings.api.lastfm,
+            settings.api.discogs,
         ]
 
         common_fields = [

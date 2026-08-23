@@ -19,6 +19,7 @@ from tenacity import (
 from src.infrastructure.connectors._shared.rate_limiting import ConnectorRateLimiter
 from src.infrastructure.connectors.apple_music.client import AppleMusicAPIClient
 from src.infrastructure.connectors.base import BaseAPIClient, service_name_for_client
+from src.infrastructure.connectors.discogs.client import DiscogsAPIClient
 from src.infrastructure.connectors.lastfm.client import LastFMAPIClient
 from src.infrastructure.connectors.musicbrainz.client import MusicBrainzAPIClient
 from src.infrastructure.connectors.spotify.client import SpotifyAPIClient
@@ -146,6 +147,7 @@ class TestServiceNameResolution:
             (LastFMAPIClient, "lastfm"),
             (MusicBrainzAPIClient, "musicbrainz"),
             (AppleMusicAPIClient, "apple_music"),
+            (DiscogsAPIClient, "discogs"),
         ],
     )
     def test_client_resolves_to_its_settings_key(

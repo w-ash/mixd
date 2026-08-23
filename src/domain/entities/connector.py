@@ -14,8 +14,11 @@ from typing import Literal
 
 from attrs import define
 
-type ConnectorCategory = Literal["streaming", "enrichment", "history"]
-"""Taxonomy of music-service kinds, used to group connectors on the UI."""
+type ConnectorCategory = Literal["streaming", "enrichment", "history", "physical"]
+"""Taxonomy of music-service kinds, used to group connectors on the UI.
+
+``physical`` — physical-media services (Discogs).
+"""
 
 type ConnectorAuthMethod = Literal[
     "oauth", "browser_bridge", "token", "device_code", "none", "coming_soon"
@@ -85,6 +88,10 @@ class ConnectorStatus:
     account_name: str | None = None
     token_expires_at: int | None = None
     auth_error: ConnectorAuthError | None = None
+    # Short human-readable status suffix, e.g. "1,204 releases" (Discogs
+    # collection count). Generic across connectors — each status_fn decides
+    # whether it has anything worth surfacing here.
+    detail: str | None = None
 
 
 def derive_status_state(status: ConnectorStatus) -> ConnectorStatusState:

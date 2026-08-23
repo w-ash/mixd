@@ -22,8 +22,11 @@ the type checker honest without suppressions:
 """
 
 from collections.abc import Awaitable, Callable
+from typing import cast
 
 from fastapi import FastAPI, Request
+from fastapi.encoders import jsonable_encoder
+from fastapi.exceptions import RequestValidationError
 from fastapi.responses import JSONResponse
 from sqlalchemy.exc import DatabaseError
 
@@ -34,6 +37,8 @@ from src.domain.exceptions import (
     ConfirmationRequiredError,
     ConnectorNotConnectedError,
     ConnectorScopeMissingError,
+    DiscogsAuthRequiredError,
+    DiscogsInvalidTokenError,
     InvalidApiKeyError,
     LastfmAuthRequiredError,
     NotFoundError,
@@ -253,6 +258,19 @@ def register_exception_handlers(app: FastAPI) -> None:
             },
         )
 
+    async def discogs_auth_required_handler(
+        _request: Request, exc: Exception
+    ) -> JSONResponse:
+        return JSONResponse(
+            status_code=409,
+            content={
+                "error": {
+                    "code": "DISCOGS_AUTH_REQUIRED",
+                    "message": str(exc),
+                }
+            },
+        )
+
     async def connector_not_connected_handler(
         _request: Request, exc: Exception
     ) -> JSONResponse:
@@ -326,6 +344,32 @@ def register_exception_handlers(app: FastAPI) -> None:
             },
         )
 
+    async def request_validation_handler(
+        _request: Request, exc: Exception
+    ) -> JSONResponse:
+        """FastAPI's default 422 shape, minus each error's ``input`` echo.
+
+        The default handler reflects the offending value back in every error
+        dict — for write-only credential bodies (the Discogs token PUT) that
+        would put the submitted secret into a response body/log. Stripping
+        ``input`` globally keeps the loc/msg/type triple clients key on while
+        never echoing what was posted.
+        """
+        if not isinstance(
+            exc, RequestValidationError
+        ):  # pragma: no cover — dispatch guards
+            return await generic_error_handler(_request, exc)
+        # fastapi types errors() as Sequence[Any]; pydantic documents the
+        # real shape as error dicts — one cast pins it to object values.
+        raw_errors = cast("list[dict[str, object]]", exc.errors())
+        errors = [
+            {key: value for key, value in error.items() if key != "input"}
+            for error in raw_errors
+        ]
+        return JSONResponse(
+            status_code=422, content={"detail": jsonable_encoder(errors)}
+        )
+
     def _simple_handler(
         exc_type: type[Exception], status_code: int, code: str
     ) -> Callable[[Request, Exception], Awaitable[JSONResponse]]:
@@ -376,12 +420,22 @@ def register_exception_handlers(app: FastAPI) -> None:
     app.add_exception_handler(
         AppleMusicAuthRequiredError, apple_music_auth_required_handler
     )
+    app.add_exception_handler(DiscogsAuthRequiredError, discogs_auth_required_handler)
+    # Connect-time token validation failure (PUT /connectors/discogs/token) —
+    # a 400 the token form renders inline, distinct from the parent class's
+    # 409 "stored credential unusable". Starlette dispatches on the most
+    # specific registered class, so the subclass handler wins.
+    app.add_exception_handler(
+        DiscogsInvalidTokenError,
+        _simple_handler(DiscogsInvalidTokenError, 400, "DISCOGS_INVALID_TOKEN"),
+    )
     app.add_exception_handler(
         ConnectorNotConnectedError, connector_not_connected_handler
     )
     app.add_exception_handler(
         ConnectorScopeMissingError, connector_scope_missing_handler
     )
+    app.add_exception_handler(RequestValidationError, request_validation_handler)
     app.add_exception_handler(ValueError, value_error_handler)
     app.add_exception_handler(DatabaseError, database_error_handler)
     app.add_exception_handler(Exception, generic_error_handler)

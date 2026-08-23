@@ -5,6 +5,7 @@ import { useState } from "react";
 import type { ConnectorMetadataSchema } from "#/api/generated/model";
 import { ConfirmationDialog } from "#/components/shared/ConfirmationDialog";
 import { ConnectorIcon } from "#/components/shared/ConnectorIcon";
+import { DiscogsTokenDialog } from "#/components/shared/DiscogsTokenDialog";
 import { Badge } from "#/components/ui/badge";
 import { Button } from "#/components/ui/button";
 import { useConnectorAuth } from "#/hooks/useConnectorAuth";
@@ -29,6 +30,15 @@ function StatusLine({
 }) {
   switch (state) {
     case "connected": {
+      // Connectors with a generic status suffix (e.g. Discogs' collection
+      // count) render it in place of the signed-in/freshness copy — there's
+      // often no account_name for a token-auth connector, and the detail is
+      // the more useful thing to show.
+      if (connector.detail) {
+        return (
+          <span className="text-text-muted">{`connected · ${connector.detail}`}</span>
+        );
+      }
       const freshness = connector.last_synced_at
         ? `Synced ${formatRelativeTime(connector.last_synced_at)}`
         : connector.token_expires_at
@@ -204,6 +214,14 @@ export function ConnectorCard({ connector, authError }: ConnectorCardProps) {
     useConnectorAuth(connector.name, connector.display_name);
   const [showSettings, setShowSettings] = useState(false);
   const [showDisconnect, setShowDisconnect] = useState(false);
+  const [showTokenForm, setShowTokenForm] = useState(false);
+
+  // Token-auth connectors (Discogs) have no provider redirect — Connect
+  // opens the BYO-token form instead of fetching an auth URL. The PUT
+  // endpoint is per-connector, so a future second token connector needs its
+  // own dialog here.
+  const isTokenAuth = connector.auth_method === "token";
+  const onConnect = isTokenAuth ? () => setShowTokenForm(true) : connect;
 
   const brand = connectorBrand[connector.name];
   const label = connector.display_name;
@@ -241,7 +259,7 @@ export function ConnectorCard({ connector, authError }: ConnectorCardProps) {
               state={state}
               label={label}
               brand={brand}
-              connect={connect}
+              connect={onConnect}
               isConnecting={isConnecting}
               hasSettings={hasSettings}
               showSettings={showSettings}
@@ -262,6 +280,14 @@ export function ConnectorCard({ connector, authError }: ConnectorCardProps) {
           </Collapsible.Content>
         </div>
       </Collapsible.Root>
+
+      {/* BYO-token connect form (opened in place of the OAuth redirect) */}
+      {isTokenAuth && (
+        <DiscogsTokenDialog
+          open={showTokenForm}
+          onOpenChange={setShowTokenForm}
+        />
+      )}
 
       {/* Disconnect confirmation dialog */}
       {connectable && (

@@ -1,9 +1,16 @@
-import { HttpResponse, http } from "msw";
-import { describe, expect, it } from "vitest";
+import { delay, HttpResponse, http } from "msw";
+import { describe, expect, it, vi } from "vitest";
 
+import { toasts } from "#/lib/toasts";
 import { makeConnectorMetadata } from "#/test/factories";
 import { server } from "#/test/setup";
-import { renderWithProviders, screen, waitFor } from "#/test/test-utils";
+import {
+  renderWithProviders,
+  screen,
+  userEvent,
+  waitFor,
+  within,
+} from "#/test/test-utils";
 
 import { Integrations } from "./Integrations";
 
@@ -152,6 +159,138 @@ describe("Integrations", () => {
     await waitFor(() => {
       expect(screen.queryByText("Connect Apple Music")).not.toBeInTheDocument();
     });
+    expect(callCount).toBeGreaterThanOrEqual(2);
+  });
+
+  it("renders a physical-category connector under its own section (guards the silent category drop)", async () => {
+    server.use(
+      http.get("*/api/v1/connectors", () => {
+        return HttpResponse.json(
+          [
+            ...allConnectors,
+            makeConnectorMetadata({
+              name: "discogs",
+              category: "physical",
+              auth_method: "token",
+              capabilities: [],
+              connected: true,
+              detail: "3 releases",
+            }),
+          ],
+          { status: 200 },
+        );
+      }),
+    );
+
+    renderWithProviders(<Integrations />);
+
+    await waitFor(() => {
+      expect(screen.getByText("Physical media")).toBeInTheDocument();
+    });
+    expect(screen.getByText("Discogs")).toBeInTheDocument();
+  });
+
+  it("flips the Discogs card to connected after the token form submits", async () => {
+    const user = userEvent.setup();
+    let callCount = 0;
+    server.use(
+      http.get("*/api/v1/connectors", () => {
+        callCount += 1;
+        const connected = callCount > 1;
+        return HttpResponse.json(
+          [
+            makeConnectorMetadata({
+              name: "discogs",
+              connected,
+              detail: connected ? "3 releases" : undefined,
+            }),
+          ],
+          { status: 200 },
+        );
+      }),
+      http.put("*/api/v1/connectors/discogs/token", () => {
+        return new HttpResponse(null, { status: 204 });
+      }),
+    );
+
+    renderWithProviders(<Integrations />);
+
+    await user.click(await screen.findByText("Connect Discogs"));
+    const dialog = await screen.findByRole("dialog");
+    await user.type(
+      within(dialog).getByLabelText("Discogs personal access token"),
+      "abc123token",
+    );
+    await user.click(within(dialog).getByRole("button", { name: "Connect" }));
+
+    // Success invalidates the connectors query — the refetch flips the card.
+    await waitFor(() => {
+      expect(screen.getByText("connected · 3 releases")).toBeInTheDocument();
+    });
+    expect(callCount).toBeGreaterThanOrEqual(2);
+    expect(screen.queryByText("Connect Discogs")).not.toBeInTheDocument();
+  });
+
+  it("holds the dialog open and busy — and defers the success toast — until the post-connect refetch settles", async () => {
+    // Regression for the live bug: the success toast fired (and the dialog
+    // closed) the instant the PUT resolved, before the connectors refetch
+    // had landed — so the card still read "Connect Discogs" under a
+    // "Discogs connected" toast. Delay the *second* GET (the post-invalidate
+    // refetch) so a wrong ordering is observable mid-flight.
+    const user = userEvent.setup();
+    const successSpy = vi.spyOn(toasts, "success");
+    let callCount = 0;
+    server.use(
+      http.get("*/api/v1/connectors", async () => {
+        callCount += 1;
+        if (callCount > 1) {
+          await delay(50);
+        }
+        const connected = callCount > 1;
+        return HttpResponse.json(
+          [
+            makeConnectorMetadata({
+              name: "discogs",
+              connected,
+              detail: connected ? "3 releases" : undefined,
+            }),
+          ],
+          { status: 200 },
+        );
+      }),
+      http.put("*/api/v1/connectors/discogs/token", () => {
+        return new HttpResponse(null, { status: 204 });
+      }),
+    );
+
+    renderWithProviders(<Integrations />);
+
+    await user.click(await screen.findByText("Connect Discogs"));
+    const dialog = await screen.findByRole("dialog");
+    await user.type(
+      within(dialog).getByLabelText("Discogs personal access token"),
+      "abc123token",
+    );
+    await user.click(within(dialog).getByRole("button", { name: "Connect" }));
+
+    // The PUT has resolved (204) but the refetch it triggered is still
+    // in flight: the dialog must stay open and busy, and success must not
+    // have been declared yet.
+    expect(
+      within(dialog).getByRole("button", { name: "Validating..." }),
+    ).toBeInTheDocument();
+    expect(successSpy).not.toHaveBeenCalled();
+
+    await waitFor(() => {
+      expect(successSpy).toHaveBeenCalledWith("Discogs connected");
+    });
+
+    // By the time success is declared, the refetch has already landed: the
+    // dialog is closed and the card shows connected — one continuous
+    // operation from the user's perspective, not toast-then-refetch.
+    expect(screen.queryByRole("dialog")).not.toBeInTheDocument();
+    expect(screen.getByText("connected · 3 releases")).toBeInTheDocument();
+    expect(screen.queryByText("Connect Discogs")).not.toBeInTheDocument();
     expect(callCount).toBeGreaterThanOrEqual(2);
   });
 

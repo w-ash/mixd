@@ -26,7 +26,6 @@ class HTTPStatus:
 
     INTERNAL_SERVER_ERROR: Final = 500
     SERVER_ERROR_MAX: Final = 600
-    HTTP_STATUS_MIN: Final = 100
     CLIENT_ERROR_MIN: Final = 400
     CLIENT_ERROR_MAX: Final = 500
 

@@ -1,4 +1,4 @@
-"""Shared httpx2 client factories for Spotify, Last.fm, MusicBrainz, and Apple Music API connectors.
+"""Shared httpx2 client factories for Spotify, Last.fm, MusicBrainz, Apple Music, and Discogs API connectors.
 
 Provides AsyncClient factories with:
 - Structured request/response logging via event hooks
@@ -11,6 +11,7 @@ so token injection and 401-retry are handled transparently.
 
 from collections.abc import Awaitable, Callable
 import functools
+import importlib.metadata
 from typing import cast
 
 import httpx2
@@ -25,6 +26,11 @@ MUSICBRAINZ_API_BASE = "https://musicbrainz.org/ws/2"
 # No version segment — Apple Music endpoints carry their own /v1 prefix
 # (/v1/me/... and /v1/catalog/... diverge above the version).
 APPLE_MUSIC_API_BASE = "https://api.music.apple.com"
+DISCOGS_API_BASE = "https://api.discogs.com"
+# i.discogs.com rides a separate, undocumented rate bucket: the image client
+# bypasses the Discogs API queue/limiter and its responses' rate headers are
+# meaningless — callers must ignore them.
+DISCOGS_IMAGE_BASE = "https://i.discogs.com"
 
 _http_logger = get_logger(__name__).bind(service="http_client")
 
@@ -37,6 +43,38 @@ def _build_user_agent() -> str:
     from src import __version__
 
     return f"Mixd/{__version__}"
+
+
+# Fallback when installed package metadata carries no [project.urls] entries
+# (e.g. a source checkout imported without an installed distribution).
+_REPO_URL_FALLBACK = "https://github.com/w-ash/mixd"
+
+
+def _repo_url() -> str:
+    """Repository URL from the installed metadata's [project.urls], or fallback."""
+    try:
+        meta = importlib.metadata.metadata("mixd")
+    except importlib.metadata.PackageNotFoundError:
+        return _REPO_URL_FALLBACK
+    # Project-URL entries serialize as "Label, https://..." strings.
+    entries = cast("list[str] | None", meta.get_all("Project-URL")) or []
+    for entry in entries:
+        label, _, url = entry.partition(",")
+        if label.strip().lower() == "repository" and url.strip():
+            return url.strip()
+    return _REPO_URL_FALLBACK
+
+
+@functools.cache
+def _build_user_agent_with_url() -> str:
+    """User-Agent with a contact URL: ``Mixd/<version> +<repo-url>``.
+
+    Discogs silently hands generic User-Agents lower rate limits, so its
+    clients identify with the repository URL (pyproject ``[project.urls]``
+    via installed metadata, module-constant fallback). MusicBrainz keeps the
+    plain :func:`_build_user_agent` form.
+    """
+    return f"{_build_user_agent()} +{_repo_url()}"
 
 
 # -------------------------------------------------------------------------
@@ -216,6 +254,41 @@ def make_apple_music_client(auth: httpx2.Auth) -> httpx2.AsyncClient:
         base_url=APPLE_MUSIC_API_BASE,
         auth=auth,
         timeout=_read_timeout(float(settings.api.apple_music.request_timeout)),
+    )
+
+
+def make_discogs_client(auth: httpx2.Auth | None = None) -> httpx2.AsyncClient:
+    """Return a configured AsyncClient for Discogs API calls.
+
+    ``auth`` is any httpx2.Auth strategy (``DiscogsTokenAuth`` today, OAuth
+    1.0a later) — or ``None`` when the client injects auth per-request after
+    lazily loading the stored token. Carries the ``+<repo-url>`` User-Agent:
+    Discogs gives generic agents silently lower rate limits. Caller owns
+    lifecycle. Timeouts sourced from settings.api.discogs.request_timeout.
+    """
+    return _make_client(
+        base_url=DISCOGS_API_BASE,
+        auth=auth,
+        headers={
+            "Accept": "application/json",
+            "User-Agent": _build_user_agent_with_url(),
+        },
+        timeout=_read_timeout(float(settings.api.discogs.request_timeout)),
+    )
+
+
+def make_discogs_image_client() -> httpx2.AsyncClient:
+    """Return a bare AsyncClient for i.discogs.com image fetches.
+
+    No auth, and deliberately outside the Discogs API queue and limiter —
+    images ride a separate, undocumented bucket, so callers must not route
+    fetches through the serialization queue nor feed these responses to
+    ``apply_rate_headers``. Caller owns lifecycle.
+    """
+    return _make_client(
+        base_url=DISCOGS_IMAGE_BASE,
+        headers={"User-Agent": _build_user_agent_with_url()},
+        timeout=_read_timeout(float(settings.api.discogs.request_timeout)),
     )
 
 

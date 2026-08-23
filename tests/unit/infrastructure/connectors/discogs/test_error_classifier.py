@@ -1,0 +1,70 @@
+"""Discogs error classification: actionable 401, template 429/5xx handling.
+
+The classifier's own surface is the 401 → permanent/auth mapping with a
+reconnect message; 429 deliberately falls through to the shared template's
+``rate_limit`` (Retry-After is honored by the shared retry policy), and 5xx
+stays the template's ``temporary``.
+"""
+
+import httpx2
+
+from src.domain.exceptions import DiscogsAuthRequiredError
+from src.infrastructure.connectors.discogs.error_classifier import (
+    DiscogsErrorClassifier,
+)
+
+
+def http_status_error(status: int, headers: dict[str, str] | None = None):
+    request = httpx2.Request("GET", "https://api.discogs.com/oauth/identity")
+    response = httpx2.Response(status, request=request, headers=headers)
+    return httpx2.HTTPStatusError(f"HTTP {status}", request=request, response=response)
+
+
+class TestAuthClassification:
+    def test_401_is_permanent_auth_with_actionable_message(self):
+        classifier = DiscogsErrorClassifier()
+
+        error_type, error_code, description = classifier.classify_error(
+            http_status_error(401)
+        )
+
+        assert error_type == "permanent"
+        assert error_code == "auth"
+        assert "reconnect Discogs" in description
+        assert "personal access token" in description
+
+    def test_discogs_auth_required_error_is_permanent_auth(self):
+        classifier = DiscogsErrorClassifier()
+
+        error_type, error_code, _ = classifier.classify_error(
+            DiscogsAuthRequiredError()
+        )
+
+        assert error_type == "permanent"
+        assert error_code == "auth"
+
+
+class TestTemplateFallthrough:
+    def test_429_falls_through_to_rate_limit(self):
+        classifier = DiscogsErrorClassifier()
+
+        error_type, error_code, _ = classifier.classify_error(
+            http_status_error(429, headers={"Retry-After": "12"})
+        )
+
+        assert error_type == "rate_limit"
+        assert error_code == "429"
+
+    def test_5xx_is_temporary(self):
+        classifier = DiscogsErrorClassifier()
+
+        error_type, _, _ = classifier.classify_error(http_status_error(503))
+
+        assert error_type == "temporary"
+
+    def test_404_is_not_found(self):
+        classifier = DiscogsErrorClassifier()
+
+        error_type, _, _ = classifier.classify_error(http_status_error(404))
+
+        assert error_type == "not_found"

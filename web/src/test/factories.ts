@@ -69,6 +69,11 @@ const connectorDefaults: Record<
     auth_method: "browser_bridge",
     capabilities: ["history_import_api"],
   },
+  discogs: {
+    category: "physical",
+    auth_method: "token",
+    capabilities: [],
+  },
 };
 
 export function makeConnectorMetadata(
@@ -109,6 +114,7 @@ export function makeConnectorMetadata(
     connected,
     account_name: null,
     token_expires_at: null,
+    detail: null,
     ...overrides,
   };
 }

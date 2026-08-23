@@ -8,6 +8,7 @@ capability protocols at call sites.
 from typing import cast
 
 from src.application.connector_protocols import (
+    DiscogsCollectionConnector,
     LikedTrackConnector,
     LoveTrackConnector,
     PlaylistConnector,
@@ -51,6 +52,13 @@ def resolve_liked_track_connector(uow: UnitOfWorkProtocol) -> LikedTrackConnecto
 def resolve_love_track_connector(uow: UnitOfWorkProtocol) -> LoveTrackConnector:
     """Resolve Last.fm connector typed for love-track writes."""
     return cast(LoveTrackConnector, resolve_connector("lastfm", uow))
+
+
+def resolve_discogs_collection_connector(
+    uow: UnitOfWorkProtocol,
+) -> DiscogsCollectionConnector:
+    """Resolve the Discogs connector typed for raw collection reads."""
+    return cast(DiscogsCollectionConnector, resolve_connector("discogs", uow))
 
 
 def resolve_playlist_connector(

@@ -114,7 +114,10 @@ def auth_spotify() -> None:
         )
         token_to_save = StoredToken(**token_info)
         if display_name:
-            token_to_save = StoredToken(**token_info, account_name=display_name)
+            # SpotifyTokenCache already declares account_name, so a keyword
+            # re-assignment in the constructor is a type error — set the key
+            # on the built TypedDict instead.
+            token_to_save["account_name"] = display_name
         token_to_save = stamp_account_id(token_to_save, account_id)
         await storage.save_token("spotify", user_id, token_to_save)
 
@@ -182,7 +185,7 @@ def disconnect_connector(
         config = discover_connectors().get(service)
         if config is None:
             raise ValueError(f"Unknown connector: {service}")
-        if config["auth_method"] not in {"oauth", "browser_bridge"}:
+        if config["auth_method"] not in {"oauth", "browser_bridge", "token"}:
             raise ValueError(f"{service} does not store credentials to disconnect")
 
         user_id = get_cli_user_id()

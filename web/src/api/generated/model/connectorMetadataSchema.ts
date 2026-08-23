@@ -32,4 +32,5 @@ export interface ConnectorMetadataSchema {
   capabilities: Capability[];
   auth_error?: ConnectorAuthError | null;
   last_synced_at?: string | null;
+  detail?: string | null;
 }

@@ -46,6 +46,7 @@ export * from './connectorPlaylistBrowseResponse.ts';
 export * from './connectorPlaylistBrowseSchema.ts';
 export * from './connectorPlaylistBrowseSchemaImportStatus.ts';
 export * from './connectorStatusState.ts';
+export * from './connectorTokenRequest.ts';
 export * from './consentDetails.ts';
 export * from './consentRedirect.ts';
 export * from './createAssignmentRequest.ts';

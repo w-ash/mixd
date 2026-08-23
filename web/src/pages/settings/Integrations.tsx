@@ -42,10 +42,15 @@ const categoryDisplay: Record<
     description: "Services that provide listening history and scrobble data",
     order: 1,
   },
+  physical: {
+    title: "Physical media",
+    description: "Deep release metadata and your physical collection",
+    order: 2,
+  },
   enrichment: {
     title: "Metadata & enrichment",
     description: "Services that identify tracks and enrich their metadata",
-    order: 2,
+    order: 3,
   },
 };
 

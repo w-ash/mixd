@@ -3872,13 +3872,48 @@
         }
       }
     },
+    "/api/v1/connectors/discogs/token": {
+      "put": {
+        "tags": [
+          "connectors"
+        ],
+        "summary": "Put Discogs Token",
+        "description": "Validate and store the user's Discogs personal access token.\n\nThe v0.6.5 credential carve-out shape (like the assistant BYO-key): the\ntoken is validated live via the shared ``discogs/token_service`` \u2014 which\nalso caches the collection count for the status probe \u2014 then stored\nencrypted. Write-only: never returned by any endpoint. An invalid token\nraises ``DiscogsInvalidTokenError``, which the middleware maps to a 400\n``DISCOGS_INVALID_TOKEN`` envelope (the shape the token form reads);\ndisconnect is the generic ``DELETE /connectors/discogs/token``.",
+        "operationId": "put_discogs_token_api_v1_connectors_discogs_token_put",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ConnectorTokenRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "204": {
+            "description": "Successful Response"
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/api/v1/connectors/{service}/token": {
       "delete": {
         "tags": [
           "connectors"
         ],
         "summary": "Delete Connector Token",
-        "description": "Remove a connector's stored credential, disconnecting it.\n\nOnly connectors that store a per-user credential \u2014 ``auth_method`` of\n``oauth`` or ``browser_bridge`` (Apple Music's MUT) \u2014 can be\ndisconnected; anything else (public APIs, coming-soon stubs) returns 400.",
+        "description": "Remove a connector's stored credential, disconnecting it.\n\nOnly connectors that store a per-user credential \u2014 ``auth_method`` of\n``oauth``, ``browser_bridge`` (Apple Music's MUT), or ``token`` (Discogs'\npersonal access token) \u2014 can be disconnected; anything else (public APIs,\ncoming-soon stubs) returns 400.",
         "operationId": "delete_connector_token_api_v1_connectors__service__token_delete",
         "parameters": [
           {
@@ -6041,7 +6076,8 @@
         "enum": [
           "streaming",
           "enrichment",
-          "history"
+          "history",
+          "physical"
         ]
       },
       "ConnectorLinkBriefSchema": {
@@ -6199,6 +6235,17 @@
               }
             ],
             "title": "Last Synced At"
+          },
+          "detail": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Detail"
           }
         },
         "type": "object",
@@ -6358,6 +6405,22 @@
           "public_api",
           "coming_soon"
         ]
+      },
+      "ConnectorTokenRequest": {
+        "properties": {
+          "token": {
+            "type": "string",
+            "maxLength": 512,
+            "minLength": 1,
+            "title": "Token"
+          }
+        },
+        "type": "object",
+        "required": [
+          "token"
+        ],
+        "title": "ConnectorTokenRequest",
+        "description": "Body for ``PUT /connectors/{service}/token`` \u2014 a BYO personal access token.\n\nWrite-only: the token is validated live, stored encrypted, and never\nreturned in any response."
       },
       "ConsentDetails": {
         "properties": {

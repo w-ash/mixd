@@ -1,6 +1,8 @@
-"""Unit tests for the in-memory sliding-window chat rate limiter.
+"""Unit tests for the in-memory sliding-window per-user rate limiter.
 
-Covers the sliding-window cap and the opportunistic stale-key sweep that keeps
+Covers the sliding-window cap, the per-surface error message (each limiter
+names what it throttles — chat requests by default, Discogs token attempts
+for the connect route), and the opportunistic stale-key sweep that keeps
 ``_hits`` from growing without bound as new per-user keys accumulate (R8).
 """
 
@@ -16,6 +18,26 @@ class TestSlidingWindow:
         for _ in range(3):
             limiter.check("u1")
         with pytest.raises(RateLimitExceededError):
+            limiter.check("u1")
+
+    def test_default_message_names_chat_requests(self) -> None:
+        # The assistant limiter constructs without a message — behavior
+        # (and copy) must be unchanged by the message parameter.
+        limiter = InMemoryRateLimiter(max_requests=1, window_seconds=60)
+        limiter.check("u1")
+        with pytest.raises(RateLimitExceededError, match="Too many chat requests"):
+            limiter.check("u1")
+
+    def test_custom_message_is_raised_verbatim(self) -> None:
+        limiter = InMemoryRateLimiter(
+            max_requests=1,
+            window_seconds=60,
+            message="Too many Discogs token attempts. Please wait a minute.",
+        )
+        limiter.check("u1")
+        with pytest.raises(
+            RateLimitExceededError, match="Too many Discogs token attempts"
+        ):
             limiter.check("u1")
 
     def test_keys_are_independent(self) -> None:

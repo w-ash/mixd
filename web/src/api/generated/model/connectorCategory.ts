@@ -13,4 +13,5 @@ export const ConnectorCategory = {
   streaming: 'streaming',
   enrichment: 'enrichment',
   history: 'history',
+  physical: 'physical',
 } as const;

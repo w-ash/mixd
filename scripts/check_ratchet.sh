@@ -48,7 +48,14 @@ cd "$(dirname "$0")/.."
 # handler displaces the one the library introspects to notice a shutdown, so the lifespan
 # sets its flag directly — a write to a third-party attribute whose only reader lives
 # inside the library, where vulture cannot follow it.
-BASE_WHITELIST=83
+# 83 → 99 at v0.11.1: the Discogs connector's boundary surface — 9 model fields
+# declared from the live wire probe (read via model_dump/tests, invisible to
+# vulture), 3 v0.13.1 import-substrate client reads + the image-bucket client
+# factory (all test-covered), the httpx2-dispatched auth_flow hook (shared line
+# with Apple Music's), reset_discogs_queue (test-only isolation), and
+# get_song_equivalents (Apple ISRC-equivalence, test-covered). The same change
+# deleted HTTP_STATUS_MIN outright — the one genuinely dead name vulture found.
+BASE_WHITELIST=99
 BASE_NOQA=13
 BASE_TYPE_IGNORE=0
 BASE_PYRIGHT_IGNORE=18

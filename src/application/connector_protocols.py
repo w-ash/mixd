@@ -80,6 +80,42 @@ class LikedTrackConnector(Protocol):
     ) -> tuple[list[ConnectorTrack], str | None, int | None]: ...
 
 
+class DiscogsCollectionConnector(Protocol):
+    """Connector exposing a raw, read-only view of a Discogs collection.
+
+    Raw by design (v0.11.1 Collection Snapshot): no domain entities exist for
+    Discogs releases yet — matching and import are v0.13.1's job — so pages
+    cross this seam as boundary-validated plain JSON mappings, the same shape
+    ``TrackMetadataConnector`` uses for external track data.
+    """
+
+    async def get_stored_username(self) -> str | None:
+        """Discogs username recorded at connect time; None when not connected."""
+        ...
+
+    async def fetch_username(self) -> str | None:
+        """Live identity-probe username, backfilled onto the stored token.
+
+        The fallback when the stored token lacks ``account_name``. None when
+        Discogs could not be reached; raises the auth-required error when no
+        usable token is stored.
+        """
+        ...
+
+    async def get_collection_page_data(
+        self, username: str, *, page: int = 1, per_page: int = 10
+    ) -> Mapping[str, JsonValue] | None:
+        """One boundary-validated collection page as plain JSON data.
+
+        None means the fetch could not complete (suppressed transport failure).
+        """
+        ...
+
+    async def save_collection_count(self, count: int) -> None:
+        """Refresh the cached collection count the status probe renders."""
+        ...
+
+
 class LoveTrackConnector(Protocol):
     """Connector that can love/like tracks on behalf of a user."""
 

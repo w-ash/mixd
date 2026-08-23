@@ -16,6 +16,11 @@ no network calls. An expired or reauth-marked Music User Token stays
 depend on them — and ``account_id`` (added 2026-05) may still be absent on
 an older captured payload shape, in which case it resolves to ``None``
 rather than raising.
+
+``get_discogs_status`` (v0.11.1): storage-only probe — never a network
+call. The ``detail`` suffix renders the cached collection count ("1,204
+releases"); a count of 0 still renders ("0 releases" — the zero-state
+hook, not an error) and a missing count yields ``detail=None``.
 """
 
 import time
@@ -27,6 +32,7 @@ from src.domain.entities.connector import derive_status_state
 from src.infrastructure.connectors._shared.connector_status import (
     fetch_spotify_profile,
     get_apple_music_status,
+    get_discogs_status,
     get_spotify_status,
 )
 from src.infrastructure.connectors._shared.token_storage import StoredToken
@@ -401,3 +407,74 @@ class TestAccountIdBackfill:
         _, _, saved = storage.save_token.await_args.args
         assert saved["extra_data"]["authorized_at"] == 1_700_000_000
         assert saved["extra_data"]["account_id"] == "acct-xyz"
+
+
+def _discogs_token(extra_data: dict[str, object] | None) -> StoredToken:
+    token = StoredToken(
+        access_token="discogs-pat",
+        token_type="personal_token",
+        account_name="wash",
+    )
+    if extra_data is not None:
+        token["extra_data"] = extra_data
+    return token
+
+
+class TestGetDiscogsStatus:
+    async def test_no_token_disconnected(self) -> None:
+        status = await get_discogs_status("u1", make_storage(None))
+
+        assert status.name == "discogs"
+        assert status.auth_method == "token"
+        assert status.connected is False
+        assert status.detail is None
+        assert derive_status_state(status) == "disconnected"
+
+    async def test_connected_formats_collection_count(self) -> None:
+        storage = make_storage(_discogs_token({"collection_count": 1204}))
+        status = await get_discogs_status("u1", storage)
+
+        assert status.connected is True
+        assert status.account_name == "wash"
+        assert status.detail == "1,204 releases"
+        assert derive_status_state(status) == "connected"
+
+    async def test_zero_count_still_renders(self) -> None:
+        # 0 is the zero-state hook ("start cataloguing"), not an error.
+        storage = make_storage(_discogs_token({"collection_count": 0}))
+        status = await get_discogs_status("u1", storage)
+
+        assert status.connected is True
+        assert status.detail == "0 releases"
+
+    async def test_missing_count_yields_no_detail(self) -> None:
+        storage = make_storage(_discogs_token({}))
+        status = await get_discogs_status("u1", storage)
+
+        assert status.connected is True
+        assert status.detail is None
+
+    async def test_probe_is_storage_only(self) -> None:
+        # The probe must never construct a Discogs client — status polls fire
+        # on every Integrations render and would burn the shared per-IP
+        # Discogs budget. Patched at the construction seams themselves
+        # (attrs post-init + the pooled-client factory), so ANY client
+        # build-up on any import path fails the test — a spy on this
+        # module's httpx2 binding would only see clients built *here*.
+        from src.infrastructure.connectors.discogs.client import DiscogsAPIClient
+
+        storage = make_storage(_discogs_token({"collection_count": 3}))
+        with (
+            patch.object(
+                DiscogsAPIClient,
+                "__attrs_post_init__",
+                side_effect=AssertionError("status probe constructed a client"),
+            ),
+            patch(
+                "src.infrastructure.connectors._shared.http_client.make_discogs_client",
+                side_effect=AssertionError("status probe built an HTTP client"),
+            ),
+        ):
+            status = await get_discogs_status("u1", storage)
+
+        assert status.detail == "3 releases"

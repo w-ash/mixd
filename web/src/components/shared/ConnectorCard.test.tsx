@@ -8,6 +8,7 @@ import {
   screen,
   userEvent,
   waitFor,
+  within,
 } from "#/test/test-utils";
 
 import { ConnectorCard } from "./ConnectorCard";
@@ -144,6 +145,42 @@ describe("ConnectorCard", () => {
         screen.getByText(/likes, plays, playlists, and mappings/i),
       ).toBeInTheDocument();
       expect(screen.getByText(/until you reconnect/i)).toBeInTheDocument();
+    });
+
+    it('shows "connected · {detail}" when detail is present', () => {
+      renderWithProviders(
+        <ConnectorCard
+          connector={makeConnector({
+            name: "spotify",
+            connected: true,
+            account_name: "testuser",
+            token_expires_at: Math.floor(Date.now() / 1000) + 3600,
+            detail: "3 releases",
+          })}
+        />,
+      );
+
+      expect(screen.getByText("connected · 3 releases")).toBeInTheDocument();
+      // The detail line replaces (not appends to) the normal signed-in copy.
+      expect(
+        screen.queryByText("Signed in as testuser"),
+      ).not.toBeInTheDocument();
+    });
+
+    it("keeps the existing signed-in rendering when detail is absent", () => {
+      renderWithProviders(
+        <ConnectorCard
+          connector={makeConnector({
+            name: "spotify",
+            connected: true,
+            account_name: "testuser",
+            token_expires_at: Math.floor(Date.now() / 1000) + 3600,
+          })}
+        />,
+      );
+
+      expect(screen.getByText("Signed in as testuser")).toBeInTheDocument();
+      expect(screen.queryByText(/^connected ·/)).not.toBeInTheDocument();
     });
 
     it("shows connected Last.fm with account name and permanent session", () => {
@@ -390,6 +427,180 @@ describe("ConnectorCard", () => {
       // Click connect — in jsdom, window.location.href assignment doesn't navigate
       // but we verify the button is interactive
       await user.click(connectBtn);
+    });
+  });
+
+  describe("token-auth connect flow (discogs)", () => {
+    it("opens the token form on Connect instead of the OAuth redirect", async () => {
+      const user = userEvent.setup();
+      let authUrlFetched = false;
+      server.use(
+        http.get("*/api/v1/connectors/discogs/auth-url", () => {
+          authUrlFetched = true;
+          return HttpResponse.json({ auth_url: "https://example.com/x" });
+        }),
+      );
+
+      renderWithProviders(
+        <ConnectorCard connector={makeConnector({ name: "discogs" })} />,
+      );
+
+      await user.click(screen.getByText("Connect Discogs"));
+
+      // The token form opens in a dialog — no auth-url fetch, no navigation.
+      const dialog = await screen.findByRole("dialog");
+      expect(dialog).toBeInTheDocument();
+      expect(authUrlFetched).toBe(false);
+      // Copy preempts the OAuth confusion on the Discogs developer page.
+      expect(
+        within(dialog).getByText(/Personal access token/),
+      ).toBeInTheDocument();
+      expect(
+        within(dialog).getByText(/ignore the OAuth application fields/i),
+      ).toBeInTheDocument();
+    });
+
+    it("submits the token via PUT and closes on success", async () => {
+      const user = userEvent.setup();
+      let putBody: unknown;
+      server.use(
+        http.put("*/api/v1/connectors/discogs/token", async ({ request }) => {
+          putBody = await request.json();
+          return new HttpResponse(null, { status: 204 });
+        }),
+      );
+
+      renderWithProviders(
+        <ConnectorCard connector={makeConnector({ name: "discogs" })} />,
+      );
+
+      await user.click(screen.getByText("Connect Discogs"));
+      const dialog = await screen.findByRole("dialog");
+      await user.type(
+        within(dialog).getByLabelText("Discogs personal access token"),
+        "abc123token",
+      );
+      await user.click(within(dialog).getByRole("button", { name: "Connect" }));
+
+      await waitFor(() => {
+        expect(putBody).toEqual({ token: "abc123token" });
+      });
+      await waitFor(() => {
+        expect(screen.queryByRole("dialog")).not.toBeInTheDocument();
+      });
+    });
+
+    it("shows an inline error on 400 and keeps the form open", async () => {
+      const user = userEvent.setup();
+      server.use(
+        http.put("*/api/v1/connectors/discogs/token", () => {
+          return HttpResponse.json(
+            {
+              error: {
+                code: "INVALID_TOKEN",
+                message: "Discogs rejected the token",
+              },
+            },
+            { status: 400 },
+          );
+        }),
+      );
+
+      renderWithProviders(
+        <ConnectorCard connector={makeConnector({ name: "discogs" })} />,
+      );
+
+      await user.click(screen.getByText("Connect Discogs"));
+      const dialog = await screen.findByRole("dialog");
+      await user.type(
+        within(dialog).getByLabelText("Discogs personal access token"),
+        "bad-token",
+      );
+      await user.click(within(dialog).getByRole("button", { name: "Connect" }));
+
+      const alert = await within(dialog).findByRole("alert");
+      expect(alert).toHaveTextContent("Discogs rejected the token");
+      expect(screen.getByRole("dialog")).toBeInTheDocument();
+    });
+
+    it("uses a password input that never shows a stored value", async () => {
+      const user = userEvent.setup();
+      renderWithProviders(
+        <ConnectorCard connector={makeConnector({ name: "discogs" })} />,
+      );
+
+      await user.click(screen.getByText("Connect Discogs"));
+      const dialog = await screen.findByRole("dialog");
+      const input = within(dialog).getByLabelText(
+        "Discogs personal access token",
+      );
+      expect(input).toHaveAttribute("type", "password");
+      expect(input).toHaveAttribute("autocomplete", "off");
+      expect(input).toHaveValue("");
+    });
+
+    it("clears the typed token when the dialog is closed and reopened", async () => {
+      const user = userEvent.setup();
+      renderWithProviders(
+        <ConnectorCard connector={makeConnector({ name: "discogs" })} />,
+      );
+
+      await user.click(screen.getByText("Connect Discogs"));
+      let dialog = await screen.findByRole("dialog");
+      await user.type(
+        within(dialog).getByLabelText("Discogs personal access token"),
+        "half-typed",
+      );
+      await user.keyboard("{Escape}");
+      await waitFor(() => {
+        expect(screen.queryByRole("dialog")).not.toBeInTheDocument();
+      });
+
+      await user.click(screen.getByText("Connect Discogs"));
+      dialog = await screen.findByRole("dialog");
+      expect(
+        within(dialog).getByLabelText("Discogs personal access token"),
+      ).toHaveValue("");
+    });
+
+    it('shows "connected · N releases" for a connected Discogs card', () => {
+      renderWithProviders(
+        <ConnectorCard
+          connector={makeConnector({
+            name: "discogs",
+            connected: true,
+            detail: "42 releases",
+          })}
+        />,
+      );
+
+      expect(screen.getByText("Discogs")).toBeInTheDocument();
+      expect(screen.getByText("connected · 42 releases")).toBeInTheDocument();
+    });
+
+    it("shows the disconnect confirmation for a connected Discogs card", async () => {
+      const user = userEvent.setup();
+      renderWithProviders(
+        <ConnectorCard
+          connector={makeConnector({
+            name: "discogs",
+            connected: true,
+            detail: "42 releases",
+          })}
+        />,
+      );
+
+      await user.click(
+        screen.getByRole("button", { name: "Discogs settings" }),
+      );
+      await user.click(screen.getByText("Disconnect Discogs"));
+
+      await waitFor(() => {
+        expect(screen.getByText("Disconnect Discogs?")).toBeInTheDocument();
+      });
+      // Generic credentials-go/data-stays copy applies to Discogs too.
+      expect(screen.getByText(/credentials/i)).toBeInTheDocument();
+      expect(screen.getByText(/until you reconnect/i)).toBeInTheDocument();
     });
   });
 

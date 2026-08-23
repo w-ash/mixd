@@ -200,7 +200,10 @@ async def _complete_spotify_auth(
     display_name, account_id = await fetch_spotify_profile(token_info["access_token"])
     token_to_save = StoredToken(**token_info)
     if display_name:
-        token_to_save = StoredToken(**token_info, account_name=display_name)
+        # SpotifyTokenCache already declares account_name, so a keyword
+        # re-assignment in the constructor is a type error — set the key on
+        # the built TypedDict instead.
+        token_to_save["account_name"] = display_name
     token_to_save = stamp_account_id(token_to_save, account_id)
     await storage.save_token("spotify", user_id, token_to_save)
 

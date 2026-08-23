@@ -26,6 +26,7 @@ from src.application.chat import confirmed_actions, subagent, tool_executor
 from src.application.chat.dispatchers import (
     assignments_write,
     connector_playlists_write,
+    connectors_read,
     library,
     links,
     links_write,
@@ -88,6 +89,8 @@ _DISPATCHER_SPECS_LISTS: tuple[list[dict[str, object]], ...] = (
     workflows_write.SPECS,
     # Long-running operation tools (Epic 3 — launched via OperationLauncher)
     long_ops.SPECS,
+    # Connector reads (v0.11.1 — appended last: order is load-bearing)
+    connectors_read.SPECS,
 )
 
 

@@ -22,8 +22,12 @@ class StoredToken(TypedDict, total=False):
     - Apple Music: access_token holds the Music User Token. Set explicit expires_at.
       There is no refresh_token.
     - Tidal: access_token and refresh_token, as a pair.
-    - Discogs: a personal access token, stored in access_token.
+    - Discogs: a personal access token, stored in access_token
+      (token_type "personal_token" — the label must fit VARCHAR(20)).
       An OAuth 1.0a token secret would go in extra_data, if ever needed.
+    - extra_data["collection_count"] / extra_data["validated_at"] (Discogs):
+      collection size and Unix timestamp cached at connect-time validation
+      so the status probe can render "N releases" without a network call.
     - account_name: display name, set by any connector.
     - extra_data["authorized_at"]: Unix timestamp of the grant. Set it wherever
       grant age matters (e.g. Spotify's refresh-token expiry window).

@@ -14,6 +14,8 @@ from fastapi.testclient import TestClient
 from src.domain.exceptions import (
     AppleMusicAuthRequiredError,
     ChatUnavailableError,
+    DiscogsAuthRequiredError,
+    DiscogsInvalidTokenError,
     SpotifyAuthRequiredError,
     SpotifyQuotaExhaustedError,
     ToolExecutionError,
@@ -46,6 +48,14 @@ def _app() -> FastAPI:
     async def _quota_boom() -> None:
         raise SpotifyQuotaExhaustedError
 
+    @app.get("/discogs-boom")
+    async def _discogs_boom() -> None:
+        raise DiscogsAuthRequiredError
+
+    @app.get("/discogs-token-boom")
+    async def _discogs_token_boom() -> None:
+        raise DiscogsInvalidTokenError("Discogs rejected that personal access token")
+
     return app
 
 
@@ -69,6 +79,35 @@ class TestAppleMusicAuthRequiredHandler:
         body = resp.json()
         assert body["error"]["code"] == "APPLE_MUSIC_AUTH_REQUIRED"
         assert "apple music" in body["error"]["message"].lower()
+
+
+class TestDiscogsAuthRequiredHandler:
+    """A missing/revoked Discogs personal access token (v0.11.1) is a user-
+    resolvable precondition — same actionable 409 shape as its auth peers."""
+
+    def test_maps_to_409_with_connect_hint(self):
+        client = TestClient(_app(), raise_server_exceptions=False)
+        resp = client.get("/discogs-boom")
+
+        assert resp.status_code == 409
+        body = resp.json()
+        assert body["error"]["code"] == "DISCOGS_AUTH_REQUIRED"
+        assert "connect" in body["error"]["message"].lower()
+
+
+class TestDiscogsInvalidTokenHandler:
+    """A connect-time token rejection (PUT /connectors/discogs/token) is a 400
+    the token form renders inline — the subclass handler must win over the
+    parent's 409 DISCOGS_AUTH_REQUIRED."""
+
+    def test_maps_to_400_with_distinct_code(self):
+        client = TestClient(_app(), raise_server_exceptions=False)
+        resp = client.get("/discogs-token-boom")
+
+        assert resp.status_code == 400
+        body = resp.json()
+        assert body["error"]["code"] == "DISCOGS_INVALID_TOKEN"
+        assert "rejected" in body["error"]["message"].lower()
 
 
 class TestSpotifyQuotaExhaustedHandler:

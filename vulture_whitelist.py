@@ -152,3 +152,30 @@ isrc_suspect_deferred  # ResolutionMetrics — read via _CARRIED_RESOLUTION_METR
 # library's own stream loop. Whitelisting is the honest fix; the alternative is an
 # artificial Python reader for a flag we do not own.
 should_exit  # sse_starlette.sse.AppStatus — read by the library's stream loop
+
+# --- v0.11.1 Discogs (+ the Apple Music names a vulture bump surfaced) ---
+# httpx2.Auth sync hook: both connectors' auth strategies @override auth_flow,
+# and httpx2 dispatches it internally — same story as async_auth_flow above.
+auth_flow  # DiscogsTokenAuth + AppleMusicDeveloperAuth — dispatched by httpx2
+get_song_equivalents  # AppleMusicAPIClient — ISRC-equivalence read; test-covered matching substrate
+# Client reads shipped ahead of their consumer: the v0.13.1 import-with-matching
+# milestone walks the collection and reads catalog detail. All are exercised by
+# transport-boundary tests (tests/ is outside vulture's paths).
+get_all_collection_releases  # DiscogsAPIClient — ceiling-bounded collection walk
+get_release  # DiscogsAPIClient — full release detail
+get_master  # DiscogsAPIClient — master (version grouping) detail
+make_discogs_image_client  # separate i.discogs.com bucket — artwork fetches must not feed the API pacer
+reset_discogs_queue  # test-only isolation hook — pacer queue reset between event loops
+# Discogs boundary-model fields (discogs/models.py): declared from the live
+# 2026-08-22 probe so validation matches the wire. Several are read only via
+# model_dump() (the snapshot's JSON seam) or by tests — no attribute access
+# in src/ for vulture to see. They are the validated contract, not dead code.
+urls  # DiscogsPagination — next-page marker
+anv  # DiscogsArtist — credited name variation (read via model_dump)
+catno  # DiscogsLabel — catalog number
+labels  # DiscogsBasicInformation / DiscogsRelease — label credits
+instance_id  # DiscogsCollectionRelease — identifies THIS copy in the collection
+basic_information  # DiscogsCollectionRelease — display block (read via model_dump)
+genres  # DiscogsRelease — genre tags
+styles  # DiscogsRelease — style tags
+main_release  # DiscogsMaster — canonical release id

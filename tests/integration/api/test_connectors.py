@@ -5,18 +5,30 @@ Spotify-playlist browse + import routes using the ``mock_connector_provider``
 fixture so no live API calls leak from the integration env's real OAuth tokens.
 """
 
+from collections.abc import AsyncGenerator
 from datetime import UTC, datetime
 import time
 from unittest.mock import AsyncMock, patch
+import uuid
 
 import httpx2
+import pytest
 
+from src.domain.entities.connector import ConnectorStatus
+from src.domain.exceptions import DiscogsInvalidTokenError
 from src.infrastructure.connectors._shared.token_storage import (
     StoredToken,
     get_token_storage,
 )
+from src.infrastructure.connectors.discovery import discover_connectors
 from src.infrastructure.persistence.database.db_connection import get_session
 from src.infrastructure.persistence.database.db_models import DBConnectorPlaylist
+from src.infrastructure.persistence.database.user_context import user_context
+from src.interface.api.app import create_app
+from src.interface.api.deps import get_current_user_id
+from src.interface.api.rate_limit import InMemoryRateLimiter
+import src.interface.api.routes.connectors as connectors_route
+from tests.integration.api.conftest import _test_db_env
 
 # Patch target prefix — logic lives in infrastructure alongside connectors
 _SVC = "src.infrastructure.connectors._shared.connector_status"
@@ -25,7 +37,7 @@ _SVC = "src.infrastructure.connectors._shared.connector_status"
 class TestGetConnectors:
     """GET /api/v1/connectors returns connector status array."""
 
-    async def test_returns_all_four_connectors(
+    async def test_returns_all_registered_connectors(
         self, client: httpx2.AsyncClient
     ) -> None:
         response = await client.get("/api/v1/connectors")
@@ -34,7 +46,18 @@ class TestGetConnectors:
         connectors = response.json()
         assert isinstance(connectors, list)
         names = {c["name"] for c in connectors}
-        assert names == {"spotify", "lastfm", "musicbrainz", "apple_music"}
+        assert names == {"spotify", "lastfm", "musicbrainz", "apple_music", "discogs"}
+
+    async def test_discogs_registered_as_token_physical(
+        self, client: httpx2.AsyncClient
+    ) -> None:
+        response = await client.get("/api/v1/connectors")
+
+        discogs = next(c for c in response.json() if c["name"] == "discogs")
+        assert discogs["display_name"] == "Discogs"
+        assert discogs["auth_method"] == "token"
+        assert discogs["category"] == "physical"
+        assert discogs["capabilities"] == []
 
 
 def _mock_storage(
@@ -266,6 +289,65 @@ class TestLastfmStatus:
         # Result depends on env vars — just verify shape
         assert "connected" in lastfm
         assert "account_name" in lastfm
+
+
+class TestConnectorDetailField:
+    """`detail` (v0.11.1 D1) — generic short status suffix, e.g. "1,204 releases"."""
+
+    async def test_detail_serializes_through_to_response(
+        self, client: httpx2.AsyncClient
+    ) -> None:
+        registry = discover_connectors()
+        statuses = [
+            ConnectorStatus(
+                name=name,
+                auth_method=config["auth_method"],
+                connected=True,
+                detail="1,204 releases" if name == "musicbrainz" else None,
+            )
+            for name, config in registry.items()
+        ]
+        mock_statuses = AsyncMock(return_value=statuses)
+        with patch(
+            "src.interface.api.routes.connectors.get_all_connector_statuses",
+            mock_statuses,
+        ):
+            response = await client.get("/api/v1/connectors")
+
+        assert response.status_code == 200
+        by_name = {c["name"]: c for c in response.json()}
+        assert by_name["musicbrainz"]["detail"] == "1,204 releases"
+        assert by_name["spotify"]["detail"] is None
+
+
+class TestDeleteTokenGate:
+    """DELETE /connectors/{service}/token — which auth methods can disconnect."""
+
+    async def test_token_auth_connector_can_disconnect(
+        self, client: httpx2.AsyncClient
+    ) -> None:
+        """v0.11.1 D1: the gate widens from {oauth, browser_bridge} to include
+        ``token`` (Discogs' personal access token) alongside the vocabulary
+        substrate — a fake registry entry stands in since no ``token``-auth
+        connector is registered yet."""
+        fake_config = {
+            "factory": lambda config: object(),
+            "dependencies": [],
+            "metrics": {},
+            "display_name": "Fake Token Service",
+            "category": "streaming",
+            "auth_method": "token",
+            "capabilities": frozenset(),
+            "status_fn": AsyncMock(),
+            "build_auth_url": None,
+        }
+        with patch(
+            "src.interface.api.routes.connectors.discover_connectors",
+            return_value={"fake_token_svc": fake_config},
+        ):
+            response = await client.delete("/api/v1/connectors/fake_token_svc/token")
+
+        assert response.status_code == 204
 
 
 class TestSpotifyPlaylistBrowse:
@@ -588,3 +670,184 @@ class TestDisconnectPreservesSiblingData:
             )
         assert like_count == 1
         assert play_count == 1
+
+
+def _discogs_stored_token() -> StoredToken:
+    return StoredToken(
+        access_token="discogs-pat",
+        token_type="personal_token",
+        account_name="wash",
+        extra_data={"collection_count": 3, "validated_at": 1_755_000_000},
+    )
+
+
+class TestDiscogsToken:
+    """PUT /api/v1/connectors/discogs/token — validate, rate-limit, store.
+
+    ``validate_and_build_token`` is stubbed on the route module's binding
+    (no live Discogs probe); storage + status probe run against the real
+    stack. Each test acts as a unique user because ``oauth_tokens`` is a
+    preserved table — sharing ``default`` would leak credentials across
+    tests, and the probe-rate budget is per-user.
+    """
+
+    @pytest.fixture
+    async def user_client(
+        self,
+        postgres_url: str,
+        _init_test_schema: None,
+    ) -> AsyncGenerator[tuple[httpx2.AsyncClient, str]]:
+        """Client acting as a fresh unique user, plus that user's id."""
+        with _test_db_env(postgres_url):
+            app = create_app()
+            uid = f"discogs-{uuid.uuid4().hex[:12]}"
+            app.dependency_overrides[get_current_user_id] = lambda: uid
+            transport = httpx2.ASGITransport(app=app)
+            async with httpx2.AsyncClient(
+                transport=transport, base_url="http://test"
+            ) as c:
+                yield c, uid
+
+    @pytest.fixture(autouse=True)
+    def _fresh_limiter(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        """Fresh sliding window per test — the limiter is module-global state."""
+        monkeypatch.setattr(
+            connectors_route,
+            "_discogs_token_limiter",
+            InMemoryRateLimiter(
+                max_requests=5,
+                window_seconds=60,
+                message="Too many Discogs token attempts. "
+                "Please wait a minute and try again.",
+            ),
+        )
+
+    def _stub_validate(
+        self,
+        monkeypatch: pytest.MonkeyPatch,
+        stored: StoredToken | None = None,
+        error: Exception | None = None,
+    ) -> AsyncMock:
+        mock = (
+            AsyncMock(side_effect=error)
+            if error is not None
+            else AsyncMock(return_value=stored)
+        )
+        monkeypatch.setattr(connectors_route, "validate_and_build_token", mock)
+        return mock
+
+    async def test_put_valid_token_stores_and_connects(
+        self,
+        user_client: tuple[httpx2.AsyncClient, str],
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        client, uid = user_client
+        validate = self._stub_validate(monkeypatch, stored=_discogs_stored_token())
+
+        resp = await client.put(
+            "/api/v1/connectors/discogs/token", json={"token": "discogs-pat"}
+        )
+
+        assert resp.status_code == 204
+        validate.assert_awaited_once_with("discogs-pat")
+        with user_context(uid):
+            row = await get_token_storage().load_token("discogs", uid)
+        assert row is not None
+        assert row.get("access_token") == "discogs-pat"
+
+        status = await client.get("/api/v1/connectors")
+        discogs = next(c for c in status.json() if c["name"] == "discogs")
+        assert discogs["connected"] is True
+        assert discogs["status"] == "connected"
+        assert discogs["account_name"] == "wash"
+        assert discogs["detail"] == "3 releases"
+
+    async def test_put_invalid_token_is_enveloped_400(
+        self,
+        user_client: tuple[httpx2.AsyncClient, str],
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        # The exact envelope the token form reads (`body.error.message`) —
+        # a bare HTTPException `detail` body rendered as "unknown error".
+        client, uid = user_client
+        self._stub_validate(
+            monkeypatch,
+            error=DiscogsInvalidTokenError(
+                "Discogs rejected that personal access token — check it was "
+                "copied in full."
+            ),
+        )
+
+        resp = await client.put(
+            "/api/v1/connectors/discogs/token", json={"token": "bad"}
+        )
+
+        assert resp.status_code == 400
+        body = resp.json()
+        assert body["error"]["code"] == "DISCOGS_INVALID_TOKEN"
+        assert "rejected" in body["error"]["message"]
+        with user_context(uid):
+            assert await get_token_storage().load_token("discogs", uid) is None
+
+    async def test_oversize_token_is_422_and_never_echoed(
+        self,
+        user_client: tuple[httpx2.AsyncClient, str],
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        # max_length=512 bounds hostile payloads, and the validation handler
+        # strips FastAPI's default `input` echo — a rejected credential must
+        # never come back in the response body.
+        client, _uid = user_client
+        validate = self._stub_validate(monkeypatch, stored=_discogs_stored_token())
+        secret = "s3cret-" + "x" * 600
+
+        resp = await client.put(
+            "/api/v1/connectors/discogs/token", json={"token": secret}
+        )
+
+        assert resp.status_code == 422
+        assert "s3cret" not in resp.text
+        validate.assert_not_awaited()
+
+    async def test_sixth_probe_in_window_is_rate_limited(
+        self,
+        user_client: tuple[httpx2.AsyncClient, str],
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        client, _uid = user_client
+        self._stub_validate(monkeypatch, stored=_discogs_stored_token())
+
+        for _ in range(5):
+            ok = await client.put(
+                "/api/v1/connectors/discogs/token", json={"token": "discogs-pat"}
+            )
+            assert ok.status_code == 204
+
+        sixth = await client.put(
+            "/api/v1/connectors/discogs/token", json={"token": "discogs-pat"}
+        )
+        assert sixth.status_code == 429
+        # The throttle names what it limited — not the chat default.
+        assert "token attempts" in sixth.json()["error"]["message"]
+
+    async def test_delete_disconnects_and_removes_row(
+        self,
+        user_client: tuple[httpx2.AsyncClient, str],
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        client, uid = user_client
+        self._stub_validate(monkeypatch, stored=_discogs_stored_token())
+        put = await client.put(
+            "/api/v1/connectors/discogs/token", json={"token": "discogs-pat"}
+        )
+        assert put.status_code == 204
+
+        resp = await client.delete("/api/v1/connectors/discogs/token")
+
+        assert resp.status_code == 204
+        with user_context(uid):
+            assert await get_token_storage().load_token("discogs", uid) is None
+        status = await client.get("/api/v1/connectors")
+        discogs = next(c for c in status.json() if c["name"] == "discogs")
+        assert discogs["connected"] is False
+        assert discogs["status"] == "disconnected"

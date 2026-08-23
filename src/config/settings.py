@@ -247,6 +247,15 @@ class APIConfig(BaseModel):
         description="Apple Music API tuning. Apple publishes no rate limits; the quota attaches to the shared instance developer token (not per-user), so pacing stays conservative to protect every user behind it. batch_size matches the 25-code filter[isrc] cap.",
     )
 
+    discogs: ConnectorAPIConfig = Field(
+        default_factory=lambda: ConnectorAPIConfig(
+            concurrency=1,
+            rate_limit=0.7,
+            retry_count=4,
+        ),
+        description="Discogs API tuning. Discogs throttles by source IP: the whole instance (and anything sharing its egress) shares one 60/min bucket, so calls serialize through one instance-wide queue (concurrency=1) and pace at ~42/min (0.7/s) under the ceiling, self-correcting from X-Discogs-Ratelimit-Remaining.",
+    )
+
     # Spotify-specific fields that don't fit the common shape
     spotify_large_batch_size: PositiveInt = Field(
         default=100,

@@ -321,6 +321,36 @@ async def get_apple_music_status(
     )
 
 
+async def get_discogs_status(
+    user_id: str,
+    storage: TokenStorage | None = None,
+) -> ConnectorStatus:
+    """Discogs status from the stored personal access token — storage only.
+
+    Never a network call (this probe runs on every Integrations render, and
+    the whole instance shares one per-IP 60/min Discogs budget): the token
+    was validated live at connect time by ``discogs/token_service.py``,
+    which also cached ``extra_data["collection_count"]``. The ``detail``
+    suffix renders that cached count — a count of 0 still renders
+    ("0 releases" is the zero-state invitation to start cataloguing, not an
+    error); a token stored without a count yields ``detail=None``.
+    """
+    storage = storage or get_token_storage()
+    token_data = await storage.load_token("discogs", user_id)
+
+    if token_data is None:
+        return ConnectorStatus(name="discogs", auth_method="token", connected=False)
+
+    count = (token_data.get("extra_data") or {}).get("collection_count")
+    return ConnectorStatus(
+        name="discogs",
+        auth_method="token",
+        connected=True,
+        account_name=token_data.get("account_name"),
+        detail=f"{count:,} releases" if isinstance(count, int) else None,
+    )
+
+
 async def get_all_connector_statuses(user_id: str) -> list[ConnectorStatus]:
     """Probe every registered connector concurrently and return their statuses.
 

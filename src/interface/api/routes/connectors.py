@@ -32,13 +32,18 @@ from src.infrastructure.connectors._shared.connector_status import (
     get_all_connector_statuses,
 )
 from src.infrastructure.connectors._shared.token_storage import get_token_storage
+from src.infrastructure.connectors.discogs.token_service import (
+    validate_and_build_token,
+)
 from src.infrastructure.connectors.discovery import discover_connectors
 from src.infrastructure.connectors.protocols import ConnectorConfig
 from src.interface.api.deps import get_current_user_id
+from src.interface.api.rate_limit import InMemoryRateLimiter
 from src.interface.api.schemas.connectors import (
     ConnectorMetadataSchema,
     ConnectorPlaylistBrowseResponse,
     ConnectorPlaylistBrowseSchema,
+    ConnectorTokenRequest,
     ImportConnectorPlaylistsRequest,
     PlayPollingRequest,
     PlayPollingResponse,
@@ -48,6 +53,17 @@ from src.interface.api.services.progress import OperationBoundEmitter
 from src.interface.api.services.sse_operations import launch_sse_operation
 
 router = APIRouter(prefix="/connectors", tags=["connectors"])
+
+# The token-connect path runs a live Discogs identity + collection probe,
+# which makes it a validation oracle (submit-and-observe) and spends the
+# instance-wide per-IP Discogs budget. A tight per-user window throttles
+# that without impeding legitimate use — mirrors the assistant key-probe
+# limiter (routes/assistant.py).
+_discogs_token_limiter = InMemoryRateLimiter(
+    max_requests=5,
+    window_seconds=60,
+    message="Too many Discogs token attempts. Please wait a minute and try again.",
+)
 
 
 def _require_connector(
@@ -102,6 +118,7 @@ async def get_connectors(
             token_expires_at=by_name[name].token_expires_at,
             auth_error=by_name[name].auth_error,
             last_synced_at=last_synced.get(name),
+            detail=by_name[name].detail,
             capabilities=sorted(config["capabilities"]),
         )
         for name, config in registry.items()
@@ -126,6 +143,26 @@ async def _last_synced_by_service(user_id: str) -> dict[str, datetime]:
     return latest
 
 
+@router.put("/discogs/token", status_code=204)
+async def put_discogs_token(
+    body: ConnectorTokenRequest,
+    user_id: str = Depends(get_current_user_id),
+) -> None:
+    """Validate and store the user's Discogs personal access token.
+
+    The v0.6.5 credential carve-out shape (like the assistant BYO-key): the
+    token is validated live via the shared ``discogs/token_service`` — which
+    also caches the collection count for the status probe — then stored
+    encrypted. Write-only: never returned by any endpoint. An invalid token
+    raises ``DiscogsInvalidTokenError``, which the middleware maps to a 400
+    ``DISCOGS_INVALID_TOKEN`` envelope (the shape the token form reads);
+    disconnect is the generic ``DELETE /connectors/discogs/token``.
+    """
+    _discogs_token_limiter.check(user_id)
+    stored = await validate_and_build_token(body.token.strip())
+    await get_token_storage().save_token("discogs", user_id, stored)
+
+
 @router.delete("/{service}/token", status_code=204)
 async def delete_connector_token(
     service: str,
@@ -134,11 +171,12 @@ async def delete_connector_token(
     """Remove a connector's stored credential, disconnecting it.
 
     Only connectors that store a per-user credential — ``auth_method`` of
-    ``oauth`` or ``browser_bridge`` (Apple Music's MUT) — can be
-    disconnected; anything else (public APIs, coming-soon stubs) returns 400.
+    ``oauth``, ``browser_bridge`` (Apple Music's MUT), or ``token`` (Discogs'
+    personal access token) — can be disconnected; anything else (public APIs,
+    coming-soon stubs) returns 400.
     """
     config = _require_connector(service)
-    if config["auth_method"] not in {"oauth", "browser_bridge"}:
+    if config["auth_method"] not in {"oauth", "browser_bridge", "token"}:
         raise HTTPException(status_code=400, detail=f"Cannot disconnect {service}")
     storage = get_token_storage()
     await storage.delete_token(service, user_id)

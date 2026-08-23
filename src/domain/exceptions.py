@@ -292,6 +292,45 @@ class AppleMusicAuthRequiredError(DomainError):
         )
 
 
+class DiscogsAuthRequiredError(DomainError):
+    """Raised when a Discogs call cannot authenticate and needs user action.
+
+    Two shapes share the error, mirroring the other connectors'
+    ``*AuthRequiredError`` types because the remedy is the same one-step
+    reconnect:
+
+    - No personal access token is stored for the user — Discogs has never
+      been connected (or the token was deleted).
+    - Discogs answered 401: the stored token was revoked or mistyped.
+
+    Discogs auth is BYO personal access token (v0.11.1), so "reconnect"
+    means entering a valid token from discogs.com/settings/developers.
+    """
+
+    def __init__(self, message: str | None = None) -> None:
+        super().__init__(
+            message
+            or "Discogs is not connected. Connect it from the Integrations "
+            "page with a personal access token."
+        )
+
+
+class DiscogsInvalidTokenError(DiscogsAuthRequiredError):
+    """Raised when a submitted Discogs personal access token fails live validation.
+
+    The connect-time twin of ``InvalidApiKeyError`` (the assistant BYO-key):
+    the PUT route and ``mixd discogs connect`` submit a candidate token, the
+    token service probes it against ``/oauth/identity``, and a rejection (or
+    an unreachable Discogs) raises this. The API layer maps it to a 400
+    ``DISCOGS_INVALID_TOKEN`` envelope so the token form can surface the
+    message inline — distinct from the parent's 409
+    ``DISCOGS_AUTH_REQUIRED``, which means an *already-stored* credential is
+    missing or expired. Subclasses ``DiscogsAuthRequiredError`` because the
+    remedy is the same (enter a valid token), so existing catch sites — the
+    CLI connect command's hint path — keep working unchanged.
+    """
+
+
 class ConnectorNotConnectedError(DomainError):
     """Raised by the import-route pre-flight when a connector has no stored token.
 

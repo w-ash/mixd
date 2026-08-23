@@ -559,6 +559,12 @@ ignore_imports = [
     "src.interface.api.routes.connectors -> src.infrastructure.connectors._shared.token_storage",
     "src.interface.api.routes.connectors -> src.infrastructure.connectors.discovery",
     "src.interface.api.routes.connectors -> src.infrastructure.connectors.protocols",
+    # Same carve-out, v0.11.1: the Discogs BYO personal access token — the PUT
+    # route and `mixd discogs connect` share one live validator
+    # (discogs/token_service) and the token store, like the assistant key.
+    "src.interface.api.routes.connectors -> src.infrastructure.connectors.discogs.token_service",
+    "src.interface.cli.discogs_commands -> src.infrastructure.connectors._shared.token_storage",
+    "src.interface.cli.discogs_commands -> src.infrastructure.connectors.discogs.token_service",
     "src.interface.cli.connector_commands -> src.infrastructure.connectors._shared.connector_status",
     "src.interface.cli.connector_commands -> src.infrastructure.connectors._shared.token_storage",
     "src.interface.cli.connector_commands -> src.infrastructure.connectors.discovery",

@@ -43,6 +43,16 @@ export const getGetConnectorsApiV1ConnectorsGetMockHandler = (overrideResponse?:
   }, options)
 }
 
+export const getPutDiscogsTokenApiV1ConnectorsDiscogsTokenPutMockHandler = (overrideResponse?: void | ((info: Parameters<Parameters<typeof http.put>[1]>[0]) => Promise<void> | void), options?: RequestHandlerOptions) => {
+  return http.put('*/api/v1/connectors/discogs/token', async (info: Parameters<Parameters<typeof http.put>[1]>[0]) => {
+  if (typeof overrideResponse === 'function') {await overrideResponse(info); }
+
+    return new HttpResponse(null,
+      { status: 204
+      })
+  }, options)
+}
+
 export const getDeleteConnectorTokenApiV1ConnectorsServiceTokenDeleteMockHandler = (overrideResponse?: void | ((info: Parameters<Parameters<typeof http.delete>[1]>[0]) => Promise<void> | void), options?: RequestHandlerOptions) => {
   return http.delete('*/api/v1/connectors/:service/token', async (info: Parameters<Parameters<typeof http.delete>[1]>[0]) => {
   if (typeof overrideResponse === 'function') {await overrideResponse(info); }
@@ -102,6 +112,7 @@ export const getImportConnectorPlaylistsApiV1ConnectorsServicePlaylistsImportPos
 }
 export const getConnectorsMock = () => [
   getGetConnectorsApiV1ConnectorsGetMockHandler(),
+  getPutDiscogsTokenApiV1ConnectorsDiscogsTokenPutMockHandler(),
   getDeleteConnectorTokenApiV1ConnectorsServiceTokenDeleteMockHandler(),
   getSetConnectorPlayPollingApiV1ConnectorsServicePlayPollingPutMockHandler(),
   getGetConnectorPlayPollingApiV1ConnectorsServicePlayPollingGetMockHandler(),

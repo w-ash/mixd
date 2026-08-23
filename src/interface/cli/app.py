@@ -173,6 +173,7 @@ def _register_commands() -> None:
         admin_commands,
         assistant_commands,
         connector_commands,
+        discogs_commands,
         history_commands,
         likes_commands,
         mcp_commands,
@@ -249,6 +250,14 @@ def _register_commands() -> None:
         name="assistant",
         help="Connect the AI assistant with your Anthropic API key",
         rich_help_panel="⚙️ System",
+    )
+
+    # `snapshot` joins this group with the Collection Snapshot packet.
+    app.add_typer(
+        discogs_commands.app,
+        name="discogs",
+        help="Connect Discogs and browse your record collection",
+        rich_help_panel="🔄 Track Data Sync",
     )
 
     app.add_typer(

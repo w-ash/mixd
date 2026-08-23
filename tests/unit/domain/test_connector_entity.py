@@ -76,3 +76,17 @@ class TestDeriveStatusState:
     def test_not_connected_is_disconnected(self) -> None:
         status = make_status(connected=False)
         assert derive_status_state(status) == "disconnected"
+
+    def test_detail_does_not_affect_status_derivation(self) -> None:
+        # `detail` is a display-only field (v0.11.1 D1) — it must never
+        # change which state a connector renders as.
+        status = make_status(token_expires_at=int(time.time()) + 3600)
+        with_detail = ConnectorStatus(
+            name=status.name,
+            auth_method=status.auth_method,
+            connected=status.connected,
+            token_expires_at=status.token_expires_at,
+            detail="1,204 releases",
+        )
+        assert derive_status_state(with_detail) == derive_status_state(status)
+        assert derive_status_state(with_detail) == "connected"
