@@ -1,6 +1,6 @@
 [project]
 name = "mixd"
-version = "0.11.3"
+version = "0.11.3.1"
 description = "Music metadata integration and playlist management platform"
 authors = [{name = "Ash Wright", email = "a@ashwright.net"}]
 readme = "README.md"
@@ -551,6 +551,12 @@ ignore_imports = [
     "src.interface.api.routes.auth -> src.infrastructure.connectors.tidal.auth",
     "src.interface.api.routes.auth -> src.infrastructure.persistence.database.db_connection",
     "src.interface.api.routes.auth -> src.infrastructure.persistence.database.db_models",
+    # Same carve-out: state creation opens its session as the initiating user
+    # (`user_context`), and state validation declares itself cross-tenant
+    # (`system_context`) — the token is the credential, the row's user unknown
+    # until read. Without these the default-user guard 500s every web auth flow
+    # against a hosted database.
+    "src.interface.api.routes.auth -> src.infrastructure.persistence.database.user_context",
     # Same carve-out, v0.11.x: the Apple Music MusicKit JS bridge — browser-
     # mediated Music User Token capture + storage. `user_context` scopes the
     # best-effort storefront read to the state row's user.

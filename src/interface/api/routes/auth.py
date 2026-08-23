@@ -61,23 +61,33 @@ async def _create_state(
     """
     from src.infrastructure.persistence.database.db_connection import get_session
     from src.infrastructure.persistence.database.db_models import DBOAuthState
+    from src.infrastructure.persistence.database.user_context import user_context
 
     state = secrets.token_urlsafe(32)
     now = datetime.now(UTC)
 
-    async with get_session() as session:
-        # Prune expired states
-        await session.execute(delete(DBOAuthState).where(DBOAuthState.expires_at < now))
-
-        session.add(
-            DBOAuthState(
-                state=state,
-                user_id=user_id,
-                service=service,
-                code_verifier=code_verifier,
-                expires_at=now + _CSRF_STATE_TTL,
+    # The state row belongs to the initiating user, so the session opens under
+    # their context — a bare session rides the default-user contextvar, which
+    # the session layer refuses against a remote database (v0.10.4.1 guard).
+    # The opportunistic prune shares this transaction (RLS context is fixed at
+    # BEGIN); prod connects with BYPASSRLS, and api/app.py's startup prune
+    # remains the global sweep.
+    with user_context(user_id):
+        async with get_session() as session:
+            # Prune expired states
+            await session.execute(
+                delete(DBOAuthState).where(DBOAuthState.expires_at < now)
             )
-        )
+
+            session.add(
+                DBOAuthState(
+                    state=state,
+                    user_id=user_id,
+                    service=service,
+                    code_verifier=code_verifier,
+                    expires_at=now + _CSRF_STATE_TTL,
+                )
+            )
 
     return state
 
@@ -94,25 +104,30 @@ async def validate_state(
     """
     from src.infrastructure.persistence.database.db_connection import get_session
     from src.infrastructure.persistence.database.db_models import DBOAuthState
+    from src.infrastructure.persistence.database.user_context import system_context
 
     if not state:
         return False, None, None
 
     now = datetime.now(UTC)
 
-    async with get_session() as session:
-        result = await session.execute(
-            delete(DBOAuthState)
-            .where(
-                DBOAuthState.state == state,
-                DBOAuthState.service == service,
-                DBOAuthState.expires_at > now,
+    # The row's user is unknown until it is read — the unguessable state token
+    # is itself the credential here, so the lookup is cross-tenant by
+    # necessity, mirroring the startup prune (see system_context's docstring).
+    with system_context():
+        async with get_session() as session:
+            result = await session.execute(
+                delete(DBOAuthState)
+                .where(
+                    DBOAuthState.state == state,
+                    DBOAuthState.service == service,
+                    DBOAuthState.expires_at > now,
+                )
+                .returning(DBOAuthState.code_verifier, DBOAuthState.user_id)
             )
-            .returning(DBOAuthState.code_verifier, DBOAuthState.user_id)
-        )
-        row = result.one_or_none()
-        if row is None:
-            return False, None, None
+            row = result.one_or_none()
+            if row is None:
+                return False, None, None
 
     code_verifier = cast("str | None", row.code_verifier)
     user_id = cast("str | None", row.user_id)

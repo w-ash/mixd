@@ -4,9 +4,10 @@ Consumed directly by ``src/interface/api/oauth/`` — the same
 infrastructure-helper carve-out as connector OAuth (``TokenStorage``) and the
 assistant key (``infrastructure/chat/credentials``): AS token machinery is a
 credential surface, not domain data, so it deliberately bypasses
-``execute_use_case()``. Each helper opens its own short session
-(``get_session`` commits on exit); the AS tables carry no RLS (migration 039),
-so no ``user_context`` is involved — the /token endpoint has no session user.
+``execute_use_case()``. Each helper opens its own short session via
+:func:`_session` (commits on exit), declared ``system_context`` because the
+AS tables carry no RLS (migration 039) and the /token endpoint has no session
+user — isolation is the explicit ``user_id``/PK predicates in each helper.
 
 Codes and refresh tokens are stored hashed (SHA-256): a database leak must
 not yield redeemable credentials. Rotation keeps the revoked generation and
@@ -14,12 +15,15 @@ its ``family_id`` so a replayed old token is *evidence* — it deletes the whole
 family instead of failing silently.
 """
 
+from collections.abc import AsyncGenerator
+from contextlib import asynccontextmanager
 from datetime import UTC, datetime, timedelta
 import hashlib
 from uuid import UUID, uuid7
 
 from attrs import define
 from sqlalchemy import delete, select, update
+from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.domain.entities.shared import JsonDict
 from src.infrastructure.persistence.database.db_connection import get_session
@@ -29,8 +33,25 @@ from src.infrastructure.persistence.database.db_models import (
     DBOAuthClient,
     DBOAuthRefreshToken,
 )
+from src.infrastructure.persistence.database.user_context import system_context
 
 _REQUEST_TTL = timedelta(minutes=15)
+
+
+@asynccontextmanager
+async def _session() -> AsyncGenerator[AsyncSession]:
+    """A short session declared user-less — the AS has no session user.
+
+    The ``/token`` caller is an OAuth client, not a user; rows are addressed
+    by client id or token hash, and the ``oauth_*`` tables carry no RLS
+    (migration 039). Declaring :func:`system_context` keeps the session
+    layer's default-user guard from refusing these transactions on a hosted
+    database — without it every helper here rides the ``default`` contextvar
+    and 500s in production.
+    """
+    with system_context():
+        async with get_session() as session:
+            yield session
 
 
 def token_hash(value: str) -> str:
@@ -85,7 +106,7 @@ class StoredRefreshToken:
 
 
 async def get_client(client_id: str) -> StoredClient | None:
-    async with get_session() as session:
+    async with _session() as session:
         row = await session.scalar(
             select(DBOAuthClient).where(DBOAuthClient.client_id == client_id)
         )
@@ -100,7 +121,7 @@ async def get_client(client_id: str) -> StoredClient | None:
 
 
 async def upsert_client(client_id: str, kind: str, client_info: JsonDict) -> None:
-    async with get_session() as session:
+    async with _session() as session:
         existing = await session.scalar(
             select(DBOAuthClient).where(DBOAuthClient.client_id == client_id)
         )
@@ -121,7 +142,7 @@ async def create_authorization_request(
 ) -> UUID:
     request_id = uuid7()
     now = datetime.now(UTC)
-    async with get_session() as session:
+    async with _session() as session:
         await session.execute(
             delete(DBOAuthAuthorizationRequest).where(
                 DBOAuthAuthorizationRequest.created_at < now - _REQUEST_TTL
@@ -142,7 +163,7 @@ async def get_authorization_request(
     request_id: UUID,
 ) -> StoredAuthorizationRequest | None:
     cutoff = datetime.now(UTC) - _REQUEST_TTL
-    async with get_session() as session:
+    async with _session() as session:
         row = await session.scalar(
             select(DBOAuthAuthorizationRequest).where(
                 DBOAuthAuthorizationRequest.id == request_id,
@@ -161,7 +182,7 @@ async def get_authorization_request(
 
 
 async def delete_authorization_request(request_id: UUID) -> None:
-    async with get_session() as session:
+    async with _session() as session:
         await session.execute(
             delete(DBOAuthAuthorizationRequest).where(
                 DBOAuthAuthorizationRequest.id == request_id
@@ -173,7 +194,7 @@ async def delete_authorization_request(request_id: UUID) -> None:
 
 
 async def create_authorization_code(code: StoredAuthorizationCode) -> None:
-    async with get_session() as session:
+    async with _session() as session:
         session.add(
             DBOAuthAuthorizationCode(
                 code_hash=code.code_hash,
@@ -206,7 +227,7 @@ def _code_from_row(row: DBOAuthAuthorizationCode) -> StoredAuthorizationCode:
 
 
 async def load_authorization_code(code_hash: str) -> StoredAuthorizationCode | None:
-    async with get_session() as session:
+    async with _session() as session:
         row = await session.scalar(
             select(DBOAuthAuthorizationCode).where(
                 DBOAuthAuthorizationCode.code_hash == code_hash
@@ -217,7 +238,7 @@ async def load_authorization_code(code_hash: str) -> StoredAuthorizationCode | N
 
 async def consume_authorization_code(code_hash: str) -> StoredAuthorizationCode | None:
     """Atomically claim a code — exactly one /token call can win it."""
-    async with get_session() as session:
+    async with _session() as session:
         row = await session.scalar(
             delete(DBOAuthAuthorizationCode)
             .where(DBOAuthAuthorizationCode.code_hash == code_hash)
@@ -231,7 +252,7 @@ async def consume_authorization_code(code_hash: str) -> StoredAuthorizationCode 
 
 
 async def create_refresh_token(token: StoredRefreshToken) -> None:
-    async with get_session() as session:
+    async with _session() as session:
         session.add(_refresh_row(token))
 
 
@@ -262,7 +283,7 @@ def _refresh_from_row(row: DBOAuthRefreshToken) -> StoredRefreshToken:
 
 
 async def load_refresh_token(hash_value: str) -> StoredRefreshToken | None:
-    async with get_session() as session:
+    async with _session() as session:
         row = await session.scalar(
             select(DBOAuthRefreshToken).where(
                 DBOAuthRefreshToken.token_hash == hash_value
@@ -278,7 +299,7 @@ async def rotate_refresh_token(old_hash: str, replacement: StoredRefreshToken) -
     treats that as replay — see ``revoke_refresh_family``).
     """
     now = datetime.now(UTC)
-    async with get_session() as session:
+    async with _session() as session:
         result = await session.execute(
             update(DBOAuthRefreshToken)
             .where(
@@ -297,7 +318,7 @@ async def rotate_refresh_token(old_hash: str, replacement: StoredRefreshToken) -
 
 async def revoke_refresh_family(family_id: UUID) -> None:
     """Delete every generation of a family — replay evidence response."""
-    async with get_session() as session:
+    async with _session() as session:
         await session.execute(
             delete(DBOAuthRefreshToken).where(
                 DBOAuthRefreshToken.family_id == family_id
@@ -306,7 +327,7 @@ async def revoke_refresh_family(family_id: UUID) -> None:
 
 
 async def delete_refresh_token(hash_value: str) -> None:
-    async with get_session() as session:
+    async with _session() as session:
         await session.execute(
             delete(DBOAuthRefreshToken).where(
                 DBOAuthRefreshToken.token_hash == hash_value

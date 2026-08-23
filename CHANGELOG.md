@@ -6,6 +6,15 @@ linked backlog version file. Versioning follows mixd's four-segment
 `major.minor.feature.revision` scheme (`.claude/rules/version-management.md`), not strict
 SemVer. Format inspired by [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [0.11.3.1] — 2026-08-23
+
+**Connecting any service from the web works in production again.** The first prod connect attempt after the v0.10.4.1 safety guard shipped revealed that the OAuth state helpers (and the remote-MCP OAuth server) opened database sessions without declaring who they ran as — the guard correctly refused them, and every connector's Connect button 500ed.
+
+- OAuth state creation runs as the initiating user; state validation and the OAuth AS declare `system_context()` (the token itself is the credential).
+- A new remote-mode test fixture arms the guard in CI, closing the class: dev is guard-exempt, so this failure mode was structurally invisible to the whole test suite until now.
+
+→ [details](docs/backlog/v0.11.x.md#post-deploy-revisions)
+
 ## [0.11.3] — 2026-08-22
 
 **Tidal joins as the sixth catalog mixd can see.** Connect with your own free Tidal app — in the browser or straight from the terminal — and your favorites are acknowledged immediately; when Tidal retires a track id, mixd follows the official replacement pointer instead of losing the thread.

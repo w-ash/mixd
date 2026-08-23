@@ -3,7 +3,7 @@
  * Do not edit manually.
  * Mixd
  * Personal music metadata hub
- * OpenAPI spec version: 0.11.3
+ * OpenAPI spec version: 0.11.3.1
  */
 
 export type TidalCallbackAuthTidalCallbackGetParams = {
