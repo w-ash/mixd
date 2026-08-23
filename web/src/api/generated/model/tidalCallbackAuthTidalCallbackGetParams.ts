@@ -5,8 +5,9 @@
  * Personal music metadata hub
  * OpenAPI spec version: 0.11.3
  */
-import type { ValidationError } from './validationError.ts';
 
-export interface HTTPValidationError {
-  detail?: ValidationError[];
-}
+export type TidalCallbackAuthTidalCallbackGetParams = {
+code?: string;
+state?: string;
+error?: string;
+};

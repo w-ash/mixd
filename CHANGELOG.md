@@ -6,6 +6,54 @@ linked backlog version file. Versioning follows mixd's four-segment
 `major.minor.feature.revision` scheme (`.claude/rules/version-management.md`), not strict
 SemVer. Format inspired by [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [0.11.3] — 2026-08-22
+
+**Tidal joins as the sixth catalog mixd can see.** Connect with your own free Tidal app — in the browser or straight from the terminal — and your favorites are acknowledged immediately; when Tidal retires a track id, mixd follows the official replacement pointer instead of losing the thread.
+
+- OAuth 2.1 with PKCE; refresh-token rotation is protected by a shared per-user single-flight guard (Postgres advisory lock, two-signal dedup), so concurrent syncs can never burn a rotated grant.
+- CLI auth via the device-code flow, with an automatic localhost-browser fallback if Tidal's undocumented device endpoint declines.
+- Tidal's OpenAPI spec is vendored with a SHA pin and a weekly CI drift check — silent contract changes become visible failures; the spec-derived models are import-isolated behind their own architecture contract.
+- Conservative ISRC-only track resolution, sharing the newly extracted platform-succession seam (Spotify relinking and Apple equivalents now record through the same code).
+- `mixd tidal snapshot` and a "connected · N favorites" card; zero canonical writes until entities land.
+- Token `extra_data` writes across **all** connectors are now column-scoped — a background count refresh can no longer clobber a freshly rotated credential.
+- Live-API probe deferred (no active Tidal account); foundations are mock-verified against the vendored spec.
+
+→ [details](docs/backlog/v0.11.x.md#v0113-tidal-foundation)
+
+## [0.11.2] — 2026-08-22
+
+**Your Spotify connection now tells you what it needs.** An expired grant (Spotify's 2026 six-month refresh-token policy) shows a one-click Reconnect instead of failing silently; pooled-quota exhaustion is named instead of retried forever; and disconnecting states exactly what it removes — credentials go, your imported music stays yours.
+
+- HTTP 400 `invalid_grant` on refresh now deletes the dead token (compare-and-swap, safe against a concurrent reconnect) and surfaces the reconnect state on web and CLI.
+- Quota 429s (`QUOTA_EXCEEDED`) classify as permanent: no futile retry loop, batches abort on first hit, and the API answers 503 `SPOTIFY_QUOTA_EXHAUSTED` (PDR-003).
+- Adopted Spotify's `account_id` for external linkage (live-verified); profile parsing no longer expects the fields development mode dropped.
+- `authorized_at` is stamped at grant time so grant age is knowable.
+
+→ [details](docs/backlog/v0.11.x.md#v0112-spotify-api-currency)
+
+## [0.11.1] — 2026-08-22
+
+**Discogs connects with a single pasted token.** Generate a personal access token, paste it once into the new card, and your collection is acknowledged immediately — "connected · N releases", with an inviting zero-state if you're just starting. This is the release-grade-metadata on-ramp the v0.12 entity work builds on.
+
+- BYO personal access token (validated live, encrypted at rest, write-only in the UI) — no OAuth dance; the auth seam stays open for OAuth 1.0a if write scopes are ever needed.
+- The whole instance shares Discogs' per-IP 60/min budget, so every request runs through one serialized queue with header-authoritative pacing.
+- `mixd discogs snapshot` and a chat tool; a new "Physical media" section on Integrations; zero canonical writes until albums exist.
+- Connect success is now declared only after the UI has actually refetched — no more "success" toast over a stale card.
+
+→ [details](docs/backlog/v0.11.x.md#v0111-discogs-foundation)
+
+## [0.11.0] — 2026-08-22
+
+**Apple Music listening flows into your canonical history.** Connect once in the browser (Apple's MusicKit popup) and every Apple play lands beside your Spotify and Last.fm listens — deduplicated by the same projection, with honestly approximate timestamps, verified live end-to-end.
+
+- Instance-owned ES256 developer token (90-day mint, cached); the per-user Music User Token is captured by a server-served MusicKit bridge page and stored encrypted — Apple offers no server-side or CLI path.
+- Apple's recently-played feed has no timestamps, so plays are stamped at the poll-window midpoint and the channel ranks below every observer that knows when — it can create a play, never win a timestamp.
+- ISRC-only conservative resolution: no artist-title guesses before the v0.12.1 comparator exists; unresolved observations wait, mapped to nothing, for the v0.13.0 re-resolution pass.
+- Credential aging is a first-class state cycle-wide: "reconnect", not an error — the substrate Spotify and Tidal reuse.
+- Sync card, scheduling, checkpoint row, and a 409 reconnect envelope; live-probe-verified API notes ship in the connector package.
+
+→ [details](docs/backlog/v0.11.x.md#v0110-apple-music-foundation)
+
 ## [0.10.4.1] — 2026-08-21
 
 **Sorting your library by anything other than the default no longer stalls.** Yesterday's release made "most recently played" fast and left the other sorts doing a full scan of your library on every page — `Added` was the slowest thing in the app. Every sort column now has an index behind it, and paging deep into a sorted list stays as fast as the first page rather than getting slower the further you go.

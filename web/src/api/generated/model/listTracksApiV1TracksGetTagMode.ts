@@ -3,7 +3,7 @@
  * Do not edit manually.
  * Mixd
  * Personal music metadata hub
- * OpenAPI spec version: 0.10.4.1
+ * OpenAPI spec version: 0.11.3
  */
 
 export type ListTracksApiV1TracksGetTagMode = typeof ListTracksApiV1TracksGetTagMode[keyof typeof ListTracksApiV1TracksGetTagMode];

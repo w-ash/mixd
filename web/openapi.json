@@ -3,7 +3,7 @@
   "info": {
     "title": "Mixd",
     "description": "Personal music metadata hub",
-    "version": "0.10.4.1"
+    "version": "0.11.3"
   },
   "paths": {
     "/api/v1/connectors/{service}/auth-url": {
@@ -61,6 +61,68 @@
         "summary": "Spotify Callback",
         "description": "Spotify OAuth callback \u2014 exchanges code for tokens, stores them.\n\nOn success, redirects to /settings/integrations?auth=spotify&status=success.\nOn failure, redirects to /settings/integrations?auth=spotify&status=error.",
         "operationId": "spotify_callback_auth_spotify_callback_get",
+        "parameters": [
+          {
+            "name": "code",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string",
+              "default": "",
+              "title": "Code"
+            }
+          },
+          {
+            "name": "state",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string",
+              "default": "",
+              "title": "State"
+            }
+          },
+          {
+            "name": "error",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string",
+              "default": "",
+              "title": "Error"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/auth/tidal/callback": {
+      "get": {
+        "tags": [
+          "auth"
+        ],
+        "summary": "Tidal Callback",
+        "description": "Tidal OAuth callback \u2014 exchanges code for the token pair, stores it.\n\nOn success, redirects to /settings/integrations?auth=tidal&status=success.\nOn failure, redirects to /settings/integrations?auth=tidal&status=error.",
+        "operationId": "tidal_callback_auth_tidal_callback_get",
         "parameters": [
           {
             "name": "code",

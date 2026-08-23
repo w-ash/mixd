@@ -3,7 +3,7 @@
  * Do not edit manually.
  * Mixd
  * Personal music metadata hub
- * OpenAPI spec version: 0.10.4.1
+ * OpenAPI spec version: 0.11.3
  */
 import {
   HttpResponse,
@@ -47,6 +47,16 @@ export const getSpotifyCallbackAuthSpotifyCallbackGetMockHandler = (overrideResp
   }, options)
 }
 
+export const getTidalCallbackAuthTidalCallbackGetMockHandler = (overrideResponse?: unknown | ((info: Parameters<Parameters<typeof http.get>[1]>[0]) => Promise<unknown> | unknown), options?: RequestHandlerOptions) => {
+  return http.get('*/auth/tidal/callback', async (info: Parameters<Parameters<typeof http.get>[1]>[0]) => {
+  if (typeof overrideResponse === 'function') {await overrideResponse(info); }
+
+    return new HttpResponse(null,
+      { status: 200
+      })
+  }, options)
+}
+
 export const getLastfmCallbackAuthLastfmCallbackGetMockHandler = (overrideResponse?: unknown | ((info: Parameters<Parameters<typeof http.get>[1]>[0]) => Promise<unknown> | unknown), options?: RequestHandlerOptions) => {
   return http.get('*/auth/lastfm/callback', async (info: Parameters<Parameters<typeof http.get>[1]>[0]) => {
   if (typeof overrideResponse === 'function') {await overrideResponse(info); }
@@ -82,6 +92,7 @@ export const getStoreAppleMusicTokenApiV1ConnectorsAppleMusicTokenPostMockHandle
 export const getAuthMock = () => [
   getGetConnectorAuthUrlApiV1ConnectorsServiceAuthUrlGetMockHandler(),
   getSpotifyCallbackAuthSpotifyCallbackGetMockHandler(),
+  getTidalCallbackAuthTidalCallbackGetMockHandler(),
   getLastfmCallbackAuthLastfmCallbackGetMockHandler(),
   getAppleAuthorizeAuthAppleAuthorizeGetMockHandler(),
   getStoreAppleMusicTokenApiV1ConnectorsAppleMusicTokenPostMockHandler()

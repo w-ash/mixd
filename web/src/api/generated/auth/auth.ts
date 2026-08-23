@@ -3,7 +3,7 @@
  * Do not edit manually.
  * Mixd
  * Personal music metadata hub
- * OpenAPI spec version: 0.10.4.1
+ * OpenAPI spec version: 0.11.3
  */
 import {
   useMutation,
@@ -30,7 +30,8 @@ import type {
   GetConnectorAuthUrlApiV1ConnectorsServiceAuthUrlGet200,
   HTTPValidationError,
   LastfmCallbackAuthLastfmCallbackGetParams,
-  SpotifyCallbackAuthSpotifyCallbackGetParams
+  SpotifyCallbackAuthSpotifyCallbackGetParams,
+  TidalCallbackAuthTidalCallbackGetParams
 } from '../model';
 
 import { customFetch } from '../../client.ts';
@@ -305,6 +306,136 @@ export function useSpotifyCallbackAuthSpotifyCallbackGet<TData = Awaited<ReturnT
  ):  UseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> } {
 
   const queryOptions = getSpotifyCallbackAuthSpotifyCallbackGetQueryOptions(params,options)
+
+  const query = useQuery(queryOptions, queryClient) as  UseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> };
+
+  return withQueryKey(query, queryOptions.queryKey);
+}
+
+
+
+
+
+
+export type tidalCallbackAuthTidalCallbackGetResponse200 = {
+  data: unknown
+  status: 200
+}
+
+export type tidalCallbackAuthTidalCallbackGetResponse422 = {
+  data: HTTPValidationError
+  status: 422
+}
+
+export type tidalCallbackAuthTidalCallbackGetResponseSuccess = (tidalCallbackAuthTidalCallbackGetResponse200) & {
+  headers: Headers;
+};
+export type tidalCallbackAuthTidalCallbackGetResponseError = (tidalCallbackAuthTidalCallbackGetResponse422) & {
+  headers: Headers;
+};
+
+export type tidalCallbackAuthTidalCallbackGetResponse = (tidalCallbackAuthTidalCallbackGetResponseSuccess | tidalCallbackAuthTidalCallbackGetResponseError)
+
+export const getTidalCallbackAuthTidalCallbackGetUrl = (params?: TidalCallbackAuthTidalCallbackGetParams,) => {
+  const normalizedParams = new URLSearchParams();
+
+  Object.entries(params || {}).forEach(([key, value]) => {
+
+    if (value !== undefined) {
+      normalizedParams.append(key, value === null ? 'null' : String(value))
+    }
+  });
+
+  const stringifiedParams = normalizedParams.toString();
+
+  return stringifiedParams.length > 0 ? `/auth/tidal/callback?${stringifiedParams}` : `/auth/tidal/callback`
+}
+
+/**
+ * Tidal OAuth callback — exchanges code for the token pair, stores it.
+ *
+ * On success, redirects to /settings/integrations?auth=tidal&status=success.
+ * On failure, redirects to /settings/integrations?auth=tidal&status=error.
+ * @summary Tidal Callback
+ */
+export const tidalCallbackAuthTidalCallbackGet = async (params?: TidalCallbackAuthTidalCallbackGetParams, options?: Parameters<typeof customFetch>[1]): Promise<tidalCallbackAuthTidalCallbackGetResponse> => {
+
+  return customFetch<tidalCallbackAuthTidalCallbackGetResponse>(getTidalCallbackAuthTidalCallbackGetUrl(params),
+  {
+    ...options,
+    method: 'GET'
+
+
+  }
+);}
+
+
+
+
+
+export const getTidalCallbackAuthTidalCallbackGetQueryKey = (params?: TidalCallbackAuthTidalCallbackGetParams,) => {
+    return [
+    `/auth/tidal/callback`, ...(params ? [params] : [])
+    ] as const;
+    }
+
+
+export const getTidalCallbackAuthTidalCallbackGetQueryOptions = <TData = Awaited<ReturnType<typeof tidalCallbackAuthTidalCallbackGet>>, TError = HTTPValidationError>(params?: TidalCallbackAuthTidalCallbackGetParams, options?: { query?:Partial<UseQueryOptions<Awaited<ReturnType<typeof tidalCallbackAuthTidalCallbackGet>>, TError, TData>>, request?: SecondParameter<typeof customFetch>}
+) => {
+
+const {query: queryOptions, request: requestOptions} = options ?? {};
+
+  const queryKey =  queryOptions?.queryKey ?? getTidalCallbackAuthTidalCallbackGetQueryKey(params);
+
+
+
+    const queryFn: QueryFunction<Awaited<ReturnType<typeof tidalCallbackAuthTidalCallbackGet>>> = ({ signal }) => tidalCallbackAuthTidalCallbackGet(params, { signal, ...requestOptions });
+
+
+
+
+
+   return  { queryKey, queryFn, ...queryOptions} as UseQueryOptions<Awaited<ReturnType<typeof tidalCallbackAuthTidalCallbackGet>>, TError, TData> & { queryKey: DataTag<QueryKey, TData, TError> }
+}
+
+export type TidalCallbackAuthTidalCallbackGetQueryResult = NonNullable<Awaited<ReturnType<typeof tidalCallbackAuthTidalCallbackGet>>>
+export type TidalCallbackAuthTidalCallbackGetQueryError = HTTPValidationError
+
+
+export function useTidalCallbackAuthTidalCallbackGet<TData = Awaited<ReturnType<typeof tidalCallbackAuthTidalCallbackGet>>, TError = HTTPValidationError>(
+ params: undefined |  TidalCallbackAuthTidalCallbackGetParams, options: { query:Partial<UseQueryOptions<Awaited<ReturnType<typeof tidalCallbackAuthTidalCallbackGet>>, TError, TData>> & Pick<
+        DefinedInitialDataOptions<
+          Awaited<ReturnType<typeof tidalCallbackAuthTidalCallbackGet>>,
+          TError,
+          Awaited<ReturnType<typeof tidalCallbackAuthTidalCallbackGet>>
+        > , 'initialData'
+      >, request?: SecondParameter<typeof customFetch>}
+ , queryClient?: QueryClient
+  ):  DefinedUseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> }
+export function useTidalCallbackAuthTidalCallbackGet<TData = Awaited<ReturnType<typeof tidalCallbackAuthTidalCallbackGet>>, TError = HTTPValidationError>(
+ params?: TidalCallbackAuthTidalCallbackGetParams, options?: { query?:Partial<UseQueryOptions<Awaited<ReturnType<typeof tidalCallbackAuthTidalCallbackGet>>, TError, TData>> & Pick<
+        UndefinedInitialDataOptions<
+          Awaited<ReturnType<typeof tidalCallbackAuthTidalCallbackGet>>,
+          TError,
+          Awaited<ReturnType<typeof tidalCallbackAuthTidalCallbackGet>>
+        > , 'initialData'
+      >, request?: SecondParameter<typeof customFetch>}
+ , queryClient?: QueryClient
+  ):  UseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> }
+export function useTidalCallbackAuthTidalCallbackGet<TData = Awaited<ReturnType<typeof tidalCallbackAuthTidalCallbackGet>>, TError = HTTPValidationError>(
+ params?: TidalCallbackAuthTidalCallbackGetParams, options?: { query?:Partial<UseQueryOptions<Awaited<ReturnType<typeof tidalCallbackAuthTidalCallbackGet>>, TError, TData>>, request?: SecondParameter<typeof customFetch>}
+ , queryClient?: QueryClient
+  ):  UseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> }
+/**
+ * @summary Tidal Callback
+ */
+
+export function useTidalCallbackAuthTidalCallbackGet<TData = Awaited<ReturnType<typeof tidalCallbackAuthTidalCallbackGet>>, TError = HTTPValidationError>(
+ params?: TidalCallbackAuthTidalCallbackGetParams, options?: { query?:Partial<UseQueryOptions<Awaited<ReturnType<typeof tidalCallbackAuthTidalCallbackGet>>, TError, TData>>, request?: SecondParameter<typeof customFetch>}
+ , queryClient?: QueryClient
+ ):  UseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> } {
+
+  const queryOptions = getTidalCallbackAuthTidalCallbackGetQueryOptions(params,options)
 
   const query = useQuery(queryOptions, queryClient) as  UseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> };
 
