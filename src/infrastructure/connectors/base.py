@@ -91,6 +91,11 @@ class BaseAPIClient:
         indistinguishable from "the API answered with nothing" — the Last.fm
         enrichment reads depend on that distinction (v0.10.2.9 F5).
 
+        Before an error is suppressed, ``_surface_suppressed_error`` gets one
+        look at it: a subclass can promote a specific failure shape into a
+        typed exception that raises instead of dissolving into ``None`` (the
+        way Spotify's quota-exhausted 429 must — see the override there).
+
         Recorded time covers pacing waits and every retry attempt.
         """
         limiter = get_connector_rate_limiter(self.service_name)
@@ -102,10 +107,24 @@ class BaseAPIClient:
                 return await self._retry_policy(attempt, *args)
             except Exception as exc:
                 if isinstance(exc, suppressed_types):
+                    replacement = self._surface_suppressed_error(exc)
+                    if replacement is not None:
+                        raise replacement from exc
                     return None
                 raise
             finally:
                 record_api_call(time.perf_counter_ns() - started)
+
+    def _surface_suppressed_error(self, exc: Exception) -> Exception | None:
+        """Translate an about-to-be-suppressed error into one that must surface.
+
+        Default: nothing escapes (return ``None``). Subclasses override to
+        recognize failure shapes whose suppression would strand the caller —
+        the replacement is raised ``from`` the original instead of ``None``
+        being returned.
+        """
+        del exc
+        return None
 
     async def aclose(self) -> None:
         """Close underlying resources. Override for clients with connection pools."""

@@ -27,6 +27,7 @@ from src.domain.exceptions import (
     AppleMusicAuthRequiredError,
     LastfmAuthRequiredError,
     SpotifyAuthRequiredError,
+    SpotifyQuotaExhaustedError,
 )
 from src.domain.repositories.play import (
     RECENTLY_PLAYED_PAGE_LIMIT,
@@ -223,11 +224,14 @@ class ImportTracksUseCase:
                 AppleMusicAuthRequiredError,
                 LastfmAuthRequiredError,
                 SpotifyAuthRequiredError,
+                SpotifyQuotaExhaustedError,
             ):
                 # Connector-not-connected is a clean precondition, not a soft
                 # failure — let it propagate so the SSE seam emits a terminal
                 # error (and the 409 middleware handler maps it for sync callers).
                 # Converting it to an is_failure result would bury the connect hint.
+                # Quota exhaustion (PDR-003) propagates the same way: its 503
+                # handler and message are the only honest surface for it.
                 raise
 
             except Exception as e:

@@ -52,16 +52,27 @@ function StatusLine({
             : "Session expired"}
         </span>
       );
-    case "needs_reauth":
-      // Session still works — the stored grant just predates a scope the
-      // app now requests (e.g. listening history). One-time re-consent.
+    case "needs_reauth": {
+      // scope_missing: session still works — the stored grant just predates
+      // a scope the app now requests (e.g. listening history). One-time
+      // re-consent, not a session problem.
+      // reauth_required: the session itself aged out or was revoked
+      // (Spotify's 6-month refresh grant, Apple's Music User Token) — a
+      // different situation from a permissions gap, so it gets its own copy.
+      const sessionExpired = connector.auth_error === "reauth_required";
+      const suffix = sessionExpired
+        ? "session expired, reconnect"
+        : "new permissions needed";
       return (
         <span className="text-status-expired">
           {connector.account_name
-            ? `${connector.account_name} — new permissions needed`
-            : "New permissions needed"}
+            ? `${connector.account_name} — ${suffix}`
+            : sessionExpired
+              ? "Session expired, reconnect"
+              : "New permissions needed"}
         </span>
       );
+    }
     case "error": {
       // Backend-observed auth errors win over transient callback-URL errors.
       const reason = connector.auth_error ?? authError;
@@ -258,7 +269,7 @@ export function ConnectorCard({ connector, authError }: ConnectorCardProps) {
           open={showDisconnect}
           onOpenChange={setShowDisconnect}
           title={`Disconnect ${label}?`}
-          description="Your playlists and sync settings will be preserved, but imports and syncing will stop until you reconnect."
+          description="Your credentials are removed. Imported likes, plays, playlists, and mappings stay — syncing stops until you reconnect."
           confirmLabel="Disconnect"
           destructive
           isPending={isDisconnecting}

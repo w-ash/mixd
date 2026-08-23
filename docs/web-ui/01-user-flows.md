@@ -143,6 +143,62 @@ With database-backed credential storage, Settings handles the Last.fm web auth f
 
 ---
 
+### 1.3 Reconnecting Spotify After Grant Expiry (v0.11.2)
+
+**Trigger**: The user's Spotify refresh grant has aged out. Spotify refresh tokens expire 6 months after the original authorization, and refreshing does not extend the window. Expiry surfaces as HTTP 400 `invalid_grant` on the refresh POST.
+
+**Steps**:
+
+1. Any token refresh (a background sync, a status probe, an API call after a 401) receives `invalid_grant`.
+   - Backend deletes the dead token — it can never succeed again — and raises the re-auth signal.
+   - The connector status reports `connected: true` with `auth_error: "reauth_required"`.
+
+2. The Spotify connector card renders the **needs_reauth** state with a **Reconnect** button. `mixd connector status` shows the matching re-auth wording in the CLI.
+
+3. User clicks **Reconnect**. This is the standard connect flow (1.1): fetch the auth URL, approve on Spotify, land back on `/settings/integrations` with a success toast.
+
+4. The new grant is stamped with `extra_data.authorized_at` (Unix timestamp of the authorization), and every later refresh carries it forward unchanged — so grant age stays knowable for the next 6-month window.
+
+**Backend calls**:
+| Step | Endpoint | Use Case | Status |
+|------|----------|----------|--------|
+| 1–2 | `GET /connectors` | Status probe surfaces `reauth_required` | ✅ Implemented (v0.11.2) |
+| 3 | `GET /connectors/spotify/auth-url` → `GET /auth/spotify/callback` | Standard connect flow | ✅ Implemented (v0.5.x) |
+
+**Edge cases**:
+- The status probe that detects expiry renders **Reconnect**; once the dead token is deleted, later probes render **Not Connected** with a **Connect** button — same remedy, one click either way.
+- A non-grant refresh failure (network error, 500) is not expiry: the card keeps the `refresh_failed` error state instead of the reconnect affordance.
+- In-flight operations fail permanently (no retry loop) with the reconnect message — an expired grant cannot succeed on retry.
+- Local dev: `SPOTIFY_REDIRECT_URI` must point at the web callback (`http://localhost:5173/auth/spotify/callback`, registered in the Spotify app dashboard; the Vite `/auth` proxy forwards it) — the CLI flow's one-shot `127.0.0.1:8888` listener dead-ends the web Connect button after approval.
+
+---
+
+### 1.4 Disconnecting a Service (v0.11.2)
+
+**Trigger**: User opens a connector card's settings gear and clicks **Disconnect**.
+
+**Steps**:
+
+1. A confirmation dialog states exactly what disconnect does: credentials are removed; imported likes, plays, playlists, and mappings stay; syncing stops until the user reconnects. The CLI's `mixd connectors disconnect <service>` prints the same meaning after it runs.
+
+2. User confirms. Frontend calls `DELETE /connectors/{service}/token`.
+   - Backend deletes only the stored credential row. For Spotify, background play polling is also stopped (a poller against a deleted token is harmless but noisy in the run log).
+   - No canonical data — likes, plays, playlists, connector mappings — is touched. Account deletion (v0.6.4 purge) remains the only path that removes a user's data.
+
+3. The connector card returns to **Not Connected**; a later **Connect** re-establishes credentials without re-importing anything already in the library.
+
+**Backend calls**:
+| Step | Endpoint | Use Case | Status |
+|------|----------|----------|--------|
+| 2 | `DELETE /connectors/{service}/token` | Delete stored credential | ✅ Implemented (v0.5.x; scope note v0.11.2) |
+
+**Edge cases**:
+- Disconnecting a connector that was never connected: the delete is a no-op (204), no error.
+- A non-credentialed connector (MusicBrainz, `coming_soon` stubs): disconnect is not offered — there's no credential to remove.
+- Track detail pages and playlists that reference the disconnected service keep showing the data mixd already imported; only the "Edit mapping" affordance disables until reconnect (Flow 2.3).
+
+---
+
 ## 2. Browsing the Library
 
 > **Available starting v0.3.2.** Requires `ListTracksUseCase`, `SearchTracksUseCase`, and `GetTrackDetailsUseCase`.

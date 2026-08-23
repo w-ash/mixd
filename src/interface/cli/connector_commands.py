@@ -93,7 +93,8 @@ def auth_spotify() -> None:
         import asyncio
 
         from src.infrastructure.connectors._shared.connector_status import (
-            fetch_spotify_display_name,
+            fetch_spotify_profile,
+            stamp_account_id,
         )
         from src.infrastructure.connectors._shared.token_storage import (
             StoredToken,
@@ -108,10 +109,13 @@ def auth_spotify() -> None:
         code = await asyncio.to_thread(mgr.run_browser_auth)
         token_info = await mgr.exchange_code(code)
 
-        display_name = await fetch_spotify_display_name(token_info["access_token"])
+        display_name, account_id = await fetch_spotify_profile(
+            token_info["access_token"]
+        )
         token_to_save = StoredToken(**token_info)
         if display_name:
             token_to_save = StoredToken(**token_info, account_name=display_name)
+        token_to_save = stamp_account_id(token_to_save, account_id)
         await storage.save_token("spotify", user_id, token_to_save)
 
         # Same hook as the web callback — a grant covering recently-played means
@@ -163,6 +167,10 @@ def disconnect_connector(
     The CLI peer of the web's disconnect button. Without it, a terminal-only user
     had no way to revoke a grant locally — and no way to stop background polling
     short of revoking the app in Spotify's own settings.
+
+    Disconnect removes credentials only — imported likes, plays, playlists,
+    and mappings are the user's records and stay (account deletion is the
+    only full-removal path). Syncing stops until the user reconnects.
     """
 
     async def _disconnect() -> None:
@@ -184,6 +192,10 @@ def disconnect_connector(
 
     try:
         run_async(_disconnect())
-        console.print(f"[green]Disconnected {service}.[/green]")
+        console.print(
+            f"[green]Disconnected {service}.[/green] Your credentials are "
+            "removed; imported likes, plays, playlists, and mappings stay. "
+            "Syncing stops until you reconnect."
+        )
     except Exception as e:
         handle_cli_error(e, f"Could not disconnect {service}")

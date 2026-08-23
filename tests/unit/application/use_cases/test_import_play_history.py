@@ -132,6 +132,27 @@ class TestImportTracksUseCase:
         assert error_metric is not None
         assert error_metric.value == 1
 
+    async def test_quota_exhaustion_propagates_instead_of_failed_result(self):
+        """PDR-003 quota exhaustion must escape like the auth errors do — a
+        soft-failure result would bury the outage and let callers keep going."""
+        from src.domain.exceptions import SpotifyQuotaExhaustedError
+
+        uow = AsyncMock()
+        command = ImportTracksCommand(
+            user_id="test-user", service="spotify", mode="recent"
+        )
+        use_case = ImportTracksUseCase()
+
+        with (
+            patch.object(
+                ImportTracksUseCase,
+                "_execute_import",
+                side_effect=SpotifyQuotaExhaustedError(),
+            ),
+            pytest.raises(SpotifyQuotaExhaustedError),
+        ):
+            _ = await use_case.execute(command, uow)
+
     async def test_successful_import_returns_result(self):
         """Test that successful import returns proper result."""
         uow = AsyncMock()

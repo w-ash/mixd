@@ -41,6 +41,7 @@ from src.domain.exceptions import (
     ScheduleAlreadyExistsError,
     ScheduleInvariantError,
     SpotifyAuthRequiredError,
+    SpotifyQuotaExhaustedError,
     ToolExecutionError,
     WorkflowAlreadyRunningError,
 )
@@ -208,6 +209,24 @@ def register_exception_handlers(app: FastAPI) -> None:
             },
         )
 
+    async def spotify_quota_exhausted_handler(
+        _request: Request, exc: Exception
+    ) -> JSONResponse:
+        # PDR-003 quota exhaustion is a service-wide outage of the pooled
+        # developer account — not a caller fault, not per-user rate limiting,
+        # and not fixable by the 409 auth family's reconnect remedy. 503 tells
+        # clients the service is temporarily unable; the distinct code lets
+        # the frontend say why without parsing the message.
+        return JSONResponse(
+            status_code=503,
+            content={
+                "error": {
+                    "code": "SPOTIFY_QUOTA_EXHAUSTED",
+                    "message": str(exc),
+                }
+            },
+        )
+
     async def lastfm_auth_required_handler(
         _request: Request, exc: Exception
     ) -> JSONResponse:
@@ -350,6 +369,9 @@ def register_exception_handlers(app: FastAPI) -> None:
         ConnectorNotAvailableError, connector_not_available_handler
     )
     app.add_exception_handler(SpotifyAuthRequiredError, spotify_auth_required_handler)
+    app.add_exception_handler(
+        SpotifyQuotaExhaustedError, spotify_quota_exhausted_handler
+    )
     app.add_exception_handler(LastfmAuthRequiredError, lastfm_auth_required_handler)
     app.add_exception_handler(
         AppleMusicAuthRequiredError, apple_music_auth_required_handler

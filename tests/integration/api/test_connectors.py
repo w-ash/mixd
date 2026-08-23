@@ -11,7 +11,10 @@ from unittest.mock import AsyncMock, patch
 
 import httpx2
 
-from src.infrastructure.connectors._shared.token_storage import StoredToken
+from src.infrastructure.connectors._shared.token_storage import (
+    StoredToken,
+    get_token_storage,
+)
 from src.infrastructure.persistence.database.db_connection import get_session
 from src.infrastructure.persistence.database.db_models import DBConnectorPlaylist
 
@@ -133,7 +136,31 @@ class TestSpotifyDisplayName:
     async def test_display_name_from_stored_token(
         self, client: httpx2.AsyncClient
     ) -> None:
-        """Cached account_name returned without any HTTP call."""
+        """Fully-cached name + account_id are returned without any HTTP call."""
+        token = StoredToken(
+            access_token="test_token",
+            refresh_token="test_refresh",
+            expires_at=int(time.time()) + 3600,
+            account_name="cached_user",
+            extra_data={"account_id": "cached_acct_id"},
+        )
+        storage = _mock_storage(spotify_token=token)
+        mock_fetch = AsyncMock()
+        with (
+            patch(f"{_SVC}.get_token_storage", return_value=storage),
+            patch(f"{_SVC}.fetch_spotify_profile", mock_fetch),
+        ):
+            response = await client.get("/api/v1/connectors")
+
+        spotify = next(c for c in response.json() if c["name"] == "spotify")
+        assert spotify["account_name"] == "cached_user"
+        mock_fetch.assert_not_called()
+
+    async def test_backfills_account_id_when_name_cached_but_id_missing(
+        self, client: httpx2.AsyncClient
+    ) -> None:
+        """Pre-v0.11.2 tokens have a cached name but no account_id — the
+        probe backfills it into extra_data (v0.11.2 P S4)."""
         token = StoredToken(
             access_token="test_token",
             refresh_token="test_refresh",
@@ -141,11 +168,17 @@ class TestSpotifyDisplayName:
             account_name="cached_user",
         )
         storage = _mock_storage(spotify_token=token)
-        with patch(f"{_SVC}.get_token_storage", return_value=storage):
+        mock_fetch = AsyncMock(return_value=("cached_user", "backfilled_acct_id"))
+        with (
+            patch(f"{_SVC}.get_token_storage", return_value=storage),
+            patch(f"{_SVC}.fetch_spotify_profile", mock_fetch),
+        ):
             response = await client.get("/api/v1/connectors")
 
         spotify = next(c for c in response.json() if c["name"] == "spotify")
         assert spotify["account_name"] == "cached_user"
+        saved_token = storage.save_token.call_args.args[2]
+        assert saved_token["extra_data"]["account_id"] == "backfilled_acct_id"
 
     async def test_fetches_display_name_when_not_cached(
         self, client: httpx2.AsyncClient
@@ -157,10 +190,10 @@ class TestSpotifyDisplayName:
             expires_at=int(time.time()) + 3600,
         )
         storage = _mock_storage(spotify_token=token)
-        mock_fetch = AsyncMock(return_value="fetched_user")
+        mock_fetch = AsyncMock(return_value=("fetched_user", "acct-fetched"))
         with (
             patch(f"{_SVC}.get_token_storage", return_value=storage),
-            patch(f"{_SVC}.fetch_spotify_display_name", mock_fetch),
+            patch(f"{_SVC}.fetch_spotify_profile", mock_fetch),
         ):
             response = await client.get("/api/v1/connectors")
 
@@ -168,8 +201,10 @@ class TestSpotifyDisplayName:
         assert spotify["account_name"] == "fetched_user"
         mock_fetch.assert_called_once_with("test_token")
 
-        # Verify it was saved back to storage with account_name
+        # Verify it was saved back to storage with account_name + account_id
         storage.save_token.assert_called()
+        saved_token = storage.save_token.call_args.args[2]
+        assert saved_token["extra_data"]["account_id"] == "acct-fetched"
 
     async def test_display_name_fetch_failure_returns_none(
         self, client: httpx2.AsyncClient
@@ -181,10 +216,10 @@ class TestSpotifyDisplayName:
             expires_at=int(time.time()) + 3600,
         )
         storage = _mock_storage(spotify_token=token)
-        mock_fetch = AsyncMock(return_value=None)
+        mock_fetch = AsyncMock(return_value=(None, None))
         with (
             patch(f"{_SVC}.get_token_storage", return_value=storage),
-            patch(f"{_SVC}.fetch_spotify_display_name", mock_fetch),
+            patch(f"{_SVC}.fetch_spotify_profile", mock_fetch),
         ):
             response = await client.get("/api/v1/connectors")
 
@@ -446,3 +481,110 @@ class TestPlayPolling:
             "/api/v1/connectors/lastfm/play-polling", json={"enabled": True}
         )
         assert response.status_code == 400
+
+
+class TestDisconnectPreservesSiblingData:
+    """DELETE /connectors/{service}/token removes only the credential row.
+
+    Disconnect is explicit-scope by design (v0.11.2 P S4): the token row is
+    the only thing it deletes. Imported likes and plays are the user's
+    records and must survive — account deletion (v0.6.4 purge) stays the
+    only full-removal path.
+    """
+
+    async def test_disconnect_removes_token_but_keeps_likes_and_plays(
+        self, client: httpx2.AsyncClient
+    ) -> None:
+        import sqlalchemy as sa
+
+        from src.domain.entities import ConnectorTrackPlay
+        from src.infrastructure.persistence.database.db_models import (
+            DBConnectorPlay,
+            DBTrackLike,
+        )
+        from src.infrastructure.persistence.repositories.factories import (
+            get_unit_of_work,
+        )
+        from tests.fixtures import make_track
+
+        storage = get_token_storage()
+        await storage.save_token(
+            "spotify",
+            "default",
+            StoredToken(
+                access_token="tok",
+                refresh_token="ref",
+                expires_at=int(time.time()) + 3600,
+                account_name="testuser",
+            ),
+        )
+        # Sibling credential: the delete must be scoped to the named service,
+        # not to the user's whole credential set.
+        await storage.save_token(
+            "lastfm",
+            "default",
+            StoredToken(session_key="lastfm-session", account_name="lastfmuser"),
+        )
+
+        batch_id = "TEST_DISCONNECT_BATCH"
+        async with get_session() as session:
+            uow = get_unit_of_work(session)
+            saved_track = await uow.get_track_repository().save_track(
+                make_track(
+                    title="TEST_Disconnect_Track",
+                    artist="TEST_Disconnect_Artist",
+                    connector_track_identifiers={},
+                )
+            )
+            await uow.get_like_repository().save_track_like(
+                saved_track.id, "spotify", user_id="default", is_liked=True
+            )
+            await uow.get_connector_play_repository().bulk_insert_connector_plays([
+                ConnectorTrackPlay(
+                    service="spotify",
+                    artist_name="TEST_Disconnect_Artist",
+                    track_name="TEST_Disconnect_Track",
+                    played_at=datetime.now(UTC),
+                    ms_played=None,
+                    user_id="default",
+                    import_timestamp=datetime.now(UTC),
+                    import_source="spotify_api",
+                    import_batch_id=batch_id,
+                )
+            ])
+
+        assert await storage.load_token("spotify", "default") is not None
+
+        response = await client.delete("/api/v1/connectors/spotify/token")
+        assert response.status_code == 204
+
+        assert await storage.load_token("spotify", "default") is None
+        # The sibling service's credential survives the spotify disconnect.
+        lastfm_token = await storage.load_token("lastfm", "default")
+        assert lastfm_token is not None
+        assert lastfm_token.get("session_key") == "lastfm-session"
+        # Cleanup: don't leak the seeded lastfm credential into other tests.
+        await storage.delete_token("lastfm", "default")
+
+        status_response = await client.get("/api/v1/connectors")
+        spotify_status = next(
+            c for c in status_response.json() if c["name"] == "spotify"
+        )
+        assert spotify_status["connected"] is False
+        assert spotify_status["status"] == "disconnected"
+
+        async with get_session() as session:
+            like_count = await session.scalar(
+                sa
+                .select(sa.func.count())
+                .select_from(DBTrackLike)
+                .where(DBTrackLike.track_id == saved_track.id)
+            )
+            play_count = await session.scalar(
+                sa
+                .select(sa.func.count())
+                .select_from(DBConnectorPlay)
+                .where(DBConnectorPlay.import_batch_id == batch_id)
+            )
+        assert like_count == 1
+        assert play_count == 1

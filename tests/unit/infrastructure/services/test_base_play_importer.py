@@ -178,6 +178,36 @@ class TestPersistsPlaysDuringFetch:
         assert _insert_calls(uow) == 0
 
 
+class TestQuotaExhaustionPropagates:
+    """PDR-003 quota exhaustion must escape ``import_data`` like the
+    connector-auth errors do: a soft-failure result would keep the batch
+    machinery grinding through calls that are all doomed the same way."""
+
+    async def test_quota_error_reraised_not_converted_to_error_result(self) -> None:
+        from src.domain.exceptions import SpotifyQuotaExhaustedError
+
+        class _QuotaImporter(_StubImporter):
+            @override
+            async def _fetch_data(
+                self,
+                params: LastfmImportParams,
+                *,
+                uow: UnitOfWorkProtocol,
+                user_id: str,
+                batch_id: str,
+                import_timestamp: datetime,
+                progress_emitter: ProgressEmitter | None = None,
+                operation_id: str | None = None,
+            ) -> list[ConnectorTrackPlay]:
+                raise SpotifyQuotaExhaustedError
+
+        uow = _uow_with_ledger(inserted=0, duplicates=0)
+        importer = _QuotaImporter(persists_during_fetch=False)
+
+        with pytest.raises(SpotifyQuotaExhaustedError):
+            _ = await importer.import_data(LastfmImportParams(), uow=uow, user_id="u1")
+
+
 class TestReportedCountsComeFromTheLedger:
     """What a run reports imported is what the ledger accepted, either path.
 

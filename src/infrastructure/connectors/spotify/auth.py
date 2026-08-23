@@ -18,10 +18,11 @@ import asyncio
 import base64
 import collections.abc
 import hashlib
+from http import HTTPStatus
 from http.server import BaseHTTPRequestHandler, HTTPServer
 import secrets
 import time
-from typing import TYPE_CHECKING, TypedDict, cast, override
+from typing import TYPE_CHECKING, NotRequired, TypedDict, cast, override
 import urllib.parse
 import webbrowser
 
@@ -29,11 +30,16 @@ from attrs import define, field
 import httpx2
 
 from src.config import get_logger, settings
-from src.domain.exceptions import SpotifyAuthRequiredError
+from src.domain.entities.shared import JsonValue
+from src.domain.exceptions import (
+    SpotifyAuthRequiredError,
+    SpotifyReauthRequiredError,
+)
 from src.domain.repositories.play import RECENTLY_PLAYED_SCOPE
 from src.domain.services.oauth_grant import missing_from_grant
 from src.infrastructure.connectors._shared.http_client import (
     make_spotify_auth_client,
+    parse_json_body,
     parse_json_response,
 )
 from src.infrastructure.connectors._shared.token_storage import (
@@ -107,9 +113,19 @@ async def build_auth_url(
 class SpotifyTokenCache(TypedDict):
     """Spotipy-compatible token cache format.
 
-    All fields are required because we normalize the raw Spotify API response
-    before storing: _refresh_token() always preserves refresh_token and
-    computes expires_at.
+    All fields except ``extra_data`` are required because we normalize the raw
+    Spotify API response before storing: _refresh_token() always preserves
+    refresh_token and computes expires_at.
+
+    ``extra_data["authorized_at"]`` (Unix ts) is stamped by ``exchange_code``
+    and carried forward verbatim by ``_refresh_token`` — it anchors Spotify's
+    6-month refresh-grant window, which counts from the original authorization
+    and is not extended by refreshes. NotRequired: tokens stored before
+    v0.11.2 lack it.
+
+    ``account_name`` is mixd's cached display name (written by the connector
+    status probe's ``/me`` backfill), never part of Spotify's token response —
+    ``_refresh_token`` carries it forward so a silent refresh doesn't null it.
     """
 
     access_token: str
@@ -118,6 +134,8 @@ class SpotifyTokenCache(TypedDict):
     scope: str
     expires_at: int
     refresh_token: str
+    account_name: NotRequired[str]
+    extra_data: NotRequired[dict[str, object]]
 
 
 # -------------------------------------------------------------------------
@@ -182,8 +200,27 @@ class SpotifyTokenManager:
         client_secret = settings.credentials.spotify_client_secret.get_secret_value()
         return base64.b64encode(f"{client_id}:{client_secret}".encode()).decode()
 
+    @staticmethod
+    def _is_invalid_grant(response: httpx2.Response) -> bool:
+        """True if a refresh-POST body carries ``error: "invalid_grant"``.
+
+        Any body that doesn't parse as a JSON object is "not invalid_grant" —
+        it falls through to the plain HTTPStatusError path rather than raising.
+        """
+        body = parse_json_body(response)
+        return body is not None and body.get("error") == "invalid_grant"
+
     async def _refresh_token(self, refresh_token: str) -> SpotifyTokenCache:
-        """Exchange refresh token for new access token via /api/token."""
+        """Exchange refresh token for new access token via /api/token.
+
+        Raises:
+            SpotifyReauthRequiredError: On HTTP 400 ``invalid_grant`` — the
+                refresh grant expired (6 months after original authorization)
+                or was revoked. The dead token can never succeed again, so it
+                is deleted from storage and the in-memory cache cleared before
+                raising; the only remedy is the reconnect flow.
+            httpx2.HTTPStatusError: On any other non-2xx response, unchanged.
+        """
         async with make_spotify_auth_client() as client:
             response = await client.post(
                 "/api/token",
@@ -193,6 +230,29 @@ class SpotifyTokenManager:
                     "refresh_token": refresh_token,
                 },
             )
+            if (
+                response.status_code == HTTPStatus.BAD_REQUEST
+                and self._is_invalid_grant(response)
+            ):
+                logger.warning(
+                    "Spotify refresh rejected with invalid_grant — refresh "
+                    "grant expired or revoked; reauthorization required"
+                )
+                # Delete-if-unchanged: a stale manager (long-lived worker, or
+                # a race with the connect flow) may hold a refresh token that
+                # was already superseded. Only delete the stored row if it
+                # still carries the refresh token that just failed — deleting
+                # on a mismatch would destroy a NEWER, working grant.
+                stored = await self.storage.load_token("spotify", self.user_id)
+                if stored is not None and stored.get("refresh_token") == refresh_token:
+                    await self.storage.delete_token("spotify", self.user_id)
+                else:
+                    logger.info(
+                        "Skipping dead-token deletion — stored refresh token "
+                        "differs from the one that failed (a newer grant exists)"
+                    )
+                self._token_info = None
+                raise SpotifyReauthRequiredError
             _ = response.raise_for_status()
             raw = parse_json_response(response)
 
@@ -208,6 +268,25 @@ class SpotifyTokenManager:
         previous_scope = self._token_info.get("scope") if self._token_info else None
         if "scope" not in raw and previous_scope:
             raw["scope"] = previous_scope
+
+        # extra_data is ours, never Spotify's — carry it forward verbatim so
+        # authorized_at (the anchor of the 6-month refresh-grant window, which
+        # a refresh does not extend) survives every refresh.
+        previous_extra = (
+            self._token_info.get("extra_data") if self._token_info else None
+        )
+        if previous_extra is not None:
+            raw["extra_data"] = cast("dict[str, JsonValue]", previous_extra)
+
+        # account_name is likewise ours (the status probe's /me backfill),
+        # never in Spotify's response — without the carry-forward every silent
+        # refresh nulls the connector card's display name until the next probe
+        # re-fetches it.
+        previous_name = (
+            self._token_info.get("account_name") if self._token_info else None
+        )
+        if previous_name is not None:
+            raw["account_name"] = previous_name
 
         expires_in = raw.get("expires_in", 3600)
         raw["expires_at"] = int(time.time()) + (
@@ -306,10 +385,12 @@ class SpotifyTokenManager:
             _ = response.raise_for_status()
             raw = parse_json_response(response)
 
+        now = int(time.time())
         expires_in = raw.get("expires_in", 3600)
-        raw["expires_at"] = int(time.time()) + (
-            expires_in if isinstance(expires_in, int) else 3600
-        )
+        raw["expires_at"] = now + (expires_in if isinstance(expires_in, int) else 3600)
+        # Anchor of the 6-month refresh-grant window: this is the original
+        # authorization moment, and refreshes carry it forward untouched.
+        raw["extra_data"] = {"authorized_at": now}
         logger.info("Spotify authorization complete — token obtained")
         return cast(SpotifyTokenCache, raw)
 
@@ -366,6 +447,12 @@ class SpotifyTokenManager:
         server-side use where opening a browser would block the event loop.
 
         Returns refreshed token info on success, None on failure.
+
+        Raises:
+            SpotifyReauthRequiredError: The one failure that is NOT swallowed —
+                the refresh grant itself expired or was revoked
+                (``invalid_grant``). The status probe must see it to render
+                the one-click reconnect state instead of a generic failure.
         """
         async with self._refresh_lock:
             if self._token_info is None:
@@ -378,6 +465,8 @@ class SpotifyTokenManager:
                 self._token_info = await self._refresh_token(
                     self._token_info["refresh_token"]
                 )
+            except SpotifyReauthRequiredError:
+                raise
             except Exception:
                 logger.warning("Silent token refresh failed", exc_info=True)
                 return None
@@ -396,6 +485,9 @@ class SpotifyTokenManager:
 
         Raises:
             httpx2.HTTPStatusError: If the refresh request fails.
+            SpotifyReauthRequiredError: If the refresh grant expired or was
+                revoked (``invalid_grant``) — propagated so in-flight API
+                calls fail permanently instead of retrying a dead grant.
             RuntimeError: If no refresh token is available.
         """
         async with self._refresh_lock:

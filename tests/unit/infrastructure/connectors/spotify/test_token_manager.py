@@ -3,8 +3,10 @@
 import time
 from unittest.mock import AsyncMock, MagicMock, patch
 
+import httpx2
 import pytest
 
+from src.domain.exceptions import SpotifyReauthRequiredError
 from src.infrastructure.connectors._shared.token_storage import StoredToken
 from src.infrastructure.connectors.spotify.auth import SpotifyTokenManager
 
@@ -153,9 +155,14 @@ class TestRefreshPreservesGrant:
         return SpotifyTokenManager(storage=AsyncMock(), user_id=_UID)
 
     async def _refresh_with(
-        self, manager: SpotifyTokenManager, response: dict[str, object]
+        self,
+        manager: SpotifyTokenManager,
+        response: dict[str, object],
+        *,
+        preset_token_info: bool = True,
     ) -> StoredToken:
-        manager._token_info = _make_token()
+        if preset_token_info:
+            manager._token_info = _make_token()
         with (
             patch(
                 "src.infrastructure.connectors.spotify.auth.make_spotify_auth_client"
@@ -202,3 +209,236 @@ class TestRefreshPreservesGrant:
             manager, {"access_token": "new-access", "expires_in": 3600}
         )
         assert refreshed["refresh_token"] == "refresh-456"
+
+    async def test_refresh_preserves_account_name(
+        self, manager: SpotifyTokenManager
+    ) -> None:
+        # account_name is mixd's cached profile field, never part of Spotify's
+        # token response — a silent refresh must carry it forward, not null
+        # the connector card's display name until the next /me backfill.
+        manager._token_info = _make_token()
+        manager._token_info["account_name"] = "Cached Name"
+        refreshed = await self._refresh_with(
+            manager,
+            {"access_token": "new-access", "expires_in": 3600},
+            preset_token_info=False,
+        )
+        assert refreshed["account_name"] == "Cached Name"
+
+    async def test_refresh_preserves_prior_extra_data_verbatim(
+        self, manager: SpotifyTokenManager
+    ) -> None:
+        # authorized_at marks the ORIGINAL grant time — Spotify's 6-month
+        # refresh-token window counts from it and a refresh does not extend
+        # it, so a refresh must never restamp or drop it.
+        manager._token_info = _make_token()
+        manager._token_info["extra_data"] = {"authorized_at": 1_700_000_000}
+        refreshed = await self._refresh_with(
+            manager,
+            {"access_token": "new-access", "expires_in": 3600},
+            preset_token_info=False,
+        )
+        assert refreshed["extra_data"] == {"authorized_at": 1_700_000_000}
+
+
+def _make_refresh_response(status_code: int, json_body: object = None) -> MagicMock:
+    """A MagicMock standing in for the httpx2 refresh-POST response.
+
+    MagicMock, not AsyncMock: production code calls ``raise_for_status()``
+    and ``json()`` synchronously.
+    """
+    response = MagicMock()
+    response.status_code = status_code
+    response.json.return_value = json_body
+    if status_code >= 400:
+        response.raise_for_status.side_effect = httpx2.HTTPStatusError(
+            f"HTTP {status_code}",
+            request=MagicMock(),
+            response=response,
+        )
+    return response
+
+
+class TestInvalidGrantOnRefresh:
+    """HTTP 400 ``invalid_grant`` on the refresh POST is Spotify's expired/
+    revoked refresh grant (6-month window from original authorization). The
+    dead token can never succeed again: it is deleted at the detection site
+    and ``SpotifyReauthRequiredError`` raised. Every other failure keeps the
+    plain HTTPStatusError path — no deletion.
+    """
+
+    @pytest.fixture
+    def mock_storage(self) -> AsyncMock:
+        storage = AsyncMock()
+        storage.load_token = AsyncMock(return_value=None)
+        storage.save_token = AsyncMock()
+        storage.delete_token = AsyncMock()
+        return storage
+
+    @pytest.fixture
+    def manager(self, mock_storage: AsyncMock) -> SpotifyTokenManager:
+        return SpotifyTokenManager(storage=mock_storage, user_id=_UID)
+
+    async def _refresh_against(
+        self, manager: SpotifyTokenManager, response: MagicMock
+    ) -> StoredToken:
+        with patch(
+            "src.infrastructure.connectors.spotify.auth.make_spotify_auth_client"
+        ) as mock_client:
+            mock_client.return_value.__aenter__.return_value.post = AsyncMock(
+                return_value=response
+            )
+            return await manager._refresh_token("refresh-456")
+
+    async def test_invalid_grant_deletes_token_and_raises_reauth(
+        self, manager: SpotifyTokenManager, mock_storage: AsyncMock
+    ) -> None:
+        manager._token_info = _make_token(expired=True)
+        # The stored token still carries the refresh token that just failed —
+        # the delete-if-unchanged guard must let the deletion through.
+        mock_storage.load_token.return_value = _make_token(expired=True)
+        response = _make_refresh_response(400, {"error": "invalid_grant"})
+
+        with pytest.raises(SpotifyReauthRequiredError):
+            await self._refresh_against(manager, response)
+
+        mock_storage.delete_token.assert_awaited_once_with("spotify", _UID)
+        assert manager._token_info is None
+
+    async def test_invalid_grant_skips_deletion_when_stored_token_rotated(
+        self, manager: SpotifyTokenManager, mock_storage: AsyncMock
+    ) -> None:
+        """A stale manager must not delete a NEWER grant: if the stored
+        refresh token no longer matches the one that failed, another
+        connect/refresh landed in between — skip the delete, still raise."""
+        manager._token_info = _make_token(expired=True)
+        rotated = _make_token()
+        rotated["refresh_token"] = "refresh-NEWER"
+        mock_storage.load_token.return_value = rotated
+        response = _make_refresh_response(400, {"error": "invalid_grant"})
+
+        with pytest.raises(SpotifyReauthRequiredError):
+            await self._refresh_against(manager, response)
+
+        mock_storage.delete_token.assert_not_awaited()
+        assert manager._token_info is None
+
+    async def test_invalid_grant_skips_deletion_when_no_token_stored(
+        self, manager: SpotifyTokenManager, mock_storage: AsyncMock
+    ) -> None:
+        manager._token_info = _make_token(expired=True)
+        mock_storage.load_token.return_value = None
+        response = _make_refresh_response(400, {"error": "invalid_grant"})
+
+        with pytest.raises(SpotifyReauthRequiredError):
+            await self._refresh_against(manager, response)
+
+        mock_storage.delete_token.assert_not_awaited()
+
+    async def test_other_400_body_raises_http_error_without_deletion(
+        self, manager: SpotifyTokenManager, mock_storage: AsyncMock
+    ) -> None:
+        response = _make_refresh_response(400, {"error": "invalid_client"})
+
+        with pytest.raises(httpx2.HTTPStatusError):
+            await self._refresh_against(manager, response)
+
+        mock_storage.delete_token.assert_not_awaited()
+
+    async def test_500_raises_http_error_without_deletion(
+        self, manager: SpotifyTokenManager, mock_storage: AsyncMock
+    ) -> None:
+        response = _make_refresh_response(500, {"error": "server_error"})
+
+        with pytest.raises(httpx2.HTTPStatusError):
+            await self._refresh_against(manager, response)
+
+        mock_storage.delete_token.assert_not_awaited()
+
+    async def test_unparseable_400_body_raises_http_error_without_deletion(
+        self, manager: SpotifyTokenManager, mock_storage: AsyncMock
+    ) -> None:
+        response = _make_refresh_response(400)
+        response.json.side_effect = ValueError("not json")
+
+        with pytest.raises(httpx2.HTTPStatusError):
+            await self._refresh_against(manager, response)
+
+        mock_storage.delete_token.assert_not_awaited()
+
+    @patch.object(
+        SpotifyTokenManager,
+        "_refresh_token",
+        AsyncMock(side_effect=SpotifyReauthRequiredError()),
+    )
+    async def test_try_silent_refresh_propagates_reauth_error(
+        self, manager: SpotifyTokenManager, mock_storage: AsyncMock
+    ) -> None:
+        # Every other failure stays swallowed-to-None (server-safe), but the
+        # reauth signal must reach the status probe.
+        mock_storage.load_token.return_value = _make_token(expired=True)
+
+        with pytest.raises(SpotifyReauthRequiredError):
+            await manager.try_silent_refresh()
+
+    @patch.object(
+        SpotifyTokenManager,
+        "_refresh_token",
+        AsyncMock(side_effect=ValueError("boom")),
+    )
+    async def test_try_silent_refresh_still_swallows_other_errors(
+        self, manager: SpotifyTokenManager, mock_storage: AsyncMock
+    ) -> None:
+        mock_storage.load_token.return_value = _make_token(expired=True)
+
+        assert await manager.try_silent_refresh() is None
+
+    @patch.object(
+        SpotifyTokenManager,
+        "_refresh_token",
+        AsyncMock(side_effect=SpotifyReauthRequiredError()),
+    )
+    async def test_force_refresh_propagates_reauth_error(
+        self, manager: SpotifyTokenManager, mock_storage: AsyncMock
+    ) -> None:
+        mock_storage.load_token.return_value = _make_token()
+
+        with pytest.raises(SpotifyReauthRequiredError):
+            await manager.force_refresh()
+
+
+class TestAuthorizedAtStamp:
+    """``extra_data["authorized_at"]`` records the original grant time —
+    the only anchor for Spotify's 6-month refresh-token expiry window.
+    """
+
+    async def test_exchange_code_stamps_authorized_at(self) -> None:
+        manager = SpotifyTokenManager(storage=AsyncMock(), user_id=_UID)
+        response = MagicMock()
+        response.status_code = 200
+        with (
+            patch(
+                "src.infrastructure.connectors.spotify.auth.make_spotify_auth_client"
+            ) as mock_client,
+            patch(
+                "src.infrastructure.connectors.spotify.auth.parse_json_response",
+                return_value={
+                    "access_token": "access-123",
+                    "refresh_token": "refresh-456",
+                    "token_type": "Bearer",
+                    "expires_in": 3600,
+                    "scope": "playlist-read-private",
+                },
+            ),
+        ):
+            mock_client.return_value.__aenter__.return_value.post = AsyncMock(
+                return_value=response
+            )
+            before = int(time.time())
+            token_info = await manager.exchange_code("auth-code")
+            after = int(time.time())
+
+        extra_data = token_info["extra_data"]
+        authorized_at = extra_data["authorized_at"]
+        assert isinstance(authorized_at, int)
+        assert before <= authorized_at <= after

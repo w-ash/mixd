@@ -21,6 +21,7 @@ from src.domain.exceptions import (
     AppleMusicAuthRequiredError,
     LastfmAuthRequiredError,
     SpotifyAuthRequiredError,
+    SpotifyQuotaExhaustedError,
 )
 from src.domain.repositories.play import PlayImportParams
 from src.domain.repositories.uow import UnitOfWorkProtocol
@@ -204,11 +205,14 @@ class BasePlayImporter[TRawData, TParams: PlayImportParams](ABC):
             AppleMusicAuthRequiredError,
             LastfmAuthRequiredError,
             SpotifyAuthRequiredError,
+            SpotifyQuotaExhaustedError,
         ):
             # Must precede the generic catch: a connector that needs
             # re-authorizing is not a failed import, it is an actionable user
             # state. Swallowing it into an error result would strand the
-            # 409/SSE seam that turns it into a "reconnect" prompt.
+            # 409/SSE seam that turns it into a "reconnect" prompt. Quota
+            # exhaustion (PDR-003) rides the same path: converting it to a
+            # soft failure would keep batch machinery firing doomed calls.
             #
             # The operation still has to be closed out before re-raising — it
             # was opened above, and every other exit from this method completes

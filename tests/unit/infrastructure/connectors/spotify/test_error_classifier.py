@@ -5,20 +5,46 @@ Tests focus on the pure classification logic using httpx2 exceptions:
 - Text pattern recognition (rate limit, auth, not found, service issues)
 - httpx2.RequestError handling (network errors → temporary)
 - Edge cases and unknown errors
+- Quota-429 discrimination (PDR-003): QUOTA_EXCEEDED bodies are permanent and
+  never enter the Retry-After backoff loop; plain 429s keep today's behavior.
 """
+
+import json
+from unittest.mock import MagicMock, patch
 
 import httpx2
 import pytest
+import structlog.testing
+from tenacity import wait_none
 
+from src.infrastructure.connectors._shared.retry_policies import (
+    RetryConfig,
+    RetryPolicyFactory,
+)
 from src.infrastructure.connectors.spotify.error_classifier import (
     SpotifyErrorClassifier,
 )
 
 
-def make_http_error(status_code: int, message: str = "") -> httpx2.HTTPStatusError:
+def make_http_error(
+    status_code: int,
+    message: str = "",
+    *,
+    json_body: object = None,
+    text_body: str | None = None,
+    headers: dict[str, str] | None = None,
+) -> httpx2.HTTPStatusError:
     """Create an httpx2.HTTPStatusError with the given status code."""
     request = httpx2.Request("GET", "https://api.spotify.com/v1/tracks")
-    response = httpx2.Response(status_code, request=request)
+    if json_body is not None:
+        content = json.dumps(json_body).encode()
+    elif text_body is not None:
+        content = text_body.encode()
+    else:
+        content = b""
+    response = httpx2.Response(
+        status_code, headers=headers or {}, content=content, request=request
+    )
     return httpx2.HTTPStatusError(
         message or f"HTTP {status_code}", request=request, response=response
     )
@@ -253,3 +279,184 @@ class TestSpotifyErrorClassifier:
     def test_service_name(self, classifier):
         """Test that service name is correctly reported."""
         assert classifier.service_name == "spotify"
+
+
+class TestQuota429Discrimination:
+    """PDR-003: pooled developer-account quota exhaustion (reason=QUOTA_EXCEEDED)
+    is a distinct 429 shape from ordinary rate limiting — it must classify as
+    permanent so it never enters the Retry-After backoff loop, since quota
+    exhaustion does not clear on Retry-After timescales.
+    """
+
+    @pytest.fixture
+    def classifier(self):
+        return SpotifyErrorClassifier()
+
+    def test_quota_exceeded_top_level_reason_is_permanent(self, classifier):
+        exception = make_http_error(429, json_body={"reason": "QUOTA_EXCEEDED"})
+
+        error_type, error_code, error_description = classifier.classify_error(exception)
+
+        assert error_type == "permanent"
+        assert error_code == "429"
+        assert "PDR-003" in error_description
+
+    def test_quota_exceeded_nested_under_error_is_permanent(self, classifier):
+        exception = make_http_error(
+            429,
+            json_body={"error": {"status": 429, "reason": "QUOTA_EXCEEDED"}},
+        )
+
+        error_type, error_code, error_description = classifier.classify_error(exception)
+
+        assert error_type == "permanent"
+        assert error_code == "429"
+        assert "PDR-003" in error_description
+
+    def test_plain_429_with_no_body_falls_through_to_rate_limit(self, classifier):
+        exception = make_http_error(429)
+
+        error_type, error_code, _error_description = classifier.classify_error(
+            exception
+        )
+
+        assert error_type == "rate_limit"
+        assert error_code == "429"
+
+    def test_plain_429_with_different_reason_falls_through_to_rate_limit(
+        self, classifier
+    ):
+        exception = make_http_error(429, json_body={"reason": "SOMETHING_ELSE"})
+
+        error_type, error_code, _error_description = classifier.classify_error(
+            exception
+        )
+
+        assert error_type == "rate_limit"
+        assert error_code == "429"
+
+    def test_plain_429_with_unparseable_body_falls_through_to_rate_limit(
+        self, classifier
+    ):
+        exception = make_http_error(429, text_body="not json at all {{{")
+
+        error_type, error_code, _error_description = classifier.classify_error(
+            exception
+        )
+
+        assert error_type == "rate_limit"
+        assert error_code == "429"
+
+    def test_plain_429_with_non_dict_body_falls_through_to_rate_limit(self, classifier):
+        exception = make_http_error(429, json_body=["QUOTA_EXCEEDED"])
+
+        error_type, error_code, _error_description = classifier.classify_error(
+            exception
+        )
+
+        assert error_type == "rate_limit"
+        assert error_code == "429"
+
+    def test_quota_exceeded_emits_warning_naming_pdr_003(self, classifier):
+        exception = make_http_error(429, json_body={"reason": "QUOTA_EXCEEDED"})
+
+        with structlog.testing.capture_logs() as captured:
+            _ = classifier.classify_error(exception)
+
+        warnings = [e for e in captured if e.get("log_level") == "warning"]
+        assert len(warnings) == 1
+        assert "PDR-003" in warnings[0]["event"]
+
+    def test_plain_429_emits_no_quota_warning(self, classifier):
+        exception = make_http_error(429)
+
+        with structlog.testing.capture_logs() as captured:
+            _ = classifier.classify_error(exception)
+
+        assert captured == []
+
+
+class TestQuota429RetryIntegration:
+    """Quota 429s must never enter the tenacity retry loop or pause the
+    connector's rate limiter — the classification is permanent, which
+    ``create_error_classifier_retry`` (via ``RetryPolicyFactory``) skips.
+    Plain 429s keep today's behavior: retried, with Retry-After honored.
+    """
+
+    def _policy(self, wait_max: float = 17.0):
+        config = RetryConfig(
+            service_name="spotify",
+            classifier=SpotifyErrorClassifier(),
+            max_attempts=3,
+            wait_multiplier=0.01,
+            wait_max=wait_max,
+        )
+        policy = RetryPolicyFactory.create_policy(config)
+        policy.wait = wait_none()
+        return policy
+
+    async def test_quota_429_never_retries_and_never_pauses(self):
+        limiter = MagicMock()
+        call_count = 0
+
+        async def flaky() -> None:
+            nonlocal call_count
+            call_count += 1
+            raise make_http_error(429, json_body={"reason": "QUOTA_EXCEEDED"})
+
+        policy = self._policy()
+
+        with patch(
+            "src.infrastructure.connectors._shared.retry_policies."
+            "get_connector_rate_limiter",
+            return_value=limiter,
+        ):
+            with pytest.raises(httpx2.HTTPStatusError):
+                await policy(flaky)
+
+        assert call_count == 1
+        limiter.pause_for.assert_not_called()
+
+    async def test_plain_429_retries_and_honors_retry_after(self):
+        limiter = MagicMock()
+        call_count = 0
+
+        async def flaky() -> str:
+            nonlocal call_count
+            call_count += 1
+            if call_count == 1:
+                raise make_http_error(429, headers={"Retry-After": "3"})
+            return "ok"
+
+        policy = self._policy()
+
+        with patch(
+            "src.infrastructure.connectors._shared.retry_policies."
+            "get_connector_rate_limiter",
+            return_value=limiter,
+        ):
+            result = await policy(flaky)
+
+        assert result == "ok"
+        assert call_count == 2
+        limiter.pause_for.assert_called_once_with(3.0)
+
+
+class TestReauthRequiredClassification:
+    """An expired Spotify refresh grant (v0.11.2) can never succeed on retry —
+    the token was already deleted at the detection site, so the classifier
+    must mark ``SpotifyReauthRequiredError`` permanent (no retries).
+    """
+
+    @pytest.fixture
+    def classifier(self):
+        return SpotifyErrorClassifier()
+
+    def test_reauth_required_error_is_permanent(self, classifier):
+        from src.domain.exceptions import SpotifyReauthRequiredError
+
+        error_type, _error_code, _description = classifier.classify_error(
+            SpotifyReauthRequiredError()
+        )
+
+        assert error_type == "permanent"

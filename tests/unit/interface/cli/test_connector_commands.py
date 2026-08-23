@@ -1,10 +1,11 @@
 """Tests for CLI connector status command."""
 
-from unittest.mock import AsyncMock, patch
+from unittest.mock import AsyncMock, MagicMock, patch
 
 from typer.testing import CliRunner
 
 from src.domain.entities.connector import ConnectorStatus
+from src.infrastructure.connectors.spotify.auth import SpotifyTokenManager
 from src.interface.cli.app import app
 
 runner = CliRunner()
@@ -110,3 +111,65 @@ class TestDisconnectCommand:
         assert result.exit_code != 0
         storage.delete_token.assert_not_awaited()
         assert "Traceback" not in result.output
+
+    def test_disconnect_message_states_what_is_kept(self):
+        # v0.11.2 P S4: disconnect removes credentials, not data — the CLI
+        # confirmation must say so, matching the web dialog's meaning.
+        storage = AsyncMock()
+        with patch(
+            "src.infrastructure.connectors._shared.token_storage.get_token_storage",
+            return_value=storage,
+        ):
+            result = runner.invoke(app, ["connectors", "disconnect", "spotify"])
+
+        assert result.exit_code == 0
+        normalized_output = " ".join(result.output.split())
+        assert "likes, plays, playlists, and mappings" in normalized_output
+        assert "reconnect" in normalized_output.lower()
+
+
+class TestAuthSpotifyCommand:
+    def test_stamps_account_id_into_extra_data_at_grant_time(self):
+        token_info = {
+            "access_token": "access-tok",
+            "refresh_token": "refresh-tok",
+            "expires_at": 1_700_003_600,
+            "scope": "user-library-read",
+            "extra_data": {"authorized_at": 1_700_000_000},
+        }
+        storage = AsyncMock()
+
+        with (
+            patch.object(
+                SpotifyTokenManager,
+                "run_browser_auth",
+                MagicMock(return_value="auth-code"),
+            ),
+            patch.object(
+                SpotifyTokenManager,
+                "exchange_code",
+                AsyncMock(return_value=token_info),
+            ),
+            patch(
+                "src.infrastructure.connectors._shared.token_storage.get_token_storage",
+                return_value=storage,
+            ),
+            patch(
+                "src.infrastructure.connectors._shared.connector_status.fetch_spotify_profile",
+                AsyncMock(return_value=("Real Name", "acct-cli-123")),
+            ),
+            patch(
+                "src.interface.cli.connector_commands.sync_play_polling_after_auth",
+                AsyncMock(),
+            ),
+        ):
+            result = runner.invoke(app, ["connectors", "auth", "spotify"])
+
+        assert result.exit_code == 0
+        storage.save_token.assert_awaited_once()
+        service, _user_id, saved = storage.save_token.await_args.args
+        assert service == "spotify"
+        assert saved["account_name"] == "Real Name"
+        assert saved["extra_data"]["account_id"] == "acct-cli-123"
+        # authorized_at (stamped by exchange_code) survives the account_id merge.
+        assert saved["extra_data"]["authorized_at"] == 1_700_000_000

@@ -23,6 +23,7 @@ from src.config import get_logger, settings
 from src.config.constants import SpotifyConstants
 from src.config.logging import logging_context
 from src.domain.entities.shared import JsonDict
+from src.domain.exceptions import SpotifyQuotaExhaustedError
 from src.domain.repositories.play import RECENTLY_PLAYED_PAGE_LIMIT
 from src.infrastructure.connectors._shared.http_client import parse_json_response
 from src.infrastructure.connectors._shared.retry_policies import (
@@ -31,6 +32,9 @@ from src.infrastructure.connectors._shared.retry_policies import (
 )
 from src.infrastructure.connectors.base import BaseAPIClient
 from src.infrastructure.connectors.spotify.auth import SpotifyTokenManager
+from src.infrastructure.connectors.spotify.error_classifier import (
+    is_quota_exhausted_response,
+)
 from src.infrastructure.connectors.spotify.models import (
     SpotifyPaginatedPlaylistItems,
     SpotifyPlaylist,
@@ -181,6 +185,26 @@ class SpotifyAPIClient(BaseAPIClient):
         """Close the underlying HTTP connection pool."""
         await self._client.aclose()
 
+    @override
+    def _surface_suppressed_error(self, exc: Exception) -> Exception | None:
+        """A quota-exhausted 429 (PDR-003) must surface, never dissolve to None.
+
+        The classifier already marks the shape permanent so the retry policy
+        fails fast; without this seam the resulting ``HTTPStatusError`` would
+        fall into ``_SUPPRESS_ERRORS`` and the caller would keep firing calls
+        that are all doomed the same way — the pooled developer-account quota
+        does not clear on Retry-After timescales. Mirrors how
+        ``SpotifyAuthRequiredError`` escapes: by being a type suppression
+        never covers. Plain 429s stay suppressed unchanged.
+        """
+        if (
+            isinstance(exc, httpx2.HTTPStatusError)
+            and exc.response.status_code == HTTPStatus.TOO_MANY_REQUESTS
+            and is_quota_exhausted_response(exc.response)
+        ):
+            return SpotifyQuotaExhaustedError()
+        return None
+
     # -------------------------------------------------------------------------
     # Track API Methods
     # -------------------------------------------------------------------------
@@ -236,6 +260,11 @@ class SpotifyAPIClient(BaseAPIClient):
             async with semaphore:
                 try:
                     fetched = await self._get_tracks_chunk(chunk)
+                except SpotifyQuotaExhaustedError:
+                    # The pooled developer-account quota is empty (PDR-003):
+                    # every remaining chunk is doomed identically, and
+                    # "unanswered" would hide the outage. Abort the batch.
+                    raise
                 except Exception as e:
                     # Anything that escapes ``_api_call``'s suppression — a
                     # response that will not parse, most likely — told us just
@@ -256,9 +285,15 @@ class SpotifyAPIClient(BaseAPIClient):
                     f"Fetched {completed}/{total} from Spotify",
                 )
 
-        async with asyncio.TaskGroup() as tg:
-            for chunk in chunks:
-                _ = tg.create_task(_fetch_chunk(chunk))
+        try:
+            async with asyncio.TaskGroup() as tg:
+                for chunk in chunks:
+                    _ = tg.create_task(_fetch_chunk(chunk))
+        except* SpotifyQuotaExhaustedError as group:
+            # TaskGroup wraps task failures in an ExceptionGroup; re-raise the
+            # typed error bare so every catch site (the middleware's 503, the
+            # importers' propagate lists) sees the exception type it knows.
+            raise group.exceptions[0] from None
 
         return SpotifyTracksFetch(tracks=tracks, unanswered=frozenset(unanswered))
 

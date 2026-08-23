@@ -98,7 +98,7 @@ def import_spotify_recent_cmd() -> None:
     stopped, so nothing is imported twice.
 
     Requires re-connecting Spotify if you granted access before listening
-    history was requested (`mixd connector connect spotify`).
+    history was requested (`mixd connectors auth spotify`).
     """
     result = run_import_with_progress(
         ImportProgressSpec(service="spotify", mode="recent")

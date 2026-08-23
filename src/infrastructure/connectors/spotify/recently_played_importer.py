@@ -143,7 +143,7 @@ class SpotifyRecentlyPlayedImporter(
         if missing_from_grant(token.get("scope"), (RECENTLY_PLAYED_SCOPE,)):
             raise SpotifyAuthRequiredError(
                 "Spotify needs re-connecting to grant listening-history access. "
-                "Reconnect it in the web UI or run `mixd connector connect spotify`."
+                "Reconnect it in the web UI or run `mixd connectors auth spotify`."
             )
 
     @override

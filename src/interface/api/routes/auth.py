@@ -23,7 +23,8 @@ from sqlalchemy import delete
 from src.application.services.play_poll_policy import sync_play_polling_after_auth
 from src.config import get_logger, settings
 from src.infrastructure.connectors._shared.connector_status import (
-    fetch_spotify_display_name,
+    fetch_spotify_profile,
+    stamp_account_id,
 )
 from src.infrastructure.connectors._shared.token_storage import (
     StoredToken,
@@ -195,11 +196,12 @@ async def _complete_spotify_auth(
     mgr = SpotifyTokenManager(storage=storage, user_id=user_id)
     token_info = await mgr.exchange_code(code, code_verifier=code_verifier)
 
-    # Fetch display name before saving to avoid a double upsert
-    display_name = await fetch_spotify_display_name(token_info["access_token"])
+    # Fetch profile before saving to avoid a double upsert
+    display_name, account_id = await fetch_spotify_profile(token_info["access_token"])
     token_to_save = StoredToken(**token_info)
     if display_name:
         token_to_save = StoredToken(**token_info, account_name=display_name)
+    token_to_save = stamp_account_id(token_to_save, account_id)
     await storage.save_token("spotify", user_id, token_to_save)
 
     # A grant covering recently-played is the user opting into live play history,

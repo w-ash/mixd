@@ -184,7 +184,7 @@ class SpotifyAuthRequiredError(DomainError):
     127.0.0.1:8888 that would block the FastAPI worker forever and leak threads,
     since it runs inside the per-request auth flow). Instead it raises this, which
     the SSE seam surfaces as a clean terminal error and the CLI prints with a
-    connect hint. Interactive connect (CLI ``mixd connector connect spotify`` /
+    connect hint. Interactive connect (CLI ``mixd connectors auth spotify`` /
     the web OAuth callback) calls ``run_browser_auth`` / ``exchange_code`` directly.
 
     Also raised when a grant exists but lacks a scope the operation needs (a
@@ -197,7 +197,56 @@ class SpotifyAuthRequiredError(DomainError):
         super().__init__(
             message
             or "Spotify is not connected. Connect it in the web UI or run "
-            "`mixd connector connect spotify`."
+            "`mixd connectors auth spotify`."
+        )
+
+
+class SpotifyReauthRequiredError(SpotifyAuthRequiredError):
+    """Raised when the Spotify refresh grant itself has expired or been revoked.
+
+    Spotify refresh tokens expire six months after the *original* authorization,
+    and refreshing does not extend the window (policy 2026-06-18). Expiry
+    surfaces as HTTP 400 ``invalid_grant`` on the refresh POST — the one place
+    it can appear — so detection lives in ``SpotifyTokenManager._refresh_token``,
+    which deletes the dead token (it can never succeed again) before raising.
+
+    Subclasses ``SpotifyAuthRequiredError`` because the remedy is the same
+    connect flow, so every existing catch site (the 409 API envelope, the play
+    importers' auth-error paths) keeps working unchanged. The distinct type
+    exists for the surfaces that must tell expected credential aging apart from
+    "never connected": the connector status probe renders it as
+    ``auth_error="reauth_required"`` (one-click Reconnect), and the error
+    classifier marks it permanent so no retry loop chews on a dead grant.
+    """
+
+    def __init__(self) -> None:
+        super().__init__(
+            "Spotify authorization expired — reconnect Spotify in the web UI "
+            "or run `mixd connectors auth spotify`."
+        )
+
+
+class SpotifyQuotaExhaustedError(DomainError):
+    """Raised when Spotify answers 429 with ``reason: "QUOTA_EXCEEDED"`` (PDR-003).
+
+    This is NOT ordinary per-user rate limiting: the quota is pooled across
+    every user of the developer account, and Spotify does not clear it on
+    ``Retry-After`` timescales — waiting and retrying only burns more of the
+    pool. The error classifier marks the shape permanent so the retry loop
+    fails fast, and the Spotify client raises this instead of suppressing the
+    429 to ``None``, so batch operations abort on the first quota failure and
+    the API/CLI surfaces can say what actually happened. Deliberately not a
+    subclass of ``SpotifyAuthRequiredError`` — the reconnect remedy those
+    carry does not apply; there is nothing the user can click to fix this.
+    See docs/decisions/PDR-003-spotify-dev-mode-batch-endpoints.md.
+    """
+
+    def __init__(self) -> None:
+        super().__init__(
+            "Spotify API quota exhausted — the quota is pooled across all "
+            "users of this developer account and will not clear on "
+            "Retry-After timescales (PDR-003). Try again after the quota "
+            "window resets."
         )
 
 
@@ -215,7 +264,7 @@ class LastfmAuthRequiredError(DomainError):
     def __init__(self) -> None:
         super().__init__(
             "Last.fm is not connected. Connect it in the web UI or run "
-            "`mixd connector connect lastfm`."
+            "`mixd connectors auth lastfm`."
         )
 
 

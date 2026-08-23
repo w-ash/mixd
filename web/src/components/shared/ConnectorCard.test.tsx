@@ -137,9 +137,13 @@ describe("ConnectorCard", () => {
       await waitFor(() => {
         expect(screen.getByText("Disconnect Spotify?")).toBeInTheDocument();
       });
+      // Exact meaning pinned (v0.11.2 P S4): credentials go, imported data
+      // (likes, plays, playlists, mappings) stays, syncing pauses.
+      expect(screen.getByText(/credentials/i)).toBeInTheDocument();
       expect(
-        screen.getByText(/playlists and sync settings will be preserved/),
+        screen.getByText(/likes, plays, playlists, and mappings/i),
       ).toBeInTheDocument();
+      expect(screen.getByText(/until you reconnect/i)).toBeInTheDocument();
     });
 
     it("shows connected Last.fm with account name and permanent session", () => {
@@ -198,7 +202,7 @@ describe("ConnectorCard", () => {
   });
 
   describe("needs_reauth state", () => {
-    it("shows new-permissions copy and Reconnect button", () => {
+    it("shows new-permissions copy for scope_missing", () => {
       renderWithProviders(
         <ConnectorCard
           connector={makeConnector({
@@ -222,6 +226,50 @@ describe("ConnectorCard", () => {
       ).toBeInTheDocument();
       // Not an error state — no "Connection failed" copy.
       expect(screen.queryByText(/Connection failed/)).not.toBeInTheDocument();
+    });
+
+    it("shows session-expired wording (not permissions copy) for reauth_required", () => {
+      // v0.11.2: the 6-month refresh grant aged out (invalid_grant) — the
+      // backend deleted the dead token and reports reauth_required. One
+      // click to fix, not an error state — and distinct wording from
+      // scope_missing, which isn't a session problem at all.
+      renderWithProviders(
+        <ConnectorCard
+          connector={makeConnector({
+            name: "spotify",
+            connected: true,
+            account_name: "testuser",
+            status: "needs_reauth",
+            auth_error: "reauth_required",
+          })}
+        />,
+      );
+
+      expect(
+        screen.getByText("testuser — session expired, reconnect"),
+      ).toBeInTheDocument();
+      expect(
+        screen.queryByText(/new permissions needed/i),
+      ).not.toBeInTheDocument();
+      expect(screen.getByText("Reconnect")).toBeInTheDocument();
+      expect(screen.queryByText(/Connection failed/)).not.toBeInTheDocument();
+    });
+
+    it("shows session-expired wording without an account name", () => {
+      renderWithProviders(
+        <ConnectorCard
+          connector={makeConnector({
+            name: "spotify",
+            connected: true,
+            status: "needs_reauth",
+            auth_error: "reauth_required",
+          })}
+        />,
+      );
+
+      expect(
+        screen.getByText("Session expired, reconnect"),
+      ).toBeInTheDocument();
     });
   });
 

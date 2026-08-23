@@ -15,6 +15,7 @@ from src.domain.exceptions import (
     AppleMusicAuthRequiredError,
     ChatUnavailableError,
     SpotifyAuthRequiredError,
+    SpotifyQuotaExhaustedError,
     ToolExecutionError,
 )
 from src.interface.api.error_codes import CHAT_ERROR_CODES
@@ -41,6 +42,10 @@ def _app() -> FastAPI:
     async def _chat_boom() -> None:
         raise ChatUnavailableError("no key")
 
+    @app.get("/quota-boom")
+    async def _quota_boom() -> None:
+        raise SpotifyQuotaExhaustedError
+
     return app
 
 
@@ -64,6 +69,21 @@ class TestAppleMusicAuthRequiredHandler:
         body = resp.json()
         assert body["error"]["code"] == "APPLE_MUSIC_AUTH_REQUIRED"
         assert "apple music" in body["error"]["message"].lower()
+
+
+class TestSpotifyQuotaExhaustedHandler:
+    """PDR-003 quota exhaustion (v0.11.2): a pooled developer-account outage,
+    not a caller fault — 503 with its own code, distinct from the 409
+    auth-required family whose remedy (reconnect) does not apply here."""
+
+    def test_maps_to_503_with_distinct_code(self):
+        client = TestClient(_app(), raise_server_exceptions=False)
+        resp = client.get("/quota-boom")
+
+        assert resp.status_code == 503
+        body = resp.json()
+        assert body["error"]["code"] == "SPOTIFY_QUOTA_EXHAUSTED"
+        assert "quota" in body["error"]["message"].lower()
 
 
 class TestToolExecutionErrorHandler:

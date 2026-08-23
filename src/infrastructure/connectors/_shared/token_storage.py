@@ -27,6 +27,14 @@ class StoredToken(TypedDict, total=False):
     - account_name: display name, set by any connector.
     - extra_data["authorized_at"]: Unix timestamp of the grant. Set it wherever
       grant age matters (e.g. Spotify's refresh-token expiry window).
+    - extra_data["account_id"]: Spotify's designated external-linkage id
+      (``GET /me``'s ``account_id`` field, added 2026-05) — stamped at grant
+      time and backfilled on status probes for tokens that predate it.
+    - extra_data["account_id_unavailable"]: True when a successful ``GET /me``
+      carried no ``account_id`` (older payload shape) — the status probe's
+      backfill stamps it so later probes stop re-fetching/re-upserting a
+      token that will never yield one. Cleared implicitly by a fresh grant
+      (``exchange_code`` restamps ``extra_data``).
     """
 
     access_token: str

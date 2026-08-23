@@ -111,6 +111,24 @@ def parse_json_response(response: httpx2.Response) -> dict[str, JsonValue]:
     return cast("dict[str, JsonValue]", response.json())
 
 
+def parse_json_body(response: httpx2.Response) -> dict[str, JsonValue] | None:
+    """Defensively parse a response body as a JSON object, or ``None``.
+
+    For callers probing an *error* body for a specific key (Spotify's
+    ``invalid_grant`` refresh rejection, the quota-429 ``reason`` field): a
+    body that isn't valid JSON, or parses to something other than an object,
+    must read as "key absent" — never raise. Contrast ``parse_json_response``,
+    which is for 2xx bodies the caller requires to be objects.
+    """
+    try:
+        body = cast("object", response.json())
+    except ValueError:
+        return None
+    if not isinstance(body, dict):
+        return None
+    return cast("dict[str, JsonValue]", body)
+
+
 # -------------------------------------------------------------------------
 # CLIENT FACTORIES
 # -------------------------------------------------------------------------
